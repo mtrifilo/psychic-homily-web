@@ -106,11 +106,14 @@ func ErrEntityRequestInvalidState(requestID uint, currentState string) *EntityRe
 // ErrEntityRequestFulfillUnsupported creates an error when an approved request
 // cannot be auto-created from its payload alone — a show approved without the
 // admin-supplied venue + artist associations the decide endpoint collects
-// (PSY-1037). PSY-997.
+// (PSY-1037). The admin decide path guards this pre-claim, so in practice it
+// fires only on the trusted-tier auto-approve path, where the caller swallows
+// it and the request stays approved-but-unfulfilled (no queue rescue path —
+// the show must then be created directly). PSY-997.
 func ErrEntityRequestFulfillUnsupported(entityType string) *EntityRequestError {
 	return &EntityRequestError{
 		Code:    CodeEntityRequestFulfillUnsupported,
-		Message: fmt.Sprintf("Approving a %s request cannot auto-create the entity (its payload lacks required associations); re-approve via the admin queue with the venue and artists supplied", entityType),
+		Message: fmt.Sprintf("Approving a %s request cannot auto-create the entity (its payload lacks required associations); create it directly instead", entityType),
 	}
 }
 

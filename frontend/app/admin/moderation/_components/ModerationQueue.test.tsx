@@ -380,8 +380,10 @@ describe('ModerationQueue', () => {
     expect(screen.getByLabelText('Venue name')).toBeInTheDocument()
     expect(screen.getByLabelText('Venue city')).toHaveValue('Phoenix')
     expect(screen.getByLabelText('Venue state')).toHaveValue('AZ')
-    // Submit disabled until venue name + ≥1 artist are filled.
+    // Submit disabled until venue name + ≥1 artist are filled; the row Create
+    // button disables while the form is open (Cancel is the only way to close).
     expect(screen.getByRole('button', { name: /create show/i })).toBeDisabled()
+    expect(createButton).toBeDisabled()
   })
 
   it('submits the show approval with the collected venue + artists', () => {

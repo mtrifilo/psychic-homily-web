@@ -18,11 +18,11 @@ import (
 // isFulfillUnsupported reports whether err is the typed "fulfillment
 // unsupported" error fulfillEntity returns when a show request has no
 // admin-supplied associations (its Create needs venue + artists the payload
-// lacks; the decide endpoint collects them — PSY-1037). Callers use it
-// to decide whether the error is fatal: the admin decide path surfaces it (422
-// → admin re-approves with associations), while the auto-approve create path
-// swallows it (the request is filed-and-approved; immediate creation is just
-// deferred).
+// lacks; the decide endpoint collects them — PSY-1037). Only the auto-approve
+// create path calls this (it swallows the error — the request stays
+// filed-and-approved with creation deferred); the admin decide path never
+// reaches the error for shows (it pre-claim-guards) and classifies any
+// fulfillment error via mapFulfillmentError instead.
 func isFulfillUnsupported(err error) bool {
 	var reqErr *apperrors.EntityRequestError
 	if errors.As(err, &reqErr) {
@@ -65,6 +65,11 @@ func mapFulfillmentError(err error) error {
 	return nil
 }
 
+// maxShowArtistInputs caps the admin-supplied bill size on a show approve
+// (PSY-1037) — large enough for any festival bill, small enough to stop a
+// runaway script from flooding one CreateShow transaction.
+const maxShowArtistInputs = 50
+
 // showAssociations carries the admin-supplied venue + artists (already
 // converted to the catalog contract types) from the decide endpoint to the
 // show fulfillment branch (PSY-1037). nil means "none supplied" — the show
@@ -86,18 +91,28 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 	if venue == nil || len(artists) == 0 {
 		return nil, huma.Error422UnprocessableEntity("Approving a show requires both show_venue and show_artists")
 	}
+	// Sanity cap on the bill size — guards a buggy script/automation from
+	// driving an unbounded number of artist find-or-creates in one CreateShow
+	// transaction. 50 comfortably covers a festival bill.
+	if len(artists) > maxShowArtistInputs {
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("show_artists is capped at %d entries", maxShowArtistInputs))
+	}
 	if strings.TrimSpace(venue.Name) == "" || strings.TrimSpace(venue.City) == "" || strings.TrimSpace(venue.State) == "" {
 		return nil, huma.Error422UnprocessableEntity("show_venue requires name, city, and state")
 	}
-	out := &showAssociations{
-		venue: contracts.CreateShowVenue{
-			ID:      venue.ID,
-			Name:    strings.TrimSpace(venue.Name),
-			City:    strings.TrimSpace(venue.City),
-			State:   strings.TrimSpace(venue.State),
-			Address: strings.TrimSpace(shared.Deref(venue.Address)),
-		},
+	// Length caps mirror the venues/artists columns (name/city VARCHAR(255),
+	// state VARCHAR(10), address VARCHAR(500)) — an over-long value must 422
+	// here, pre-claim, not blow up at INSERT after Decide has run.
+	v := contracts.CreateShowVenue{
+		Name:    strings.TrimSpace(venue.Name),
+		City:    strings.TrimSpace(venue.City),
+		State:   strings.TrimSpace(venue.State),
+		Address: strings.TrimSpace(shared.Deref(venue.Address)),
 	}
+	if len(v.Name) > 255 || len(v.City) > 255 || len(v.State) > 10 || len(v.Address) > 500 {
+		return nil, huma.Error422UnprocessableEntity("show_venue field too long (name/city ≤255, state ≤10, address ≤500)")
+	}
+	out := &showAssociations{venue: v}
 	for _, a := range artists {
 		name := strings.TrimSpace(a.Name)
 		// Name is required even when an ID is supplied: the show service's
@@ -106,6 +121,9 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		// but with a generic error instead of the readable conflict message).
 		if name == "" {
 			return nil, huma.Error422UnprocessableEntity("Each show_artists entry requires a name")
+		}
+		if len(name) > 255 {
+			return nil, huma.Error422UnprocessableEntity("show_artists name must be 255 characters or fewer")
 		}
 		out.artists = append(out.artists, contracts.CreateShowArtist{
 			ID:          a.ID,

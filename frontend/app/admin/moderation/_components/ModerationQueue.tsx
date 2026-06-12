@@ -317,7 +317,9 @@ function payloadPreviewEntries(payload: Record<string, unknown>): Array<[string,
 // show added in PSY-1037 — the card collects the venue + artist associations
 // the payload lacks before approving). All current types are fulfillable; the
 // set + the disabled-Create hint below stay as the guard for any future type
-// that lands without a fulfillment branch.
+// that lands without a fulfillment branch. MUST stay in sync with the backend
+// fulfillEntity switch (entity_request_fulfill.go) — enabling a type here
+// before its backend branch lands would claim-then-422 the request.
 const FULFILLABLE_REQUEST_TYPES = new Set([
   'artist',
   'venue',
@@ -405,6 +407,7 @@ function ShowCreateForm({
             onChange={e => setVenueState(e.target.value)}
             placeholder="State"
             aria-label="Venue state"
+            maxLength={10} // venues.state is VARCHAR(10)
             className={`${inputClass} max-w-24`}
             disabled={isSubmitting}
           />
@@ -530,7 +533,9 @@ function RequestCard({
 
   const handleCreate = useCallback(() => {
     if (isShow) {
-      setShowFormOpen(open => !open)
+      // Open-only: the form's own Cancel closes it (a "Create" button that
+      // toggles closed reads as a broken submit).
+      setShowFormOpen(true)
       return
     }
     decideMutation.mutate(
@@ -654,7 +659,7 @@ function RequestCard({
           isRejecting={pendingDecision === 'rejected'}
           approveLabel="Create"
           approveIcon={PlusCircle}
-          approveDisabled={!canCreate}
+          approveDisabled={!canCreate || (isShow && showFormOpen)}
           rejectPlaceholder="Rejection reason (required) -- tell the requester why"
         />
 

@@ -801,16 +801,21 @@ func TestAdminDecide_ApproveArtist_RejectsHostileStoredURL(t *testing.T) {
 	}
 }
 
-// Approving a show WITHOUT admin-supplied associations returns the typed
-// FulfillUnsupported → 422 (the decide endpoint collects them — PSY-1037).
+// Approving a show WITHOUT admin-supplied associations is rejected with a 422
+// BEFORE the row is claimed (PSY-1037): Decide only re-processes pending rows,
+// so a post-claim failure would orphan the request as approved-but-unfulfilled.
 func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
-	decided := pendingRequest(6, "show")
-	decided.DecisionState = communitym.EntityRequestStateApproved
+	pending := pendingRequest(6, "show")
 
+	decideCalled := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) {
+				return pending, nil
+			},
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
-				return decided, nil
+				decideCalled = true
+				return pending, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{},
@@ -820,8 +825,10 @@ func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
 	req := &AdminDecideEntityRequestRequest{ID: "6"}
 	req.Body.Decision = "approved"
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
-	// The row was claimed (approved) but fulfillment is unsupported → 422.
 	testhelpers.AssertHumaError(t, err, 422)
+	if decideCalled {
+		t.Error("Decide must NOT be called when a show is approved without associations (pre-claim guard)")
+	}
 }
 
 // PSY-1037: approving a show WITH admin-supplied associations creates a real

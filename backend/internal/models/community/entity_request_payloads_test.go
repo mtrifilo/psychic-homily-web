@@ -339,4 +339,28 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 		long := "https://example.com/?" + strings.Repeat("t", 600)
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","ticket_url":"`+long+`"}`)))
 	})
+	// PSY-1037 (adversarial): the remaining show fields are capped to the
+	// direct create handler's limits — a value that slipped past here would
+	// 500 at INSERT after the row is claimed, orphaning the request.
+	t.Run("show rejects over-long title", func(t *testing.T) {
+		long := strings.Repeat("t", 256)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"`+long+`","event_date":"2026-07-04"}`)))
+	})
+	t.Run("show rejects negative price", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","price":-5}`)))
+	})
+	t.Run("show rejects absurd price", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","price":20000}`)))
+	})
+	t.Run("show rejects over-long age_requirement", func(t *testing.T) {
+		long := strings.Repeat("a", 51)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","age_requirement":"`+long+`"}`)))
+	})
+	t.Run("show rejects over-long description", func(t *testing.T) {
+		long := strings.Repeat("d", 5001)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","description":"`+long+`"}`)))
+	})
+	t.Run("show rejects over-long state (VARCHAR(10))", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","state":"New South Wales"}`)))
+	})
 }
