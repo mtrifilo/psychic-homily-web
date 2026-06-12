@@ -377,27 +377,9 @@ func (s *VenueService) batchArtistDetails(artistIDs []uint) (map[uint]venueBillA
 // batchVenueBillUpcomingShowCount mirrors the scene-graph helper: per-artist
 // upcoming approved show count globally (not just at this venue), so the
 // graph node green-dot indicator stays consistent with the rest of the app.
+// Delegates to the shared graph helper (PSY-1081).
 func (s *VenueService) batchVenueBillUpcomingShowCount(artistIDs []uint) map[uint]int {
-	out := make(map[uint]int, len(artistIDs))
-	if len(artistIDs) == 0 {
-		return out
-	}
-	type row struct {
-		ArtistID  uint
-		ShowCount int64
-	}
-	var rows []row
-	s.db.Table("show_artists").
-		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
-		Joins("JOIN shows ON shows.id = show_artists.show_id").
-		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
-			artistIDs, catalogm.ShowStatusApproved).
-		Group("show_artists.artist_id").
-		Scan(&rows)
-	for _, r := range rows {
-		out[r.ArtistID] = int(r.ShowCount)
-	}
-	return out
+	return batchArtistUpcomingShowCounts(s.db, artistIDs)
 }
 
 // derefString returns the pointed-to string or "" when nil. Inline to avoid

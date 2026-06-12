@@ -859,28 +859,10 @@ func (s *SceneService) querySceneRelationships(artistIDs []uint, types []string)
 
 // batchUpcomingShowCount returns a map of artist_id → upcoming approved show
 // count, mirroring the batch pattern in GetArtistGraph step 4. Returns an empty
-// map (never nil) so callers can index without a nil check.
+// map (never nil) so callers can index without a nil check. Delegates to the
+// shared graph helper (PSY-1081).
 func (s *SceneService) batchUpcomingShowCount(artistIDs []uint) map[uint]int {
-	out := make(map[uint]int, len(artistIDs))
-	if len(artistIDs) == 0 {
-		return out
-	}
-	type row struct {
-		ArtistID  uint
-		ShowCount int64
-	}
-	var rows []row
-	s.db.Table("show_artists").
-		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
-		Joins("JOIN shows ON shows.id = show_artists.show_id").
-		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
-			artistIDs, catalogm.ShowStatusApproved).
-		Group("show_artists.artist_id").
-		Scan(&rows)
-	for _, r := range rows {
-		out[r.ArtistID] = int(r.ShowCount)
-	}
-	return out
+	return batchArtistUpcomingShowCounts(s.db, artistIDs)
 }
 
 // buildSceneClusters converts the per-artist primary-venue rows into a sorted

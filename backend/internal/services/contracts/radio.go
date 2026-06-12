@@ -423,6 +423,82 @@ type RadioNewReleaseRadarEntry struct {
 	StationCount int     `json:"station_count"`
 }
 
+// ──────────────────────────────────────────────
+// Station graph (PSY-1081) — station-scoped radio co-occurrence subgraph
+// ──────────────────────────────────────────────
+//
+// The radio analog of SceneGraphResponse (PSY-367) / VenueBillNetworkResponse
+// (PSY-365): same four-block shape (`station` info, `clusters`, `nodes`,
+// `links`) so the shared frontend ForceGraphView renders any of the three.
+//
+// Edges are derived AT QUERY TIME from radio_plays scoped to this station's
+// episodes. The aggregate radio_artist_affinity table (PSY-169) collapses
+// station attribution to a station_count integer — it does not record WHICH
+// stations contributed a pair — so the aggregate radio_cooccurrence edges in
+// artist_relationships cannot be filtered to a single station.
+
+// RadioStationGraphResponse is the payload for GET /radio-stations/{slug}/graph.
+type RadioStationGraphResponse struct {
+	Station  RadioStationGraphInfo      `json:"station"`
+	Clusters []RadioStationGraphCluster `json:"clusters"`
+	Nodes    []RadioStationGraphNode    `json:"nodes"`
+	Links    []RadioStationGraphLink    `json:"links"`
+}
+
+// RadioStationGraphInfo holds station metadata and aggregate counts for the
+// graph. Mirrors SceneGraphInfo / VenueBillNetworkInfo.
+type RadioStationGraphInfo struct {
+	ID          uint   `json:"id"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	ArtistCount int    `json:"artist_count"` // nodes in the response (top-N cap applied)
+	EdgeCount   int    `json:"edge_count"`   // co-occurrence pairs above the min threshold
+	// Window labels the active time window so the frontend can caption the
+	// graph without reverse-engineering the filter. One of: "last_12m"
+	// (default), "all_time".
+	Window string `json:"window"`
+}
+
+// RadioStationGraphCluster groups artists by the radio show (on this station)
+// they are most played on — the station analog of the scene graph's
+// primary-venue cluster signal. Shows below the size threshold roll into a
+// single "other" cluster, matching the scene-graph rules.
+type RadioStationGraphCluster struct {
+	ID         string `json:"id"`          // "rs_<show_id>" or "other"
+	Label      string `json:"label"`       // radio show name or "Other"
+	Size       int    `json:"size"`        // number of artists in this cluster
+	ColorIndex int    `json:"color_index"` // 0-7 = Okabe-Ito index; -1 = "other" (grey)
+}
+
+// RadioStationGraphNode represents an artist in the station graph.
+type RadioStationGraphNode struct {
+	ID                uint   `json:"id"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	City              string `json:"city,omitempty"`
+	State             string `json:"state,omitempty"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+	ClusterID         string `json:"cluster_id"` // matches RadioStationGraphCluster.ID
+	IsIsolate         bool   `json:"is_isolate"` // true when the artist has no in-graph edges
+	// PlayCount is the artist's play count on this station within the active
+	// window — the station analog of VenueBillNetworkNode.AtVenueShowCount.
+	PlayCount int `json:"play_count"`
+}
+
+// RadioStationGraphLink represents a within-station co-occurrence edge.
+// Type is always "radio_cooccurrence" so the frontend edge grammar matches
+// the aggregate relationship edges. Detail carries `co_occurrence_count`
+// (episodes on THIS station where both artists appeared, within the window)
+// and `last_co_occurrence` (YYYY-MM-DD).
+type RadioStationGraphLink struct {
+	SourceID       uint    `json:"source_id"`
+	TargetID       uint    `json:"target_id"`
+	Type           string  `json:"type"`
+	Score          float64 `json:"score"`
+	Detail         any     `json:"detail,omitempty"`
+	IsCrossCluster bool    `json:"is_cross_cluster"` // derived: source.cluster_id != target.cluster_id
+}
+
 // RadioStatsResponse represents overall radio stats
 type RadioStatsResponse struct {
 	TotalStations int   `json:"total_stations"`
@@ -598,6 +674,7 @@ type RadioServiceInterface interface {
 	GetAsHeardOnForArtist(artistID uint) ([]*RadioAsHeardOnResponse, error)
 	GetAsHeardOnForRelease(releaseID uint) ([]*RadioAsHeardOnResponse, error)
 	GetNewReleaseRadar(stationID uint, limit int) ([]*RadioNewReleaseRadarEntry, error)
+	GetStationGraph(stationID uint, window string, limit int) (*RadioStationGraphResponse, error)
 
 	// Stats
 	GetRadioStats() (*RadioStatsResponse, error)
