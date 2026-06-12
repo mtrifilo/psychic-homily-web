@@ -128,6 +128,7 @@ describe('NewReleaseRadarPage', () => {
       isLoading: false,
       // The bumped-limit query is in flight; the old page is the placeholder.
       isFetching: (opts?.limit ?? 20) > 20,
+      isPlaceholderData: (opts?.limit ?? 20) > 20,
       error: null,
     }))
     render(<NewReleaseRadarPage />)

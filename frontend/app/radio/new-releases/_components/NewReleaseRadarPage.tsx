@@ -28,16 +28,19 @@ const MAX_LIMIT = 100
  */
 export default function NewReleaseRadarPage() {
   const [limit, setLimit] = useState(INITIAL_LIMIT)
-  const { data, isLoading, isFetching, error } = useNewReleaseRadar({ limit })
+  const { data, isLoading, isFetching, isPlaceholderData, error } =
+    useNewReleaseRadar({ limit })
 
   const releases = data?.releases ?? []
 
   // A short page means the radar is exhausted; a full page may have more.
   // While a limit bump is in flight, keepPreviousData serves the OLD (short)
-  // page against the NEW limit — keep the control mounted so it shows its
-  // disabled "Loading…" state instead of flickering out and back.
+  // page against the NEW limit — isPlaceholderData keeps the control mounted
+  // in its disabled "Loading…" state instead of flickering out and back
+  // (and, unlike isFetching, doesn't resurrect it on background refetches of
+  // an exhausted radar).
   const canLoadMore =
-    (releases.length >= limit || isFetching) && limit < MAX_LIMIT
+    (releases.length >= limit || isPlaceholderData) && limit < MAX_LIMIT
 
   return (
     <div className="flex min-h-screen items-start justify-center">
