@@ -88,12 +88,13 @@ export {
 } from './components'
 
 // PSY-1016: station-overview derivation helpers
+// (pickNowPlayingShow stays un-exported here — only useStationOverview
+// consumes it; PSY-1075 narrowed the public surface.)
 export {
-  pickNowPlayingShow,
   formatShortAirDate,
   formatStationLocation,
 } from './lib/stationOverview'
-export type { ArtistHop, NowPlaying } from './lib/stationOverview'
+export type { ArtistHop } from './lib/stationOverview'
 
 // PSY-1051: episode-archive derivation helpers + neighbors hook
 // (RadioEpisodePreviewArtist is re-exported in the types block above)

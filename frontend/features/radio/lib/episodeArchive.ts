@@ -54,9 +54,8 @@ export interface ArtistMatchStats {
 
 /**
  * "N of M artists matched to the graph" for a playlist's meta line. Distinct
- * by artist name (case-insensitive, trimmed — same dedup rule as
- * recentArtistsFromEpisode); a name counts as matched when any of its plays
- * carries an artist_id.
+ * by artist name (case-insensitive, trimmed); a name counts as matched when
+ * any of its plays carries an artist_id.
  */
 export function computeArtistMatchStats(
   plays: RadioPlay[] | null | undefined

@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react'
 import type {
   RadioStationListItem,
   RadioStationDetail,
-  RadioShowDetail,
   RadioEpisodeDetail,
   RadioNowPlaying,
 } from '@/features/radio'
@@ -60,13 +59,6 @@ const stationDetail = {
   name: 'WFMU',
   website: 'https://wfmu.org',
 } as RadioStationDetail
-
-const showDetail = {
-  id: 3,
-  slug: 'night-owl',
-  name: 'The Night Owl Show',
-  host_name: 'Pedro Santos',
-} as RadioShowDetail
 
 const latestEpisode = { air_date: '2026-06-09' } as RadioEpisodeDetail
 
@@ -125,16 +117,13 @@ function channelNowPlaying(
   })
 }
 
+// Mirrors the slimmed StationOverview shape (PSY-1075): station detail for
+// [▶ Listen], plus the signature show + latest episode for [ live playlist ].
 function overviewLoaded() {
   return {
     station: stationDetail,
     nowPlayingShow: { id: 3, slug: 'night-owl' },
-    nowPlayingShowDetail: showDetail,
-    nowPlaying: { current: null, recentArtists: [] },
     latestEpisode,
-    isLoading: false,
-    isEmpty: false,
-    error: null,
   }
 }
 
@@ -313,9 +302,7 @@ describe('DialStationStrip', () => {
     mockUseStationOverview.mockReturnValue({
       ...overviewLoaded(),
       nowPlayingShow: null,
-      nowPlayingShowDetail: undefined,
       latestEpisode: undefined,
-      isEmpty: true,
     })
     render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
 
@@ -334,10 +321,8 @@ describe('DialStationStrip', () => {
     mockUseStationOverview.mockReturnValue({
       ...overviewLoaded(),
       station: undefined,
-      nowPlayingShowDetail: undefined,
+      nowPlayingShow: null,
       latestEpisode: undefined,
-      isLoading: true,
-      isEmpty: false,
     })
     render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
     expect(screen.getByText('Loading on-air info')).toBeInTheDocument()

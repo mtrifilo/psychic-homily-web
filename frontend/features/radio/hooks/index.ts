@@ -10,7 +10,8 @@ export { useArtistRadioPlays } from './useArtistRadioPlays'
 export { useReleaseRadioPlays } from './useReleaseRadioPlays'
 export { useNewReleaseRadar } from './useNewReleaseRadar'
 export { useRadioStats } from './useRadioStats'
-// PSY-1016 heuristic, consumed by the Dial surfaces (PSY-1049/1050).
+// PSY-1016 heuristic, consumed by the Dial strips (PSY-1049); slimmed to the
+// actions-column data after PSY-1022's live now-playing swap (PSY-1075).
 // (useShowLatestEpisode stays un-exported here — its consumers import the
 // file directly; PSY-1057 narrowed the public surface.)
 export { useStationOverview } from './useStationOverview'
