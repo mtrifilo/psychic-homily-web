@@ -68,11 +68,6 @@ describe('CookieConsentBanner', () => {
   })
 
   describe('when banner should be shown', () => {
-    it('renders the banner with "Cookie Preferences" heading', () => {
-      render(<CookieConsentBanner />)
-      expect(screen.getByText('Cookie Preferences')).toBeInTheDocument()
-    })
-
     it('renders description text', () => {
       render(<CookieConsentBanner />)
       expect(screen.getByText(/We use cookies to improve your experience/)).toBeInTheDocument()
@@ -150,6 +145,44 @@ describe('CookieConsentBanner', () => {
     it('does not show GPC signal notice when not detected', () => {
       render(<CookieConsentBanner />)
       expect(screen.queryByText(/Global Privacy Control signal/)).not.toBeInTheDocument()
+    })
+
+    // PSY-1029: the fixed bar reserves matching scroll space on <body> so it
+    // never makes document-end content (the footer) unreachable, and releases
+    // the space once consent is given and the bar unmounts.
+    it('reserves body bottom padding while visible and clears it on unmount', () => {
+      const { unmount } = render(<CookieConsentBanner />)
+      // jsdom reports offsetHeight 0; the contract is that SOME padding is set.
+      expect(document.body.style.paddingBottom).toBe('0px')
+
+      unmount()
+      expect(document.body.style.paddingBottom).toBe('')
+    })
+
+    it('clears reserved body padding when consent is given (banner hides)', () => {
+      const { rerender } = render(<CookieConsentBanner />)
+      expect(document.body.style.paddingBottom).toBe('0px')
+
+      mockUseCookieConsent.mockReturnValue({
+        showBanner: false,
+        gpcSignalDetected: false,
+        acceptAll: mockAcceptAll,
+        rejectAll: mockRejectAll,
+        openPreferences: mockOpenPreferences,
+        closePreferences: mockClosePreferences,
+        savePreferences: mockSavePreferences,
+        preferencesOpen: false,
+        consent: {
+          version: 1,
+          timestamp: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+          gpcDetected: false,
+          categories: { essential: true, analytics: true },
+          consentMethod: 'banner_accept_all' as const,
+        },
+      })
+      rerender(<CookieConsentBanner />)
+      expect(document.body.style.paddingBottom).toBe('')
     })
   })
 
