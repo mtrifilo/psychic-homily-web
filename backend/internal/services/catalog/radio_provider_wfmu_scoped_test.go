@@ -188,6 +188,19 @@ func TestWFMU_FetchShowOwnership(t *testing.T) {
 	}, ownership)
 }
 
+func TestWFMU_FamilySlugs_MatchProviderChannelMap(t *testing.T) {
+	// wfmuStationChannels (provider, discovery scoping) and WFMUFamilySlugs
+	// (dedup command) describe the same station family. They are maintained
+	// by hand in two files; this pins them together so adding a channel to
+	// one without the other fails loudly instead of silently mis-scoping.
+	assert.Len(t, wfmuStationChannels, len(WFMUFamilySlugs))
+	for _, slug := range WFMUFamilySlugs {
+		assert.Contains(t, wfmuStationChannels, slug)
+	}
+	assert.Contains(t, wfmuStationChannels, WFMUFlagshipSlug)
+	assert.Equal(t, wfmuLiveChannelMain, wfmuStationChannels[WFMUFlagshipSlug])
+}
+
 func TestWFMU_ParseScheduleCodes_RealChannelLandingMarkup(t *testing.T) {
 	// Mirrors the real channel-landing markup shape (KenzoDB expander rows)
 	// to pin the relative-href extraction against the live page structure.

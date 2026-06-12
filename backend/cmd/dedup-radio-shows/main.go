@@ -89,6 +89,7 @@ func printResult(r *catalog.WFMUDedupResult) {
 	fmt.Printf("Show-code groups found:      %d\n", r.GroupsTotal)
 	fmt.Printf("Groups needing changes:      %d\n", r.GroupsWithDuplicates)
 	fmt.Printf("Rows skipped (no ext. id):   %d\n", r.ShowsWithNoExternalID)
+	fmt.Printf("Slugs recanonicalised:       %d\n", r.SlugsRecanonicalised)
 	fmt.Println()
 	fmt.Println("Per station:")
 	for _, slug := range catalog.WFMUFamilySlugs {

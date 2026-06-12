@@ -26,6 +26,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/utils"
 )
 
 // WFMUFlagshipSlug is the seeded slug of the WFMU 91.1 flagship station.
@@ -57,6 +58,7 @@ type WFMUDedupResult struct {
 	GroupsTotal           int // distinct external show codes across the family
 	GroupsWithDuplicates  int // codes that had >1 row or a misplaced single row
 	ShowsWithNoExternalID int // rows skipped (cannot be grouped)
+	SlugsRecanonicalised  int // winners whose -N suffixed slug reverted to the freed base slug
 	PerStation            map[string]*WFMUDedupStationCounts // keyed by station slug
 }
 
@@ -149,6 +151,7 @@ func runWFMUDedup(tx *gorm.DB, ownership map[string]string, result *WFMUDedupRes
 	sort.Strings(codes)
 
 	flagshipID := stationIDBySlug[WFMUFlagshipSlug]
+	var winnersToRecanonicalise []uint
 	for _, code := range codes {
 		group := groups[code]
 
@@ -192,8 +195,40 @@ func runWFMUDedup(tx *gorm.DB, ownership map[string]string, result *WFMUDedupRes
 			result.PerStation[ownerSlug].ShowsReassignedIn++
 		}
 		result.PerStation[ownerSlug].ShowsKept++
+		winnersToRecanonicalise = append(winnersToRecanonicalise, winner.ID)
 	}
 
+	return recanonicaliseWFMUShowSlugs(tx, winnersToRecanonicalise, result)
+}
+
+// recanonicaliseWFMUShowSlugs reverts -N suffixed slugs on surviving rows to
+// their base slug where the merge freed it. The broken discovery created the
+// duplicates in arbitrary order, so the canonical-URL slug ("wake") often
+// died with a loser while the winner kept a disambiguated one ("wake-4").
+// Mirrors the slug pass of cmd/dedup-shows (PSY-559). Skipped when any other
+// row — radio show on any station — still holds the base slug.
+func recanonicaliseWFMUShowSlugs(tx *gorm.DB, winnerIDs []uint, result *WFMUDedupResult) error {
+	for _, id := range winnerIDs {
+		var show catalogm.RadioShow
+		if err := tx.First(&show, id).Error; err != nil {
+			return fmt.Errorf("reloading show id=%d for slug pass: %w", id, err)
+		}
+		base := utils.GenerateArtistSlug(show.Name)
+		if base == "" || show.Slug == base {
+			continue
+		}
+		var taken int64
+		if err := tx.Model(&catalogm.RadioShow{}).Where("slug = ?", base).Count(&taken).Error; err != nil {
+			return fmt.Errorf("checking base slug %q: %w", base, err)
+		}
+		if taken > 0 {
+			continue
+		}
+		if err := tx.Model(&catalogm.RadioShow{}).Where("id = ?", id).Update("slug", base).Error; err != nil {
+			return fmt.Errorf("recanonicalising slug for show id=%d: %w", id, err)
+		}
+		result.SlugsRecanonicalised++
+	}
 	return nil
 }
 

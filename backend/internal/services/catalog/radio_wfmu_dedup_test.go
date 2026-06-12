@@ -234,6 +234,11 @@ func (s *WFMUDedupIntegrationTestSuite) TestConfirm_ScopesShowsToOwnerStations()
 	s.Require().NoError(s.db.First(&winner, mg["wfmu-drummer"].ID).Error)
 	s.Equal(s.stationID("wfmu-drummer"), winner.StationID)
 
+	// Slug recanonicalised: the disambiguated "mg-drummer" reverts to the
+	// base slug for the show name once the merge frees it.
+	s.Equal("midnight-in-the-guest-room", winner.Slug)
+	s.Positive(result.SlugsRecanonicalised)
+
 	// Curated metadata adopted from the flagship loser.
 	s.Require().NotNil(winner.HostName)
 	s.Equal("Curated Host", *winner.HostName)
