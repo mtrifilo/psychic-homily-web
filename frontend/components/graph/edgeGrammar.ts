@@ -230,13 +230,35 @@ export interface EdgeTooltipLink {
   detail?: Record<string, unknown>
 }
 
+// Escape HTML metacharacters. force-graph renders link labels through
+// float-tooltip's `.html()` (raw innerHTML), and the tooltip interpolates
+// community-contributed entity names (label_names, festival_names) — so the
+// built string MUST be escaped before it reaches the sink, or a label named
+// `<img onerror=…>` executes on hover. Escaping the whole label is safe:
+// the static copy contains no intentional markup.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // Build the hover tooltip string for an edge. The text is edge-type aware and surfaces
 // the underlying raw signal (count, score, label name) sourced from the link's `detail`
 // JSONB or `score` field. If the data shape doesn't carry the field we'd ideally show,
 // we fall back to a description that uses what's available — never fabricate a number.
 //
+// The returned string is HTML-escaped: force-graph's tooltip treats string
+// labels as HTML (see escapeHtml above), so this is the trust boundary.
+//
 // Exported for unit testing the format of each edge type's tooltip string.
 export function buildLinkLabel(link: EdgeTooltipLink): string {
+  return escapeHtml(buildLinkLabelText(link))
+}
+
+function buildLinkLabelText(link: EdgeTooltipLink): string {
   const detail = link.detail
   switch (link.type) {
     case 'similar': {

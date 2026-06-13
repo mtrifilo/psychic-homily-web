@@ -253,6 +253,26 @@ describe('buildLinkLabel (PSY-362 edge tooltip text)', () => {
       expect(buildLinkLabel({ type: 'shared_bills' })).toBe('Shared bills')
     })
   })
+
+  describe('HTML escaping (force-graph renders labels via innerHTML)', () => {
+    it('escapes HTML metacharacters in community-contributed names', () => {
+      expect(
+        buildLinkLabel({
+          type: 'shared_label',
+          detail: { shared_count: 1, label_names: '<img src=x onerror=alert(1)>' },
+        })
+      ).toBe('Both on &lt;img src=x onerror=alert(1)&gt;')
+    })
+
+    it('escapes ampersands so "Florence & The Machine"-style names render correctly', () => {
+      expect(
+        buildLinkLabel({
+          type: 'festival_cobill',
+          detail: { count: 1, festival_names: 'Rock & Roll Fest' },
+        })
+      ).toBe('1 shared festival: Rock &amp; Roll Fest')
+    })
+  })
 })
 
 // PSY-363: festival_cobill tooltip variants. The helper needs to gracefully

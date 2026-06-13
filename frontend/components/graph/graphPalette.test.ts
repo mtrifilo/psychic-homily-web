@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import {
@@ -8,7 +10,7 @@ import {
   withHexAlpha,
   type GraphPalette,
 } from './graphPalette'
-import { EDGE_TYPES } from './edgeGrammar'
+import { EDGE_CSS_VARS, EDGE_TYPES } from './edgeGrammar'
 
 // PSY-1083: theme-resolved palette for canvas paint callbacks. jsdom's
 // getComputedStyle never resolves CSS custom properties, so every token
@@ -49,6 +51,42 @@ describe('useGraphPalette (jsdom fallback path)', () => {
     expect(result.current).not.toBe(before)
     expect(result.current.edges.shared_bills).toBe(before.edges.shared_bills)
     document.documentElement.classList.remove('dark')
+  })
+})
+
+// The fallback constants carry a "MUST stay in sync with the .dark block in
+// app/globals.css" contract (they are the canvas palette wherever tokens
+// can't resolve — and the dark set is the zero-regression guarantee for the
+// pre-PSY-1083 artist graph). Enforce the sync instead of trusting comments.
+describe('dark-theme token sync (globals.css ↔ fallback constants)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')
+  // `.dark {` at line start — earlier matches ('@custom-variant dark (.dark *)',
+  // prose mentions in comments) are not the token block.
+  const darkStart = css.search(/^\.dark \{/m)
+  const darkBlock = css.slice(darkStart, css.indexOf('\n}', darkStart))
+
+  function darkToken(name: string): string {
+    const m = darkBlock.match(new RegExp(`${name}:\\s*([^;]+);`))
+    expect(m, `token ${name} missing from the .dark block`).not.toBeNull()
+    return m![1].trim().toLowerCase()
+  }
+
+  it('matches every --edge-* fallback to its .dark token', () => {
+    const { result } = renderHook(() => useGraphPalette())
+    for (const type of EDGE_TYPES) {
+      const cssVar = EDGE_CSS_VARS[type]
+      expect(result.current.edges[type].toLowerCase(), cssVar).toBe(darkToken(cssVar))
+    }
+    expect(result.current.unknownEdge.toLowerCase()).toBe(darkToken('--edge-unknown'))
+  })
+
+  it('matches every --chart-N fallback to its .dark token', () => {
+    const { result } = renderHook(() => useGraphPalette())
+    for (let i = 0; i < CHART_TOKEN_COUNT; i++) {
+      expect(result.current.chart[i].toLowerCase(), `--chart-${i + 1}`).toBe(
+        darkToken(`--chart-${i + 1}`),
+      )
+    }
   })
 })
 
