@@ -3,8 +3,9 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useTheme } from 'next-themes'
-import { Moon, Sun } from 'lucide-react'
+import { Moon, Search, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { PrimaryNav } from './nav/PrimaryNav'
 import { SearchTrigger } from './nav/SearchTrigger'
 import { UserMenu } from './nav/UserMenu'
@@ -33,12 +34,14 @@ const glitchFilter = (
 // The global top bar (PSY-1013) — the primary navigation chrome that replaces
 // the retired left sidebar. It is a thin shell that composes:
 //   • brand (clickable logo, left-aligned) + explicit labelled PrimaryNav
-//   • the dominant search field (→ CommandPalette)
+//   • the dominant search field (→ CommandPalette); below `sm` it condenses to
+//     an icon-only tap target (PSY-1020 — search stays reachable on phones)
 //   • a bare sun/moon theme toggle + the account cluster / login link
-//   • the mobile hamburger sheet (below `lg`)
-// The Browse / Contribute menus, the authenticated bar, the palette re-skin,
-// and mobile are each elaborated by their own follow-up tickets (Radio became
-// a plain /radio link in PSY-1057); this file just assembles the seams.
+//   • the admin-sections drawer trigger (admins on /admin, below `lg`) — the
+//     public hamburger sheet was retired by PSY-1020's bottom tab bar
+// The Browse / Contribute menus, the authenticated bar, and the palette re-skin
+// are each elaborated by their own follow-up tickets (Radio became a plain
+// /radio link in PSY-1057); this file just assembles the seams.
 //
 // `variant` (PSY-1116): in side-nav mode the global nav lives in the left
 // Sidebar, so the top bar drops its PrimaryNav and becomes a slim brand +
@@ -54,7 +57,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
       {glitchFilter}
 
       <header className="sticky top-0 z-50 flex h-[var(--topbar-height)] w-full items-center justify-between border-b border-border/50 bg-background/95 px-4 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 sm:px-6">
-        {/* Left: mobile hamburger + brand + primary nav.
+        {/* Left: admin drawer trigger (admins on /admin only) + brand + primary nav.
             `shrink-0`: the brand and the nav labels are the bar's fixed frame.
             Left to itself the group would absorb part of any width shortfall by
             wrapping the wordmark onto two lines (measured at 1280px before
@@ -116,6 +119,20 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
           <div role="search" className="hidden w-[220px] min-w-0 sm:block xl:w-[320px]">
             <SearchTrigger />
           </div>
+
+          {/* Icon-only search tap target below `sm` (PSY-1020) — same
+              CommandPalette, just without the field chrome the phone top bar
+              has no room for. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sm:hidden"
+            aria-label="Search"
+            aria-keyshortcuts="Meta+K Control+K"
+            onClick={() => openCommandPalette()}
+          >
+            <Search className="size-5" />
+          </Button>
 
           <Button
             variant="ghost"

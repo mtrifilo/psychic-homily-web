@@ -1,6 +1,7 @@
 import {
   Mic2, MapPin, Disc3, Tag, Tent, LayoutList, TrendingUp, Tags, Globe, Trophy,
   MessageSquarePlus, Music, Send, ClipboardList, HeartHandshake, BookOpen, Headphones, Newspaper,
+  Compass, Map,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -128,3 +129,29 @@ export function navItemClassName(active?: boolean): string {
       : 'font-medium text-muted-foreground hover:text-foreground'
   )
 }
+
+// PSY-1020 — mobile bottom tab bar (Option A, Figma Navigation 540:8).
+// The Browse tab's long-tail sheet: every desktop menu destination, composed
+// from the canonical tables above (no forked destination lists). Graph and
+// Atlas are desktop *primary* links (PrimaryNav) with no home in the
+// Browse/Contribute menus, so they get a leading group here — without it those
+// destinations would be unreachable on mobile, where the primary tabs only
+// carry Home/Shows/Radio.
+export const mobileBrowseGroups: NavGroup[] = [
+  {
+    label: 'Discover',
+    items: [
+      { href: '/graph', label: 'Graph', icon: Compass },
+      { href: '/atlas', label: 'Atlas', icon: Map },
+    ],
+  },
+  ...browseGroups,
+  { label: 'Contribute', items: contributeItems },
+  { label: 'Editorial', items: editorialItems },
+]
+
+// Lights the Browse tab as active when the route lives in its sheet (external
+// links excluded; they never match a pathname).
+export const mobileBrowseHrefs = mobileBrowseGroups.flatMap(g =>
+  g.items.filter(i => !i.external).map(i => i.href)
+)

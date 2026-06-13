@@ -90,6 +90,9 @@
   --sidebar-width: 15rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
+  /* Mobile bottom tab bar (PSY-1020) — bar height excluding the iOS
+   * home-indicator safe-area inset, which is added on top at render time. */
+  --bottom-tab-bar-height: 3.5rem;
 
   /* Radius scale — sharp editorial corners (2/4/6/8px) */
   --radius-sm: 2px;
