@@ -39,15 +39,15 @@ const GRAPH_BREAKPOINT_PX = 640
 const OVERLAY_VERTICAL_RESERVE_PX = 140
 
 /**
- * PSY-555: stable color-index per entity type, indexing into the
- * Okabe-Ito 8-color palette already used by ForceGraphView. The same
- * type → index mapping is used everywhere in the component so the color
- * the user sees on the canvas matches the legend hint and the icon row.
+ * PSY-555: stable color-index per entity type, indexing into the cluster
+ * palette used by ForceGraphView (the `--chart-1..8` theme tokens since
+ * PSY-1083). The same type → index mapping is used everywhere in the
+ * component so the color the user sees on the canvas matches the legend
+ * hint and the icon row.
  *
  * The order is the same as COLLECTION_ENTITY_TYPES so the node-builder
- * iteration and the cluster-legend ordering stay aligned.
- *
- * Indexes 0–5 (skipping 6/yellow which has poor contrast on dark mode).
+ * iteration and the cluster-legend ordering stay aligned. Indexes 0–5
+ * (the remaining tokens stay in reserve).
  */
 const ENTITY_COLOR_INDEX: Record<string, number> = {
   artist: 0,
@@ -276,6 +276,11 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
               containerWidth={containerWidth!}
               ariaLabel={ariaLabel}
               onNodeClick={navigateToNode}
+              // PSY-1083: collection edges are typed (the PSY-555 derived
+              // set — played_at, discography, signed_to, lineup, …) — opt
+              // into the shared edge legend. Out-of-grammar types render
+              // with the neutral fallback style.
+              showEdgeLegend
             />
             <p className="text-xs text-muted-foreground">
               Showing every item in this collection and the relationships
@@ -320,6 +325,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
                 height={overlayHeight}
                 ariaLabel={ariaLabel}
                 onNodeClick={handleNodeClickOverlay}
+                showEdgeLegend
               />
             )}
           </div>

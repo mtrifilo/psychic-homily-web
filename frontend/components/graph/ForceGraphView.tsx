@@ -34,6 +34,18 @@
  *     pattern, the caller controls it)
  *   - hover tooltip shows name, location, cluster (when present), and
  *     upcoming show count
+ *
+ * PSY-1083 — typed-edge grammar + interactive legend:
+ *   - links that carry a `type` render with the shared edge grammar
+ *     (per-type color, dash pattern, magnitude-scaled width, hover
+ *     tooltip — see ./edgeGrammar.ts); untyped links keep the original
+ *     monochrome styling, so payloads without types regress nothing
+ *   - `showEdgeLegend` opts a surface into the interactive EdgeLegend
+ *     overlay (per-type counts + show/hide toggles that filter the
+ *     simulation)
+ *   - cluster fills resolve from the `--chart-1..8` theme tokens instead
+ *     of the hardcoded Okabe-Ito set (PSY-1079 spike: Okabe-Ito yellow is
+ *     1.21:1 on the newsprint light bg)
  */
 
 import { useCallback, useMemo, useRef, useEffect, useState, type ComponentType, type MutableRefObject } from 'react'
@@ -42,15 +54,19 @@ import { Loader2 } from 'lucide-react'
 import { polygonHull } from 'd3-polygon'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
+import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
+import { EdgeLegend } from './EdgeLegend'
 
 // ──────────────────────────────────────────────
 // Public types — the generic graph payload shape
 // ──────────────────────────────────────────────
 
 /**
- * Cluster definition. v1 uses the Okabe-Ito 8-color palette indexed by
- * `colorIndex` (0..7); -1 = "other" / ungrouped (rendered in neutral grey).
- * Callers that don't compute clusters can omit the array entirely.
+ * Cluster definition. Fills come from the `--chart-1..8` theme tokens
+ * indexed by `colorIndex` (0..7); -1 = "other" / ungrouped (rendered in
+ * neutral grey). Callers that don't compute clusters can omit the array
+ * entirely.
  */
 export interface GraphCluster {
   /** Stable cluster id; matches GraphNode.cluster_id. */
@@ -59,7 +75,7 @@ export interface GraphCluster {
   label: string
   /** Number of nodes in this cluster — used for legend display. */
   size: number
-  /** 0..7 = Okabe-Ito index; -1 = "other" (neutral grey). */
+  /** 0..7 = `--chart-{n+1}` token index; -1 = "other" (neutral grey). */
   color_index: number
 }
 
@@ -95,29 +111,6 @@ export interface GraphLink {
   score?: number
   detail?: Record<string, unknown> | unknown
   is_cross_cluster?: boolean
-}
-
-// ──────────────────────────────────────────────
-// Cluster palette — Okabe-Ito 8-color, colorblind-safe
-// ──────────────────────────────────────────────
-const OKABE_ITO_PALETTE = [
-  '#0173B2', // blue
-  '#DE8F05', // orange
-  '#029E73', // green
-  '#D55E00', // vermillion
-  '#CC78BC', // pink
-  '#CA9161', // brown
-  '#56B4E9', // sky blue
-  '#ECE133', // yellow
-] as const
-
-const OTHER_CLUSTER_COLOR = '#94A3B8' // slate-400 — neutral grey for ungrouped
-
-export function clusterColor(colorIndex: number): string {
-  if (colorIndex < 0 || colorIndex >= OKABE_ITO_PALETTE.length) {
-    return OTHER_CLUSTER_COLOR
-  }
-  return OKABE_ITO_PALETTE[colorIndex]
 }
 
 // ──────────────────────────────────────────────
@@ -210,6 +203,10 @@ interface RenderLink {
   target: number | RenderNode
   type: string
   is_cross_cluster: boolean
+  // Carried through for the typed-edge grammar: magnitude-scaled width
+  // (edgeWidth) and the hover tooltip (buildLinkLabel).
+  score?: number
+  detail?: Record<string, unknown>
 }
 
 // ──────────────────────────────────────────────
@@ -236,6 +233,12 @@ export interface ForceGraphViewProps {
   ariaLabel: string
   /** Click handler — receives the underlying GraphNode the user clicked. */
   onNodeClick: (node: GraphNode) => void
+  /**
+   * PSY-1083: render the interactive edge legend (per-type swatch, count,
+   * and show/hide toggle) over the canvas. Off by default so existing
+   * consumers opt in deliberately.
+   */
+  showEdgeLegend?: boolean
 }
 
 export function ForceGraphView({
@@ -247,12 +250,20 @@ export function ForceGraphView({
   hiddenClusterIDs,
   ariaLabel,
   onNodeClick,
+  showEdgeLegend = false,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const reducedMotion = useReducedMotion()
+  const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<RenderNode | null>(null)
+  // Edge types the user has hidden via the legend toggles (PSY-1083).
+  // Purely presentational, so the component owns it — parents opt in via
+  // `showEdgeLegend` without threading filter state.
+  const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  )
   // The hover handler currently never repositions the tooltip — see the note on
   // `handleNodeHover` below. Pinned to origin until that's fixed.
   const [tooltipPos] = useState({ x: 0, y: 0 })
@@ -268,6 +279,15 @@ export function ForceGraphView({
   // Filter out hidden clusters' nodes + any edges that touch them. Normalize
   // cluster_id and is_isolate so the rest of the component never has to
   // special-case the underspecified payload from venue-shape callers.
+  //
+  // PSY-1083: the same pass also (a) counts links per edge type for the
+  // legend — AFTER the cluster filter (so counts match what's displayable)
+  // but BEFORE the edge-type filter (so a hidden type still shows the count
+  // you'd get back by re-enabling it) — and (b) drops links of hidden edge
+  // types from the simulation. Nodes are NOT dropped when their last edge
+  // hides: scope membership is node-level information, edge toggles are
+  // edge-level. (The artist graph differs deliberately — it prunes
+  // unconnected satellites because its nodes only exist as endpoints.)
   const renderData = useMemo(() => {
     const nodeKept = new Set<number>()
     const renderNodes: RenderNode[] = []
@@ -282,17 +302,26 @@ export function ForceGraphView({
       })
     }
     const renderLinks: RenderLink[] = []
+    const edgeTypeCounts = new Map<string, number>()
     for (const l of links) {
       if (!nodeKept.has(l.source_id) || !nodeKept.has(l.target_id)) continue
+      if (l.type) {
+        edgeTypeCounts.set(l.type, (edgeTypeCounts.get(l.type) ?? 0) + 1)
+        if (hiddenEdgeTypes.has(l.type)) continue
+      }
       renderLinks.push({
         source: l.source_id,
         target: l.target_id,
         type: l.type,
         is_cross_cluster: l.is_cross_cluster ?? false,
+        score: l.score,
+        // `detail` is typed loosely at the payload boundary; the tooltip
+        // builder defends against non-object shapes field-by-field.
+        detail: l.detail as Record<string, unknown> | undefined,
       })
     }
-    return { nodes: renderNodes, links: renderLinks }
-  }, [nodes, links, hiddenClusterIDs])
+    return { nodes: renderNodes, links: renderLinks, edgeTypeCounts }
+  }, [nodes, links, hiddenClusterIDs, hiddenEdgeTypes])
 
   // Cluster centroids steer non-isolate nodes via forceX/forceY; the isolate
   // shelf parks artists with no edges along the bottom margin.
@@ -403,19 +432,19 @@ export function ForceGraphView({
     setHoveredNode(node)
   }, [])
 
-  // Per-cluster fill from the Okabe-Ito palette with 70% alpha so cross-cluster
-  // edges drawn on top remain visible.
+  // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
+  // cross-cluster edges drawn on top remain visible.
   const nodeCanvasObject = useCallback(
     (node: RenderNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const cluster = clustersByID.get(node.cluster_id)
-      const fill = clusterColor(cluster?.color_index ?? -1)
+      const fill = clusterColor(palette, cluster?.color_index ?? -1)
       const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
 
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, Math.PI * 2)
-      ctx.fillStyle = fill + 'B3' // ≈ 70% alpha
+      ctx.fillStyle = withHexAlpha(fill, 'B3') // ≈ 70% alpha
       ctx.fill()
       ctx.lineWidth = 1
       ctx.strokeStyle = node.is_isolate ? 'rgba(148, 163, 184, 0.5)' : fill
@@ -438,7 +467,7 @@ export function ForceGraphView({
         ctx.fillText(label, x, y + radius + 3)
       }
     },
-    [clustersByID],
+    [clustersByID, palette],
   )
 
   // Convex hulls behind each cluster — drawn under the edges via
@@ -476,7 +505,7 @@ export function ForceGraphView({
       for (const [clusterID, points] of byCluster) {
         const cluster = clustersByID.get(clusterID)
         if (!cluster) continue
-        const fill = clusterColor(cluster.color_index)
+        const fill = clusterColor(palette, cluster.color_index)
 
         if (points.length >= 3) {
           const hull = polygonHull(points)
@@ -487,19 +516,19 @@ export function ForceGraphView({
             ctx.lineTo(hull[i][0], hull[i][1])
           }
           ctx.closePath()
-          ctx.fillStyle = fill + alphaToHex(alpha)
+          ctx.fillStyle = withHexAlpha(fill, alphaToHex(alpha))
           ctx.fill()
         } else {
           const cx = points.reduce((s, p) => s + p[0], 0) / points.length
           const cy = points.reduce((s, p) => s + p[1], 0) / points.length
           ctx.beginPath()
           ctx.arc(cx, cy, 28, 0, Math.PI * 2)
-          ctx.fillStyle = fill + alphaToHex(alpha)
+          ctx.fillStyle = withHexAlpha(fill, alphaToHex(alpha))
           ctx.fill()
         }
       }
     },
-    [renderData.nodes, clustersByID],
+    [renderData.nodes, clustersByID, palette],
   )
 
   // Reset the per-frame hull-painted flag at the start of each render pass.
@@ -510,6 +539,50 @@ export function ForceGraphView({
     },
     [],
   )
+
+  // ── PSY-1083: typed-edge grammar ──
+  // Links that carry a `type` speak the shared grammar (per-type color,
+  // dash, magnitude width, tooltip). Untyped links keep the pre-PSY-1083
+  // monochrome styling so payloads without types regress nothing.
+  const linkColor = useCallback(
+    (link: RenderLink) => {
+      if (!link.type) {
+        return link.is_cross_cluster
+          ? 'rgba(148, 163, 184, 0.35)'
+          : 'rgba(148, 163, 184, 0.6)'
+      }
+      const color = palette.edges[link.type] ?? palette.unknownEdge
+      // Cross-cluster ties dim to ≈40% alpha — same ratio the artist graph
+      // applies to its cross-connections.
+      return link.is_cross_cluster ? withHexAlpha(color, '66') : color
+    },
+    [palette],
+  )
+
+  const linkWidth = useCallback((link: RenderLink) => {
+    if (!link.type) return link.is_cross_cluster ? 0.6 : 1.1
+    return edgeWidth(link.type, link.score)
+  }, [])
+
+  // force-graph's native linkLineDash (PSY-1079 spike: cheap, no custom
+  // canvas renderer needed). edgeLineDash('') returns [] = solid.
+  const linkLineDash = useCallback((link: RenderLink) => edgeLineDash(link.type), [])
+
+  // PSY-362-style hover tooltip on typed edges, surfacing the raw signal
+  // behind the connection. Untyped links get no tooltip.
+  const linkLabel = useCallback(
+    (link: RenderLink) => (link.type ? buildLinkLabel(link) : ''),
+    [],
+  )
+
+  const handleToggleEdgeType = useCallback((type: string) => {
+    setHiddenEdgeTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return next
+    })
+  }, [])
 
   return (
     <div
@@ -539,12 +612,10 @@ export function ForceGraphView({
         onNodeHover={handleNodeHover}
         linkSource="source"
         linkTarget="target"
-        linkColor={(link: RenderLink) =>
-          link.is_cross_cluster
-            ? 'rgba(148, 163, 184, 0.35)'
-            : 'rgba(148, 163, 184, 0.6)'
-        }
-        linkWidth={(link: RenderLink) => (link.is_cross_cluster ? 0.6 : 1.1)}
+        linkColor={linkColor}
+        linkWidth={linkWidth}
+        linkLineDash={linkLineDash}
+        linkLabel={linkLabel}
         linkCanvasObjectMode={() => 'before'}
         linkCanvasObject={drawHulls}
         onRenderFramePre={handleRenderFramePre}
@@ -555,6 +626,19 @@ export function ForceGraphView({
         maxZoom={3}
         backgroundColor="transparent"
       />
+
+      {/* PSY-1083: interactive edge legend — per-type swatch, live count,
+          show/hide toggle. Only for surfaces that opt in, and only when the
+          payload actually carries typed edges. */}
+      {showEdgeLegend && renderData.edgeTypeCounts.size > 0 && (
+        <EdgeLegend
+          className="absolute top-2 right-2"
+          types={[...renderData.edgeTypeCounts.keys()]}
+          counts={renderData.edgeTypeCounts}
+          hiddenTypes={hiddenEdgeTypes}
+          onToggleType={handleToggleEdgeType}
+        />
+      )}
 
       {hoveredNode && (
         <div

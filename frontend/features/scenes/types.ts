@@ -90,7 +90,7 @@ export interface SceneGraphCluster {
   label: string
   /** Number of artists in this cluster. */
   size: number
-  /** 0..7 = Okabe-Ito palette index. -1 = "other" (use neutral grey). */
+  /** 0..7 = `--chart-{n+1}` palette index (PSY-1083). -1 = "other" (neutral grey). */
   color_index: number
 }
 

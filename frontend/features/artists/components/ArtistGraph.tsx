@@ -5,8 +5,11 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
+import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
+import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
+import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useReducedMotion } from '../hooks/useReducedMotion'
-import type { ArtistGraph as ArtistGraphData, ArtistGraphNode, ArtistGraphLink } from '../types'
+import type { ArtistGraph as ArtistGraphData } from '../types'
 
 function GraphSkeleton() {
   return (
@@ -34,40 +37,13 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   }
 >
 
-// PSY-362: Canonical visual style map for typed edges. Keep this co-located here so
-// future graph surfaces (scene-scale, venue, festival) can reuse the same grammar.
-//
-// Colorblind audit (2026-04-24): All 6 colors verified against Protanopia, Deuteranopia,
-// and Tritanopia transformation matrices using a 30-unit RGB Euclidean threshold. All 15
-// pairs pass the threshold under all 3 vision types. Closest pair under any simulator is
-// shared_bills vs radio_cooccurrence at d=35.3 (protanopia), which is also dash-differentiated
-// (solid vs dashed-8-3) for redundancy. Full audit: docs/research/graph-colorblind-audit.md.
-//
-// PSY-363: festival_cobill (#D55E00 vermillion, Okabe-Ito) was added under the same audit method;
-// worst-case distance vs any existing color is 98.2 (vs member_of, deuteranopia) — well above threshold.
-//
-// WCAG 2.2 §1.4.1 ("Use of Color"): we never rely on color alone — every edge type has a
-// dash pattern (solid / dashed / dotted) and many also have weight scaling, so information
-// is conveyed through at least two channels.
-const EDGE_COLORS: Record<string, string> = {
-  similar: '#a1a1aa',              // zinc-400 (neutral)
-  shared_bills: '#60a5fa',         // blue-400
-  shared_label: '#c084fc',         // purple-400
-  side_project: '#4ade80',         // green-400
-  member_of: '#fbbf24',            // amber-400
-  radio_cooccurrence: '#2dd4bf',   // teal-400
-  festival_cobill: '#D55E00',      // vermillion (Okabe-Ito)
-}
-
-const EDGE_LABELS: Record<string, string> = {
-  similar: 'Similar',
-  shared_bills: 'Shared Bills',
-  shared_label: 'Shared Label',
-  side_project: 'Side Project',
-  member_of: 'Member Of',
-  radio_cooccurrence: 'Radio Co-occurrence',
-  festival_cobill: 'Festival co-lineup',
-}
+// PSY-362's canonical visual style map for typed edges (colors, dashes,
+// weights, tooltip copy, colorblind audit) moved to the shared graph layer
+// in PSY-1083 — see `components/graph/edgeGrammar.ts` — so every graph
+// surface (artist, scene, venue, collection, /explore) speaks the same
+// edge language. Canvas colors resolve from the per-theme `--edge-*`
+// tokens via `useGraphPalette()`; the dark palette is byte-identical to
+// the pre-extraction EDGE_COLORS map.
 
 // Convert API data to graph format needed by react-force-graph-2d.
 //
@@ -107,100 +83,6 @@ interface GraphLink {
   votes_down: number
   detail?: Record<string, unknown>
   isCrossConnection: boolean
-}
-
-// Helper: pull a number out of the loosely-typed `detail` JSONB blob.
-// Returns undefined when the field is missing or not coercible to a number.
-function detailNumber(detail: Record<string, unknown> | undefined, key: string): number | undefined {
-  if (!detail) return undefined
-  const v = detail[key]
-  if (typeof v === 'number') return v
-  if (typeof v === 'string') {
-    const n = Number(v)
-    return Number.isFinite(n) ? n : undefined
-  }
-  return undefined
-}
-
-function detailString(detail: Record<string, unknown> | undefined, key: string): string | undefined {
-  if (!detail) return undefined
-  const v = detail[key]
-  return typeof v === 'string' && v.length > 0 ? v : undefined
-}
-
-// Build the hover tooltip string for an edge. The text is edge-type aware and surfaces
-// the underlying raw signal (count, score, label name) sourced from the link's `detail`
-// JSONB or `score` field. If the data shape doesn't carry the field we'd ideally show,
-// we fall back to a description that uses what's available — never fabricate a number.
-//
-// Exported for unit testing the format of each edge type's tooltip string.
-export function buildLinkLabel(link: Pick<GraphLink, 'type' | 'score' | 'votes_up' | 'votes_down' | 'detail'>): string {
-  const detail = link.detail
-  switch (link.type) {
-    case 'similar': {
-      const pct = Math.round(link.score * 100)
-      const total = link.votes_up + link.votes_down
-      if (total > 0) {
-        return `Similar: ${pct}% (${link.votes_up} up / ${link.votes_down} down)`
-      }
-      return `Similar: ${pct}%`
-    }
-    case 'shared_bills': {
-      const count = detailNumber(detail, 'shared_count')
-      const lastShared = detailString(detail, 'last_shared')
-      if (count !== undefined) {
-        const noun = count === 1 ? 'show' : 'shows'
-        return lastShared
-          ? `${count} shared ${noun} (last: ${lastShared})`
-          : `${count} shared ${noun}`
-      }
-      return 'Shared bills'
-    }
-    case 'shared_label': {
-      const count = detailNumber(detail, 'shared_count')
-      const labelNames = detailString(detail, 'label_names')
-      if (labelNames) {
-        return count !== undefined && count > 1
-          ? `${count} shared labels: ${labelNames}`
-          : `Both on ${labelNames}`
-      }
-      if (count !== undefined) {
-        const noun = count === 1 ? 'label' : 'labels'
-        return `${count} shared ${noun}`
-      }
-      return 'Shared label'
-    }
-    case 'radio_cooccurrence': {
-      const coCount = detailNumber(detail, 'co_occurrence_count')
-      const stationCount = detailNumber(detail, 'station_count')
-      if (coCount !== undefined) {
-        const stationPart =
-          stationCount !== undefined && stationCount > 1 ? ` across ${stationCount} stations` : ''
-        const noun = coCount === 1 ? 'show' : 'shows'
-        return `Played together on ${coCount} radio ${noun}${stationPart}`
-      }
-      return 'Radio co-occurrence'
-    }
-    case 'side_project':
-      return 'Side project'
-    case 'member_of':
-      return 'Member of'
-    case 'festival_cobill': {
-      const count = detailNumber(detail, 'count')
-      const names = detailString(detail, 'festival_names')
-      const year = detailNumber(detail, 'most_recent_year')
-      if (count === undefined) {
-        return EDGE_LABELS.festival_cobill ?? 'Festival co-lineup'
-      }
-      const noun = count === 1 ? 'festival' : 'festivals'
-      const headline = names
-        ? `${count} shared ${noun}: ${names}`
-        : `${count} shared ${noun}`
-      return year !== undefined ? `${headline} (last: ${year})` : headline
-    }
-    default:
-      return EDGE_LABELS[link.type] ?? link.type
-  }
 }
 
 interface ArtistGraphProps {
@@ -289,6 +171,7 @@ export function ArtistGraphVisualization({
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const containerRef = useRef<HTMLDivElement>(null)
+  const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   // The hover handler currently never repositions the tooltip — see the note on
   // `handleNodeHover` below. Pinned to origin until that's fixed.
@@ -483,64 +366,20 @@ export function ArtistGraphVisualization({
     []
   )
 
+  // Shared edge grammar (PSY-1083): color from the theme-resolved palette,
+  // dash + magnitude-scaled width from edgeGrammar. Cross-connections
+  // (edges not touching the center) dim to 40% alpha, as before.
   const linkColor = useCallback(
     (link: GraphLink) => {
-      const color = EDGE_COLORS[link.type] || '#71717a'
-      if (link.isCrossConnection) {
-        // 40% opacity for cross-connections
-        return color + '66'
-      }
-      return color
+      const color = palette.edges[link.type] ?? palette.unknownEdge
+      return link.isCrossConnection ? withHexAlpha(color, '66') : color
     },
-    []
+    [palette]
   )
 
-  // PSY-362 + PSY-363: Stroke weight encoding per edge type.
-  //
-  //   similar              — magnitude (Wilson similarity score). Scaled.
-  //   shared_bills         — magnitude (recency-weighted shared-show count). Scaled.
-  //   radio_cooccurrence   — magnitude (cross-station-weighted co-occurrence). Scaled.
-  //   shared_label         — magnitude (count of shared labels, normalized to [0,1] in
-  //                          the deriver, capped at 5+ shared labels = 1.0). Scaled.
-  //   festival_cobill      — magnitude (recency-weighted shared-festival count, capped at
-  //                          3+ shared festivals = 1.0 in the deriver). Scaled.
-  //   side_project         — BINARY fact ("X is a side project of Y"). Intentionally uniform —
-  //                          a side project either exists or does not, there is no magnitude.
-  //   member_of            — BINARY fact ("X is a member of Y"). Intentionally uniform — same
-  //                          rationale as side_project.
-  const linkWidth = useCallback(
-    (link: GraphLink) => {
-      switch (link.type) {
-        case 'similar':
-        case 'shared_bills':
-        case 'shared_label':
-        case 'radio_cooccurrence':
-        case 'festival_cobill':
-          return Math.max(1, link.score * 3)
-        case 'side_project':
-        case 'member_of':
-          // Binary relationship — uniform stroke is intentional.
-          return 1
-        default:
-          return 1
-      }
-    },
-    []
-  )
+  const linkWidth = useCallback((link: GraphLink) => edgeWidth(link.type, link.score), [])
 
-  const linkLineDash = useCallback(
-    (link: GraphLink) => {
-      if (link.type === 'shared_label') return [5, 5]
-      if (link.type === 'side_project' || link.type === 'member_of') return [2, 4]
-      if (link.type === 'radio_cooccurrence') return [8, 3]
-      // PSY-363: long-dash pattern for festival_cobill. Color (vermillion)
-      // is sufficiently distinct under all 3 CVD types per the audit, but
-      // the dash provides redundant encoding (WCAG 2.2 §1.4.1).
-      if (link.type === 'festival_cobill') return [10, 4]
-      return []
-    },
-    []
-  )
+  const linkLineDash = useCallback((link: GraphLink) => edgeLineDash(link.type), [])
 
   // PSY-362: hover tooltip on edges. react-force-graph-2d renders this as a native HTML
   // tooltip when the cursor is over a link. The text surfaces the underlying raw signal
@@ -611,38 +450,11 @@ export function ArtistGraphVisualization({
         </div>
       )}
 
-      {/* Legend */}
-      <div className="absolute top-2 right-2 p-2 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 text-xs space-y-1">
-        {Array.from(activeTypes).map(type => (
-          <div key={type} className="flex items-center gap-1.5">
-            <div
-              className="w-4 h-0.5 rounded-full"
-              style={{
-                backgroundColor: EDGE_COLORS[type] || '#71717a',
-                borderStyle:
-                  type === 'shared_label' || type === 'festival_cobill'
-                    ? 'dashed'
-                    : type === 'side_project' || type === 'member_of'
-                      ? 'dotted'
-                      : 'solid',
-              }}
-            />
-            <span className="text-muted-foreground">{EDGE_LABELS[type] || type}</span>
-          </div>
-        ))}
-        {/* PSY-362: weight-scale affordance — communicates that line thickness encodes
-            signal magnitude (similarity score, shared-show count, etc.) so users know
-            the visual grammar before hovering individual edges. */}
-        <div className="pt-1 mt-1 border-t border-border/40 flex items-center gap-1.5">
-          <div className="flex flex-col items-center gap-0.5" aria-hidden="true">
-            <div className="w-4 h-px rounded-full bg-muted-foreground/60" />
-            <div className="w-4 h-[3px] rounded-full bg-muted-foreground" />
-          </div>
-          <span className="text-[10px] text-muted-foreground/80 leading-tight">
-            Thicker = stronger signal
-          </span>
-        </div>
-      </div>
+      {/* Legend — shared EdgeLegend (PSY-1083) in static mode: rows mirror
+          the active type toggles (the pill row above the canvas owns
+          toggling, including the festival_cobill lazy opt-in fetch, so the
+          in-canvas legend stays display-only here). */}
+      <EdgeLegend className="absolute top-2 right-2" types={Array.from(activeTypes)} />
     </div>
   )
 }
