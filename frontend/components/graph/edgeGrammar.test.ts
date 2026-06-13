@@ -3,7 +3,6 @@ import {
   EDGE_TYPES,
   FALLBACK_EDGE_COLORS,
   buildLinkLabel,
-  countLinkTypes,
   edgeColorCSS,
   edgeLineDash,
   edgeTypeLabel,
@@ -458,24 +457,5 @@ describe('orderEdgeTypes', () => {
     const input = ['member_of', 'similar']
     orderEdgeTypes(input)
     expect(input).toEqual(['member_of', 'similar'])
-  })
-})
-
-describe('countLinkTypes', () => {
-  it('counts links per type in one pass', () => {
-    const counts = countLinkTypes([
-      { type: 'similar' },
-      { type: 'shared_bills' },
-      { type: 'similar' },
-      { type: 'played_at' },
-    ])
-    expect(counts.get('similar')).toBe(2)
-    expect(counts.get('shared_bills')).toBe(1)
-    expect(counts.get('played_at')).toBe(1)
-  })
-
-  it('skips untyped links and handles an empty payload', () => {
-    expect(countLinkTypes([]).size).toBe(0)
-    expect(countLinkTypes([{ type: '' }]).size).toBe(0)
   })
 })

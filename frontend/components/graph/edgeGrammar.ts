@@ -194,16 +194,6 @@ export function orderEdgeTypes(types: ReadonlyArray<string>): string[] {
   })
 }
 
-/** Per-type edge counts for the legend, in one pass over the payload. */
-export function countLinkTypes(links: ReadonlyArray<{ type: string }>): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const link of links) {
-    if (!link.type) continue
-    counts.set(link.type, (counts.get(link.type) ?? 0) + 1)
-  }
-  return counts
-}
-
 // ──────────────────────────────────────────────
 // Edge hover tooltip (PSY-362)
 // ──────────────────────────────────────────────

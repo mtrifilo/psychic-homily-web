@@ -109,6 +109,10 @@ export interface GraphLink {
   target_id: number
   type: string
   score?: number
+  /** Community vote counts (artist-endpoint payloads carry these; the
+   * 'similar' tooltip surfaces them when present). */
+  votes_up?: number
+  votes_down?: number
   detail?: Record<string, unknown> | unknown
   is_cross_cluster?: boolean
 }
@@ -206,6 +210,8 @@ interface RenderLink {
   // Carried through for the typed-edge grammar: magnitude-scaled width
   // (edgeWidth) and the hover tooltip (buildLinkLabel).
   score?: number
+  votes_up?: number
+  votes_down?: number
   detail?: Record<string, unknown>
 }
 
@@ -315,6 +321,8 @@ export function ForceGraphView({
         type: l.type,
         is_cross_cluster: l.is_cross_cluster ?? false,
         score: l.score,
+        votes_up: l.votes_up,
+        votes_down: l.votes_down,
         // `detail` is typed loosely at the payload boundary; the tooltip
         // builder defends against non-object shapes field-by-field.
         detail: l.detail as Record<string, unknown> | undefined,
