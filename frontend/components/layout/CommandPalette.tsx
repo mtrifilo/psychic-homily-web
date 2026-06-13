@@ -13,7 +13,8 @@ import {
 // PSY-1019: rows are icon-less in the editorial re-skin (Figma 539:5) — the
 // uppercase mono group headings carry the wayfinding, so names sit flush-left.
 // The Recent clock is the one deliberate exception: in the no-query state it
-// distinguishes "something you searched before" from a live result.
+// distinguishes "something you searched before" from a live result. The X on
+// the clear-recent action row (PSY-1071) marks it as an action, not a result.
 import { Search, Clock, X, Loader2 } from 'lucide-react'
 import { adminNavGroups, adminTabHref } from '@/components/layout/adminNav'
 import type { AdminTab } from '@/components/layout/adminNav'
@@ -436,23 +437,7 @@ export function CommandPalette() {
         )}
 
         {showRecent && (
-          <CommandGroup
-            className={groupClassName}
-            heading={
-              <div className="flex items-center justify-between">
-                <span>Recent</span>
-                <button
-                  onClick={handleClearRecent}
-                  // font-sans + normal-case break the inheritance from the
-                  // mono/uppercase group-heading styles — this is an action,
-                  // not a heading.
-                  className="font-sans text-[10px] font-normal normal-case tracking-normal text-muted-foreground hover:text-foreground"
-                >
-                  Clear
-                </button>
-              </div>
-            }
-          >
+          <CommandGroup className={groupClassName} heading="Recent">
             {recentSearches.map(label => {
               const route = allRoutes.find(
                 r => r.label.toLowerCase() === label.toLowerCase()
@@ -475,6 +460,19 @@ export function CommandPalette() {
                 </CommandItem>
               )
             })}
+            {/* PSY-1071: Clear lives as a row, not in the group heading —
+                cmdk renders headings aria-hidden, so a button there is
+                invisible to AT (WCAG 4.1.2). As a CommandItem it rides the
+                existing arrow-key model and is announced as an option.
+                Muted styling marks it as an action, not a destination. */}
+            <CommandItem
+              value="clear-recent"
+              onSelect={handleClearRecent}
+              className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[13px] text-muted-foreground"
+            >
+              <X className="h-4 w-4" />
+              <span>Clear recent searches</span>
+            </CommandItem>
           </CommandGroup>
         )}
 
