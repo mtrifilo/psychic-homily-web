@@ -477,6 +477,22 @@ return { cleared };
 
 **Screenshot caveat that compounds this:** the `get_screenshot` MCP service caches renders keyed on (node, params) and re-scales the SAME cached bitmap for a different `maxDimension` — so a stale render can survive several re-captures and look identical even after you fixed the canvas. To force a genuinely fresh render, make a real geometry change to the node (resize) OR read the node's actual fill values via `use_figma` and trust the data over the image.
 
+### G16. Flipping `layoutMode` after `createAutoLayout` resets sizing modes → FILL collapses to HUG and grown children go to width 0 (caught profile-redesign mock 2026-06-09)
+
+`figma.createAutoLayout("VERTICAL")` then later `node.layoutMode = "HORIZONTAL"` (e.g. a `card()` helper that builds VERTICAL, then you flip it to lay out an avatar + text-column side by side) **silently resets the frame's `primary/counterAxisSizingMode`**. A card you'd already set to `layoutSizingHorizontal = "FILL"` reverts to **HUG**; any child with `layoutGrow = 1` then computes against a hugged-to-min parent and renders at **width 0** (its own children overflow to a stale x-offset and read as "invisible" in the screenshot). Symptom: the avatar shows, the name/metadata column is blank; a node dump shows the column at `w:0, x:<large>` despite having real children.
+
+This is the same family as the `resize()`-resets-sizing-to-FIXED gotcha — **any structural mutation after creation can clobber sizing modes.**
+
+- **Prevention:** create the frame in its final `layoutMode` up front (`figma.createAutoLayout("HORIZONTAL")`) instead of flipping it. If you must flip, **re-assert `layoutSizingHorizontal/Vertical` on the frame AND re-check grown children afterward.**
+- **Recovery:** re-set the parent's `layoutSizingHorizontal = "FILL"` (and child `layoutGrow`) — but if it stays broken, the clean fix is to **`remove()` the frame and rebuild it natively** in the target layoutMode, re-inserting at the right index with `parent.insertChild(i, newFrame)`. Trust the node dump (`width`/`x` per child) over the cached screenshot when diagnosing.
+
+### G17. An EMPTY `createAutoLayout` frame renders at its default 100×100 — conditional content slots silently inflate row heights (caught radio-redesign mock 2026-06-09)
+
+`figma.createAutoLayout()` returns a 100×100 frame; auto-layout only hugs to content once it HAS children. A "slot" container created unconditionally but populated conditionally (e.g. a NOTES cell that only sometimes gets a badge) stays 100px tall when left empty, and its parent row hugs around it — some table rows render ~116px tall while sibling rows with populated slots are ~34px. At thumbnail zoom this reads as "random row heights," not as an empty-frame bug.
+
+- **Prevention:** don't create the slot when there's no content (`if (badge) { … }` around the frame creation too, not just the child), or give empty slots an explicit size: `slot.layoutSizingVertical = 'FIXED'; slot.resize(w, 16)`.
+- **Recovery sweep** (fixes every empty slot in a table): walk the rows, find childless FRAME children, set FIXED height. `for (const tr of table.children) { const s = tr.children.at(-1); if (s?.type === 'FRAME' && !s.children.length) { s.layoutSizingVertical = 'FIXED'; s.resize(s.width, 16); } }`
+
 ## Resume protocol (for new agents picking this up cold)
 
 ### Track A: DS build (extending the design system)
