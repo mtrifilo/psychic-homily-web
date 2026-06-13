@@ -1,9 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { buildLinkLabel } from './ArtistGraph'
+import {
+  EDGE_TYPES,
+  FALLBACK_EDGE_COLORS,
+  buildLinkLabel,
+  edgeColorCSS,
+  edgeLineDash,
+  edgeTypeLabel,
+  edgeWidth,
+  orderEdgeTypes,
+} from './edgeGrammar'
 
-// PSY-362: tooltip strings are the user-facing surface of the underlying signal.
-// These tests pin the format per edge type so future detail-shape changes don't
-// silently drop information from the tooltip.
+// PSY-362 (moved here from features/artists in PSY-1083): tooltip strings are
+// the user-facing surface of the underlying signal. These tests pin the
+// format per edge type so future detail-shape changes don't silently drop
+// information from the tooltip.
 describe('buildLinkLabel (PSY-362 edge tooltip text)', () => {
   describe('similar', () => {
     it('formats score as percent with vote totals when votes exist', () => {
@@ -223,7 +233,10 @@ describe('buildLinkLabel (PSY-362 edge tooltip text)', () => {
   })
 
   describe('unknown edge types', () => {
-    it('falls back to the type string when not recognised', () => {
+    // PSY-1083: unknown types (collection-derived edges etc.) now humanize
+    // the snake_case identifier instead of echoing it raw — same copy the
+    // legend row shows.
+    it('falls back to the humanized type label when not recognised', () => {
       expect(
         buildLinkLabel({
           type: 'totally_made_up',
@@ -232,7 +245,32 @@ describe('buildLinkLabel (PSY-362 edge tooltip text)', () => {
           votes_down: 0,
           detail: undefined,
         })
-      ).toBe('totally_made_up')
+      ).toBe('Totally made up')
+    })
+
+    it('degrades gracefully when score and votes are absent (scene/venue payload shape)', () => {
+      expect(buildLinkLabel({ type: 'similar' })).toBe('Similar: 0%')
+      expect(buildLinkLabel({ type: 'shared_bills' })).toBe('Shared bills')
+    })
+  })
+
+  describe('HTML escaping (force-graph renders labels via innerHTML)', () => {
+    it('escapes HTML metacharacters in community-contributed names', () => {
+      expect(
+        buildLinkLabel({
+          type: 'shared_label',
+          detail: { shared_count: 1, label_names: '<img src=x onerror=alert(1)>' },
+        })
+      ).toBe('Both on &lt;img src=x onerror=alert(1)&gt;')
+    })
+
+    it('escapes ampersands so "Florence & The Machine"-style names render correctly', () => {
+      expect(
+        buildLinkLabel({
+          type: 'festival_cobill',
+          detail: { count: 1, festival_names: 'Rock & Roll Fest' },
+        })
+      ).toBe('1 shared festival: Rock &amp; Roll Fest')
     })
   })
 })
@@ -334,5 +372,110 @@ describe('buildLinkLabel — festival_cobill (PSY-363)', () => {
         detail: { festival_names: 'Coachella', count: '2', most_recent_year: '2024' },
       })
     ).toBe('2 shared festivals: Coachella (last: 2024)')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// PSY-1083: grammar mappings (style-per-type, unknown-type fallback, legend
+// helpers). These pin the extracted grammar so the five consuming surfaces
+// can't drift apart.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('edgeLineDash (PSY-1083 shared grammar)', () => {
+  it('maps each canonical type to its audited dash pattern', () => {
+    expect(edgeLineDash('similar')).toEqual([])
+    expect(edgeLineDash('shared_bills')).toEqual([])
+    expect(edgeLineDash('shared_label')).toEqual([5, 5])
+    expect(edgeLineDash('side_project')).toEqual([2, 4])
+    expect(edgeLineDash('member_of')).toEqual([2, 4])
+    expect(edgeLineDash('radio_cooccurrence')).toEqual([8, 3])
+    expect(edgeLineDash('festival_cobill')).toEqual([10, 4])
+  })
+
+  it('renders unknown and untyped edges solid', () => {
+    expect(edgeLineDash('played_at')).toEqual([])
+    expect(edgeLineDash('')).toEqual([])
+  })
+})
+
+describe('edgeWidth (PSY-362 weight encoding)', () => {
+  it('scales magnitude types by score with a 1px floor', () => {
+    for (const type of ['similar', 'shared_bills', 'shared_label', 'radio_cooccurrence', 'festival_cobill']) {
+      expect(edgeWidth(type, 1)).toBe(3)
+      expect(edgeWidth(type, 0.5)).toBe(1.5)
+      expect(edgeWidth(type, 0.1)).toBe(1) // floor
+    }
+  })
+
+  it('keeps binary fact types at a uniform 1px regardless of score', () => {
+    expect(edgeWidth('side_project', 0.9)).toBe(1)
+    expect(edgeWidth('member_of', 0.9)).toBe(1)
+  })
+
+  it('treats a missing score as 0 (floor width)', () => {
+    expect(edgeWidth('shared_bills')).toBe(1)
+  })
+
+  it('gives unknown types the uniform thin stroke', () => {
+    expect(edgeWidth('show_venue', 0.9)).toBe(1)
+  })
+})
+
+describe('edgeTypeLabel', () => {
+  it('uses the canonical PSY-362 copy for grammar types', () => {
+    expect(edgeTypeLabel('similar')).toBe('Similar')
+    expect(edgeTypeLabel('shared_bills')).toBe('Shared Bills')
+    expect(edgeTypeLabel('radio_cooccurrence')).toBe('Radio Co-occurrence')
+    expect(edgeTypeLabel('festival_cobill')).toBe('Festival co-lineup')
+  })
+
+  it('humanizes unknown snake_case types (collection-derived edges)', () => {
+    expect(edgeTypeLabel('played_at')).toBe('Played at')
+    expect(edgeTypeLabel('show_lineup')).toBe('Show lineup')
+  })
+
+  it('echoes degenerate inputs unchanged', () => {
+    expect(edgeTypeLabel('_')).toBe('_')
+  })
+})
+
+describe('edgeColorCSS', () => {
+  it('returns a theme var() expression with the dark fallback embedded', () => {
+    expect(edgeColorCSS('shared_bills')).toBe('var(--edge-shared-bills, #60a5fa)')
+  })
+
+  it('routes unknown types to the neutral fallback token', () => {
+    expect(edgeColorCSS('played_at')).toBe('var(--edge-unknown, #71717a)')
+  })
+
+  it('has a dark fallback hex for every canonical type', () => {
+    for (const type of EDGE_TYPES) {
+      expect(FALLBACK_EDGE_COLORS[type]).toMatch(/^#[0-9A-Fa-f]{6}$/)
+    }
+  })
+})
+
+describe('orderEdgeTypes', () => {
+  it('sorts canonical types into grammar order', () => {
+    expect(orderEdgeTypes(['member_of', 'similar', 'shared_label'])).toEqual([
+      'similar',
+      'shared_label',
+      'member_of',
+    ])
+  })
+
+  it('appends unknown types alphabetically after the canonical set', () => {
+    expect(orderEdgeTypes(['show_venue', 'similar', 'played_at', 'member_of'])).toEqual([
+      'similar',
+      'member_of',
+      'played_at',
+      'show_venue',
+    ])
+  })
+
+  it('does not mutate its input', () => {
+    const input = ['member_of', 'similar']
+    orderEdgeTypes(input)
+    expect(input).toEqual(['member_of', 'similar'])
   })
 })

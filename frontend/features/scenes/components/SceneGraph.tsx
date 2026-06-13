@@ -33,6 +33,7 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { Eye, EyeOff, Maximize2, X } from 'lucide-react'
+import { clusterColorCSS } from '@/components/graph/graphPalette'
 import { useSceneGraph } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 
@@ -45,25 +46,9 @@ const MIN_GRAPH_NODES = 3
 // clipping the legend or the title bar.
 const OVERLAY_VERTICAL_RESERVE_PX = 140
 
-// Same Okabe-Ito mapping as SceneGraphVisualization, repeated here to avoid an
-// internal dependency on the canvas component for legend rendering. Keep in
-// sync if either palette changes.
-const OKABE_ITO_PALETTE = [
-  '#0173B2',
-  '#DE8F05',
-  '#029E73',
-  '#D55E00',
-  '#CC78BC',
-  '#CA9161',
-  '#56B4E9',
-  '#ECE133',
-] as const
-const OTHER_CLUSTER_COLOR = '#94A3B8'
-
-function clusterColor(colorIndex: number): string {
-  if (colorIndex < 0 || colorIndex >= OKABE_ITO_PALETTE.length) return OTHER_CLUSTER_COLOR
-  return OKABE_ITO_PALETTE[colorIndex]
-}
+// PSY-1083: legend pills draw from the same `--chart-1..8` tokens the canvas
+// resolves (components/graph/graphPalette.ts). `clusterColorCSS` returns a
+// `var()` expression, so the pills track theme changes with no JS.
 
 interface SceneGraphProps {
   slug: string
@@ -181,14 +166,14 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
               hidden ? 'opacity-40' : 'opacity-100'
             }`}
             style={{
-              borderColor: clusterColor(cluster.color_index),
-              color: clusterColor(cluster.color_index),
+              borderColor: clusterColorCSS(cluster.color_index),
+              color: clusterColorCSS(cluster.color_index),
             }}
             title={hidden ? `Show ${cluster.label}` : `Hide ${cluster.label}`}
           >
             <span
               className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: clusterColor(cluster.color_index) }}
+              style={{ backgroundColor: clusterColorCSS(cluster.color_index) }}
             />
             <span className="text-foreground/85">
               {cluster.label} ({cluster.size})

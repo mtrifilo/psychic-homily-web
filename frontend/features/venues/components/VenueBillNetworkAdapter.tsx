@@ -67,6 +67,9 @@ export function SceneGraphVisualizationStyleAdapter({
       height={height}
       ariaLabel={ariaLabel}
       onNodeClick={handleNodeClick}
+      // PSY-1083: co-bill edges are typed (shared_bills) — opt into the
+      // shared edge legend so the venue surface teaches the same grammar.
+      showEdgeLegend
     />
   )
 }

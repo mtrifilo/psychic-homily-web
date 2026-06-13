@@ -78,6 +78,9 @@ export function SceneGraphVisualization({
       hiddenClusterIDs={hiddenClusterIDs}
       ariaLabel={ariaLabel}
       onNodeClick={handleNodeClick}
+      // PSY-1083: scene edges are typed (shared_bills / shared_label /
+      // member_of / side_project) — opt into the shared edge legend.
+      showEdgeLegend
     />
   )
 }

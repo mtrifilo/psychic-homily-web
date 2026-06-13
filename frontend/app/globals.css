@@ -133,6 +133,22 @@
   --chart-6: #3f607f;
   --chart-7: #6e4f73;
   --chart-8: #357d74;
+  /* PSY-1083: typed-edge grammar colors for canvas graph surfaces (light).
+   * Tailwind-600 weights (amber/green nudged to 700) so every edge clears
+   * the WCAG 3:1 graphical-object bar on the newsprint bg — the dark-tuned
+   * 400s are near-invisible here (member_of was 1.48:1, PSY-1079 spike).
+   * Colorblind-audited 2026-06-11: all 21 pairs pass the 30-unit RGB
+   * threshold under protanopia/deuteranopia/tritanopia (method + results in
+   * docs/research/graph-colorblind-audit.md). Consumed via getComputedStyle
+   * in components/graph/graphPalette.ts — canvas can't read var() directly. */
+  --edge-similar: #71717a; /*            zinc-500 (4.28:1) */
+  --edge-shared-bills: #2563eb; /*       blue-600 (4.58:1) */
+  --edge-shared-label: #9333ea; /*       purple-600 (4.77:1) */
+  --edge-side-project: #15803d; /*       green-700 (4.45:1) */
+  --edge-member-of: #b45309; /*          amber-700 (4.45:1) */
+  --edge-radio-cooccurrence: #0d9488; /* teal-600 (3.32:1) */
+  --edge-festival-cobill: #d55e00; /*    vermillion, Okabe-Ito (3.43:1) */
+  --edge-unknown: #52525b; /*            zinc-600 — out-of-grammar fallback */
   --sidebar: #ede8db;
   --sidebar-foreground: #1a1714;
   --sidebar-primary: #d2541b;
@@ -178,6 +194,18 @@
   --chart-6: #80a0c0;
   --chart-7: #ad8fb0;
   --chart-8: #6db3a6;
+  /* PSY-1083: typed-edge grammar colors (dark) — the original PSY-362/363
+   * palette, unchanged (colorblind audit 2026-04-24: all 21 pairs pass).
+   * MUST stay in sync with FALLBACK_EDGE_COLORS in
+   * components/graph/edgeGrammar.ts (the canvas fallback set). */
+  --edge-similar: #a1a1aa; /*            zinc-400 */
+  --edge-shared-bills: #60a5fa; /*       blue-400 */
+  --edge-shared-label: #c084fc; /*       purple-400 */
+  --edge-side-project: #4ade80; /*       green-400 */
+  --edge-member-of: #fbbf24; /*          amber-400 */
+  --edge-radio-cooccurrence: #2dd4bf; /* teal-400 */
+  --edge-festival-cobill: #d55e00; /*    vermillion, Okabe-Ito */
+  --edge-unknown: #71717a; /*            zinc-500 — out-of-grammar fallback */
   --sidebar: #120c08;
   --sidebar-foreground: #eee7d9;
   --sidebar-primary: #e89960;
