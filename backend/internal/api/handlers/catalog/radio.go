@@ -59,6 +59,7 @@ type RadioAggregationReader interface {
 	GetAsHeardOnForArtist(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetAsHeardOnForRelease(releaseID uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetNewReleaseRadar(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error)
+	GetStationGraph(stationID uint, window string, limit int) (*contracts.RadioStationGraphResponse, error)
 	GetRadioStats() (*contracts.RadioStatsResponse, error)
 }
 
@@ -428,6 +429,48 @@ func (h *RadioHandler) GetRadioStationTopLabelsHandler(ctx context.Context, req 
 	resp.Body.Labels = labels
 	resp.Body.Count = len(labels)
 	return resp, nil
+}
+
+// ============================================================================
+// Public: Station Graph (PSY-1081)
+// ============================================================================
+
+// GetRadioStationGraphRequest asks for a station's co-occurrence subgraph.
+//
+// `Window` accepts "12m" (rolling last 12 months, the default) or "all".
+// Huma's enum validation rejects other values with a 422; the service
+// additionally coerces unknown values to the 12m default so non-HTTP callers
+// degrade gracefully rather than 500ing.
+type GetRadioStationGraphRequest struct {
+	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"kexp"`
+	Window string `query:"window" required:"false" default:"12m" enum:"all,12m" doc:"Time window: '12m' (rolling last 12 months, default) or 'all'" example:"12m"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"150" default:"75" doc:"Max artists (graph nodes), ranked by station play count (default 75)" example:"75"`
+}
+
+// GetRadioStationGraphResponse wraps the contracts payload for huma.
+type GetRadioStationGraphResponse struct {
+	Body *contracts.RadioStationGraphResponse
+}
+
+// GetRadioStationGraphHandler handles GET /radio-stations/{slug}/graph.
+//
+// PSY-1081 — station-scoped radio co-occurrence subgraph. Mirrors
+// GET /scenes/{slug}/graph and GET /venues/{id}/bill-network in shape (the
+// shared frontend ForceGraphView renders all three), with nodes = the
+// station's top-N artists by play count and edges = within-station episode
+// co-occurrence.
+func (h *RadioHandler) GetRadioStationGraphHandler(ctx context.Context, req *GetRadioStationGraphRequest) (*GetRadioStationGraphResponse, error) {
+	stationID, err := h.resolveStationID(req.Slug)
+	if err != nil {
+		return nil, err
+	}
+
+	graph, err := h.aggregationReader.GetStationGraph(stationID, req.Window, req.Limit)
+	if err != nil {
+		return nil, mapRadioStationErrorMsg(err, "Failed to fetch station graph")
+	}
+
+	return &GetRadioStationGraphResponse{Body: graph}, nil
 }
 
 // ============================================================================
