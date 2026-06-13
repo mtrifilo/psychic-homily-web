@@ -238,14 +238,45 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		// show's image_url / ticket_url are intentionally NOT URL-validated here:
-		// show is never fulfilled (the dispatcher returns FulfillUnsupported), so
-		// those fields never ride onto a created entity. If show fulfillment is
-		// ever wired up, add optionalHTTPURL for them like the other types.
 		if err := requireField("show", "title", p.Title); err != nil {
 			return err
 		}
-		return requireField("show", "event_date", p.EventDate)
+		// event_date drives the created show's timestamp (PSY-1037): RFC3339 is
+		// used as-is, a date-only value is anchored at 20:00 venue-local at
+		// fulfillment — so it must parse as one of the two here (422), not fail
+		// at fulfill (500).
+		if err := requireDateTimeOrDate("show", "event_date", p.EventDate); err != nil {
+			return err
+		}
+		// Shows are fulfillable when the admin supplies associations (PSY-1037),
+		// so the payload's fields ride onto a created show — validate them with
+		// the SAME caps the direct show-create handler enforces (title ≤255,
+		// age_requirement ≤50, price 0–10000, description ≤5000; image_url
+		// VARCHAR(2048), ticket_url VARCHAR(500)). A value that slipped past
+		// here would 500 at INSERT after the row is claimed, leaving an
+		// approved-but-unfulfilled row no decide call can re-process.
+		if err := optionalMaxLen("show", "title", &p.Title, maxRequestTitleLen); err != nil {
+			return err
+		}
+		if err := optionalMaxLen("show", "age_requirement", p.AgeRequirement, maxRequestAgeLen); err != nil {
+			return err
+		}
+		if err := optionalMaxLen("show", "city", p.City, maxRequestCityLen); err != nil {
+			return err
+		}
+		if err := optionalMaxLen("show", "state", p.State, maxRequestStateLen); err != nil {
+			return err
+		}
+		if p.Price != nil && (*p.Price < 0 || *p.Price > maxRequestPrice) {
+			return fmt.Errorf("show payload: price must be between 0 and %d", maxRequestPrice)
+		}
+		if err := optionalHTTPURL("show", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("show", "ticket_url", p.TicketURL, maxRequestShortURLLen); err != nil {
+			return err
+		}
+		return optionalMaxLen("show", "description", p.Description, maxRequestDescriptionLen)
 	case EntityRequestFestival:
 		p, err := UnmarshalPayload[FestivalRequestPayload](raw)
 		if err != nil {
@@ -338,6 +369,15 @@ const (
 	maxRequestURLLen         = 2048
 	maxRequestShortURLLen    = 500
 	maxRequestDescriptionLen = 5000
+	// Show-specific caps, mirroring the direct show-create handler's Resolve
+	// limits (PSY-1037): title ≤255 (column is VARCHAR(500); 255 keeps boundary
+	// parity with the direct path), age_requirement ≤50, price 0–10000.
+	// city/state mirror the shows columns (VARCHAR(255)/VARCHAR(10)).
+	maxRequestTitleLen = 255
+	maxRequestAgeLen   = 50
+	maxRequestPrice    = 10000
+	maxRequestCityLen  = 255
+	maxRequestStateLen = 10
 )
 
 // requireDate validates a required date field is present AND well-formed
@@ -354,6 +394,23 @@ func requireDate(entityType, field, value string) error {
 		return fmt.Errorf("%s payload: %s must be a valid YYYY-MM-DD date", entityType, field)
 	}
 	return nil
+}
+
+// requireDateTimeOrDate validates a required timestamp field that accepts
+// either a full RFC3339 timestamp (explicit show time) or a date-only
+// YYYY-MM-DD value (anchored to an evening time at fulfillment — PSY-1037).
+func requireDateTimeOrDate(entityType, field, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	if _, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return nil
+	}
+	if _, err := time.Parse("2006-01-02", trimmed); err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s payload: %s must be an RFC3339 timestamp or a YYYY-MM-DD date", entityType, field)
 }
 
 // ValidEntityRequestTypes returns the registered entity_type discriminators.

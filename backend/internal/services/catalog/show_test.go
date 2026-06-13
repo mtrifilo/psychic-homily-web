@@ -156,6 +156,40 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_Success() {
 	suite.False(*resp.Artists[1].IsHeadliner)
 }
 
+// PSY-1037: image_url round-trips from the create request onto the persisted
+// show (the entity_request fulfiller carries the payload's flyer through it).
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_CarriesImageURL() {
+	user := suite.createTestUser()
+	flyer := "https://example.com/flyer.jpg"
+	req := &contracts.CreateShowRequest{
+		Title:     "Flyer Night",
+		EventDate: time.Date(2026, 9, 10, 21, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		ImageURL:  &flyer,
+		Venues: []contracts.CreateShowVenue{
+			{Name: "Valley Bar", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Flyer Band", IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	resp, err := suite.showService.CreateShow(req)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.ImageURL)
+	suite.Equal(flyer, *resp.ImageURL)
+
+	// Reload from the DB to prove the value landed in the column.
+	var reloaded catalogm.Show
+	suite.Require().NoError(suite.db.First(&reloaded, resp.ID).Error)
+	suite.Require().NotNil(reloaded.ImageURL)
+	suite.Equal(flyer, *reloaded.ImageURL)
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_Private() {
 	user := suite.createTestUser()
 	req := &contracts.CreateShowRequest{

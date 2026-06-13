@@ -19,9 +19,11 @@ const (
 	CodeEntityRequestEmptyPayload    = "ENTITY_REQUEST_EMPTY_PAYLOAD"
 	CodeEntityRequestInvalidDecision = "ENTITY_REQUEST_INVALID_DECISION"
 	CodeEntityRequestInvalidState    = "ENTITY_REQUEST_INVALID_STATE"
-	// CodeEntityRequestFulfillUnsupported: approve cannot create the entity for
-	// this entity_type because the payload lacks required associations (show ⇒
-	// venues + artists; festival ⇒ series_slug). PSY-997.
+	// CodeEntityRequestFulfillUnsupported: approve cannot create the entity
+	// because the payload lacks required associations the caller didn't
+	// supply. As of PSY-1037 this fires only for a show approved WITHOUT
+	// admin-supplied venue + artist associations (the decide endpoint collects
+	// them); every entity type is otherwise fulfillable. PSY-997.
 	CodeEntityRequestFulfillUnsupported = "ENTITY_REQUEST_FULFILL_UNSUPPORTED"
 	// CodeEntityRequestPayloadInvalid: the stored payload failed to decode into
 	// its typed struct on the fulfillment path (schema drift / corruption).
@@ -101,14 +103,17 @@ func ErrEntityRequestInvalidState(requestID uint, currentState string) *EntityRe
 	}
 }
 
-// ErrEntityRequestFulfillUnsupported creates an error when an approved request's
-// entity_type cannot be auto-created from its payload (show — its Create needs
-// venue + artist associations the payload lacks; festival is fulfilled as of
-// PSY-998). PSY-997.
+// ErrEntityRequestFulfillUnsupported creates an error when an approved request
+// cannot be auto-created from its payload alone — a show approved without the
+// admin-supplied venue + artist associations the decide endpoint collects
+// (PSY-1037). The admin decide path guards this pre-claim, so in practice it
+// fires only on the trusted-tier auto-approve path, where the caller swallows
+// it and the request stays approved-but-unfulfilled (no queue rescue path —
+// the show must then be created directly). PSY-997.
 func ErrEntityRequestFulfillUnsupported(entityType string) *EntityRequestError {
 	return &EntityRequestError{
 		Code:    CodeEntityRequestFulfillUnsupported,
-		Message: fmt.Sprintf("Approving a %s request cannot auto-create the entity (its payload lacks required associations); create it manually", entityType),
+		Message: fmt.Sprintf("Approving a %s request cannot auto-create the entity (its payload lacks required associations); create it directly instead", entityType),
 	}
 }
 

@@ -265,6 +265,28 @@ func MapFestivalError(err error) error {
 	return nil
 }
 
+// MapShowError converts a ShowError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.ShowError.
+//
+// Create/validation failures map to 422, matching the direct show-create
+// handler's contract (a duplicate headliner at the same venue/date surfaces
+// as SHOW_CREATE_FAILED → 422 there too); not-found maps to 404. The other
+// show codes (update/delete/unauthorized/invalid-id) are intentionally
+// unmapped — this mapper serves the entity_request fulfillment path, which
+// only creates.
+func MapShowError(err error) error {
+	var showErr *apperrors.ShowError
+	if errors.As(err, &showErr) {
+		switch showErr.Code {
+		case apperrors.CodeShowNotFound:
+			return huma.Error404NotFound(showErr.Message)
+		case apperrors.CodeShowCreateFailed, apperrors.CodeShowValidationFailed:
+			return huma.Error422UnprocessableEntity(showErr.Message)
+		}
+	}
+	return nil
+}
+
 // MapFestivalIntelligenceError converts a FestivalIntelligenceError to an
 // appropriate Huma HTTP error. Returns nil if err is not a
 // *apperrors.FestivalIntelligenceError.

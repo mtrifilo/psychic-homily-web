@@ -1568,6 +1568,7 @@ type MockEntityRequestFulfiller struct {
 	CreateLabelFn    func(*contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error)
 	CreateReleaseFn  func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
 	CreateFestivalFn func(*contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error)
+	CreateShowFn     func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
 }
 
 func (m *MockEntityRequestFulfiller) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
@@ -1597,6 +1598,12 @@ func (m *MockEntityRequestFulfiller) CreateRelease(req *contracts.CreateReleaseR
 func (m *MockEntityRequestFulfiller) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	if m.CreateFestivalFn != nil {
 		return m.CreateFestivalFn(req)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestFulfiller) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+	if m.CreateShowFn != nil {
+		return m.CreateShowFn(req)
 	}
 	return nil, nil
 }

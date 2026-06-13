@@ -148,14 +148,19 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// CreatedEntityID == nil guard skips the idempotent-dedup path, which only
 	// ever returns an existing PENDING row (never approved/fulfilled).
 	if created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
-		if _, ferr := h.fulfillAndRecord(ctx, created); ferr != nil {
+		// nil show-associations: only the admin decide endpoint can supply them
+		// (PSY-1037), so an auto-approved show defers below.
+		if _, ferr := h.fulfillAndRecord(ctx, created, nil); ferr != nil {
 			if isFulfillUnsupported(ferr) {
 				// show auto-approve: the request is filed-and-approved, but a
-				// show's catalog Create needs venue + artist associations the
-				// payload lacks (deferred to a PSY-998 follow-up). Leave it
-				// approved-but-unfulfilled (created_entity_id NULL → surfaced by
-				// the admin queue) instead of failing the whole request.
-				// (Festival now fulfills inline, so it never reaches here.)
+				// show's catalog Create needs admin-supplied venue + artist
+				// associations, which only the admin decide endpoint collects
+				// (PSY-1037). Leave it approved-but-unfulfilled rather than fail
+				// the whole request. NOTE: the admin queue lists only PENDING
+				// rows and Decide only re-processes pending rows, so this row has
+				// no queue rescue path — the show must be created directly (the
+				// Warn below is the operational signal).
+				// (Festival fulfills inline, so it never reaches here.)
 				logger.FromContext(ctx).Warn("entity_request_autoapprove_fulfill_deferred",
 					"request_id", created.ID,
 					"entity_type", created.EntityType,
@@ -310,6 +315,28 @@ func (h *EntityRequestHandler) AdminListEntityRequestsHandler(ctx context.Contex
 // Admin: Decide an entity request — POST /admin/entity-requests/{id}/decide
 // ============================================================================
 
+// ShowVenueInput is the admin-supplied venue for fulfilling a show request at
+// approve time (PSY-1037). Name+City+State find-or-create the venue
+// (admin-created venues are auto-verified by the show service); there is
+// deliberately no ID field — the inline admin form has no venue picker, and
+// find-or-create by name is idempotent against existing venues.
+type ShowVenueInput struct {
+	Name    string  `json:"name" doc:"Venue name"`
+	City    string  `json:"city" doc:"Venue city"`
+	State   string  `json:"state" doc:"Venue state"`
+	Address *string `json:"address,omitempty" required:"false" doc:"Street address (optional)"`
+}
+
+// ShowArtistInput is one admin-supplied artist for fulfilling a show request
+// at approve time (PSY-1037). Name is always required (the show service's
+// duplicate-headliner pre-check matches on name); ID optionally pins an
+// existing artist, otherwise Name find-or-creates one (case-insensitive).
+type ShowArtistInput struct {
+	ID          *uint  `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
+	Name        string `json:"name" doc:"Artist name (required)"`
+	IsHeadliner *bool  `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag (first artist defaults to headliner when unset)"`
+}
+
 // AdminDecideEntityRequestRequest is the Huma request for
 // POST /admin/entity-requests/{id}/decide.
 type AdminDecideEntityRequestRequest struct {
@@ -317,6 +344,11 @@ type AdminDecideEntityRequestRequest struct {
 	Body struct {
 		Decision string  `json:"decision" doc:"Decision: approved or rejected"`
 		Note     *string `json:"note" required:"false" doc:"Optional decision note (shown to the requester)"`
+		// PSY-1037: required when approving a show request (its payload lacks
+		// the venue + artist associations CreateShow needs); ignored for every
+		// other entity type and for rejections.
+		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when approving a show)"`
+		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when approving a show; at least one)"`
 	}
 }
 
@@ -370,6 +402,44 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		}
 	}
 
+	// PSY-1037: validate + convert admin-supplied show associations BEFORE the
+	// row is claimed, so malformed input is a clean 422 instead of an
+	// approved-but-unfulfilled row. Rejections ignore the association fields
+	// entirely (no spurious 422 for a reject that happens to carry them).
+	var showAssoc *showAssociations
+	if newState == communitym.EntityRequestStateApproved {
+		var aerr error
+		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, req.Body.ShowArtists)
+		if aerr != nil {
+			return nil, aerr
+		}
+	}
+
+	// PSY-1037: approving a show REQUIRES the associations — guard before the
+	// claim. Decide only operates on pending rows, so a post-claim failure
+	// would leave an approved-but-unfulfilled row no decide call can ever
+	// re-process. Costs one PK read, only on the no-associations approve path.
+	// Scoped to PENDING rows so an already-decided row still gets Decide's
+	// 409 (invalid state), not a misleading missing-associations 422.
+	if newState == communitym.EntityRequestStateApproved && showAssoc == nil {
+		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
+		if gerr != nil {
+			if mapped := shared.MapEntityRequestError(gerr); mapped != nil {
+				return nil, mapped
+			}
+			logger.FromContext(ctx).Error("entity_request_preclaim_load_failed",
+				"request_id", requestID,
+				"error", gerr.Error(),
+			)
+			return nil, huma.Error500InternalServerError("Failed to load request")
+		}
+		if existing != nil &&
+			existing.EntityType == communitym.EntityRequestShow &&
+			existing.DecisionState == communitym.EntityRequestStatePending {
+			return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
+		}
+	}
+
 	// Claim the decision atomically before any side effect.
 	decided, err := h.entityRequestService.Decide(uint(requestID), admin.ID, newState, note)
 	if err != nil {
@@ -389,7 +459,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	resp.Body.Request = decided
 
 	if newState == communitym.EntityRequestStateApproved {
-		createdID, err := h.fulfillAndRecord(ctx, decided)
+		createdID, err := h.fulfillAndRecord(ctx, decided, showAssoc)
 		if err != nil {
 			// The row is already approved (claimed). Surface the fulfillment
 			// failure so the admin knows the entity was NOT created and can act,
@@ -445,11 +515,13 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 // entity even if the persistence write fails — best-effort: the entity WAS
 // created, so surfacing a 500 there would wrongly imply it wasn't. The
 // fulfillEntity error is returned verbatim (including the typed
-// FulfillUnsupported for show) so callers classify it via
-// isFulfillUnsupported. Used by both the auto-approve create path and the admin
-// approve path so they record fulfillment identically.
-func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *communitym.EntityRequest) (uint, error) {
-	createdID, err := h.fulfillEntity(req)
+// FulfillUnsupported for show) so callers can classify it: the auto-approve
+// create path checks isFulfillUnsupported (and swallows it), the admin decide
+// path routes through mapFulfillmentError. Any NEW caller must do one of the
+// two, or a typed fulfillment error degrades to a raw 500. Used by both paths
+// so they record fulfillment identically.
+func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *communitym.EntityRequest, showAssoc *showAssociations) (uint, error) {
+	createdID, err := h.fulfillEntity(req, showAssoc)
 	if err != nil {
 		return 0, err
 	}

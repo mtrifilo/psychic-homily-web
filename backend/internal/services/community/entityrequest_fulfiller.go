@@ -16,6 +16,7 @@ type EntityRequestFulfiller struct {
 	label    contracts.LabelServiceInterface
 	release  contracts.ReleaseServiceInterface
 	festival contracts.FestivalServiceInterface
+	show     contracts.ShowServiceInterface
 }
 
 // NewEntityRequestFulfiller wires the catalog create services into the adapter.
@@ -25,8 +26,9 @@ func NewEntityRequestFulfiller(
 	label contracts.LabelServiceInterface,
 	release contracts.ReleaseServiceInterface,
 	festival contracts.FestivalServiceInterface,
+	show contracts.ShowServiceInterface,
 ) *EntityRequestFulfiller {
-	return &EntityRequestFulfiller{artist: artist, venue: venue, label: label, release: release, festival: festival}
+	return &EntityRequestFulfiller{artist: artist, venue: venue, label: label, release: release, festival: festival, show: show}
 }
 
 func (f *EntityRequestFulfiller) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
@@ -47,6 +49,10 @@ func (f *EntityRequestFulfiller) CreateRelease(req *contracts.CreateReleaseReque
 
 func (f *EntityRequestFulfiller) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	return f.festival.CreateFestival(req)
+}
+
+func (f *EntityRequestFulfiller) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+	return f.show.CreateShow(req)
 }
 
 // Compile-time assertion the adapter satisfies the fulfiller interface.

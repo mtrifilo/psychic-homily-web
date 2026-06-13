@@ -48,11 +48,10 @@ export interface RejectWithReasonRowProps {
    */
   approveIcon?: LucideIcon
   /**
-   * Disables ONLY the approve button while leaving Reject available. The
-   * entity-request card (PSY-871) sets this for show requests, whose backend
-   * fulfillment isn't supported yet (needs admin-supplied associations; a
-   * PSY-998 follow-up) — the admin can still reject, but can't "Create" until
-   * that lands.
+   * Disables ONLY the approve button while leaving Reject available. Unused
+   * for the current entity-request types (all fulfillable as of PSY-1037 —
+   * show collects its associations inline); kept as the entity-request card's
+   * guard for a future type that lands without a fulfillment branch.
    */
   approveDisabled?: boolean
 }

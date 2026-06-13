@@ -36,16 +36,20 @@ type CreateShowArtist struct {
 // The service will prevent duplicate headliners at the same venue on the same date/time
 // and reuse existing venues by name and city (venues are unique by name within a city).
 type CreateShowRequest struct {
-	Title          string             `json:"title" validate:"required"`
-	EventDate      time.Time          `json:"event_date" validate:"required"`
-	City           string             `json:"city"`
-	State          string             `json:"state"`
-	Price          *float64           `json:"price"`
-	AgeRequirement string             `json:"age_requirement"`
-	Description    string             `json:"description"`
-	TicketURL      string             `json:"ticket_url"`
-	Venues         []CreateShowVenue  `json:"venues" validate:"required,min=1"`
-	Artists        []CreateShowArtist `json:"artists" validate:"required,min=1"`
+	Title          string    `json:"title" validate:"required"`
+	EventDate      time.Time `json:"event_date" validate:"required"`
+	City           string    `json:"city"`
+	State          string    `json:"state"`
+	Price          *float64  `json:"price"`
+	AgeRequirement string    `json:"age_requirement"`
+	Description    string    `json:"description"`
+	TicketURL      string    `json:"ticket_url"`
+	// ImageURL is populated by the entity_request fulfiller (PSY-1037, the
+	// payload's flyer). The direct create handler does not expose it yet (set
+	// post-create via the update endpoint), so it leaves it nil here.
+	ImageURL *string            `json:"image_url"`
+	Venues   []CreateShowVenue  `json:"venues" validate:"required,min=1"`
+	Artists  []CreateShowArtist `json:"artists" validate:"required,min=1"`
 
 	// User context for determining show status
 	SubmittedByUserID *uint `json:"-"` // User ID of submitter (set by handler)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -800,15 +801,21 @@ func TestAdminDecide_ApproveArtist_RejectsHostileStoredURL(t *testing.T) {
 	}
 }
 
-// Approving a show is unsupported (payload lacks venues + artists) → 422.
+// Approving a show WITHOUT admin-supplied associations is rejected with a 422
+// BEFORE the row is claimed (PSY-1037): Decide only re-processes pending rows,
+// so a post-claim failure would orphan the request as approved-but-unfulfilled.
 func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
-	decided := pendingRequest(6, "show")
-	decided.DecisionState = communitym.EntityRequestStateApproved
+	pending := pendingRequest(6, "show")
 
+	decideCalled := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) {
+				return pending, nil
+			},
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
-				return decided, nil
+				decideCalled = true
+				return pending, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{},
@@ -818,7 +825,244 @@ func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
 	req := &AdminDecideEntityRequestRequest{ID: "6"}
 	req.Body.Decision = "approved"
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
-	// The row was claimed (approved) but fulfillment is unsupported → 422.
+	testhelpers.AssertHumaError(t, err, 422)
+	if decideCalled {
+		t.Error("Decide must NOT be called when a show is approved without associations (pre-claim guard)")
+	}
+}
+
+// PSY-1037: approving a show WITH admin-supplied associations creates a real
+// show — payload metadata + associations map onto CreateShowRequest, the
+// requester keeps attribution, and the admin approval makes it land approved.
+func TestAdminDecide_ApproveShow_WithAssociations_CreatesShow(t *testing.T) {
+	img := "https://example.com/flyer.jpg"
+	city := "Phoenix"
+	state := "AZ"
+	payload, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title:     "Boris with Earth",
+		EventDate: "2026-07-04T21:30:00-07:00",
+		City:      &city,
+		State:     &state,
+		ImageURL:  &img,
+	})
+	if err != nil {
+		t.Fatalf("marshal show payload: %v", err)
+	}
+	decided := pendingRequest(40, "show")
+	decided.Payload = &payload
+	decided.RequesterID = 7
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	var got *contracts.CreateShowRequest
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				got = req
+				return &contracts.ShowResponse{ID: 123}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "40"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	headliner := true
+	req.Body.ShowArtists = []ShowArtistInput{
+		{Name: "Boris", IsHeadliner: &headliner},
+		{Name: "Earth"},
+	}
+
+	resp, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected fulfiller CreateShow to be called")
+	}
+	if got.Title != "Boris with Earth" {
+		t.Errorf("title: got %q", got.Title)
+	}
+	// RFC3339 event_date is taken as-is (compare in UTC).
+	wantDate := time.Date(2026, 7, 5, 4, 30, 0, 0, time.UTC)
+	if !got.EventDate.UTC().Equal(wantDate) {
+		t.Errorf("event_date: got %s, want %s", got.EventDate.UTC(), wantDate)
+	}
+	if len(got.Venues) != 1 || got.Venues[0].Name != "Valley Bar" || got.Venues[0].City != "Phoenix" {
+		t.Errorf("venues: got %+v", got.Venues)
+	}
+	if len(got.Artists) != 2 || got.Artists[0].Name != "Boris" || got.Artists[1].Name != "Earth" {
+		t.Errorf("artists: got %+v", got.Artists)
+	}
+	if got.Artists[0].IsHeadliner == nil || !*got.Artists[0].IsHeadliner {
+		t.Error("expected first artist marked headliner")
+	}
+	if got.ImageURL == nil || *got.ImageURL != img {
+		t.Errorf("image_url: got %v", got.ImageURL)
+	}
+	if got.SubmittedByUserID == nil || *got.SubmittedByUserID != 7 {
+		t.Errorf("expected requester attribution (7), got %v", got.SubmittedByUserID)
+	}
+	if !got.SubmitterIsAdmin {
+		t.Error("expected SubmitterIsAdmin=true on admin approval")
+	}
+	if resp.Body.CreatedEntityID == nil || *resp.Body.CreatedEntityID != 123 {
+		t.Errorf("expected created entity id 123, got %v", resp.Body.CreatedEntityID)
+	}
+	if resp.Body.CreatedEntityType == nil || *resp.Body.CreatedEntityType != "show" {
+		t.Errorf("expected created entity type show, got %v", resp.Body.CreatedEntityType)
+	}
+}
+
+// PSY-1037: a date-only event_date anchors at 20:00 in the state's assumed
+// zone (AZ → America/Phoenix, UTC-7 year-round → 03:00 next day UTC).
+func TestAdminDecide_ApproveShow_DateOnlyAnchorsEveningLocal(t *testing.T) {
+	state := "AZ"
+	payload, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title:     "Date Only Fest",
+		EventDate: "2026-07-04",
+		State:     &state,
+	})
+	if err != nil {
+		t.Fatalf("marshal show payload: %v", err)
+	}
+	decided := pendingRequest(41, "show")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	var got *contracts.CreateShowRequest
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				got = req
+				return &contracts.ShowResponse{ID: 124}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "41"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected CreateShow to be called")
+	}
+	want := time.Date(2026, 7, 5, 3, 0, 0, 0, time.UTC) // 20:00 AZ = 03:00+1d UTC
+	if !got.EventDate.UTC().Equal(want) {
+		t.Errorf("event_date: got %s, want %s", got.EventDate.UTC(), want)
+	}
+}
+
+// PSY-1037: malformed association input is a 422 BEFORE the row is claimed —
+// Decide must not run, so no approved-but-unfulfilled row is left behind.
+func TestAdminDecide_ApproveShow_PartialAssociations422BeforeClaim(t *testing.T) {
+	decideCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				decideCalled = true
+				return nil, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "42"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	// show_artists missing → 422 before claim.
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+	if decideCalled {
+		t.Error("Decide must NOT be called when association input is malformed")
+	}
+}
+
+// PSY-1037: a legacy malformed stored show payload is rejected by the fulfill
+// re-validation when associations are supplied — CreateShow is never called.
+func TestAdminDecide_ApproveShow_MalformedStoredPayloadRejected(t *testing.T) {
+	raw := json.RawMessage(`{"title":"Bad Date Fest","event_date":"next summer"}`)
+	decided := pendingRequest(43, "show")
+	decided.Payload = &raw
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				createCalled = true
+				return &contracts.ShowResponse{ID: 1}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "43"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	// Stored-payload corruption → typed 500 (clean message), per MapEntityRequestError.
+	testhelpers.AssertHumaError(t, err, 500)
+	if createCalled {
+		t.Error("CreateShow must NOT be called for a malformed stored payload")
+	}
+}
+
+// PSY-1037: a CreateShow failure (e.g. duplicate headliner at the same
+// venue/date) maps to 422 SHOW_CREATE_FAILED, matching the direct handler.
+func TestAdminDecide_ApproveShow_CreateFailureIs422(t *testing.T) {
+	payload, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title:     "Dup Fest",
+		EventDate: "2026-07-04",
+	})
+	if err != nil {
+		t.Fatalf("marshal show payload: %v", err)
+	}
+	decided := pendingRequest(44, "show")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				return nil, fmt.Errorf("duplicate headliner at venue on date")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "44"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+	_, err = h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
