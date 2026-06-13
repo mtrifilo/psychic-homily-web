@@ -124,32 +124,29 @@ describe('StationPlaylistsFeed', () => {
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 
-  it('shows channel attribution for network stations', () => {
-    const channelRow = makeRow({
-      id: 2,
-      show_name: 'Give the Drummer Some',
-      show_slug: 'drummer-some',
-      station_id: 9,
-      station_name: 'Give the Drummer Radio',
-      station_slug: 'wfmu-drummer',
-    })
-    setEpisodes([makeRow(), channelRow])
+  it('uses the per-station heading with no channel column on a network flagship (PSY-1074)', () => {
+    // The station-scoped endpoint now returns only the requested station's
+    // rows, so flagship tabs render the same single-station table as
+    // everyone else — no "all channels" heading, no CHANNEL column.
+    setEpisodes([makeRow()])
     render(<StationPlaylistsFeed station={makeStation()} />)
 
+    expect(screen.getByText('Latest playlists')).toBeInTheDocument()
     expect(
-      screen.getByText('Latest playlists — all WFMU channels')
-    ).toBeInTheDocument()
-    expect(screen.getByText('Channel')).toBeInTheDocument()
-    expect(screen.getByText('Give the Drummer Radio')).toBeInTheDocument()
-
-    // Channel rows attribute their links to the originating station.
-    const channelShowLink = screen.getByRole('link', { name: 'Give the Drummer Some' })
-    expect(channelShowLink).toHaveAttribute('href', '/radio/wfmu-drummer/drummer-some')
+      screen.queryByText('Latest playlists — all WFMU channels')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Channel')).not.toBeInTheDocument()
   })
 
-  it('omits the channel column on sub-channel pages (single-station feed)', () => {
+  it('builds row links from the row station on sub-channel pages', () => {
     setEpisodes([
-      makeRow({ station_name: 'Give the Drummer Radio', station_slug: 'wfmu-drummer' }),
+      makeRow({
+        show_name: 'Give the Drummer Some',
+        show_slug: 'drummer-some',
+        station_id: 9,
+        station_name: 'Give the Drummer Radio',
+        station_slug: 'wfmu-drummer',
+      }),
     ])
     render(
       <StationPlaylistsFeed
@@ -163,6 +160,8 @@ describe('StationPlaylistsFeed', () => {
 
     expect(screen.getByText('Latest playlists')).toBeInTheDocument()
     expect(screen.queryByText('Channel')).not.toBeInTheDocument()
+    const showLink = screen.getByRole('link', { name: 'Give the Drummer Some' })
+    expect(showLink).toHaveAttribute('href', '/radio/wfmu-drummer/drummer-some')
   })
 
   it('omits the channel column for standalone stations', () => {

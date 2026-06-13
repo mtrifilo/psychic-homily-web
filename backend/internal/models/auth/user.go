@@ -16,7 +16,8 @@ type User struct {
 	ID                  uint             `json:"id" gorm:"primaryKey"`
 	Email               *string          `json:"email" gorm:"uniqueIndex"`
 	Username            *string          `json:"username" gorm:"uniqueIndex"`
-	PasswordHash        *string          `json:"-" gorm:"column:password_hash"` // Hidden from JSON
+	PasswordHash        *string          `json:"-" gorm:"column:password_hash"`           // Hidden from JSON
+	DisplayName         *string          `json:"display_name" gorm:"column:display_name"` // Preferred over first/last in attribution (PSY-1063)
 	FirstName           *string          `json:"first_name" gorm:"column:first_name"`
 	LastName            *string          `json:"last_name" gorm:"column:last_name"`
 	AvatarURL           *string          `json:"avatar_url" gorm:"column:avatar_url"`

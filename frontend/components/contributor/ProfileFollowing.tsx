@@ -2,11 +2,14 @@
 
 import Link from 'next/link'
 import { SectionHeader } from '@/components/shared/SectionHeader'
+import { ProfileSectionAction } from './ProfileSectionAction'
 import { useUserFollowing } from '@/features/auth'
 import type { FollowingEntity } from '@/features/auth'
 
 interface ProfileFollowingProps {
   username: string
+  /** Owner sees a "Manage" action linking to their follows page. */
+  isOwner?: boolean
 }
 
 // Following lists artists/venues/labels/festivals. Tag-following does not
@@ -32,7 +35,10 @@ const TYPE_ROWS: Array<{
  * - count_only → total + empty list → single count line, no names
  * - hidden → 404 → section omitted entirely
  */
-export function ProfileFollowing({ username }: ProfileFollowingProps) {
+export function ProfileFollowing({
+  username,
+  isOwner = false,
+}: ProfileFollowingProps) {
   // limit=100 (API max) — the showcase shows everything it can in one page;
   // per-type counts below are derived from this page, so >100 follows would
   // undercount (disclosed trade-off, no per-type totals on the endpoint).
@@ -46,7 +52,21 @@ export function ProfileFollowing({ username }: ProfileFollowingProps) {
 
   return (
     <section aria-label="Following">
-      <SectionHeader title="Following" as="h2" size="md" />
+      <SectionHeader
+        title="Following"
+        as="h2"
+        size="md"
+        variant="title"
+        action={
+          isOwner ? (
+            <ProfileSectionAction
+              label="Manage"
+              href="/following"
+              ariaLabel="Manage who you follow"
+            />
+          ) : undefined
+        }
+      />
       {isCountOnly ? (
         <p className="text-sm text-muted-foreground mt-2">
           Follows{' '}

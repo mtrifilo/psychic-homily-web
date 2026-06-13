@@ -21,6 +21,24 @@ func TestResolveUserName_ZeroID(t *testing.T) {
 	assert.Equal(t, "Anonymous", ResolveUserName(&authm.User{}))
 }
 
+func TestResolveUserName_PrefersDisplayName(t *testing.T) {
+	// PSY-1063: the explicitly user-chosen display name wins over everything.
+	display := "Desert Lifer"
+	username := "ph_user"
+	first := "Jane"
+	last := "Doe"
+	email := "jane@test.com"
+	u := &authm.User{ID: 1, DisplayName: &display, Username: &username, FirstName: &first, LastName: &last, Email: &email}
+	assert.Equal(t, "Desert Lifer", ResolveUserName(u))
+}
+
+func TestResolveUserName_BlankDisplayNameFallsThrough(t *testing.T) {
+	display := ""
+	username := "ph_user"
+	u := &authm.User{ID: 1, DisplayName: &display, Username: &username}
+	assert.Equal(t, "ph_user", ResolveUserName(u))
+}
+
 func TestResolveUserName_PrefersUsername(t *testing.T) {
 	username := "ph_user"
 	first := "Jane"

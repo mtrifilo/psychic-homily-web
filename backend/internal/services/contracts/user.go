@@ -30,6 +30,7 @@ type AdminUserResponse struct {
 	ID              uint                `json:"id"`
 	Email           *string             `json:"email"`
 	Username        *string             `json:"username"`
+	DisplayName     *string             `json:"display_name"`
 	FirstName       *string             `json:"first_name"`
 	LastName        *string             `json:"last_name"`
 	AvatarURL       *string             `json:"avatar_url"`
@@ -210,6 +211,7 @@ type PublicProfileResponse struct {
 	Username          string                    `json:"username"`
 	Bio               *string                   `json:"bio,omitempty"`
 	AvatarURL         *string                   `json:"avatar_url,omitempty"`
+	DisplayName       *string                   `json:"display_name,omitempty"`
 	FirstName         *string                   `json:"first_name,omitempty"`
 	ProfileVisibility string                    `json:"profile_visibility"`
 	UserTier          string                    `json:"user_tier"`

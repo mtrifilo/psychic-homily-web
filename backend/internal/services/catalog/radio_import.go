@@ -53,6 +53,27 @@ func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error)
 	}
 }
 
+// stationScopedShowDiscoverer is implemented by providers whose discovery
+// source mixes multiple stations' shows in one index. WFMU's DJ index spans
+// the 91.1 broadcast plus three stream-only channels; importing it unfiltered
+// for every family station duplicated the entire catalog under each channel
+// (PSY-1073). When a provider implements this, discovery flows call the
+// station-scoped method so each station only receives shows that air on its
+// stream.
+type stationScopedShowDiscoverer interface {
+	DiscoverShowsForStation(stationSlug string) ([]RadioShowImport, error)
+}
+
+// discoverShowsForStation routes discovery through the station-scoped path
+// when the provider supports it, falling back to the provider-wide index for
+// single-station providers (KEXP, NTS).
+func discoverShowsForStation(provider RadioPlaylistProvider, station *catalogm.RadioStation) ([]RadioShowImport, error) {
+	if scoped, ok := provider.(stationScopedShowDiscoverer); ok {
+		return scoped.DiscoverShowsForStation(station.Slug)
+	}
+	return provider.DiscoverShows()
+}
+
 // parseImportDate parses an import-window bound (since/until). The value may
 // arrive date-only ("2026-03-02") from the API, or as a Postgres DATE-column
 // round-trip ("2026-03-02T00:00:00Z") when read back from a persisted import
@@ -86,8 +107,8 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 
 	result := &contracts.RadioImportResult{}
 
-	// 1. Discover shows
-	importedShows, err := provider.DiscoverShows()
+	// 1. Discover shows (station-scoped for multi-stream providers, PSY-1073)
+	importedShows, err := discoverShowsForStation(provider, &station)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("discover shows: %v", err))
 		return result, nil
@@ -290,7 +311,9 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 
 	result := &contracts.RadioDiscoverResult{}
 
-	importedShows, err := provider.DiscoverShows()
+	// Station-scoped for multi-stream providers (PSY-1073): each WFMU-family
+	// station only receives the shows that air on its own stream.
+	importedShows, err := discoverShowsForStation(provider, &station)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("discover shows: %v", err))
 		return result, nil

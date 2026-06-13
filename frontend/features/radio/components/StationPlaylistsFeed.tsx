@@ -20,9 +20,9 @@ interface StationPlaylistsFeedProps {
 
 /**
  * "Latest playlists" dense table (PSY-1050): newest episodes across all of a
- * station's shows, from GET /radio-stations/{slug}/episodes (PSY-1048). For a
- * network flagship the server already merges channel stations into the feed,
- * so the CHANNEL column attributes each row to its originating station.
+ * station's shows, from GET /radio-stations/{slug}/episodes (PSY-1048). The
+ * feed is strictly per-station (PSY-1074) — a network flagship's tab shows
+ * only its own playlists; channel shows live under their own tabs.
  *
  * Pagination is in-place: start at 10 rows, "More playlists" grows the query
  * limit by 20 (keepPreviousData keeps the table stable while the larger page
@@ -37,20 +37,12 @@ export function StationPlaylistsFeed({ station }: StationPlaylistsFeedProps) {
 
   const episodes = data?.episodes ?? []
   const total = data?.total ?? 0
-  // CHANNEL column only makes sense when rows can come from more than one
-  // station: the server merges channel stations into the feed for network
-  // FLAGSHIPS only. Sub-channel and standalone feeds are single-station.
-  const showChannel = station.network?.is_flagship === true
-
-  const title = showChannel
-    ? `Latest playlists — all ${station.network!.name} channels`
-    : 'Latest playlists'
 
   const canLoadMore = episodes.length < total && limit < MAX_LIMIT
 
   return (
     <section aria-label="Latest playlists">
-      <SectionHeader title={title} as="h2" size="md" />
+      <SectionHeader title="Latest playlists" as="h2" size="md" />
 
       {isLoading && (
         <div className="flex justify-center py-6">
@@ -70,13 +62,12 @@ export function StationPlaylistsFeed({ station }: StationPlaylistsFeedProps) {
                 <th className="w-16">Date</th>
                 <th>Show</th>
                 <th>Played</th>
-                {showChannel && <th>Channel</th>}
                 <th className="text-right w-16">Tracks</th>
               </tr>
             </thead>
             <tbody>
               {episodes.map(row => (
-                <PlaylistRow key={row.id} row={row} showChannel={showChannel} />
+                <PlaylistRow key={row.id} row={row} />
               ))}
             </tbody>
           </DenseTable>
@@ -99,13 +90,7 @@ export function StationPlaylistsFeed({ station }: StationPlaylistsFeedProps) {
   )
 }
 
-function PlaylistRow({
-  row,
-  showChannel,
-}: {
-  row: RadioStationEpisodeRow
-  showChannel: boolean
-}) {
+function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
   const playlistUrl = `/radio/${row.station_slug}/${row.show_slug}/${row.air_date}`
   const showUrl = `/radio/${row.station_slug}/${row.show_slug}`
 
@@ -131,11 +116,6 @@ function PlaylistRow({
       <td className="text-muted-foreground">
         <ArtistPreview artists={row.artist_preview} />
       </td>
-      {showChannel && (
-        <td className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-          {row.station_name}
-        </td>
-      )}
       <td className="text-right text-muted-foreground">{row.play_count}</td>
     </tr>
   )

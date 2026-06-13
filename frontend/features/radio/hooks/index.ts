@@ -10,9 +10,13 @@ export { useArtistRadioPlays } from './useArtistRadioPlays'
 export { useReleaseRadioPlays } from './useReleaseRadioPlays'
 export { useNewReleaseRadar } from './useNewReleaseRadar'
 export { useRadioStats } from './useRadioStats'
-// PSY-1016: Radio D2 station-overview panel
-export { useShowLatestEpisode } from './useShowLatestEpisode'
+// PSY-1016 heuristic, consumed by the Dial strips (PSY-1049); slimmed to the
+// actions-column data after PSY-1022's live now-playing swap (PSY-1075).
+// (useShowLatestEpisode stays un-exported here — its consumers import the
+// file directly; PSY-1057 narrowed the public surface.)
 export { useStationOverview } from './useStationOverview'
+// PSY-1022: live now-playing (with latest-archive fallback)
+export { useStationNowPlaying } from './useStationNowPlaying'
 // PSY-1049: The Dial hub
 export { useRecentRadioEpisodes } from './useRecentRadioEpisodes'
 // PSY-1051: show + playlist page rebuild

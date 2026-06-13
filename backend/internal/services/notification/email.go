@@ -2,6 +2,7 @@ package notification
 
 import (
 	"fmt"
+	"html"
 	"strings"
 	"time"
 
@@ -649,6 +650,13 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 		commenterName = "A contributor"
 	}
 
+	// User-controlled strings enter an HTML body below — escape at the
+	// boundary (display/first names and comment bodies are free-form text;
+	// entity names are community-editable).
+	commenterName = html.EscapeString(commenterName)
+	entityName = html.EscapeString(entityName)
+	commentExcerpt = html.EscapeString(commentExcerpt)
+
 	// Capitalize first letter of entity type for the subject (e.g. "artist" -> "Artist").
 	entityTypeTitle := entityType
 	if entityTypeTitle != "" {
@@ -721,7 +729,12 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 		mentionerName = "Someone"
 	}
 
+	// Subject stays unescaped (plain-text header); the HTML body below gets
+	// escaped copies of every user-controlled string.
 	subject := fmt.Sprintf("%s mentioned you in a comment on %s", mentionerName, entityName)
+	mentionerName = html.EscapeString(mentionerName)
+	entityName = html.EscapeString(entityName)
+	commentExcerpt = html.EscapeString(commentExcerpt)
 
 	html := fmt.Sprintf(`
 <!DOCTYPE html>

@@ -34,5 +34,4 @@ export { useSetCollectionDigestPreference } from './hooks/useCollectionDigestPre
 export {
   CalendarFeedSection,
   EntityCollections,
-  UserCollections,
 } from './components'

@@ -15,12 +15,11 @@ import { expect } from '@playwright/test'
  * `EntityCardTitle`, so `getByRole('link', { name })` resolves cleanly under
  * Playwright strict mode.
  *
- * SCOPING NOTE: the persistent left Sidebar (components/layout/Sidebar.tsx)
- * renders a `<Link href="/radio">Radio</Link>` that is visible at the
- * Playwright desktop viewport (the `<aside>` is `hidden md:flex`). To keep
- * the page-content assertions unambiguous under strict mode, link/heading
- * queries are scoped to the page's `<main>` (`page.getByRole('main')`),
- * which excludes the sidebar `<aside>` and the TopBar.
+ * SCOPING NOTE: chrome outside `<main>` renders its own `Radio` links — the
+ * top-bar primary nav links straight to /radio (PSY-1057) and the Footer
+ * carries one too. To keep the page-content assertions unambiguous under
+ * strict mode, link/heading queries are scoped to the page's `<main>`
+ * (`page.getByRole('main')`), which excludes the TopBar and Footer.
  *
  * SEED SCOPE (verified against backend/internal/seeddata/radio.go, rendered
  * by cmd/gen-e2e-seed into frontend/e2e/setup-db.sh):
@@ -112,8 +111,15 @@ test.describe('Radio browse flow', () => {
     await expect(main.getByRole('heading', { name: 'Shows' })).toBeVisible()
 
     // At least one seeded show card link is present (KEXP seeds 6 shows).
+    // PSY-1072: scope to the shows directory's landmark — the PSY-1050
+    // station-page rebuild also links the show name from the on-air box and
+    // the playlists feed (client-fetched, so the un-scoped match count varies
+    // 2–3 and trips strict mode). StationShowsDirectory renders
+    // `<section aria-label="Shows">` → role=region.
     await expect(
-      main.getByRole('link', { name: KEXP_SHOW_NAME })
+      main
+        .getByRole('region', { name: 'Shows' })
+        .getByRole('link', { name: KEXP_SHOW_NAME })
     ).toBeVisible({ timeout: 10_000 })
   })
 
@@ -121,11 +127,14 @@ test.describe('Radio browse flow', () => {
     page,
   }) => {
     // Start at the station so the click target is the real rendered show
-    // card link (not a hand-built URL).
+    // card link (not a hand-built URL). PSY-1072: scoped to the shows
+    // directory region — the on-air box + playlists feed (PSY-1050) also
+    // link the show name, tripping strict mode un-scoped.
     await page.goto(`/radio/${KEXP_SLUG}`)
 
     const showLink = page
       .getByRole('main')
+      .getByRole('region', { name: 'Shows' })
       .getByRole('link', { name: KEXP_SHOW_NAME })
     await expect(showLink).toBeVisible({ timeout: 10_000 })
     await showLink.click()
@@ -142,32 +151,38 @@ test.describe('Radio browse flow', () => {
       main.getByRole('heading', { name: KEXP_SHOW_NAME, level: 1 })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Breadcrumb links back up the chain (Radio + the station name). The
-    // station name appears in both the breadcrumb and the "on {station}"
-    // line, so allow more than one match via `.first()`.
-    await expect(main.getByRole('link', { name: 'Radio' })).toBeVisible()
+    // PSY-1072: the PSY-1051 show-page rebuild replaced the Radio + station
+    // breadcrumb chain with a single "← {station}" back-link (the hub stays
+    // reachable via the top-bar Radio link, which lives outside <main>).
+    // `name` matching is substring, so KEXP_STATION_NAME matches "← KEXP";
+    // `.first()` guards against the station name also appearing in body copy.
     await expect(
       main.getByRole('link', { name: KEXP_STATION_NAME }).first()
     ).toBeVisible()
 
-    // "Recent Episodes" section renders. PSY-899 seeds one KEXP episode for
-    // this show (air date 2025-01-15), so this asserts the populated path:
-    // the section heading shows + the `RadioEpisodeRow` link into the dated
-    // episode route resolves. The episode list is CLIENT-fetched
-    // (RadioShowDetail.tsx useRadioEpisodes), so the row appears
-    // asynchronously — allow up to 10s. Target the row by its href to the
-    // dated episode route (`/radio/kexp/the-morning-show/2025-01-15`): that
-    // URL is the exact deep-chain link the seed makes reachable and is immune
-    // to date-format / play-count text variation. (The row's accessible name
-    // includes the title "The Morning Show — …", so a name query would be a
-    // weaker assertion that also reads as colliding with the show H1.)
+    // Episode archive renders. PSY-899 seeds one KEXP episode for this show
+    // (air date 2025-01-15), so this asserts the populated path: the section
+    // heading shows + the archive-table row links into the dated episode
+    // route. PSY-1072: the PSY-1051 rebuild renamed the section from
+    // "Recent Episodes" to "Playlists — N episode(s)" and renders it as the
+    // archive table. The row link is CLIENT-fetched, so allow up to 10s.
+    // Target the row by its href to the dated episode route
+    // (`/radio/kexp/the-morning-show/2025-01-15`): that URL is the exact
+    // deep-chain link the seed makes reachable and is immune to date-format /
+    // play-count text variation.
     await expect(
-      main.getByRole('heading', { name: /recent episodes/i })
+      main.getByRole('heading', { name: /playlists/i })
     ).toBeVisible({ timeout: 10_000 })
+    // `.first()`: the archive table links the dated route from several cells
+    // (date, episode title, "Open latest playlist", playlist row) — the
+    // assertion's intent is "the dated episode route is linked", not "exactly
+    // once".
     await expect(
-      main.locator(
-        `a[href="/radio/${KEXP_SLUG}/${KEXP_SHOW_SLUG}/${KEXP_EPISODE_AIR_DATE}"]`
-      )
+      main
+        .locator(
+          `a[href="/radio/${KEXP_SLUG}/${KEXP_SHOW_SLUG}/${KEXP_EPISODE_AIR_DATE}"]`
+        )
+        .first()
     ).toBeVisible({ timeout: 10_000 })
   })
 

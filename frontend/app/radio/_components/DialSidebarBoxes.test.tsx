@@ -65,6 +65,15 @@ describe('NewReleaseRadarBox', () => {
       screen.queryByRole('link', { name: 'Florry — Sounds Like...' })
     ).not.toBeInTheDocument()
   })
+
+  it('links the full radar view in the box footer (PSY-1076)', () => {
+    render(<NewReleaseRadarBox releases={[makeEntry()]} isLoading={false} />)
+
+    expect(screen.getByRole('link', { name: 'full radar →' })).toHaveAttribute(
+      'href',
+      '/radio/new-releases'
+    )
+  })
 })
 
 describe('DialStatsBox', () => {

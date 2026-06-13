@@ -9,10 +9,10 @@ import type { RadioEpisodeDetail } from '../types'
  *
  * Two-step chain because the public API has no "latest episode with plays"
  * endpoint: the episodes list (air_date DESC) gives the newest air-date, then
- * the by-date endpoint returns that episode's plays + entity links. This is
- * the v1 fallback the D2 "Now Playing" surface reads from; a future live
- * now-playing endpoint (PSY-1022) replaces this hook without changing the
- * panel components, since both produce a RadioEpisodeDetail-shaped playlist.
+ * the by-date endpoint returns that episode's plays + entity links. The live
+ * on-air lines moved to PSY-1022's now-playing endpoint; this hook survives
+ * to anchor the archive playlist deep-links (StationOnAirBox,
+ * useStationOverview's [ live playlist ]).
  */
 export function useShowLatestEpisode(showSlug: string | undefined) {
   const slug = showSlug ?? ''

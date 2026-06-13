@@ -14,6 +14,7 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/radio-stations", radioHandler.ListRadioStationsHandler)
 	huma.Get(rc.API, "/radio-stations/{slug}", radioHandler.GetRadioStationHandler)
 	huma.Get(rc.API, "/radio-stations/{slug}/episodes", radioHandler.GetRadioStationEpisodesHandler)
+	huma.Get(rc.API, "/radio-stations/{slug}/now-playing", radioHandler.GetRadioStationNowPlayingHandler)
 	huma.Get(rc.API, "/radio-stations/{slug}/top-artists", radioHandler.GetRadioStationTopArtistsHandler)
 	huma.Get(rc.API, "/radio-stations/{slug}/top-labels", radioHandler.GetRadioStationTopLabelsHandler)
 

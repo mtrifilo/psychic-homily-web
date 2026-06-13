@@ -32,11 +32,12 @@ export interface StatsListProps {
   className?: string
 }
 
-const numberFormatter = new Intl.NumberFormat('en-US')
+/** Shared en-US thousands-separator formatter for stat surfaces. */
+export const statNumberFormatter = new Intl.NumberFormat('en-US')
 
 function formatValue(value: StatsListItem['value']): ReactNode {
   if (typeof value === 'number') {
-    return numberFormatter.format(value)
+    return statNumberFormatter.format(value)
   }
   return value
 }

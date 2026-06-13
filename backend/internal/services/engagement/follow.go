@@ -362,7 +362,10 @@ func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, of
 	var rows []followerRow
 
 	err = s.db.Table("user_bookmarks").
-		Select("user_bookmarks.user_id, users.username, users.first_name as display_name").
+		// display_name falls back to first_name for rows predating PSY-1063
+		// (this hand-rolled projection predates the shared resolver; NULLIF
+		// keeps a cleared display_name from masking the fallback).
+		Select("user_bookmarks.user_id, users.username, COALESCE(NULLIF(users.display_name, ''), users.first_name) as display_name").
 		Joins("JOIN users ON users.id = user_bookmarks.user_id").
 		Where("user_bookmarks.entity_type = ? AND user_bookmarks.entity_id = ? AND user_bookmarks.action = ?",
 			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).

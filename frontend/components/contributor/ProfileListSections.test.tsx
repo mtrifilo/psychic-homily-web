@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { ProfileFollowing } from './ProfileFollowing'
 import { ProfileAttendedShows } from './ProfileAttendedShows'
@@ -121,6 +121,35 @@ describe('ProfileFollowing', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('shows a Manage action linking to /following for the owner only', () => {
+    mockUseUserFollowing.mockReturnValue({
+      data: {
+        following: [
+          {
+            entity_type: 'artist',
+            entity_id: 1,
+            name: 'Just Mustard',
+            slug: 'just-mustard',
+          },
+        ],
+        total: 1,
+      },
+      error: null,
+    })
+
+    const { unmount } = renderWithProviders(
+      <ProfileFollowing username="alice" isOwner />
+    )
+    const manage = screen.getByRole('link', { name: /manage who you follow/i })
+    expect(manage).toHaveAttribute('href', '/following')
+    unmount()
+
+    renderWithProviders(<ProfileFollowing username="alice" />)
+    expect(
+      screen.queryByRole('link', { name: /manage who you follow/i })
+    ).not.toBeInTheDocument()
+  })
+
   it('renders nothing when the user follows nothing', () => {
     mockUseUserFollowing.mockReturnValue({
       data: { following: [], total: 0, limit: 100, offset: 0 },
@@ -138,7 +167,7 @@ describe('ProfileFollowing', () => {
 // ============================================================================
 
 describe('ProfileAttendedShows', () => {
-  it('renders diary rows with show + venue links and an overflow line', () => {
+  it('renders diary rows with show + venue links', () => {
     mockUseUserAttendedShows.mockReturnValue({
       data: {
         shows: [
@@ -154,8 +183,8 @@ describe('ProfileAttendedShows', () => {
             state: 'AZ',
           },
         ],
-        total: 12,
-        limit: 10,
+        total: 1,
+        limit: 100,
         offset: 0,
       },
       error: null,
@@ -171,7 +200,86 @@ describe('ProfileAttendedShows', () => {
       'href',
       '/venues/valley-bar'
     )
-    expect(screen.getByText(/\+ 11 more/)).toBeInTheDocument()
+    // Everything fits within the collapsed cap — no expander, no overflow.
+    expect(
+      screen.queryByRole('button', { name: /view all/i })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/more/)).not.toBeInTheDocument()
+  })
+
+  it('expands in place via "View all", revealing the fetched rows', () => {
+    const shows = Array.from({ length: 12 }, (_, i) => ({
+      show_id: i + 1,
+      title: `Show ${i + 1}`,
+      slug: `show-${i + 1}`,
+      event_date: '2026-05-17T00:00:00Z',
+      status: 'approved',
+      venue_name: null,
+      venue_slug: null,
+      city: null,
+      state: null,
+    }))
+    mockUseUserAttendedShows.mockReturnValue({
+      data: { shows, total: 12 },
+      error: null,
+    })
+
+    renderWithProviders(<ProfileAttendedShows username="alice" />)
+    // Fetches the API max up front (the query key ignores limit, so a
+    // refetch-on-expand would be a cached no-op).
+    expect(mockUseUserAttendedShows).toHaveBeenLastCalledWith('alice', {
+      limit: 100,
+    })
+    // Collapsed: 10 rows visible, 2 hidden behind the expander.
+    expect(screen.getAllByRole('link')).toHaveLength(10)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /view all 12 attended shows/i })
+    )
+    expect(screen.getAllByRole('link')).toHaveLength(12)
+    expect(
+      screen.queryByRole('button', { name: /view all/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows a residual overflow line after expanding when total exceeds the fetched page', () => {
+    const shows = Array.from({ length: 11 }, (_, i) => ({
+      show_id: i + 1,
+      title: `Show ${i + 1}`,
+      slug: `show-${i + 1}`,
+      event_date: '2026-05-17T00:00:00Z',
+      status: 'approved',
+      venue_name: null,
+      venue_slug: null,
+      city: null,
+      state: null,
+    }))
+    mockUseUserAttendedShows.mockReturnValue({
+      data: { shows, total: 120 },
+      error: null,
+    })
+
+    renderWithProviders(<ProfileAttendedShows username="alice" />)
+    expect(screen.queryByText(/more/)).not.toBeInTheDocument()
+    // Honest label: the action can only reveal the fetched page.
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /view the first 11 of 120 attended shows/i,
+      })
+    )
+    expect(screen.getByText(/\+ 109 more/)).toBeInTheDocument()
+  })
+
+  it('does not offer "View all" over a count_only (hidden) diary', () => {
+    mockUseUserAttendedShows.mockReturnValue({
+      data: { shows: [], total: 7 },
+      error: null,
+    })
+
+    renderWithProviders(<ProfileAttendedShows username="alice" />)
+    expect(
+      screen.queryByRole('button', { name: /view all/i })
+    ).not.toBeInTheDocument()
   })
 
   it('renders a count line for count_only privacy', () => {
@@ -253,6 +361,29 @@ describe('ProfileFieldNotes', () => {
     ).toBeInTheDocument()
     // No star ratings by design (2026-06-09 decision).
     expect(screen.queryByText(/★/)).not.toBeInTheDocument()
+  })
+
+  it('expands in place via "View all", revealing the fetched notes', () => {
+    const field_notes = Array.from({ length: 7 }, (_, i) => ({
+      id: i + 1,
+      show_slug: `show-${i + 1}`,
+      show_title: `Show ${i + 1}`,
+      body: 'A wall of sound.',
+    }))
+    mockUseUserFieldNotes.mockReturnValue({
+      data: { field_notes, total: 7 },
+      error: null,
+    })
+
+    renderWithProviders(<ProfileFieldNotes username="alice" />)
+    expect(mockUseUserFieldNotes).toHaveBeenLastCalledWith('alice', {
+      limit: 100,
+    })
+    expect(screen.getAllByRole('link')).toHaveLength(5)
+    fireEvent.click(
+      screen.getByRole('button', { name: /view all 7 field notes/i })
+    )
+    expect(screen.getAllByRole('link')).toHaveLength(7)
   })
 
   it('renders nothing when the user has no field notes', () => {

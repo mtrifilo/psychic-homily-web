@@ -1,6 +1,7 @@
 'use client'
 
 import { Loader2, Radio } from 'lucide-react'
+import { BracketLink } from '@/components/shared/BracketLink'
 import {
   useRadioStats,
   useRadioStations,
@@ -18,8 +19,8 @@ import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
  * Every station and channel is visible as a full-width strip with on-air info
  * inline (zero clicks to see the whole dial), followed by the dial-wide
  * latest-playlists feed (PSY-1048) with New Release Radar + lifetime stats in
- * the sidebar. The nav Radio popover keeps the D2 panel (PSY-1016) — this
- * page no longer uses RadioPanel.
+ * the sidebar. The top-bar Radio item links straight here (PSY-1057 retired
+ * the D2 popover once this page became the dial).
  */
 export default function RadioHub() {
   const { data: stats } = useRadioStats()
@@ -95,6 +96,17 @@ export default function RadioHub() {
               isLoading={recentLoading}
               error={recentError}
             />
+            {/* PSY-1076: the hub table is a capped teaser — link the full,
+                paginated dial-wide feed. */}
+            {!recentError && (recentData?.episodes?.length ?? 0) > 0 && (
+              <div className="mt-2">
+                <BracketLink
+                  label="all playlists →"
+                  href="/radio/playlists"
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
           </section>
 
           <aside className="flex flex-col gap-5">

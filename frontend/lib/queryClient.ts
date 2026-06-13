@@ -278,6 +278,10 @@ export const queryKeys = {
     rankings: (username: string) => ['contributor', 'rankings', username] as const,
     following: (username: string, type?: string) =>
       ['contributor', 'following', username, type ?? 'all'] as const,
+    // NOTE: limit is deliberately NOT in these keys — the profile sections
+    // fetch one fixed page (API max 100) and slice client-side. A second
+    // consumer with a different limit would get the first-mounted page
+    // size; key on limit if that ever happens (PSY-1062).
     attendedShows: (username: string) =>
       ['contributor', 'attendedShows', username] as const,
     fieldNotes: (username: string) => ['contributor', 'fieldNotes', username] as const,
@@ -313,6 +317,10 @@ export const queryKeys = {
       ['collections', 'containing', entityType, entityId] as const,
     entity: (entityType: string, entityId: number) =>
       ['collections', 'entity', entityType, entityId] as const,
+    // NOTE: limit is deliberately NOT in this key — the profile surfaces
+    // fetch one fixed page (API max) and slice client-side. A second
+    // consumer with a different limit would be served the first-mounted
+    // page size; key on limit if that ever happens (PSY-1062).
     userPublic: (username: string) =>
       ['collections', 'userPublic', username] as const,
   },

@@ -28,6 +28,8 @@ describe('PrimaryNav', () => {
     expect(screen.getByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/explore')
     expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows')
     expect(screen.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists')
+    // PSY-1057: Radio is a plain link to the Dial hub, not a popover trigger.
+    expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
   })
 
   it('marks Home active on the home route only', () => {
@@ -44,11 +46,18 @@ describe('PrimaryNav', () => {
     expect(screen.getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('renders the Radio, Browse, and Contribute menu triggers', () => {
+  it('renders the Browse and Contribute menu triggers (Radio is a plain link)', () => {
     render(<PrimaryNav />)
-    expect(screen.getByRole('button', { name: 'Radio' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Browse the catalog' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Contribute' })).toBeInTheDocument()
+    // The D2 Radio popover retired in PSY-1057 — no Radio button remains.
+    expect(screen.queryByRole('button', { name: 'Radio' })).not.toBeInTheDocument()
+  })
+
+  it('marks Radio active on radio sub-routes', () => {
+    mockPathname = '/radio/wfmu/some-show/2026-06-02'
+    render(<PrimaryNav />)
+    expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('opens Browse and reaches the catalog (sidebar destinations stay reachable)', async () => {

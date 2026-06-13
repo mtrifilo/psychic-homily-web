@@ -270,6 +270,65 @@ func TestGetRadioShowEpisodes_ShowNotFound(t *testing.T) {
 }
 
 // ============================================================================
+// GetRadioStationNowPlayingHandler Tests (PSY-1022)
+// ============================================================================
+
+func TestGetRadioStationNowPlaying_Success(t *testing.T) {
+	showName := "The Morning Show"
+	var capturedStationID uint
+	mock := &testhelpers.MockRadioService{
+		ResolveStationIDBySlugFn: func(slug string) (uint, error) { return 7, nil },
+		GetStationNowPlayingFn: func(stationID uint) (*contracts.RadioNowPlayingResponse, error) {
+			capturedStationID = stationID
+			return &contracts.RadioNowPlayingResponse{
+				Source:        contracts.NowPlayingSourceLive,
+				OnAir:         true,
+				ShowName:      &showName,
+				Show:          &contracts.RadioNowPlayingShowRef{ID: 3, Name: showName, Slug: "the-morning-show"},
+				RecentArtists: []contracts.RadioEpisodePreviewArtist{},
+			}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.GetRadioStationNowPlayingHandler(context.Background(), &GetRadioStationNowPlayingRequest{Slug: "kexp"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedStationID != 7 {
+		t.Errorf("expected resolved station id 7, got %d", capturedStationID)
+	}
+	if resp.Body.Source != contracts.NowPlayingSourceLive || !resp.Body.OnAir {
+		t.Errorf("expected live/on-air payload, got %+v", resp.Body)
+	}
+	if resp.Body.Show == nil || resp.Body.Show.Slug != "the-morning-show" {
+		t.Errorf("expected matched show, got %+v", resp.Body.Show)
+	}
+}
+
+func TestGetRadioStationNowPlaying_StationNotFound(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		ResolveStationIDBySlugFn: func(slug string) (uint, error) {
+			return 0, apperrors.ErrRadioStationNotFound(0)
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.GetRadioStationNowPlayingHandler(context.Background(), &GetRadioStationNowPlayingRequest{Slug: "nonexistent"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetRadioStationNowPlaying_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		ResolveStationIDBySlugFn: func(slug string) (uint, error) { return 7, nil },
+		GetStationNowPlayingFn: func(stationID uint) (*contracts.RadioNowPlayingResponse, error) {
+			return nil, fmt.Errorf("db down")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.GetRadioStationNowPlayingHandler(context.Background(), &GetRadioStationNowPlayingRequest{Slug: "kexp"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
 // GetRadioEpisodeByDateHandler Tests
 // ============================================================================
 

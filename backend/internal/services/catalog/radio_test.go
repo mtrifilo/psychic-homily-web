@@ -1255,7 +1255,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_ArtistPreview() {
 	suite.Equal("Third Artist", preview[2].ArtistName)
 }
 
-func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_FlagshipIncludesNetwork() {
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_StrictPerStation() {
 	flagship, sibling, standalone := suite.createNetworkFamily()
 
 	flagShow := suite.createShow(flagship.ID, "Flag Show")
@@ -1265,26 +1265,26 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_FlagshipIn
 	suite.createEpisode(sibShow.ID, "2026-06-09")
 	suite.createEpisode(aloneShow.ID, "2026-06-07")
 
-	// Flagship aggregates the whole network, newest first, with channel attribution.
+	// A flagship's feed contains ONLY its own episodes — never its network
+	// siblings' (PSY-1074 reversed the PSY-1048 flagship-aggregates rule).
 	rows, total, err := suite.radioService.GetStationEpisodes(flagship.ID, 10, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(2), total)
-	suite.Require().Len(rows, 2)
-	suite.Equal("Sib Show", rows[0].ShowName)
-	suite.Equal("Channel Two", rows[0].StationName)
-	suite.Equal("channel-two", rows[0].StationSlug)
-	suite.Equal("2026-06-09", rows[0].AirDate)
-	suite.Equal("Flag Show", rows[1].ShowName)
-	suite.Equal("Flagship", rows[1].StationName)
-	suite.Require().NotNil(rows[1].ArtistPreview, "episodes without plays must serialize artist_preview as [], not null")
-	suite.Empty(rows[1].ArtistPreview)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(rows, 1)
+	suite.Equal("Flag Show", rows[0].ShowName)
+	suite.Equal("Flagship", rows[0].StationName)
+	suite.Equal("flagship", rows[0].StationSlug)
+	suite.Equal("2026-06-08", rows[0].AirDate)
+	suite.Require().NotNil(rows[0].ArtistPreview, "episodes without plays must serialize artist_preview as [], not null")
+	suite.Empty(rows[0].ArtistPreview)
 
-	// A non-flagship channel aggregates only itself.
+	// A channel's feed contains only its own episodes.
 	sibRows, sibTotal, err := suite.radioService.GetStationEpisodes(sibling.ID, 10, 0)
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), sibTotal)
 	suite.Require().Len(sibRows, 1)
 	suite.Equal("Sib Show", sibRows[0].ShowName)
+	suite.Equal("channel-two", sibRows[0].StationSlug)
 
 	// Unknown station -> not found error.
 	_, _, err = suite.radioService.GetStationEpisodes(99999, 10, 0)
@@ -1320,7 +1320,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStati
 	suite.Equal("2026-06-08", page2[0].AirDate)
 }
 
-func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_AggregatesNetwork() {
+func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_StrictPerStation() {
 	flagship, sibling, standalone := suite.createNetworkFamily()
 	flagShow := suite.createShow(flagship.ID, "Flag Show")
 	sibShow := suite.createShow(sibling.ID, "Sib Show")
@@ -1334,16 +1334,29 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_Aggre
 	suite.createPlay(sibEp.ID, 2, "Channel Artist")
 	suite.createPlay(aloneEp.ID, 1, "Outsider Artist")
 
+	// A flagship's top artists count ONLY its own plays — sibling channels'
+	// plays are excluded (PSY-1074 reversed the PSY-1048 network aggregation).
 	artists, err := suite.radioService.GetTopArtistsForStation(flagship.ID, 90, 10)
 	suite.Require().NoError(err)
-	suite.Require().Len(artists, 2)
+	suite.Require().Len(artists, 1)
 	suite.Equal("Shared Artist", artists[0].ArtistName)
-	suite.Equal(2, artists[0].PlayCount)
-	suite.Equal(2, artists[0].EpisodeCount)
-	suite.Equal("Channel Artist", artists[1].ArtistName)
+	suite.Equal(1, artists[0].PlayCount)
+	suite.Equal(1, artists[0].EpisodeCount)
+
+	// A channel's top artists count only its own plays. Both have 1 play, so
+	// assert membership rather than tie-break order.
+	sibArtists, err := suite.radioService.GetTopArtistsForStation(sibling.ID, 90, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(sibArtists, 2)
+	sibNames := []string{sibArtists[0].ArtistName, sibArtists[1].ArtistName}
+	suite.ElementsMatch([]string{"Shared Artist", "Channel Artist"}, sibNames)
+
+	// Unknown station -> not found error.
+	_, err = suite.radioService.GetTopArtistsForStation(99999, 90, 10)
+	suite.Require().Error(err)
 }
 
-func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForStation_AggregatesNetwork() {
+func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForStation_StrictPerStation() {
 	flagship, sibling, _ := suite.createNetworkFamily()
 	flagShow := suite.createShow(flagship.ID, "Flag Show")
 	sibShow := suite.createShow(sibling.ID, "Sib Show")
@@ -1361,11 +1374,21 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForStation_Aggreg
 		suite.Require().NoError(suite.db.Create(&plays[i]).Error)
 	}
 
+	// A flagship's top labels count ONLY its own plays (PSY-1074).
 	labels, err := suite.radioService.GetTopLabelsForStation(flagship.ID, 90, 10)
 	suite.Require().NoError(err)
-	suite.Require().Len(labels, 2)
+	suite.Require().Len(labels, 1)
 	suite.Equal("Family Label", labels[0].LabelName)
-	suite.Equal(2, labels[0].PlayCount)
+	suite.Equal(1, labels[0].PlayCount)
+
+	// A channel's top labels count only its own plays.
+	sibLabels, err := suite.radioService.GetTopLabelsForStation(sibling.ID, 90, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(sibLabels, 2)
+
+	// Unknown station -> not found error.
+	_, err = suite.radioService.GetTopLabelsForStation(99999, 90, 10)
+	suite.Require().Error(err)
 }
 
 func TestRadioService_NilDB_ResolveStationID(t *testing.T) {

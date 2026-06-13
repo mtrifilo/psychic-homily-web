@@ -15,6 +15,7 @@ interface User {
   id: string
   email: string
   username?: string
+  display_name?: string
   first_name?: string
   last_name?: string
   bio?: string
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         id: profileData.user.id,
         email: profileData.user.email,
         username: profileData.user.username,
+        display_name: profileData.user.display_name,
         first_name: profileData.user.first_name,
         last_name: profileData.user.last_name,
         bio: profileData.user.bio,

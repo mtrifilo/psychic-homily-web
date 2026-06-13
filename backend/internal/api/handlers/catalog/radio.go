@@ -44,6 +44,12 @@ type RadioEpisodeReader interface {
 	GetRecentEpisodes(limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error)
 }
 
+// RadioNowPlayingReader reads a station's live/latest-archive now-playing
+// payload (PSY-1022).
+type RadioNowPlayingReader interface {
+	GetStationNowPlaying(stationID uint) (*contracts.RadioNowPlayingResponse, error)
+}
+
 // RadioAggregationReader reads radio aggregation/stats data (public endpoints).
 type RadioAggregationReader interface {
 	GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error)
@@ -115,6 +121,7 @@ type RadioHandler struct {
 	stationReader     RadioStationReader
 	showReader        RadioShowReader
 	episodeReader     RadioEpisodeReader
+	nowPlayingReader  RadioNowPlayingReader
 	aggregationReader RadioAggregationReader
 	stationWriter     RadioStationWriter
 	showWriter        RadioShowWriter
@@ -138,6 +145,7 @@ func NewRadioHandler(
 		stationReader:     radioService,
 		showReader:        radioService,
 		episodeReader:     radioService,
+		nowPlayingReader:  radioService,
 		aggregationReader: radioService,
 		stationWriter:     radioService,
 		showWriter:        radioService,
@@ -215,11 +223,43 @@ func (h *RadioHandler) GetRadioStationHandler(ctx context.Context, req *GetRadio
 }
 
 // ============================================================================
+// Public: Station Now Playing (PSY-1022)
+// ============================================================================
+
+// GetRadioStationNowPlayingRequest asks for a station's current broadcast.
+type GetRadioStationNowPlayingRequest struct {
+	Slug string `path:"slug" doc:"Radio station slug or numeric ID" example:"kexp"`
+}
+
+// GetRadioStationNowPlayingResponse carries the live (or latest-archive
+// fallback) now-playing payload.
+type GetRadioStationNowPlayingResponse struct {
+	Body *contracts.RadioNowPlayingResponse
+}
+
+// GetRadioStationNowPlayingHandler handles GET /radio-stations/{slug}/now-playing.
+// Provider failures never surface here — the service degrades to the
+// latest-archive payload — so non-404 errors are genuine server errors.
+func (h *RadioHandler) GetRadioStationNowPlayingHandler(ctx context.Context, req *GetRadioStationNowPlayingRequest) (*GetRadioStationNowPlayingResponse, error) {
+	stationID, err := h.resolveStationID(req.Slug)
+	if err != nil {
+		return nil, err
+	}
+
+	nowPlaying, err := h.nowPlayingReader.GetStationNowPlaying(stationID)
+	if err != nil {
+		return nil, mapRadioStationErrorMsg(err, "Failed to fetch station now-playing")
+	}
+
+	return &GetRadioStationNowPlayingResponse{Body: nowPlaying}, nil
+}
+
+// ============================================================================
 // Public: Station Latest Playlists (PSY-1048)
 // ============================================================================
 
 // GetRadioStationEpisodesRequest lists a station's latest playlists across
-// all of its shows (and network channels, for a flagship).
+// all of its shows — strictly the requested station (PSY-1074).
 type GetRadioStationEpisodesRequest struct {
 	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"wfmu"`
 	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"20" doc:"Max results (default 20)" example:"20"`
@@ -229,7 +269,7 @@ type GetRadioStationEpisodesRequest struct {
 // GetRadioStationEpisodesResponse is the station latest-playlists feed.
 type GetRadioStationEpisodesResponse struct {
 	Body struct {
-		Episodes []*contracts.RadioStationEpisodeRow `json:"episodes" doc:"Latest episodes across the station's shows, newest first, with channel attribution"`
+		Episodes []*contracts.RadioStationEpisodeRow `json:"episodes" doc:"Latest episodes across the station's shows, newest first"`
 		Total    int64                               `json:"total" doc:"Total number of episodes"`
 	}
 }

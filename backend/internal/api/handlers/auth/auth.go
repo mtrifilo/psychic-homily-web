@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -2089,10 +2091,11 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 // UpdateProfileRequest represents the request for updating profile identity fields.
 type UpdateProfileRequest struct {
 	Body struct {
-		Username  *string `json:"username,omitempty" required:"false" doc:"Username (3-30 chars, alphanumeric, underscores, hyphens)"`
-		FirstName *string `json:"first_name,omitempty" required:"false" doc:"First name"`
-		LastName  *string `json:"last_name,omitempty" required:"false" doc:"Last name"`
-		Bio       *string `json:"bio,omitempty" required:"false" doc:"Short bio (max 500 chars)"`
+		Username    *string `json:"username,omitempty" required:"false" doc:"Username (3-30 chars, alphanumeric, underscores, hyphens)"`
+		DisplayName *string `json:"display_name,omitempty" required:"false" doc:"Display name shown on the public profile and attributions (max 100 chars)"`
+		FirstName   *string `json:"first_name,omitempty" required:"false" doc:"First name"`
+		LastName    *string `json:"last_name,omitempty" required:"false" doc:"Last name"`
+		Bio         *string `json:"bio,omitempty" required:"false" doc:"Short bio (max 500 chars)"`
 	}
 }
 
@@ -2107,7 +2110,10 @@ type UpdateProfileResponse struct {
 	}
 }
 
-// UpdateProfileHandler handles PATCH /auth/profile — updates identity fields (username, name, bio).
+// UpdateProfileHandler handles PATCH /auth/profile — updates identity fields
+// (username, display name, bio; first/last name remain accepted for legacy
+// callers — registration still sets them and the resolver falls back to them,
+// but the profile form edits display_name only as of PSY-1063).
 func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfileRequest) (*UpdateProfileResponse, error) {
 	resp := &UpdateProfileResponse{}
 	requestID := logger.GetRequestID(ctx)
@@ -2142,6 +2148,27 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 			}
 		}
 		updates["username"] = username
+	}
+
+	if req.Body.DisplayName != nil {
+		displayName := strings.TrimSpace(*req.Body.DisplayName)
+		// Reject control characters (incl. newlines): the name is interpolated
+		// into notification subjects/bodies and attribution surfaces.
+		if strings.ContainsFunc(displayName, unicode.IsControl) {
+			resp.Body.Success = false
+			resp.Body.Message = "Display name contains unsupported characters"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		// 100 CHARACTERS (not bytes) — must stay in sync with the users
+		// migration's VARCHAR(100) and the /profile form's maxLength=100.
+		if utf8.RuneCountInString(displayName) > 100 {
+			resp.Body.Success = false
+			resp.Body.Message = "Display name must be 100 characters or fewer"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		updates["display_name"] = displayName
 	}
 
 	if req.Body.FirstName != nil {

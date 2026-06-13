@@ -16,4 +16,3 @@ export { CollectionCard } from './CollectionCard'
 // `app/collections/[slug]/page.tsx`, which imports it from the file directly.
 export { CollectionList } from './CollectionList'
 export { EntityCollections } from './EntityCollections'
-export { UserCollections } from './UserCollections'

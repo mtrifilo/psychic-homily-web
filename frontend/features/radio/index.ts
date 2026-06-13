@@ -29,6 +29,10 @@ export type {
   // PSY-1048 aggregation shapes (PSY-1049/1050/1051)
   RadioEpisodePreviewArtist,
   RadioStationEpisodeRow,
+  // PSY-1022 now-playing shapes
+  RadioNowPlaying,
+  RadioNowPlayingShowRef,
+  RadioNowPlayingTrack,
   RadioRecentEpisodesResponse,
   RadioStationEpisodesResponse,
 } from './types'
@@ -58,9 +62,10 @@ export {
   useReleaseRadioPlays,
   useNewReleaseRadar,
   useRadioStats,
-  // PSY-1016
-  useShowLatestEpisode,
+  // PSY-1016 (consumed by the Dial strips since PSY-1049)
   useStationOverview,
+  // PSY-1022: live now-playing (with latest-archive fallback)
+  useStationNowPlaying,
   // PSY-1049
   useRecentRadioEpisodes,
   // PSY-1050: station-page aggregations (PSY-1048 endpoints)
@@ -72,15 +77,8 @@ export {
 // Components
 export {
   RadioStationCard,
-  RadioEpisodeRow,
-  RadioPlayRow,
   AsHeardOn,
   NetworkTabBar,
-  // PSY-1016
-  RadioPanel,
-  RadioStationList,
-  RadioStationOverview,
-  RecentShowRow,
   ArtistHops,
   // PSY-1050: station-page rebuild (The Dial, Option A)
   StationOnAirBox,
@@ -90,15 +88,13 @@ export {
 } from './components'
 
 // PSY-1016: station-overview derivation helpers
+// (pickNowPlayingShow stays un-exported here — only useStationOverview
+// consumes it; PSY-1075 narrowed the public surface.)
 export {
-  pickNowPlayingShow,
-  orderRecentShows,
-  recentArtistsFromEpisode,
-  deriveNowPlaying,
   formatShortAirDate,
   formatStationLocation,
 } from './lib/stationOverview'
-export type { ArtistHop, NowPlaying } from './lib/stationOverview'
+export type { ArtistHop } from './lib/stationOverview'
 
 // PSY-1051: episode-archive derivation helpers + neighbors hook
 // (RadioEpisodePreviewArtist is re-exported in the types block above)
@@ -115,3 +111,6 @@ export {
   walkEpisodeNeighbors,
 } from './lib/episodeArchive'
 export type { ArtistMatchStats, EpisodeNeighbors } from './lib/episodeArchive'
+
+// PSY-1076: New Release Radar link resolution (hub box + /radio/new-releases)
+export { getNewReleaseHref } from './types'

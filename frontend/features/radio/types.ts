@@ -261,6 +261,18 @@ export interface RadioAsHeardOn {
   last_played: string
 }
 
+// New Release Radar link resolution (PSY-1076, extracted from the hub's
+// sidebar box): link the "Artist — Album" line to the release when matched,
+// else to the artist, else nowhere (no dead links). Shared by the hub box
+// and the /radio/new-releases full view — keep them in lockstep.
+export function getNewReleaseHref(
+  entry: Pick<RadioNewReleaseRadarEntry, 'release_slug' | 'artist_slug'>
+): string | null {
+  if (entry.release_slug) return `/releases/${entry.release_slug}`
+  if (entry.artist_slug) return `/artists/${entry.artist_slug}`
+  return null
+}
+
 export interface RadioNewReleaseRadarEntry {
   artist_name: string
   artist_id: number | null
@@ -373,8 +385,9 @@ export interface RadioEpisodePreviewArtist {
 
 /**
  * An episode row in the station-scoped and dial-wide latest-playlists feeds:
- * episode fields plus show and channel (station) attribution. A network
- * flagship's feed already includes its channels server-side.
+ * episode fields plus show and station attribution. Station-scoped feeds are
+ * strictly per-station (PSY-1074); the station_* fields exist for the
+ * dial-wide hub feed's STATION column.
  */
 export interface RadioStationEpisodeRow {
   id: number
@@ -408,4 +421,59 @@ export interface RadioStationEpisodesResponse {
 // carry the first few distinct playlist artists (PSY-1048).
 export interface RadioEpisodeListItem {
   artist_preview: RadioEpisodePreviewArtist[]
+}
+
+// ============================================================================
+// PSY-1022 now-playing shapes
+//
+// Mirrors RadioNowPlayingResponse in backend/internal/services/contracts/radio.go.
+// ============================================================================
+
+/** The matched our-DB show behind a now-playing payload (null = unmatched). */
+export interface RadioNowPlayingShowRef {
+  id: number
+  name: string
+  slug: string
+  host_name: string | null
+}
+
+/**
+ * The current track of a now-playing payload. Field names mirror RadioPlay
+ * (minus id/episode_id/position) so track renderers work on both shapes.
+ */
+export interface RadioNowPlayingTrack {
+  artist_name: string
+  track_title: string | null
+  album_title: string | null
+  label_name: string | null
+  release_year: number | null
+  rotation_status: string | null
+  dj_comment: string | null
+  artist_id: number | null
+  artist_slug: string | null
+  release_id: number | null
+  release_slug: string | null
+  label_id: number | null
+  label_slug: string | null
+}
+
+/**
+ * GET /radio-stations/{slug}/now-playing. `source: 'live'` implies
+ * `on_air: true` (the backend serves the archive fallback instead of a
+ * half-live payload); `show` is null when the live show name couldn't be
+ * matched to exactly one of the station's shows — render `show_name` as
+ * plain text, never a dead link (PSY-1073).
+ */
+export interface RadioNowPlaying {
+  source: 'live' | 'latest_archive'
+  on_air: boolean
+  show: RadioNowPlayingShowRef | null
+  show_name: string | null
+  /** Live-reported host (may be set even when `show` is unmatched). */
+  host_name: string | null
+  current_track: RadioNowPlayingTrack | null
+  /** Up to 4 distinct previously-played artists, most recent first. */
+  recent_artists: RadioEpisodePreviewArtist[]
+  /** Air date (YYYY-MM-DD) of the fallback episode; null for live payloads. */
+  episode_air_date: string | null
 }
