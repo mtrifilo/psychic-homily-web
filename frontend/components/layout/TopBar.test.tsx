@@ -100,6 +100,15 @@ describe('TopBar', () => {
       await user.click(screen.getByRole('button', { name: 'Search shows, artists, labels' }))
       expect(mockOpenCommandPalette).toHaveBeenCalledTimes(1)
     })
+
+    // PSY-1020: below `sm` the field condenses to an icon-only tap target so
+    // search stays reachable on phones.
+    it('opens the command palette from the mobile search icon', async () => {
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+      expect(mockOpenCommandPalette).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('primary nav', () => {
@@ -238,34 +247,16 @@ describe('TopBar', () => {
     })
   })
 
-  describe('mobile sheet', () => {
-    it('opens the hamburger sheet and shows the long-tail nav groups', async () => {
-      const user = userEvent.setup()
+  // PSY-1020: the public hamburger sheet is retired — the bottom tab bar
+  // (BottomTabBar, mounted by AppShell) is the primary mobile nav. The drawer
+  // survives only as the admin-sections nav on the /admin tab-shell (PSY-933).
+  describe('admin drawer', () => {
+    it('renders no hamburger for the public', () => {
       render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Open menu' }))
-      expect(await screen.findByText('Discover')).toBeInTheDocument()
-      expect(screen.getByText('Community')).toBeInTheDocument()
-      // a destination that only lives in the long-tail menu
-      expect(screen.getByRole('link', { name: 'Festivals' })).toHaveAttribute('href', '/festivals')
+      expect(screen.queryByRole('button', { name: 'Open admin menu' })).not.toBeInTheDocument()
     })
 
-    it('shows the mobile theme toggle label for the current theme', async () => {
-      const user = userEvent.setup()
-      render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Open menu' }))
-      expect(await screen.findByText('Light mode')).toBeInTheDocument()
-    })
-
-    it('closes the sheet when a nav link is clicked', async () => {
-      const user = userEvent.setup()
-      render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Open menu' }))
-      const link = await screen.findByRole('link', { name: 'Festivals' })
-      await user.click(link)
-      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
-    })
-
-    it('delegates to the admin drawer for an admin on the /admin shell', async () => {
+    it('opens the admin drawer for an admin on the /admin shell', async () => {
       mockPathname = '/admin'
       mockAuthContext.mockReturnValue({
         user: { email: 'admin@test.com', is_admin: true },
@@ -275,12 +266,11 @@ describe('TopBar', () => {
       })
       const user = userEvent.setup()
       render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+      await user.click(screen.getByRole('button', { name: 'Open admin menu' }))
       expect(await screen.findByTestId('admin-drawer-nav')).toBeInTheDocument()
-      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
     })
 
-    it('keeps the public nav for a non-admin on /admin', async () => {
+    it('renders no drawer for a non-admin on /admin', () => {
       mockPathname = '/admin'
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', is_admin: false },
@@ -288,11 +278,20 @@ describe('TopBar', () => {
         isLoading: false,
         logout: mockLogout,
       })
-      const user = userEvent.setup()
       render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Open menu' }))
-      expect(await screen.findByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByTestId('admin-drawer-nav')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Open admin menu' })).not.toBeInTheDocument()
+    })
+
+    it('renders no drawer for an admin off the /admin shell', () => {
+      mockPathname = '/shows'
+      mockAuthContext.mockReturnValue({
+        user: { email: 'admin@test.com', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      render(<TopBar />)
+      expect(screen.queryByRole('button', { name: 'Open admin menu' })).not.toBeInTheDocument()
     })
   })
 })

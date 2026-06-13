@@ -10,6 +10,10 @@ vi.mock('./CommandPalette', () => ({
   CommandPalette: () => <div data-testid="command-palette" />,
 }))
 
+vi.mock('./nav/BottomTabBar', () => ({
+  BottomTabBar: () => <div data-testid="bottom-tab-bar" />,
+}))
+
 describe('AppShell', () => {
   it('renders children', () => {
     render(
@@ -27,6 +31,18 @@ describe('AppShell', () => {
       </AppShell>
     )
     expect(screen.getByTestId('topbar')).toBeInTheDocument()
+  })
+
+  // PSY-1020: the bar is the primary mobile nav, mounted once in the shell so
+  // it persists on every route (it hides itself at `lg`).
+  it('mounts the BottomTabBar and pads the shell so content clears the fixed bar', () => {
+    const { container } = render(
+      <AppShell>
+        <div>content</div>
+      </AppShell>
+    )
+    expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()
+    expect(container.firstChild).toHaveClass('lg:pb-0')
   })
 
   it('mounts the CommandPalette once so global ⌘K works on every route', () => {
