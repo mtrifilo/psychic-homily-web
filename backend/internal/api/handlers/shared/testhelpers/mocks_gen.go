@@ -1808,6 +1808,7 @@ type MockFestivalService struct {
 	AddFestivalVenueFn      func(uint, *contracts.AddFestivalVenueRequest) (*contracts.FestivalVenueResponse, error)
 	RemoveFestivalVenueFn   func(uint, uint) error
 	GetFestivalsForArtistFn func(uint) ([]*contracts.ArtistFestivalListResponse, error)
+	GetFestivalGraphFn      func(uint, []string) (*contracts.FestivalGraphResponse, error)
 }
 
 func (m *MockFestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
@@ -1897,6 +1898,12 @@ func (m *MockFestivalService) RemoveFestivalVenue(festivalID uint, venueID uint)
 func (m *MockFestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.ArtistFestivalListResponse, error) {
 	if m.GetFestivalsForArtistFn != nil {
 		return m.GetFestivalsForArtistFn(artistID)
+	}
+	return nil, nil
+}
+func (m *MockFestivalService) GetFestivalGraph(festivalID uint, types []string) (*contracts.FestivalGraphResponse, error) {
+	if m.GetFestivalGraphFn != nil {
+		return m.GetFestivalGraphFn(festivalID, types)
 	}
 	return nil, nil
 }

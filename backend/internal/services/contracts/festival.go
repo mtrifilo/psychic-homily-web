@@ -149,6 +149,65 @@ type AddFestivalVenueRequest struct {
 }
 
 // ──────────────────────────────────────────────
+// Festival graph (PSY-1080) — co-bill subgraph of a single festival's lineup
+// ──────────────────────────────────────────────
+
+// FestivalGraphResponse is the payload for GET /festivals/{festival_id}/graph.
+// Mirrors SceneGraphResponse field-for-field (`scene` → `festival`) so the
+// frontend ForceGraphView renders either payload unchanged.
+type FestivalGraphResponse struct {
+	Festival FestivalGraphInfo      `json:"festival"`
+	Clusters []FestivalGraphCluster `json:"clusters"`
+	Nodes    []FestivalGraphNode    `json:"nodes"`
+	Links    []FestivalGraphLink    `json:"links"`
+}
+
+// FestivalGraphInfo holds festival metadata for the graph response. Fields
+// mirror SceneGraphInfo (slug + counts) plus festival-specific identifiers.
+type FestivalGraphInfo struct {
+	ID          uint   `json:"id"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Year        int    `json:"year"`
+	ArtistCount int    `json:"artist_count"` // lineup artists in the response (includes isolates; capped)
+	EdgeCount   int    `json:"edge_count"`   // total edges in the response (post type-filter)
+}
+
+// FestivalGraphCluster groups lineup artists by billing tier (the cluster
+// signal at festival scope — see PSY-1080). Matches the SceneGraphCluster
+// shape so the same ForceGraphView legend renders both.
+type FestivalGraphCluster struct {
+	ID         string `json:"id"`          // "tier_<billing_tier>" or "other"
+	Label      string `json:"label"`       // human-readable tier name or "Other"
+	Size       int    `json:"size"`        // number of lineup artists in this tier
+	ColorIndex int    `json:"color_index"` // 0-7 = Okabe-Ito index; -1 = "other" (grey)
+}
+
+// FestivalGraphNode mirrors SceneGraphNode — an artist on the festival's bill.
+type FestivalGraphNode struct {
+	ID                uint   `json:"id"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	City              string `json:"city,omitempty"`
+	State             string `json:"state,omitempty"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+	ClusterID         string `json:"cluster_id"` // matches FestivalGraphCluster.ID
+	IsIsolate         bool   `json:"is_isolate"` // true when the artist has no in-lineup edges (post type-filter)
+}
+
+// FestivalGraphLink mirrors SceneGraphLink — a relationship between two
+// lineup artists. `type` is preserved from the source signal (shared_bills,
+// shared_label, similar, radio_cooccurrence, festival_cobill).
+type FestivalGraphLink struct {
+	SourceID       uint    `json:"source_id"`
+	TargetID       uint    `json:"target_id"`
+	Type           string  `json:"type"`
+	Score          float64 `json:"score"`
+	Detail         any     `json:"detail,omitempty"`
+	IsCrossCluster bool    `json:"is_cross_cluster"` // derived: source.cluster_id != target.cluster_id
+}
+
+// ──────────────────────────────────────────────
 // Festival Service Interface
 // ──────────────────────────────────────────────
 
@@ -169,4 +228,5 @@ type FestivalServiceInterface interface {
 	AddFestivalVenue(festivalID uint, req *AddFestivalVenueRequest) (*FestivalVenueResponse, error)
 	RemoveFestivalVenue(festivalID, venueID uint) error
 	GetFestivalsForArtist(artistID uint) ([]*ArtistFestivalListResponse, error)
+	GetFestivalGraph(festivalID uint, types []string) (*FestivalGraphResponse, error)
 }
