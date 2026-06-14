@@ -14,10 +14,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { browseGroups, browseHrefs, isNavActive, navItemClassName } from './navData'
 
-// Hover-intent timing. Kept short so the menu feels snappy on enter and leave
-// (PSY-1089). Open after a brief dwell so a pointer merely passing over the
-// trigger doesn't pop the panel; close is longer than open so the diagonal
-// travel from the trigger into the panel doesn't dismiss it mid-move.
+// Hover-intent timing, feel-tuned short for snappy enter/leave (PSY-1089). The
+// open dwell is deliberately near-instant; at 100ms a pointer merely passing over
+// the trigger may briefly pop the panel — an accepted trade-off for the snappy
+// feel, not a bug. The close delay (200ms) is feel-tuned, not derived: it just
+// has to comfortably outlast the time to drag a pointer across the trigger→panel
+// gap (`sideOffset` below) so diagonal travel hits the panel's `onPointerEnter` →
+// `clearTimer` and cancels the close instead of dismissing mid-move. The two are
+// tuned independently — shrinking `sideOffset` does not license shrinking this
+// delay. (NN/G's nominal 0.5s dwell is an upper bound; see
+// docs/open-questions/navigation-redesign.md.)
 const OPEN_DELAY_MS = 100
 const CLOSE_DELAY_MS = 200
 
