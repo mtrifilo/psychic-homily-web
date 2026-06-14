@@ -13,6 +13,16 @@ name: Lighthouse Explore
 # load-bearing primitives. Unrelated PRs skip the job entirely
 # (no false-positive failures, no wasted runner minutes).
 #
+# NON-BLOCKING (PSY-1091): the assertions in lighthouserc.json are `warn`,
+# not `error`, so this gate reports the metrics + uploads the full report
+# but does NOT fail the merge. Reason: the Vercel preview is cold-start +
+# CI-runner-CPU-contention dominated — identical code measured TTI 3136ms
+# AND 7518ms (and LCP 584ms AND 3526ms) across the 3 passes of a single
+# run, a swing larger than the entire budget. A hard gate on that signal
+# blocks merges on noise, not regressions. Treat the numbers as advisory
+# trend data; do NOT flip back to `error` without first stabilizing the
+# measurement (e.g. warm the preview before measuring, or raise run count).
+#
 # Vercel Deployment Protection setup:
 #   Previews are SSO-gated. The job uses a Protection Bypass for
 #   Automation secret to reach the preview from the CI runner:

@@ -3,25 +3,21 @@ import { render } from '@testing-library/react'
 import { PostHogProvider } from './PostHogProvider'
 
 // --- Mocks ---
-
-const mockInitPostHog = vi.fn()
-const mockOptInPostHog = vi.fn()
-const mockOptOutPostHog = vi.fn()
-const mockHasOptedInCapturing = vi.fn(() => false)
-const mockCapture = vi.fn()
-const mockIdentify = vi.fn()
-const mockReset = vi.fn()
+// Lazy posthog API (PSY-1091). The provider now calls enable/disable per
+// consent; posthog-js itself only loads inside enableAnalytics, and
+// idempotency lives in the lib (tested in lib/posthog.test.ts), not here.
+const mockEnable = vi.fn()
+const mockDisable = vi.fn()
+const mockCapturePageview = vi.fn()
+const mockIdentifyUser = vi.fn()
+const mockResetAnalytics = vi.fn()
 
 vi.mock('@/lib/posthog', () => ({
-  initPostHog: () => mockInitPostHog(),
-  optInPostHog: () => mockOptInPostHog(),
-  optOutPostHog: () => mockOptOutPostHog(),
-  posthog: {
-    has_opted_in_capturing: () => mockHasOptedInCapturing(),
-    capture: (...args: unknown[]) => mockCapture(...args),
-    identify: (...args: unknown[]) => mockIdentify(...args),
-    reset: () => mockReset(),
-  },
+  enableAnalytics: () => mockEnable(),
+  disableAnalytics: () => mockDisable(),
+  capturePageview: (...args: unknown[]) => mockCapturePageview(...args),
+  identifyUser: (...args: unknown[]) => mockIdentifyUser(...args),
+  resetAnalytics: () => mockResetAnalytics(),
 }))
 
 const mockUseCookieConsent = vi.fn(() => ({
@@ -58,7 +54,6 @@ vi.mock('next/navigation', () => ({
 describe('PostHogProvider — consent sync', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHasOptedInCapturing.mockReturnValue(false)
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
@@ -67,108 +62,64 @@ describe('PostHogProvider — consent sync', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: false })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockOptInPostHog).not.toHaveBeenCalled()
-    expect(mockOptOutPostHog).not.toHaveBeenCalled()
+    expect(mockEnable).not.toHaveBeenCalled()
+    expect(mockDisable).not.toHaveBeenCalled()
   })
 
-  it('opts in when consent is granted but PostHog is not yet opted in', () => {
-    mockHasOptedInCapturing.mockReturnValue(false)
+  it('enables analytics (lazy-loads posthog) when consent is granted', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockOptInPostHog).toHaveBeenCalledTimes(1)
-    expect(mockOptOutPostHog).not.toHaveBeenCalled()
+    expect(mockEnable).toHaveBeenCalledTimes(1)
+    expect(mockDisable).not.toHaveBeenCalled()
   })
 
-  it('does NOT re-fire opt-in when PostHog is already opted in (aligned)', () => {
-    // Latent-bug regression guard: a fresh mount must not re-trigger opt-in
-    // when PostHog's persisted state already matches the granted consent.
-    mockHasOptedInCapturing.mockReturnValue(true)
-    mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
-    render(<PostHogProvider>child</PostHogProvider>)
-
-    expect(mockOptInPostHog).not.toHaveBeenCalled()
-    expect(mockOptOutPostHog).not.toHaveBeenCalled()
-  })
-
-  it('opts out when consent is withdrawn but PostHog is still opted in', () => {
-    mockHasOptedInCapturing.mockReturnValue(true)
+  it('does NOT load posthog when consent is withheld', () => {
+    // The load-bearing TTI win: no consent → posthog-js never fetched.
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockOptOutPostHog).toHaveBeenCalledTimes(1)
-    expect(mockOptInPostHog).not.toHaveBeenCalled()
-  })
-
-  it('does NOT re-fire opt-out when PostHog is already opted out (aligned)', () => {
-    mockHasOptedInCapturing.mockReturnValue(false)
-    mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
-    render(<PostHogProvider>child</PostHogProvider>)
-
-    expect(mockOptInPostHog).not.toHaveBeenCalled()
-    expect(mockOptOutPostHog).not.toHaveBeenCalled()
-  })
-
-  it('still initializes PostHog on mount regardless of consent', () => {
-    render(<PostHogProvider>child</PostHogProvider>)
-    expect(mockInitPostHog).toHaveBeenCalledTimes(1)
+    expect(mockEnable).not.toHaveBeenCalled()
+    expect(mockDisable).toHaveBeenCalledTimes(1)
   })
 })
 
-// PSY-728 reference: the prev-consent comparison must read PostHog's own
-// persisted state (`posthog.has_opted_in_capturing()`) — NOT a per-mount
-// ref that would flip every page load and re-fire opt-in / session
-// recording for users already opted in. The tests above pin the post-fix
-// behavior. This block adds explicit transition tests (granted → withdrawn,
-// withdrawn → granted) within a single mounted instance, which the
-// original ref-based code mishandled.
+// Consent transitions within a single mount: granted → withdrawn and back.
 describe('PostHogProvider — consent transition within a single mount', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHasOptedInCapturing.mockReturnValue(false)
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
 
-  it('granted → withdrawn (re-render) triggers exactly one opt-out call', () => {
-    // Start opted in (mocked PostHog state agrees with consent).
-    mockHasOptedInCapturing.mockReturnValue(true)
+  it('granted → withdrawn (re-render) disables analytics', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
     const { rerender } = render(<PostHogProvider>child</PostHogProvider>)
+    expect(mockEnable).toHaveBeenCalledTimes(1)
 
-    expect(mockOptOutPostHog).not.toHaveBeenCalled()
-
-    // User withdraws consent. After the user clicked "Reject all",
-    // PostHog's persisted state is still opted in until we opt out.
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     rerender(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockOptOutPostHog).toHaveBeenCalledTimes(1)
-    expect(mockOptInPostHog).not.toHaveBeenCalled()
+    expect(mockDisable).toHaveBeenCalledTimes(1)
   })
 
-  it('withdrawn → granted (re-render) triggers exactly one opt-in call', () => {
-    mockHasOptedInCapturing.mockReturnValue(false)
+  it('withdrawn → granted (re-render) enables analytics', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     const { rerender } = render(<PostHogProvider>child</PostHogProvider>)
-
-    expect(mockOptInPostHog).not.toHaveBeenCalled()
+    expect(mockEnable).not.toHaveBeenCalled()
 
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
     rerender(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockOptInPostHog).toHaveBeenCalledTimes(1)
-    expect(mockOptOutPostHog).not.toHaveBeenCalled()
+    expect(mockEnable).toHaveBeenCalledTimes(1)
   })
 })
 
-// User identification side-effect: PostHog should identify on auth, reset
-// on logout, and do nothing while consent is withheld. Distinct from
-// opt-in/out wiring since identify() and reset() are independent calls.
+// User identification side-effect: identify on auth, reset on logout, nothing
+// while consent is withheld.
 describe('PostHogProvider — user identification', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHasOptedInCapturing.mockReturnValue(false)
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
@@ -181,20 +132,20 @@ describe('PostHogProvider — user identification', () => {
     })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockIdentify).toHaveBeenCalledWith('u-123', {
+    expect(mockIdentifyUser).toHaveBeenCalledWith('u-123', {
       email: 'fan@test.com',
       is_admin: false,
     })
-    expect(mockReset).not.toHaveBeenCalled()
+    expect(mockResetAnalytics).not.toHaveBeenCalled()
   })
 
-  it('resets PostHog when consent granted but user is logged out', () => {
+  it('resets analytics when consent granted but user is logged out', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
     mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockReset).toHaveBeenCalledTimes(1)
-    expect(mockIdentify).not.toHaveBeenCalled()
+    expect(mockResetAnalytics).toHaveBeenCalledTimes(1)
+    expect(mockIdentifyUser).not.toHaveBeenCalled()
   })
 
   it('does NOT identify or reset when consent is withheld', () => {
@@ -205,17 +156,15 @@ describe('PostHogProvider — user identification', () => {
     })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockIdentify).not.toHaveBeenCalled()
-    expect(mockReset).not.toHaveBeenCalled()
+    expect(mockIdentifyUser).not.toHaveBeenCalled()
+    expect(mockResetAnalytics).not.toHaveBeenCalled()
   })
 })
 
-// Children render through unchanged — provider must never block its
-// subtree on consent state, network state, or anything else.
+// Children render through unchanged — provider must never block its subtree.
 describe('PostHogProvider — children render', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHasOptedInCapturing.mockReturnValue(false)
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
@@ -250,29 +199,25 @@ describe('PostHogProvider — children render', () => {
   })
 })
 
-// Pageview capture: the inner PostHogPageView component should call
-// posthog.capture('$pageview', …) ONLY when canUseAnalytics is true.
+// Pageview capture: PostHogPageView calls capturePageview ONLY when consent is
+// granted (capturePageview itself is a no-op until posthog has lazy-loaded).
 describe('PostHogProvider — pageview capture', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHasOptedInCapturing.mockReturnValue(false)
     mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
 
-  it('captures $pageview when consent granted', () => {
+  it('captures a pageview when consent granted', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    expect(mockCapture).toHaveBeenCalled()
-    const pageviewCall = mockCapture.mock.calls.find(c => c[0] === '$pageview')
-    expect(pageviewCall).toBeDefined()
+    expect(mockCapturePageview).toHaveBeenCalled()
   })
 
-  it('does NOT capture $pageview when consent withheld', () => {
+  it('does NOT capture a pageview when consent withheld', () => {
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
     render(<PostHogProvider>child</PostHogProvider>)
 
-    const pageviewCall = mockCapture.mock.calls.find(c => c[0] === '$pageview')
-    expect(pageviewCall).toBeUndefined()
+    expect(mockCapturePageview).not.toHaveBeenCalled()
   })
 })

@@ -5,10 +5,11 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
-  initPostHog,
-  optInPostHog,
-  optOutPostHog,
-  posthog,
+  enableAnalytics,
+  disableAnalytics,
+  capturePageview,
+  identifyUser,
+  resetAnalytics,
 } from '@/lib/posthog'
 
 // Separate component for search params tracking to allow Suspense boundary
@@ -17,10 +18,10 @@ function PostHogPageView(): null {
   const searchParams = useSearchParams()
   const { canUseAnalytics } = useCookieConsent()
 
-  // Track pageviews
+  // Track pageviews (no-op until posthog has lazy-loaded, i.e. after consent)
   useEffect(() => {
     if (!canUseAnalytics) return
-    posthog.capture('$pageview', { $current_url: window.location.href })
+    capturePageview(window.location.href)
   }, [pathname, searchParams, canUseAnalytics])
 
   return null
@@ -30,30 +31,29 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const { canUseAnalytics, isLoaded } = useCookieConsent()
   const { user, isAuthenticated } = useAuthContext()
 
-  // Initialize on mount (doesn't start tracking)
-  useEffect(() => {
-    initPostHog()
-  }, [])
-
-  // Sync PostHog's opt-in state to consent. Comparing against PostHog's own
-  // persisted state (rather than a per-mount ref) avoids re-firing opt-in +
-  // session recording on every page load when the user is already opted in.
+  // Lazy-load + opt in only once analytics consent is granted; opt out
+  // otherwise. posthog-js is never fetched for visitors who don't consent
+  // (PSY-1091 — keeps it off the eager critical path). enableAnalytics is
+  // idempotent, so re-running on every consent-sync render is safe.
   useEffect(() => {
     if (!isLoaded) return
-    if (canUseAnalytics === posthog.has_opted_in_capturing()) return
-    canUseAnalytics ? optInPostHog() : optOutPostHog()
+    if (canUseAnalytics) {
+      void enableAnalytics()
+    } else {
+      disableAnalytics()
+    }
   }, [canUseAnalytics, isLoaded])
 
-  // Identify authenticated users
+  // Identify authenticated users (no-op until posthog has loaded post-consent)
   useEffect(() => {
     if (!canUseAnalytics) return
     if (isAuthenticated && user) {
-      posthog.identify(user.id, {
+      identifyUser(user.id, {
         email: user.email,
         is_admin: user.is_admin,
       })
     } else {
-      posthog.reset()
+      resetAnalytics()
     }
   }, [isAuthenticated, user, canUseAnalytics])
 

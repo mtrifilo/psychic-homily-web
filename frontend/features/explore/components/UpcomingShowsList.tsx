@@ -59,6 +59,19 @@ import type { GeoLocation } from '@/lib/geo-default'
 // off the initial /explore hydration path; since the bar only appears
 // after the useShowCities fetch resolves (cities.length > 0), the
 // deferral is effectively invisible. See PSY-840.
+// Combobox-shaped placeholder — same border/padding/height as the real
+// CityFilters trigger. Used BOTH as the dynamic-import loading fallback AND as
+// the pre-cities-fetch reservation, so the filter row occupies an identical
+// height across all three states (empty → placeholder → real) and the shows
+// list below never shifts (CLS — PSY-1091).
+function CityFilterPlaceholder() {
+  return (
+    <div className="flex w-fit items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground">
+      <span className="opacity-60">Filter by city…</span>
+    </div>
+  )
+}
+
 const CityFilters = dynamic(
   () =>
     import('@/components/filters/CityFilters').then(m => ({
@@ -66,13 +79,11 @@ const CityFilters = dynamic(
     })),
   {
     ssr: false,
-    // Combobox-shaped placeholder — same border/padding/height as the
-    // real trigger so the bar doesn't shift when it hydrates (CLS).
-    loading: () => (
-      <div className="flex w-fit items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground">
-        <span className="opacity-60">Filter by city…</span>
-      </div>
-    ),
+    // MOUNTING the combobox eagerly on /explore hydrates the cmdk + Radix
+    // Popover tree on the critical path, which pushed the TTI gate over budget
+    // (PSY-868). dynamic(ssr:false) defers that hydration; the placeholder
+    // keeps the row height stable. See PSY-840.
+    loading: () => <CityFilterPlaceholder />,
   },
 )
 
@@ -204,8 +215,11 @@ export function UpcomingShowsList({
   )
 
   const filterBar =
-    // Show the filter whenever ≥1 city has shows (PSY-932) — consistent with
-    // /venues and /artists; hidden only when there are no cities.
+    // CLS (PSY-1091): always reserve the filter row's height (min-h-9 = the
+    // combobox trigger / its dynamic-import placeholder height) so the shows
+    // list below doesn't shift down when the cities fetch resolves and the bar
+    // fills in. The filter controls render once ≥1 city has shows (PSY-932);
+    // the container holds their space from first paint.
     cities.length > 0 ? (
       <div className="mb-5">
         <CityFilters
@@ -227,7 +241,14 @@ export function UpcomingShowsList({
           />
         )}
       </div>
-    ) : null
+    ) : (
+      // cities not yet resolved (client fetch) → reserve the exact filter-row
+      // height with the same placeholder, so the shows list doesn't shift down
+      // when the bar fills in.
+      <div className="mb-5" aria-hidden>
+        <CityFilterPlaceholder />
+      </div>
+    )
 
   if (isLoading) {
     return (
