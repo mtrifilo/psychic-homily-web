@@ -204,8 +204,11 @@ export function UpcomingShowsList({
   )
 
   const filterBar =
-    // Show the filter whenever ≥1 city has shows (PSY-932) — consistent with
-    // /venues and /artists; hidden only when there are no cities.
+    // CLS (PSY-1091): always reserve the filter row's height (min-h-9 = the
+    // combobox trigger / its dynamic-import placeholder height) so the shows
+    // list below doesn't shift down when the cities fetch resolves and the bar
+    // fills in. The filter controls render once ≥1 city has shows (PSY-932);
+    // the container holds their space from first paint.
     cities.length > 0 ? (
       <div className="mb-5">
         <CityFilters
@@ -227,7 +230,10 @@ export function UpcomingShowsList({
           />
         )}
       </div>
-    ) : null
+    ) : (
+      // cities not yet resolved (client fetch) → reserve the row height.
+      <div className="mb-5 min-h-9" aria-hidden />
+    )
 
   if (isLoading) {
     return (

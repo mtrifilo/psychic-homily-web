@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// Mock the posthog-js module
+// Mock the posthog-js module (resolved via the lazy dynamic import in the lib).
 const mockInit = vi.fn()
 const mockOptInCapturing = vi.fn()
 const mockOptOutCapturing = vi.fn()
 const mockStartSessionRecording = vi.fn()
 const mockStopSessionRecording = vi.fn()
 const mockReset = vi.fn()
+const mockCapture = vi.fn()
+const mockIdentify = vi.fn()
 
 vi.mock('posthog-js', () => ({
   default: {
@@ -16,54 +18,54 @@ vi.mock('posthog-js', () => ({
     startSessionRecording: () => mockStartSessionRecording(),
     stopSessionRecording: () => mockStopSessionRecording(),
     reset: () => mockReset(),
+    capture: (...args: unknown[]) => mockCapture(...args),
+    identify: (...args: unknown[]) => mockIdentify(...args),
   },
 }))
 
-// We need to reimport the module fresh for each test group
-// because isInitialized is module-level state
-describe('posthog', () => {
+// Module-level state (instance / loadPromise / optedIn) is reset by
+// re-importing the module fresh per test.
+describe('posthog (lazy, consent-gated)', () => {
   let originalEnv: NodeJS.ProcessEnv
 
   beforeEach(() => {
     vi.clearAllMocks()
     originalEnv = { ...process.env }
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
   })
 
   afterEach(() => {
     process.env = originalEnv
-    // Reset module state between tests by re-importing
     vi.resetModules()
   })
 
-  describe('initPostHog', () => {
-    it('does not initialize when window is undefined (SSR)', async () => {
+  describe('enableAnalytics', () => {
+    it('does not load/init on the server (no window)', async () => {
       const windowSpy = vi.spyOn(globalThis, 'window', 'get')
-      // Simulating SSR where window is undefined. The TS cast is needed
-      // because the getter's declared return type is non-nullable.
       windowSpy.mockReturnValue(undefined as unknown as Window & typeof globalThis)
 
-      const { initPostHog } = await import('./posthog')
-      initPostHog()
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
 
       expect(mockInit).not.toHaveBeenCalled()
+      expect(mockOptInCapturing).not.toHaveBeenCalled()
       windowSpy.mockRestore()
     })
 
-    it('does not initialize when NEXT_PUBLIC_POSTHOG_KEY is not set', async () => {
+    it('does not load/init when NEXT_PUBLIC_POSTHOG_KEY is not set', async () => {
       delete process.env.NEXT_PUBLIC_POSTHOG_KEY
 
-      const { initPostHog } = await import('./posthog')
-      initPostHog()
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
 
       expect(mockInit).not.toHaveBeenCalled()
     })
 
-    it('initializes posthog with correct config when key is set', async () => {
-      process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
+    it('lazy-inits with the correct config then opts in + records', async () => {
       process.env.NEXT_PUBLIC_POSTHOG_HOST = 'https://custom.posthog.com'
 
-      const { initPostHog } = await import('./posthog')
-      initPostHog()
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
 
       expect(mockInit).toHaveBeenCalledWith('phc_test_key_123', {
         api_host: 'https://custom.posthog.com',
@@ -73,61 +75,46 @@ describe('posthog', () => {
         persistence: 'localStorage',
         session_recording: { maskAllInputs: true },
       })
-    })
-
-    it('uses default posthog host when NEXT_PUBLIC_POSTHOG_HOST is not set', async () => {
-      process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
-      delete process.env.NEXT_PUBLIC_POSTHOG_HOST
-
-      const { initPostHog } = await import('./posthog')
-      initPostHog()
-
-      expect(mockInit).toHaveBeenCalledWith(
-        'phc_test_key_123',
-        expect.objectContaining({
-          api_host: 'https://app.posthog.com',
-        })
-      )
-    })
-
-    it('does not initialize twice', async () => {
-      process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
-
-      const { initPostHog } = await import('./posthog')
-      initPostHog()
-      initPostHog()
-
-      expect(mockInit).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('optInPostHog', () => {
-    it('calls opt_in_capturing and startSessionRecording', async () => {
-      process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
-
-      const { optInPostHog } = await import('./posthog')
-      optInPostHog()
-
       expect(mockOptInCapturing).toHaveBeenCalledTimes(1)
       expect(mockStartSessionRecording).toHaveBeenCalledTimes(1)
     })
 
-    it('initializes posthog if not already initialized', async () => {
-      process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
+    it('uses the default host when NEXT_PUBLIC_POSTHOG_HOST is not set', async () => {
+      delete process.env.NEXT_PUBLIC_POSTHOG_HOST
 
-      const { optInPostHog } = await import('./posthog')
-      optInPostHog()
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
 
-      // Should have called init since it was not initialized
-      expect(mockInit).toHaveBeenCalled()
-      expect(mockOptInCapturing).toHaveBeenCalled()
+      expect(mockInit).toHaveBeenCalledWith(
+        'phc_test_key_123',
+        expect.objectContaining({ api_host: 'https://app.posthog.com' })
+      )
+    })
+
+    it('is idempotent — init + opt-in run once across repeated calls', async () => {
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
+      await enableAnalytics()
+
+      expect(mockInit).toHaveBeenCalledTimes(1)
+      expect(mockOptInCapturing).toHaveBeenCalledTimes(1)
     })
   })
 
-  describe('optOutPostHog', () => {
-    it('calls opt_out_capturing, stopSessionRecording, and reset', async () => {
-      const { optOutPostHog } = await import('./posthog')
-      optOutPostHog()
+  describe('disableAnalytics', () => {
+    it('is a no-op when analytics was never enabled (posthog not loaded)', async () => {
+      const { disableAnalytics } = await import('./posthog')
+      disableAnalytics()
+
+      expect(mockOptOutCapturing).not.toHaveBeenCalled()
+      expect(mockStopSessionRecording).not.toHaveBeenCalled()
+      expect(mockReset).not.toHaveBeenCalled()
+    })
+
+    it('opts out, stops recording, and resets after analytics was enabled', async () => {
+      const { enableAnalytics, disableAnalytics } = await import('./posthog')
+      await enableAnalytics()
+      disableAnalytics()
 
       expect(mockOptOutCapturing).toHaveBeenCalledTimes(1)
       expect(mockStopSessionRecording).toHaveBeenCalledTimes(1)
@@ -135,11 +122,36 @@ describe('posthog', () => {
     })
   })
 
-  describe('posthog export', () => {
-    it('re-exports the posthog instance', async () => {
-      const { posthog } = await import('./posthog')
-      expect(posthog).toBeDefined()
-      expect(typeof posthog.init).toBe('function')
+  describe('capturePageview / identifyUser / resetAnalytics', () => {
+    it('are no-ops until posthog has loaded (pre-consent)', async () => {
+      const { capturePageview, identifyUser, resetAnalytics } = await import(
+        './posthog'
+      )
+      capturePageview('https://example.com/explore')
+      identifyUser('u-1', { email: 'a@b.com', is_admin: false })
+      resetAnalytics()
+
+      expect(mockCapture).not.toHaveBeenCalled()
+      expect(mockIdentify).not.toHaveBeenCalled()
+      // reset only fires via disableAnalytics/identify paths; standalone no-op
+      expect(mockReset).not.toHaveBeenCalled()
+    })
+
+    it('capture + identify work after analytics is enabled', async () => {
+      const { enableAnalytics, capturePageview, identifyUser } = await import(
+        './posthog'
+      )
+      await enableAnalytics()
+      capturePageview('https://example.com/explore')
+      identifyUser('u-1', { email: 'a@b.com', is_admin: true })
+
+      expect(mockCapture).toHaveBeenCalledWith('$pageview', {
+        $current_url: 'https://example.com/explore',
+      })
+      expect(mockIdentify).toHaveBeenCalledWith('u-1', {
+        email: 'a@b.com',
+        is_admin: true,
+      })
     })
   })
 })
