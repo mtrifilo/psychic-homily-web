@@ -480,7 +480,7 @@ export function ForceGraphView({
         // first so the text stays legible over colored nodes / cluster hulls on
         // either theme, then fill with the resolved foreground. Keep the halo
         // well under the glyph size (~1/4) so letter counters don't fill in.
-        ctx.lineWidth = Math.max(1.5, fontSize / 4)
+        ctx.lineWidth = fontSize / 4
         ctx.lineJoin = 'round'
         ctx.strokeStyle = palette.labelHalo
         ctx.strokeText(label, x, labelY)
