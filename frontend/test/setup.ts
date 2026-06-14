@@ -3,6 +3,42 @@ import { afterAll, afterEach, beforeAll, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { server } from './mocks/server'
 
+// Globally mock @sentry/nextjs (PSY-1097). The real package is large and slow to
+// transform; when a test pulls it in transitively (e.g. via lib/api.ts) the vite
+// module-runner can still be fetching it when the worker pool tears down,
+// surfacing as the intermittent "[vitest-worker]: Closing rpc while \"fetch\" was
+// pending" CI failure — the module-runner variant of the PSY-945 teardown race
+// (that one was an app HTTP fetch; this one is module resolution). Mocking it
+// here means the real module is never loaded in any unit test, so that race can't
+// fire, and per-file Sentry mocks become unnecessary. App code only calls
+// captureException / captureMessage / init / captureRequestError /
+// captureRouterTransitionStart / addIntegration; the rest are defensive stubs so
+// nothing throws if a consumer reaches for a common Sentry API.
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
+  captureEvent: vi.fn(),
+  init: vi.fn(),
+  captureRequestError: vi.fn(),
+  captureRouterTransitionStart: vi.fn(),
+  addIntegration: vi.fn(),
+  replayIntegration: vi.fn(() => ({ name: 'Replay' })),
+  reactErrorHandler: vi.fn(),
+  withScope: vi.fn((cb: (scope: unknown) => unknown) =>
+    cb({
+      setTag: vi.fn(),
+      setExtra: vi.fn(),
+      setContext: vi.fn(),
+      setLevel: vi.fn(),
+    })
+  ),
+  setUser: vi.fn(),
+  setTag: vi.fn(),
+  setContext: vi.fn(),
+  addBreadcrumb: vi.fn(),
+  flush: vi.fn(() => Promise.resolve(true)),
+}))
+
 // Start MSW server before all tests, reset handlers after each test,
 // and shut down the server when all tests complete.
 //

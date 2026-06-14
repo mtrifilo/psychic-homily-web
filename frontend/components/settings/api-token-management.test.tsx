@@ -6,9 +6,6 @@ import { APITokenManagement } from './api-token-management'
 
 // --- Mocks ---
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 let mockTokensData: {
   tokens: {

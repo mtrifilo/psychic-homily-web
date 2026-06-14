@@ -7,10 +7,6 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }))
 
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-  captureException: vi.fn(),
-}))
 
 const mockRevalidatePath = vi.mocked(revalidatePath)
 const mockCaptureMessage = vi.mocked(Sentry.captureMessage)

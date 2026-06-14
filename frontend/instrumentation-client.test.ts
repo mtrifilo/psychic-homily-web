@@ -4,10 +4,6 @@ import * as Sentry from '@sentry/nextjs'
 // Replay is attached LAZILY (PSY-1091): Sentry.init runs at module-load, but the
 // replay integration lives in ./instrumentation-replay, dynamic-import()ed after
 // interactivity (production only). Mock that module so the lazy path is testable.
-vi.mock('@sentry/nextjs', () => ({
-  init: vi.fn(),
-  captureRouterTransitionStart: vi.fn(),
-}))
 // Hoisted stable spy so it survives vi.resetModules() — the dynamic import in
 // instrumentation-client and the assertions below share one instance.
 const { attachReplay } = vi.hoisted(() => ({ attachReplay: vi.fn() }))

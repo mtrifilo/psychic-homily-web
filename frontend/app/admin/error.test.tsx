@@ -4,9 +4,6 @@ import userEvent from '@testing-library/user-event'
 import * as Sentry from '@sentry/nextjs'
 import AdminError from './error'
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 describe('Admin route error boundary (app/admin/error.tsx)', () => {
   beforeEach(() => {

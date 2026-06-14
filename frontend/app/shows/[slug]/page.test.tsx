@@ -14,10 +14,6 @@ vi.mock('next/navigation', () => ({
   notFound: () => notFoundMock(),
 }))
 
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-  captureException: vi.fn(),
-}))
 
 // Stub the heavy shows feature module so invoking the page body doesn't pull
 // in the real ShowDetail render path — this ticket exercises the page-level

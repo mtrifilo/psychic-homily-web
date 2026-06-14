@@ -5,10 +5,6 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
 }))
 
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-  captureException: vi.fn(),
-}))
 
 // Stub the heavy venues feature module so invoking generateMetadata doesn't
 // pull in the real VenueDetail render path.

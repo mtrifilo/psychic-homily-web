@@ -4,9 +4,6 @@ import userEvent from '@testing-library/user-event'
 import * as Sentry from '@sentry/nextjs'
 import ShowsError from './error'
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 describe('Shows route error boundary (app/shows/error.tsx)', () => {
   beforeEach(() => {
