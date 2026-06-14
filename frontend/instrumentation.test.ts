@@ -1,11 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
 
-// instrumentation.ts binds onRequestError = Sentry.captureRequestError at
-// module-load time, so the mock must be in place before the import below.
-vi.mock('@sentry/nextjs', () => ({
-  captureRequestError: vi.fn(),
-}))
+// @sentry/nextjs is mocked globally in test/setup.ts (PSY-1097), so
+// Sentry.captureRequestError below is the shared mock fn — instrumentation.ts
+// binds onRequestError to that same reference at module-load time.
 
 describe('instrumentation.ts', () => {
   it('exports a callable register function', async () => {

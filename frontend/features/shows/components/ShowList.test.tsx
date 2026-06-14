@@ -4,10 +4,6 @@ import userEvent from '@testing-library/user-event'
 import { ShowList } from './ShowList'
 import type { ShowResponse, ArtistResponse } from '../types'
 
-// Mock Sentry so a geo-fetch rejection in tests is observable & offline.
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 // Mock AuthContext
 const mockAuthContext = vi.fn(() => ({

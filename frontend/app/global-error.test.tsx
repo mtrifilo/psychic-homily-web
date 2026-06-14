@@ -4,9 +4,6 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import * as Sentry from '@sentry/nextjs'
 import GlobalError from './global-error'
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 describe('Global error boundary (app/global-error.tsx)', () => {
   beforeEach(() => {

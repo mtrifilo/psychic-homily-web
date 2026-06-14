@@ -11,9 +11,6 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockRouterPush }),
 }))
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 const mockRefetch = vi.fn()
 let mockDeletionSummaryState = {

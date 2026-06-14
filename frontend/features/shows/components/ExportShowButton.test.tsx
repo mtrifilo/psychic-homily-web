@@ -2,11 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ExportShowButton } from './ExportShowButton'
 
-// Mock Sentry
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-  captureException: vi.fn(),
-}))
 
 describe('ExportShowButton', () => {
   const originalEnv = process.env.NODE_ENV

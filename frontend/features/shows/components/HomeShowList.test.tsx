@@ -3,10 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { HomeShowList } from './HomeShowList'
 import type { ShowResponse } from '../types'
 
-// Mock Sentry so a geo-fetch rejection in tests is observable & offline.
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 // Mock AuthContext.
 // Return type widened so individual tests can override `user`/`isAuthenticated`

@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
 import { AuthError, AuthErrorCode } from './errors'
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-  captureMessage: vi.fn(),
-}))
 
 // We need to test the module functions, but getApiBaseUrl runs at module load time
 // So we'll test the exported functions and mock fetch for apiRequest tests

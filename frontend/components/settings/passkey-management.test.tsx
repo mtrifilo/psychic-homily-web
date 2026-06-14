@@ -12,9 +12,6 @@ vi.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: () => mockSupportsWebAuthn,
 }))
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 vi.mock('@/features/auth', () => ({
   PasskeyRegisterButton: ({ onSuccess, onError }: { onSuccess: () => void; onError: (err: string) => void }) => (

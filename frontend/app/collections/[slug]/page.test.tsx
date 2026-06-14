@@ -14,10 +14,6 @@ vi.mock('next/headers', () => ({
   })),
 }))
 
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-  captureException: vi.fn(),
-}))
 
 // Stub the heavy collections feature module so invoking generateMetadata
 // doesn't pull in the real CollectionDetail render path.

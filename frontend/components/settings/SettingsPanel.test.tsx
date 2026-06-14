@@ -6,9 +6,6 @@ import { SettingsPanel } from './SettingsPanel'
 
 // --- Mocks ---
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 let mockUser: {
   email: string

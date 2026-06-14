@@ -7,9 +7,6 @@ import {
 import type { CityState, CityWithCount } from './CityFilters'
 import type { GeoLocation } from '@/lib/geo-default'
 
-vi.mock('@sentry/nextjs', () => ({
-  captureException: vi.fn(),
-}))
 
 // Centroids match the offline geocoder the backend uses (PSY-981).
 const PHOENIX: CityWithCount = {

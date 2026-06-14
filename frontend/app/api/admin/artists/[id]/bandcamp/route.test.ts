@@ -4,11 +4,6 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { POST, DELETE } from './route'
 
-// Mock Sentry so capture calls are observable and never hit the network.
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-  captureException: vi.fn(),
-}))
 
 // Mock next/headers cookies(); each test sets the resolved cookie store.
 vi.mock('next/headers', () => ({
