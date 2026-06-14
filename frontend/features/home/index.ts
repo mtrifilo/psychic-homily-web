@@ -2,4 +2,3 @@
 
 export { HomeHero } from './components/HomeHero'
 export { LatestRadioShows } from './components/LatestRadioShows'
-export { ActivityFeedPlaceholder } from './components/ActivityFeedPlaceholder'

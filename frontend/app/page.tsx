@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { HomeShowList } from '@/features/shows'
-import { HomeHero, LatestRadioShows, ActivityFeedPlaceholder } from '@/features/home'
+import { HomeHero, LatestRadioShows } from '@/features/home'
 import { Button } from '@/components/ui/button'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
@@ -65,8 +65,6 @@ export default function Home() {
           </section>
 
           <LatestRadioShows />
-
-          <ActivityFeedPlaceholder />
         </div>
       </div>
     </>
