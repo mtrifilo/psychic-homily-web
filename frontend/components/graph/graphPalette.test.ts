@@ -29,6 +29,9 @@ describe('useGraphPalette (jsdom fallback path)', () => {
     for (const c of result.current.chart) {
       expect(c).toMatch(/^#[0-9A-Fa-f]{6}$/)
     }
+    // Node-label fallbacks are the dark `--foreground` / `--background` (PSY-1091).
+    expect(result.current.labelText).toBe('#eee7d9')
+    expect(result.current.labelHalo).toBe('#0d0805')
   })
 
   it('covers every canonical edge type', () => {
@@ -88,6 +91,12 @@ describe('dark-theme token sync (globals.css ↔ fallback constants)', () => {
       )
     }
   })
+
+  it('matches the node-label fallbacks to their .dark tokens (PSY-1091)', () => {
+    const { result } = renderHook(() => useGraphPalette())
+    expect(result.current.labelText.toLowerCase(), '--foreground').toBe(darkToken('--foreground'))
+    expect(result.current.labelHalo.toLowerCase(), '--background').toBe(darkToken('--background'))
+  })
 })
 
 describe('clusterColor', () => {
@@ -96,6 +105,8 @@ describe('clusterColor', () => {
     unknownEdge: '#71717a',
     chart: ['#111111', '#222222', '#333333', '#444444', '#555555', '#666666', '#777777', '#888888'],
     otherCluster: '#94A3B8',
+    labelText: '#eee7d9',
+    labelHalo: '#0d0805',
   }
 
   it('indexes into the resolved chart palette', () => {

@@ -359,6 +359,10 @@ export function ArtistGraphVisualization({
         ctx.font = `${isCenter ? 'bold ' : ''}${fontSize}px sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'top'
+        // PSY-1092: still hardcoded light colors — illegible on the light theme,
+        // the same bug PSY-1091 fixed for ForceGraphView. `palette` already
+        // exposes theme-aware labelText/labelHalo; deferred here only for the
+        // center-node distinction design call. Do not assume this graph is fixed.
         ctx.fillStyle = isCenter ? '#ffffff' : 'rgba(228, 228, 231, 0.9)' // zinc-200
         ctx.fillText(label, x, y + radius + 4)
       }
