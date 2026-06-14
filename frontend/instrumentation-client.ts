@@ -27,25 +27,17 @@ Sentry.init({
 })
 
 // Attach Session Replay after the page is interactive, production only (sampling
-// is 0 in dev, so there's nothing to capture and no reason to fetch it).
-// lazyLoadIntegration fetches the replay bundle from the Sentry CDN at runtime,
-// so it never enters our eager client bundle. Tradeoff: replay attaches a beat
-// late, so an error in the very first moments of a session may lack a replay.
+// is 0 in dev, so there's nothing to capture). The dynamic import lands replay
+// in a self-hosted lazy chunk (off the eager critical path) — see
+// ./instrumentation-replay for why this is a local import, not the Sentry CDN
+// lazyLoadIntegration path. Tradeoff: replay attaches a beat late, so an error
+// in the very first moments of a session may lack a replay.
 if (isProduction && typeof window !== 'undefined') {
   const attachReplay = () => {
-    Sentry.lazyLoadIntegration('replayIntegration')
-      .then(replayIntegration => {
-        Sentry.addIntegration(
-          replayIntegration({
-            // Mask all text for privacy
-            maskAllText: true,
-            // Block all media for privacy
-            blockAllMedia: true,
-          })
-        )
-      })
+    void import('./instrumentation-replay')
+      .then(m => m.attachReplay())
       .catch(() => {
-        // Replay is best-effort; a CDN/load failure must not break the app.
+        // Replay is best-effort; a load failure must not break the app.
       })
   }
 

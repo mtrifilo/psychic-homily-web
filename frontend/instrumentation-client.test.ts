@@ -1,20 +1,20 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
 
-// The replay integration is now attached LAZILY (PSY-1091) — Sentry.init runs at
-// module-load, but replayIntegration is fetched via lazyLoadIntegration after
-// interactivity (production only), so the mocks cover that path too.
-const replayIntegrationFn = vi.fn((options) => ({ name: 'Replay', options }))
-
+// Replay is attached LAZILY (PSY-1091): Sentry.init runs at module-load, but the
+// replay integration lives in ./instrumentation-replay, dynamic-import()ed after
+// interactivity (production only). Mock that module so the lazy path is testable.
 vi.mock('@sentry/nextjs', () => ({
   init: vi.fn(),
-  lazyLoadIntegration: vi.fn(() => Promise.resolve(replayIntegrationFn)),
-  addIntegration: vi.fn(),
   captureRouterTransitionStart: vi.fn(),
 }))
+// Hoisted stable spy so it survives vi.resetModules() — the dynamic import in
+// instrumentation-client and the assertions below share one instance.
+const { attachReplay } = vi.hoisted(() => ({ attachReplay: vi.fn() }))
+vi.mock('./instrumentation-replay', () => ({ attachReplay }))
 
-// Re-import fresh per test so the module's top-level Sentry.init re-runs
-// against the current (stubbed) NODE_ENV.
+// Re-import fresh per test so the module's top-level Sentry.init re-runs against
+// the current (stubbed) NODE_ENV.
 async function loadInstrumentationClient() {
   vi.resetModules()
   return import('./instrumentation-client')
@@ -55,24 +55,17 @@ describe('instrumentation-client.ts', () => {
 
     await loadInstrumentationClient()
 
-    // Replay is attached via addIntegration after idle, never via the eager
+    // Replay is attached via a dynamic import after idle, never via the eager
     // init `integrations` array — that's what keeps it out of the initial bundle.
     const config = vi.mocked(Sentry.init).mock.calls[0][0]
     expect(config.integrations).toBeUndefined()
   })
 
-  it('lazily attaches masked session replay in production after idle', async () => {
+  it('lazily attaches session replay in production after idle', async () => {
     vi.stubEnv('NODE_ENV', 'production')
 
     await loadInstrumentationClient()
-    await vi.waitFor(() => expect(Sentry.addIntegration).toHaveBeenCalled())
-
-    expect(Sentry.lazyLoadIntegration).toHaveBeenCalledWith('replayIntegration')
-    // Privacy posture preserved on the lazily-loaded integration.
-    expect(replayIntegrationFn).toHaveBeenCalledWith({
-      maskAllText: true,
-      blockAllMedia: true,
-    })
+    await vi.waitFor(() => expect(attachReplay).toHaveBeenCalled())
   })
 
   it('does NOT load session replay in development', async () => {
@@ -81,8 +74,7 @@ describe('instrumentation-client.ts', () => {
     await loadInstrumentationClient()
     await Promise.resolve()
 
-    expect(Sentry.lazyLoadIntegration).not.toHaveBeenCalled()
-    expect(Sentry.addIntegration).not.toHaveBeenCalled()
+    expect(attachReplay).not.toHaveBeenCalled()
   })
 
   it('disables tracing and replay sampling in development', async () => {
