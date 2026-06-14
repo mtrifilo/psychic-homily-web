@@ -1,6 +1,5 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
@@ -13,19 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { browseGroups, browseHrefs, isNavActive, navItemClassName } from './navData'
-
-// Hover-intent timing, feel-tuned short for snappy enter/leave (PSY-1089). The
-// open dwell is deliberately near-instant; at 100ms a pointer merely passing over
-// the trigger may briefly pop the panel — an accepted trade-off for the snappy
-// feel, not a bug. The close delay (200ms) is feel-tuned, not derived: it just
-// has to comfortably outlast the time to drag a pointer across the trigger→panel
-// gap (`sideOffset` below) so diagonal travel hits the panel's `onPointerEnter` →
-// `clearTimer` and cancels the close instead of dismissing mid-move. The two are
-// tuned independently — shrinking `sideOffset` does not license shrinking this
-// delay. (NN/G's nominal 0.5s dwell is an upper bound; see
-// docs/open-questions/navigation-redesign.md.)
-const OPEN_DELAY_MS = 100
-const CLOSE_DELAY_MS = 200
+import { useHoverIntentMenu } from './useHoverIntentMenu'
 
 // Browse ▾ — the wide three-column mega-menu (Catalog / Curation / Scenes) per
 // Figma `455:5`. Built on Radix DropdownMenu so it keeps the W3C APG menu
@@ -34,61 +21,21 @@ const CLOSE_DELAY_MS = 200
 // the mock is intentionally DEFERRED for v1 — there is no recently-added /
 // trending data source yet.
 //
-// DropdownMenu alone is click-only, so this layers NN/G hover-intent on top via
-// a controlled `open` state with open/close timers (Radix still owns click +
-// keyboard). Pointer parity: hovering EITHER the trigger or the panel keeps it
-// open; leaving both closes it after the delay.
+// NN/G hover-intent (open on hover) is layered on via `useHoverIntentMenu`,
+// shared with ContributeMenu so the two menus behave identically. The hook
+// requires `modal={false}` below — see its docblock for the rationale.
 export function BrowseMenu() {
   const pathname = usePathname()
   const active = browseHrefs.some(href => isNavActive(pathname, href))
 
-  const [open, setOpen] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-  }, [])
-
-  // Avoid leaking a pending open/close timer if the component unmounts mid-dwell.
-  useEffect(() => clearTimer, [clearTimer])
-
-  const scheduleOpen = useCallback(() => {
-    clearTimer()
-    timerRef.current = setTimeout(() => setOpen(true), OPEN_DELAY_MS)
-  }, [clearTimer])
-
-  const scheduleClose = useCallback(() => {
-    clearTimer()
-    timerRef.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS)
-  }, [clearTimer])
-
-  // Click / keyboard go through Radix's own open state; cancel any pending hover
-  // timer so a click doesn't get clobbered by a late open/close fire.
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      clearTimer()
-      setOpen(next)
-    },
-    [clearTimer]
-  )
+  const { open, onOpenChange, triggerHoverProps, contentHoverProps } = useHoverIntentMenu()
 
   return (
-    // modal={false} is REQUIRED for the hover-intent model: Radix's default
-    // modal DropdownMenu sets `pointer-events: none` on <body> while open, which
-    // strips the trigger's pointer events the instant the menu opens → the
-    // browser fires pointerleave on the trigger → scheduleClose → close →
-    // pointer is over the trigger again → scheduleOpen → an endless open/close
-    // flicker. Non-modal keeps the page (and trigger) pointer-interactive;
-    // outside-click + Escape dismissal still work via Radix's dismissable layer.
-    <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
       <DropdownMenuTrigger
         className={navItemClassName(active)}
         aria-label="Browse the catalog"
-        onPointerEnter={scheduleOpen}
-        onPointerLeave={scheduleClose}
+        {...triggerHoverProps}
       >
         Browse
         <ChevronDown className="size-3.5 opacity-70" aria-hidden />
@@ -97,8 +44,7 @@ export function BrowseMenu() {
         align="start"
         sideOffset={10}
         className="flex w-auto gap-12 rounded-[10px] border-border p-0 px-7 py-6 shadow-[0px_2px_8px_0px_rgba(0,0,0,0.08)]"
-        onPointerEnter={clearTimer}
-        onPointerLeave={scheduleClose}
+        {...contentHoverProps}
       >
         {browseGroups.map(group => (
           <DropdownMenuGroup key={group.label} className="flex flex-col gap-3">

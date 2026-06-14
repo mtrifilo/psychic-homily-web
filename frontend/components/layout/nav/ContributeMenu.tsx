@@ -21,6 +21,7 @@ import {
   navItemClassName,
   type NavLink as NavLinkData,
 } from './navData'
+import { useHoverIntentMenu } from './useHoverIntentMenu'
 
 // Contribute ▾ — the What.cd "request system as call-to-action". PSY-1015
 // refines the PSY-1013 functional menu into the two-column Participate /
@@ -86,15 +87,25 @@ export function ContributeMenu() {
   const { isAuthenticated } = useAuthContext()
   const active = contributeHrefs.some(href => isNavActive(pathname, href))
 
+  // NN/G hover-intent (open on hover), shared with BrowseMenu so the two menus
+  // behave identically. The hook requires `modal={false}` — see its docblock.
+  const { open, onOpenChange, triggerHoverProps, contentHoverProps } = useHoverIntentMenu()
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className={navItemClassName(active)} aria-label="Contribute">
+    <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
+      <DropdownMenuTrigger
+        className={navItemClassName(active)}
+        aria-label="Contribute"
+        {...triggerHoverProps}
+      >
         Contribute
         <ChevronDown className="size-3.5 opacity-70" aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
+        sideOffset={10}
         className="flex w-auto items-start gap-12 rounded-[10px] px-7 py-6"
+        {...contentHoverProps}
       >
         <DropdownMenuGroup className="flex flex-col gap-3">
           <DropdownMenuLabel className={groupLabelClassName}>Participate</DropdownMenuLabel>
