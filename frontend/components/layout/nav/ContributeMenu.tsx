@@ -104,7 +104,7 @@ export function ContributeMenu() {
       <DropdownMenuContent
         align="start"
         sideOffset={10}
-        className="flex w-auto items-start gap-12 rounded-[10px] px-7 py-6"
+        className="flex w-auto items-start gap-12 rounded-[10px] px-7 py-6 duration-100"
         {...contentHoverProps}
       >
         <DropdownMenuGroup className="flex flex-col gap-3">

@@ -43,7 +43,7 @@ export function BrowseMenu() {
       <DropdownMenuContent
         align="start"
         sideOffset={10}
-        className="flex w-auto gap-12 rounded-[10px] border-border p-0 px-7 py-6 shadow-[0px_2px_8px_0px_rgba(0,0,0,0.08)]"
+        className="flex w-auto gap-12 rounded-[10px] border-border p-0 px-7 py-6 shadow-[0px_2px_8px_0px_rgba(0,0,0,0.08)] duration-100"
         {...contentHoverProps}
       >
         {browseGroups.map(group => (
