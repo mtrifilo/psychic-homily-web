@@ -2,17 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-// Hover-intent timing, feel-tuned short for snappy enter/leave (PSY-1089). The
-// open dwell is deliberately near-instant; at 100ms a pointer merely passing over
-// the trigger may briefly pop the panel — an accepted trade-off for the snappy
-// feel, not a bug. The close delay (200ms) is feel-tuned, not derived: it just
-// has to comfortably outlast the time to drag a pointer across the trigger→panel
-// gap (`sideOffset` on the menu content) so diagonal travel hits the panel's
-// `onPointerEnter` → `clearTimer` and cancels the close instead of dismissing
-// mid-move. The two are tuned independently — shrinking `sideOffset` does not
-// license shrinking this delay. (NN/G's nominal 0.5s dwell is an upper bound;
-// see docs/open-questions/navigation-redesign.md.)
-const OPEN_DELAY_MS = 100
+// Hover-intent timing, feel-tuned short for a snappy enter/leave (PSY-1089,
+// shortened further in the PSY-1094 follow-up for an even faster open). The open
+// dwell is deliberately near-instant; at 50ms a pointer merely passing over the
+// trigger can briefly pop the panel — an accepted (and now slightly larger)
+// trade-off for the snappier feel, not a bug. The close delay (200ms) is
+// feel-tuned, not derived: it just has to comfortably outlast the time to drag a
+// pointer across the trigger→panel gap (`sideOffset` on the menu content) so
+// diagonal travel hits the panel's `onPointerEnter` → `clearTimer` and cancels
+// the close instead of dismissing mid-move. The two are tuned independently —
+// shrinking the open dwell (or `sideOffset`) does not license shrinking this
+// delay. (NN/G's nominal 0.5s dwell is an upper bound; see
+// docs/open-questions/navigation-redesign.md.)
+const OPEN_DELAY_MS = 50
 const CLOSE_DELAY_MS = 200
 
 type HoverHandlers = {
