@@ -22,11 +22,12 @@ import {
 import type { TagCategory, TagEntityType, TagListItem } from '../types'
 
 // Copy for the info tooltip next to the facet heading, keyed by entity type.
-// `show` and `festival` surface transitive semantics (PSY-499): filtering by
-// genre matches the container entity whose lineup includes a tagged artist.
-// Other entity types use direct-tag semantics so they don't get a tooltip.
-const TRANSITIVE_TOOLTIP_COPY: Partial<Record<TagEntityType, string>> = {
-  show: 'Filtering by genre matches shows whose artists have that tag.',
+// `show` explains the multi-select behavior (combine tags to filter shows).
+// `festival` surfaces transitive semantics (PSY-499): filtering by genre matches
+// the container entity whose lineup includes a tagged artist. Other entity types
+// use direct-tag semantics so they don't get a tooltip.
+const FACET_TOOLTIP_COPY: Partial<Record<TagEntityType, string>> = {
+  show: 'Select one or more tags to filter shows based on any tag combination.',
   festival:
     'Filtering by genre matches festivals whose lineup artists have that tag.',
 }
@@ -177,9 +178,9 @@ export function TagFacetPanel({
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <TagIcon className="h-3.5 w-3.5" aria-hidden />
             {heading}
-            {entityType && TRANSITIVE_TOOLTIP_COPY[entityType] && (
+            {entityType && FACET_TOOLTIP_COPY[entityType] && (
               <TransitiveTagTooltip
-                text={TRANSITIVE_TOOLTIP_COPY[entityType] ?? ''}
+                text={FACET_TOOLTIP_COPY[entityType] ?? ''}
               />
             )}
           </h2>
@@ -219,9 +220,9 @@ export function TagFacetPanel({
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <TagIcon className="h-3.5 w-3.5" aria-hidden />
             {heading}
-            {entityType && TRANSITIVE_TOOLTIP_COPY[entityType] && (
+            {entityType && FACET_TOOLTIP_COPY[entityType] && (
               <TransitiveTagTooltip
-                text={TRANSITIVE_TOOLTIP_COPY[entityType] ?? ''}
+                text={FACET_TOOLTIP_COPY[entityType] ?? ''}
               />
             )}
           </h2>
