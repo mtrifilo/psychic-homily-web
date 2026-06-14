@@ -14,12 +14,18 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { browseGroups, browseHrefs, isNavActive, navItemClassName } from './navData'
 
-// NN/G hover-intent timing (cited in the redesign brief): open after a short
-// dwell so a pointer merely passing over the trigger doesn't pop the panel;
-// linger briefly before closing so the diagonal travel into the panel doesn't
-// dismiss it; full close-delay after leaving.
-const OPEN_DELAY_MS = 500
-const CLOSE_DELAY_MS = 500
+// Hover-intent timing, feel-tuned short for snappy enter/leave (PSY-1089). The
+// open dwell is deliberately near-instant; at 100ms a pointer merely passing over
+// the trigger may briefly pop the panel — an accepted trade-off for the snappy
+// feel, not a bug. The close delay (200ms) is feel-tuned, not derived: it just
+// has to comfortably outlast the time to drag a pointer across the trigger→panel
+// gap (`sideOffset` below) so diagonal travel hits the panel's `onPointerEnter` →
+// `clearTimer` and cancels the close instead of dismissing mid-move. The two are
+// tuned independently — shrinking `sideOffset` does not license shrinking this
+// delay. (NN/G's nominal 0.5s dwell is an upper bound; see
+// docs/open-questions/navigation-redesign.md.)
+const OPEN_DELAY_MS = 100
+const CLOSE_DELAY_MS = 200
 
 // Browse ▾ — the wide three-column mega-menu (Catalog / Curation / Scenes) per
 // Figma `455:5`. Built on Radix DropdownMenu so it keeps the W3C APG menu
