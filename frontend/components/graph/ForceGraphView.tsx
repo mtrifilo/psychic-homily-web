@@ -466,13 +466,27 @@ export function ForceGraphView({
       }
 
       if (globalScale > 1.0) {
+        // save/restore so the halo's lineWidth/lineJoin don't leak into later
+        // per-node paints in this shared ctx.
+        ctx.save()
         const label = node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name
         const fontSize = Math.max(9, Math.min(13, 11 / globalScale))
         ctx.font = `${fontSize}px sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'top'
-        ctx.fillStyle = 'rgba(228, 228, 231, 0.9)'
-        ctx.fillText(label, x, y + radius + 3)
+        const labelY = y + radius + 3
+        // Theme-aware label (PSY-1091): the old hardcoded light grey was ~1.2:1
+        // on the light "newsprint" bg. Stroke the background color as a thin halo
+        // first so the text stays legible over colored nodes / cluster hulls on
+        // either theme, then fill with the resolved foreground. Keep the halo
+        // well under the glyph size (~1/4) so letter counters don't fill in.
+        ctx.lineWidth = Math.max(1.5, fontSize / 4)
+        ctx.lineJoin = 'round'
+        ctx.strokeStyle = palette.labelHalo
+        ctx.strokeText(label, x, labelY)
+        ctx.fillStyle = palette.labelText
+        ctx.fillText(label, x, labelY)
+        ctx.restore()
       }
     },
     [clustersByID, palette],
