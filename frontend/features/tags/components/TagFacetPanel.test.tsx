@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import {
@@ -105,6 +105,22 @@ describe('TagFacetPanel', () => {
     expect(screen.getByTestId('tag-facet-chip-post-punk')).toBeInTheDocument()
     expect(screen.getByTestId('tag-facet-chip-phoenix')).toBeInTheDocument()
     expect(screen.getByTestId('tag-facet-chip-diy')).toBeInTheDocument()
+  })
+
+  it('shows the multi-tag selection tooltip copy for the shows facet', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={[]}
+        onToggle={() => {}}
+        onClear={() => {}}
+        entityType="show"
+      />
+    )
+    await user.hover(screen.getByTestId('tag-facet-transitive-info'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Select one or more tags to filter shows based on any tag combination.'
+    )
   })
 
   it('marks selected chips via aria-pressed', () => {
