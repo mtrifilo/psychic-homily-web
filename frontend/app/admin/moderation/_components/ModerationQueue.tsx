@@ -542,7 +542,7 @@ function RequestCard({
       { id: request.id, decision: 'approved' },
       { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
     )
-  }, [isShow, decideMutation, request.id, onActionSuccess, entityLabel])
+  }, [isShow, setShowFormOpen, decideMutation, request.id, onActionSuccess, entityLabel])
 
   const handleCreateShow = useCallback(
     (venue: ShowVenueInput, artists: ShowArtistInput[]) => {
