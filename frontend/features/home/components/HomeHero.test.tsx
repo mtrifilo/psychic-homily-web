@@ -58,11 +58,14 @@ describe('HomeHero', () => {
     }
   })
 
-  it('renders a quiet Sign up nudge to /auth (not a contribution CTA)', () => {
+  it('renders a value-forward Sign up nudge linking to /auth', () => {
     render(<HomeHero />)
     expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute(
       'href',
       '/auth'
     )
+    expect(
+      screen.getByText(/to contribute, and never miss a show again\./)
+    ).toBeInTheDocument()
   })
 })

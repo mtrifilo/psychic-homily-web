@@ -12,8 +12,9 @@ import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
  * Pure mystique by design: an oblique What.cd call-back headline + evocative
  * two-line subtext, then a dominant search field and a "Find a show" primary
  * CTA. The concrete "what is this" work rests on the search placeholder, the
- * Discover quick-links row, and the sections below — never a contribution CTA
- * (value-before-contribution).
+ * Discover quick-links row, and the sections below — the dominant actions stay
+ * value-first (value-before-contribution). The only contribution prompt is the
+ * quiet, secondary sign-up nudge at the bottom of the section.
  *
  * The search field reuses the existing command-palette mechanism
  * (`openCommandPalette`, same as the nav `SearchTrigger`); it is presented
@@ -91,14 +92,14 @@ export function HomeHero() {
       </nav>
 
       {/* Quiet sign-up nudge */}
-      <p className="flex items-center gap-2 pt-1 text-sm">
-        <span className="text-muted-foreground">New here?</span>
+      <p className="pt-1 text-sm text-muted-foreground">
         <Link
           href="/auth"
           className="font-semibold text-primary transition-colors hover:underline underline-offset-4"
         >
           Sign up
-        </Link>
+        </Link>{' '}
+        to contribute, and never miss a show again.
       </p>
     </section>
   )
