@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// Mock the posthog-js module (resolved via the lazy dynamic import in the lib).
+// Mock posthog-js (resolved via the lazy dynamic import in the lib).
+// has_opted_in_capturing is stateful so the opt-in idempotency / PSY-728
+// re-opt-in guard can be exercised.
+let optedInState = false
 const mockInit = vi.fn()
-const mockOptInCapturing = vi.fn()
-const mockOptOutCapturing = vi.fn()
+const mockOptInCapturing = vi.fn(() => {
+  optedInState = true
+})
+const mockOptOutCapturing = vi.fn(() => {
+  optedInState = false
+})
+const mockHasOptedIn = vi.fn(() => optedInState)
 const mockStartSessionRecording = vi.fn()
 const mockStopSessionRecording = vi.fn()
 const mockReset = vi.fn()
@@ -15,6 +23,7 @@ vi.mock('posthog-js', () => ({
     init: (...args: unknown[]) => mockInit(...args),
     opt_in_capturing: () => mockOptInCapturing(),
     opt_out_capturing: () => mockOptOutCapturing(),
+    has_opted_in_capturing: () => mockHasOptedIn(),
     startSessionRecording: () => mockStartSessionRecording(),
     stopSessionRecording: () => mockStopSessionRecording(),
     reset: () => mockReset(),
@@ -23,13 +32,12 @@ vi.mock('posthog-js', () => ({
   },
 }))
 
-// Module-level state (instance / loadPromise / optedIn) is reset by
-// re-importing the module fresh per test.
 describe('posthog (lazy, consent-gated)', () => {
   let originalEnv: NodeJS.ProcessEnv
 
   beforeEach(() => {
     vi.clearAllMocks()
+    optedInState = false
     originalEnv = { ...process.env }
     process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_test_key_123'
   })
@@ -61,7 +69,7 @@ describe('posthog (lazy, consent-gated)', () => {
       expect(mockInit).not.toHaveBeenCalled()
     })
 
-    it('lazy-inits with the correct config then opts in + records', async () => {
+    it('lazy-inits with the correct config, opts in, records, and captures the landing pageview', async () => {
       process.env.NEXT_PUBLIC_POSTHOG_HOST = 'https://custom.posthog.com'
 
       const { enableAnalytics } = await import('./posthog')
@@ -77,6 +85,9 @@ describe('posthog (lazy, consent-gated)', () => {
       })
       expect(mockOptInCapturing).toHaveBeenCalledTimes(1)
       expect(mockStartSessionRecording).toHaveBeenCalledTimes(1)
+      // Landing pageview recovered (the effect fired before posthog loaded).
+      const pageview = mockCapture.mock.calls.find(c => c[0] === '$pageview')
+      expect(pageview).toBeDefined()
     })
 
     it('uses the default host when NEXT_PUBLIC_POSTHOG_HOST is not set', async () => {
@@ -98,6 +109,27 @@ describe('posthog (lazy, consent-gated)', () => {
 
       expect(mockInit).toHaveBeenCalledTimes(1)
       expect(mockOptInCapturing).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT re-opt-in when posthog is already opted in (PSY-728 parity across page loads)', async () => {
+      optedInState = true // simulate a returning visitor persisted as opted-in
+
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
+
+      expect(mockOptInCapturing).not.toHaveBeenCalled()
+      expect(mockStartSessionRecording).not.toHaveBeenCalled()
+    })
+
+    it('aborts opt-in when consent is withdrawn while posthog is still loading (privacy race)', async () => {
+      const { enableAnalytics, disableAnalytics } = await import('./posthog')
+
+      const pending = enableAnalytics() // import in flight, desired=true
+      disableAnalytics() // consent withdrawn before the import resolves → desired=false
+      await pending
+
+      expect(mockOptInCapturing).not.toHaveBeenCalled()
+      expect(mockStartSessionRecording).not.toHaveBeenCalled()
     })
   })
 
@@ -133,7 +165,6 @@ describe('posthog (lazy, consent-gated)', () => {
 
       expect(mockCapture).not.toHaveBeenCalled()
       expect(mockIdentify).not.toHaveBeenCalled()
-      // reset only fires via disableAnalytics/identify paths; standalone no-op
       expect(mockReset).not.toHaveBeenCalled()
     })
 

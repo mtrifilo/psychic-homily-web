@@ -10,7 +10,13 @@ import type { PostHog } from 'posthog-js'
 
 let instance: PostHog | null = null
 let loadPromise: Promise<PostHog | null> | null = null
-let optedIn = false
+// Current consent intent. Tracked separately from posthog's own opt-in state so
+// a consent withdrawal DURING the async load aborts the pending opt-in (privacy
+// race — PSY-1091 adversarial review).
+let desired = false
+// Landing pageview is captured once per page load by enableAnalytics, because
+// the PostHogPageView effect fires before posthog has lazy-loaded (no-op then).
+let landingCaptured = false
 
 // Idempotent: dynamic-import + init posthog-js once. Returns null on the server
 // or when no key is configured.
@@ -38,22 +44,35 @@ function loadPostHog(): Promise<PostHog | null> {
 // Consent granted → load posthog-js (if needed), opt in, start recording.
 // Idempotent: safe to call on every consent-sync render.
 export async function enableAnalytics(): Promise<void> {
-  if (optedIn) return
+  desired = true
   const ph = await loadPostHog()
-  if (!ph) return
-  ph.opt_in_capturing()
-  ph.startSessionRecording()
-  optedIn = true
+  // No key/SSR, or consent was withdrawn while the import was in flight — do
+  // NOT opt in (privacy: never capture against the current consent intent).
+  if (!ph || !desired) return
+  // Only opt in / start recording when not already opted in, so a returning
+  // consented visitor doesn't re-fire opt-in + a synthetic $opt_in event on
+  // every page load (PSY-728 parity — `optedIn` would reset per page load).
+  if (!ph.has_opted_in_capturing()) {
+    ph.opt_in_capturing()
+    ph.startSessionRecording()
+  }
+  // Recover the landing pageview the PostHogPageView effect missed because
+  // posthog hadn't lazy-loaded yet on first paint. Once per page load.
+  if (!landingCaptured) {
+    ph.capture('$pageview', { $current_url: window.location.href })
+    landingCaptured = true
+  }
 }
 
-// Consent withdrawn → opt out / stop / reset. No-op if posthog never loaded
-// (the common case: a visitor who never consented).
+// Consent withdrawn → opt out / stop / reset. Also clears the intent flag so an
+// in-flight enableAnalytics() aborts its opt-in when it resolves. No-op if
+// posthog never loaded or is already opted out.
 export function disableAnalytics(): void {
-  if (!instance || !optedIn) return
+  desired = false
+  if (!instance || !instance.has_opted_in_capturing()) return
   instance.opt_out_capturing()
   instance.stopSessionRecording()
   instance.reset()
-  optedIn = false
 }
 
 // Capture a pageview — only if posthog is already loaded (i.e. consented).
