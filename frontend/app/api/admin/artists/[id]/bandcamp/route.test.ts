@@ -123,6 +123,49 @@ describe('POST /api/admin/artists/[id]/bandcamp', () => {
     expect(mockRevalidatePath).toHaveBeenCalledWith('/artists/bright-eyes')
   })
 
+  it('auto-corrects an /album/ URL to /track/ on 404 and persists the corrected URL', async () => {
+    // Mirrors the Soroche bug: the suggested /album/<slug> 404s, but the same
+    // slug exists at /track/<slug>. The route must retry and save the /track/ URL.
+    const trackPage =
+      '<div data-embed="{&quot;tralbum_param&quot;:{&quot;name&quot;:&quot;track&quot;,&quot;value&quot;:777}}"></div>'
+    let patchedBody: string | undefined
+    fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === `${BACKEND}/auth/profile`) {
+          return new Response(
+            JSON.stringify({ success: true, user: { id: '1', is_admin: true } }),
+            { status: 200 }
+          )
+        }
+        if (url === 'https://brighteyes.bandcamp.com/album/kids-table') {
+          return new Response('not found', { status: 404 })
+        }
+        if (url === 'https://brighteyes.bandcamp.com/track/kids-table') {
+          return new Response(trackPage, { status: 200 })
+        }
+        if (url === `${BACKEND}/admin/artists/${ARTIST_ID}/bandcamp`) {
+          patchedBody = init?.body as string
+          return new Response(
+            JSON.stringify({ id: 47, slug: 'bright-eyes', name: 'Bright Eyes' }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`Unexpected fetch in test: ${url}`)
+      })
+
+    const res = await POST(
+      postRequest({ bandcamp_url: 'https://brighteyes.bandcamp.com/album/kids-table' }),
+      params
+    )
+
+    expect(res.status).toBe(200)
+    expect(JSON.parse(patchedBody!)).toEqual({
+      bandcamp_embed_url: 'https://brighteyes.bandcamp.com/track/kids-table',
+    })
+  })
+
   it('does NOT revalidate when the backend save fails', async () => {
     fetchSpy = mockFetchRouting({
       backendResponse: new Response(JSON.stringify({ detail: 'boom' }), {

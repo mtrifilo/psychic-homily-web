@@ -54,7 +54,7 @@ describe('MusicEmbed', () => {
   it('renders bandcamp iframe when album ID is fetched successfully', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ albumId: '12345' }),
+      json: async () => ({ kind: 'album', id: '12345' }),
     } as Response)
 
     render(
@@ -70,6 +70,28 @@ describe('MusicEmbed', () => {
       expect(iframe).toHaveAttribute(
         'src',
         expect.stringContaining('album=12345')
+      )
+    })
+  })
+
+  it('renders a track embed when the resolver returns a track', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ kind: 'track', id: '2445352951' }),
+    } as Response)
+
+    render(
+      <MusicEmbed
+        bandcampAlbumUrl="https://band.bandcamp.com/track/test"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      const iframe = screen.getByTitle('Test Artist on Bandcamp')
+      expect(iframe).toHaveAttribute(
+        'src',
+        expect.stringContaining('track=2445352951')
       )
     })
   })
@@ -157,7 +179,7 @@ describe('MusicEmbed', () => {
   it('prioritizes bandcamp over spotify', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ albumId: '99999' }),
+      json: async () => ({ kind: 'album', id: '99999' }),
     } as Response)
 
     render(

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
 import { revalidateArtistDetail } from '@/lib/revalidate-entity'
+import { resolveBandcampEmbed } from '@/lib/bandcamp'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -44,7 +45,13 @@ async function getAuthenticatedUser(
   }
 }
 
-async function validateBandcampUrl(url: string): Promise<{ valid: boolean; error?: string }> {
+// Validates the URL is an embeddable Bandcamp album/track page and returns the
+// URL that actually resolved — which may differ from the input when an
+// /album/ <-> /track/ path mismatch was auto-corrected (see lib/bandcamp). The
+// caller persists `resolvedUrl` so a corrected path is what gets stored.
+async function validateBandcampUrl(
+  url: string
+): Promise<{ valid: true; resolvedUrl: string } | { valid: false; error: string }> {
   // Basic format validation
   if (!url.includes('bandcamp.com')) {
     return { valid: false, error: 'URL must be a Bandcamp URL' }
@@ -57,28 +64,11 @@ async function validateBandcampUrl(url: string): Promise<{ valid: boolean; error
     }
   }
 
-  try {
-    // Fetch the Bandcamp page directly to validate it's embeddable
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
-      },
-    })
-
-    if (!response.ok) {
-      return { valid: false, error: `Failed to fetch Bandcamp page: ${response.status}` }
-    }
-
-    const html = await response.text()
-    const match = html.match(/album=(\d+)/)
-    if (!match) {
-      return { valid: false, error: 'Could not extract album ID from URL' }
-    }
-
-    return { valid: true }
-  } catch {
-    return { valid: false, error: 'Failed to validate URL' }
+  const result = await resolveBandcampEmbed(url)
+  if (!result.ok) {
+    return { valid: false, error: result.error }
   }
+  return { valid: true, resolvedUrl: result.embed.resolvedUrl }
 }
 
 export async function POST(
@@ -140,7 +130,8 @@ export async function POST(
           'Content-Type': 'application/json',
           Cookie: `auth_token=${authToken.value}`,
         },
-        body: JSON.stringify({ bandcamp_embed_url: bandcamp_url }),
+        // Persist the resolved URL (path auto-corrected if it was wrong).
+        body: JSON.stringify({ bandcamp_embed_url: validation.resolvedUrl }),
       }
     )
 
