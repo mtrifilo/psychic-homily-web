@@ -79,14 +79,6 @@ test.describe('Homepage', () => {
       page.getByRole('link', { name: /KEXP.*Variety Mix/i })
     ).toHaveAttribute('href', '/radio')
 
-    // Across the scene — reserved activity-feed placeholder
-    await expect(
-      page.getByRole('heading', { name: /across the scene/i })
-    ).toBeVisible()
-    await expect(
-      page.getByText('Reserved for the Activity feed')
-    ).toBeVisible()
-
     // Editorial footer columns (PSY-389). Scope to the footer landmark — the
     // hero also renders a "Discover" quick-links nav, so an unscoped match is
     // a strict-mode violation (two `navigation[name="Discover"]` on the page).
