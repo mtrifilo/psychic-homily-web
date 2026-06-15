@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
@@ -27,7 +28,11 @@ interface StationData {
   network?: StationNetwork | null
 }
 
-async function getStation(slug: string): Promise<StationData | null> {
+// Wrapped with `React.cache()` so `generateMetadata` and the page body
+// share ONE backend fetch per request instead of two. The body needs the
+// result for the sub-stream `redirect()` below. Matches the entity-page
+// pattern in `app/artists/[slug]/page.tsx`.
+const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
       next: { revalidate: 3600 },
@@ -50,7 +55,7 @@ async function getStation(slug: string): Promise<StationData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({ params }: StationPageProps): Promise<Metadata> {
   const { 'station-slug': stationSlug } = await params

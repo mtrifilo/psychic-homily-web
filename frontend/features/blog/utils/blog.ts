@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { cache } from 'react'
 import matter from 'gray-matter'
 import * as Sentry from '@sentry/nextjs'
 import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
@@ -55,9 +56,15 @@ function convertShortcodesToMDX(content: string): string {
 }
 
 /**
- * Get a single blog post by slug
+ * Get a single blog post by slug.
+ *
+ * Wrapped with `React.cache()` so the fs read + gray-matter parse runs once
+ * per slug per request — `app/blog/[slug]/page.tsx` calls it in both
+ * `generateMetadata` and the page body. `cache()` is request-scoped, so the
+ * non-request callers below (`getAllBlogPosts`, `getPostsByCategory`) are
+ * unaffected. Matches the entity-page pattern in `app/artists/[slug]/page.tsx`.
  */
-export function getBlogPost(slug: string): BlogPost | null {
+export const getBlogPost = cache((slug: string): BlogPost | null => {
   const filePath = path.join(BLOG_CONTENT_PATH, `${slug}.md`)
 
   try {
@@ -85,7 +92,7 @@ export function getBlogPost(slug: string): BlogPost | null {
     })
     return null
   }
-}
+})
 
 /**
  * Get all blog posts metadata for listing (sorted by date, newest first)
