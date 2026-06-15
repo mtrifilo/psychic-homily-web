@@ -19,6 +19,13 @@ const nextConfig: NextConfig = {
     // Only list packages that are actually installed
     optimizePackageImports: [
       'lucide-react',
+      // The `radix-ui` meta-package re-exports every primitive from a
+      // single barrel. components/ui/{select,popover,hover-card,switch}
+      // import named primitives from it; without this entry the whole
+      // barrel is pulled in. optimizePackageImports rewrites those named
+      // imports to the underlying `@radix-ui/react-*` sub-paths so only
+      // the used primitives are bundled (PSY-1101).
+      'radix-ui',
       '@radix-ui/react-dialog',
       '@radix-ui/react-dropdown-menu',
       '@radix-ui/react-tabs',
