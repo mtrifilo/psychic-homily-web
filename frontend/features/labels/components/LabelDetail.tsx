@@ -213,7 +213,9 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
                     {location}
                   </span>
                 )}
-                {label.founded_year && <span>Est. {label.founded_year}</span>}
+                {label.founded_year != null && (
+                  <span>Est. {label.founded_year}</span>
+                )}
               </>
             }
             actions={

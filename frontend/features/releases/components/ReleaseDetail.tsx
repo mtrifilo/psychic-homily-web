@@ -166,7 +166,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
             <span>Type: {getReleaseTypeLabel(release.release_type)}</span>
           </div>
 
-          {release.release_year && (
+          {release.release_year != null && (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4 shrink-0" />
               <span>Year: {release.release_year}</span>
@@ -250,7 +250,9 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                   <Badge variant="secondary">
                     {getReleaseTypeLabel(release.release_type)}
                   </Badge>
-                  {release.release_year && <span>{release.release_year}</span>}
+                  {release.release_year != null && (
+                    <span>{release.release_year}</span>
+                  )}
                 </>
               }
               actions={
