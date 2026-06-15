@@ -147,7 +147,14 @@ export async function POST(
       { status: 401 }
     )
   }
-  const profile = await getAuthenticatedUser(authCookie.value)
+  // Auth and artist lookup are independent (getArtist uses only the path id),
+  // so kick both off concurrently. We still AWAIT auth first and return 403
+  // before awaiting the artist — the gate runs before any artist result is
+  // consumed, and the unauthorized path just discards an in-flight fetch.
+  const profilePromise = getAuthenticatedUser(authCookie.value)
+  const artistPromise = getArtist(artistId)
+
+  const profile = await profilePromise
   if (!profile?.success || !profile.user?.is_admin) {
     return NextResponse.json(
       { error: 'Admin access required' },
@@ -155,7 +162,7 @@ export async function POST(
     )
   }
 
-  const artist = await getArtist(artistId)
+  const artist = await artistPromise
   if (!artist) {
     return NextResponse.json({ error: 'Artist not found' }, { status: 404 })
   }

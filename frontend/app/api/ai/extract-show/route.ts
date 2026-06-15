@@ -440,12 +440,22 @@ export async function POST(request: NextRequest) {
 
     const warnings: string[] = []
 
-    // Extract and match artists
+    // Extract artist + venue inputs, then match them concurrently. The two
+    // matches are independent (matchVenue does not consume matchedArtists), so
+    // run them in parallel and compute the warning strings afterward.
+    // matchArtists' inner per-artist loop stays sequential by design — see the
+    // sibling extract-collection route, which keeps its loop bounded to avoid
+    // firing N concurrent backend search requests.
     const rawArtists = Array.isArray(parsed.artists) ? parsed.artists : []
     if (rawArtists.length === 0) {
       warnings.push('No artists were found in the input')
     }
-    const matchedArtists = await matchArtists(rawArtists)
+    const rawVenue = parsed.venue as { name: string; city?: string; state?: string } | undefined
+
+    const [matchedArtists, matchedVenue] = await Promise.all([
+      matchArtists(rawArtists),
+      matchVenue(rawVenue),
+    ])
 
     // Track match statistics for warnings
     const matchedArtistCount = matchedArtists.filter(a => a.matched_id).length
@@ -458,10 +468,6 @@ export async function POST(request: NextRequest) {
       if (newArtistCount > 0) parts.push(`${newArtistCount} new`)
       warnings.push(`Artists: ${parts.join(', ')}`)
     }
-
-    // Extract and match venue
-    const rawVenue = parsed.venue as { name: string; city?: string; state?: string } | undefined
-    const matchedVenue = await matchVenue(rawVenue)
 
     if (matchedVenue && !matchedVenue.matched_id) {
       if (matchedVenue.suggestions?.length) {
