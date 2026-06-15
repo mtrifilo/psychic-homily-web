@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
 import { revalidateArtistDetail } from '@/lib/revalidate-entity'
+import { resolveSpotifyArtist } from '@/lib/spotify'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -46,27 +47,17 @@ async function getAuthenticatedUser(
   }
 }
 
-function validateSpotifyUrl(url: string): { valid: boolean; error?: string } {
-  // Must be a Spotify URL
-  if (!url.includes('open.spotify.com')) {
-    return { valid: false, error: 'URL must be a Spotify URL' }
+// Validates shape AND existence (via Spotify oEmbed — mirrors the Bandcamp save
+// path), returning the canonical artist URL so a `?si=` share suffix is stripped
+// before persisting. See lib/spotify.
+async function validateSpotifyUrl(
+  url: string
+): Promise<{ valid: true; canonicalUrl: string } | { valid: false; error: string }> {
+  const result = await resolveSpotifyArtist(url)
+  if (!result.ok) {
+    return { valid: false, error: result.error }
   }
-
-  // Must be an artist page URL
-  if (!url.includes('/artist/')) {
-    return {
-      valid: false,
-      error: 'URL must be a Spotify artist page URL (open.spotify.com/artist/...)',
-    }
-  }
-
-  // Validate URL format: open.spotify.com/artist/{id}
-  const artistMatch = url.match(/open\.spotify\.com\/artist\/([a-zA-Z0-9]+)/)
-  if (!artistMatch) {
-    return { valid: false, error: 'Invalid Spotify artist URL format' }
-  }
-
-  return { valid: true }
+  return { valid: true, canonicalUrl: result.canonicalUrl }
 }
 
 export async function POST(
@@ -109,11 +100,11 @@ export async function POST(
     )
   }
 
-  // Validate the URL
-  const validation = validateSpotifyUrl(spotify_url)
+  // Validate the URL (shape + existence); persist the canonical artist URL.
+  const validation = await validateSpotifyUrl(spotify_url)
   if (!validation.valid) {
     return NextResponse.json(
-      { error: validation.error || 'Invalid Spotify URL' },
+      { error: validation.error },
       { status: 400 }
     )
   }
@@ -128,7 +119,7 @@ export async function POST(
           'Content-Type': 'application/json',
           Cookie: `auth_token=${authToken.value}`,
         },
-        body: JSON.stringify({ spotify_url }),
+        body: JSON.stringify({ spotify_url: validation.canonicalUrl }),
       }
     )
 
