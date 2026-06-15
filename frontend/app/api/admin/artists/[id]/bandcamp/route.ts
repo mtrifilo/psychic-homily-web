@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
 import { revalidateArtistDetail } from '@/lib/revalidate-entity'
-import { resolveBandcampEmbed } from '@/lib/bandcamp'
+import { resolveBandcampEmbed, isAllowedBandcampUrl } from '@/lib/bandcamp'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -52,8 +52,9 @@ async function getAuthenticatedUser(
 async function validateBandcampUrl(
   url: string
 ): Promise<{ valid: true; resolvedUrl: string } | { valid: false; error: string }> {
-  // Basic format validation
-  if (!url.includes('bandcamp.com')) {
+  // Host must be a real bandcamp.com (sub)domain — the URL is fetched
+  // server-side below, so a substring check would allow SSRF. See lib/bandcamp.
+  if (!isAllowedBandcampUrl(url)) {
     return { valid: false, error: 'URL must be a Bandcamp URL' }
   }
 

@@ -5,6 +5,13 @@ import * as Sentry from '@sentry/nextjs'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
+// web_search on Haiku (up to 5 uses) can run long. Bound the platform function
+// and the Anthropic call so a stalled upstream returns a clean error instead of
+// an opaque platform 504 that skips the error taxonomy below. The SDK timeout
+// sits just under maxDuration so it fires first.
+export const maxDuration = 60
+const DISCOVERY_TIMEOUT_MS = 55_000
+
 // Discovery returns CANDIDATES only — the admin reviews and explicitly picks
 // before anything is saved. Same-name bands routinely collide; a name-only
 // auto-pick attached the wrong act's streaming links.
@@ -198,7 +205,10 @@ export async function POST(
           content: `Find candidates for the artist named "${artist.name}".`,
         },
       ],
-    })
+      // Single bounded attempt: the SDK retries timeouts twice by default, which
+      // would blow past maxDuration and 504 before APIConnectionTimeoutError is
+      // thrown. maxRetries: 0 keeps the clean timeout error path reachable.
+    }, { timeout: DISCOVERY_TIMEOUT_MS, maxRetries: 0 })
 
     let responseText = ''
     for (const block of response.content) {
@@ -268,6 +278,19 @@ export async function POST(
             'Anthropic API credits exhausted. Add credits to use AI discovery.',
         },
         { status: 503 }
+      )
+    }
+    if (error instanceof Anthropic.APIConnectionTimeoutError) {
+      Sentry.captureException(error, {
+        level: 'warning',
+        tags: { service: 'music-discovery', error_type: 'timeout' },
+      })
+      return NextResponse.json(
+        {
+          error: 'TIMEOUT',
+          message: 'Discovery timed out — try again, or use manual entry.',
+        },
+        { status: 504 }
       )
     }
     if (error instanceof Anthropic.APIError) {

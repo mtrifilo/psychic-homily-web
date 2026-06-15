@@ -67,13 +67,24 @@ export interface UpdateSpotifyResponse {
 export function useDiscoverMusic() {
   return useMutation({
     mutationFn: async (artistId: number): Promise<DiscoverMusicResponse> => {
-      const response = await fetch(
-        `/api/admin/artists/${artistId}/discover-music`,
-        {
-          method: 'POST',
-          credentials: 'include',
+      let response: Response
+      try {
+        response = await fetch(
+          `/api/admin/artists/${artistId}/discover-music`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            // Backstop the route's own 60s bound so the spinner can't hang
+            // indefinitely if the server itself becomes unreachable.
+            signal: AbortSignal.timeout(70_000),
+          }
+        )
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'TimeoutError') {
+          throw new Error('Discovery timed out — try again, or use manual entry.')
         }
-      )
+        throw err
+      }
 
       const data = await response.json()
 

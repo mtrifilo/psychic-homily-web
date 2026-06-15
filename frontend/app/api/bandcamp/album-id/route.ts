@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
-import { resolveBandcampEmbed } from '@/lib/bandcamp'
+import { resolveBandcampEmbed, isAllowedBandcampUrl } from '@/lib/bandcamp'
 
 // Resolves a Bandcamp album OR track URL to an embeddable { kind, id }. The
 // route name predates standalone-track support; it now handles /track/ URLs and
@@ -13,9 +13,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
   }
 
-  // Validate it's a Bandcamp URL
-  if (!url.includes('bandcamp.com')) {
-    return NextResponse.json({ error: 'Not a Bandcamp URL' }, { status: 400 })
+  // This route is PUBLIC and fetches the URL server-side, so the host must be
+  // verified — a substring check would allow SSRF (e.g. an internal IP with
+  // "bandcamp.com" in the query string). See isAllowedBandcampUrl.
+  if (!isAllowedBandcampUrl(url)) {
+    return NextResponse.json(
+      { error: 'Not a Bandcamp URL' },
+      { status: 400 }
+    )
   }
 
   const result = await resolveBandcampEmbed(url)

@@ -12,6 +12,28 @@ const BANDCAMP_FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
 }
 
+// Cap on how long a single Bandcamp page fetch may run. These run server-side
+// on a route handler; without a bound, a slow/hung Bandcamp connection ties up
+// the function until the platform timeout and turns a valid save into a failure.
+const BANDCAMP_FETCH_TIMEOUT_MS = 8000
+
+// SSRF guard. These URLs are fetched SERVER-SIDE, and one fetch site is a
+// PUBLIC route, so the host must be verified — not merely "contains the string
+// bandcamp.com". A substring check passes attacker-controlled targets like
+// `http://169.254.169.254/?x=bandcamp.com` or `https://bandcamp.com.evil.test/`.
+// Parse the URL and require https + an exact bandcamp.com (sub)domain.
+export function isAllowedBandcampUrl(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'https:') return false
+  const host = parsed.hostname.toLowerCase()
+  return host === 'bandcamp.com' || host.endsWith('.bandcamp.com')
+}
+
 export type BandcampEmbedKind = 'album' | 'track'
 
 export interface BandcampEmbed {
@@ -66,8 +88,21 @@ export function parseBandcampEmbedId(
 async function fetchBandcampPage(
   url: string
 ): Promise<{ ok: true; html: string } | { ok: false; status: number | null }> {
+  // Defensive chokepoint: every fetch (input URL and the swapped sibling) goes
+  // through here, so the SSRF host check can't be bypassed by a caller.
+  if (!isAllowedBandcampUrl(url)) return { ok: false, status: null }
   try {
-    const response = await fetch(url, { headers: BANDCAMP_FETCH_HEADERS })
+    const response = await fetch(url, {
+      headers: BANDCAMP_FETCH_HEADERS,
+      // Any *.bandcamp.com subdomain is third-party-controlled (Bandcamp hands
+      // them out on signup), so an allowlisted page could still 30x to an
+      // internal host. `redirect: 'error'` refuses to follow it — undici never
+      // issues the second request — instead of catching it after the fact (by
+      // which point the internal request has already gone out). Legit
+      // album/track pages return 200 directly, so this doesn't cost us anything.
+      redirect: 'error',
+      signal: AbortSignal.timeout(BANDCAMP_FETCH_TIMEOUT_MS),
+    })
     if (!response.ok) return { ok: false, status: response.status }
     return { ok: true, html: await response.text() }
   } catch {
