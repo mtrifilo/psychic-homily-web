@@ -1224,7 +1224,7 @@ export function ReleaseManagement() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                    {release.release_year && (
+                    {release.release_year != null && (
                       <span>{release.release_year}</span>
                     )}
                     {release.artist_count > 0 && (

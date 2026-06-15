@@ -87,7 +87,7 @@ export function ReleaseCard({
         <Badge variant="secondary" className="text-[10px] shrink-0">
           {typeLabel}
         </Badge>
-        {release.release_year && (
+        {release.release_year != null && (
           <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
             {release.release_year}
           </span>
@@ -131,7 +131,7 @@ export function ReleaseCard({
               <Badge variant="secondary" className="text-xs px-2 py-0.5">
                 {typeLabel}
               </Badge>
-              {release.release_year && (
+              {release.release_year != null && (
                 <span className="text-base font-medium text-muted-foreground tabular-nums">
                   {release.release_year}
                 </span>
@@ -193,7 +193,7 @@ export function ReleaseCard({
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
               {typeLabel}
             </Badge>
-            {release.release_year && (
+            {release.release_year != null && (
               <span className="text-sm text-muted-foreground">
                 {release.release_year}
               </span>

@@ -32,7 +32,7 @@ export function FestivalCard({
   if (density === 'compact') {
     return (
       <article className="flex items-center gap-3 px-3 py-1.5 hover:bg-muted/50 rounded-md transition-colors">
-        {festival.edition_year && (
+        {festival.edition_year > 0 && (
           <span className="text-xs font-semibold text-muted-foreground shrink-0 tabular-nums">
             {festival.edition_year}
           </span>

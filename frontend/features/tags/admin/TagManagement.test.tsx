@@ -113,6 +113,49 @@ describe('TagManagement — official indicator', () => {
   })
 })
 
+describe('TagManagement — tag count line (PSY-1103)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('does not render a stray "0" when total is 0 but rows are present', () => {
+    // PSY-1103: `{tagsData?.total && ...}` rendered the literal 0 (a valid
+    // React child) whenever the server-reported total was 0 while the tag
+    // list still held rows — e.g. a stale/desynced cached page. The fix
+    // leads with the comparison so the guard is a boolean, not a number.
+    mockUseTags.mockReturnValue({
+      data: { tags: [makeTag({ id: 1, name: 'rock' })], total: 0 },
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagManagement />)
+
+    const countLine = screen.getByText(/1 tag/)
+    // Before the fix this rendered "1 tag0" — the literal 0 from the falsy
+    // left operand. Exact-text equality is the load-bearing assertion: a
+    // looser /\b0\b/ match misses it because there is no word boundary
+    // between "tag" and the appended "0".
+    expect(countLine.textContent).toBe('1 tag')
+    expect(countLine).not.toHaveTextContent(/of .* total/)
+  })
+
+  it('renders the "(of N total)" suffix when total exceeds visible rows', () => {
+    mockUseTags.mockReturnValue({
+      data: {
+        tags: [makeTag({ id: 1, name: 'rock' })],
+        total: 50,
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagManagement />)
+
+    expect(screen.getByText(/\(of 50 total\)/)).toBeInTheDocument()
+  })
+})
+
 describe('TagManagement — category filter (PSY-924)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

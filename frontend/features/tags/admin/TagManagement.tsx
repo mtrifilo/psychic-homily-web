@@ -746,8 +746,8 @@ export function TagManagement() {
           <div className="text-sm text-muted-foreground">
             {tags.length} tag{tags.length !== 1 ? 's' : ''}
             {debouncedSearch && ` matching "${debouncedSearch}"`}
-            {tagsData?.total && tagsData.total > tags.length && (
-              <span> (of {tagsData.total} total)</span>
+            {tags.length < (tagsData?.total ?? 0) && (
+              <span> (of {tagsData?.total} total)</span>
             )}
           </div>
 
