@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { cache } from 'react'
 import matter from 'gray-matter'
 import * as Sentry from '@sentry/nextjs'
 import type { Mix, MixMeta, MixFrontmatter } from '../types'
@@ -43,9 +44,15 @@ function convertShortcodesToMDX(content: string): string {
 }
 
 /**
- * Get a single mix by slug
+ * Get a single mix by slug.
+ *
+ * Wrapped with `React.cache()` so the fs read + gray-matter parse runs once
+ * per slug per request — `app/dj-sets/[slug]/page.tsx` calls it in both
+ * `generateMetadata` and the page body. `cache()` is request-scoped, so the
+ * non-request caller below (`getAllMixes`) is unaffected. Matches the
+ * entity-page pattern in `app/artists/[slug]/page.tsx`.
  */
-export function getMix(slug: string): Mix | null {
+export const getMix = cache((slug: string): Mix | null => {
   const filePath = path.join(MIXES_CONTENT_PATH, `${slug}.md`)
 
   try {
@@ -72,7 +79,7 @@ export function getMix(slug: string): Mix | null {
     })
     return null
   }
-}
+})
 
 /**
  * Get all mixes metadata for listing (sorted by date, newest first)
