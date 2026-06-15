@@ -95,9 +95,9 @@ function extractCandidateJson(
 
 const BANDCAMP_ALBUM_RE =
   /^https?:\/\/[a-zA-Z0-9-]+\.bandcamp\.com\/(album|track)\/[a-zA-Z0-9-]+/
-// Spotify candidate URLs are validated via the shared parser (isValidSpotify
-// ArtistUrl), which — unlike the old anchored regex here — tolerates the
-// `?si=...` share suffix Spotify's own "Copy link" appends.
+// Spotify candidates are kept when the shared parser accepts them (it tolerates
+// the `?si=...` suffix the old anchored regex here dropped). The raw candidate
+// URL is forwarded to the admin as-is; the save route canonicalizes it.
 
 function normalizeCandidate(raw: unknown): DiscoveryCandidate | null {
   if (!raw || typeof raw !== 'object') return null

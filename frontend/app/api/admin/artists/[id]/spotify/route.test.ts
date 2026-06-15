@@ -71,9 +71,8 @@ function mockFetchRouting({
         )
       }
       if (url.startsWith('https://open.spotify.com/oembed')) {
-        return new Response(oembedStatus === 200 ? '{"html":"<iframe>"}' : 'x', {
-          status: oembedStatus,
-        })
+        // resolveSpotifyArtist branches on status only; the body is ignored.
+        return new Response('', { status: oembedStatus })
       }
       if (url === `${BACKEND}/admin/artists/${ARTIST_ID}/spotify`) {
         return backendResponse

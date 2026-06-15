@@ -25,6 +25,16 @@ describe('parseSpotifyArtistId', () => {
   it('extracts the id from a spotify:artist: URI', () => {
     expect(parseSpotifyArtistId(`spotify:artist:${ID}`)).toBe(ID)
   })
+  it('tolerates a locale prefix and a trailing path segment', () => {
+    expect(parseSpotifyArtistId(`https://open.spotify.com/intl-de/artist/${ID}`)).toBe(ID)
+    expect(parseSpotifyArtistId(`https://open.spotify.com/artist/${ID}/about`)).toBe(ID)
+  })
+  it('tolerates a scheme-less stored URL (legacy data) but still checks the host', () => {
+    expect(parseSpotifyArtistId(`open.spotify.com/artist/${ID}`)).toBe(ID)
+    expect(parseSpotifyArtistId(`open.spotify.com/artist/${ID}?si=x`)).toBe(ID)
+    // scheme-less must NOT bypass the host allowlist
+    expect(parseSpotifyArtistId(`evil.test/artist/${ID}`)).toBeNull()
+  })
   it('rejects a non-22-char id (hallucinated short/long)', () => {
     expect(parseSpotifyArtistId('https://open.spotify.com/artist/abc123')).toBeNull()
     expect(

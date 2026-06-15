@@ -260,6 +260,13 @@ func seedExemplarArtist(db *gorm.DB, userID, labelID uint) uint {
 		return existing.ID
 	}
 
+	social := fullSocial("marissanadler")
+	// A Spotify embed needs a canonical 22-char base62 artist id; the slug-shaped
+	// handle renders no embed. Use a real, valid artist id (placeholder — not
+	// literally Marissa Nadler's) so the exemplar artist page demonstrates a live
+	// Spotify player for screenshots/dogfood.
+	social.Spotify = strptr("https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb")
+
 	artist := &catalogm.Artist{
 		Name:        "Marissa Nadler (Exemplar)",
 		Slug:        strptr(exemplarArtistSlug),
@@ -268,7 +275,7 @@ func seedExemplarArtist(db *gorm.DB, userID, labelID uint) uint {
 		Country:     strptr("USA"),
 		Description: strptr("A singer-songwriter and guitarist whose gothic, dream-folk songwriting pairs fingerpicked guitar with reverb-soaked vocals. Across a long discography she has moved between hushed solo records and fuller, collaborative productions.\n\nSeeded as the PSY-665 rich artist exemplar: bio, image, all social links, multiple aliases, tags across categories, releases, label links, tracked shows, similar artists, and a festival appearance are all populated."),
 		ImageURL:    strptr("/seed-placeholders/artist.svg"),
-		Social:      fullSocial("marissanadler"),
+		Social:      social,
 	}
 	if err := db.Create(artist).Error; err != nil {
 		log.Printf("Warning: failed to create exemplar artist: %v", err)
