@@ -1045,12 +1045,37 @@ export const useDeletePasskey = () => {
 
       return response
     },
+    // Optimistically drop the row so the delete feels instant (matching the
+    // pre-TanStack local-filter behavior) AND so the now-removed row can't be
+    // clicked a second time while its DELETE is in flight — which would fire a
+    // duplicate DELETE that 404s and surfaces a spurious failure (PSY-1102
+    // adversarial review). Snapshot for rollback on error.
+    onMutate: async (credentialId: number) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.passkeys.credentials })
+      const previous = queryClient.getQueryData<PasskeyCredential[]>(
+        queryKeys.passkeys.credentials
+      )
+      queryClient.setQueryData<PasskeyCredential[]>(
+        queryKeys.passkeys.credentials,
+        old => (old ?? []).filter(c => c.id !== credentialId)
+      )
+      return { previous }
+    },
+    onError: (_error, _credentialId, context) => {
+      // Roll back the optimistic removal so the row reappears on failure.
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(queryKeys.passkeys.credentials, context.previous)
+      }
+    },
     onSuccess: data => {
       authLogger.info(
         'Passkey deleted successfully',
         { message: data.message },
         data.request_id
       )
+    },
+    onSettled: () => {
+      // Reconcile with server truth after the mutation resolves either way.
       queryClient.invalidateQueries({ queryKey: queryKeys.passkeys.credentials })
     },
   })

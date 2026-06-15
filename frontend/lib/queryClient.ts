@@ -523,10 +523,10 @@ export const queryKeys = {
     randomArtistTarget: ['discovery', 'randomArtistTarget'] as const,
   },
 
-  // Passkey credential list (settings → security). The list query is
-  // refetched after register / delete; the GET is the only read.
+  // Passkey credential list (settings → security). One list read; refetched
+  // after register / delete via its own key (no parent-prefix family needed
+  // while there's a single list).
   passkeys: {
-    all: ['passkeys'] as const,
     credentials: ['passkeys', 'credentials'] as const,
   },
 

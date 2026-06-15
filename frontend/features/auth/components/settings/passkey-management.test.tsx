@@ -30,11 +30,14 @@ vi.mock('@/features/auth', async importActual => ({
 // reads `response.headers.get(...)` and `response.status`. A bare
 // `{ ok, json }` literal lacks those, so wrap each mock body in a Response-
 // shaped object with a real Headers instance.
-function jsonResponse(body: unknown, { ok = true }: { ok?: boolean } = {}): Response {
+function jsonResponse(
+  body: unknown,
+  { ok = true, status = ok ? 200 : 400 }: { ok?: boolean; status?: number } = {}
+): Response {
   return {
     ok,
-    status: ok ? 200 : 400,
-    statusText: ok ? 'OK' : 'Bad Request',
+    status,
+    statusText: ok ? 'OK' : 'Error',
     headers: new Headers(),
     json: async () => body,
   } as Response
@@ -317,6 +320,23 @@ describe('PasskeyManagement', () => {
           message: 'Cannot delete last passkey',
         })
       )
+      // Post-mutation reconcile refetch (onSettled fires on failure too) — the
+      // credential is still present server-side since the DELETE was rejected.
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          credentials: [
+            {
+              id: 5,
+              display_name: 'Old key',
+              created_at: '2025-06-15T10:00:00Z',
+              last_used_at: null,
+              backup_eligible: false,
+              backup_state: false,
+            },
+          ],
+        })
+      )
 
     vi.spyOn(global, 'fetch').mockImplementation(fetchMock)
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -338,7 +358,8 @@ describe('PasskeyManagement', () => {
         screen.getByText('Cannot delete last passkey')
       ).toBeInTheDocument()
     })
-    // Credential should remain in the list since DELETE failed server-side.
+    // Credential reappears after the optimistic removal is rolled back (DELETE
+    // failed server-side) and the reconcile refetch confirms it.
     expect(screen.getByText('Old key')).toBeInTheDocument()
 
     confirmSpy.mockRestore()

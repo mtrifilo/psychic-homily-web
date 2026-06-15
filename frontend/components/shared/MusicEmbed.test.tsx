@@ -225,6 +225,30 @@ describe('MusicEmbed', () => {
     })
   })
 
+  // PSY-1102 adversarial review: a transient 5xx from the scraper route must
+  // NOT cache as a durable null "success" (which would freeze the embed on the
+  // fallback link for the whole staleTime). resolveBandcampEmbed throws on 5xx
+  // so the query errors instead of caching; this mount still falls through to
+  // Spotify, and a later mount would retry.
+  it('falls through to spotify when the bandcamp resolve returns a 5xx', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+    } as Response)
+
+    render(
+      <MusicEmbed
+        bandcampAlbumUrl="https://band.bandcamp.com/album/test"
+        spotifyUrl="https://open.spotify.com/artist/abc123"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Test Artist on Spotify')).toBeInTheDocument()
+    })
+  })
+
   it('renders fallback link for bandcamp profile URL when no album URL', async () => {
     render(
       <MusicEmbed
