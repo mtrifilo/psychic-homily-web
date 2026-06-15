@@ -151,6 +151,28 @@ describe('useAdminArtists', () => {
         'Discovery is rate-limited right now — try again in about a minute.'
       )
     })
+
+    it('maps the client-side AbortSignal timeout to a friendly message', async () => {
+      // AbortSignal.timeout rejects fetch with a TimeoutError DOMException; the
+      // hook converts that to actionable copy instead of leaking the raw error.
+      mockFetch.mockRejectedValueOnce(
+        new DOMException('The operation timed out', 'TimeoutError')
+      )
+
+      const { result } = renderHook(() => useDiscoverMusic(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate(123)
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      expect((result.current.error as Error).message).toBe(
+        'Discovery timed out — try again, or use manual entry.'
+      )
+    })
   })
 
   describe('useUpdateArtistBandcamp', () => {
