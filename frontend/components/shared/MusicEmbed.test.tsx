@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+// MusicEmbed resolves its Bandcamp embed via TanStack Query (PSY-1102), so it
+// must render inside a QueryClientProvider. `renderWithProviders` (re-exported
+// as `render`) wraps each render in a fresh client with retries disabled, which
+// keeps the `mockRejectedValueOnce` error-path tests deterministic.
+import { render } from '../../test/utils'
 import { MusicEmbed } from './MusicEmbed'
 
 

@@ -53,6 +53,12 @@ export const API_ENDPOINTS = {
     OAUTH_ACCOUNTS: `${API_BASE_URL}/auth/oauth/accounts`,
     OAUTH_UNLINK: (provider: string) =>
       `${API_BASE_URL}/auth/oauth/accounts/${provider}`,
+    // Passkey credential management (settings → security). Register / login
+    // begin-finish flows stay inline in their WebAuthn components; these two
+    // back the credential-list read + delete (PSY-1102).
+    PASSKEY_CREDENTIALS: `${API_BASE_URL}/auth/passkey/credentials`,
+    PASSKEY_CREDENTIAL: (credentialId: number) =>
+      `${API_BASE_URL}/auth/passkey/credentials/${credentialId}`,
     // Account deletion endpoints
     DELETION_SUMMARY: `${API_BASE_URL}/auth/account/deletion-summary`,
     DELETE_ACCOUNT: `${API_BASE_URL}/auth/account/delete`,
