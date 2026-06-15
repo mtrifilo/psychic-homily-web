@@ -18,6 +18,7 @@ Output STRICT JSON only — no prose, no markdown code fences. Shape:
 
 Rules:
 - Bandcamp URLs MUST be album or track URLs (e.g. https://artist.bandcamp.com/album/name), NOT profile URLs.
+- A standalone single lives at https://artist.bandcamp.com/track/<slug>; a multi-track release at https://artist.bandcamp.com/album/<slug>. Copy the EXACT URL from the search result — do NOT guess the /album/ vs /track/ segment or invent a slug.
 - Spotify URLs MUST be artist URLs in the form https://open.spotify.com/artist/{22-char-id}.
 - Include EVERY plausible same-name candidate you find, not just the most popular. The admin will disambiguate.
 - "popularity" is freeform text — for Spotify, include monthly listeners or follower count if known.

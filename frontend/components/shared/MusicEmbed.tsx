@@ -24,7 +24,7 @@ function parseSpotifyArtistId(url: string): string | null {
 
 type EmbedState =
   | { type: 'loading' }
-  | { type: 'bandcamp'; albumId: string }
+  | { type: 'bandcamp'; embedKind: 'album' | 'track'; embedId: string }
   | { type: 'spotify'; artistId: string }
   | { type: 'fallback'; url: string; label: string }
   | { type: 'none' }
@@ -40,7 +40,7 @@ export function MusicEmbed({
 
   useEffect(() => {
     async function resolveEmbed() {
-      // Priority 1: Bandcamp album URL - fetch album ID
+      // Priority 1: Bandcamp album/track URL - resolve the embed kind + id
       if (bandcampAlbumUrl) {
         try {
           const response = await fetch(
@@ -48,8 +48,8 @@ export function MusicEmbed({
           )
           if (response.ok) {
             const data = await response.json()
-            if (data.albumId) {
-              setEmbed({ type: 'bandcamp', albumId: data.albumId })
+            if (data.id && (data.kind === 'album' || data.kind === 'track')) {
+              setEmbed({ type: 'bandcamp', embedKind: data.kind, embedId: data.id })
               return
             }
           }
@@ -140,7 +140,7 @@ export function MusicEmbed({
           <iframe
             title={`${artistName} on Bandcamp`}
             style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
-            src={`https://bandcamp.com/EmbeddedPlayer/album=${embed.albumId}/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
+            src={`https://bandcamp.com/EmbeddedPlayer/${embed.embedKind}=${embed.embedId}/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
             seamless
           />
         </div>

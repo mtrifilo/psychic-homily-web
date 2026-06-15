@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
+import { resolveBandcampEmbed } from '@/lib/bandcamp'
 
+// Resolves a Bandcamp album OR track URL to an embeddable { kind, id }. The
+// route name predates standalone-track support; it now handles /track/ URLs and
+// auto-corrects an /album/ <-> /track/ path mismatch (see lib/bandcamp).
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const url = searchParams.get('url')
@@ -14,55 +18,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not a Bandcamp URL' }, { status: 400 })
   }
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
-      },
-    })
+  const result = await resolveBandcampEmbed(url)
 
-    if (!response.ok) {
-      Sentry.captureMessage(`Bandcamp page fetch failed: ${response.status}`, {
-        level: 'warning',
-        tags: { service: 'bandcamp-scraper' },
-        extra: { url, status: response.status },
-      })
-      return NextResponse.json(
-        { error: `Failed to fetch Bandcamp page: ${response.status}` },
-        { status: response.status }
-      )
-    }
-
-    const html = await response.text()
-
-    // Extract album ID from the page - look for album=NUMBERS pattern
-    const match = html.match(/album=(\d+)/)
-    if (!match) {
-      return NextResponse.json(
-        { error: 'Could not find album ID on page' },
-        { status: 404 }
-      )
-    }
-
-    const albumId = match[1]
-
-    return NextResponse.json(
-      { albumId },
-      {
-        headers: {
-          'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
-        },
-      }
-    )
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
+  if (!result.ok) {
+    // Page loaded but no embed id (status 200) -> 404; network throw -> 500;
+    // otherwise surface the upstream status (e.g. a real 404).
+    const status =
+      result.status === null ? 500 : result.status === 200 ? 404 : result.status
+    Sentry.captureMessage(`Bandcamp embed resolve failed: ${result.error}`, {
+      level: status >= 500 ? 'error' : 'warning',
       tags: { service: 'bandcamp-scraper' },
-      extra: { url },
+      extra: { url, status: result.status },
     })
-    return NextResponse.json(
-      { error: 'Failed to extract album ID' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: result.error }, { status })
   }
+
+  return NextResponse.json(
+    { kind: result.embed.kind, id: result.embed.id },
+    {
+      headers: {
+        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+      },
+    }
+  )
 }
