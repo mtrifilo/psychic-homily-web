@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
-import { resolveBandcampEmbed, isAllowedBandcampUrl } from '@/lib/bandcamp'
+import {
+  resolveBandcampEmbed,
+  isAllowedBandcampUrl,
+  type BandcampEmbedResponse,
+} from '@/lib/bandcamp'
 
 // Resolves a Bandcamp album OR track URL to an embeddable { kind, id }. The
 // route name predates standalone-track support; it now handles /track/ URLs and
@@ -38,12 +42,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: result.error }, { status })
   }
 
-  return NextResponse.json(
-    { kind: result.embed.kind, id: result.embed.id },
-    {
-      headers: {
-        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
-      },
-    }
-  )
+  const body: BandcampEmbedResponse = {
+    kind: result.embed.kind,
+    id: result.embed.id,
+  }
+  return NextResponse.json(body, {
+    headers: {
+      'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+    },
+  })
 }

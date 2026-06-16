@@ -4,7 +4,48 @@ import {
   swapAlbumTrackPath,
   resolveBandcampEmbed,
   isAllowedBandcampUrl,
+  bandcampEmbedSrc,
 } from './bandcamp'
+
+describe('bandcampEmbedSrc', () => {
+  it('builds the dark-default player src for an album (MusicEmbed usage)', () => {
+    const src = bandcampEmbedSrc({ kind: 'album', id: '12345' })
+    expect(src).toBe(
+      'https://bandcamp.com/EmbeddedPlayer/album=12345/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/'
+    )
+  })
+  it('uses the track segment for a track', () => {
+    const src = bandcampEmbedSrc({ kind: 'track', id: '777' })
+    expect(src).toContain('track=777')
+    expect(src).not.toContain('album=')
+  })
+  it('honors overrides + transparent (blog <Bandcamp> usage)', () => {
+    const src = bandcampEmbedSrc({
+      kind: 'album',
+      id: '1',
+      size: 'small',
+      bgcol: 'ffffff',
+      linkcol: '0687f5',
+      artwork: 'big',
+      tracklist: true,
+      transparent: true,
+    })
+    for (const part of [
+      'album=1',
+      'size=small',
+      'bgcol=ffffff',
+      'linkcol=0687f5',
+      'tracklist=true',
+      'artwork=big',
+      'transparent=true',
+    ]) {
+      expect(src).toContain(part)
+    }
+  })
+  it('omits transparent unless requested', () => {
+    expect(bandcampEmbedSrc({ kind: 'album', id: '1' })).not.toContain('transparent')
+  })
+})
 
 // Every test that touches fetch installs a spy via mockFetchSequence; restore
 // after each so no spy leaks into the next test.

@@ -1,3 +1,5 @@
+import { bandcampEmbedSrc } from '@/lib/bandcamp'
+
 interface BandcampProps {
   album?: string
   track?: string
@@ -23,18 +25,16 @@ export function Bandcamp({
   tracklist = 'false',
   height = '120',
 }: BandcampProps) {
-  // Build the embed URL
-  const embedParts: string[] = []
-  if (album) embedParts.push(`album=${album}`)
-  if (track) embedParts.push(`track=${track}`)
-  embedParts.push(`size=${size}`)
-  embedParts.push(`bgcol=${bgcol}`)
-  embedParts.push(`linkcol=${linkcol}`)
-  embedParts.push(`tracklist=${tracklist}`)
-  embedParts.push(`artwork=${artwork}`)
-  embedParts.push('transparent=true')
-
-  const embedUrl = `https://bandcamp.com/EmbeddedPlayer/${embedParts.join('/')}/`
+  const embedUrl = bandcampEmbedSrc({
+    kind: album ? 'album' : 'track',
+    id: album ?? track ?? '',
+    size,
+    bgcol,
+    linkcol,
+    artwork,
+    tracklist: tracklist === 'true',
+    transparent: true,
+  })
 
   // Build the link URL. `artist` is an author-authored Bandcamp subdomain slug
   // (encodeURIComponent is invalid in a hostname), so only the title path
