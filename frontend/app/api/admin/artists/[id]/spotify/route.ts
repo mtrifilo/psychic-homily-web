@@ -1,50 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import * as Sentry from '@sentry/nextjs'
-import { revalidateArtistDetail } from '@/lib/revalidate-entity'
 import { resolveSpotifyArtist } from '@/lib/spotify'
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
-
-interface UserProfile {
-  success: boolean
-  user?: {
-    id: string
-    is_admin?: boolean
-  }
-}
-
-interface Artist {
-  id: number
-  slug: string
-  name: string
-  social?: {
-    spotify?: string | null
-  }
-}
+import { requireAdmin, forwardArtistMusicUpdate } from '@/lib/admin-artist-route'
 
 interface UpdateSpotifyRequest {
   spotify_url: string
-}
-
-async function getAuthenticatedUser(
-  authToken: string
-): Promise<UserProfile | null> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/auth/profile`, {
-      headers: {
-        Cookie: `auth_token=${authToken}`,
-      },
-    })
-
-    if (!response.ok) {
-      return null
-    }
-
-    return await response.json()
-  } catch {
-    return null
-  }
 }
 
 // Validates shape AND existence (via Spotify oEmbed — mirrors the Bandcamp save
@@ -66,22 +25,8 @@ export async function POST(
 ) {
   const { id: artistId } = await params
 
-  // Get auth token from cookies
-  const cookieStore = await cookies()
-  const authToken = cookieStore.get('auth_token')
-
-  if (!authToken) {
-    return NextResponse.json(
-      { error: 'Authentication required' },
-      { status: 401 }
-    )
-  }
-
-  // Validate admin access
-  const profile = await getAuthenticatedUser(authToken.value)
-  if (!profile?.success || !profile.user?.is_admin) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-  }
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
 
   // Parse request body
   let body: UpdateSpotifyRequest
@@ -92,7 +37,6 @@ export async function POST(
   }
 
   const { spotify_url } = body
-
   if (!spotify_url) {
     return NextResponse.json(
       { error: 'spotify_url is required' },
@@ -103,53 +47,18 @@ export async function POST(
   // Validate the URL (shape + existence); persist the canonical artist URL.
   const validation = await validateSpotifyUrl(spotify_url)
   if (!validation.valid) {
-    return NextResponse.json(
-      { error: validation.error },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: validation.error }, { status: 400 })
   }
 
-  // Forward to backend
-  try {
-    const response = await fetch(
-      `${BACKEND_URL}/admin/artists/${artistId}/spotify`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: `auth_token=${authToken.value}`,
-        },
-        body: JSON.stringify({ spotify_url: validation.canonicalUrl }),
-      }
-    )
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      return NextResponse.json(
-        { error: error.detail || 'Failed to update artist' },
-        { status: response.status }
-      )
-    }
-
-    const artist: Artist = await response.json()
-
-    revalidateArtistDetail(artist.slug)
-
-    return NextResponse.json({
-      success: true,
-      artist,
-    })
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'admin-spotify', operation: 'update' },
-      extra: { artistId },
-    })
-    return NextResponse.json(
-      { error: 'Failed to update artist' },
-      { status: 500 }
-    )
-  }
+  return forwardArtistMusicUpdate({
+    artistId,
+    authToken: auth.authToken,
+    field: 'spotify',
+    body: { spotify_url: validation.canonicalUrl },
+    sentryService: 'admin-spotify',
+    sentryOperation: 'update',
+    failureMessage: 'Failed to update artist',
+  })
 }
 
 // Also support DELETE to clear the Spotify URL
@@ -159,62 +68,16 @@ export async function DELETE(
 ) {
   const { id: artistId } = await params
 
-  // Get auth token from cookies
-  const cookieStore = await cookies()
-  const authToken = cookieStore.get('auth_token')
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
 
-  if (!authToken) {
-    return NextResponse.json(
-      { error: 'Authentication required' },
-      { status: 401 }
-    )
-  }
-
-  // Validate admin access
-  const profile = await getAuthenticatedUser(authToken.value)
-  if (!profile?.success || !profile.user?.is_admin) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-  }
-
-  // Forward to backend with null to clear
-  try {
-    const response = await fetch(
-      `${BACKEND_URL}/admin/artists/${artistId}/spotify`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: `auth_token=${authToken.value}`,
-        },
-        body: JSON.stringify({ spotify_url: null }),
-      }
-    )
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      return NextResponse.json(
-        { error: error.detail || 'Failed to clear Spotify URL' },
-        { status: response.status }
-      )
-    }
-
-    const artist: Artist = await response.json()
-
-    revalidateArtistDetail(artist.slug)
-
-    return NextResponse.json({
-      success: true,
-      artist,
-    })
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'admin-spotify', operation: 'clear' },
-      extra: { artistId },
-    })
-    return NextResponse.json(
-      { error: 'Failed to clear Spotify URL' },
-      { status: 500 }
-    )
-  }
+  return forwardArtistMusicUpdate({
+    artistId,
+    authToken: auth.authToken,
+    field: 'spotify',
+    body: { spotify_url: null },
+    sentryService: 'admin-spotify',
+    sentryOperation: 'clear',
+    failureMessage: 'Failed to clear Spotify URL',
+  })
 }
