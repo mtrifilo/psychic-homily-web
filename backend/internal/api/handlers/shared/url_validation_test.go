@@ -98,6 +98,73 @@ func TestValidateSocialURLs_RejectsBareHandle(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+func TestValidateSocialURLs_AcceptsPlatformSubdomainVariants(t *testing.T) {
+	// PSY-1113: the host allowlist matches subdomains + known alternates.
+	err := ValidateSocialURLs(
+		PtrString("https://www.instagram.com/x"),
+		PtrString("https://m.facebook.com/x"),
+		PtrString("https://x.com/x"), // twitter ↔ x.com
+		PtrString("https://music.youtube.com/x"),
+		PtrString("https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"),
+		PtrString("https://soundcloud.com/x"),
+		PtrString("https://artist.bandcamp.com/album/y"),
+		PtrString("https://some-random-domain.io/page"), // website: any host
+	)
+	if err != nil {
+		t.Errorf("legit platform variants should pass, got: %v", err)
+	}
+}
+
+func TestValidateSocialURLs_RejectsForeignHostInPlatformField(t *testing.T) {
+	cases := []struct {
+		name  string
+		run   func() error
+		field string
+	}{
+		{"spotify→foreign host", func() error {
+			return ValidateSocialURLs(nil, nil, nil, nil, PtrString("https://evil.test/artist/x"), nil, nil, nil)
+		}, "Spotify"},
+		{"bandcamp→internal IP", func() error {
+			return ValidateSocialURLs(nil, nil, nil, nil, nil, nil, PtrString("https://169.254.169.254/album/x"), nil)
+		}, "Bandcamp"},
+		{"instagram→lookalike suffix", func() error {
+			return ValidateSocialURLs(PtrString("https://instagram.com.evil.test/x"), nil, nil, nil, nil, nil, nil, nil)
+		}, "Instagram"},
+		{"twitter→foreign host", func() error {
+			return ValidateSocialURLs(nil, nil, PtrString("https://evil.test/x"), nil, nil, nil, nil, nil)
+		}, "Twitter"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.run()
+			testhelpers.AssertHumaError(t, err, 422)
+			var he *huma.ErrorModel
+			errors.As(err, &he)
+			if !strings.Contains(he.Detail, c.field) {
+				t.Errorf("expected error to mention %s, got: %s", c.field, he.Detail)
+			}
+		})
+	}
+}
+
+func TestValidateSocialURLs_WebsiteAcceptsAnyHost(t *testing.T) {
+	if err := ValidateSocialURLs(nil, nil, nil, nil, nil, nil, nil, PtrString("https://anything.example.org/page")); err != nil {
+		t.Errorf("website should accept any host, got: %v", err)
+	}
+}
+
+func TestValidateFieldChangeValue_HostAnchorsSocialFields(t *testing.T) {
+	// The suggest-edit path host-anchors platform fields too (PSY-1113).
+	if err := ValidateFieldChangeValue("spotify", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"); err != nil {
+		t.Errorf("canonical spotify URL should pass, got: %v", err)
+	}
+	err := ValidateFieldChangeValue("spotify", "https://evil.test/artist/x")
+	testhelpers.AssertHumaError(t, err, 422)
+	if err := ValidateFieldChangeValue("website", "https://anything.example.org"); err != nil {
+		t.Errorf("website should accept any host, got: %v", err)
+	}
+}
+
 // ============================================================================
 // ValidateFieldChangeValue (PSY-549)
 // ============================================================================
