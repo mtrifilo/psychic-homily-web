@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
 import * as Sentry from '@sentry/nextjs'
+import { isValidSpotifyArtistUrl } from '@/lib/spotify'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -101,8 +102,9 @@ function extractCandidateJson(
 
 const BANDCAMP_ALBUM_RE =
   /^https?:\/\/[a-zA-Z0-9-]+\.bandcamp\.com\/(album|track)\/[a-zA-Z0-9-]+/
-const SPOTIFY_ARTIST_RE =
-  /^https?:\/\/open\.spotify\.com\/artist\/[a-zA-Z0-9]+$/
+// Spotify candidates are kept when the shared parser accepts them (it tolerates
+// the `?si=...` suffix the old anchored regex here dropped). The raw candidate
+// URL is forwarded to the admin as-is; the save route canonicalizes it.
 
 function normalizeCandidate(raw: unknown): DiscoveryCandidate | null {
   if (!raw || typeof raw !== 'object') return null
@@ -245,7 +247,7 @@ export async function POST(
       .filter((c): c is DiscoveryCandidate => !!c && BANDCAMP_ALBUM_RE.test(c.url))
     const spotify = parsed.spotify
       .map(normalizeCandidate)
-      .filter((c): c is DiscoveryCandidate => !!c && SPOTIFY_ARTIST_RE.test(c.url))
+      .filter((c): c is DiscoveryCandidate => !!c && isValidSpotifyArtistUrl(c.url))
 
     return NextResponse.json({ bandcamp, spotify })
   } catch (error) {

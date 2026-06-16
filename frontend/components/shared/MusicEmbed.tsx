@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
+import { parseSpotifyArtistId } from '@/lib/spotify'
 
 interface MusicEmbedProps {
   bandcampAlbumUrl?: string | null
@@ -10,16 +11,6 @@ interface MusicEmbedProps {
   spotifyUrl?: string | null
   artistName: string
   compact?: boolean
-}
-
-function parseSpotifyArtistId(url: string): string | null {
-  const webMatch = url.match(/spotify\.com\/artist\/([a-zA-Z0-9]+)/)
-  if (webMatch) return webMatch[1]
-
-  const uriMatch = url.match(/spotify:artist:([a-zA-Z0-9]+)/)
-  if (uriMatch) return uriMatch[1]
-
-  return null
 }
 
 type EmbedState =

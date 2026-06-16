@@ -45,17 +45,19 @@ function setAuthToken(token?: string) {
 }
 
 /**
- * Route fetch traffic by URL: auth profile check and the backend PATCH.
- * (Spotify URL validation is regex-only — no network call.)
+ * Route fetch traffic by URL: auth profile check, the Spotify oEmbed existence
+ * check (validation now hits the network), and the backend PATCH.
  */
 function mockFetchRouting({
   isAdmin = true,
+  oembedStatus = 200,
   backendResponse = new Response(
     JSON.stringify({ id: 47, slug: 'bright-eyes', name: 'Bright Eyes' }),
     { status: 200 }
   ),
 }: {
   isAdmin?: boolean
+  oembedStatus?: number
   backendResponse?: Response
 } = {}) {
   return vi
@@ -67,6 +69,10 @@ function mockFetchRouting({
           JSON.stringify({ success: true, user: { id: '1', is_admin: isAdmin } }),
           { status: 200 }
         )
+      }
+      if (url.startsWith('https://open.spotify.com/oembed')) {
+        // resolveSpotifyArtist branches on status only; the body is ignored.
+        return new Response('', { status: oembedStatus })
       }
       if (url === `${BACKEND}/admin/artists/${ARTIST_ID}/spotify`) {
         return backendResponse
@@ -114,6 +120,53 @@ describe('POST /api/admin/artists/[id]/spotify', () => {
     expect(body.success).toBe(true)
     expect(mockRevalidatePath).toHaveBeenCalledTimes(1)
     expect(mockRevalidatePath).toHaveBeenCalledWith('/artists/bright-eyes')
+  })
+
+  it('persists the canonical artist URL, stripping a `?si=` share suffix', async () => {
+    let patchedBody: string | undefined
+    fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === `${BACKEND}/auth/profile`) {
+          return new Response(
+            JSON.stringify({ success: true, user: { id: '1', is_admin: true } }),
+            { status: 200 }
+          )
+        }
+        if (url.startsWith('https://open.spotify.com/oembed')) {
+          return new Response('{"html":"<iframe>"}', { status: 200 })
+        }
+        if (url === `${BACKEND}/admin/artists/${ARTIST_ID}/spotify`) {
+          patchedBody = init?.body as string
+          return new Response(
+            JSON.stringify({ id: 47, slug: 'bright-eyes', name: 'Bright Eyes' }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`Unexpected fetch in test: ${url}`)
+      })
+
+    const res = await POST(
+      postRequest({ spotify_url: `${VALID_SPOTIFY_URL}?si=trackingtoken` }),
+      params
+    )
+
+    expect(res.status).toBe(200)
+    expect(JSON.parse(patchedBody!)).toEqual({ spotify_url: VALID_SPOTIFY_URL })
+  })
+
+  it('rejects a non-existent artist (oEmbed 404) with 400 and no backend write', async () => {
+    fetchSpy = mockFetchRouting({ oembedStatus: 404 })
+
+    const res = await POST(postRequest({ spotify_url: VALID_SPOTIFY_URL }), params)
+
+    expect(res.status).toBe(400)
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+    const patchCalls = (fetchSpy.mock.calls as unknown[][]).filter((call) =>
+      String(call[0]).startsWith(`${BACKEND}/admin/`)
+    )
+    expect(patchCalls).toHaveLength(0)
   })
 
   it('does NOT revalidate when the backend save fails', async () => {

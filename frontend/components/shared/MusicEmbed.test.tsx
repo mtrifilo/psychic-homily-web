@@ -99,7 +99,7 @@ describe('MusicEmbed', () => {
   it('renders spotify iframe when spotify URL is provided', async () => {
     render(
       <MusicEmbed
-        spotifyUrl="https://open.spotify.com/artist/abc123"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
         artistName="Test Artist"
       />
     )
@@ -109,7 +109,7 @@ describe('MusicEmbed', () => {
       expect(iframe).toBeInTheDocument()
       expect(iframe).toHaveAttribute(
         'src',
-        expect.stringContaining('embed/artist/abc123')
+        expect.stringContaining('embed/artist/4Z8W4fKeB5YxbusRsdQVPb')
       )
     })
   })
@@ -117,7 +117,7 @@ describe('MusicEmbed', () => {
   it('parses spotify URI format', async () => {
     render(
       <MusicEmbed
-        spotifyUrl="spotify:artist:xyz789"
+        spotifyUrl="spotify:artist:0TnOYISbd1XYRBk9myaseg"
         artistName="Test Artist"
       />
     )
@@ -126,7 +126,7 @@ describe('MusicEmbed', () => {
       const iframe = screen.getByTitle('Test Artist on Spotify')
       expect(iframe).toHaveAttribute(
         'src',
-        expect.stringContaining('embed/artist/xyz789')
+        expect.stringContaining('embed/artist/0TnOYISbd1XYRBk9myaseg')
       )
     })
   })
@@ -185,7 +185,7 @@ describe('MusicEmbed', () => {
     render(
       <MusicEmbed
         bandcampAlbumUrl="https://band.bandcamp.com/album/test"
-        spotifyUrl="https://open.spotify.com/artist/abc123"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
         artistName="Test Artist"
       />
     )
@@ -202,7 +202,7 @@ describe('MusicEmbed', () => {
     render(
       <MusicEmbed
         bandcampAlbumUrl="https://band.bandcamp.com/album/test"
-        spotifyUrl="https://open.spotify.com/artist/abc123"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
         artistName="Test Artist"
       />
     )
@@ -232,7 +232,7 @@ describe('MusicEmbed', () => {
   it('uses compact height for spotify iframe', async () => {
     render(
       <MusicEmbed
-        spotifyUrl="https://open.spotify.com/artist/abc123"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
         artistName="Test Artist"
         compact={true}
       />
@@ -247,7 +247,7 @@ describe('MusicEmbed', () => {
   it('uses full height for spotify iframe when not compact', async () => {
     render(
       <MusicEmbed
-        spotifyUrl="https://open.spotify.com/artist/abc123"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
         artistName="Test Artist"
         compact={false}
       />
