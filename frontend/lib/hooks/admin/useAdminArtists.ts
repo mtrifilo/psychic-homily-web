@@ -139,10 +139,13 @@ export function useUpdateArtistBandcamp() {
 
       return data
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(variables.artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix. These hooks know the numeric id, but the
+      // page caches the artist under detail(slug) — detail(id) and detail(slug)
+      // are different VALUES (detail() stringifies either, so it's not a
+      // key-shape difference), so an id-keyed invalidation never matches. The
+      // prefix does, regardless of id-vs-slug. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -178,10 +181,13 @@ export function useClearArtistBandcamp() {
 
       return data
     },
-    onSuccess: (data, artistId) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix. These hooks know the numeric id, but the
+      // page caches the artist under detail(slug) — detail(id) and detail(slug)
+      // are different VALUES (detail() stringifies either, so it's not a
+      // key-shape difference), so an id-keyed invalidation never matches. The
+      // prefix does, regardless of id-vs-slug. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -228,10 +234,13 @@ export function useUpdateArtistSpotify() {
 
       return data
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(variables.artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix. These hooks know the numeric id, but the
+      // page caches the artist under detail(slug) — detail(id) and detail(slug)
+      // are different VALUES (detail() stringifies either, so it's not a
+      // key-shape difference), so an id-keyed invalidation never matches. The
+      // prefix does, regardless of id-vs-slug. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -267,10 +276,13 @@ export function useClearArtistSpotify() {
 
       return data
     },
-    onSuccess: (data, artistId) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix. These hooks know the numeric id, but the
+      // page caches the artist under detail(slug) — detail(id) and detail(slug)
+      // are different VALUES (detail() stringifies either, so it's not a
+      // key-shape difference), so an id-keyed invalidation never matches. The
+      // prefix does, regardless of id-vs-slug. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -310,16 +322,14 @@ export function useArtistUpdate() {
         }
       )
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(variables.artistId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.all,
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.shows.all,
-      })
+    onSuccess: () => {
+      // A rename changes the artist wherever it's denormalised, so invalidate
+      // the whole artists prefix (which covers detail-by-slug) and shows. No
+      // detail(id) line: these hooks know the numeric id, but the page caches
+      // under detail(slug) — different VALUES, so an id-keyed invalidation never
+      // matches; the prefix matches regardless. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shows.all })
     },
   })
 }

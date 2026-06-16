@@ -228,8 +228,11 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+      // Invalidates the artists prefix (matches the slug-keyed cache), not an
+      // id-keyed detail key (which holds a different value than the slug).
+      // (PSY-1109)
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 456],
+        queryKey: ['artists'],
       })
     })
 
@@ -297,7 +300,7 @@ describe('useAdminArtists', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 789],
+        queryKey: ['artists'],
       })
     })
 
@@ -374,8 +377,11 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+      // Invalidates the artists prefix (matches the slug-keyed cache), not an
+      // id-keyed detail key (which holds a different value than the slug).
+      // (PSY-1109)
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 456],
+        queryKey: ['artists'],
       })
     })
 
@@ -443,7 +449,7 @@ describe('useAdminArtists', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 789],
+        queryKey: ['artists'],
       })
     })
 
@@ -491,9 +497,10 @@ describe('useAdminArtists', () => {
       })
     })
 
-    it('invalidates artist detail, artists.all, AND shows.all on success', async () => {
+    it('invalidates the artists.all AND shows.all prefixes on success', async () => {
       // Updating an artist may rename them — show listings carry the artist
-      // name denormalised, so the shows scope also gets invalidated.
+      // name denormalised, so the shows scope also gets invalidated. (No
+      // detail(id) line — the artists prefix covers detail-by-slug. PSY-1109.)
       mockFetchResponse({ id: 456 })
 
       const queryClient = createTestQueryClient()
@@ -512,9 +519,6 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 456],
-      })
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['artists'],
       })
