@@ -3619,6 +3619,47 @@ func TestUpdateProfileHandler_BioTooLong(t *testing.T) {
 	}
 }
 
+func TestUpdateProfileHandler_NavModeInvalid(t *testing.T) {
+	h := testAuthHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.NavMode = strPtr("sidebar") // not 'top' or 'side'
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_NavModeSuccess(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		UpdateUserFn: func(_ uint, updates map[string]any) (*authm.User, error) {
+			if updates["nav_mode"] != authm.NavModeSide {
+				t.Errorf("expected nav_mode=%s, got %v", authm.NavModeSide, updates["nav_mode"])
+			}
+			return &authm.User{ID: 1, NavMode: authm.NavModeSide}, nil
+		},
+	}
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.NavMode = strPtr(authm.NavModeSide)
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q code=%s", resp.Body.Message, resp.Body.ErrorCode)
+	}
+	if resp.Body.User == nil || resp.Body.User.NavMode != authm.NavModeSide {
+		t.Errorf("expected updated user with nav_mode=side, got %+v", resp.Body.User)
+	}
+}
+
 func TestUpdateProfileHandler_NoFields(t *testing.T) {
 	h := testAuthHandler()
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
