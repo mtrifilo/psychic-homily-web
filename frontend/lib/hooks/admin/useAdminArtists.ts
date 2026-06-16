@@ -139,10 +139,11 @@ export function useUpdateArtistBandcamp() {
 
       return data
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(variables.artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix, NOT detail(numeric id): the artist page
+      // caches under detail(slug), so a numeric-id key never matches. Mirrors
+      // useArtistUpdate. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -178,10 +179,11 @@ export function useClearArtistBandcamp() {
 
       return data
     },
-    onSuccess: (data, artistId) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix, NOT detail(numeric id): the artist page
+      // caches under detail(slug), so a numeric-id key never matches. Mirrors
+      // useArtistUpdate. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -228,10 +230,11 @@ export function useUpdateArtistSpotify() {
 
       return data
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(variables.artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix, NOT detail(numeric id): the artist page
+      // caches under detail(slug), so a numeric-id key never matches. Mirrors
+      // useArtistUpdate. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }
@@ -267,10 +270,11 @@ export function useClearArtistSpotify() {
 
       return data
     },
-    onSuccess: (data, artistId) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
+    onSuccess: () => {
+      // Invalidate the artists prefix, NOT detail(numeric id): the artist page
+      // caches under detail(slug), so a numeric-id key never matches. Mirrors
+      // useArtistUpdate. (PSY-1109)
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
     },
   })
 }

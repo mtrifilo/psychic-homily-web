@@ -228,8 +228,10 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+      // Invalidates the artists prefix (matches the slug-keyed cache), not the
+      // numeric-id detail key. (PSY-1109)
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 456],
+        queryKey: ['artists'],
       })
     })
 
@@ -297,7 +299,7 @@ describe('useAdminArtists', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 789],
+        queryKey: ['artists'],
       })
     })
 
@@ -374,8 +376,10 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+      // Invalidates the artists prefix (matches the slug-keyed cache), not the
+      // numeric-id detail key. (PSY-1109)
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 456],
+        queryKey: ['artists'],
       })
     })
 
@@ -443,7 +447,7 @@ describe('useAdminArtists', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 789],
+        queryKey: ['artists'],
       })
     })
 

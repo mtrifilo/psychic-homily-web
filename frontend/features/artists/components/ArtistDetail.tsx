@@ -400,7 +400,6 @@ function ArtistSidebar({
 
 function AdminMusicControls({
   artist,
-  artistId,
 }: {
   artist: {
     id: number
@@ -411,9 +410,7 @@ function AdminMusicControls({
       bandcamp: string | null
     }
   }
-  artistId: string | number
 }) {
-  const queryClient = useQueryClient()
   const [showManualInput, setShowManualInput] = useState<
     'bandcamp' | 'spotify' | null
   >(null)
@@ -469,9 +466,7 @@ function AdminMusicControls({
     setFeedback(null)
     setSavingCandidateUrl(candidate.url)
     const onSuccess = () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
+      // Cache invalidation is owned by the mutation hooks (PSY-1109).
       setFeedback({
         type: 'success',
         message: `${platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'} URL saved`,
@@ -513,9 +508,6 @@ function AdminMusicControls({
       { artistId: artist.id, bandcampUrl: manualUrl.trim() },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.artists.detail(artistId),
-          })
           setFeedback({ type: 'success', message: 'Bandcamp URL saved' })
           setShowManualInput(null)
           setManualUrl('')
@@ -537,9 +529,6 @@ function AdminMusicControls({
       { artistId: artist.id, spotifyUrl: manualUrl.trim() },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.artists.detail(artistId),
-          })
           setFeedback({ type: 'success', message: 'Spotify URL saved' })
           setShowManualInput(null)
           setManualUrl('')
@@ -558,9 +547,6 @@ function AdminMusicControls({
     setFeedback(null)
     clearBandcamp.mutate(artist.id, {
       onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.artists.detail(artistId),
-        })
         setFeedback({ type: 'success', message: 'Bandcamp URL cleared' })
         setShowManualInput(null)
       },
@@ -577,9 +563,6 @@ function AdminMusicControls({
     setFeedback(null)
     clearSpotify.mutate(artist.id, {
       onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.artists.detail(artistId),
-        })
         setFeedback({ type: 'success', message: 'Spotify URL cleared' })
         setShowManualInput(null)
       },
@@ -1233,7 +1216,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           />
 
           {isAdmin && (
-            <AdminMusicControls artist={artist} artistId={artistId} />
+            <AdminMusicControls artist={artist} />
           )}
 
           <RevisionHistory
