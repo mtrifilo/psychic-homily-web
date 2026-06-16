@@ -27,6 +27,7 @@ import type {
   ExtractedCollectionItem,
   MatchSuggestion,
 } from '@/lib/types/extraction'
+import { getAuthenticatedUser } from '@/lib/auth-profile'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -64,14 +65,6 @@ Rules:
 - Return ONLY the JSON object, no explanation or markdown code blocks.`
 }
 
-interface UserProfile {
-  success: boolean
-  user?: {
-    id: string
-    email?: string
-  }
-}
-
 interface ArtistSearchResult {
   artists: Array<{
     id: number
@@ -79,22 +72,6 @@ interface ArtistSearchResult {
     slug: string
   }>
   count: number
-}
-
-async function getAuthenticatedUser(
-  authToken: string
-): Promise<UserProfile | null> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/auth/profile`, {
-      headers: {
-        Cookie: `auth_token=${authToken}`,
-      },
-    })
-    if (!response.ok) return null
-    return await response.json()
-  } catch {
-    return null
-  }
 }
 
 async function searchArtist(name: string): Promise<ArtistSearchResult | null> {

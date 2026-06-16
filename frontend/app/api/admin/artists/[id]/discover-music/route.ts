@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
 import * as Sentry from '@sentry/nextjs'
 import { isValidSpotifyArtistUrl } from '@/lib/spotify'
+import { getAuthenticatedUser } from '@/lib/auth-profile'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -34,11 +35,6 @@ Rules:
 - If a field is unknown, use null. If no candidates for a platform, return an empty array.
 - Output ONLY the JSON object.`
 
-interface UserProfile {
-  success: boolean
-  user?: { id: string; is_admin?: boolean }
-}
-
 interface Artist {
   id: number
   name: string
@@ -53,20 +49,6 @@ export interface DiscoveryCandidate {
   popularity: string | null
   confidence: 'high' | 'medium' | 'low'
   why_might_match: string | null
-}
-
-async function getAuthenticatedUser(
-  authToken: string
-): Promise<UserProfile | null> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/auth/profile`, {
-      headers: { Cookie: `auth_token=${authToken}` },
-    })
-    if (!response.ok) return null
-    return await response.json()
-  } catch {
-    return null
-  }
 }
 
 async function getArtist(artistId: string): Promise<Artist | null> {
