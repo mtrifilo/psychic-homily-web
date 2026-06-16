@@ -229,7 +229,7 @@ func TestIsValidBandcampURL(t *testing.T) {
 	}{
 		{"valid album URL", "https://artist.bandcamp.com/album/cool-album", true},
 		{"valid track URL", "https://artist.bandcamp.com/track/cool-track", true},
-		{"apex album URL", "https://bandcamp.com/album/cool-album", true},
+		{"apex rejected (releases live on a subdomain)", "https://bandcamp.com/album/cool-album", false},
 		{"profile only", "https://artist.bandcamp.com", false},
 		{"wrong domain", "https://example.com/album/test", false},
 		{"empty string", "", false},
@@ -260,7 +260,11 @@ func TestIsValidSpotifyURL(t *testing.T) {
 	}{
 		{"valid 22-char id", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP", true},
 		{"valid id with ?si= query", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP?si=abc", true},
-		{"non-22-char id", "https://open.spotify.com/artist/abc123", false},
+		// Length is not pinned to 22 server-side (host anchor is the win); these
+		// real shapes the BFF forwards unchanged must still validate.
+		{"short id (host-anchored, length not pinned)", "https://open.spotify.com/artist/abc123", true},
+		{"locale prefix", "https://open.spotify.com/intl-de/artist/0WThQFCFaU1YR5s0bNLvtP", true},
+		{"trailing sub-tab", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP/about", true},
 		{"wrong domain", "https://spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP", false},
 		{"missing /artist/", "https://open.spotify.com/track/0WThQFCFaU1YR5s0bNLvtP", false},
 		{"empty string", "", false},

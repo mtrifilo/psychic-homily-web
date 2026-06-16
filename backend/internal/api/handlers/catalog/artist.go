@@ -554,16 +554,21 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 // isValidBandcampURL validates that the URL is a proper Bandcamp album/track URL.
 // It parses the URL and anchors on the host (not a substring match), so a
 // hostile value like "http://169.254.169.254/album/x?bandcamp.com" — which the
-// old strings.Contains check accepted — is rejected. The frontend BFF already
-// fetches/canonicalizes these (PSY-1106); this is the backend's defense-in-depth
-// floor as the last writer.
+// old strings.Contains check accepted — is rejected. This handler STORES the
+// value (later rendered in an iframe src); it does not fetch it, so the win here
+// is preventing a hostile/foreign host from being persisted, not SSRF.
+//
+// NOTE: the general social.bandcamp/social.spotify fields on the create/update
+// endpoints are still only scheme-checked (ValidateSocialURLs) — PSY-1113.
 func isValidBandcampURL(rawURL string) bool {
 	u, ok := parseHTTPURL(rawURL)
 	if !ok {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	if host != "bandcamp.com" && !strings.HasSuffix(host, ".bandcamp.com") {
+	// Real album/track pages always live on an artist subdomain
+	// (<artist>.bandcamp.com); the bare apex is not a release URL, and the
+	// social-link mirror (above) keys off the ".bandcamp.com" subdomain too.
+	if !strings.HasSuffix(strings.ToLower(u.Hostname()), ".bandcamp.com") {
 		return false
 	}
 	// Album or track page, not a bare profile.
@@ -571,8 +576,10 @@ func isValidBandcampURL(rawURL string) bool {
 }
 
 // parseHTTPURL parses rawURL and confirms it has an http/https scheme and a
-// host, returning the parsed URL. Shared floor for the domain-specific
-// validators so the parse + scheme check lives in one place.
+// host, returning the parsed URL. Shared by the two validators below so the
+// parse + scheme check lives in one place. http is accepted (not just https) to
+// match the codebase's URL convention (utils.ValidateHTTPURL); the host anchor,
+// not the scheme, is what rejects hostile values.
 func parseHTTPURL(rawURL string) (*url.URL, bool) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
@@ -695,14 +702,19 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 	return &UpdateArtistSpotifyResponse{Body: artist}, nil
 }
 
-// spotifyArtistPath matches a canonical Spotify artist path: /artist/<22-char
-// base62 id>. The frontend canonicalizes to exactly this shape (PSY-1108).
-var spotifyArtistPath = regexp.MustCompile(`^/artist/[A-Za-z0-9]{22}/?$`)
+// spotifyArtistPath matches an /artist/<id> segment ANYWHERE in the path, so a
+// locale prefix (/intl-de/artist/...) or a trailing sub-tab (/artist/<id>/about)
+// — both shapes Spotify's web player serves and admins paste verbatim — still
+// validate. Id length is intentionally not pinned to 22 here: the security win
+// is the open.spotify.com host anchor (below); the canonical 22-char form is a
+// frontend normalization concern, and rejecting other lengths server-side would
+// hard-422 real pasted URLs the BFF forwards unchanged.
+var spotifyArtistPath = regexp.MustCompile(`/artist/[A-Za-z0-9]+(?:/|$)`)
 
 // isValidSpotifyURL validates that the URL is a proper Spotify artist page URL.
-// Parses and anchors on the host AND the 22-char base62 artist id, replacing the
-// old substring check that accepted any-length id and any URL merely containing
-// "open.spotify.com/artist/" (e.g. on an attacker-controlled host).
+// Parses and anchors on the open.spotify.com host, replacing the old substring
+// check that accepted any URL merely containing "open.spotify.com/artist/" (e.g.
+// on an attacker-controlled host like "https://evil.test/artist/<id>").
 func isValidSpotifyURL(rawURL string) bool {
 	u, ok := parseHTTPURL(rawURL)
 	if !ok {
