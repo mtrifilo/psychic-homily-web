@@ -2096,6 +2096,7 @@ type UpdateProfileRequest struct {
 		FirstName   *string `json:"first_name,omitempty" required:"false" doc:"First name"`
 		LastName    *string `json:"last_name,omitempty" required:"false" doc:"Last name"`
 		Bio         *string `json:"bio,omitempty" required:"false" doc:"Short bio (max 500 chars)"`
+		NavMode     *string `json:"nav_mode,omitempty" required:"false" enum:"top,side" doc:"Global nav chrome preference: 'top' (top bar) or 'side' (left sidebar)"`
 	}
 }
 
@@ -2188,6 +2189,20 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 			return resp, nil
 		}
 		updates["bio"] = bio
+	}
+
+	if req.Body.NavMode != nil {
+		navMode := strings.TrimSpace(*req.Body.NavMode)
+		// Allowlist the two known modes — the column carries a matching CHECK
+		// constraint, but rejecting here returns a clean 400 instead of a 500
+		// from the DB constraint, and keeps the contract self-documenting.
+		if navMode != authm.NavModeTop && navMode != authm.NavModeSide {
+			resp.Body.Success = false
+			resp.Body.Message = "Nav mode must be 'top' or 'side'"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		updates["nav_mode"] = navMode
 	}
 
 	if len(updates) == 0 {
