@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
 import { parseSpotifyArtistId } from '@/lib/spotify'
+import { bandcampEmbedSrc, type BandcampEmbedResponse } from '@/lib/bandcamp'
 
 interface MusicEmbedProps {
   bandcampAlbumUrl?: string | null
@@ -30,7 +31,9 @@ export function MusicEmbed({
   const [embed, setEmbed] = useState<EmbedState>({ type: 'loading' })
 
   useEffect(() => {
-    async function resolveEmbed() {
+    let cancelled = false
+
+    async function resolveEmbed(): Promise<EmbedState> {
       // Priority 1: Bandcamp album/track URL - resolve the embed kind + id
       if (bandcampAlbumUrl) {
         try {
@@ -38,10 +41,9 @@ export function MusicEmbed({
             `/api/bandcamp/album-id?url=${encodeURIComponent(bandcampAlbumUrl)}`
           )
           if (response.ok) {
-            const data = await response.json()
+            const data = (await response.json()) as BandcampEmbedResponse
             if (data.id && (data.kind === 'album' || data.kind === 'track')) {
-              setEmbed({ type: 'bandcamp', embedKind: data.kind, embedId: data.id })
-              return
+              return { type: 'bandcamp', embedKind: data.kind, embedId: data.id }
             }
           }
         } catch (error) {
@@ -58,34 +60,39 @@ export function MusicEmbed({
       if (spotifyUrl) {
         const artistId = parseSpotifyArtistId(spotifyUrl)
         if (artistId) {
-          setEmbed({ type: 'spotify', artistId })
-          return
+          return { type: 'spotify', artistId }
         }
       }
 
       // Priority 3: Bandcamp fallback links
       if (bandcampAlbumUrl) {
-        setEmbed({
+        return {
           type: 'fallback',
           url: bandcampAlbumUrl,
           label: `Listen to ${artistName} on Bandcamp`,
-        })
-        return
+        }
       }
 
       if (bandcampProfileUrl) {
-        setEmbed({
+        return {
           type: 'fallback',
           url: bandcampProfileUrl,
           label: `Listen to ${artistName} on Bandcamp`,
-        })
-        return
+        }
       }
 
-      setEmbed({ type: 'none' })
+      return { type: 'none' }
     }
 
-    resolveEmbed()
+    // Ignore a resolution that finishes after the deps changed/unmounted, so a
+    // slow earlier request can't overwrite a newer embed.
+    resolveEmbed().then(state => {
+      if (!cancelled) setEmbed(state)
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [bandcampAlbumUrl, bandcampProfileUrl, spotifyUrl, artistName])
 
   if (embed.type === 'none') {
@@ -131,7 +138,7 @@ export function MusicEmbed({
           <iframe
             title={`${artistName} on Bandcamp`}
             style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
-            src={`https://bandcamp.com/EmbeddedPlayer/${embed.embedKind}=${embed.embedId}/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
+            src={bandcampEmbedSrc({ kind: embed.embedKind, id: embed.embedId })}
             seamless
           />
         </div>

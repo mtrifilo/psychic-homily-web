@@ -45,6 +45,40 @@ export interface BandcampEmbed {
   resolvedUrl: string
 }
 
+// The shape the /api/bandcamp/album-id route returns and MusicEmbed consumes.
+// Shared so a field rename is a compile error at both ends.
+export type BandcampEmbedResponse = Pick<BandcampEmbed, 'kind' | 'id'>
+
+// Builds a Bandcamp EmbeddedPlayer iframe `src` from a kind + id. The single
+// source of truth for that URL shape, used by both MusicEmbed (dark defaults)
+// and the blog <Bandcamp> component (its own colors + a fallback link). The
+// player parses the `key=value` path segments order-independently.
+//
+// The default bgcol/linkcol are MusicEmbed's hardcoded dark theme, baked into
+// the iframe src — they are NOT theme-aware. Making the embed follow the
+// light/dark theme (a re-render on toggle) is a deferred follow-up.
+export function bandcampEmbedSrc(opts: {
+  kind: BandcampEmbedKind
+  id: string
+  size?: 'large' | 'small'
+  bgcol?: string
+  linkcol?: string
+  artwork?: 'small' | 'big'
+  tracklist?: boolean
+  transparent?: boolean
+}): string {
+  const parts = [
+    `${opts.kind}=${opts.id}`,
+    `size=${opts.size ?? 'large'}`,
+    `bgcol=${opts.bgcol ?? '1a1a1a'}`,
+    `linkcol=${opts.linkcol ?? 'f59e0b'}`,
+    `tracklist=${opts.tracklist ?? false}`,
+    `artwork=${opts.artwork ?? 'small'}`,
+  ]
+  if (opts.transparent) parts.push('transparent=true')
+  return `https://bandcamp.com/EmbeddedPlayer/${parts.join('/')}/`
+}
+
 export type ResolveBandcampResult =
   | { ok: true; embed: BandcampEmbed }
   | { ok: false; status: number | null; error: string }

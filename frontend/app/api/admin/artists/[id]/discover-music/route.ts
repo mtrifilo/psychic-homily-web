@@ -110,6 +110,18 @@ function normalizeCandidate(raw: unknown): DiscoveryCandidate | null {
   }
 }
 
+// The LLM is told to "include EVERY plausible same-name candidate", so it
+// occasionally returns the same URL twice. Dedup by URL so the picker's React
+// keys (key={c.url}) stay unique.
+function dedupeByUrl(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+  const seen = new Set<string>()
+  return candidates.filter(c => {
+    if (seen.has(c.url)) return false
+    seen.add(c.url)
+    return true
+  })
+}
+
 function isCreditsError(error: unknown): boolean {
   if (error instanceof Anthropic.APIError) {
     const m = error.message.toLowerCase()
@@ -223,13 +235,18 @@ export async function POST(
       )
     }
 
-    // Normalize + filter to URL-shape-valid candidates per platform.
-    const bandcamp = parsed.bandcamp
-      .map(normalizeCandidate)
-      .filter((c): c is DiscoveryCandidate => !!c && BANDCAMP_ALBUM_RE.test(c.url))
-    const spotify = parsed.spotify
-      .map(normalizeCandidate)
-      .filter((c): c is DiscoveryCandidate => !!c && isValidSpotifyArtistUrl(c.url))
+    // Normalize + filter to URL-shape-valid candidates per platform, then dedup
+    // by URL (the LLM sometimes repeats a candidate).
+    const bandcamp = dedupeByUrl(
+      parsed.bandcamp
+        .map(normalizeCandidate)
+        .filter((c): c is DiscoveryCandidate => !!c && BANDCAMP_ALBUM_RE.test(c.url))
+    )
+    const spotify = dedupeByUrl(
+      parsed.spotify
+        .map(normalizeCandidate)
+        .filter((c): c is DiscoveryCandidate => !!c && isValidSpotifyArtistUrl(c.url))
+    )
 
     return NextResponse.json({ bandcamp, spotify })
   } catch (error) {
