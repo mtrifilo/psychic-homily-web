@@ -515,7 +515,7 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_AdminSuccess() {
 	artistID := s.createArtistViaService("Spotify Artist")
 
 	ctx := testhelpers.CtxWithUser(admin)
-	url := "https://open.spotify.com/artist/abc123"
+	url := "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"
 	req := &UpdateArtistSpotifyRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	req.Body.SpotifyURL = &url
 
@@ -531,7 +531,7 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_ClearURL() {
 	artistID := s.createArtistViaService("Spotify Clear Artist")
 
 	ctx := testhelpers.CtxWithUser(admin)
-	url := "https://open.spotify.com/artist/abc123"
+	url := "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"
 	setReq := &UpdateArtistSpotifyRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	setReq.Body.SpotifyURL = &url
 	_, err := s.handler.UpdateArtistSpotifyHandler(ctx, setReq)
@@ -551,7 +551,7 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_ClearURL() {
 func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_NotFound() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
-	url := "https://open.spotify.com/artist/abc123"
+	url := "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "99999"}
 	req.Body.SpotifyURL = &url
 

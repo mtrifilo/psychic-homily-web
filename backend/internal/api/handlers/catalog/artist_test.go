@@ -229,9 +229,17 @@ func TestIsValidBandcampURL(t *testing.T) {
 	}{
 		{"valid album URL", "https://artist.bandcamp.com/album/cool-album", true},
 		{"valid track URL", "https://artist.bandcamp.com/track/cool-track", true},
+		{"apex album URL", "https://bandcamp.com/album/cool-album", true},
 		{"profile only", "https://artist.bandcamp.com", false},
 		{"wrong domain", "https://example.com/album/test", false},
 		{"empty string", "", false},
+		// Host is anchored (parsed), not a substring — these all contain
+		// "bandcamp.com" but resolve to attacker/internal hosts (PSY-1107).
+		{"ssrf substring bypass via query", "http://169.254.169.254/album/x?bandcamp.com", false},
+		{"attacker subdomain suffix", "https://bandcamp.com.attacker.test/album/x", false},
+		{"lookalike domain", "https://notbandcamp.com/album/x", false},
+		{"scheme-less", "artist.bandcamp.com/album/x", false},
+		{"non-http scheme", "javascript:alert(1)//artist.bandcamp.com/album/x", false},
 	}
 
 	for _, tt := range tests {
@@ -250,10 +258,16 @@ func TestIsValidSpotifyURL(t *testing.T) {
 		url      string
 		expected bool
 	}{
-		{"valid URL", "https://open.spotify.com/artist/abc123", true},
-		{"wrong domain", "https://spotify.com/artist/abc123", false},
-		{"missing /artist/", "https://open.spotify.com/track/abc123", false},
+		{"valid 22-char id", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP", true},
+		{"valid id with ?si= query", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP?si=abc", true},
+		{"non-22-char id", "https://open.spotify.com/artist/abc123", false},
+		{"wrong domain", "https://spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP", false},
+		{"missing /artist/", "https://open.spotify.com/track/0WThQFCFaU1YR5s0bNLvtP", false},
 		{"empty string", "", false},
+		// Host anchored (parsed), not a substring (PSY-1107).
+		{"ssrf substring bypass via query", "http://169.254.169.254/?x=open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP", false},
+		{"attacker host with artist path", "https://evil.test/artist/0WThQFCFaU1YR5s0bNLvtP", false},
+		{"scheme-less", "open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP", false},
 	}
 
 	for _, tt := range tests {
@@ -742,7 +756,7 @@ func TestUpdateSpotify_Success(t *testing.T) {
 			}
 			if req.Spotify == nil {
 				t.Error("expected spotify to be set")
-			} else if *req.Spotify != "https://open.spotify.com/artist/abc123" {
+			} else if *req.Spotify != "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP" {
 				t.Errorf("expected spotify URL, got %q", *req.Spotify)
 			}
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
@@ -750,7 +764,7 @@ func TestUpdateSpotify_Success(t *testing.T) {
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
-	url := "https://open.spotify.com/artist/abc123"
+	url := "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "42"}
 	req.Body.SpotifyURL = &url
 
