@@ -47,6 +47,15 @@ describe('GET /api/bandcamp/album-id', () => {
     expect(res.status).toBe(400)
   })
 
+  it('blocks an SSRF substring-bypass URL with 400 and no outbound fetch', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const res = await GET(
+      getRequest('http://169.254.169.254/latest/meta-data/?x=bandcamp.com')
+    )
+    expect(res.status).toBe(400)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('maps an unresolvable URL (both path types 404) to a 404', async () => {
     fetchSpy = vi
       .spyOn(globalThis, 'fetch')

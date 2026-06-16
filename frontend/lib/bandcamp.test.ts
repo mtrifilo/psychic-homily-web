@@ -3,6 +3,7 @@ import {
   parseBandcampEmbedId,
   swapAlbumTrackPath,
   resolveBandcampEmbed,
+  isAllowedBandcampUrl,
 } from './bandcamp'
 
 // Every test that touches fetch installs a spy via mockFetchSequence; restore
@@ -34,6 +35,26 @@ function mockFetchSequence(
   }
   return spy
 }
+
+describe('isAllowedBandcampUrl (SSRF guard)', () => {
+  it('accepts https bandcamp.com and its subdomains', () => {
+    expect(isAllowedBandcampUrl('https://bandcamp.com/album/x')).toBe(true)
+    expect(isAllowedBandcampUrl('https://sorochemusic.bandcamp.com/track/leyenda')).toBe(true)
+  })
+  it('rejects the substring-bypass payloads a naive includes() would allow', () => {
+    // These all contain "bandcamp.com" but resolve to attacker/internal hosts.
+    expect(isAllowedBandcampUrl('http://169.254.169.254/latest/meta-data/?x=bandcamp.com')).toBe(false)
+    expect(isAllowedBandcampUrl('https://bandcamp.com.attacker.test/album/x')).toBe(false)
+    expect(isAllowedBandcampUrl('https://evil.test/?x=bandcamp.com')).toBe(false)
+    expect(isAllowedBandcampUrl('http://localhost:8080/admin?bandcamp.com')).toBe(false)
+  })
+  it('rejects non-https schemes and unparseable input', () => {
+    expect(isAllowedBandcampUrl('http://x.bandcamp.com/album/x')).toBe(false)
+    expect(isAllowedBandcampUrl('not a url')).toBe(false)
+    // A subdomain-suffix lookalike must not slip through endsWith.
+    expect(isAllowedBandcampUrl('https://notbandcamp.com/album/x')).toBe(false)
+  })
+})
 
 describe('swapAlbumTrackPath', () => {
   it('swaps /album/ -> /track/', () => {
@@ -90,6 +111,15 @@ describe('parseBandcampEmbedId', () => {
 })
 
 describe('resolveBandcampEmbed', () => {
+  it('rejects an off-allowlist URL without making any network request', async () => {
+    const spy = vi.spyOn(global, 'fetch')
+    const result = await resolveBandcampEmbed(
+      'http://169.254.169.254/latest/meta-data/?x=bandcamp.com'
+    )
+    expect(result.ok).toBe(false)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   it('resolves a reachable track URL without changing the URL', async () => {
     mockFetchSequence({ ok: true, html: TRACK_HTML })
     const result = await resolveBandcampEmbed(

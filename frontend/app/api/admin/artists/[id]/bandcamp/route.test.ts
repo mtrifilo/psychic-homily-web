@@ -123,6 +123,24 @@ describe('POST /api/admin/artists/[id]/bandcamp', () => {
     expect(mockRevalidatePath).toHaveBeenCalledWith('/artists/bright-eyes')
   })
 
+  it('rejects an SSRF substring-bypass URL with 400 and never fetches the page or backend', async () => {
+    fetchSpy = mockFetchRouting()
+
+    const res = await POST(
+      postRequest({ bandcamp_url: 'http://169.254.169.254/album/x?bandcamp.com' }),
+      params
+    )
+
+    expect(res.status).toBe(400)
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+    // Only the admin /auth/profile check should have fired — never the page
+    // fetch or the backend PATCH.
+    const nonAuthCalls = (fetchSpy.mock.calls as unknown[][]).filter(
+      (call) => !String(call[0]).endsWith('/auth/profile')
+    )
+    expect(nonAuthCalls).toHaveLength(0)
+  })
+
   it('auto-corrects an /album/ URL to /track/ on 404 and persists the corrected URL', async () => {
     // Mirrors the Soroche bug: the suggested /album/<slug> 404s, but the same
     // slug exists at /track/<slug>. The route must retry and save the /track/ URL.

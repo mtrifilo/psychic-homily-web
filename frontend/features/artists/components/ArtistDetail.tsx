@@ -453,9 +453,9 @@ function AdminMusicControls({
         setShowManualInput(null)
       },
       onError: err => {
-        // The route already returns user-friendly messages for the known
-        // error classes (PARSE_FAILED, RATE_LIMIT, API_CREDITS_EXHAUSTED);
-        // pass them through.
+        // The route returns user-friendly messages for all its error classes
+        // (PARSE_FAILED, RATE_LIMIT, API_CREDITS_EXHAUSTED, TIMEOUT), as does
+        // the client timeout backstop; pass them through.
         const message = err instanceof Error ? err.message : 'Discovery failed'
         setFeedback({ type: 'error', message })
       },

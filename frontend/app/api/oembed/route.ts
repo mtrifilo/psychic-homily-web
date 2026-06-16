@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
+import { isAllowedBandcampUrl } from '@/lib/bandcamp'
 
 interface OEmbedResponse {
   html?: string
@@ -17,22 +18,23 @@ interface OEmbedResponse {
 
 type Provider = 'bandcamp' | 'spotify' | null
 
+// Match on the PARSED host, not a substring — `hostname.includes('bandcamp.com')`
+// also matches `bandcamp.com.attacker.test`. This route's outbound fetch targets
+// are hardcoded provider endpoints (the user URL is only an encoded query param),
+// so a misclassification is not itself an SSRF, but the substring pattern is the
+// same drift-prone one lib/bandcamp's isAllowedBandcampUrl exists to replace.
 function detectProvider(url: string): Provider {
+  if (isAllowedBandcampUrl(url)) return 'bandcamp'
+  let parsed: URL
   try {
-    const parsed = new URL(url)
-    if (parsed.hostname.includes('bandcamp.com')) {
-      return 'bandcamp'
-    }
-    if (
-      parsed.hostname.includes('spotify.com') ||
-      parsed.hostname.includes('open.spotify.com')
-    ) {
-      return 'spotify'
-    }
-    return null
+    parsed = new URL(url)
   } catch {
     return null
   }
+  if (parsed.protocol !== 'https:') return null
+  const host = parsed.hostname.toLowerCase()
+  if (host === 'spotify.com' || host.endsWith('.spotify.com')) return 'spotify'
+  return null
 }
 
 function getOEmbedEndpoint(provider: Provider, url: string): string | null {
