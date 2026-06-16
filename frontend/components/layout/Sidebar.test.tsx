@@ -8,17 +8,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname(),
 }))
 
-// The admin rail is a dynamically-imported chunk (AdminSidebarNav, kept off the
-// public bundle). Stub next/dynamic so Sidebar renders a synchronous marker we
-// can assert on; the rail's own behavior (groups, badges, active state) is
-// covered by AdminSidebarNav.test.tsx.
-vi.mock('next/dynamic', () => ({
-  default: () =>
-    function AdminSidebarNavStub() {
-      return <div data-testid="admin-sidebar-nav" />
-    },
-}))
-
 // Return type widened so individual tests can override `user`/`isAuthenticated`
 // without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
@@ -273,46 +262,19 @@ describe('Sidebar', () => {
     expect(onToggleCollapse).toHaveBeenCalledTimes(1)
   })
 
-  // Context-aware delegation (PSY-933): Sidebar mounts the lazily-loaded admin
-  // rail ONLY for an admin on the exact /admin shell; everywhere else (and for
-  // non-admins) it renders the public nav. The rail's contents are tested in
-  // AdminSidebarNav.test.tsx.
-  describe('admin nav delegation', () => {
-    const asAdmin = () =>
-      mockAuthContext.mockReturnValue({
-        user: { email: 'admin@test.com', is_admin: true },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-
-    it('mounts the admin rail (and hides public groups) for an admin on /admin', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin')
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      expect(screen.getByTestId('admin-sidebar-nav')).toBeInTheDocument()
-      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
+  // Note: the global Sidebar is now purely the public Discover/Community nav.
+  // The PSY-933 admin context-swap was retired in PSY-1116 — the admin area's
+  // rail is owned by AdminSidebar (app/admin/layout.tsx), and SideNavShell
+  // suppresses this sidebar under /admin to avoid a double rail.
+  it('renders the public Discover nav even on /admin (no admin swap)', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'admin@test.com', is_admin: true },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
     })
-
-    it('keeps the public nav for a NON-admin at /admin (mid-redirect safety)', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-      mockPathname.mockReturnValue('/admin')
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByTestId('admin-sidebar-nav')).not.toBeInTheDocument()
-    })
-
-    it('keeps the public nav on standalone /admin/<section> sub-routes (scoped to the tab-shell, not startsWith)', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin/featured')
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByTestId('admin-sidebar-nav')).not.toBeInTheDocument()
-    })
+    mockPathname.mockReturnValue('/admin')
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByText('Discover')).toBeInTheDocument()
   })
 })

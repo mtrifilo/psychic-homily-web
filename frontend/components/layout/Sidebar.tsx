@@ -1,7 +1,6 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import dynamic from 'next/dynamic'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, UserCircle, Shield, PanelLeftClose, PanelLeft,
@@ -14,10 +13,6 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { SidebarNavLink } from './SidebarNavLink'
-
-// The admin rail (config + the 7 queue-count hooks) is a separate chunk loaded
-// only when an admin is on the /admin shell — public pages never download it.
-const AdminSidebarNav = dynamic(() => import('./AdminSidebarNav'), { ssr: false })
 
 export interface SidebarNavItem {
   href: string
@@ -73,17 +68,11 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
 
-  // In the admin area the rail becomes context-aware (PSY-933): it swaps the
-  // public Discover/Community groups for the grouped admin sections (rendered by
-  // the lazily-loaded AdminSidebarNav). Gated on isAdmin so a non-admin
-  // mid-redirect at /admin still sees the public nav, and scoped to the exact
-  // /admin tab-shell (usePathname() strips the ?tab= query, so this still matches
-  // /admin?tab=…). Standalone /admin/<section> sub-routes keep the public nav —
-  // their pre-PSY-933 behavior — rather than mis-rendering a ?tab=-only active
-  // state; a path-aware rail for those is a follow-up.
-  const isAdmin = !!user?.is_admin
-  const showAdminNav = isAdmin && pathname === '/admin'
-
+  // The global sidebar is purely the public Discover/Community nav. The admin
+  // area's own rail is owned by AdminSidebar (app/admin/layout.tsx, PSY-1114) —
+  // and in side-nav mode SideNavShell suppresses this sidebar under /admin — so
+  // the PSY-933 context-swap that used to render admin nav here is retired
+  // (PSY-1116) to avoid a double rail.
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
     return pathname === href || pathname.startsWith(href + '/')
@@ -117,31 +106,25 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         )}
       >
         <nav className="flex-1 space-y-6 overflow-y-auto px-2 py-4">
-          {showAdminNav ? (
-            <AdminSidebarNav collapsed={collapsed} />
-          ) : (
-            <>
-              {sidebarGroups.map(group => (
-                <div key={group.label}>
-                  {renderGroupHeader(group.label)}
-                  <div className="space-y-0.5">
-                    {group.items.map(renderItem)}
-                  </div>
-                </div>
-              ))}
+          {sidebarGroups.map(group => (
+            <div key={group.label}>
+              {renderGroupHeader(group.label)}
+              <div className="space-y-0.5">
+                {group.items.map(renderItem)}
+              </div>
+            </div>
+          ))}
 
-              {isAuthenticated && (
-                <div>
-                  <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
-                  <div className="space-y-0.5">
-                    {renderItem({ href: '/library', label: 'Library', icon: Library })}
-                    {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
-                    {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
-                    {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
-                  </div>
-                </div>
-              )}
-            </>
+          {isAuthenticated && (
+            <div>
+              <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
+              <div className="space-y-0.5">
+                {renderItem({ href: '/library', label: 'Library', icon: Library })}
+                {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
+                {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
+                {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
+              </div>
+            </div>
           )}
         </nav>
 
