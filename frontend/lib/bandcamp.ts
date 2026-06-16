@@ -53,6 +53,10 @@ export type BandcampEmbedResponse = Pick<BandcampEmbed, 'kind' | 'id'>
 // source of truth for that URL shape, used by both MusicEmbed (dark defaults)
 // and the blog <Bandcamp> component (its own colors + a fallback link). The
 // player parses the `key=value` path segments order-independently.
+//
+// The default bgcol/linkcol are MusicEmbed's hardcoded dark theme, baked into
+// the iframe src — they are NOT theme-aware. Making the embed follow the
+// light/dark theme (a re-render on toggle) is a deferred follow-up.
 export function bandcampEmbedSrc(opts: {
   kind: BandcampEmbedKind
   id: string

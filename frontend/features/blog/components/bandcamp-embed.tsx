@@ -25,6 +25,7 @@ export function Bandcamp({
   tracklist = 'false',
   height = '120',
 }: BandcampProps) {
+  // A Bandcamp embed is an album OR a track; authors pass exactly one prop.
   const embedUrl = bandcampEmbedSrc({
     kind: album ? 'album' : 'track',
     id: album ?? track ?? '',
