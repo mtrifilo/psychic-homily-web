@@ -558,8 +558,10 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 // value (later rendered in an iframe src); it does not fetch it, so the win here
 // is preventing a hostile/foreign host from being persisted, not SSRF.
 //
-// NOTE: the general social.bandcamp/social.spotify fields on the create/update
-// endpoints are still only scheme-checked (ValidateSocialURLs) — PSY-1113.
+// NOTE: the general social.bandcamp/social.spotify fields are host-anchored to
+// *.bandcamp.com / *.spotify.com by ValidateSocialURLs (PSY-1113). This
+// dedicated validator is the STRICTER gate the embed endpoint needs — it also
+// requires the /album|/track path, since the value drives an iframe embed.
 func isValidBandcampURL(rawURL string) bool {
 	u, ok := parseHTTPURL(rawURL)
 	if !ok {

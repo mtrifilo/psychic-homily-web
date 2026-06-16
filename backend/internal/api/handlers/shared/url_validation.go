@@ -87,6 +87,15 @@ func ValidateURLField(fieldName string, value *string) error {
 // field absent here (website) accepts any host. A host matches when it equals a
 // base or is a subdomain of it — covering open.spotify.com, <artist>.bandcamp.com,
 // m.facebook.com, music.youtube.com, www.*, etc.
+//
+// This is a broad HOST floor for the free-form social fields. The dedicated
+// embed endpoints use the stricter, path-aware isValidBandcampURL /
+// isValidSpotifyURL (catalog/artist.go) — change platform-host rules with both
+// in mind.
+//
+// Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
+// intentionally excluded: they can't be statically verified to land on-platform,
+// which is the point of the anchor. `website` is the escape hatch for any host.
 var socialHostSuffixes = map[string][]string{
 	"instagram":  {"instagram.com"},
 	"facebook":   {"facebook.com", "fb.com"},
