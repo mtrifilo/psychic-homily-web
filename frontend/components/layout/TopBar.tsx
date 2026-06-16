@@ -39,7 +39,11 @@ const glitchFilter = (
 // The Browse / Contribute menus, the authenticated bar, the palette re-skin,
 // and mobile are each elaborated by their own follow-up tickets (Radio became
 // a plain /radio link in PSY-1057); this file just assembles the seams.
-export function TopBar() {
+//
+// `variant` (PSY-1116): in side-nav mode the global nav lives in the left
+// Sidebar, so the top bar drops its PrimaryNav and becomes a slim brand +
+// search + theme + account bar. 'full' (default) is the top-nav-mode chrome.
+export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {}) {
   // resolvedTheme (not theme) so the first click always flips the *visible*
   // theme — with theme==='system' a `theme === 'dark'` check would set explicit
   // 'dark' and appear to do nothing. Matches the canonical ModeToggle.
@@ -71,7 +75,7 @@ export function TopBar() {
               </span>
             </Link>
           </div>
-          <PrimaryNav />
+          {variant === 'full' && <PrimaryNav />}
         </div>
 
         {/* Right: search + theme + account */}

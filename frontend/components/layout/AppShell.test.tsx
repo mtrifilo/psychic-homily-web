@@ -1,49 +1,75 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { AppShell } from './AppShell'
 
-vi.mock('./TopBar', () => ({
-  TopBar: () => <div data-testid="topbar" />,
+// AppShell is an async Server Component that resolves the nav-mode cookie.
+let cookieValue: string | undefined
+vi.mock('next/headers', () => ({
+  cookies: () =>
+    Promise.resolve({
+      get: (name: string) =>
+        name === 'nav_mode' && cookieValue ? { value: cookieValue } : undefined,
+    }),
 }))
 
+vi.mock('./TopBar', () => ({
+  TopBar: ({ variant = 'full' }: { variant?: string }) => (
+    <div data-testid="topbar" data-variant={variant} />
+  ),
+}))
 vi.mock('./CommandPalette', () => ({
   CommandPalette: () => <div data-testid="command-palette" />,
 }))
+vi.mock('./SideNavShell', () => ({
+  SideNavShell: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="side-nav-shell">{children}</div>
+  ),
+}))
+
+// Async Server Component: resolve the element, then render it.
+async function renderShell(children: React.ReactNode = <div>test content</div>) {
+  render(await AppShell({ children }))
+}
 
 describe('AppShell', () => {
-  it('renders children', () => {
-    render(
-      <AppShell>
-        <div>test content</div>
-      </AppShell>
-    )
+  beforeEach(() => {
+    cookieValue = undefined
+  })
+
+  it('renders children', async () => {
+    await renderShell(<div>test content</div>)
     expect(screen.getByText('test content')).toBeInTheDocument()
   })
 
-  it('renders the TopBar', () => {
-    render(
-      <AppShell>
-        <div>content</div>
-      </AppShell>
-    )
-    expect(screen.getByTestId('topbar')).toBeInTheDocument()
+  it('defaults to top-nav mode: full TopBar, no side-nav shell', async () => {
+    await renderShell()
+    expect(screen.getByTestId('topbar')).toHaveAttribute('data-variant', 'full')
+    expect(screen.queryByTestId('side-nav-shell')).not.toBeInTheDocument()
   })
 
-  it('mounts the CommandPalette once so global ⌘K works on every route', () => {
-    render(
-      <AppShell>
-        <div>content</div>
-      </AppShell>
-    )
+  it('renders side-nav mode when nav_mode=side: slim TopBar + SideNavShell wrapping content', async () => {
+    cookieValue = 'side'
+    await renderShell(<div>page</div>)
+    expect(screen.getByTestId('topbar')).toHaveAttribute('data-variant', 'slim')
+    const shell = screen.getByTestId('side-nav-shell')
+    expect(shell).toBeInTheDocument()
+    expect(shell).toHaveTextContent('page')
+  })
+
+  it('treats an unknown nav_mode cookie value as top mode', async () => {
+    cookieValue = 'bogus'
+    await renderShell()
+    expect(screen.getByTestId('topbar')).toHaveAttribute('data-variant', 'full')
+    expect(screen.queryByTestId('side-nav-shell')).not.toBeInTheDocument()
+  })
+
+  it('mounts the CommandPalette once so global ⌘K works on every route', async () => {
+    await renderShell()
     expect(screen.getByTestId('command-palette')).toBeInTheDocument()
   })
 
-  it('renders a skip link to #main-content as the first focusable element', () => {
-    render(
-      <AppShell>
-        <div>content</div>
-      </AppShell>
-    )
+  it('renders a skip link to #main-content as the first focusable element', async () => {
+    await renderShell()
     const skip = screen.getByRole('link', { name: 'Skip to content' })
     expect(skip).toHaveAttribute('href', '#main-content')
     // It must come before the top bar in the document so keyboard users hit it

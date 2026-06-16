@@ -111,6 +111,15 @@ describe('TopBar', () => {
       expect(screen.getByRole('button', { name: 'Browse the catalog' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Contribute' })).toBeInTheDocument()
     })
+
+    it('omits the primary nav in the slim (side-nav) variant — nav lives in the sidebar', () => {
+      render(<TopBar variant="slim" />)
+      expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Explore' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Browse the catalog' })).not.toBeInTheDocument()
+      // Brand + search stay in the slim bar.
+      expect(screen.getByRole('link', { name: 'Psychic Homily — home' })).toBeInTheDocument()
+    })
   })
 
   describe('theme toggle', () => {
