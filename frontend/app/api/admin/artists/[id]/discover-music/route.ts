@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
 import * as Sentry from '@sentry/nextjs'
 import { isValidSpotifyArtistUrl } from '@/lib/spotify'
-import { getAuthenticatedUser } from '@/lib/admin-artist-route'
+import { getAuthenticatedUser } from '@/lib/auth-profile'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
