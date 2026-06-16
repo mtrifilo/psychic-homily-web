@@ -2,6 +2,8 @@ package shared
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -79,13 +81,67 @@ func ValidateURLField(fieldName string, value *string) error {
 	return nil
 }
 
-// ValidateSocialURLs applies the http/https scheme check to the standard set
-// of social URL fields shared by artist, venue, label, and festival request
-// bodies. Pass nil for fields the surface doesn't accept (e.g. festival
-// only takes Website, so the other 7 args are nil).
+// socialHostSuffixes anchors each platform social field to its known hosts, so
+// a hostile value (e.g. https://evil.test/artist/x in the spotify field, which
+// renders as a SocialLinks href / embed source) can't be stored (PSY-1113). A
+// field absent here (website) accepts any host. A host matches when it equals a
+// base or is a subdomain of it — covering open.spotify.com, <artist>.bandcamp.com,
+// m.facebook.com, music.youtube.com, www.*, etc.
+//
+// This is a broad HOST floor for the free-form social fields. The dedicated
+// embed endpoints use the stricter, path-aware isValidBandcampURL /
+// isValidSpotifyURL (catalog/artist.go) — change platform-host rules with both
+// in mind.
+//
+// Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
+// intentionally excluded: they can't be statically verified to land on-platform,
+// which is the point of the anchor. `website` is the escape hatch for any host.
+var socialHostSuffixes = map[string][]string{
+	"instagram":  {"instagram.com"},
+	"facebook":   {"facebook.com", "fb.com"},
+	"twitter":    {"twitter.com", "x.com"},
+	"youtube":    {"youtube.com", "youtu.be"},
+	"spotify":    {"spotify.com"},
+	"soundcloud": {"soundcloud.com"},
+	"bandcamp":   {"bandcamp.com"},
+}
+
+// validateSocialHost rejects a social-platform URL whose host isn't on that
+// platform's allowlist. Fields not in socialHostSuffixes (website, image_url,
+// ...) are unrestricted. Assumes `value` already passed the scheme check, so a
+// parse failure here just means "skip" (the scheme check already rejected it).
+func validateSocialHost(field, value string) error {
+	bases, restricted := socialHostSuffixes[field]
+	if !restricted || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return nil
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, base := range bases {
+		if host == base || strings.HasSuffix(host, "."+base) {
+			return nil
+		}
+	}
+	return huma.Error422UnprocessableEntity(
+		fmt.Sprintf(
+			"%s must be a link on %s",
+			urlFieldSpecs[field].displayName,
+			strings.Join(bases, " or "),
+		),
+	)
+}
+
+// ValidateSocialURLs applies the http/https scheme check AND a per-platform host
+// allowlist (PSY-1113) to the standard set of social URL fields shared by
+// artist, venue, label, and festival request bodies. Pass nil for fields the
+// surface doesn't accept (e.g. festival only takes Website, so the other 7 args
+// are nil). `website` is host-unrestricted (any https host).
 //
 // Length is enforced separately by the request struct's maxLength tag at
-// JSON decode time; this helper only checks the scheme rule.
+// JSON decode time.
 func ValidateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundcloud, bandcamp, website *string) error {
 	pairs := [...]struct {
 		field string
@@ -105,6 +161,9 @@ func ValidateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundclo
 			continue
 		}
 		if err := validateScheme(*p.value, urlFieldSpecs[p.field].displayName); err != nil {
+			return err
+		}
+		if err := validateSocialHost(p.field, *p.value); err != nil {
 			return err
 		}
 	}
@@ -150,7 +209,10 @@ func ValidateFieldChangeValue(fieldName string, value any) error {
 			fmt.Sprintf("%s must be %d characters or fewer", spec.displayName, spec.maxLength),
 		)
 	}
-	return validateScheme(s, spec.displayName)
+	if err := validateScheme(s, spec.displayName); err != nil {
+		return err
+	}
+	return validateSocialHost(fieldName, s)
 }
 
 // URLSchemeError validates the http/https scheme and per-field length cap for
