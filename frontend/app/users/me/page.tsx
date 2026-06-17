@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation'
 import { Loader2, Flag, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SectionHeader } from '@/components/shared/SectionHeader'
-import { GetStartedChecklist } from '@/components/contributor/GetStartedChecklist'
-import { ProfileStatsSidebar } from '@/components/contributor/ProfileStatsSidebar'
-import { UserTierBadge } from '@/components/contributor/UserTierBadge'
+import {
+  GetStartedChecklist,
+  ProfileStatsSidebar,
+  UserTierBadge,
+} from '@/features/profile'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useOwnContributorProfile } from '@/features/auth'
 import { useMyCollections } from '@/features/collections'

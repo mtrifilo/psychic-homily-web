@@ -3,7 +3,7 @@
 /**
  * AICollectionFiller — AI-assisted collection-item extraction.
  *
- * Sister to `frontend/components/forms/AIFormFiller.tsx` (show extraction).
+ * Sister to `frontend/features/shows/components/AIFormFiller.tsx` (show extraction).
  * Duplicate-not-parameterize at N=2 — refactor to a shared `AIInputCard`
  * primitive when a 3rd consumer lands. The
  * text+image+compression chrome is structurally the same; the post-extract

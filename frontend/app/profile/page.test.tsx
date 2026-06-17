@@ -26,22 +26,19 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 vi.mock('@/features/auth', () => ({
   useUpdateProfile: () => mockUseUpdateProfile(),
+  SettingsPanel: () => <div data-testid="settings-panel">Settings panel</div>,
 }))
 
 // The non-Profile tabs render panels that fetch their own data. They are
 // out of scope for this surface, so we stub them to sentinels and keep the
 // test focused on the ProfileTab form, tab switching, and the auth redirect.
-vi.mock('@/components/contributor', () => ({
+vi.mock('@/features/profile', () => ({
   ContributorProfilePreview: () => <div data-testid="contributor-preview" />,
   TierAdvancementCard: ({ tier }: { tier: string }) => (
     <div data-testid="tier-advancement">{tier}</div>
   ),
   PrivacySettingsPanel: () => <div data-testid="privacy-panel">Privacy panel</div>,
   ProfileSectionsEditor: () => <div data-testid="sections-panel">Sections panel</div>,
-}))
-
-vi.mock('@/components/settings', () => ({
-  SettingsPanel: () => <div data-testid="settings-panel">Settings panel</div>,
 }))
 
 import ProfilePage from './page'

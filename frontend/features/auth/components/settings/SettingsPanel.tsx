@@ -20,13 +20,13 @@ import {
   Copy,
   Check,
 } from 'lucide-react'
-import { ChangePassword } from '@/components/settings/change-password'
-import { DeleteAccountDialog } from '@/components/settings/delete-account-dialog'
-import { OAuthAccounts } from '@/components/settings/oauth-accounts'
-import { APITokenManagement } from '@/components/settings/api-token-management'
-import { FavoriteCitiesSettings } from '@/components/settings/favorite-cities'
-import { NotificationSettings } from '@/components/settings/notification-settings'
-import { ReplyPermissionSettings } from '@/components/settings/reply-permission-settings'
+import { ChangePassword } from './change-password'
+import { DeleteAccountDialog } from './delete-account-dialog'
+import { OAuthAccounts } from './oauth-accounts'
+import { APITokenManagement } from './api-token-management'
+import { FavoriteCitiesSettings } from './favorite-cities'
+import { NotificationSettings } from './notification-settings'
+import { ReplyPermissionSettings } from './reply-permission-settings'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
