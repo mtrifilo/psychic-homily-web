@@ -132,11 +132,14 @@ func (m *RadioMatchingEngine) MatchPlaysForEpisode(episodeID uint) (*contracts.M
 	}
 
 	for i := range plays {
-		matched := m.matchPlay(&plays[i])
+		matched, persistErr := m.matchPlayWithErr(&plays[i])
 		if matched {
 			result.Matched++
 		} else {
 			result.Unmatched++
+		}
+		if persistErr != nil {
+			result.PersistErrors++
 		}
 	}
 
@@ -160,11 +163,14 @@ func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error
 	}
 
 	for i := range plays {
-		matched := m.matchPlay(&plays[i])
+		matched, persistErr := m.matchPlayWithErr(&plays[i])
 		if matched {
 			result.Matched++
 		} else {
 			result.Unmatched++
+		}
+		if persistErr != nil {
+			result.PersistErrors++
 		}
 	}
 
@@ -172,8 +178,22 @@ func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error
 }
 
 // matchPlay attempts to match a single play to entities in our knowledge graph.
-// Returns true if at least the artist was matched. Updates the play record in the DB.
+// Returns true if at least the artist was matched. Updates the play record in
+// the DB. A persist failure is reported as not-matched (the play is genuinely
+// unmatched on disk) — use matchPlayWithErr when the caller needs to count
+// persist failures separately (PSY-1119).
 func (m *RadioMatchingEngine) matchPlay(play *catalogm.RadioPlay) bool {
+	matched, _ := m.matchPlayWithErr(play)
+	return matched
+}
+
+// matchPlayWithErr is the persist-error-aware form of matchPlay. It returns
+// (artistMatched, persistErr). When the update fails, artistMatched is false
+// (the match did not reach disk) AND persistErr is non-nil so the caller can
+// distinguish "computed a match but couldn't save it" from "no match found" —
+// a distinction that previously lived only in logs (PSY-1119, building on the
+// PSY-814 fix that already stopped over-counting these as matched).
+func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, error) {
 	updates := make(map[string]interface{})
 	artistMatched := false
 
@@ -202,11 +222,11 @@ func (m *RadioMatchingEngine) matchPlay(play *catalogm.RadioPlay) bool {
 				"play_id", play.ID,
 				"artist_name", play.ArtistName,
 				"error", err)
-			return false
+			return false, err
 		}
 	}
 
-	return artistMatched
+	return artistMatched, nil
 }
 
 // matchArtist tries to match an artist name to our knowledge graph.

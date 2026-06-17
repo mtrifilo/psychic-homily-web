@@ -1433,6 +1433,106 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_DeduplicatesByEx
 	suite.Equal(int64(1), count)
 }
 
+// PSY-1119: a FetchPlaylist failure must NOT pass as a clean 0-play success.
+// Before this fix, importEpisode returned an empty EpisodeImportResult on a
+// fetch error, indistinguishable from a legitimately empty playlist — so the
+// episode silently lost all its plays and the import reported success.
+//
+// This test drives importEpisode directly with a mock provider that errors on
+// FetchPlaylist and asserts: (a) the episode row IS created (the failure is
+// non-fatal to the batch), (b) FetchError is populated, and (c) PlaysImported
+// is 0 — but flagged via FetchError, not a clean zero.
+func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_FetchPlaylistError_IsRecorded() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+
+	mockProvider := &mockPlaylistProvider{
+		fetchPlaylistFn: func(epExtID string) ([]RadioPlayImport, error) {
+			return nil, fmt.Errorf("provider boom: upstream 500")
+		},
+	}
+
+	ep := RadioEpisodeImport{ExternalID: "ep-fetch-fail", ShowExternalID: "42", AirDate: "2026-01-15"}
+
+	epResult, err := suite.radioService.importEpisode(show.ID, ep, mockProvider)
+	suite.Require().NoError(err, "fetch failure is non-fatal to the batch")
+	suite.Require().NotNil(epResult)
+	suite.Equal(0, epResult.PlaysImported)
+	suite.NotEmpty(epResult.FetchError, "fetch failure must be recorded, not swallowed")
+	suite.Contains(epResult.FetchError, "provider boom")
+
+	// The episode row was still created (so a retry path can find it).
+	var count int64
+	suite.db.Model(&catalogm.RadioEpisode{}).
+		Where("show_id = ? AND external_id = ?", show.ID, ep.ExternalID).Count(&count)
+	suite.Equal(int64(1), count, "episode row should exist despite the fetch failure")
+}
+
+// PSY-1119: the complement of the above — a legitimately empty playlist
+// (provider returns (nil, nil), as KEXP does for a 404 / no-start-time episode)
+// must remain a CLEAN success: no FetchError, zero plays, no error surfaced.
+func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_EmptyPlaylist_IsCleanSuccess() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+
+	mockProvider := &mockPlaylistProvider{
+		fetchPlaylistFn: func(epExtID string) ([]RadioPlayImport, error) {
+			return nil, nil // legitimately empty — NOT an error
+		},
+	}
+
+	ep := RadioEpisodeImport{ExternalID: "ep-empty", ShowExternalID: "42", AirDate: "2026-01-15"}
+
+	epResult, err := suite.radioService.importEpisode(show.ID, ep, mockProvider)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(epResult)
+	suite.Equal(0, epResult.PlaysImported)
+	suite.Empty(epResult.FetchError, "an empty playlist is not a fetch error")
+	suite.Empty(epResult.DropSummary)
+}
+
+// PSY-1119: the station orchestrator must aggregate per-episode fetch failures
+// into RadioImportResult.EpisodeFetchErrors and Errors, so a job that loses
+// plays reports a distinct, queryable state instead of a clean completion. One
+// show, two episodes: the first fetches plays cleanly, the second errors.
+func (suite *RadioImportIntegrationTestSuite) TestImport_AggregatesFetchErrors() {
+	station := suite.createStation("KEXP")
+
+	mockProvider := &mockPlaylistProvider{
+		discoverShowsFn: func() ([]RadioShowImport, error) {
+			return []RadioShowImport{{Name: "Morning Show", ExternalID: "show-1"}}, nil
+		},
+		fetchNewEpisodesFn: func(showExtID string, since, until time.Time) ([]RadioEpisodeImport, error) {
+			return []RadioEpisodeImport{
+				{ExternalID: "ep-ok", ShowExternalID: "show-1", AirDate: "2026-01-15"},
+				{ExternalID: "ep-boom", ShowExternalID: "show-1", AirDate: "2026-01-16"},
+			}, nil
+		},
+		fetchPlaylistFn: func(epExtID string) ([]RadioPlayImport, error) {
+			if epExtID == "ep-boom" {
+				return nil, fmt.Errorf("upstream 503 for %s", epExtID)
+			}
+			return []RadioPlayImport{{Position: 0, ArtistName: "Radiohead"}}, nil
+		},
+	}
+
+	result := suite.runImportWithProvider(station.ID, 30, mockProvider)
+
+	suite.Equal(1, result.ShowsDiscovered)
+	suite.Equal(2, result.EpisodesImported, "both episode rows were created")
+	suite.Equal(1, result.PlaysImported, "only the healthy episode contributed plays")
+	suite.Equal(1, result.EpisodeFetchErrors, "the errored episode must be counted")
+	suite.Require().NotEmpty(result.Errors)
+	// The fetch-failure line must be present and identify the episode.
+	foundFetchErr := false
+	for _, e := range result.Errors {
+		if strings.Contains(e, "fetch failed for episode ep-boom") {
+			foundFetchErr = true
+		}
+	}
+	suite.True(foundFetchErr, "errors should record the failed-fetch episode: %v", result.Errors)
+}
+
 func (suite *RadioImportIntegrationTestSuite) TestImportPlays_BatchInsert() {
 	station := suite.createStation("KEXP")
 	show := suite.createShow(station.ID, "Morning Show")
@@ -1871,9 +1971,9 @@ func (suite *RadioImportIntegrationTestSuite) runImportWithProvider(stationID ui
 				result.Errors = append(result.Errors, fmt.Sprintf("import episode: %v", err))
 				continue
 			}
-			result.EpisodesImported++
-			result.PlaysImported += epResult.PlaysImported
-			result.PlaysMatched += epResult.PlaysMatched
+			// Use the production aggregation so the test helper reflects the real
+			// orchestrators' handling of fetch / match-persist errors (PSY-1119).
+			accumulateEpisodeResult(result, ep.ExternalID, epResult)
 		}
 	}
 

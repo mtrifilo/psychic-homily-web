@@ -140,12 +140,7 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 				result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
 				continue
 			}
-			result.EpisodesImported++
-			result.PlaysImported += epResult.PlaysImported
-			result.PlaysMatched += epResult.PlaysMatched
-			if epResult.DropSummary != "" {
-				result.Errors = append(result.Errors, fmt.Sprintf("episode %s: %s", ep.ExternalID, epResult.DropSummary))
-			}
+			accumulateEpisodeResult(result, ep.ExternalID, epResult)
 		}
 	}
 
@@ -154,6 +149,40 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	s.db.Model(&station).Update("last_playlist_fetch_at", now)
 
 	return result, nil
+}
+
+// accumulateEpisodeResult folds one episode's import outcome into the running
+// station/show import result. It is the single place that decides how each
+// per-episode signal surfaces, so the three import orchestrators (ImportStation,
+// FetchNewEpisodes, importShowEpisodesWithProgress) stay consistent.
+//
+// PSY-1119: a FetchError means the episode's playlist fetch failed and every
+// play for it was lost. It increments EpisodeFetchErrors and is recorded in
+// Errors so the failure can never again pass as a clean 0-play success. The
+// episode row WAS created, so EpisodesImported still counts it — the dedicated
+// error counter (not the imported count) is what tells callers the import
+// finished with episode errors. A legitimately empty playlist leaves FetchError
+// empty and stays a clean success. MatchPersistErrors aggregates plays that
+// matched but could not be saved.
+func accumulateEpisodeResult(result *contracts.RadioImportResult, episodeExternalID string, epResult *contracts.EpisodeImportResult) {
+	result.EpisodesImported++
+	result.PlaysImported += epResult.PlaysImported
+	result.PlaysMatched += epResult.PlaysMatched
+
+	if epResult.FetchError != "" {
+		result.EpisodeFetchErrors++
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("fetch failed for episode %s: %s", episodeExternalID, epResult.FetchError))
+	}
+	if epResult.MatchPersistErrors > 0 {
+		result.MatchPersistErrors += epResult.MatchPersistErrors
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("episode %s: %d play matches failed to persist", episodeExternalID, epResult.MatchPersistErrors))
+	}
+	if epResult.DropSummary != "" {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("episode %s: %s", episodeExternalID, epResult.DropSummary))
+	}
 }
 
 // FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at.
@@ -208,12 +237,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 				result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
 				continue
 			}
-			result.EpisodesImported++
-			result.PlaysImported += epResult.PlaysImported
-			result.PlaysMatched += epResult.PlaysMatched
-			if epResult.DropSummary != "" {
-				result.Errors = append(result.Errors, fmt.Sprintf("episode %s: %s", ep.ExternalID, epResult.DropSummary))
-			}
+			accumulateEpisodeResult(result, ep.ExternalID, epResult)
 		}
 	}
 
@@ -272,9 +296,10 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 	}
 
 	return &contracts.EpisodeImportResult{
-		PlaysImported: imported,
-		PlaysMatched:  matchResult.Matched,
-		DropSummary:   dropSummary,
+		PlaysImported:      imported,
+		PlaysMatched:       matchResult.Matched,
+		DropSummary:        dropSummary,
+		MatchPersistErrors: matchResult.PersistErrors,
 	}, nil
 }
 
@@ -415,12 +440,7 @@ func (s *RadioService) importShowEpisodesWithProgress(
 		if importErr != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, importErr))
 		} else {
-			result.EpisodesImported++
-			result.PlaysImported += epResult.PlaysImported
-			result.PlaysMatched += epResult.PlaysMatched
-			if epResult.DropSummary != "" {
-				result.Errors = append(result.Errors, fmt.Sprintf("episode %s: %s", ep.ExternalID, epResult.DropSummary))
-			}
+			accumulateEpisodeResult(result, ep.ExternalID, epResult)
 		}
 
 		if progressFn != nil {
@@ -586,10 +606,24 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return nil, fmt.Errorf("creating episode: %w", err)
 	}
 
-	// Fetch and import playlist
+	// Fetch and import playlist.
+	//
+	// A FetchPlaylist failure is non-fatal to the batch (the episode row is
+	// kept) but it is NOT silently swallowed: the episode created above now has
+	// zero plays purely because the fetch failed, which is a real data loss the
+	// caller must be able to distinguish from a legitimately empty playlist.
+	// Providers signal "legitimately empty" with (nil, nil) — e.g. KEXP returns
+	// that for a 404 / no-start-time episode — which leaves FetchError empty.
+	// Only a non-nil error sets FetchError, so empty playlists stay clean
+	// successes while fetch failures become visible to the orchestrators and
+	// the job error_log (PSY-1119).
 	plays, err := provider.FetchPlaylist(ep.ExternalID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{}, nil // non-fatal: episode created but no plays
+		slog.Error("radio import: playlist fetch failed; episode created with no plays",
+			"episode_id", episode.ID,
+			"external_id", ep.ExternalID,
+			"error", err)
+		return &contracts.EpisodeImportResult{FetchError: err.Error()}, nil
 	}
 
 	imported, dropSummary, err := s.importPlays(episode.ID, plays)
@@ -608,9 +642,10 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	}
 
 	return &contracts.EpisodeImportResult{
-		PlaysImported: imported,
-		PlaysMatched:  matchResult.Matched,
-		DropSummary:   dropSummary,
+		PlaysImported:      imported,
+		PlaysMatched:       matchResult.Matched,
+		DropSummary:        dropSummary,
+		MatchPersistErrors: matchResult.PersistErrors,
 	}, nil
 }
 
