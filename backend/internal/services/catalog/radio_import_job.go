@@ -283,9 +283,9 @@ func (s *RadioService) runImportJob(jobID uint) {
 func buildJobErrorLog(result *contracts.RadioImportResult) string {
 	var b strings.Builder
 	if result.EpisodeFetchErrors > 0 || result.MatchPersistErrors > 0 {
-		b.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&b,
 			"completed with errors: %d episodes failed to fetch, %d play matches failed to persist\n",
-			result.EpisodeFetchErrors, result.MatchPersistErrors))
+			result.EpisodeFetchErrors, result.MatchPersistErrors)
 	}
 	for _, msg := range result.Errors {
 		b.WriteString(msg)
