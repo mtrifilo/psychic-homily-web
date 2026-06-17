@@ -149,4 +149,27 @@ describe('AppearanceSettingsPage', () => {
     resolveSave({ success: true })
     await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
   })
+
+  it('drops the optimistic override once the saved account catches up (convergence)', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(<AppearanceSettingsPage />)
+
+    // Toggle on → optimistic 'side' (account still 'top' in the static mock).
+    await user.click(screen.getByRole('switch'))
+    expect(screen.getByRole('switch')).toBeChecked()
+
+    // The PATCH's profile refetch lands: account is now 'side'. The
+    // adjust-during-render clear should drop the override (accountMode ===
+    // optimistic), leaving the control driven purely by the account.
+    mockAuthState = { ...mockAuthState, user: { nav_mode: 'side' } }
+    rerender(<AppearanceSettingsPage />)
+    expect(screen.getByRole('switch')).toBeChecked()
+
+    // Prove the override is GONE, not merely shadowing the same value: flip the
+    // account back to 'top'. The control follows ONLY if the override was
+    // cleared — a lingering 'side' override would keep it checked.
+    mockAuthState = { ...mockAuthState, user: { nav_mode: 'top' } }
+    rerender(<AppearanceSettingsPage />)
+    expect(screen.getByRole('switch')).not.toBeChecked()
+  })
 })

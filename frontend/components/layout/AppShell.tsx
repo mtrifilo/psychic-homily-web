@@ -13,9 +13,10 @@ import { getAuthenticatedNavMode } from '@/lib/auth-hydration'
 //
 // Precedence (PSY-1117): the authenticated account preference wins, then the
 // `nav_mode` cookie, then the top default. For an authenticated viewer the
-// account ALWAYS resolves (column default 'top'), so the cookie is only the
-// resolution path for anonymous/logged-out viewers and the fallback when the
-// account read is unavailable (backend outage → undefined → cookie). The
+// account read normally resolves to a concrete value (column default 'top'),
+// so the cookie is only the resolution path for anonymous/logged-out viewers —
+// and the fallback when the account read fails (backend outage → undefined →
+// cookie). The
 // account read is what makes the preference cross-device with no flash — a
 // logged-in viewer on a brand-new browser (no cookie yet) still gets their
 // saved nav on first paint, and the settings toggle's post-save router.refresh()

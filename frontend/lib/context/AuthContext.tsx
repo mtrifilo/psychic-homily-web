@@ -62,10 +62,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Derive user from profile data or override
   const user = useMemo(() => {
-    // If there's an explicit user override (truthy), use it
-    // Note: null means "no override" - logout clears via queryClient.clear()
+    // If there's an explicit user override (truthy), use it.
+    // Note: null means "no override" - logout clears via queryClient.clear().
+    // Login/signup build the override from the minimal auth response, which
+    // omits nav_mode; backfill it from the full profile so the appearance
+    // settings control (PSY-1117) seeds from the saved preference for the rest
+    // of the SPA session, not the default. The override still wins for every
+    // field it actually sets.
     if (userOverride) {
-      return userOverride
+      return {
+        ...userOverride,
+        nav_mode: userOverride.nav_mode ?? profileData?.user?.nav_mode,
+      }
     }
 
     // Otherwise derive from profile data
