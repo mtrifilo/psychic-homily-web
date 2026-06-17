@@ -20,8 +20,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { AIFormFiller } from '@/components/forms'
-import { ShowForm } from '@/features/shows'
+import { AIFormFiller, ShowForm } from '@/features/shows'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
 function EmailVerificationRequired() {
