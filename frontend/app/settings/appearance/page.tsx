@@ -3,16 +3,25 @@
 /**
  * /settings/appearance — user-facing appearance preferences.
  *
- * Today this hosts the navigation-style toggle (PSY-1117): top bar (default)
- * vs. left sidebar. The toggle is the missing piece that makes the PSY-1116
- * nav-mode shell actually switchable by users.
+ * Currently hosts the navigation-style toggle (PSY-1117): top bar (default) vs.
+ * left sidebar — the missing piece that makes the PSY-1116 nav-mode shell
+ * user-switchable.
  *
- * Persistence is two-layered (the PSY-1116 decision):
- *   • cookie  — written client-side so the server shell (AppShell) flips on the
- *     next render; `router.refresh()` makes that immediate.
- *   • account — PATCHed to `nav_mode` so the preference follows the user across
- *     devices. AppShell reads the account value first (see getAuthenticatedNavMode),
- *     so a fresh browser with no cookie still renders the saved nav on first paint.
+ * This page is auth-gated, so only authenticated users reach it. How a change
+ * propagates for them:
+ *   1. The switch flips instantly from a local optimistic override — immediate
+ *      feedback, no wait on the network.
+ *   2. The choice is PATCHed to the account (`nav_mode`). The ACCOUNT is the
+ *      source of truth that drives the shell: AppShell resolves account > cookie
+ *      at SSR (see getAuthenticatedNavMode), so for an authenticated viewer the
+ *      account — not the cookie — is what renders the nav on first paint and
+ *      after a refresh. This is what makes the preference cross-device + flash-free.
+ *   3. On success we also write the `nav_mode` cookie — NOT to drive the
+ *      authenticated shell (the account wins there) but as continuity for the
+ *      logged-out/anonymous view on this browser, and as the fallback AppShell
+ *      uses if the account read is unavailable (backend outage).
+ *   4. router.refresh() re-renders the server shell, which re-reads the
+ *      now-saved account and flips the nav chrome.
  */
 
 import { useState } from 'react'
@@ -32,31 +41,30 @@ import { Switch } from '@/components/ui/switch'
 import { InlineErrorBanner } from '@/components/shared'
 import { parseNavMode, setNavModeCookie, type NavMode } from '@/lib/nav-mode'
 
-// Sentinel so the re-seed guard below fires on the FIRST render too (mirrors the
-// adjust-state-during-render idiom in app/profile/page.tsx). Tracks the last
-// account value the switch was synced to.
-const UNSET = Symbol('unset')
-
 export default function AppearanceSettingsPage() {
   const { isAuthenticated, isLoading, user } = useAuthContext()
   const router = useRouter()
   const updateProfile = useUpdateProfile()
 
-  const [mode, setMode] = useState<NavMode>('top')
+  // The saved account preference is the source of truth for the control.
+  const accountMode = parseNavMode(user?.nav_mode)
+
+  // `optimistic` is a transient override shown between a toggle and the account
+  // catching up to it, so the switch gives instant feedback. The displayed mode
+  // derives from it — there is no long-lived `mode` state to drift out of sync,
+  // and an unrelated profile refetch (same nav_mode, new object ref) cannot
+  // clobber an in-flight choice the way a reference-keyed guard would.
+  const [optimistic, setOptimistic] = useState<NavMode | null>(null)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const mode = optimistic ?? accountMode
 
-  // Re-seed the control from the saved account preference whenever it changes
-  // (async profile load, or a fresh user reference after our own save). React
-  // 19.2 adjust-state-during-render idiom — same pattern as app/profile/page.tsx,
-  // avoiding a mount/update effect.
-  const accountMode = parseNavMode(user?.nav_mode)
-  const [prevAccountMode, setPrevAccountMode] = useState<
-    NavMode | typeof UNSET
-  >(UNSET)
-  if (user && accountMode !== prevAccountMode) {
-    setPrevAccountMode(accountMode)
-    setMode(accountMode)
+  // Drop the override once the saved account has caught up to it (post-PATCH
+  // refetch). Adjust-state-during-render — converges in one pass (clearing the
+  // override makes the condition false). A failed save clears it in the catch
+  // instead, reverting to the live account value.
+  if (optimistic !== null && accountMode === optimistic) {
+    setOptimistic(null)
   }
 
   if (isLoading) {
@@ -73,25 +81,27 @@ export default function AppearanceSettingsPage() {
 
   const handleChange = async (checked: boolean) => {
     const next: NavMode = checked ? 'side' : 'top'
-    const previous = mode
 
     setError(null)
     setSaved(false)
-    setMode(next) // optimistic
-    setNavModeCookie(next) // instant local write-through for the server shell
+    setOptimistic(next) // instant switch feedback
 
     try {
       await updateProfile.mutateAsync({ nav_mode: next })
+      // Write the cookie only once the account is durably saved — its job is
+      // logged-out/anonymous continuity + the backend-outage fallback, not the
+      // authenticated flip (the account drives that). Writing it before the
+      // save confirmed would persist a choice the account never accepted.
+      setNavModeCookie(next)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-      // Re-render the server shell so the nav chrome flips immediately without a
-      // full navigation. AppShell re-reads the (now-updated) account + cookie.
+      // Re-render the server shell so the nav chrome flips to the saved account.
       router.refresh()
     } catch (err: unknown) {
-      // Revert the optimistic UI and the cookie so the visible state matches the
-      // still-unchanged account.
-      setMode(previous)
-      setNavModeCookie(previous)
+      // Clearing the override reverts the switch to the live account value
+      // (unchanged, since the save failed). No cookie was written, so there is
+      // nothing to revert.
+      setOptimistic(null)
       setError(
         err instanceof Error
           ? err.message
@@ -137,7 +147,10 @@ export default function AppearanceSettingsPage() {
           {error && <InlineErrorBanner>{error}</InlineErrorBanner>}
 
           {saved && !error && (
-            <p className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
+            <p
+              role="status"
+              className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400"
+            >
               <Check className="h-4 w-4" aria-hidden="true" />
               Saved
             </p>

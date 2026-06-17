@@ -12,12 +12,16 @@ import { getAuthenticatedNavMode } from '@/lib/auth-hydration'
 //   • 'side' — a SLIM top bar (no PrimaryNav) above the revived left Sidebar.
 //
 // Precedence (PSY-1117): the authenticated account preference wins, then the
-// `nav_mode` cookie, then the top default. The account read is what makes the
-// preference cross-device with no flash — a logged-in viewer on a brand-new
-// browser (no cookie yet) still gets their saved nav on first paint. The cookie
-// stays as the instant write-through cache (set by the settings toggle) and as
-// the resolution for anonymous viewers. getAuthenticatedNavMode() shares the
-// AuthHydrator prefetch's React.cache(), so this adds no extra backend fetch.
+// `nav_mode` cookie, then the top default. For an authenticated viewer the
+// account ALWAYS resolves (column default 'top'), so the cookie is only the
+// resolution path for anonymous/logged-out viewers and the fallback when the
+// account read is unavailable (backend outage → undefined → cookie). The
+// account read is what makes the preference cross-device with no flash — a
+// logged-in viewer on a brand-new browser (no cookie yet) still gets their
+// saved nav on first paint, and the settings toggle's post-save router.refresh()
+// flips the chrome by re-reading the account, not the cookie.
+// getAuthenticatedNavMode() shares the AuthHydrator prefetch's React.cache(), so
+// this adds no extra backend fetch.
 //
 // Reading these here makes only the per-request shell dynamic; pages keep their
 // own cache modes (same pattern as the auth-hydration + geo shell reads — see

@@ -90,7 +90,7 @@ describe('AppearanceSettingsPage', () => {
     expect(screen.getByRole('switch')).toBeChecked()
   })
 
-  it('reverts the optimistic switch + cookie and surfaces an error when the save fails', async () => {
+  it('reverts the optimistic switch, writes no cookie, and surfaces an error when the save fails', async () => {
     mockMutateAsync.mockRejectedValue(new Error('Something went wrong'))
     const user = userEvent.setup()
     renderWithProviders(<AppearanceSettingsPage />)
@@ -101,5 +101,52 @@ describe('AppearanceSettingsPage', () => {
     await waitFor(() => expect(toggle).not.toBeChecked())
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
     expect(mockRefresh).not.toHaveBeenCalled()
+    // The cookie is written only on a successful save, so a failed save leaves
+    // no 'side' cookie behind to flip the shell on next reload.
+    expect(document.cookie).not.toContain('nav_mode=side')
+  })
+
+  it('follows the saved account preference when it changes (cross-device / refetch re-seed)', () => {
+    const { rerender } = renderWithProviders(<AppearanceSettingsPage />)
+    expect(screen.getByRole('switch')).not.toBeChecked() // account 'top'
+
+    // The saved preference changes underneath (another device, or a profile
+    // refetch) — the control must follow account-as-source-of-truth.
+    mockAuthState = {
+      ...mockAuthState,
+      user: { nav_mode: 'side' },
+    }
+    rerender(<AppearanceSettingsPage />)
+
+    expect(screen.getByRole('switch')).toBeChecked()
+  })
+
+  it('keeps the in-flight optimistic choice when an unrelated profile refetch arrives', async () => {
+    // Hold the save open so the optimistic override is still active.
+    let resolveSave: (value: unknown) => void = () => {}
+    mockMutateAsync.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve
+      })
+    )
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(<AppearanceSettingsPage />)
+
+    await user.click(screen.getByRole('switch'))
+    expect(screen.getByRole('switch')).toBeChecked() // optimistic 'side'
+
+    // An unrelated profile refetch lands (same nav_mode, new object reference).
+    // Because the control derives from `optimistic ?? accountMode` (value-keyed,
+    // not reference-keyed), it must NOT snap back to 'top' mid-save.
+    mockAuthState = {
+      ...mockAuthState,
+      user: { nav_mode: 'top' },
+    }
+    rerender(<AppearanceSettingsPage />)
+    expect(screen.getByRole('switch')).toBeChecked()
+
+    // Let the save resolve so its post-success work flushes inside the test.
+    resolveSave({ success: true })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
   })
 })
