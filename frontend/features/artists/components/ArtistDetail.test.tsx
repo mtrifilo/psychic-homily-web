@@ -50,11 +50,18 @@ vi.mock('@/features/releases/hooks/useReleases', () => ({
   }),
 }))
 
+// PSY-1110: the discover + save mutations are exposed as stable module-level
+// vi.fn()s so a test can drive their onSuccess/onError callbacks and exercise
+// the candidate-pick UI (previously useDiscoverMusic was a no-op, so candidates
+// never rendered). Default impl is a no-op; each picker test sets its own.
+const mockDiscoverMusicMutate = vi.fn()
+const mockUpdateBandcampMutate = vi.fn()
+const mockUpdateSpotifyMutate = vi.fn()
 vi.mock('@/lib/hooks/admin/useAdminArtists', () => ({
-  useDiscoverMusic: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),
+  useDiscoverMusic: () => ({ mutate: mockDiscoverMusicMutate, isPending: false }),
+  useUpdateArtistBandcamp: () => ({ mutate: mockUpdateBandcampMutate, isPending: false }),
   useClearArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateArtistSpotify: () => ({ mutate: mockUpdateSpotifyMutate, isPending: false }),
   useClearArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
   useArtistUpdate: () => ({ mutate: vi.fn(), isPending: false }),
   useArtistAliases: () => ({ data: { aliases: [] as ArtistAlias[] }, isLoading: false }),
@@ -797,6 +804,146 @@ describe('ArtistDetail', () => {
       expect(
         screen.getByPlaceholderText('https://open.spotify.com/artist/...')
       ).toBeInTheDocument()
+    })
+  })
+
+  // PSY-1110: the candidate-pick UI was previously untested because
+  // useDiscoverMusic was mocked to a no-op so candidates never rendered. These
+  // drive the mutation onSuccess/onError callbacks directly.
+  describe('admin music discovery candidate picker (PSY-1110)', () => {
+    const BC = 'https://soroche.bandcamp.com/album/whispers'
+    const SP = 'https://open.spotify.com/artist/0OdUWJ0sBjDrqHygGUXeCF'
+
+    function makeCandidate(
+      url: string,
+      overrides: Record<string, unknown> = {}
+    ) {
+      return {
+        url,
+        name_as_listed: 'Soroche',
+        location: null,
+        notable_release: null,
+        genres: null,
+        popularity: null,
+        confidence: 'high',
+        why_might_match: null,
+        ...overrides,
+      }
+    }
+
+    beforeEach(() => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      // Default makeArtist() has no embed → the "Discover Music" button renders.
+      mockUseArtist.mockReturnValue({
+        data: makeArtist(),
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    afterEach(() => {
+      // clearAllMocks (global beforeEach) clears calls but not implementations;
+      // reset these so an onSuccess/onError impl can't leak into a later test.
+      mockDiscoverMusicMutate.mockReset()
+      mockUpdateBandcampMutate.mockReset()
+      mockUpdateSpotifyMutate.mockReset()
+    })
+
+    it('renders bandcamp + spotify candidate cards after discovery succeeds', async () => {
+      const user = userEvent.setup()
+      mockDiscoverMusicMutate.mockImplementation(
+        (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
+          opts.onSuccess({
+            bandcamp: [makeCandidate(BC)],
+            spotify: [makeCandidate(SP, { confidence: 'medium' })],
+          })
+      )
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      await user.click(screen.getByRole('button', { name: /Discover Music/ }))
+
+      expect(
+        screen.getByText('Pick streaming links for this artist')
+      ).toBeInTheDocument()
+      expect(screen.getByText('Bandcamp candidates')).toBeInTheDocument()
+      expect(screen.getByText('Spotify candidates')).toBeInTheDocument()
+      expect(screen.getByText(BC)).toBeInTheDocument()
+      expect(screen.getByText(SP)).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: 'Use this' })).toHaveLength(2)
+    })
+
+    it('shows a success banner and closes the picker when a pick saves', async () => {
+      const user = userEvent.setup()
+      // Bandcamp-only result: saving the one card empties both lists, so the
+      // picker auto-closes.
+      mockDiscoverMusicMutate.mockImplementation(
+        (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
+          opts.onSuccess({ bandcamp: [makeCandidate(BC)], spotify: [] })
+      )
+      mockUpdateBandcampMutate.mockImplementation(
+        (_args: unknown, opts: { onSuccess: () => void }) => opts.onSuccess()
+      )
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      await user.click(screen.getByRole('button', { name: /Discover Music/ }))
+      await user.click(screen.getByRole('button', { name: 'Use this' }))
+
+      expect(mockUpdateBandcampMutate).toHaveBeenCalledWith(
+        { artistId: 42, bandcampUrl: BC },
+        expect.anything()
+      )
+      expect(screen.getByText('Bandcamp URL saved')).toBeInTheDocument()
+      expect(
+        screen.queryByText('Pick streaming links for this artist')
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows a destructive banner and keeps the picker open when a pick fails', async () => {
+      const user = userEvent.setup()
+      mockDiscoverMusicMutate.mockImplementation(
+        (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
+          opts.onSuccess({ bandcamp: [makeCandidate(BC)], spotify: [] })
+      )
+      mockUpdateBandcampMutate.mockImplementation(
+        (_args: unknown, opts: { onError: (e: Error) => void }) =>
+          opts.onError(new Error('Invalid Bandcamp URL'))
+      )
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      await user.click(screen.getByRole('button', { name: /Discover Music/ }))
+      await user.click(screen.getByRole('button', { name: 'Use this' }))
+
+      const banner = screen
+        .getByText('Invalid Bandcamp URL')
+        .closest('[role="alert"]')
+      expect(banner).toBeInTheDocument()
+      expect(banner?.className).toContain('text-destructive')
+      // The error path leaves the candidates on screen so the admin can retry.
+      expect(
+        screen.getByText('Pick streaming links for this artist')
+      ).toBeInTheDocument()
+    })
+
+    it('shows a "no candidates" alert when discovery returns empty lists', async () => {
+      const user = userEvent.setup()
+      mockDiscoverMusicMutate.mockImplementation(
+        (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
+          opts.onSuccess({ bandcamp: [], spotify: [] })
+      )
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      await user.click(screen.getByRole('button', { name: /Discover Music/ }))
+
+      expect(
+        screen.getByText(/No streaming-link candidates found/i)
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Use this' })
+      ).not.toBeInTheDocument()
     })
   })
 
