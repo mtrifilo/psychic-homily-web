@@ -326,13 +326,43 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_WithInstagramHandle() {
 	s.NotNil(resp)
 	s.Require().Len(resp.Body.Artists, 1)
 	s.Require().NotNil(resp.Body.Artists[0].Socials.Instagram)
-	s.Equal("@new_ig", *resp.Body.Artists[0].Socials.Instagram)
+	// PSY-1118: the bare "@new_ig" handle is normalized to the canonical
+	// instagram.com URL form (same as the artist/venue/label edit paths).
+	s.Equal("https://instagram.com/new_ig", *resp.Body.Artists[0].Socials.Instagram)
 
 	// Verify in DB
 	var artist catalogm.Artist
 	s.NoError(s.deps.DB.Where("name = ?", "New IG Artist").First(&artist).Error)
 	s.Require().NotNil(artist.Social.Instagram)
-	s.Equal("@new_ig", *artist.Social.Instagram)
+	s.Equal("https://instagram.com/new_ig", *artist.Social.Instagram)
+}
+
+// PSY-1118: a URL-shaped instagram_handle on show-create must be rejected (it
+// previously bypassed the social-host anchor and rendered as an off-platform
+// href). The create path returns a precise field-located 422 via Resolve.
+func (s *ShowHandlerIntegrationSuite) TestCreateShow_RejectsURLShapedInstagramHandle() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "IG Reject Venue", "Phoenix", "AZ")
+
+	ctx := testhelpers.CtxWithUser(user)
+	title := "IG Reject Show"
+	badHandle := "https://evil.test"
+	req := &CreateShowRequest{}
+	req.Body.Title = &title
+	req.Body.EventDate = time.Now().UTC().AddDate(0, 0, 14)
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Venues = []Venue{{ID: &venue.ID}}
+	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("Evil IG Artist"), InstagramHandle: &badHandle}}
+
+	resp, err := s.handler.CreateShowHandler(ctx, req)
+	s.Error(err)
+	s.Nil(resp)
+
+	// No artist should have been created with the attacker host.
+	var count int64
+	s.deps.DB.Model(&catalogm.Artist{}).Where("name = ?", "Evil IG Artist").Count(&count)
+	s.Equal(int64(0), count)
 }
 
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() {
@@ -351,13 +381,38 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() 
 	s.NotNil(resp)
 	s.Require().Len(resp.Body.Artists, 1)
 	s.Require().NotNil(resp.Body.Artists[0].Socials.Instagram)
-	s.Equal("@updated_ig", *resp.Body.Artists[0].Socials.Instagram)
+	// PSY-1118: normalized to the canonical instagram.com URL form.
+	s.Equal("https://instagram.com/updated_ig", *resp.Body.Artists[0].Socials.Instagram)
 
 	// Verify in DB
 	var artist catalogm.Artist
 	s.NoError(s.deps.DB.Where("name = ?", "Updated IG Artist").First(&artist).Error)
 	s.Require().NotNil(artist.Social.Instagram)
-	s.Equal("@updated_ig", *artist.Social.Instagram)
+	// PSY-1118: normalized to the canonical instagram.com URL form.
+	s.Equal("https://instagram.com/updated_ig", *artist.Social.Instagram)
+}
+
+// PSY-1118: the update path shares associateArtists with create, so a
+// URL-shaped handle must be rejected there too. UpdateShow has no Resolve, so
+// the rejection comes from the service chokepoint (surfaced as an error).
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHandle() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Update IG Reject Show")
+
+	ctx := testhelpers.CtxWithUser(user)
+	badHandle := "https://evil.test"
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Artists = []Artist{
+		{Name: testhelpers.StringPtr("Evil Update IG Artist"), InstagramHandle: &badHandle},
+	}
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Error(err)
+	s.Nil(resp)
+
+	var count int64
+	s.deps.DB.Model(&catalogm.Artist{}).Where("name = ?", "Evil Update IG Artist").Count(&count)
+	s.Equal(int64(0), count)
 }
 
 // --- GetMySubmissionsHandler ---

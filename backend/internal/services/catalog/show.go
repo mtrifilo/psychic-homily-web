@@ -1731,9 +1731,18 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 				artist = catalogm.Artist{
 					Name: requestArtist.Name,
 				}
-				// Set Instagram handle if provided
+				// Set Instagram handle if provided. PSY-1118: validate + normalize
+				// here (the shared create/update chokepoint) so the handle can't
+				// reach social.instagram un-anchored — stores the canonical
+				// https://instagram.com/<handle> form, rejecting URL-shaped input.
 				if requestArtist.InstagramHandle != nil && *requestArtist.InstagramHandle != "" {
-					artist.Social.Instagram = requestArtist.InstagramHandle
+					normalized, err := utils.NormalizeInstagramHandle(*requestArtist.InstagramHandle)
+					if err != nil {
+						return nil, fmt.Errorf("artist %s: %w", requestArtist.Name, err)
+					}
+					if normalized != "" {
+						artist.Social.Instagram = &normalized
+					}
 				}
 				if err := tx.Create(&artist).Error; err != nil {
 					return nil, fmt.Errorf("failed to create artist %s: %w", requestArtist.Name, err)

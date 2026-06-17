@@ -19,6 +19,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
+	"psychic-homily-backend/internal/utils"
 )
 
 // ShowHandler handles show-related HTTP requests
@@ -187,12 +188,20 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 				Value:    len(*artist.Name),
 			})
 		}
-		if artist.InstagramHandle != nil && len(*artist.InstagramHandle) > 100 {
-			errors = append(errors, &huma.ErrorDetail{
-				Location: fmt.Sprintf("body.artists[%d].instagram_handle", i),
-				Message:  "Instagram handle must be 100 characters or fewer",
-				Value:    len(*artist.InstagramHandle),
-			})
+		// PSY-1118: instagram_handle must be a bare handle, not a URL — a
+		// URL-shaped value bypassed the PSY-1113 social-host anchor and rendered
+		// as an off-platform SocialLinks href. The service re-validates +
+		// normalizes at the storage chokepoint (covering the update path, which
+		// has no Resolve); this check gives the common create path a precise
+		// field-located 422 instead of the generic show-create error.
+		if artist.InstagramHandle != nil && *artist.InstagramHandle != "" {
+			if _, err := utils.NormalizeInstagramHandle(*artist.InstagramHandle); err != nil {
+				errors = append(errors, &huma.ErrorDetail{
+					Location: fmt.Sprintf("body.artists[%d].instagram_handle", i),
+					Message:  err.Error(),
+					Value:    *artist.InstagramHandle,
+				})
+			}
 		}
 	}
 

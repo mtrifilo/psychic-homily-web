@@ -302,15 +302,49 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithInstag
 	suite.Require().NotNil(resp)
 	suite.Len(resp.Artists, 1)
 
-	// Verify DB artist has instagram set
+	// Verify DB artist has instagram set. PSY-1118: the bare "@ig_artist"
+	// handle is normalized to the canonical instagram.com URL form (same as
+	// the artist/venue/label edit paths), so it can't escape the platform host.
 	var artist catalogm.Artist
 	suite.NoError(suite.db.Where("name = ?", "IG Artist").First(&artist).Error)
 	suite.Require().NotNil(artist.Social.Instagram)
-	suite.Equal("@ig_artist", *artist.Social.Instagram)
+	suite.Equal("https://instagram.com/ig_artist", *artist.Social.Instagram)
 
 	// Verify response socials
 	suite.Require().NotNil(resp.Artists[0].Socials.Instagram)
-	suite.Equal("@ig_artist", *resp.Artists[0].Socials.Instagram)
+	suite.Equal("https://instagram.com/ig_artist", *resp.Artists[0].Socials.Instagram)
+}
+
+// PSY-1118: a URL-shaped instagram_handle must be rejected at the service
+// chokepoint (associateArtists) — it previously stored an attacker host into
+// social.instagram, bypassing the PSY-1113 host anchor. No artist is created.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_RejectsURLShapedInstagram() {
+	user := suite.createTestUser()
+	igHandle := "https://evil.test"
+	req := &contracts.CreateShowRequest{
+		Title:     "Evil IG Show",
+		EventDate: time.Date(2026, 10, 2, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []contracts.CreateShowVenue{
+			{Name: "Evil IG Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Evil IG Artist", IsHeadliner: boolPtr(true), InstagramHandle: &igHandle},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	resp, err := suite.showService.CreateShow(req)
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+
+	// The transaction must roll back — no artist with the attacker host persists.
+	var count int64
+	suite.db.Model(&catalogm.Artist{}).Where("name = ?", "Evil IG Artist").Count(&count)
+	suite.Equal(int64(0), count)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithoutInstagram() {
