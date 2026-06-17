@@ -679,6 +679,133 @@ func TestKEXPProvider_FetchPlaylist_Pagination(t *testing.T) {
 	assert.Equal(t, "The National", plays[2].ArtistName)
 }
 
+// TestKEXPProvider_FetchPlaylist_PerpetualNextTerminates is the PSY-1126
+// regression guard. KEXP's /v2/plays endpoint computes its `next` cursor
+// against the FULL global plays archive and ignores the airdate window when
+// deciding whether more pages exist — so it keeps returning a non-empty `next`
+// for tens of thousands of EMPTY pages after the in-window plays are exhausted.
+//
+// The original `for url != ""` loop followed `next` blindly, so FetchPlaylist
+// never returned in practice (~10 hours / ~36k requests per episode behind the
+// 1s rate limiter). The import was always interrupted before FetchPlaylist
+// returned, leaving the episode persisted with ZERO plays — the systematic
+// "61 of 64 KEXP episodes have 0 plays" failure.
+//
+// This test models that exact shape: page 1 carries the in-window plays AND a
+// non-nil `next`; page 2 is empty but STILL carries a non-nil `next` (the
+// archive-walking behavior). The fix must stop on the first empty page rather
+// than chase `next` forever. We assert it (a) returns the in-window plays and
+// (b) makes a BOUNDED number of plays requests.
+func TestKEXPProvider_FetchPlaylist_PerpetualNextTerminates(t *testing.T) {
+	playsCallCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
+		// No end_time — matches the live KEXP detail endpoint, which omits it.
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         5678,
+			"start_time": "2026-01-15T06:00:00Z",
+		})
+	})
+
+	var server *httptest.Server
+	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		playsCallCount++
+		// Every response carries a non-nil `next` — the perpetual cursor. A
+		// correct client must NOT rely on `next` going nil to terminate.
+		perpetualNext := fmt.Sprintf("%s/v2/plays/?offset=%d", server.URL, playsCallCount*100)
+		if playsCallCount == 1 {
+			// Page 1: the broadcast's actual in-window plays. Non-full page
+			// (only 2 rows) yet `next` is still present.
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"next": perpetualNext,
+				"results": []map[string]interface{}{
+					{
+						"id":        1,
+						"play_type": "trackplay",
+						"airdate":   "2026-01-15T06:05:00Z",
+						"artist":    "Radiohead",
+						"song":      "Idioteque",
+					},
+					{
+						"id":        2,
+						"play_type": "trackplay",
+						"airdate":   "2026-01-15T06:10:00Z",
+						"artist":    "Deerhunter",
+						"song":      "Desire Lines",
+					},
+				},
+			})
+			return
+		}
+		// Page 2+: empty results but a still-non-nil `next` — KEXP walking the
+		// rest of the global archive. The fix must stop here.
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"next":    perpetualNext,
+			"results": []map[string]interface{}{},
+		})
+	})
+
+	server = httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("5678")
+
+	require.NoError(t, err)
+	assert.Len(t, plays, 2, "should extract the in-window plays from page 1")
+	assert.Equal(t, "Radiohead", plays[0].ArtistName)
+	assert.Equal(t, "Deerhunter", plays[1].ArtistName)
+	// The load-bearing assertion: pagination must terminate. With the bug, this
+	// loops until the test server is torn down. We tolerate exactly one empty
+	// follow-up page (the provider can't know it's empty until it fetches it)
+	// but it must NOT keep chasing `next` after that.
+	assert.LessOrEqual(t, playsCallCount, 2,
+		"must stop paginating on the first empty page, not chase the perpetual next")
+}
+
+// TestKEXPProvider_FetchPlaylist_StopsPastWindow guards the airdate ascending
+// early-stop (PSY-1126 belt-and-suspenders). If a single page contains both
+// in-window plays AND plays at/after the window end (KEXP airdate filter being
+// ignored), the provider must keep the in-window plays and drop the rest
+// rather than importing out-of-window plays from the global feed.
+func TestKEXPProvider_FetchPlaylist_StopsPastWindow(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/8888/", func(w http.ResponseWriter, r *http.Request) {
+		// start 06:00Z, no end_time → window is [06:00Z, 11:00Z) via the 5h fallback.
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         8888,
+			"start_time": "2026-01-15T06:00:00Z",
+		})
+	})
+	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"next": nil,
+			"results": []map[string]interface{}{
+				{"id": 1, "play_type": "trackplay", "airdate": "2026-01-15T06:30:00Z", "artist": "In Window A"},
+				{"id": 2, "play_type": "trackplay", "airdate": "2026-01-15T10:55:00Z", "artist": "In Window B"},
+				// At/after the 11:00Z window end — must be dropped.
+				{"id": 3, "play_type": "trackplay", "airdate": "2026-01-15T11:00:00Z", "artist": "Past Window C"},
+				{"id": 4, "play_type": "trackplay", "airdate": "2026-01-15T12:30:00Z", "artist": "Past Window D"},
+			},
+		})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("8888")
+
+	require.NoError(t, err)
+	require.Len(t, plays, 2, "plays at/after the window end must be dropped")
+	assert.Equal(t, "In Window A", plays[0].ArtistName)
+	assert.Equal(t, "In Window B", plays[1].ArtistName)
+}
+
 func TestKEXPProvider_HTTPError(t *testing.T) {
 	mux := http.NewServeMux()
 	// PSY-509: shows endpoint (used to build the host map) succeeds —

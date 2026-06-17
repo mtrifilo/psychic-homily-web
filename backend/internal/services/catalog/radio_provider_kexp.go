@@ -205,6 +205,21 @@ const kexpPlaylistWindowFallback = 5 * time.Hour
 //  3. GET /v2/plays/?airdate_after=...&airdate_before=...&play_type=trackplay
 //     and paginate via the `next` cursor.
 //
+// PSY-1126: the /v2/plays endpoint's `next` cursor is computed against the
+// FULL global plays archive (~millions of rows) and ignores the airdate
+// window when deciding whether more pages exist. So `next` is non-empty even
+// after the last in-window play -- and stays non-empty for tens of thousands
+// of empty pages while offset walks the entire archive. Following it blindly
+// (the original `for url != ""` loop) never terminates in practice: with the
+// 1s rate limiter it would take ~10 hours / ~36k requests per episode, so the
+// import is always interrupted before FetchPlaylist returns and the episode is
+// persisted with ZERO plays. We therefore stop paginating as soon as a page
+// yields no in-window results. Because results are ordered by airdate
+// ascending and every KEXP broadcast fits comfortably under one 100-row page
+// (~12-15 plays/hour), this captures the full playlist while bounding the
+// request count. The airdate >= endTime guard below is a belt-and-suspenders
+// stop for the rare window that legitimately exceeds one page.
+//
 // If the broadcast is not found (404) we return an empty playlist rather than
 // an error so callers can continue processing other episodes.
 func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImport, error) {
@@ -272,6 +287,13 @@ func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImpor
 			return nil, fmt.Errorf("parsing plays response: %w", err)
 		}
 
+		// PSY-1126: terminate on the first page that yields no in-window
+		// results. KEXP keeps returning `next` (offset-walking the whole
+		// archive) long after the window is exhausted, so an empty page is the
+		// real end-of-playlist signal -- the `next` cursor is not trustworthy.
+		matchedThisPage := 0
+		pastWindow := false
+
 		for _, kPlay := range page.Results {
 			// Defensive: filter again even though the API was asked to return
 			// only trackplays, in case future API changes relax that filter.
@@ -279,9 +301,28 @@ func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImpor
 				continue
 			}
 
+			// Results are ordered by airdate ascending. Once a play airs at or
+			// after the window end, every later play is also out of window, so
+			// we can stop. This bounds the rare window that spans >1 page and
+			// guards against the airdate filter being ignored entirely.
+			if !endTime.IsZero() && kPlay.Airdate != "" {
+				if t, perr := time.Parse(time.RFC3339, kPlay.Airdate); perr == nil && !t.Before(endTime) {
+					pastWindow = true
+					break
+				}
+			}
+
 			play := parseKEXPPlay(kPlay, position)
 			allPlays = append(allPlays, play)
 			position++
+			matchedThisPage++
+		}
+
+		// Stop when this page contributed nothing in-window (empty page or all
+		// plays past the window). Either signals we've consumed the broadcast's
+		// full playlist; following `next` further only walks empty pages.
+		if matchedThisPage == 0 || pastWindow {
+			break
 		}
 
 		url = page.Next
