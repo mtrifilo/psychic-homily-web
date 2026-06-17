@@ -155,6 +155,12 @@ const routes: RouteItem[] = [
     requireAuth: true,
   },
   {
+    label: 'Appearance',
+    href: '/settings/appearance',
+    keywords: ['appearance', 'nav', 'navigation', 'navigation style', 'sidebar', 'side bar', 'top bar', 'layout', 'display'],
+    requireAuth: true,
+  },
+  {
     label: 'Settings',
     href: '/profile',
     keywords: ['settings', 'profile', 'account', 'preferences', 'email'],

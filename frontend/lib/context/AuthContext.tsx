@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { useProfile, useLogout } from '@/features/auth'
 import type { UserTier } from '@/features/auth'
+import type { NavMode } from '@/lib/nav-mode'
 
 interface User {
   id: string
@@ -22,6 +23,10 @@ interface User {
   email_verified: boolean
   is_admin?: boolean
   user_tier?: UserTier
+  // Saved nav-style preference (PSY-1117). Read by the appearance settings
+  // toggle to seed its control; the server shell (AppShell) reads it directly
+  // from the profile for first-paint rendering.
+  nav_mode?: NavMode
 }
 
 interface AuthState {
@@ -76,6 +81,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,
         user_tier: profileData.user.user_tier as UserTier | undefined,
+        nav_mode: profileData.user.nav_mode,
       }
     }
 
