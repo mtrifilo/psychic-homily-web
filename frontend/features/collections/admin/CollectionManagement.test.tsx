@@ -58,7 +58,7 @@ const {
   }
 })
 
-vi.mock('@/features/collections', () => ({
+vi.mock('../hooks', () => ({
   useCollections: () => mockUseCollections(),
   useCollection: () => mockUseCollection(),
   useCollectionStats: () => mockUseCollectionStats(),
