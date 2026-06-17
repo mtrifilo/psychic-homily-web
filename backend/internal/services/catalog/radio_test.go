@@ -1291,6 +1291,64 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_StrictPerS
 	suite.Require().Error(err)
 }
 
+// TestGetStationEpisodes_WFMUFamilyStrictPerStation is the WFMU-family
+// counterpart to TestGetStationEpisodes_StrictPerStation (PSY-1127). It seeds
+// the real seeded WFMU slugs (flagship wfmu 91.1 + the three stream-only
+// sub-channels) rather than the synthetic createNetworkFamily() fixture, and
+// asserts the Latest-Playlists feed is strictly scoped to each station's own
+// station_id.
+//
+// The leak this guards against: before PSY-1073 the WFMU import assigned the
+// whole DJ index to every family station, so sub-stream shows existed as
+// duplicate rows under the WFMU 91.1 flagship and leaked into its "Latest
+// playlists" tab. PSY-1074 made GetStationEpisodes strictly per-station; this
+// pins that behaviour to the actual WFMU station family so a future change
+// can't quietly reintroduce flagship-aggregation for the real stations.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_WFMUFamilyStrictPerStation() {
+	_, stations := suite.seedWFMUNetwork()
+	flagship := stations["wfmu"]
+	drummer := stations["wfmu-drummer"]
+	rockSoul := stations["wfmu-rocknsoulradio"]
+	sheena := stations["wfmu-sheena"]
+
+	// One show + episode per station, each on its own station_id.
+	flagShow := suite.createShow(flagship.ID, "Three Chord Monte")
+	drummerShow := suite.createShow(drummer.ID, "Give the Drummer Radio")
+	rockSoulShow := suite.createShow(rockSoul.ID, "Rock'n'Soul Radio")
+	sheenaShow := suite.createShow(sheena.ID, "Sheena's Jungle Room")
+	suite.createEpisode(flagShow.ID, "2026-06-08")
+	suite.createEpisode(drummerShow.ID, "2026-06-09")
+	suite.createEpisode(rockSoulShow.ID, "2026-06-10")
+	suite.createEpisode(sheenaShow.ID, "2026-06-11")
+
+	// The flagship's feed contains ONLY its own episode — never the three
+	// sub-stream channels' (the PSY-1127 leak).
+	rows, total, err := suite.radioService.GetStationEpisodes(flagship.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "WFMU 91.1 must surface exactly its own playlists, no sub-stream leakage")
+	suite.Require().Len(rows, 1)
+	suite.Equal("Three Chord Monte", rows[0].ShowName)
+	suite.Equal("wfmu", rows[0].StationSlug)
+
+	// Each sub-stream's feed contains only its own episode.
+	for _, tc := range []struct {
+		station  catalogm.RadioStation
+		showName string
+		slug     string
+	}{
+		{drummer, "Give the Drummer Radio", "wfmu-drummer"},
+		{rockSoul, "Rock'n'Soul Radio", "wfmu-rocknsoulradio"},
+		{sheena, "Sheena's Jungle Room", "wfmu-sheena"},
+	} {
+		subRows, subTotal, err := suite.radioService.GetStationEpisodes(tc.station.ID, 50, 0)
+		suite.Require().NoError(err)
+		suite.Equal(int64(1), subTotal, "sub-stream %s must surface only its own playlists", tc.slug)
+		suite.Require().Len(subRows, 1)
+		suite.Equal(tc.showName, subRows[0].ShowName)
+		suite.Equal(tc.slug, subRows[0].StationSlug)
+	}
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStationsOnly() {
 	active := suite.createStation("Active FM")
 	dormant := suite.createStation("Dormant FM")
