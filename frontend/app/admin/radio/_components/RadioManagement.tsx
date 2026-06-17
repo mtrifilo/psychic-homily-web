@@ -74,7 +74,6 @@ import {
   useDeleteRadioShow,
   useFetchPlaylists,
   useDiscoverShows,
-  useImportShowEpisodes,
   useCreateImportJob,
   useImportJob,
   useCancelImportJob,
@@ -85,7 +84,6 @@ import {
   type RadioStationDetail,
   type RadioShowListItem,
   type RadioDiscoverResult,
-  type RadioImportResult,
   type RadioImportJob,
   type CreateRadioStationInput,
   type UpdateRadioStationInput,
@@ -773,123 +771,102 @@ function EditShowForm({
 // ============================================================================
 
 // ============================================================================
-// Per-Show Import Controls
-// ============================================================================
-
-function ShowImportControls({ show }: { show: RadioShowListItem }) {
-  const importMutation = useImportShowEpisodes()
-  const [since, setSince] = useState('')
-  const [until, setUntil] = useState('')
-  const [importResult, setImportResult] = useState<RadioImportResult | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
-
-  const handleImport = useCallback(() => {
-    if (!since || !until) return
-    setImportResult(null)
-    setImportError(null)
-    importMutation.mutate(
-      { showId: show.id, since, until },
-      {
-        onSuccess: (result) => {
-          setImportResult(result)
-        },
-        onError: (err) => {
-          setImportError(err.message)
-        },
-      }
-    )
-  }, [show.id, since, until, importMutation])
-
-  return (
-    <div className="mt-2 space-y-2">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label className="text-xs text-muted-foreground">Since</Label>
-          <DateInput
-            value={since}
-            onChange={(e) => setSince(e.target.value)}
-            className="h-8 text-xs w-36"
-          />
-        </div>
-        <div>
-          <Label className="text-xs text-muted-foreground">Until</Label>
-          <DateInput
-            value={until}
-            onChange={(e) => setUntil(e.target.value)}
-            className="h-8 text-xs w-36"
-          />
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleImport}
-          disabled={importMutation.isPending || !since || !until}
-          className="h-8"
-        >
-          {importMutation.isPending ? (
-            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-          ) : (
-            <Upload className="mr-1 h-3 w-3" />
-          )}
-          Import Episodes
-        </Button>
-      </div>
-      {importResult && (
-        <div className="text-xs rounded-md bg-muted p-2 space-y-0.5">
-          <p>Episodes imported: <strong>{importResult.episodes_imported}</strong></p>
-          <p>Plays imported: <strong>{importResult.plays_imported}</strong></p>
-          <p>Plays matched: <strong>{importResult.plays_matched}</strong></p>
-          {importResult.errors && importResult.errors.length > 0 && (
-            <div className="mt-1 text-destructive">
-              <p className="font-medium">Errors:</p>
-              {importResult.errors.map((e, i) => (
-                <p key={i}>{e}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {importError && (
-        <p className="text-xs text-destructive">{importError}</p>
-      )}
-    </div>
-  )
-}
-
-// ============================================================================
 // Import Job Progress Row
 // ============================================================================
 
-function ImportJobRow({ job }: { job: RadioImportJob }) {
+// A completed import job carries no dedicated error-count columns: the backend
+// (PSY-1119) avoids a status-enum migration and instead writes a stable,
+// machine-greppable header as the FIRST line of error_log when the import lost
+// data — "completed with errors: N episodes failed to fetch, M play matches
+// failed to persist". A `completed` job with such a header lost plays; it did
+// NOT run clean. We parse N/M so the UI can render an explicit warning rather
+// than a plain green "completed". Returns null when the job ran clean (no header
+// / no error_log), so callers can treat null as "no warning". (PSY-1120)
+const IMPORT_ERROR_HEADER =
+  /^completed with errors:\s*(\d+)\s+episodes failed to fetch,\s*(\d+)\s+play matches failed to persist/i
+
+function parseImportWarning(
+  errorLog: string | null | undefined
+): { fetchErrors: number; persistErrors: number } | null {
+  if (!errorLog) return null
+  const match = errorLog.match(IMPORT_ERROR_HEADER)
+  if (!match) return null
+  const fetchErrors = Number(match[1])
+  const persistErrors = Number(match[2])
+  if (fetchErrors === 0 && persistErrors === 0) return null
+  return { fetchErrors, persistErrors }
+}
+
+// Render the play-match summary for a job. A job that imported zero plays has
+// nothing to match, so "0% matched" reads as a matching failure when in fact
+// there was simply nothing to match — show "no plays found" instead, and only
+// show a percentage once plays_imported > 0. (PSY-1120)
+function PlaysMatchSummary({
+  playsImported,
+  playsMatched,
+}: {
+  playsImported: number
+  playsMatched: number
+}) {
+  if (playsImported === 0) {
+    return <>no plays found</>
+  }
+  const percent = Math.round((playsMatched / playsImported) * 100)
+  return (
+    <>
+      {playsImported.toLocaleString()} plays &mdash; {percent}% matched
+    </>
+  )
+}
+
+// Exported only for direct regression-test access (the completed-with-errors
+// warning, the 0-plays match display). Production callers reach it through
+// ShowImportSection. (PSY-1120)
+export function ImportJobRow({ job }: { job: RadioImportJob }) {
   const cancelMutation = useCancelImportJob()
 
   const isActive = job.status === 'running' || job.status === 'pending'
+  // A `completed` job whose error_log carries the PSY-1119 header lost data —
+  // surface it as a warning rather than a clean green "completed". (PSY-1120)
+  const importWarning =
+    job.status === 'completed' ? parseImportWarning(job.error_log) : null
   const progress = job.episodes_found > 0
     ? Math.round((job.episodes_imported / job.episodes_found) * 100)
     : 0
 
-  const statusIcon = {
-    pending: <Clock className="h-4 w-4 text-muted-foreground" />,
-    running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
-    completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-    failed: <AlertCircle className="h-4 w-4 text-destructive" />,
-    cancelled: <XCircle className="h-4 w-4 text-muted-foreground" />,
-  }[job.status]
+  // When a completed job carries the PSY-1119 "completed with errors" header,
+  // present it in amber-warning styling (icon + badge label + color) so it never
+  // reads as a clean green success. (PSY-1120)
+  const statusIcon = importWarning ? (
+    <AlertCircle className="h-4 w-4 text-amber-500" />
+  ) : (
+    {
+      pending: <Clock className="h-4 w-4 text-muted-foreground" />,
+      running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
+      completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+      failed: <AlertCircle className="h-4 w-4 text-destructive" />,
+      cancelled: <XCircle className="h-4 w-4 text-muted-foreground" />,
+    }[job.status]
+  )
 
-  const statusColor = {
-    pending: 'bg-muted text-muted-foreground',
-    running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    cancelled: 'bg-muted text-muted-foreground',
-  }[job.status]
+  const statusColor = importWarning
+    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+    : {
+        pending: 'bg-muted text-muted-foreground',
+        running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+        completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+        failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+        cancelled: 'bg-muted text-muted-foreground',
+      }[job.status]
+
+  const statusLabel = importWarning ? 'completed with errors' : job.status
 
   return (
     <div className="rounded-lg border p-4 space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {statusIcon}
-          <Badge className={statusColor}>{job.status}</Badge>
+          <Badge className={statusColor}>{statusLabel}</Badge>
           <span className="text-sm text-muted-foreground">
             {job.since} to {job.until}
           </span>
@@ -938,10 +915,10 @@ function ImportJobRow({ job }: { job: RadioImportJob }) {
               )}
             </span>
             <span>
-              {job.plays_imported.toLocaleString()} plays &mdash;{' '}
-              {job.plays_imported > 0
-                ? Math.round((job.plays_matched / job.plays_imported) * 100)
-                : 0}% matched
+              <PlaysMatchSummary
+                playsImported={job.plays_imported}
+                playsMatched={job.plays_matched}
+              />
             </span>
           </div>
         </div>
@@ -954,11 +931,45 @@ function ImportJobRow({ job }: { job: RadioImportJob }) {
         </div>
       )}
 
+      {/* Warning banner for a completed-with-errors job (PSY-1119/1120). The job
+          finished but lost data: N episodes' playlists failed to fetch (all of
+          their plays were lost) and/or M computed matches failed to persist. */}
+      {importWarning && (
+        <div className="rounded-md bg-amber-100 p-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+          <p className="font-medium">Completed with errors</p>
+          <p>
+            {job.episodes_imported.toLocaleString()} episode
+            {job.episodes_imported === 1 ? '' : 's'} imported
+            {importWarning.fetchErrors > 0 && (
+              <>
+                , {importWarning.fetchErrors.toLocaleString()} failed to fetch
+                playlists
+              </>
+            )}
+            {importWarning.persistErrors > 0 && (
+              <>
+                , {importWarning.persistErrors.toLocaleString()} play match
+                {importWarning.persistErrors === 1 ? '' : 'es'} failed to persist
+              </>
+            )}
+            .
+          </p>
+        </div>
+      )}
+
       {/* Completed summary */}
       {job.status === 'completed' && (
         <div className="text-xs text-muted-foreground">
           Completed {job.completed_at ? new Date(job.completed_at).toLocaleString() : ''} &mdash;{' '}
-          {job.episodes_imported.toLocaleString()} episodes, {job.plays_imported.toLocaleString()} plays, {job.plays_matched.toLocaleString()} matched
+          {job.episodes_imported.toLocaleString()} episodes,{' '}
+          {job.plays_imported > 0 ? (
+            <>
+              {job.plays_imported.toLocaleString()} plays,{' '}
+              {job.plays_matched.toLocaleString()} matched
+            </>
+          ) : (
+            'no plays found'
+          )}
         </div>
       )}
     </div>
@@ -1322,10 +1333,7 @@ function StationDetailPanel({
                   </div>
                 </div>
                 {expandedShows.has(show.id) && (
-                  <>
-                    <ShowImportControls show={show} />
-                    <ShowImportSection show={show} stationId={station.id} />
-                  </>
+                  <ShowImportSection show={show} stationId={station.id} />
                 )}
               </div>
             ))}
