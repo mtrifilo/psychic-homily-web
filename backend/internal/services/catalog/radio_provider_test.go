@@ -806,6 +806,62 @@ func TestKEXPProvider_FetchPlaylist_StopsPastWindow(t *testing.T) {
 	assert.Equal(t, "In Window B", plays[1].ArtistName)
 }
 
+// TestKEXPProvider_FetchPlaylist_AirbreakOnlyPageContinues guards the
+// PSY-1126 termination signal: we stop on an EMPTY results page, not on a page
+// that merely yielded no trackplays. If the server-side play_type filter were
+// relaxed, an in-window page could contain only airbreaks while the broadcast's
+// trackplays continue on the next page. The provider must keep paginating
+// through such a (non-empty) airbreak-only page rather than terminate early.
+func TestKEXPProvider_FetchPlaylist_AirbreakOnlyPageContinues(t *testing.T) {
+	playsCallCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/3030/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         3030,
+			"start_time": "2026-01-15T06:00:00Z",
+		})
+	})
+
+	var server *httptest.Server
+	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		playsCallCount++
+		switch playsCallCount {
+		case 1:
+			// Non-empty page with ONLY airbreaks (no trackplays) — in window.
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"next": fmt.Sprintf("%s/v2/plays/?offset=100", server.URL),
+				"results": []map[string]interface{}{
+					{"id": 1, "play_type": "airbreak", "airdate": "2026-01-15T06:01:00Z"},
+					{"id": 2, "play_type": "airbreak", "airdate": "2026-01-15T06:02:00Z"},
+				},
+			})
+		case 2:
+			// The actual trackplay lives on the next page, still in window.
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"next": nil,
+				"results": []map[string]interface{}{
+					{"id": 3, "play_type": "trackplay", "airdate": "2026-01-15T06:05:00Z", "artist": "Stereolab", "song": "Cybele's Reverie"},
+				},
+			})
+		default:
+			t.Fatalf("unexpected extra plays request #%d", playsCallCount)
+		}
+	})
+
+	server = httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("3030")
+
+	require.NoError(t, err)
+	require.Len(t, plays, 1, "must follow next through the airbreak-only page to reach the trackplay")
+	assert.Equal(t, "Stereolab", plays[0].ArtistName)
+	assert.Equal(t, 2, playsCallCount, "an airbreak-only (but non-empty) page must not terminate pagination")
+}
+
 func TestKEXPProvider_HTTPError(t *testing.T) {
 	mux := http.NewServeMux()
 	// PSY-509: shows endpoint (used to build the host map) succeeds —

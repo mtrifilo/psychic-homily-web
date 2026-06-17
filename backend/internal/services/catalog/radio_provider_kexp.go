@@ -287,20 +287,17 @@ func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImpor
 			return nil, fmt.Errorf("parsing plays response: %w", err)
 		}
 
-		// PSY-1126: terminate on the first page that yields no in-window
-		// results. KEXP keeps returning `next` (offset-walking the whole
-		// archive) long after the window is exhausted, so an empty page is the
-		// real end-of-playlist signal -- the `next` cursor is not trustworthy.
-		matchedThisPage := 0
+		// PSY-1126: an EMPTY results page is the real end-of-playlist signal.
+		// KEXP keeps returning `next` (offset-walking the whole archive) long
+		// after the in-window plays are exhausted, so the `next` cursor is not
+		// trustworthy as a loop condition -- but once the airdate window is
+		// consumed KEXP returns pages with zero results. We key termination off
+		// the raw result count (not the trackplay-matched count) so a page that
+		// happens to contain only airbreaks does not prematurely stop a window
+		// whose trackplays continue onto the next page.
 		pastWindow := false
 
 		for _, kPlay := range page.Results {
-			// Defensive: filter again even though the API was asked to return
-			// only trackplays, in case future API changes relax that filter.
-			if kPlay.PlayType != "trackplay" {
-				continue
-			}
-
 			// Results are ordered by airdate ascending. Once a play airs at or
 			// after the window end, every later play is also out of window, so
 			// we can stop. This bounds the rare window that spans >1 page and
@@ -312,16 +309,22 @@ func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImpor
 				}
 			}
 
+			// Defensive: filter again even though the API was asked to return
+			// only trackplays, in case future API changes relax that filter.
+			if kPlay.PlayType != "trackplay" {
+				continue
+			}
+
 			play := parseKEXPPlay(kPlay, position)
 			allPlays = append(allPlays, play)
 			position++
-			matchedThisPage++
 		}
 
-		// Stop when this page contributed nothing in-window (empty page or all
-		// plays past the window). Either signals we've consumed the broadcast's
-		// full playlist; following `next` further only walks empty pages.
-		if matchedThisPage == 0 || pastWindow {
+		// Stop when this page returned no rows (window exhausted -> KEXP now
+		// emits empty pages) or when we crossed the window end. Either signals
+		// we've consumed the broadcast's full playlist; following `next`
+		// further only walks empty pages.
+		if len(page.Results) == 0 || pastWindow {
 			break
 		}
 
