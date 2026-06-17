@@ -7,11 +7,11 @@ import {
   useCollectionStats,
   useSetFeatured,
   useDeleteCollection,
-} from '@/features/collections'
-import type { Collection } from '@/features/collections'
+} from '../hooks'
+import type { Collection } from '../types'
 import { Switch } from '@/components/ui/switch'
 import { EntityTypeBadge } from '@/components/shared'
-import { AdminTable, type AdminTableColumn } from './AdminTable'
+import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
 
 function CollectionDetailPanel({
   collection,

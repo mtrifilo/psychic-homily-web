@@ -26,13 +26,16 @@ vi.mock('@/lib/hooks/admin/useAdminArtistReports', () => ({
 }))
 
 vi.mock('@/components/admin', () => ({
+  AdminEmptyState: ({ title }: { title: string }) => <h3>{title}</h3>,
+}))
+
+vi.mock('@/features/shows/admin', () => ({
   ShowReportCard: ({ report }: { report: { id: number } }) => (
     <div data-testid="show-report-card">{report.id}</div>
   ),
   ArtistReportCard: ({ report }: { report: { id: number } }) => (
     <div data-testid="artist-report-card">{report.id}</div>
   ),
-  AdminEmptyState: ({ title }: { title: string }) => <h3>{title}</h3>,
 }))
 
 describe('AdminReportsPage (app/admin/reports)', () => {

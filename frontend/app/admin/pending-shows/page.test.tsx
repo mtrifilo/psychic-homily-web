@@ -29,16 +29,16 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 vi.mock('@/components/admin', () => ({
+  AdminEmptyState: ({ title }: { title: string }) => <h3>{title}</h3>,
+}))
+
+vi.mock('@/features/shows/admin', () => ({
   PendingShowCard: ({ show }: { show: { id: number } }) => (
     <div data-testid="pending-show-card">{show.id}</div>
   ),
   RejectedShowCard: ({ show }: { show: { id: number } }) => (
     <div data-testid="rejected-show-card">{show.id}</div>
   ),
-  AdminEmptyState: ({ title }: { title: string }) => <h3>{title}</h3>,
-}))
-
-vi.mock('@/components/admin/BatchRejectDialog', () => ({
   BatchRejectDialog: (): null => null,
 }))
 

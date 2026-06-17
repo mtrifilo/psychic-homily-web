@@ -8,8 +8,12 @@ import {
   useBatchApproveShows,
   useBatchRejectShows,
 } from '@/lib/hooks/admin/useAdminShows'
-import { PendingShowCard, RejectedShowCard, AdminEmptyState } from '@/components/admin'
-import { BatchRejectDialog } from '@/components/admin/BatchRejectDialog'
+import { AdminEmptyState } from '@/components/admin'
+import {
+  PendingShowCard,
+  RejectedShowCard,
+  BatchRejectDialog,
+} from '@/features/shows/admin'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'

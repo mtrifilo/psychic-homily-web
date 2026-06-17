@@ -152,7 +152,7 @@ const ModerationPage = dynamic(() => import('./moderation/page'), {
 })
 
 const CollectionManagementComponent = dynamic(
-  () => import('@/components/admin/CollectionManagement').then(m => ({ default: m.CollectionManagement })),
+  () => import('@/features/collections/admin/CollectionManagement').then(m => ({ default: m.CollectionManagement })),
   {
     loading: () => (
       <div className="flex items-center justify-center py-12">
