@@ -514,12 +514,24 @@ type RadioStatsResponse struct {
 // ──────────────────────────────────────────────
 
 // RadioImportResult summarizes the result of a station or incremental import operation.
+//
+// EpisodeFetchErrors counts episodes whose playlist fetch failed (PSY-1119) —
+// the episode row was created but its plays could not be retrieved, so all of
+// that episode's plays were lost. A non-zero count means the import "finished
+// with episode errors": EpisodesImported still reflects the created episode
+// rows, but the import is NOT clean. MatchPersistErrors counts plays that
+// computed a match the matcher could not persist to the DB (they remain
+// unmatched on disk despite a positive match). Both are surfaced in Errors as
+// well so they land in the job error_log; the counts give callers a queryable
+// signal without parsing the log text.
 type RadioImportResult struct {
-	ShowsDiscovered  int      `json:"shows_discovered"`
-	EpisodesImported int      `json:"episodes_imported"`
-	PlaysImported    int      `json:"plays_imported"`
-	PlaysMatched     int      `json:"plays_matched"`
-	Errors           []string `json:"errors,omitempty"`
+	ShowsDiscovered    int      `json:"shows_discovered"`
+	EpisodesImported   int      `json:"episodes_imported"`
+	PlaysImported      int      `json:"plays_imported"`
+	PlaysMatched       int      `json:"plays_matched"`
+	EpisodeFetchErrors int      `json:"episode_fetch_errors,omitempty"`
+	MatchPersistErrors int      `json:"match_persist_errors,omitempty"`
+	Errors             []string `json:"errors,omitempty"`
 }
 
 // RadioDiscoverResult summarizes the result of discovering shows for a station.
@@ -546,17 +558,32 @@ type RadioDiscoverResult struct {
 // The summary is also bubbled up to RadioImportResult.Errors by the batch
 // orchestrators so partial-import outcomes are visible in admin job logs
 // without ballooning the field with per-play entries.
+//
+// FetchError (PSY-1119), when non-empty, means provider.FetchPlaylist failed
+// for this episode: the episode row was created but ALL of its plays were lost.
+// This is distinct from a legitimately empty playlist — KEXP returns (nil, nil)
+// for a 404 / no-start-time episode, which leaves FetchError empty and is NOT
+// an error. MatchPersistErrors counts plays whose computed match could not be
+// written back to the DB (they remain unmatched on disk despite matching).
 type EpisodeImportResult struct {
-	PlaysImported int    `json:"plays_imported"`
-	PlaysMatched  int    `json:"plays_matched"`
-	DropSummary   string `json:"drop_summary,omitempty"`
+	PlaysImported      int    `json:"plays_imported"`
+	PlaysMatched       int    `json:"plays_matched"`
+	DropSummary        string `json:"drop_summary,omitempty"`
+	FetchError         string `json:"fetch_error,omitempty"`
+	MatchPersistErrors int    `json:"match_persist_errors,omitempty"`
 }
 
 // MatchResult summarizes the result of running the matching engine.
+//
+// PersistErrors (PSY-1119) counts plays that computed a positive match but
+// whose update could not be written to the DB. Such plays are NOT counted in
+// Matched — they remain unmatched on disk — so PersistErrors surfaces a failure
+// that would otherwise only appear in logs. PersistErrors <= Unmatched.
 type MatchResult struct {
-	Total     int `json:"total"`
-	Matched   int `json:"matched"`
-	Unmatched int `json:"unmatched"`
+	Total         int `json:"total"`
+	Matched       int `json:"matched"`
+	Unmatched     int `json:"unmatched"`
+	PersistErrors int `json:"persist_errors,omitempty"`
 }
 
 // ──────────────────────────────────────────────

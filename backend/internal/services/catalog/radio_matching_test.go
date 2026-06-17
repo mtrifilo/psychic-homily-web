@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -525,4 +526,46 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchAllUnmatched_BeforeAfte
 		beforeMatchCount, totalPlays, result.Matched, totalPlays,
 	)
 	suite.Equalf(totalPlays-expectedAfterMatchCount, result.Unmatched, "Unmatched count")
+}
+
+// TestMatchPlaysForEpisode_PersistFailureSurfaced is the PSY-1119 match-persist
+// regression. PSY-814 already stopped over-counting a play whose match update
+// failed as "matched" (it's reported unmatched instead), but that failure lived
+// only in logs — MatchResult could not tell a genuine no-match from a
+// computed-match-that-couldn't-be-saved. This test injects an Update failure on
+// radio_plays via a GORM callback (the same idiom as the PSY-814 affinity-sync
+// failure test) and asserts the failure now appears in MatchResult.PersistErrors
+// while the play is NOT counted as matched and stays unmatched on disk.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchPlaysForEpisode_PersistFailureSurfaced() {
+	// Seed an artist that the play will match by exact name — so the matcher
+	// computes a match and reaches the persist step.
+	artist := suite.createArtist("Radiohead")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Radiohead", nil, nil)
+
+	// Inject a failure scoped to radio_plays UPDATEs only, so the matcher's
+	// SELECTs (artist lookup, unmatched-plays load) still succeed and the
+	// failure lands exactly on the match-persist write.
+	const cbName = "test:fail_radio_plays_update"
+	suite.Require().NoError(suite.db.Callback().Update().Before("gorm:update").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Table == "radio_plays" {
+			_ = tx.AddError(fmt.Errorf("simulated radio_plays update failure"))
+		}
+	}))
+	defer func() {
+		suite.Require().NoError(suite.db.Callback().Update().Remove(cbName))
+	}()
+
+	result, err := suite.engine.MatchPlaysForEpisode(episodeID)
+	suite.Require().NoError(err, "a per-play persist failure must not abort the whole episode match")
+	suite.Equal(1, result.Total)
+	suite.Equal(0, result.Matched, "an unpersisted match must not be counted as matched")
+	suite.Equal(1, result.Unmatched)
+	suite.Equal(1, result.PersistErrors, "the persist failure must surface in the result, not just logs")
+
+	// The play must remain unmatched on disk — the artist_id never persisted.
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Nil(reloaded.ArtistID, "artist_id must be unset since the update failed")
+	_ = artist
 }

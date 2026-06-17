@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -247,11 +248,16 @@ func (s *RadioService) runImportJob(jobID uint) {
 		updates["current_episode_date"] = lastEpisodeDate
 	}
 
+	// PSY-1119: when episodes failed to fetch (or matches failed to persist),
+	// the job is "completed with errors" rather than cleanly completed. We avoid
+	// a status-enum migration (the status column is varchar(20); a new value
+	// would need to widen it) and instead make the error_log self-describing
+	// with a stable, machine-greppable header. The episode_fetch_errors count is
+	// the distinct queryable signal the frontend branches on: status=="completed"
+	// with a non-empty error_log whose first line carries this header means the
+	// import lost plays, not that it ran clean.
 	if len(result.Errors) > 0 {
-		errorLog := ""
-		for _, msg := range result.Errors {
-			errorLog += msg + "\n"
-		}
+		errorLog := buildJobErrorLog(result)
 		updates["error_log"] = errorLog
 	}
 
@@ -261,8 +267,31 @@ func (s *RadioService) runImportJob(jobID uint) {
 		"episodes_imported", result.EpisodesImported,
 		"plays_imported", result.PlaysImported,
 		"plays_matched", result.PlaysMatched,
+		"episode_fetch_errors", result.EpisodeFetchErrors,
+		"match_persist_errors", result.MatchPersistErrors,
 		"errors", len(result.Errors),
 	)
+}
+
+// buildJobErrorLog renders the job's error_log text. When the import finished
+// with episode-level errors (failed playlist fetches or unpersisted matches —
+// PSY-1119), it prepends a stable summary header so an admin or the frontend
+// can tell at a glance, without parsing every per-episode line, that the job
+// "completed with errors" and how many episodes lost their plays. The header is
+// kept on its own line above the existing per-episode detail lines so prior
+// log-scraping of those lines is unaffected (additive).
+func buildJobErrorLog(result *contracts.RadioImportResult) string {
+	var b strings.Builder
+	if result.EpisodeFetchErrors > 0 || result.MatchPersistErrors > 0 {
+		fmt.Fprintf(&b,
+			"completed with errors: %d episodes failed to fetch, %d play matches failed to persist\n",
+			result.EpisodeFetchErrors, result.MatchPersistErrors)
+	}
+	for _, msg := range result.Errors {
+		b.WriteString(msg)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // failJob marks a job as failed with an error message.
