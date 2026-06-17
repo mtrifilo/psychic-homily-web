@@ -19,7 +19,7 @@ import {
   PrivacySettingsPanel,
   ProfileSectionsEditor,
   TierAdvancementCard,
-} from '@/components/contributor'
+} from '@/features/profile'
 
 // Sentinel for the adjust-during-render form seeding below: a value guaranteed
 // distinct from any real `user`, so the guard also fires on the FIRST render
