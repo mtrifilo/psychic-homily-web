@@ -4,7 +4,7 @@ import { use } from 'react'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
-import { PublicProfile } from '@/components/contributor'
+import { PublicProfile } from '@/features/profile'
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>

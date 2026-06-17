@@ -31,7 +31,7 @@ vi.mock('@/features/auth', () => ({
 // The non-Profile tabs render panels that fetch their own data. They are
 // out of scope for this surface, so we stub them to sentinels and keep the
 // test focused on the ProfileTab form, tab switching, and the auth redirect.
-vi.mock('@/components/contributor', () => ({
+vi.mock('@/features/profile', () => ({
   ContributorProfilePreview: () => <div data-testid="contributor-preview" />,
   TierAdvancementCard: ({ tier }: { tier: string }) => (
     <div data-testid="tier-advancement">{tier}</div>
