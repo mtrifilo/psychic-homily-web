@@ -375,6 +375,24 @@ export function EditStationFormFields({
   const [isActive, setIsActive] = useState(station.is_active)
   const [error, setError] = useState<string | null>(null)
 
+  // Clear the transient submit error when the Sheet (re)opens. AdminFormLayout
+  // keeps this component mounted across close (for the close animation), and a
+  // re-open for the SAME station does NOT remount (the key={station.id} reset in
+  // EditStationFormWrapper only fires on a station switch). Without this, a
+  // failed edit's error banner would persist into the next open of the same
+  // station until the next submit. Mirrors CreateStationForm's reset-on-open
+  // (the React "adjust state during render" pattern — no effect, no extra paint).
+  // Only `error` is reset here: the field values intentionally keep their dirty
+  // edits across a close+reopen of the same station (only a station switch, which
+  // remounts via key, re-initializes them from props). (PSY-1121)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setError(null)
+    }
+  }
+
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
@@ -968,8 +986,18 @@ function ShowImportSection({
   const jobs = jobsData?.jobs ?? []
   const hasActiveJob = jobs.some(j => j.status === 'running' || j.status === 'pending')
 
-  // Track the most recent active job for live polling
-  const activeJob = jobs.find(j => j.status === 'running' || j.status === 'pending')
+  // Poll the MOST-RECENTLY-CREATED active job, derived explicitly by created_at
+  // rather than relying on the list's incidental order. `jobs.find(...)` returned
+  // the FIRST active job in list order; if a second import is started mid-view,
+  // the list can momentarily carry both the old and new active job, and find()
+  // could keep returning the old one — so the live progress row would track the
+  // stale job. Reducing to the max created_at pins the poll to the newest active
+  // job regardless of list ordering. (PSY-1121)
+  const activeJob = jobs.reduce<RadioImportJob | undefined>((latest, j) => {
+    if (j.status !== 'running' && j.status !== 'pending') return latest
+    if (!latest || j.created_at > latest.created_at) return j
+    return latest
+  }, undefined)
   const { data: liveJob } = useImportJob(activeJob?.id ?? 0, !!activeJob)
 
   const handleCreate = useCallback(
@@ -1139,6 +1167,14 @@ function StationDetailPanel({
     ? new Date(stationDetail.last_playlist_fetch_at).toLocaleString()
     : 'Never'
 
+  // Render the header from the freshly-fetched detail when it's available,
+  // falling back to the list-row prop while it loads. The `station` prop is a
+  // point-in-time snapshot from the stations list (captured at row-click); after
+  // an edit, useUpdateRadioStation invalidates radioQueryKeys.stationDetail so
+  // this query refetches and the header reflects server values (name, city,
+  // show_count, is_active, …) without navigating away and back. (PSY-1121)
+  const header = stationDetail ?? station
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1147,14 +1183,14 @@ function StationDetailPanel({
           <ChevronLeft className="h-4 w-4 mr-1" /> Back
         </Button>
         <div className="flex-1">
-          <h3 className="text-lg font-semibold">{station.name}</h3>
+          <h3 className="text-lg font-semibold">{header.name}</h3>
           <p className="text-sm text-muted-foreground">
-            {station.city}{station.state ? `, ${station.state}` : ''} &middot; {station.broadcast_type}
-            {station.frequency_mhz ? ` ${station.frequency_mhz} MHz` : ''} &middot; {station.show_count} show(s)
+            {header.city}{header.state ? `, ${header.state}` : ''} &middot; {header.broadcast_type}
+            {header.frequency_mhz ? ` ${header.frequency_mhz} MHz` : ''} &middot; {header.show_count} show(s)
           </p>
         </div>
-        <Badge variant={station.is_active ? 'default' : 'secondary'}>
-          {station.is_active ? 'Active' : 'Inactive'}
+        <Badge variant={header.is_active ? 'default' : 'secondary'}>
+          {header.is_active ? 'Active' : 'Inactive'}
         </Badge>
         <Button variant="outline" size="sm" onClick={onEdit}>
           <Pencil className="h-4 w-4 mr-1" /> Edit
@@ -1791,8 +1827,11 @@ export function RadioManagement() {
               onOpenChange={(open) => !open && setDialogMode(null)}
               onSuccess={() => {
                 setDialogMode(null)
-                // Refresh detail view
-                setDetailStation({ ...detailStation })
+                // No manual refresh needed: useUpdateRadioStation invalidates
+                // radioQueryKeys.stationDetail + .stations, so the detail panel's
+                // useRadioStationDetail refetches and the header re-renders from
+                // the fresh server values. The old setDetailStation({ ...detailStation })
+                // was a no-op shallow copy of the same stale list snapshot. (PSY-1121)
               }}
             />
           )}
