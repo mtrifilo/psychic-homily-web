@@ -59,38 +59,38 @@ vi.mock('@/features/auth', () => ({
 }))
 
 // Mock sub-components to isolate SettingsPanel tests
-vi.mock('@/components/settings/change-password', () => ({
+vi.mock('./change-password', () => ({
   ChangePassword: () => <div data-testid="change-password">ChangePassword</div>,
 }))
 
-vi.mock('@/components/settings/delete-account-dialog', () => ({
+vi.mock('./delete-account-dialog', () => ({
   DeleteAccountDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="delete-dialog">DeleteAccountDialog</div> : null,
 }))
 
-vi.mock('@/components/settings/oauth-accounts', () => ({
+vi.mock('./oauth-accounts', () => ({
   OAuthAccounts: () => <div data-testid="oauth-accounts">OAuthAccounts</div>,
 }))
 
-vi.mock('@/components/settings/api-token-management', () => ({
+vi.mock('./api-token-management', () => ({
   APITokenManagement: () => (
     <div data-testid="api-token-management">APITokenManagement</div>
   ),
 }))
 
-vi.mock('@/components/settings/favorite-cities', () => ({
+vi.mock('./favorite-cities', () => ({
   FavoriteCitiesSettings: () => (
     <div data-testid="favorite-cities">FavoriteCitiesSettings</div>
   ),
 }))
 
-vi.mock('@/components/settings/notification-settings', () => ({
+vi.mock('./notification-settings', () => ({
   NotificationSettings: () => (
     <div data-testid="notification-settings">NotificationSettings</div>
   ),
 }))
 
-vi.mock('@/components/settings/reply-permission-settings', () => ({
+vi.mock('./reply-permission-settings', () => ({
   ReplyPermissionSettings: () => (
     <div data-testid="reply-permission-settings">ReplyPermissionSettings</div>
   ),

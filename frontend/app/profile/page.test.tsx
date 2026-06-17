@@ -26,6 +26,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 vi.mock('@/features/auth', () => ({
   useUpdateProfile: () => mockUseUpdateProfile(),
+  SettingsPanel: () => <div data-testid="settings-panel">Settings panel</div>,
 }))
 
 // The non-Profile tabs render panels that fetch their own data. They are
@@ -38,10 +39,6 @@ vi.mock('@/features/profile', () => ({
   ),
   PrivacySettingsPanel: () => <div data-testid="privacy-panel">Privacy panel</div>,
   ProfileSectionsEditor: () => <div data-testid="sections-panel">Sections panel</div>,
-}))
-
-vi.mock('@/components/settings', () => ({
-  SettingsPanel: () => <div data-testid="settings-panel">Settings panel</div>,
 }))
 
 import ProfilePage from './page'
