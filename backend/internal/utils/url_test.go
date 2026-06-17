@@ -243,3 +243,56 @@ func TestValidateHTTPURL_SurfacesUserInput(t *testing.T) {
 		})
 	}
 }
+
+// TestNormalizeInstagramHandle covers PSY-1118: the show-create/update
+// instagram_handle must be a bare handle, and is normalized to the canonical
+// instagram.com URL so it can never escape the platform host (the slot is
+// host-anchored everywhere else by PSY-1113).
+func TestNormalizeInstagramHandle(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		// --- Accepted: bare handles normalized to canonical URL ---
+		{name: "plain handle", input: "bandname", want: "https://instagram.com/bandname"},
+		{name: "leading @ stripped", input: "@new_ig", want: "https://instagram.com/new_ig"},
+		{name: "underscores and digits", input: "the_band_99", want: "https://instagram.com/the_band_99"},
+		{name: "period in handle", input: "band.name", want: "https://instagram.com/band.name"},
+		{name: "surrounding whitespace trimmed", input: "  @new_ig  ", want: "https://instagram.com/new_ig"},
+		{name: "max length 30", input: strings.Repeat("a", 30), want: "https://instagram.com/" + strings.Repeat("a", 30)},
+		// A bare ".com" value is a syntactically valid handle and, normalized,
+		// resolves under instagram.com — defusing the SocialLinks ".com → raw
+		// https host" rendering path it would otherwise have hit.
+		{name: "domain-like bare value stays on-platform", input: "evil.com", want: "https://instagram.com/evil.com"},
+
+		// --- Empty: treated as "no handle", no error ---
+		{name: "empty string", input: "", want: ""},
+		{name: "whitespace only", input: "   ", want: ""},
+		{name: "bare @ only", input: "@", want: ""},
+
+		// --- Rejected: URL-shaped / scheme-bearing input (the PSY-1118 vector) ---
+		{name: "full https URL", input: "https://evil.test", wantErr: true},
+		{name: "full instagram URL", input: "https://instagram.com/realband", wantErr: true},
+		{name: "partial URL with slash", input: "instagram.com/realband", wantErr: true},
+		{name: "javascript scheme", input: "javascript:alert(1)", wantErr: true},
+		{name: "contains slash", input: "band/name", wantErr: true},
+		{name: "contains space", input: "band name", wantErr: true},
+		{name: "too long (31)", input: strings.Repeat("a", 31), wantErr: true},
+		{name: "disallowed char", input: "band!name", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NormalizeInstagramHandle(tc.input)
+			if tc.wantErr {
+				assert.Error(t, err, "expected an error for %q", tc.input)
+				assert.Empty(t, got, "no normalized value should be returned on error")
+				return
+			}
+			assert.NoError(t, err, "unexpected error for %q", tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
