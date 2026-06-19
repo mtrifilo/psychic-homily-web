@@ -101,13 +101,12 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 	}
 
 	if err := s.db.Create(station).Error; err != nil {
-		// A concurrent create can slip past the name pre-check and hit the unique
-		// index. Translate ONLY a name-index violation to the clean 409 — a slug
-		// collision is a different constraint and must not be mislabeled as a name
-		// conflict (TranslateError is on, so the constraint name is available).
-		if shared.DuplicateKeyConstraint(err) == "idx_radio_stations_name_lower" {
-			return nil, apperrors.ErrRadioStationNameConflict(req.Name)
-		}
+		// The name pre-check above returns a clean 409 for the common (sequential)
+		// duplicate-name case. A duplicate-key error here is the rare concurrent
+		// race: gorm's TranslateError collapses it to the bare ErrDuplicatedKey
+		// sentinel (no constraint name survives), and a create can collide on the
+		// name OR the slug index, so it can't be attributed — return the generic
+		// error. The DB unique indexes still guarantee integrity either way.
 		return nil, fmt.Errorf("failed to create radio station: %w", err)
 	}
 
@@ -345,7 +344,12 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 
 	if len(updates) > 0 {
 		if err := s.db.Model(&station).Updates(updates).Error; err != nil {
-			if req.Name != nil && shared.DuplicateKeyConstraint(err) == "idx_radio_stations_name_lower" {
+			// UpdateStation never changes the slug, so a duplicate-key violation
+			// here can only be the name unique index — attribute it to the name
+			// conflict. Covers the rare rename race that slips past the pre-check
+			// (gorm collapses the error to ErrDuplicatedKey, but for an update the
+			// violated constraint is unambiguous).
+			if req.Name != nil && shared.IsDuplicateKey(err) {
 				return nil, apperrors.ErrRadioStationNameConflict(*req.Name)
 			}
 			return nil, fmt.Errorf("failed to update radio station: %w", err)

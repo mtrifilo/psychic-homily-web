@@ -143,7 +143,7 @@ func RenderRadioSeedSQL(w io.Writer) error {
 	// CONFLICT target matches idx_radio_plays_dedup (episode_id, dedup_key),
 	// where dedup_key is the GENERATED STORED content-hash column (PSY-1131).
 	// Seeded plays set no provider_play_id, so dedup_key is the md5 hash over
-	// (position, artist_name, track_title, album_title); distinct positions
+	// (position, artist_name, track_title); distinct positions
 	// keep these rows distinct, so re-runs are no-ops. radio_plays has no
 	// updated_at column.
 	b.WriteString("-- Radio plays (generated from backend/internal/seeddata/radio.go)\n")
