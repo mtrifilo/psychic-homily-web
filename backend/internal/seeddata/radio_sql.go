@@ -109,7 +109,7 @@ func RenderRadioSeedSQL(w io.Writer) error {
 	// idx_radio_episodes_unique expression index on
 	// (show_id, air_date, COALESCE(external_id, '')), which is the ON
 	// CONFLICT target below so re-runs are no-ops. show_id is resolved from
-	// the show slug at insert time. radio_episodes has no updated_at column.
+	// the show slug at insert time. updated_at is omitted so its DEFAULT NOW() applies.
 	b.WriteString("-- Radio episodes (generated from backend/internal/seeddata/radio.go)\n")
 	b.WriteString("INSERT INTO radio_episodes (show_id, title, air_date, description, archive_url, external_id, play_count, created_at) VALUES\n")
 	for i, e := range RadioEpisodes {

@@ -234,3 +234,30 @@ func rawMsg(s string) *json.RawMessage {
 	r := json.RawMessage(s)
 	return &r
 }
+
+func TestNormalizeRotationStatus(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		in   *string
+		want string // "" means expect nil (SQL NULL)
+	}{
+		{"nil stays nil", nil, ""},
+		{"empty -> nil", strPtr(""), ""},
+		{"whitespace -> nil", strPtr("   "), ""},
+		{"KEXP capitalized Library -> library", strPtr("Library"), "library"},
+		{"capitalized Heavy -> heavy", strPtr("Heavy"), "heavy"},
+		{"already lowercase passes through", strPtr("recommended_new"), "recommended_new"},
+		{"unrecognized -> nil", strPtr("recurrent"), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NormalizeRotationStatus(tc.in)
+			if tc.want == "" {
+				assert.Nil(t, got)
+			} else {
+				assert.Equal(t, tc.want, *got)
+			}
+		})
+	}
+}

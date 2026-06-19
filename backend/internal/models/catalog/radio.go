@@ -153,6 +153,22 @@ func IsValidRotationStatus(s string) bool {
 	}
 }
 
+// NormalizeRotationStatus coerces a provider-supplied rotation_status into a
+// value the radio_plays_rotation_status_check CHECK accepts (PSY-1131):
+// trimmed + lowercased, returning nil (SQL NULL) for empty or unrecognized
+// values. KEXP sends capitalized values (e.g. "Library"); other providers send
+// none. Call this at the persist boundary before insert.
+func NormalizeRotationStatus(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	normalized := strings.ToLower(strings.TrimSpace(*s))
+	if normalized == "" || !IsValidRotationStatus(normalized) {
+		return nil
+	}
+	return &normalized
+}
+
 // IsValidRadioStationSource reports whether s is an accepted station source.
 func IsValidRadioStationSource(s string) bool {
 	switch s {

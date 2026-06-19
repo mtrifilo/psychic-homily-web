@@ -761,7 +761,7 @@ func sanitizePlay(episodeID uint, p RadioPlayImport) (catalogm.RadioPlay, error)
 		LabelName:              truncateOptionalRunes(p.LabelName, radioPlayVarcharMaxRunes),
 		ReleaseYear:            p.ReleaseYear,
 		IsNew:                  p.IsNew,
-		RotationStatus:         p.RotationStatus,
+		RotationStatus:         catalogm.NormalizeRotationStatus(p.RotationStatus),
 		DJComment:              p.DJComment, // TEXT column, no length cap
 		IsLivePerformance:      p.IsLivePerformance,
 		IsRequest:              p.IsRequest,

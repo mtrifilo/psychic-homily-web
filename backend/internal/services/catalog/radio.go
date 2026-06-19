@@ -14,6 +14,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -71,7 +72,9 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 	// Station names are unique (case-insensitive). Reject a duplicate up front
 	// with a clean conflict error; the DB unique index is the race backstop.
 	var nameCount int64
-	s.db.Model(&catalogm.RadioStation{}).Where("lower(name) = lower(?)", req.Name).Count(&nameCount)
+	if err := s.db.Model(&catalogm.RadioStation{}).Where("lower(name) = lower(?)", req.Name).Count(&nameCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to check radio station name uniqueness: %w", err)
+	}
 	if nameCount > 0 {
 		return nil, apperrors.ErrRadioStationNameConflict(req.Name)
 	}
@@ -98,6 +101,11 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 	}
 
 	if err := s.db.Create(station).Error; err != nil {
+		// A concurrent create can slip past the pre-check and hit the unique
+		// index; translate that to the same clean conflict (TranslateError is on).
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrRadioStationNameConflict(req.Name)
+		}
 		return nil, fmt.Errorf("failed to create radio station: %w", err)
 	}
 
