@@ -76,11 +76,13 @@ ALTER TABLE radio_shows
 -- { "timezone": "America/Los_Angeles",
 --   "slots": [ { "day_of_week": 1, "start": "06:00", "end": "10:00" } ] }
 -- (day_of_week: 0=Sunday..6=Saturday; start/end: "HH:MM" 24h). This is the
--- basis for the air-window / "live" computation (consumed in P4). The Go side
--- validates the shape on write (catalog.RadioSchedule); the column itself stays
--- a plain JSONB so the validation lives in one place (the app boundary) rather
--- than being duplicated in a brittle JSONB CHECK. No schema change to the
--- existing `schedule JSONB` column is needed — only its contract is formalized.
+-- basis for the air-window / "live" computation (consumed in P4). The admin
+-- create/update show handlers validate this shape (via catalog.RadioSchedule)
+-- before persist and reject a malformed schedule with 422, so the column stays a
+-- plain JSONB rather than carrying a brittle JSONB CHECK. NOTE: provider-derived
+-- schedules written by the discovery/import path are NOT yet routed through this
+-- validator (that, and the air-window consumer, land in P4). No schema change to
+-- the existing `schedule JSONB` column is needed — only its contract is formalized.
 
 -- ============================================================================
 -- radio_episodes
@@ -161,18 +163,27 @@ ALTER TABLE radio_plays
 
 -- Air-timestamp-independent dedup. The old idx_radio_plays_unique keyed on
 -- air_timestamp, which NTS/WFMU don't always set, so re-imports of the same
--- playlist created duplicate rows. dedup_key is a GENERATED STORED column:
--- the stable provider play id when present, else an md5 content hash over
--- (position, artist_name, track_title, album_title). episode_id is NOT in the
--- hash because it's the other half of the unique key (a play id / content is
--- only unique WITHIN an episode). COALESCE the nullable text fields to '' so a
--- NULL track/album doesn't NULL out the whole hash. Being a generated column,
--- the value is computed by Postgres deterministically — no application code
--- needs to populate it, and identical re-imports produce identical keys.
+-- playlist created duplicate rows. dedup_key is a GENERATED STORED column: the
+-- stable provider play id (provider_play_id) when present, else an md5 content
+-- hash over (position, artist_name, track_title). episode_id is NOT in the hash
+-- (it's the other half of the unique key — content is only unique WITHIN an
+-- episode). `position` IS in the hash on purpose: an episode legitimately
+-- replays the same artist+track at different positions, and without position
+-- those would collide and one would be silently dropped on re-import (rationale
+-- carried forward from 20260528172125). album_title is deliberately EXCLUDED:
+-- it is the least-stable field (providers back-fill/correct it after air), so
+-- hashing it would let a drifting album re-import the same play as a duplicate —
+-- the exact bug this key exists to prevent. COALESCE track_title to '' so a NULL
+-- track doesn't NULL out the whole hash.
+--
+-- Semantics note: dropping air_timestamp means two genuinely-distinct plays at
+-- the same position with identical artist+track now collide UNLESS the provider
+-- supplies a distinct provider_play_id. Today NO provider sets provider_play_id
+-- (the import path leaves it NULL, so the content-hash branch is always taken);
+-- wiring stable provider ids is P2 work. Until then dedup is content+position.
 --
 -- NUL bytes can never reach this expression: Postgres text columns reject NUL
--- on insert outright, so artist_name/track_title/album_title are NUL-free by
--- the time the generated expression runs.
+-- on insert outright, so the hashed fields are NUL-free when the expression runs.
 ALTER TABLE radio_plays
     ADD COLUMN dedup_key TEXT
         GENERATED ALWAYS AS (
@@ -181,8 +192,7 @@ ALTER TABLE radio_plays
                 md5(
                     position::text || '|' ||
                     artist_name || '|' ||
-                    COALESCE(track_title, '') || '|' ||
-                    COALESCE(album_title, '')
+                    COALESCE(track_title, '')
                 )
             )
         ) STORED;

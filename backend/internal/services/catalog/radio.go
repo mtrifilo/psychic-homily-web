@@ -101,9 +101,11 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 	}
 
 	if err := s.db.Create(station).Error; err != nil {
-		// A concurrent create can slip past the pre-check and hit the unique
-		// index; translate that to the same clean conflict (TranslateError is on).
-		if shared.IsDuplicateKey(err) {
+		// A concurrent create can slip past the name pre-check and hit the unique
+		// index. Translate ONLY a name-index violation to the clean 409 — a slug
+		// collision is a different constraint and must not be mislabeled as a name
+		// conflict (TranslateError is on, so the constraint name is available).
+		if shared.DuplicateKeyConstraint(err) == "idx_radio_stations_name_lower" {
 			return nil, apperrors.ErrRadioStationNameConflict(req.Name)
 		}
 		return nil, fmt.Errorf("failed to create radio station: %w", err)
@@ -265,6 +267,20 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 		return nil, fmt.Errorf("failed to get radio station: %w", err)
 	}
 
+	// Reject a rename to an existing (case-insensitive) name with a clean 409,
+	// excluding this station itself; the DB unique index is the race backstop.
+	if req.Name != nil && !strings.EqualFold(*req.Name, station.Name) {
+		var nameCount int64
+		if err := s.db.Model(&catalogm.RadioStation{}).
+			Where("lower(name) = lower(?) AND id <> ?", *req.Name, stationID).
+			Count(&nameCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check radio station name uniqueness: %w", err)
+		}
+		if nameCount > 0 {
+			return nil, apperrors.ErrRadioStationNameConflict(*req.Name)
+		}
+	}
+
 	updates := make(map[string]interface{})
 	if req.Name != nil {
 		updates["name"] = *req.Name
@@ -329,6 +345,9 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 
 	if len(updates) > 0 {
 		if err := s.db.Model(&station).Updates(updates).Error; err != nil {
+			if req.Name != nil && shared.DuplicateKeyConstraint(err) == "idx_radio_stations_name_lower" {
+				return nil, apperrors.ErrRadioStationNameConflict(*req.Name)
+			}
 			return nil, fmt.Errorf("failed to update radio station: %w", err)
 		}
 	}
@@ -379,6 +398,12 @@ func (s *RadioService) CreateShow(stationID uint, req *contracts.CreateRadioShow
 			s.db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
+	}
+
+	if req.Schedule != nil {
+		if _, err := catalogm.ParseRadioSchedule(req.Schedule); err != nil {
+			return nil, apperrors.ErrRadioScheduleInvalid(err.Error())
+		}
 	}
 
 	show := &catalogm.RadioShow{
@@ -567,6 +592,9 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 		updates["schedule_display"] = *req.ScheduleDisplay
 	}
 	if req.Schedule != nil {
+		if _, err := catalogm.ParseRadioSchedule(req.Schedule); err != nil {
+			return nil, apperrors.ErrRadioScheduleInvalid(err.Error())
+		}
 		updates["schedule"] = req.Schedule
 	}
 	if req.GenreTags != nil {

@@ -157,7 +157,10 @@ func IsValidRotationStatus(s string) bool {
 // value the radio_plays_rotation_status_check CHECK accepts (PSY-1131):
 // trimmed + lowercased, returning nil (SQL NULL) for empty or unrecognized
 // values. KEXP sends capitalized values (e.g. "Library"); other providers send
-// none. Call this at the persist boundary before insert.
+// none. Call this at the persist boundary before insert. The live now-playing
+// response path intentionally surfaces the raw provider value (display-only, not
+// persisted), so a live track may show "Library" where the archived row stores
+// "library".
 func NormalizeRotationStatus(s *string) *string {
 	if s == nil {
 		return nil
@@ -245,9 +248,11 @@ type RadioScheduleSlot struct {
 
 // RadioSchedule is the validated JSONB shape stored in radio_shows.schedule
 // (PSY-1131). It is the basis for the air-window / "live" computation consumed
-// in P4. The column itself is a plain JSONB; this struct + Validate is the
-// single place the shape is enforced (the app boundary), so the rule lives in
-// one place rather than being duplicated in a brittle JSONB CHECK constraint.
+// in P4. The column itself is a plain JSONB; ParseRadioSchedule + Validate are
+// invoked by the admin create/update show handlers (the app boundary) to reject
+// a malformed schedule with 422, so the rule lives in one place rather than a
+// brittle JSONB CHECK. NOTE: the discovery/import write path does not yet route
+// through this validator (deferred to P4 with the air-window consumer).
 //
 //	{ "timezone": "America/Los_Angeles",
 //	  "slots": [ { "day_of_week": 1, "start": "06:00", "end": "10:00" } ] }

@@ -40,7 +40,7 @@ type RadioStation struct {
 	StreamURL      string
 	Website        string
 	DonationURL    string
-	BroadcastType  string  // "fm" | "internet" | "both"
+	BroadcastType  string  // "terrestrial" | "internet" | "both"
 	FrequencyMHz   float64 // 0 -> NULL (for internet-only stations)
 	PlaylistSource string  // provider tag used by the fetcher pipeline
 	NetworkSlug    string  // empty -> NULL (station has no parent network)
@@ -349,7 +349,7 @@ var RadioShows = []RadioShow{
 //
 // ExternalID participates in the episode dedup unique index
 // (idx_radio_episodes_unique on show_id, air_date, COALESCE(external_id,
-// '')), so it carries a deterministic value here rather than NULL to give
+// ”)), so it carries a deterministic value here rather than NULL to give
 // the ON CONFLICT target a stable expression.
 type RadioEpisode struct {
 	ShowSlug    string // resolved to radio_shows.id at insert time

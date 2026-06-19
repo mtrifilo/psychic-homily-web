@@ -706,9 +706,9 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// Batch insert with ON CONFLICT DO NOTHING so duplicate rows (re-imports
 	// of the same playlist; chronic during dev / scheduled re-fetches) are
 	// silently skipped rather than rolling back the entire 100-row batch.
-	// Dedup is enforced by the idx_radio_plays_unique UNIQUE index on
-	// (episode_id, position, air_timestamp, artist_name, track_title) NULLS
-	// NOT DISTINCT (PSY-888 migration). Records are pre-validated (PSY-885), so
+	// Dedup is enforced by the idx_radio_plays_dedup UNIQUE index on
+	// (episode_id, dedup_key) — a generated content hash over (position,
+	// artist_name, track_title), PSY-1131. Records are pre-validated (PSY-885), so
 	// a non-UNIQUE constraint violation here (FK gone, NOT NULL) is a hard
 	// infrastructural error — bubble it up.
 	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
