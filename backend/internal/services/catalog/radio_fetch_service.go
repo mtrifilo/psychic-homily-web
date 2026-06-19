@@ -456,11 +456,17 @@ func (s *RadioFetchService) runFetchCycle() {
 		}
 
 		result := raw.(*RunStationSyncResult)
-		// Lock contention (another run for this station is in flight) is a benign
-		// no-op — not a success or a failure for the breaker.
-		if result.LockContended {
-			s.logger.Info("station fetch skipped: a sync is already running",
-				"station_id", station.ID, "station_name", station.Name)
+		// A no-op run — the per-station lock was held by another in-flight sync, or
+		// the persistent breaker is open — did NOT execute, so leave the in-memory
+		// PSY-887 breaker counters untouched (do NOT count it as a success, which
+		// would reset the failure counter and stop the in-memory breaker tripping).
+		if result.LockContended || result.Skipped {
+			reason := "breaker_open"
+			if result.LockContended {
+				reason = "sync_already_running"
+			}
+			s.logger.Info("station fetch skipped",
+				"station_id", station.ID, "station_name", station.Name, "reason", reason)
 			continue
 		}
 		s.recordStationSuccess(station.ID)
@@ -632,9 +638,15 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		}
 
 		result := raw.(*RunStationSyncResult)
-		if result.LockContended {
-			s.logger.Info("station discover skipped: a sync is already running",
-				"station_id", station.ID, "station_name", station.Name)
+		// See runFetchCycle: a no-op (lock contended or breaker open) must not be
+		// recorded as an in-memory success.
+		if result.LockContended || result.Skipped {
+			reason := "breaker_open"
+			if result.LockContended {
+				reason = "sync_already_running"
+			}
+			s.logger.Info("station discover skipped",
+				"station_id", station.ID, "station_name", station.Name, "reason", reason)
 			continue
 		}
 		s.recordStationSuccess(station.ID)

@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -482,8 +483,13 @@ func categorizeErrorString(s string) string {
 const runErrorDetailLimit = 2000
 
 func truncateForDetail(s string) string {
-	if len(s) <= runErrorDetailLimit {
+	const marker = "…[truncated]"
+	if utf8.RuneCountInString(s) <= runErrorDetailLimit {
 		return s
 	}
-	return s[:runErrorDetailLimit] + "…[truncated]"
+	// Rune-safe (reuse truncateRunes): a byte-slice could split a multi-byte
+	// sequence mid-rune → invalid UTF-8 → Postgres rejects the TEXT insert, and
+	// recordRunErrors swallows that error, silently losing the whole run's error
+	// batch — exactly the garbled-provider case this table exists to capture.
+	return truncateRunes(s, runErrorDetailLimit) + marker
 }

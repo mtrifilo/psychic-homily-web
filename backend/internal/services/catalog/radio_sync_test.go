@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
@@ -136,10 +138,19 @@ func TestCategorizeErrorString(t *testing.T) {
 
 func TestTruncateForDetail(t *testing.T) {
 	assert.Equal(t, "short", truncateForDetail("short"))
-	long := make([]byte, runErrorDetailLimit+500)
-	for i := range long {
-		long[i] = 'x'
+
+	markerRunes := utf8.RuneCountInString("…[truncated]")
+
+	// ASCII over the limit: truncated to the rune budget + marker, valid UTF-8.
+	got := truncateForDetail(strings.Repeat("x", runErrorDetailLimit+500))
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, runErrorDetailLimit+markerRunes, utf8.RuneCountInString(got))
+
+	// Multi-byte runes straddling the limit must NOT be split mid-sequence — a
+	// byte-slice would yield invalid UTF-8 that Postgres rejects on insert.
+	for _, r := range []string{"é", "🎵"} { // 2-byte and 4-byte runes
+		out := truncateForDetail(strings.Repeat(r, runErrorDetailLimit+50))
+		assert.True(t, utf8.ValidString(out), "truncated %q detail must stay valid UTF-8", r)
+		assert.Equal(t, runErrorDetailLimit+markerRunes, utf8.RuneCountInString(out))
 	}
-	got := truncateForDetail(string(long))
-	assert.Len(t, got, runErrorDetailLimit+len("…[truncated]"))
 }
