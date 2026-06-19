@@ -175,6 +175,72 @@ func TestIsValidRadioPlayMatchState(t *testing.T) {
 }
 
 // =============================================================================
+// PSY-1132 observability models + enum validators
+// =============================================================================
+
+func TestRadioSyncRunTableName(t *testing.T) {
+	assert.Equal(t, "radio_sync_runs", RadioSyncRun{}.TableName())
+}
+
+func TestRadioSyncRunErrorTableName(t *testing.T) {
+	assert.Equal(t, "radio_sync_run_errors", RadioSyncRunError{}.TableName())
+}
+
+func TestRadioStationHealthTableName(t *testing.T) {
+	assert.Equal(t, "radio_station_health", RadioStationHealth{}.TableName())
+}
+
+func TestIsValidRadioSyncRunType(t *testing.T) {
+	for _, v := range []string{"discover", "fetch", "backfill", "rematch"} {
+		assert.True(t, IsValidRadioSyncRunType(v))
+	}
+	for _, v := range []string{"", "import", "Fetch", "sync"} {
+		assert.False(t, IsValidRadioSyncRunType(v))
+	}
+}
+
+func TestIsValidRadioSyncRunTrigger(t *testing.T) {
+	for _, v := range []string{"scheduled", "manual", "auto_backfill"} {
+		assert.True(t, IsValidRadioSyncRunTrigger(v))
+	}
+	for _, v := range []string{"", "auto", "Manual", "cron"} {
+		assert.False(t, IsValidRadioSyncRunTrigger(v))
+	}
+}
+
+func TestIsValidRadioSyncRunStatus(t *testing.T) {
+	// 'running' (open) and 'cancelled' are PSY-1132 additions to the design-doc
+	// §3.2 enum (carry forward the abortable, pollable import-job lifecycle).
+	for _, v := range []string{"running", "success", "partial", "failed", "skipped", "cancelled"} {
+		assert.True(t, IsValidRadioSyncRunStatus(v))
+	}
+	for _, v := range []string{"", "pending", "Success", "done", "completed"} {
+		assert.False(t, IsValidRadioSyncRunStatus(v))
+	}
+}
+
+func TestIsValidRadioSyncRunErrorCategory(t *testing.T) {
+	for _, v := range []string{
+		"provider_unreachable", "rate_limited", "parse_error", "empty_unexpected",
+		"validation_drop", "truncation", "match_persist_error", "timeout",
+	} {
+		assert.True(t, IsValidRadioSyncRunErrorCategory(v))
+	}
+	for _, v := range []string{"", "unreachable", "Timeout", "unknown"} {
+		assert.False(t, IsValidRadioSyncRunErrorCategory(v))
+	}
+}
+
+func TestIsValidRadioBreakerState(t *testing.T) {
+	for _, v := range []string{"closed", "open", "half_open"} {
+		assert.True(t, IsValidRadioBreakerState(v))
+	}
+	for _, v := range []string{"", "halfopen", "Open", "tripped"} {
+		assert.False(t, IsValidRadioBreakerState(v))
+	}
+}
+
+// =============================================================================
 // PSY-1131 RadioSchedule validation
 // =============================================================================
 
