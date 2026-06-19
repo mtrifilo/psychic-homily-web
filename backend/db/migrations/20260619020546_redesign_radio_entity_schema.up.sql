@@ -67,10 +67,10 @@ ALTER TABLE radio_shows
     ADD CONSTRAINT radio_shows_lifecycle_state_check
         CHECK (lifecycle_state IN ('active', 'dormant', 'retired'));
 
--- Name uniqueness scoped to the station (case-insensitive). Two stations may
--- legitimately each have a "Breakfast Show"; one station may not have two.
-CREATE UNIQUE INDEX idx_radio_shows_station_name_lower
-    ON radio_shows (station_id, lower(name));
+-- radio_shows is intentionally NOT name-unique: a station legitimately has
+-- same-name shows distinguished by external_id (PSY-1073: WFMU catalog
+-- duplication; see TestLive_AmbiguousShowNameYieldsNilShow). The natural key
+-- is (station_id, external_id), enforced separately.
 
 -- The schedule JSONB is formalized as the validated shape
 -- { "timezone": "America/Los_Angeles",

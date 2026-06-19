@@ -916,6 +916,10 @@ func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *
 
 	station, err := h.stationWriter.CreateStation(serviceReq)
 	if err != nil {
+		var radioErr *apperrors.RadioError
+		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioStationNameConflict {
+			return nil, huma.Error409Conflict(radioErr.Message)
+		}
 		logger.FromContext(ctx).Error("create_radio_station_failed",
 			"error", err.Error(),
 			"request_id", requestID,

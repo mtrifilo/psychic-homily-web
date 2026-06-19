@@ -68,6 +68,14 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 		return nil, fmt.Errorf("invalid playlist source: %s", *req.PlaylistSource)
 	}
 
+	// Station names are unique (case-insensitive). Reject a duplicate up front
+	// with a clean conflict error; the DB unique index is the race backstop.
+	var nameCount int64
+	s.db.Model(&catalogm.RadioStation{}).Where("lower(name) = lower(?)", req.Name).Count(&nameCount)
+	if nameCount > 0 {
+		return nil, apperrors.ErrRadioStationNameConflict(req.Name)
+	}
+
 	station := &catalogm.RadioStation{
 		Name:             req.Name,
 		Slug:             slug,

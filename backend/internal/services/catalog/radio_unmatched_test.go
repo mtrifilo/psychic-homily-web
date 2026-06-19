@@ -69,7 +69,19 @@ func (s *RadioUnmatchedSuite) TearDownSuite() {
 	s.testDB.Cleanup()
 }
 
+// SetupTest wipes radio data before each test. Migrations seed canonical
+// stations (e.g. "KEXP") on the test container; without a pre-test wipe the
+// first test to create a same-named station collides with the seed now that
+// station names are unique (PSY-1131). Mirrors RadioServiceIntegrationTestSuite.
+func (s *RadioUnmatchedSuite) SetupTest() {
+	s.cleanupRadioTables()
+}
+
 func (s *RadioUnmatchedSuite) TearDownTest() {
+	s.cleanupRadioTables()
+}
+
+func (s *RadioUnmatchedSuite) cleanupRadioTables() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
 	// Delete in FK-safe order

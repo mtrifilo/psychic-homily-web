@@ -50,8 +50,6 @@ ALTER TABLE radio_episodes
 -- ---------------------------------------------------------------------------
 -- radio_shows
 -- ---------------------------------------------------------------------------
-DROP INDEX IF EXISTS idx_radio_shows_station_name_lower;
-
 ALTER TABLE radio_shows
     DROP CONSTRAINT IF EXISTS radio_shows_lifecycle_state_check,
     DROP CONSTRAINT IF EXISTS radio_shows_source_check,

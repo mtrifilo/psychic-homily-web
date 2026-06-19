@@ -252,17 +252,21 @@ func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_InvalidPlaylist
 	suite.Contains(err.Error(), "invalid playlist source")
 }
 
-func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_UniqueSlugCollision() {
+func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_DuplicateNameRejected() {
 	suite.createStation("KEXP")
 
-	resp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
+	// Station names are unique (case-insensitive). A duplicate is rejected with
+	// a clean conflict error rather than silently creating a slug-suffixed dupe
+	// (PSY-1131). Shows, by contrast, are intentionally not name-unique.
+	_, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          "KEXP",
 		BroadcastType: catalogm.BroadcastTypeInternet,
 	})
 
-	suite.Require().NoError(err)
-	suite.Contains(resp.Slug, "kexp-") // should get a suffix
-	suite.NotEqual("kexp", resp.Slug)
+	suite.Require().Error(err)
+	var radioErr *apperrors.RadioError
+	suite.ErrorAs(err, &radioErr)
+	suite.Equal(apperrors.CodeRadioStationNameConflict, radioErr.Code)
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestGetStation_Success() {
