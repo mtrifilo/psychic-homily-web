@@ -6,9 +6,11 @@ import (
 
 // Radio error codes
 const (
-	CodeRadioStationNotFound = "RADIO_STATION_NOT_FOUND"
-	CodeRadioShowNotFound    = "RADIO_SHOW_NOT_FOUND"
-	CodeRadioEpisodeNotFound = "RADIO_EPISODE_NOT_FOUND"
+	CodeRadioStationNotFound     = "RADIO_STATION_NOT_FOUND"
+	CodeRadioShowNotFound        = "RADIO_SHOW_NOT_FOUND"
+	CodeRadioEpisodeNotFound     = "RADIO_EPISODE_NOT_FOUND"
+	CodeRadioStationNameConflict = "RADIO_STATION_NAME_CONFLICT"
+	CodeRadioScheduleInvalid     = "RADIO_SCHEDULE_INVALID"
 )
 
 // RadioError represents a radio-related error with additional context.
@@ -52,5 +54,25 @@ func ErrRadioEpisodeNotFound(episodeID uint) *RadioError {
 	return &RadioError{
 		Code:    CodeRadioEpisodeNotFound,
 		Message: fmt.Sprintf("Radio episode %d not found", episodeID),
+	}
+}
+
+// ErrRadioStationNameConflict creates a duplicate-station-name conflict error.
+// Station names are unique (case-insensitive); admin create rejects a dupe with
+// a clean 409 instead of a raw DB-constraint 500.
+func ErrRadioStationNameConflict(name string) *RadioError {
+	return &RadioError{
+		Code:    CodeRadioStationNameConflict,
+		Message: fmt.Sprintf("A radio station named %q already exists", name),
+	}
+}
+
+// ErrRadioScheduleInvalid creates a validation error for a radio show's
+// schedule JSONB that does not match the catalog.RadioSchedule shape
+// (PSY-1131). Mapped to HTTP 422 by the admin show handlers.
+func ErrRadioScheduleInvalid(detail string) *RadioError {
+	return &RadioError{
+		Code:    CodeRadioScheduleInvalid,
+		Message: fmt.Sprintf("Invalid schedule: %s", detail),
 	}
 }

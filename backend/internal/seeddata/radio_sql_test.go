@@ -53,8 +53,9 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 		"AND air_date = '2025-01-15'",
 		// matched play: artist_id resolved from seeded artist slug
 		"(SELECT id FROM artists WHERE slug = 'calexico')",
-		// play dedup ON CONFLICT target matches idx_radio_plays_unique
-		"ON CONFLICT (episode_id, position, air_timestamp, artist_name, track_title) DO NOTHING",
+		// play dedup ON CONFLICT target matches idx_radio_plays_dedup
+		// (episode_id, dedup_key) — the air_timestamp-independent key (PSY-1131)
+		"ON CONFLICT (episode_id, dedup_key) DO NOTHING",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(sql, want) {

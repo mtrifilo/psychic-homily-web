@@ -14,6 +14,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -68,6 +69,16 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 		return nil, fmt.Errorf("invalid playlist source: %s", *req.PlaylistSource)
 	}
 
+	// Station names are unique (case-insensitive). Reject a duplicate up front
+	// with a clean conflict error; the DB unique index is the race backstop.
+	var nameCount int64
+	if err := s.db.Model(&catalogm.RadioStation{}).Where("lower(name) = lower(?)", req.Name).Count(&nameCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to check radio station name uniqueness: %w", err)
+	}
+	if nameCount > 0 {
+		return nil, apperrors.ErrRadioStationNameConflict(req.Name)
+	}
+
 	station := &catalogm.RadioStation{
 		Name:             req.Name,
 		Slug:             slug,
@@ -90,6 +101,12 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 	}
 
 	if err := s.db.Create(station).Error; err != nil {
+		// The name pre-check above returns a clean 409 for the common (sequential)
+		// duplicate-name case. A duplicate-key error here is the rare concurrent
+		// race: gorm's TranslateError collapses it to the bare ErrDuplicatedKey
+		// sentinel (no constraint name survives), and a create can collide on the
+		// name OR the slug index, so it can't be attributed — return the generic
+		// error. The DB unique indexes still guarantee integrity either way.
 		return nil, fmt.Errorf("failed to create radio station: %w", err)
 	}
 
@@ -249,6 +266,20 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 		return nil, fmt.Errorf("failed to get radio station: %w", err)
 	}
 
+	// Reject a rename to an existing (case-insensitive) name with a clean 409,
+	// excluding this station itself; the DB unique index is the race backstop.
+	if req.Name != nil && !strings.EqualFold(*req.Name, station.Name) {
+		var nameCount int64
+		if err := s.db.Model(&catalogm.RadioStation{}).
+			Where("lower(name) = lower(?) AND id <> ?", *req.Name, stationID).
+			Count(&nameCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check radio station name uniqueness: %w", err)
+		}
+		if nameCount > 0 {
+			return nil, apperrors.ErrRadioStationNameConflict(*req.Name)
+		}
+	}
+
 	updates := make(map[string]interface{})
 	if req.Name != nil {
 		updates["name"] = *req.Name
@@ -313,6 +344,14 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 
 	if len(updates) > 0 {
 		if err := s.db.Model(&station).Updates(updates).Error; err != nil {
+			// UpdateStation never changes the slug, so a duplicate-key violation
+			// here can only be the name unique index — attribute it to the name
+			// conflict. Covers the rare rename race that slips past the pre-check
+			// (gorm collapses the error to ErrDuplicatedKey, but for an update the
+			// violated constraint is unambiguous).
+			if req.Name != nil && shared.IsDuplicateKey(err) {
+				return nil, apperrors.ErrRadioStationNameConflict(*req.Name)
+			}
 			return nil, fmt.Errorf("failed to update radio station: %w", err)
 		}
 	}
@@ -363,6 +402,12 @@ func (s *RadioService) CreateShow(stationID uint, req *contracts.CreateRadioShow
 			s.db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
+	}
+
+	if req.Schedule != nil {
+		if _, err := catalogm.ParseRadioSchedule(req.Schedule); err != nil {
+			return nil, apperrors.ErrRadioScheduleInvalid(err.Error())
+		}
 	}
 
 	show := &catalogm.RadioShow{
@@ -551,6 +596,9 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 		updates["schedule_display"] = *req.ScheduleDisplay
 	}
 	if req.Schedule != nil {
+		if _, err := catalogm.ParseRadioSchedule(req.Schedule); err != nil {
+			return nil, apperrors.ErrRadioScheduleInvalid(err.Error())
+		}
 		updates["schedule"] = req.Schedule
 	}
 	if req.GenreTags != nil {

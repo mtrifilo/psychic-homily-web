@@ -916,6 +916,10 @@ func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *
 
 	station, err := h.stationWriter.CreateStation(serviceReq)
 	if err != nil {
+		var radioErr *apperrors.RadioError
+		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioStationNameConflict {
+			return nil, huma.Error409Conflict(radioErr.Message)
+		}
 		logger.FromContext(ctx).Error("create_radio_station_failed",
 			"error", err.Error(),
 			"request_id", requestID,
@@ -1005,8 +1009,13 @@ func (h *RadioHandler) AdminUpdateRadioStationHandler(ctx context.Context, req *
 	station, err := h.stationWriter.UpdateStation(req.StationID, serviceReq)
 	if err != nil {
 		var radioErr *apperrors.RadioError
-		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioStationNotFound {
-			return nil, huma.Error404NotFound("Radio station not found")
+		if errors.As(err, &radioErr) {
+			switch radioErr.Code {
+			case apperrors.CodeRadioStationNotFound:
+				return nil, huma.Error404NotFound("Radio station not found")
+			case apperrors.CodeRadioStationNameConflict:
+				return nil, huma.Error409Conflict(radioErr.Message)
+			}
 		}
 		logger.FromContext(ctx).Error("update_radio_station_failed",
 			"station_id", req.StationID,
@@ -1133,8 +1142,13 @@ func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *Adm
 	show, err := h.showWriter.CreateShow(req.StationID, serviceReq)
 	if err != nil {
 		var radioErr *apperrors.RadioError
-		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioStationNotFound {
-			return nil, huma.Error404NotFound("Radio station not found")
+		if errors.As(err, &radioErr) {
+			switch radioErr.Code {
+			case apperrors.CodeRadioStationNotFound:
+				return nil, huma.Error404NotFound("Radio station not found")
+			case apperrors.CodeRadioScheduleInvalid:
+				return nil, huma.Error422UnprocessableEntity(radioErr.Message)
+			}
 		}
 		logger.FromContext(ctx).Error("create_radio_show_failed",
 			"station_id", req.StationID,
@@ -1211,8 +1225,13 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 	show, err := h.showWriter.UpdateShow(req.ShowID, serviceReq)
 	if err != nil {
 		var radioErr *apperrors.RadioError
-		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioShowNotFound {
-			return nil, huma.Error404NotFound("Radio show not found")
+		if errors.As(err, &radioErr) {
+			switch radioErr.Code {
+			case apperrors.CodeRadioShowNotFound:
+				return nil, huma.Error404NotFound("Radio show not found")
+			case apperrors.CodeRadioScheduleInvalid:
+				return nil, huma.Error422UnprocessableEntity(radioErr.Message)
+			}
 		}
 		logger.FromContext(ctx).Error("update_radio_show_failed",
 			"show_id", req.ShowID,
