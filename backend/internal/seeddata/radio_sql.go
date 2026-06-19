@@ -140,9 +140,12 @@ func RenderRadioSeedSQL(w io.Writer) error {
 	// Radio plays. episode_id is resolved from the parent episode's
 	// (show_id, air_date) natural key; artist_id is resolved from the
 	// (optional) artist slug — empty slug -> NULL (unmatched play). The ON
-	// CONFLICT target matches idx_radio_plays_unique
-	// (episode_id, position, air_timestamp, artist_name, track_title) so
-	// re-runs are no-ops. radio_plays has no updated_at column.
+	// CONFLICT target matches idx_radio_plays_dedup (episode_id, dedup_key),
+	// where dedup_key is the GENERATED STORED content-hash column (PSY-1131).
+	// Seeded plays set no provider_play_id, so dedup_key is the md5 hash over
+	// (position, artist_name, track_title, album_title); distinct positions
+	// keep these rows distinct, so re-runs are no-ops. radio_plays has no
+	// updated_at column.
 	b.WriteString("-- Radio plays (generated from backend/internal/seeddata/radio.go)\n")
 	b.WriteString("INSERT INTO radio_plays (episode_id, position, artist_name, track_title, artist_id, air_timestamp, created_at) VALUES\n")
 	for i, p := range RadioPlays {
@@ -166,7 +169,7 @@ func RenderRadioSeedSQL(w io.Writer) error {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("ON CONFLICT (episode_id, position, air_timestamp, artist_name, track_title) DO NOTHING;\n")
+	b.WriteString("ON CONFLICT (episode_id, dedup_key) DO NOTHING;\n")
 
 	_, err := io.WriteString(w, b.String())
 	return err
