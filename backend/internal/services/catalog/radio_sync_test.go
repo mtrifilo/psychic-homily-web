@@ -92,8 +92,13 @@ func TestImportResultOutcome(t *testing.T) {
 	})
 
 	t.Run("errors -> partial", func(t *testing.T) {
+		// accumulateEpisodeResult always appends an Errors string whenever it bumps
+		// EpisodeFetchErrors/MatchPersistErrors, so Errors is the superset that
+		// drives the partial status (errCount = len(Errors)).
 		out := importResultOutcome(&contracts.RadioImportResult{
-			PlaysImported: 10, PlaysMatched: 10, EpisodeFetchErrors: 1,
+			PlaysImported: 10, PlaysMatched: 10,
+			EpisodeFetchErrors: 1,
+			Errors:             []string{"fetch failed for episode ep-1: boom"},
 		}, 0)
 		assert.Equal(t, catalogm.RadioSyncRunStatusPartial, out.status)
 		assert.Equal(t, 0, out.playsUnmatched) // never negative

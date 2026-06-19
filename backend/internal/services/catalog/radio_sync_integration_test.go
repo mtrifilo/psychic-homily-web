@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
@@ -220,4 +221,95 @@ func (s *RadioSyncSuite) TestSequentialRuns_LockReleasedBetween() {
 		s.False(res.LockContended, "run %d should acquire the lock", i)
 	}
 	s.Len(s.runsForStation(st.ID), 2)
+}
+
+// A backfill imports episodes/plays via a mock provider; re-running it over the
+// same window must not duplicate radio_plays (idempotent re-import via the
+// (episode_id, dedup_key) unique index + ON CONFLICT). Also asserts the backfill
+// run persists run_type + the requested window.
+func (s *RadioSyncSuite) TestBackfill_IdempotentReimport() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "show-ext-1"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Backfill Show", Slug: "backfill-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	trackA, trackB := "Track A", "Track B"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return []RadioPlayImport{
+					{Position: 1, ArtistName: "Artist A", TrackTitle: &trackA},
+					{Position: 2, ArtistName: "Artist B", TrackTitle: &trackB},
+				}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	opts := RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerManual,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+	}
+
+	res1, err := s.svc.RunStationSync(context.Background(), st.ID, opts)
+	s.Require().NoError(err)
+	s.Require().NotNil(res1.Import)
+	s.Equal(2, res1.Import.PlaysImported)
+
+	var run catalogm.RadioSyncRun
+	s.Require().NoError(s.db.First(&run, res1.RunID).Error)
+	s.Equal(catalogm.RadioSyncRunTypeBackfill, run.RunType)
+	s.Require().NotNil(run.WindowStart, "backfill run must persist the requested window")
+	s.Require().NotNil(run.WindowEnd)
+
+	var afterFirst int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Count(&afterFirst).Error)
+	s.Equal(int64(2), afterFirst)
+
+	// Re-run the same window: no duplicate plays.
+	_, err = s.svc.RunStationSync(context.Background(), st.ID, opts)
+	s.Require().NoError(err)
+	var afterSecond int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Count(&afterSecond).Error)
+	s.Equal(int64(2), afterSecond, "re-import must not duplicate radio_plays")
+}
+
+// The scheduled-cycle skip guard: a lock-contended (no-op) run must NOT be
+// recorded as an in-memory PSY-887 success (which would reset the failure
+// counter). Regression guard for the breaker-skip/lock-contention guard in
+// runFetchCycle.
+func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+
+	fs := &RadioFetchService{
+		radioService:        s.svc,
+		logger:              testLogger(),
+		stopCh:              make(chan struct{}),
+		consecutiveFailures: make(map[uint]int),
+		transientFailures:   make(map[uint]int),
+	}
+	// Below the breaker threshold so the cycle attempts the station (not pre-skipped).
+	fs.SetConsecutiveFailures(st.ID, radioCircuitBreakerThreshold-2)
+
+	// Hold the station's advisory lock so the cycle's RunStationSync contends.
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
+	conn, err := sqlDB.Conn(context.Background())
+	s.Require().NoError(err)
+	defer conn.Close()
+	key := fnvHash(fmt.Sprintf("radio_sync:station:%d", st.ID))
+	_, err = conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", key)
+	s.Require().NoError(err)
+	defer conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+
+	fs.runFetchCycle()
+
+	s.Equal(radioCircuitBreakerThreshold-2, fs.GetConsecutiveFailures(st.ID),
+		"a lock-contended no-op run must not reset the in-memory failure counter")
+	s.Empty(s.runsForStation(st.ID), "contended run writes no row")
 }

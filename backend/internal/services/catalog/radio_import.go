@@ -24,6 +24,9 @@ const radioPlayVarcharMaxRunes = 500
 
 // getProvider returns the appropriate RadioPlaylistProvider for a station's playlist_source.
 func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error) {
+	if s.playlistProviderFactory != nil {
+		return s.playlistProviderFactory(source)
+	}
 	switch source {
 	case catalogm.PlaylistSourceKEXP:
 		return NewKEXPProvider(), nil

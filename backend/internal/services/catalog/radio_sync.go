@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -17,10 +18,12 @@ import (
 )
 
 // RunStationSync is the unified ingestion orchestrator (PSY-1134, P2 of the Radio
-// Ingestion Redesign). Every ingestion path — scheduled tickers, manual admin
-// triggers, auto-backfill — flows through here so each run leaves ONE durable,
-// queryable trace in radio_sync_runs (with categorized radio_sync_run_errors and
-// a radio_station_health rollup). It wraps the existing mode executors
+// Ingestion Redesign). Every ingestion path will eventually flow through here so
+// each run leaves ONE durable, queryable trace in radio_sync_runs (with
+// categorized radio_sync_run_errors and a radio_station_health rollup). In PR1
+// ONLY the scheduled fetch/discover tickers route through it; the manual admin
+// triggers and auto-backfill still use the legacy executors / import-jobs and
+// move onto RunStationSync in PR2 (PSY-1135). It wraps the existing mode executors
 // (DiscoverStationShows / FetchNewEpisodes / importShowEpisodesWithProgress)
 // rather than re-implementing them.
 //
@@ -111,8 +114,10 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	}
 
 	// 2/3. Breaker check. Scheduled + auto-backfill honor an open breaker (skip with
-	//      a trace); a manual trigger BYPASSES it (operator override — the deliberate
-	//      recovery probe). The SET logic (when to open) is P3; here we only read.
+	//      a trace); a manual trigger BYPASSES it (operator override). The breaker
+	//      SET/CLEAR logic (open after N failures, half-open trial, close on
+	//      recovery) is all P3 — PR1 only READS breaker_state, and nothing here
+	//      opens OR clears it, so a manual success does not yet reset an open breaker.
 	if opts.Trigger != catalogm.RadioSyncRunTriggerManual && s.breakerOpen(stationID) {
 		return &RunStationSyncResult{
 			RunID:   s.recordSkippedRun(stationID, opts),
@@ -138,14 +143,27 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		return nil, fmt.Errorf("open sync run: %w", err)
 	}
 
+	// A panic in the executor (provider/import code) must still terminate the run's
+	// trace — otherwise the row is orphaned at status=running forever (the ticker's
+	// RunTickerLoop recovers + continues, so the process survives). The lock's own
+	// defer (above) still releases; `closed` guards against a double-close.
+	closed := false
+	defer func() {
+		if r := recover(); r != nil {
+			if !closed {
+				s.failRun(run.ID)
+			}
+			panic(r)
+		}
+	}()
+
 	// 4/5. Execute the mode and record its errors.
 	out := s.executeSyncMode(stationID, run.ID, opts)
 	s.recordRunErrors(run.ID, out.errs)
 
-	// 6. Roll up station health (last_run/last_success, consecutive_failures).
-	s.updateStationHealth(stationID, out.status)
-
-	// 7. Close the run to its terminal status (finished_at set → lifecycle CHECK).
+	// 6. Close the run to its terminal status (finished_at set → lifecycle CHECK)
+	//    BEFORE the health rollup, so a failed close never leaves radio_station_health
+	//    reporting an outcome the run row itself doesn't reflect.
 	now := time.Now()
 	if err := s.db.Model(&catalogm.RadioSyncRun{}).
 		Where("id = ?", run.ID).
@@ -162,6 +180,10 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		return &RunStationSyncResult{RunID: run.ID, Status: out.status, Import: out.importResult, Discover: out.discoverResult},
 			fmt.Errorf("close sync run %d: %w", run.ID, err)
 	}
+	closed = true
+
+	// 7. Roll up station health (last_run/last_success, consecutive_failures).
+	s.updateStationHealth(stationID, out.status)
 
 	// Surface the executor's hard error (nil on success/partial) so callers that
 	// need it keep their signal; the run is recorded regardless.
@@ -171,6 +193,18 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		Import:   out.importResult,
 		Discover: out.discoverResult,
 	}, out.hardErr
+}
+
+// failRun best-effort closes an orphaned run as failed — used by the panic
+// recovery path so a panicked run still terminates its trace (lifecycle CHECK:
+// terminal ⇒ finished_at set).
+func (s *RadioService) failRun(runID uint) {
+	now := time.Now()
+	_ = s.db.Model(&catalogm.RadioSyncRun{}).Where("id = ?", runID).Updates(map[string]any{
+		"status":      catalogm.RadioSyncRunStatusFailed,
+		"finished_at": now,
+		"updated_at":  now,
+	}).Error
 }
 
 // syncOutcome is the unified result of executing one mode, mapped onto the
@@ -264,7 +298,10 @@ func importResultOutcome(res *contracts.RadioImportResult, episodesFound int) sy
 	if unmatched < 0 {
 		unmatched = 0
 	}
-	errCount := len(res.Errors) + res.EpisodeFetchErrors + res.MatchPersistErrors
+	// res.Errors is the superset: EpisodeFetchErrors/MatchPersistErrors are each
+	// also appended to Errors (contract), so counting len(Errors) alone avoids
+	// double-counting while still flipping the status to partial when any occurred.
+	errCount := len(res.Errors)
 	return syncOutcome{
 		status:           terminalStatus(false, errCount),
 		episodesFound:    episodesFound,
@@ -307,6 +344,7 @@ func (s *RadioService) recordSkippedRun(stationID uint, opts RunStationSyncOpts)
 		FinishedAt:     &now,
 	}
 	if err := s.db.Create(&run).Error; err != nil {
+		slog.Warn("radio: failed to record skipped run", "station_id", stationID, "error", err)
 		return 0
 	}
 	s.updateStationHealth(stationID, catalogm.RadioSyncRunStatusSkipped)
@@ -372,7 +410,15 @@ func (s *RadioService) updateStationHealth(stationID uint, status string) {
 // brand-new station is never born tripped.
 func (s *RadioService) breakerOpen(stationID uint) bool {
 	var health catalogm.RadioStationHealth
-	if err := s.db.Select("breaker_state").First(&health, "station_id = ?", stationID).Error; err != nil {
+	err := s.db.Select("breaker_state").First(&health, "station_id = ?", stationID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false // never synced → breaker closed (never born tripped)
+	}
+	if err != nil {
+		// A real read error fails OPEN (treated as closed → run proceeds) so the
+		// observability layer's own hiccup can't halt ingestion — but log it; this
+		// is the line to revisit once P3 makes the persistent breaker load-bearing.
+		slog.Warn("radio: breaker state read failed; treating as closed", "station_id", stationID, "error", err)
 		return false
 	}
 	return health.BreakerState == catalogm.RadioBreakerStateOpen
