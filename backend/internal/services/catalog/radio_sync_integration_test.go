@@ -313,3 +313,106 @@ func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
 		"a lock-contended no-op run must not reset the in-memory failure counter")
 	s.Empty(s.runsForStation(st.ID), "contended run writes no row")
 }
+
+// Discover routes through the orchestrator: writes a discover-typed run + creates
+// the discovered shows + rolls up health (the discover path mirrors fetch and was
+// otherwise untested).
+func (s *RadioSyncSuite) TestDiscover_WritesRunAndShows() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			discoverShowsFn: func() ([]RadioShowImport, error) {
+				return []RadioShowImport{
+					{ExternalID: "show-a", Name: "Show A"},
+					{ExternalID: "show-b", Name: "Show B"},
+				}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeDiscover, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+	s.Require().NotNil(res.Discover)
+	s.Equal(2, res.Discover.ShowsDiscovered)
+	s.Equal(2, res.Discover.ShowsNew)
+
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1)
+	s.Equal(catalogm.RadioSyncRunTypeDiscover, runs[0].RunType)
+	s.Equal(catalogm.RadioSyncRunStatusSuccess, runs[0].Status)
+	s.Require().NotNil(runs[0].FinishedAt)
+
+	var showCount int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", st.ID).Count(&showCount).Error)
+	s.Equal(int64(2), showCount)
+}
+
+// Cycle-level Skipped guard: a breaker-open (Skipped) run writes a skipped row but
+// must NOT reset the in-memory PSY-887 counter (the Skipped arm of the guard, the
+// sibling of the lock-contention case above).
+func (s *RadioSyncSuite) TestFetchCycle_BreakerOpen_DoesNotResetBreaker() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID: st.ID, BreakerState: catalogm.RadioBreakerStateOpen,
+	}).Error)
+
+	fs := &RadioFetchService{
+		radioService:        s.svc,
+		logger:              testLogger(),
+		stopCh:              make(chan struct{}),
+		consecutiveFailures: make(map[uint]int),
+		transientFailures:   make(map[uint]int),
+	}
+	fs.SetConsecutiveFailures(st.ID, radioCircuitBreakerThreshold-2)
+
+	fs.runFetchCycle()
+
+	s.Equal(radioCircuitBreakerThreshold-2, fs.GetConsecutiveFailures(st.ID),
+		"a breaker-skipped run must not reset the in-memory failure counter")
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1, "a breaker skip writes a skipped row (unlike lock contention)")
+	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status)
+	s.True(runs[0].BreakerSkipped)
+}
+
+// A partial run (imported data + some per-episode error) RESETS consecutive_failures
+// — it is not a breaker failure (matches the in-memory PSY-887 posture), so a
+// chronically-noisy-but-healthy station never climbs the persistent counter.
+func (s *RadioSyncSuite) TestPartial_ResetsConsecutiveFailures() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "show-partial"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Partial Show", Slug: "partial-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+	// Pre-seed a non-zero failure count to prove partial RESETS it.
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID: st.ID, ConsecutiveFailures: 3, BreakerState: catalogm.RadioBreakerStateClosed,
+	}).Error)
+
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-p", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return nil, fmt.Errorf("provider 500 boom") // → episode fetch error → partial
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerManual,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+	})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioSyncRunStatusPartial, res.Status)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(0, health.ConsecutiveFailures, "a partial run must reset the failure counter")
+}

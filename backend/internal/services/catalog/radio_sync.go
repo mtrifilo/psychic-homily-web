@@ -17,8 +17,8 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// RunStationSync is the unified ingestion orchestrator (PSY-1134, P2 of the Radio
-// Ingestion Redesign). Every ingestion path will eventually flow through here so
+// RunStationSync is the unified ingestion orchestrator (PSY-1134, PR1 of phase P2
+// of the Radio Ingestion Redesign). Every ingestion path will eventually flow through here so
 // each run leaves ONE durable, queryable trace in radio_sync_runs (with
 // categorized radio_sync_run_errors and a radio_station_health rollup). In PR1
 // ONLY the scheduled fetch/discover tickers route through it; the manual admin
@@ -42,10 +42,14 @@ import (
 // (there is no schema column to distinguish lock-skip from breaker-skip, and
 // contention is benign).
 //
-// SCOPE (PR1 / PSY-1134): additive. The breaker is only READ here; the logic that
-// OPENS it (thresholds, half-open) is P3 (PSY-1135+ milestone P3). Modes are
-// discover|fetch|backfill; rematch stays on its global ticker. plays_dropped /
-// plays_truncated are left 0 (P4 plumbs real per-play counters).
+// SCOPE: this is PR1 of phase P2 — additive; only the scheduled fetch/discover
+// tickers route through it here. The breaker is only READ; the logic that OPENS it
+// (thresholds, half-open) is phase P3 (a later ticket, NOT PSY-1135). PR2 =
+// PSY-1135 (manual triggers + auto-backfill onto RunStationSync). Modes are
+// discover|fetch|backfill; rematch stays on its own global ticker. Count plumbing
+// not yet done: fetch leaves episodes_found=0 (FetchNewEpisodes returns no
+// found-count) and discover persists no count columns; plays_dropped /
+// plays_truncated are left 0 — all P4.
 type RunStationSyncOpts struct {
 	Mode    string // catalogm.RadioSyncRunType{Discover,Fetch,Backfill}
 	Trigger string // catalogm.RadioSyncRunTrigger{Scheduled,Manual,AutoBackfill}
@@ -375,8 +379,13 @@ func (s *RadioService) recordRunErrors(runID uint, errs []runError) {
 // updateStationHealth upserts the per-station health rollup by station_id (ON
 // CONFLICT column-set inference). PR1 maintains last_run/last_success +
 // consecutive_failures only; the breaker-open decision + rate computations are
-// P3/P4. A clean success resets the failure counter; failed/partial increment it;
-// skipped touches only last_run_at.
+// P3/P4. consecutive_failures matches the in-memory PSY-887 breaker's posture so
+// the two don't diverge: only a 'failed' run (station/provider unreachable)
+// increments it; 'success' AND 'partial' both reset it — a partial imported data
+// (just some per-episode noise) and is NOT a breaker failure, else a chronically-
+// noisy-but-healthy station would climb the counter forever and trip the P3
+// breaker. last_success_at is set ONLY on a clean success; 'skipped' touches only
+// last_run_at.
 func (s *RadioService) updateStationHealth(stationID uint, status string) {
 	now := time.Now()
 	assignments := map[string]any{
@@ -393,7 +402,9 @@ func (s *RadioService) updateStationHealth(stationID uint, status string) {
 		health.LastSuccessAt = &now
 		assignments["last_success_at"] = now
 		assignments["consecutive_failures"] = 0
-	case catalogm.RadioSyncRunStatusFailed, catalogm.RadioSyncRunStatusPartial:
+	case catalogm.RadioSyncRunStatusPartial:
+		assignments["consecutive_failures"] = 0 // imported data; not a breaker failure
+	case catalogm.RadioSyncRunStatusFailed:
 		// INSERT path (first-ever run for this station) starts the counter at 1;
 		// the ON CONFLICT path increments the stored value.
 		health.ConsecutiveFailures = 1
@@ -415,9 +426,10 @@ func (s *RadioService) breakerOpen(stationID uint) bool {
 		return false // never synced → breaker closed (never born tripped)
 	}
 	if err != nil {
-		// A real read error fails OPEN (treated as closed → run proceeds) so the
-		// observability layer's own hiccup can't halt ingestion — but log it; this
-		// is the line to revisit once P3 makes the persistent breaker load-bearing.
+		// A real read error fails PERMISSIVE (treated as breaker-closed → run
+		// proceeds; note "open" is the BLOCK state in this domain, so don't call
+		// this "fail-open") so the observability layer's own hiccup can't halt
+		// ingestion — but log it; revisit once P3 makes the breaker load-bearing.
 		slog.Warn("radio: breaker state read failed; treating as closed", "station_id", stationID, "error", err)
 		return false
 	}
@@ -513,10 +525,13 @@ func categorizeErrorString(s string) string {
 		return catalogm.RadioSyncRunErrorRateLimited
 	case strings.Contains(ls, "parse") || strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") || strings.Contains(ls, "invalid character"):
 		return catalogm.RadioSyncRunErrorParseError
-	case strings.Contains(ls, "truncat"):
-		return catalogm.RadioSyncRunErrorTruncation
+	// validation_drop before truncation: a drop summary ("dropped N plays: X
+	// truncated, Y missing artist_name") is fundamentally a drop, so it shouldn't
+	// be mis-bucketed as truncation just because it also mentions truncated titles.
 	case strings.Contains(ls, "missing artist") || strings.Contains(ls, "dropped"):
 		return catalogm.RadioSyncRunErrorValidationDrop
+	case strings.Contains(ls, "truncat"):
+		return catalogm.RadioSyncRunErrorTruncation
 	case strings.Contains(ls, "match") || strings.Contains(ls, "persist"):
 		return catalogm.RadioSyncRunErrorMatchPersistError
 	default:
