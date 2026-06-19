@@ -236,6 +236,127 @@ func IsValidRadioPlayMatchState(s string) bool {
 	}
 }
 
+// =============================================================================
+// PSY-1132: radio observability enum vocabularies (radio_sync_runs,
+// radio_sync_run_errors, radio_station_health). Same constant + IsValid* +
+// unit-test pattern as the PSY-1131 enums above; consumed at the P2 write
+// boundary (RunStationSync), tested now.
+// =============================================================================
+
+// Sync-run type constants (radio_sync_runs.run_type). PSY-1132.
+//   - discover: enumerate a station's provider roster
+//   - fetch:    pull new episodes
+//   - backfill: re-ingest a historic window (window_start/window_end)
+//   - rematch:  re-run unmatched plays against the knowledge graph
+const (
+	RadioSyncRunTypeDiscover = "discover"
+	RadioSyncRunTypeFetch    = "fetch"
+	RadioSyncRunTypeBackfill = "backfill"
+	RadioSyncRunTypeRematch  = "rematch"
+)
+
+// Sync-run trigger constants (radio_sync_runs.trigger_source). PSY-1132. The
+// column is trigger_source because `trigger` is a reserved SQL keyword.
+//   - scheduled:     a background ticker
+//   - manual:        an admin action ("Sync now" / historic backfill)
+//   - auto_backfill: kicked off on first discovery of a show
+const (
+	RadioSyncRunTriggerScheduled    = "scheduled"
+	RadioSyncRunTriggerManual       = "manual"
+	RadioSyncRunTriggerAutoBackfill = "auto_backfill"
+)
+
+// Sync-run status constants (radio_sync_runs.status). PSY-1132. A run opens
+// 'running' and resolves to one terminal state. partial = completed but flagged
+// by the anomaly guard / per-episode errors; skipped = breaker open; cancelled =
+// in-flight backfill aborted by an admin (carried forward from radio_import_jobs).
+const (
+	RadioSyncRunStatusRunning   = "running"
+	RadioSyncRunStatusSuccess   = "success"
+	RadioSyncRunStatusPartial   = "partial"
+	RadioSyncRunStatusFailed    = "failed"
+	RadioSyncRunStatusSkipped   = "skipped"
+	RadioSyncRunStatusCancelled = "cancelled"
+)
+
+// Sync-run error category constants (radio_sync_run_errors.category). PSY-1132.
+// Generalizes PSY-1119's per-episode capture; filterable instead of grep-only.
+const (
+	RadioSyncRunErrorProviderUnreachable = "provider_unreachable"
+	RadioSyncRunErrorRateLimited         = "rate_limited"
+	RadioSyncRunErrorParseError          = "parse_error"
+	RadioSyncRunErrorEmptyUnexpected     = "empty_unexpected"
+	RadioSyncRunErrorValidationDrop      = "validation_drop"
+	RadioSyncRunErrorTruncation          = "truncation"
+	RadioSyncRunErrorMatchPersistError   = "match_persist_error"
+	RadioSyncRunErrorTimeout             = "timeout"
+)
+
+// Circuit-breaker state constants (radio_station_health.breaker_state). PSY-1132.
+// Persisted so the breaker survives restarts (today it is in-memory; PSY-887).
+const (
+	RadioBreakerStateClosed   = "closed"
+	RadioBreakerStateOpen     = "open"
+	RadioBreakerStateHalfOpen = "half_open"
+)
+
+// IsValidRadioSyncRunType reports whether s is an accepted sync-run run_type.
+func IsValidRadioSyncRunType(s string) bool {
+	switch s {
+	case RadioSyncRunTypeDiscover, RadioSyncRunTypeFetch,
+		RadioSyncRunTypeBackfill, RadioSyncRunTypeRematch:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidRadioSyncRunTrigger reports whether s is an accepted sync-run trigger.
+func IsValidRadioSyncRunTrigger(s string) bool {
+	switch s {
+	case RadioSyncRunTriggerScheduled, RadioSyncRunTriggerManual,
+		RadioSyncRunTriggerAutoBackfill:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidRadioSyncRunStatus reports whether s is an accepted sync-run status.
+func IsValidRadioSyncRunStatus(s string) bool {
+	switch s {
+	case RadioSyncRunStatusRunning, RadioSyncRunStatusSuccess,
+		RadioSyncRunStatusPartial, RadioSyncRunStatusFailed,
+		RadioSyncRunStatusSkipped, RadioSyncRunStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidRadioSyncRunErrorCategory reports whether s is an accepted error category.
+func IsValidRadioSyncRunErrorCategory(s string) bool {
+	switch s {
+	case RadioSyncRunErrorProviderUnreachable, RadioSyncRunErrorRateLimited,
+		RadioSyncRunErrorParseError, RadioSyncRunErrorEmptyUnexpected,
+		RadioSyncRunErrorValidationDrop, RadioSyncRunErrorTruncation,
+		RadioSyncRunErrorMatchPersistError, RadioSyncRunErrorTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidRadioBreakerState reports whether s is an accepted breaker state.
+func IsValidRadioBreakerState(s string) bool {
+	switch s {
+	case RadioBreakerStateClosed, RadioBreakerStateOpen, RadioBreakerStateHalfOpen:
+		return true
+	default:
+		return false
+	}
+}
+
 // RadioScheduleSlot is one recurring weekly air slot in a RadioSchedule.
 // DayOfWeek is 0=Sunday..6=Saturday. Start/End are "HH:MM" 24-hour local times
 // in the parent RadioSchedule's Timezone. An End <= Start denotes a slot that
@@ -532,6 +653,100 @@ type RadioImportJob struct {
 
 // TableName specifies the table name for RadioImportJob
 func (RadioImportJob) TableName() string { return "radio_import_jobs" }
+
+// RadioSyncRun is one execution of any ingestion path (scheduled fetch/discover,
+// manual sync, historic backfill, or rematch) against a station — the
+// observability backbone (PSY-1132). Opened with Status 'running' at the start of
+// a run and resolved to a terminal status. Unifies and replaces RadioImportJob in
+// P2; WindowStart/WindowEnd carry the old Since/Until historic-backfill range so
+// admin-triggered historic re-ingestion stays parameterizable and observable.
+type RadioSyncRun struct {
+	ID        uint   `gorm:"primaryKey"`
+	StationID uint   `gorm:"column:station_id;not null"`
+	ShowID    *uint  `gorm:"column:show_id"`
+	RunType   string `gorm:"column:run_type;not null"`
+	// Trigger maps to the trigger_source column (`trigger` is a reserved SQL word).
+	Trigger string `gorm:"column:trigger_source;not null"`
+	Status  string `gorm:"column:status;not null;default:running"`
+	// WindowStart/WindowEnd are the requested historic backfill range; NULL on a
+	// normal scheduled/fetch run. Replaces RadioImportJob.Since/Until.
+	WindowStart *time.Time `gorm:"column:window_start"`
+	WindowEnd   *time.Time `gorm:"column:window_end"`
+	StartedAt   time.Time  `gorm:"column:started_at;not null;default:now()"`
+	FinishedAt  *time.Time `gorm:"column:finished_at"`
+
+	EpisodesFound    int `gorm:"column:episodes_found;not null;default:0"`
+	EpisodesImported int `gorm:"column:episodes_imported;not null;default:0"`
+	PlaysImported    int `gorm:"column:plays_imported;not null;default:0"`
+	PlaysMatched     int `gorm:"column:plays_matched;not null;default:0"`
+	PlaysUnmatched   int `gorm:"column:plays_unmatched;not null;default:0"`
+	PlaysDropped     int `gorm:"column:plays_dropped;not null;default:0"`
+	PlaysTruncated   int `gorm:"column:plays_truncated;not null;default:0"`
+
+	BreakerSkipped     bool    `gorm:"column:breaker_skipped;not null;default:false"`
+	CurrentEpisodeDate *string `gorm:"column:current_episode_date"`
+
+	CreatedAt time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+
+	// Relationships
+	Station RadioStation        `gorm:"foreignKey:StationID"`
+	Show    *RadioShow          `gorm:"foreignKey:ShowID"`
+	Errors  []RadioSyncRunError `gorm:"foreignKey:SyncRunID"`
+}
+
+// TableName specifies the table name for RadioSyncRun
+func (RadioSyncRun) TableName() string {
+	return "radio_sync_runs"
+}
+
+// RadioSyncRunError is one structured, categorized error recorded against a
+// RadioSyncRun (PSY-1132). EpisodeRef is a soft reference (provider date/external
+// id), deliberately NOT an FK, so errors about episodes that failed to be created
+// are still recordable.
+type RadioSyncRunError struct {
+	ID         uint      `gorm:"primaryKey"`
+	SyncRunID  uint      `gorm:"column:sync_run_id;not null"`
+	Category   string    `gorm:"column:category;not null"`
+	Detail     *string   `gorm:"column:detail"`
+	EpisodeRef *string   `gorm:"column:episode_ref"`
+	CreatedAt  time.Time `gorm:"column:created_at;not null"`
+
+	// Relationships
+	SyncRun RadioSyncRun `gorm:"foreignKey:SyncRunID"`
+}
+
+// TableName specifies the table name for RadioSyncRunError
+func (RadioSyncRunError) TableName() string {
+	return "radio_sync_run_errors"
+}
+
+// RadioStationHealth is the derived operational state of a station (PSY-1132),
+// isolated from the durable RadioStation entity (Code Complete: separate volatile
+// operational state) and persisted so the circuit breaker survives restarts. One
+// row per station. Rate fields are nullable: NULL = never computed (distinct from
+// 0.0 = computed and genuinely zero).
+type RadioStationHealth struct {
+	StationID           uint       `gorm:"column:station_id;primaryKey"`
+	LastSuccessAt       *time.Time `gorm:"column:last_success_at"`
+	LastRunAt           *time.Time `gorm:"column:last_run_at"`
+	ConsecutiveFailures int        `gorm:"column:consecutive_failures;not null;default:0"`
+	BreakerState        string     `gorm:"column:breaker_state;not null;default:closed"`
+	BreakerTrippedAt    *time.Time `gorm:"column:breaker_tripped_at"`
+	RecentSuccessRate   *float64   `gorm:"column:recent_success_rate"`
+	PlayMatchRate       *float64   `gorm:"column:play_match_rate"`
+	ZeroPlayEpisodeRate *float64   `gorm:"column:zero_play_episode_rate"`
+	CreatedAt           time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt           time.Time  `gorm:"column:updated_at;not null"`
+
+	// Relationships
+	Station RadioStation `gorm:"foreignKey:StationID"`
+}
+
+// TableName specifies the table name for RadioStationHealth
+func (RadioStationHealth) TableName() string {
+	return "radio_station_health"
+}
 
 // RadioArtistAffinity represents co-occurrence of two artists across radio playlists.
 // The composite primary key is (artist_a_id, artist_b_id).
