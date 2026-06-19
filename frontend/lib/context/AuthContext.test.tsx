@@ -281,6 +281,73 @@ describe('AuthContext', () => {
 
       expect(result.current.user?.id).toBe('override-user')
     })
+
+    it('backfills nav_mode from the profile when the login override omits it (PSY-1117)', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'profile-user',
+            email: 'profile@example.com',
+            email_verified: true,
+            nav_mode: 'side',
+          },
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      // Login overrides carry identity but not nav_mode (the auth response
+      // omits it).
+      act(() => {
+        result.current.setUser({
+          id: 'override-user',
+          email: 'override@example.com',
+          email_verified: true,
+        })
+      })
+
+      // Identity comes from the override; nav_mode is backfilled from the
+      // profile so the appearance control seeds from the saved preference
+      // rather than the default within the SPA session.
+      expect(result.current.user?.id).toBe('override-user')
+      expect(result.current.user?.nav_mode).toBe('side')
+    })
+
+    it('keeps the override nav_mode when the override sets one (override wins)', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'profile-user',
+            email: 'profile@example.com',
+            email_verified: true,
+            nav_mode: 'top',
+          },
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'override-user',
+          email: 'override@example.com',
+          email_verified: true,
+          nav_mode: 'side',
+        })
+      })
+
+      expect(result.current.user?.nav_mode).toBe('side')
+    })
   })
 
   describe('setError and clearError', () => {

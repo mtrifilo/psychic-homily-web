@@ -77,7 +77,31 @@ export const prefetchAuthProfile = cache(
   }
 )
 
-async function fetchAuthProfile(): Promise<AuthProfilePayload> {
+/**
+ * Resolve the authenticated viewer's saved nav-mode preference server-side, or
+ * `undefined` when there's no session (anonymous, expired, or backend outage —
+ * all collapse to the unauthenticated sentinel). AppShell reads this so a
+ * logged-in viewer renders their cross-device preference on first paint with no
+ * flash, even on a brand-new browser where the `nav_mode` cookie isn't set yet
+ * (PSY-1117). Shares `fetchAuthProfile`'s `React.cache()` with the
+ * `<AuthHydrator>` prefetch, so calling it adds no extra backend round-trip
+ * within a single render.
+ *
+ * Returns the raw string (not a coerced NavMode) — the caller owns coercion via
+ * `parseNavMode`, keeping this helper agnostic of the cookie-layer contract.
+ */
+export async function getAuthenticatedNavMode(): Promise<string | undefined> {
+  const profile = await fetchAuthProfile()
+  if (!profile.success) return undefined
+  const user = profile.user as { nav_mode?: unknown } | undefined
+  return typeof user?.nav_mode === 'string' ? user.nav_mode : undefined
+}
+
+// React.cache()-wrapped so the `<AuthHydrator>` prefetch and AppShell's
+// nav-mode read in the same render share a single backend fetch (request-scoped
+// dedup; getQueryClient already returns a fresh client per server request, so
+// there's no cross-request leak).
+const fetchAuthProfile = cache(async (): Promise<AuthProfilePayload> => {
   const cookieStore = await cookies()
   const authToken = cookieStore.get('auth_token')
 
@@ -123,4 +147,4 @@ async function fetchAuthProfile(): Promise<AuthProfilePayload> {
     })
     return UNAUTHENTICATED_PROFILE
   }
-}
+})

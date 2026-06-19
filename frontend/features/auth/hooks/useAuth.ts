@@ -12,6 +12,7 @@ import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import { authLogger } from '@/lib/utils/authLogger'
 import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
+import type { NavMode } from '@/lib/nav-mode'
 import type { APIToken } from '../types'
 
 // Types
@@ -90,6 +91,10 @@ interface UserProfile {
     is_admin?: boolean
     email_verified?: boolean
     user_tier?: string
+    // Global nav chrome preference (PSY-1115 backend; PSY-1117 toggle). Backend
+    // always sends this (column default 'top'), but typed optional so the
+    // unauthenticated sentinel and legacy cached payloads stay valid.
+    nav_mode?: NavMode
     created_at: string
     updated_at: string
     preferences?: UserPreferencesData
@@ -300,6 +305,9 @@ interface UpdateProfileInput {
   first_name?: string
   last_name?: string
   bio?: string
+  // Nav chrome preference (PSY-1117). Sent on its own from the appearance
+  // settings toggle; the backend PATCH validates it against 'top' | 'side'.
+  nav_mode?: NavMode
 }
 
 interface UpdateProfileResponse {

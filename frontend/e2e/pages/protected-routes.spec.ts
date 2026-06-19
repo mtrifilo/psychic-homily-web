@@ -30,4 +30,20 @@ test.describe('Protected route redirects', () => {
       page.getByText('Sign in to your account')
     ).toBeVisible({ timeout: 5_000 })
   })
+
+  test('unauthenticated user is redirected from /settings/appearance to /auth', async ({
+    page,
+  }) => {
+    // The nav-mode appearance toggle (PSY-1117) is gated like the other
+    // settings surfaces.
+    await page.goto('/settings/appearance')
+
+    // Should redirect to auth page
+    await page.waitForURL(/\/auth/, { timeout: 10_000 })
+
+    // Auth page content should be visible
+    await expect(
+      page.getByText('Sign in to your account')
+    ).toBeVisible({ timeout: 5_000 })
+  })
 })

@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { useProfile, useLogout } from '@/features/auth'
 import type { UserTier } from '@/features/auth'
+import type { NavMode } from '@/lib/nav-mode'
 
 interface User {
   id: string
@@ -22,6 +23,10 @@ interface User {
   email_verified: boolean
   is_admin?: boolean
   user_tier?: UserTier
+  // Saved nav-style preference (PSY-1117). Read by the appearance settings
+  // toggle to seed its control; the server shell (AppShell) reads it directly
+  // from the profile for first-paint rendering.
+  nav_mode?: NavMode
 }
 
 interface AuthState {
@@ -57,10 +62,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Derive user from profile data or override
   const user = useMemo(() => {
-    // If there's an explicit user override (truthy), use it
-    // Note: null means "no override" - logout clears via queryClient.clear()
+    // If there's an explicit user override (truthy), use it.
+    // Note: null means "no override" - logout clears via queryClient.clear().
+    // Login/signup build the override from the minimal auth response, which
+    // omits nav_mode; backfill it from the full profile so the appearance
+    // settings control (PSY-1117) seeds from the saved preference for the rest
+    // of the SPA session, not the default. The override still wins for every
+    // field it actually sets.
     if (userOverride) {
-      return userOverride
+      return {
+        ...userOverride,
+        nav_mode: userOverride.nav_mode ?? profileData?.user?.nav_mode,
+      }
     }
 
     // Otherwise derive from profile data
@@ -76,6 +89,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,
         user_tier: profileData.user.user_tier as UserTier | undefined,
+        nav_mode: profileData.user.nav_mode,
       }
     }
 

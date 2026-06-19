@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Loader2, LogOut, Shield, UserCircle, Library, Bell } from 'lucide-react'
+import { Loader2, LogOut, Shield, UserCircle, Library, Bell, Palette } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -88,6 +88,15 @@ export function UserMenu() {
                 <Link href={profileHref}>
                   <UserCircle className="mr-2 size-4" />
                   Profile
+                </Link>
+              </DropdownMenuItem>
+              {/* Appearance is reachable here in the DEFAULT top-bar mode — the
+                  Sidebar entry only renders once already in side-nav mode, so
+                  this is the entry point for the primary top → side switch. */}
+              <DropdownMenuItem asChild>
+                <Link href="/settings/appearance">
+                  <Palette className="mr-2 size-4" />
+                  Appearance
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>

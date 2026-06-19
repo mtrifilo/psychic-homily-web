@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, UserCircle, Shield, PanelLeftClose, PanelLeft,
-  Globe, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Compass,
+  Globe, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Compass, Palette,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -121,6 +121,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               <div className="space-y-0.5">
                 {renderItem({ href: '/library', label: 'Library', icon: Library })}
                 {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
+                {renderItem({ href: '/settings/appearance', label: 'Appearance', icon: Palette })}
                 {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
               </div>
