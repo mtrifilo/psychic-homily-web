@@ -34,18 +34,27 @@
 -- admin-triggered historic backfill stays both parameterizable AND observable in
 -- the unified model — confirmed with the owner.)
 CREATE TABLE radio_sync_runs (
-    id SERIAL PRIMARY KEY,
+    -- BIGSERIAL / BIGINT throughout: the parent PKs radio_stations.id and
+    -- radio_shows.id are BIGSERIAL (000055), and these append-only observability
+    -- tables are themselves high-churn. INTEGER (as the deprecated radio_import_jobs
+    -- used) would both mismatch the BIGINT referents and risk int4 exhaustion — use
+    -- the canonical 000055 radio convention instead.
+    id BIGSERIAL PRIMARY KEY,
     -- The station this run operated on. Operational history dies with the entity
     -- it describes (it is volatile operational state, not a durable record), so
     -- ON DELETE CASCADE — and a station hard-delete is never blocked by run rows.
-    station_id INTEGER NOT NULL REFERENCES radio_stations(id) ON DELETE CASCADE,
+    station_id BIGINT NOT NULL REFERENCES radio_stations(id) ON DELETE CASCADE,
     -- Nullable: set for a show-scoped manual import/backfill, NULL for a
     -- station-wide discover/fetch. ON DELETE SET NULL keeps the run history when a
     -- show is hard-deleted (the run is station-scoped; only the show link is lost).
-    show_id INTEGER REFERENCES radio_shows(id) ON DELETE SET NULL,
+    show_id BIGINT REFERENCES radio_shows(id) ON DELETE SET NULL,
     -- What the run did. discover = enumerate the provider roster; fetch = pull new
     -- episodes; backfill = re-ingest a historic window; rematch = re-run unmatched
-    -- plays against the graph.
+    -- plays against the graph. Expected (run_type, show_id) coupling: discover/
+    -- fetch/rematch are station-wide (show_id NULL); backfill may be show-scoped
+    -- (show_id set, e.g. with trigger auto_backfill) or station-wide. That coupling
+    -- is a P2 write-path contract, intentionally NOT a hard CHECK here — P2 owns the
+    -- scoping/concurrency model and locking it in now would be premature.
     run_type VARCHAR(20) NOT NULL
         CHECK (run_type IN ('discover', 'fetch', 'backfill', 'rematch')),
     -- Why the run happened. 'trigger' is a reserved SQL keyword, so the column is
@@ -66,8 +75,9 @@ CREATE TABLE radio_sync_runs (
     -- feed. Replaces radio_import_jobs.since/until.
     window_start TIMESTAMPTZ,
     window_end TIMESTAMPTZ,
-    -- The run opens with started_at known (DEFAULT NOW()); finished_at is NULL
-    -- until a terminal status is reached.
+    -- started_at is set by the P2 write path when it opens the run (time.Now());
+    -- the DEFAULT NOW() is a backstop for any other writer. finished_at stays NULL
+    -- until a terminal status is reached (enforced by the lifecycle CHECK below).
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished_at TIMESTAMPTZ,
     -- Per-run counts. All default 0 so a freshly opened 'running' row is well-formed.
@@ -78,21 +88,36 @@ CREATE TABLE radio_sync_runs (
     plays_unmatched INTEGER NOT NULL DEFAULT 0,
     plays_dropped INTEGER NOT NULL DEFAULT 0,
     plays_truncated INTEGER NOT NULL DEFAULT 0,
-    -- True when the run returned early because the persistent circuit breaker was
-    -- open for this station (pairs with status 'skipped').
+    -- The REASON refinement of status='skipped': true IFF the run was skipped
+    -- specifically because the persistent breaker was open (a run can also be
+    -- skipped for other reasons — e.g. a dormant station — with breaker_skipped
+    -- false). The radio_sync_runs_breaker_skipped_check below enforces
+    -- breaker_skipped => status='skipped', so the two columns can never disagree.
     breaker_skipped BOOLEAN NOT NULL DEFAULT FALSE,
     -- Progress marker for the async backfill UI to poll (YYYY-MM-DD). Carried
     -- forward from radio_import_jobs.current_episode_date.
     current_episode_date VARCHAR(10),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    -- Integrity: a terminal time can't precede the start, and a window must be
-    -- ordered (either bound may be NULL = unbounded/unknown). Mirrors the P1
-    -- radio_episodes_air_window_check style.
+    -- Integrity. (1) a terminal time can't precede the start; (2) a window must be
+    -- ordered (either bound may be NULL = unbounded/unknown), mirroring the P1
+    -- radio_episodes_air_window_check style; (3) lifecycle: 'running' is the ONLY
+    -- state with a NULL finished_at and every terminal state MUST have one — so a
+    -- run can never persist "done but never finished," the exact inconsistency this
+    -- observability table exists to prevent; (4) breaker_skipped implies the run
+    -- was skipped. NOTE: concurrent 'running' rows per station are intentionally NOT
+    -- forbidden here — whether a station serializes its runs (and thus wants a
+    -- partial unique index on (station_id) WHERE status='running') is a P2
+    -- concurrency-model decision, deferred so P1 doesn't prematurely lock it.
     CONSTRAINT radio_sync_runs_finished_after_started_check
         CHECK (finished_at IS NULL OR finished_at >= started_at),
     CONSTRAINT radio_sync_runs_window_order_check
-        CHECK (window_start IS NULL OR window_end IS NULL OR window_end >= window_start)
+        CHECK (window_start IS NULL OR window_end IS NULL OR window_end >= window_start),
+    CONSTRAINT radio_sync_runs_lifecycle_check
+        CHECK ((status = 'running' AND finished_at IS NULL)
+               OR (status <> 'running' AND finished_at IS NOT NULL)),
+    CONSTRAINT radio_sync_runs_breaker_skipped_check
+        CHECK (breaker_skipped = FALSE OR status = 'skipped')
 );
 
 -- Newest-first per station (the per-station run feed, P5).
@@ -113,8 +138,8 @@ CREATE INDEX idx_radio_sync_runs_status
 -- grep-able only as free text in an error_log blob. Chosen over a JSONB column on
 -- the run (open question in the ticket) precisely so categories are indexable.
 CREATE TABLE radio_sync_run_errors (
-    id SERIAL PRIMARY KEY,
-    sync_run_id INTEGER NOT NULL REFERENCES radio_sync_runs(id) ON DELETE CASCADE,
+    id BIGSERIAL PRIMARY KEY,
+    sync_run_id BIGINT NOT NULL REFERENCES radio_sync_runs(id) ON DELETE CASCADE,
     category VARCHAR(30) NOT NULL
         CHECK (category IN (
             'provider_unreachable', 'rate_limited', 'parse_error',
@@ -122,6 +147,9 @@ CREATE TABLE radio_sync_run_errors (
             'match_persist_error', 'timeout'
         )),
     -- Human/machine-readable detail (provider message, validation reason, ...).
+    -- Unbounded TEXT (as the legacy error_log it generalizes was); the P2 write
+    -- path MUST truncate raw provider error bodies before insert so a flapping
+    -- provider can't bloat this admin-readable table.
     detail TEXT,
     -- A SOFT reference to the episode an error concerns (provider date or external
     -- id), deliberately NOT a FK: an ingestion error frequently concerns an
@@ -145,9 +173,11 @@ CREATE INDEX idx_radio_sync_run_errors_category
 -- the durable radio_stations entity so the entity stays clean and the breaker
 -- survives restarts (today the breaker is in-memory and resets on every deploy —
 -- a tripped station immediately retries after a restart). One-to-one with the
--- station; cascades on station delete.
+-- station; cascades on station delete. Row-creation contract: the P2 write path
+-- lazily upserts a station's row on its first RunStationSync — an ABSENT row means
+-- "never synced" (render as unknown, NOT unhealthy), not a missing-data bug.
 CREATE TABLE radio_station_health (
-    station_id INTEGER PRIMARY KEY REFERENCES radio_stations(id) ON DELETE CASCADE,
+    station_id BIGINT PRIMARY KEY REFERENCES radio_stations(id) ON DELETE CASCADE,
     last_success_at TIMESTAMPTZ,
     last_run_at TIMESTAMPTZ,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,

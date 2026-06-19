@@ -672,8 +672,11 @@ type RadioSyncRun struct {
 	// normal scheduled/fetch run. Replaces RadioImportJob.Since/Until.
 	WindowStart *time.Time `gorm:"column:window_start"`
 	WindowEnd   *time.Time `gorm:"column:window_end"`
-	StartedAt   time.Time  `gorm:"column:started_at;not null;default:now()"`
-	FinishedAt  *time.Time `gorm:"column:finished_at"`
+	// StartedAt is set by the P2 write path at run-open (time.Now()); the
+	// default:now() tag + SQL DEFAULT NOW() are a backstop. FinishedAt is nil while
+	// Status == running and set on the terminal transition (DB lifecycle CHECK).
+	StartedAt  time.Time  `gorm:"column:started_at;not null;default:now()"`
+	FinishedAt *time.Time `gorm:"column:finished_at"`
 
 	EpisodesFound    int `gorm:"column:episodes_found;not null;default:0"`
 	EpisodesImported int `gorm:"column:episodes_imported;not null;default:0"`
