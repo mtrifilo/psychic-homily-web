@@ -128,10 +128,14 @@ func TestCategorizeRunError(t *testing.T) {
 
 func TestCategorizeErrorString(t *testing.T) {
 	cases := map[string]string{
-		"context deadline exceeded":        catalogm.RadioSyncRunErrorTimeout,
-		"got 429 too many requests":        catalogm.RadioSyncRunErrorRateLimited,
-		"failed to unmarshal json":         catalogm.RadioSyncRunErrorParseError,
-		"dropped 2 plays: missing artist":  catalogm.RadioSyncRunErrorValidationDrop,
+		"context deadline exceeded":       catalogm.RadioSyncRunErrorTimeout,
+		"got 429 too many requests":       catalogm.RadioSyncRunErrorRateLimited,
+		"failed to unmarshal json":        catalogm.RadioSyncRunErrorParseError,
+		"dropped 2 plays: missing artist": catalogm.RadioSyncRunErrorValidationDrop,
+		// Real summarizeDrops format always starts "dropped N plays:", so even a
+		// truncation-only summary buckets validation_drop (truncation isn't reachable
+		// via the string heuristic — see categorizeErrorString's note).
+		"episode ep-1: dropped 3 plays: 3 over-length titles truncated": catalogm.RadioSyncRunErrorValidationDrop,
 		"title truncated to fit":           catalogm.RadioSyncRunErrorTruncation,
 		"match persist failed":             catalogm.RadioSyncRunErrorMatchPersistError,
 		"some unrecognized provider error": catalogm.RadioSyncRunErrorProviderUnreachable,

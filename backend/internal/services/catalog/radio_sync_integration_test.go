@@ -108,6 +108,8 @@ func (s *RadioSyncSuite) TestFetchFailure_RecordsCategorizedError() {
 	s.Require().Error(err) // hard error surfaced to the caller
 	s.Require().NotNil(res)
 	s.NotZero(res.RunID)
+	s.Nil(res.Import, "a failed run carries no executor payload")
+	s.Nil(res.Discover)
 
 	runs := s.runsForStation(st.ID)
 	s.Require().Len(runs, 1)
@@ -415,4 +417,33 @@ func (s *RadioSyncSuite) TestPartial_ResetsConsecutiveFailures() {
 	var health catalogm.RadioStationHealth
 	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
 	s.Equal(0, health.ConsecutiveFailures, "a partial run must reset the failure counter")
+}
+
+// A panic inside the executor must still terminate the run's trace (close it as
+// failed with finished_at set) and re-propagate — guarding the panic-recovery
+// defer + failRun so a panicked run never orphans a status=running row.
+func (s *RadioSyncSuite) TestExecutorPanic_ClosesRunAsFailed() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "show-panic"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Panic Show", Slug: "panic-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				panic("boom inside provider")
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	s.Require().Panics(func() {
+		_, _ = s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+			Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+		})
+	}, "an executor panic must re-propagate")
+
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1)
+	s.Equal(catalogm.RadioSyncRunStatusFailed, runs[0].Status, "a panicked run must be closed as failed")
+	s.Require().NotNil(runs[0].FinishedAt, "a panicked run must still set finished_at (lifecycle CHECK)")
 }

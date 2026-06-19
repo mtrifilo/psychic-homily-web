@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -71,9 +72,11 @@ type RunStationSyncResult struct {
 	Skipped       bool   // breaker-open skip (a skipped row was written)
 	LockContended bool   // another run held the per-station lock; no row written
 
-	// Exactly one of Import / Discover is set on a non-skipped run, per mode.
-	Import   *contracts.RadioImportResult   // fetch / backfill
-	Discover *contracts.RadioDiscoverResult // discover
+	// On a SUCCESS or PARTIAL run, exactly one of Import/Discover is set (per mode);
+	// on a FAILED run BOTH are nil — check Status (or the returned error) before
+	// dereferencing either.
+	Import   *contracts.RadioImportResult   // fetch / backfill (success/partial)
+	Discover *contracts.RadioDiscoverResult // discover (success/partial)
 }
 
 // RunStationSync executes one ingestion run for a station. See the type doc above
@@ -318,7 +321,10 @@ func importResultOutcome(res *contracts.RadioImportResult, episodesFound int) sy
 	}
 }
 
-// terminalStatus resolves the non-skipped, non-cancelled terminal status.
+// terminalStatus resolves the non-skipped, non-cancelled terminal status. The
+// hardErr arm is exercised only by unit tests: in production executeSyncMode
+// short-circuits a hard executor error to the failed literal upstream, so every
+// production call passes hardErr=false (success-vs-partial on errCount alone).
 func terminalStatus(hardErr bool, errCount int) string {
 	switch {
 	case hardErr:
@@ -462,9 +468,19 @@ func (s *RadioService) acquireStationSyncLock(ctx context.Context, stationID uin
 		return nil, false, nil
 	}
 	release = func() {
-		// Unlock on a fresh context so a cancelled run ctx still releases; closing
-		// the session would release it anyway, but unlock explicitly to be clean.
-		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+		// Unlock on a fresh context so a cancelled run ctx still releases. IMPORTANT:
+		// conn.Close() returns the physical connection to the POOL without closing the
+		// Postgres session, and a session-scoped advisory lock is released ONLY by
+		// pg_advisory_unlock — NOT by Close. So if the unlock fails, the lock would
+		// stay held on a pooled conn and silently no-op (LockContended) every future
+		// run for this station. Discard the connection in that case so it can never
+		// re-enter the pool still holding the lock.
+		if _, unlockErr := conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key); unlockErr != nil {
+			slog.Warn("radio: advisory unlock failed; discarding connection to avoid a leaked lock",
+				"station_id", stationID, "error", unlockErr)
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			return
+		}
 		_ = conn.Close()
 	}
 	return release, true, nil
@@ -525,9 +541,13 @@ func categorizeErrorString(s string) string {
 		return catalogm.RadioSyncRunErrorRateLimited
 	case strings.Contains(ls, "parse") || strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") || strings.Contains(ls, "invalid character"):
 		return catalogm.RadioSyncRunErrorParseError
-	// validation_drop before truncation: a drop summary ("dropped N plays: X
-	// truncated, Y missing artist_name") is fundamentally a drop, so it shouldn't
-	// be mis-bucketed as truncation just because it also mentions truncated titles.
+	// validation_drop before truncation: every provider drop-summary starts
+	// "dropped N plays: ..." (summarizeDrops), so a summary that also mentions
+	// truncated titles correctly buckets as a drop. NOTE: this makes 'truncation'
+	// effectively unreachable from today's stringified drop-summaries — precise
+	// truncation categorization needs structured (typed) errors threaded out of
+	// importPlays, which is P3/P4. The 'truncat' arm stays for any future
+	// non-summary error string that mentions truncation without "dropped".
 	case strings.Contains(ls, "missing artist") || strings.Contains(ls, "dropped"):
 		return catalogm.RadioSyncRunErrorValidationDrop
 	case strings.Contains(ls, "truncat"):
