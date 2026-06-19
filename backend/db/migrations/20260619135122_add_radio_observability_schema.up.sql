@@ -75,9 +75,10 @@ CREATE TABLE radio_sync_runs (
     -- feed. Replaces radio_import_jobs.since/until.
     window_start TIMESTAMPTZ,
     window_end TIMESTAMPTZ,
-    -- started_at is set by the P2 write path when it opens the run (time.Now());
-    -- the DEFAULT NOW() is a backstop for any other writer. finished_at stays NULL
-    -- until a terminal status is reached (enforced by the lifecycle CHECK below).
+    -- started_at is set explicitly by the P2 write path at run-open (time.Now()).
+    -- The DEFAULT NOW() applies only to a raw INSERT that omits the column; the GORM
+    -- write path should set it rather than lean on the default. finished_at stays
+    -- NULL until a terminal status is reached (enforced by the lifecycle CHECK below).
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished_at TIMESTAMPTZ,
     -- Per-run counts. All default 0 so a freshly opened 'running' row is well-formed.

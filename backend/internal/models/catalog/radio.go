@@ -659,7 +659,9 @@ func (RadioImportJob) TableName() string { return "radio_import_jobs" }
 // observability backbone (PSY-1132). Opened with Status 'running' at the start of
 // a run and resolved to a terminal status. Unifies and replaces RadioImportJob in
 // P2; WindowStart/WindowEnd carry the old Since/Until historic-backfill range so
-// admin-triggered historic re-ingestion stays parameterizable and observable.
+// admin-triggered historic re-ingestion stays parameterizable and observable. (The
+// P2 unification must widen radio_import_jobs' int4 ids when carrying rows over —
+// this table is BIGINT throughout, matching the BIGSERIAL parent PKs.)
 type RadioSyncRun struct {
 	ID        uint   `gorm:"primaryKey"`
 	StationID uint   `gorm:"column:station_id;not null"`
@@ -672,9 +674,13 @@ type RadioSyncRun struct {
 	// normal scheduled/fetch run. Replaces RadioImportJob.Since/Until.
 	WindowStart *time.Time `gorm:"column:window_start"`
 	WindowEnd   *time.Time `gorm:"column:window_end"`
-	// StartedAt is set by the P2 write path at run-open (time.Now()); the
-	// default:now() tag + SQL DEFAULT NOW() are a backstop. FinishedAt is nil while
-	// Status == running and set on the terminal transition (DB lifecycle CHECK).
+	// StartedAt: the P2 write path MUST set this explicitly at run-open (time.Now())
+	// rather than rely on the SQL DEFAULT NOW() — the default fires only for a raw
+	// INSERT that omits the column, and GORM's skip-zero-value-with-default behavior
+	// (cf. the bool gotcha) makes deferring to it subtle. Same for Status above (set
+	// it to a status constant; don't lean on default:running). FinishedAt is nil
+	// while Status == running and set on the terminal transition (DB
+	// radio_sync_runs_lifecycle_check enforces the running<=>NULL pairing).
 	StartedAt  time.Time  `gorm:"column:started_at;not null;default:now()"`
 	FinishedAt *time.Time `gorm:"column:finished_at"`
 
