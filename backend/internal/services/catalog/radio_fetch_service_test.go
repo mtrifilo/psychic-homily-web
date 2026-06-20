@@ -241,11 +241,12 @@ func TestClassifyError(t *testing.T) {
 }
 
 // The persistent circuit-breaker state machine (transient-doesn't-trip,
-// permanent-trips-at-threshold, half-open trial, per-station isolation,
-// no-wedge-after-reset) moved from the in-memory map to radio_station_health in
-// PSY-1140. Its transition logic is unit-tested purely in radio_breaker_test.go,
-// and the end-to-end DB wiring (gate → run → health write-back, manual-probe
-// policy) in radio_sync_integration_test.go's RadioSyncSuite.
+// permanent-trips-at-threshold, half-open trial, no-wedge-after-reset) moved from
+// the in-memory map to radio_station_health in PSY-1140. Its pure transition logic
+// is table-tested in radio_breaker_test.go; the DB wiring (gate → run → health
+// write-back, manual-probe policy, restart survival, and per-station isolation — now
+// a station_id-PK schema property, tested via two distinct stations) is in
+// radio_sync_integration_test.go's RadioSyncSuite.
 
 // TestFetchStationWithRetry_TransientRecovers exercises the single-retry
 // behavior: a transient error on the first attempt followed by success on

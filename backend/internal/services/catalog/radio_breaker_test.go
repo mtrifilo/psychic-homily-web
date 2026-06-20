@@ -32,7 +32,11 @@ func TestBreakerGateFor(t *testing.T) {
 		{"open, within cooldown → blocked", breakerSnapshot{state: catalogm.RadioBreakerStateOpen, trippedAt: ptrTime(withinCooldown)}, gateBlocked},
 		{"open, past cooldown → trial", breakerSnapshot{state: catalogm.RadioBreakerStateOpen, trippedAt: ptrTime(pastCooldown)}, gateTrial},
 		{"open, exactly at cooldown → trial", breakerSnapshot{state: catalogm.RadioBreakerStateOpen, trippedAt: ptrTime(now.Add(-radioBreakerCooldown))}, gateTrial},
-		{"half_open → trial", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen}, gateTrial},
+		// half_open is cooldown-gated identically to open (a stranded trial must not
+		// re-trial every cycle — PSY-1140 adversarial-review fix).
+		{"half_open, no trip time → blocked (defensive)", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen}, gateBlocked},
+		{"half_open, within cooldown → blocked (stranded trial waits)", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen, trippedAt: ptrTime(withinCooldown)}, gateBlocked},
+		{"half_open, past cooldown → trial", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen, trippedAt: ptrTime(pastCooldown)}, gateTrial},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,10 +68,13 @@ func TestBreakerTransition(t *testing.T) {
 		wantFailures int
 		wantTripped  bool // expect breaker_tripped_at == now
 	}{
-		// success / partial reset to closed from any state.
+		// success / partial reset to closed from any state, for every trigger.
 		{"success resets from climbing", closed(3), catalogm.RadioSyncRunStatusSuccess, sched, kindPermanent, catalogm.RadioBreakerStateClosed, 0, false},
 		{"success closes a half-open trial", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen, failures: 5, trippedAt: ptrTime(now)}, catalogm.RadioSyncRunStatusSuccess, sched, kindPermanent, catalogm.RadioBreakerStateClosed, 0, false},
 		{"partial also resets+closes", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen, failures: 5}, catalogm.RadioSyncRunStatusPartial, sched, kindPermanent, catalogm.RadioBreakerStateClosed, 0, false},
+		{"auto_backfill success resets+closes", breakerSnapshot{state: catalogm.RadioBreakerStateHalfOpen, failures: 5}, catalogm.RadioSyncRunStatusSuccess, auto, kindPermanent, catalogm.RadioBreakerStateClosed, 0, false},
+		{"auto_backfill partial resets+closes", closed(4), catalogm.RadioSyncRunStatusPartial, auto, kindPermanent, catalogm.RadioBreakerStateClosed, 0, false},
+		{"manual success resets+closes", breakerSnapshot{state: catalogm.RadioBreakerStateOpen, failures: 5, trippedAt: ptrTime(now)}, catalogm.RadioSyncRunStatusSuccess, manual, kindPermanent, catalogm.RadioBreakerStateClosed, 0, false},
 
 		// skipped / non-terminal leave everything untouched.
 		{"skipped leaves open breaker untouched", breakerSnapshot{state: catalogm.RadioBreakerStateOpen, failures: 5, trippedAt: ptrTime(now.Add(-time.Hour))}, catalogm.RadioSyncRunStatusSkipped, sched, kindPermanent, catalogm.RadioBreakerStateOpen, 5, false},

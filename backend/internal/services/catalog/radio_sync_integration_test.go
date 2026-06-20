@@ -717,3 +717,83 @@ func (s *RadioSyncSuite) TestBreaker_ManualProbe_FailureDoesNotTrip() {
 	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a manual failure must not trip the breaker")
 	s.Equal(radioCircuitBreakerThreshold-1, health.ConsecutiveFailures, "a manual failure must not increment the counter")
 }
+
+// markBreakerHalfOpen flips a tripped breaker to half_open AND refreshes
+// breaker_tripped_at to the trial-start time (the timestamp refresh is what bounds a
+// stranded trial — adversarial-review fix). Direct method test: the half_open state
+// only exists in the DB mid-run, so the end-to-end trial tests can't observe it.
+func (s *RadioSyncSuite) TestMarkBreakerHalfOpen_StampsTrialStart() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedLongAgo := time.Now().Add(-radioBreakerCooldown - time.Hour)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedLongAgo,
+	}).Error)
+
+	s.svc.markBreakerHalfOpen(st.ID)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateHalfOpen, health.BreakerState, "open → half_open at trial start")
+	s.Require().NotNil(health.BreakerTrippedAt)
+	s.True(health.BreakerTrippedAt.After(trippedLongAgo), "trial start refreshes breaker_tripped_at")
+}
+
+// A breaker STRANDED at half_open (a trial that was cancelled/panicked so
+// updateStationHealth never resolved it) must NOT re-trial every cycle: with a
+// recent breaker_tripped_at it is gate-blocked for a full cooldown, exactly like an
+// open breaker. Regression guard for the cooldown-defeat the adversarial review found.
+func (s *RadioSyncSuite) TestBreaker_StrandedHalfOpen_RespectsCooldown() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedRecently := time.Now().Add(-time.Minute) // trial started a minute ago, never resolved
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateHalfOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedRecently,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+	s.True(res.Skipped, "a stranded half_open within cooldown must be blocked, not re-trialed")
+
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1)
+	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status)
+	s.True(runs[0].BreakerSkipped)
+}
+
+// Per-station isolation: wedging one station's breaker (permanent failures to the
+// threshold) must not touch another station's health row. Now a schema property
+// (station_id PK) rather than an in-memory map; this guards a future query that
+// drops the station_id predicate.
+func (s *RadioSyncSuite) TestBreaker_PerStationIsolation() {
+	wedged := s.seedStation(catalogm.PlaylistSourceManual) // permanent fail in getProvider
+	healthy := s.seedStation(catalogm.PlaylistSourceKEXP)  // clean fetch (no shows)
+
+	// Drive the wedged station to the breaker threshold.
+	for i := 0; i < radioCircuitBreakerThreshold; i++ {
+		_, _ = s.svc.RunStationSync(context.Background(), wedged.ID, RunStationSyncOpts{
+			Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+		})
+	}
+	// Run the healthy station once (success).
+	_, err := s.svc.RunStationSync(context.Background(), healthy.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+
+	var wh catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&wh, "station_id = ?", wedged.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateOpen, wh.BreakerState, "wedged station opens")
+	s.Equal(radioCircuitBreakerThreshold, wh.ConsecutiveFailures)
+
+	var hh catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&hh, "station_id = ?", healthy.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, hh.BreakerState, "the other station is unaffected")
+	s.Equal(0, hh.ConsecutiveFailures)
+}

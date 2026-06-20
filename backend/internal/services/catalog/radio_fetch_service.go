@@ -363,10 +363,11 @@ func (s *RadioFetchService) runFetchCycle() {
 		)
 
 		// Route through the unified orchestrator (PSY-1134): the run is recorded in
-		// radio_sync_runs and the returned hard error still drives the in-memory
-		// PSY-887 breaker/retry below (that in-memory breaker remains authoritative
-		// until P3 migrates it to radio_station_health; RunStationSync only READS
-		// the persistent breaker, which stays closed in P2).
+		// radio_sync_runs, and as of PSY-1140 RunStationSync OWNS the persistent
+		// breaker end-to-end (reads the gate, writes the outcome via
+		// updateStationHealth) — it is now the sole, authoritative breaker. The
+		// returned hard error still feeds the transient single-retry below
+		// (fetchStationWithRetry, PSY-887); the retry-budget rework is PSY-1142.
 		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "fetch",
 			func() (any, error) {
 				return s.radioService.RunStationSync(context.Background(), station.ID, RunStationSyncOpts{

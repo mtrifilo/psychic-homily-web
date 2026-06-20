@@ -418,8 +418,10 @@ func (s *RadioService) recordSkippedRun(stationID uint, opts RunStationSyncOpts)
 		slog.Warn("radio: failed to record skipped run", "station_id", stationID, "error", err)
 		return 0
 	}
-	// A skipped run touches only last_run_at; breakerTransition leaves the breaker
-	// state + counter unchanged for 'skipped', so the trigger/errKind are inert here.
+	// A skipped run touches only last_run_at; breakerTransition's default arm leaves
+	// the breaker state + counter unchanged for 'skipped', so trigger/errKind are
+	// inert here (kindPermanent is a placeholder — if you ever make the skipped/
+	// default arm read errKind, revisit this call site).
 	s.updateStationHealth(stationID, catalogm.RadioSyncRunStatusSkipped, opts.Trigger, kindPermanent)
 	return run.ID
 }
@@ -489,12 +491,18 @@ const (
 )
 
 // breakerGateFor decides whether a scheduled/auto run may proceed. Pure (no I/O) so
-// it is unit-tested directly. An open breaker with no trip time is treated as
-// freshly tripped (blocked) — defensive against a row written without
-// breaker_tripped_at.
+// it is unit-tested directly. Both open AND half_open are cooldown-gated against
+// breaker_tripped_at: past the cooldown → one trial; within it → blocked. half_open
+// is gated identically to open (NOT allowed unconditionally) so a trial that never
+// resolved cannot re-trial every cycle: a run cancelled on shutdown or a panic
+// leaves the row at half_open (updateStationHealth never ran), and markBreakerHalfOpen
+// stamped breaker_tripped_at at trial start — so the stranded breaker still waits a
+// full cooldown before the next trial instead of defeating the cooldown. An
+// open/half_open row with no trip time is treated as freshly tripped (blocked) —
+// defensive against a row written without breaker_tripped_at.
 func breakerGateFor(snap breakerSnapshot, now time.Time) breakerGate {
 	switch snap.state {
-	case catalogm.RadioBreakerStateOpen:
+	case catalogm.RadioBreakerStateOpen, catalogm.RadioBreakerStateHalfOpen:
 		if snap.trippedAt == nil {
 			return gateBlocked
 		}
@@ -502,12 +510,7 @@ func breakerGateFor(snap breakerSnapshot, now time.Time) breakerGate {
 			return gateTrial
 		}
 		return gateBlocked
-	case catalogm.RadioBreakerStateHalfOpen:
-		// A trial is permitted. (A half_open is normally resolved to closed/open by
-		// the trial's own outcome; seeing it at the gate means a prior trial did not
-		// resolve — e.g. a panic — so allow another trial rather than wedging.)
-		return gateTrial
-	default: // closed (or unknown) → allow
+	default: // closed (or never-synced) → allow
 		return gateAllow
 	}
 }
@@ -578,17 +581,28 @@ func (s *RadioService) readBreakerSnapshot(stationID uint) breakerSnapshot {
 	}
 }
 
-// markBreakerHalfOpen flips an open breaker to half_open for the trial run so the
-// "trying again" state is observable. The row always exists here (just read as
-// open); best-effort — a failed flip only loses observability, not correctness (the
-// run still executes and its outcome resolves the state via updateStationHealth).
+// markBreakerHalfOpen flips a tripped breaker (open, or a still-stranded half_open
+// from a prior unresolved trial) to half_open AND stamps breaker_tripped_at=now —
+// the trial-start time. That timestamp refresh is what bounds a stranded trial: if
+// this run never resolves the state (cancelled on shutdown, or a panic — both skip
+// updateStationHealth), the row stays half_open with a recent trip time, so
+// breakerGateFor keeps it blocked for a full cooldown before the next trial instead
+// of re-trialing every cycle.
+//
+// Best-effort: if this write fails (a DB error), the row stays as the gate read it
+// (open/half_open with its prior trip time). The breaker still works — it stays
+// cooldown-gated via that prior timestamp — losing only the half_open label and this
+// trial's cooldown refresh; on a DB flaky enough to drop this write the run's own
+// writes would be failing too.
 func (s *RadioService) markBreakerHalfOpen(stationID uint) {
 	now := time.Now()
 	_ = s.db.Model(&catalogm.RadioStationHealth{}).
-		Where("station_id = ? AND breaker_state = ?", stationID, catalogm.RadioBreakerStateOpen).
+		Where("station_id = ? AND breaker_state IN ?", stationID,
+			[]string{catalogm.RadioBreakerStateOpen, catalogm.RadioBreakerStateHalfOpen}).
 		Updates(map[string]any{
-			"breaker_state": catalogm.RadioBreakerStateHalfOpen,
-			"updated_at":    now,
+			"breaker_state":      catalogm.RadioBreakerStateHalfOpen,
+			"breaker_tripped_at": now,
+			"updated_at":         now,
 		}).Error
 }
 
