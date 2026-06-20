@@ -99,6 +99,13 @@ func normalizeDateString(s string) string {
 }
 
 // ImportStation runs a full import: discover shows + fetch episodes for the last N days.
+//
+// NOTE (PSY-1135): this is a legacy full-import helper that does NOT route through
+// RunStationSync, so it leaves NO radio_sync_runs trace. It is intentionally not
+// wired to any admin route or ticker. Do NOT expose it as an ingestion entry point
+// — a new "full import" action must go through RunStationSync (discover then
+// backfill) so every run is observable. Kept only because it predates the
+// orchestrator and is still part of the service contract.
 func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

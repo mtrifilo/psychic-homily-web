@@ -9,6 +9,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -240,4 +241,53 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerStationSync_Invalid
 	_, err := suite.radioService.TriggerStationSync(station.ID, "backfill")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "invalid station sync mode")
+}
+
+// TestTriggerShowBackfill_OpensRunAndCompletes exercises the async path end-to-end:
+// the trigger returns a pollable handle (status=running) the instant the run row
+// opens (startAsyncSync's OnRunOpened/select), then the run executes in the
+// background goroutine and GetSyncRun observes it reach a terminal status with the
+// imported counts. (PSY-1135, adversarial-review — startAsyncSync was untested.)
+func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerShowBackfill_OpensRunAndCompletes() {
+	src := catalogm.PlaylistSourceKEXP
+	station := &catalogm.RadioStation{Name: "Trigger Station", BroadcastType: "both", PlaylistSource: &src}
+	suite.Require().NoError(suite.db.Create(station).Error)
+	showExt := "trigger-show-ext"
+	show := &catalogm.RadioShow{StationID: station.ID, Name: "Trigger Show", ExternalID: &showExt}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	track := "T"
+	suite.radioService.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return []RadioPlayImport{{Position: 1, ArtistName: "A", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { suite.radioService.playlistProviderFactory = nil }()
+
+	resp, err := suite.radioService.TriggerShowBackfill(show.ID, "2026-06-01", "2026-06-30")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.NotZero(resp.ID, "trigger must return a pollable run handle")
+	suite.Equal(catalogm.RadioSyncRunTypeBackfill, resp.RunType)
+	suite.Equal(catalogm.RadioSyncRunTriggerManual, resp.Trigger)
+	suite.Require().NotNil(resp.ShowID)
+	suite.Equal(show.ID, *resp.ShowID)
+
+	// The run executes in a background goroutine; poll until terminal.
+	var final *contracts.RadioSyncRunResponse
+	suite.Require().Eventually(func() bool {
+		r, e := suite.radioService.GetSyncRun(resp.ID)
+		if e != nil {
+			return false
+		}
+		final = r
+		return r.Status == catalogm.RadioSyncRunStatusSuccess || r.Status == catalogm.RadioSyncRunStatusPartial
+	}, 5*time.Second, 20*time.Millisecond, "the backfill run should complete in the background")
+	suite.Equal(1, final.EpisodesImported)
+	suite.Equal(1, final.PlaysImported)
 }

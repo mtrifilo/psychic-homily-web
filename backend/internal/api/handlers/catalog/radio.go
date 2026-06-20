@@ -1367,11 +1367,19 @@ func (h *RadioHandler) AdminTriggerShowBackfillHandler(ctx context.Context, req 
 	if req.Body.Since == "" || req.Body.Until == "" {
 		return nil, huma.Error422UnprocessableEntity("since and until dates are required")
 	}
-	if _, err := shared.ParseDate(req.Body.Since); err != nil {
+	since, err := shared.ParseDate(req.Body.Since)
+	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("Invalid since date, expected YYYY-MM-DD")
 	}
-	if _, err := shared.ParseDate(req.Body.Until); err != nil {
+	until, err := shared.ParseDate(req.Body.Until)
+	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("Invalid until date, expected YYYY-MM-DD")
+	}
+	// Reject a reversed window with a clean 422 rather than letting it open a run
+	// row that the DB CHECK (window_end >= window_start) rejects as a 500, or that
+	// silently imports zero episodes.
+	if until.Before(since) {
+		return nil, huma.Error422UnprocessableEntity("until must be on or after since")
 	}
 
 	run, err := h.syncManager.TriggerShowBackfill(req.ShowID, req.Body.Since, req.Body.Until)

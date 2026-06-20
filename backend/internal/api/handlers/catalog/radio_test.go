@@ -1024,6 +1024,16 @@ func TestAdminTriggerShowBackfill_InvalidDate(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+func TestAdminTriggerShowBackfill_InvalidWindow(t *testing.T) {
+	h := testRadioHandler(&testhelpers.MockRadioService{})
+	req := &AdminTriggerShowBackfillRequest{ShowID: 5}
+	req.Body.Since = "2025-12-31"
+	req.Body.Until = "2025-01-01" // until before since — reversed window
+
+	_, err := h.AdminTriggerShowBackfillHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 func TestAdminTriggerShowBackfill_ShowNotFound(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
 		TriggerShowBackfillFn: func(_ uint, _, _ string) (*contracts.RadioSyncRunResponse, error) {
