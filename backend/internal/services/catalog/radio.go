@@ -35,6 +35,12 @@ type RadioService struct {
 	// playlistProviderFactory overrides playlist-provider resolution in tests
 	// (the RunStationSync / import paths); nil → the real providers (see getProvider).
 	playlistProviderFactory func(source string) (RadioPlaylistProvider, error)
+
+	// onPermanentFailure, when non-nil, replaces the Sentry escalation of a permanent
+	// scheduled/auto sync failure — tests inject a recorder to assert escalation fired
+	// (or didn't). nil → escalatePermanentFailure fires the real sentry.CaptureException
+	// (PSY-1141).
+	onPermanentFailure func(err error, stationID uint, category string)
 }
 
 // NewRadioService creates a new radio service

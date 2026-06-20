@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -796,4 +797,123 @@ func (s *RadioSyncSuite) TestBreaker_PerStationIsolation() {
 	s.Require().NoError(s.db.First(&hh, "station_id = ?", healthy.ID).Error)
 	s.Equal(catalogm.RadioBreakerStateClosed, hh.BreakerState, "the other station is unaffected")
 	s.Equal(0, hh.ConsecutiveFailures)
+}
+
+// ───────────────────── typed errors + Sentry escalation (PSY-1141) ─────────────────────
+
+// A PERMANENT failure on a scheduled run escalates via the onPermanentFailure seam;
+// the SAME permanent failure on a manual run does NOT (the operator already sees the
+// result). End-to-end through RunStationSync's escalation hook.
+func (s *RadioSyncSuite) TestEscalation_PermanentScheduledFires_ManualDoesNot() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // getProvider error → permanent hard failure
+
+	var categories []string
+	s.svc.onPermanentFailure = func(_ error, _ uint, category string) {
+		categories = append(categories, category)
+	}
+	defer func() { s.svc.onPermanentFailure = nil }()
+
+	_, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().Error(err)
+	s.Require().Len(categories, 1, "a permanent scheduled failure must escalate")
+	s.Equal(catalogm.RadioSyncRunErrorProviderUnreachable, categories[0])
+
+	categories = nil
+	_, err = s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerManual,
+	})
+	s.Require().Error(err)
+	s.Empty(categories, "a manual failure must NOT escalate")
+}
+
+// End-to-end: a truncated play records a radio_sync_run_errors row categorized as
+// 'truncation' — the case the old string heuristic could never reach (it always
+// bucketed drop-summaries as validation_drop). The headline PSY-1141 AC.
+func (s *RadioSyncSuite) TestBackfill_TruncationRecordsTruncationCategory() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "trunc-show"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Trunc Show", Slug: "trunc-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	overLength := strings.Repeat("z", 600) // > 500-rune column → salvaged via truncation
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return []RadioPlayImport{{Position: 1, ArtistName: overLength}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerManual,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+	})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioSyncRunStatusPartial, res.Status, "a truncation makes the run partial")
+
+	var errs []catalogm.RadioSyncRunError
+	s.Require().NoError(s.db.Where("sync_run_id = ?", res.RunID).Find(&errs).Error)
+	s.Require().Len(errs, 1)
+	s.Equal(catalogm.RadioSyncRunErrorTruncation, errs[0].Category,
+		"PSY-1141: a truncation records as 'truncation', not validation_drop")
+	s.Require().NotNil(errs[0].EpisodeRef)
+	s.Equal("ep-1", *errs[0].EpisodeRef, "structured error carries the episode ref")
+}
+
+// The headline scraper-drift escalation, end-to-end: a provider PARSE failure on a
+// per-episode playlist fetch surfaces as a PARTIAL run (the episode loop continues,
+// no hard error) carrying a parse_error — and it must still escalate to Sentry. This
+// guards the import-path parse_error reachability that the adversarial review found
+// dead (categorizeRunError had no parse arm → it defaulted to provider_unreachable →
+// nothing paged). Uses an AUTO trigger (manual would not escalate).
+func (s *RadioSyncSuite) TestEscalation_ParsePartialRun_FiresParseError() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "parse-show"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Parse Show", Slug: "parse-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			// A provider format change surfaces as a wrapped parse failure.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return nil, fmt.Errorf("parsing plays response: unexpected end of JSON input")
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	var categories []string
+	s.svc.onPermanentFailure = func(_ error, _ uint, category string) {
+		categories = append(categories, category)
+	}
+	defer func() { s.svc.onPermanentFailure = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerAutoBackfill,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+	})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioSyncRunStatusPartial, res.Status, "a per-episode parse failure → partial run, not hard-failed")
+
+	s.Require().Len(categories, 1, "a parse failure on an auto run must escalate (scraper drift)")
+	s.Equal(catalogm.RadioSyncRunErrorParseError, categories[0])
+
+	// And it is recorded as parse_error (not provider_unreachable) in the run-errors table.
+	var errs []catalogm.RadioSyncRunError
+	s.Require().NoError(s.db.Where("sync_run_id = ?", res.RunID).Find(&errs).Error)
+	s.Require().Len(errs, 1)
+	s.Equal(catalogm.RadioSyncRunErrorParseError, errs[0].Category)
 }

@@ -183,12 +183,12 @@ type RadioShowDetailResponse struct {
 
 // RadioShowListResponse represents a radio show in list views
 type RadioShowListResponse struct {
-	ID           uint             `json:"id"`
-	StationID    uint             `json:"station_id"`
-	StationName  string           `json:"station_name"`
-	Name         string           `json:"name"`
-	Slug         string           `json:"slug"`
-	HostName     *string          `json:"host_name"`
+	ID          uint    `json:"id"`
+	StationID   uint    `json:"station_id"`
+	StationName string  `json:"station_name"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	HostName    *string `json:"host_name"`
 	// ScheduleDisplay is the human-readable air slot ("Mon 9pm-12am"),
 	// surfaced in list rows for the station-page shows directory (PSY-1050).
 	ScheduleDisplay *string          `json:"schedule_display"`
@@ -532,6 +532,24 @@ type RadioImportResult struct {
 	EpisodeFetchErrors int      `json:"episode_fetch_errors,omitempty"`
 	MatchPersistErrors int      `json:"match_persist_errors,omitempty"`
 	Errors             []string `json:"errors,omitempty"`
+
+	// CategorizedErrors is the structured, pre-typed companion to Errors (PSY-1141):
+	// each entry carries the radio_sync_run_errors category decided AT THE SOURCE
+	// (importEpisode/importPlays/the orchestrators), so the sync layer records the
+	// real category instead of substring-guessing from Errors. Parallel to Errors
+	// (same order, same length) on the import path. Empty on the discover path,
+	// which keeps the free-text categorizeErrorString fallback.
+	CategorizedErrors []RadioRunError `json:"categorized_errors,omitempty"`
+}
+
+// RadioRunError is one structured, pre-categorized import error (PSY-1141),
+// mirroring the radio_sync_run_errors columns. Category is a
+// catalog.RadioSyncRunError* value chosen where the error's type is still known;
+// EpisodeRef is the episode external id when the error is episode-scoped.
+type RadioRunError struct {
+	Category   string  `json:"category"`
+	Detail     string  `json:"detail"`
+	EpisodeRef *string `json:"episode_ref,omitempty"`
 }
 
 // RadioDiscoverResult summarizes the result of discovering shows for a station.
@@ -571,6 +589,15 @@ type EpisodeImportResult struct {
 	DropSummary        string `json:"drop_summary,omitempty"`
 	FetchError         string `json:"fetch_error,omitempty"`
 	MatchPersistErrors int    `json:"match_persist_errors,omitempty"`
+
+	// Typed signals for structured categorization (PSY-1141), so the sync layer
+	// does not have to re-parse DropSummary/FetchError. TruncatedPlays and
+	// DroppedPlays split DropSummary into its two distinct categories (truncation
+	// salvage vs validation drop); FetchErrorCategory is the typed category of a
+	// FetchError, classified where the provider error is still live.
+	TruncatedPlays     int    `json:"truncated_plays,omitempty"`
+	DroppedPlays       int    `json:"dropped_plays,omitempty"`
+	FetchErrorCategory string `json:"fetch_error_category,omitempty"`
 }
 
 // MatchResult summarizes the result of running the matching engine.

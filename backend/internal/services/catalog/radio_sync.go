@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -238,6 +240,13 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	//    is harmless on success/partial (breakerTransition ignores errKind there).
 	s.updateStationHealth(stationID, out.status, opts.Trigger, classifyError(out.hardErr))
 
+	// Escalate a PERMANENT scheduled/auto failure to Sentry (the scraper-drift /
+	// format-change signal). Manual failures stay log-only (the operator already sees
+	// the result); transient failures retry and stay log-only (PSY-1141).
+	if category, escErr := escalationError(out, opts.Trigger); escErr != nil {
+		s.escalatePermanentFailure(escErr, stationID, category)
+	}
+
 	// Surface the executor's hard error (nil on success/partial) so callers that
 	// need it keep their signal; the run is recorded regardless.
 	return &RunStationSyncResult{
@@ -366,20 +375,35 @@ func importResultOutcome(res *contracts.RadioImportResult, episodesFound int) sy
 	if unmatched < 0 {
 		unmatched = 0
 	}
-	// res.Errors is the superset: EpisodeFetchErrors/MatchPersistErrors are each
-	// also appended to Errors (contract), so counting len(Errors) alone avoids
-	// double-counting while still flipping the status to partial when any occurred.
-	errCount := len(res.Errors)
+	// CategorizedErrors carries the category decided AT THE SOURCE (PSY-1141), so the
+	// import path records the real radio_sync_run_errors category instead of the
+	// substring heuristic — it is parallel to res.Errors (same order, same length).
+	// The fetch/match counters are each also recorded as a categorized error, so the
+	// length flips the status to 'partial' when any occurred without double-counting.
+	errs := categorizedToRunErrors(res.CategorizedErrors)
 	return syncOutcome{
-		status:           terminalStatus(false, errCount),
+		status:           terminalStatus(false, len(errs)),
 		episodesFound:    episodesFound,
 		episodesImported: res.EpisodesImported,
 		playsImported:    res.PlaysImported,
 		playsMatched:     res.PlaysMatched,
 		playsUnmatched:   unmatched,
-		errs:             stringErrs(res.Errors),
+		errs:             errs,
 		importResult:     res,
 	}
+}
+
+// categorizedToRunErrors maps the structured import errors (category decided at the
+// source) straight onto run-error rows — no re-categorization. PSY-1141.
+func categorizedToRunErrors(cats []contracts.RadioRunError) []runError {
+	if len(cats) == 0 {
+		return nil
+	}
+	out := make([]runError, 0, len(cats))
+	for _, c := range cats {
+		out = append(out, runError{category: c.Category, detail: c.Detail, episodeRef: c.EpisodeRef})
+	}
+	return out
 }
 
 // terminalStatus resolves the non-skipped, non-cancelled terminal status. The
@@ -709,10 +733,11 @@ func topLevelErr(err error) []runError {
 	return []runError{{category: categorizeRunError(err), detail: err.Error()}}
 }
 
-// stringErrs maps the executors' free-text per-episode error strings into
-// categorized run-error rows. Fine-grained categorization from typed errors
-// threaded out of importEpisode/importPlays is a follow-up (the executors collapse
-// errors to strings today); the heuristic below covers the common shapes.
+// stringErrs maps free-text error strings into categorized run-error rows via the
+// substring heuristic. As of PSY-1141 this is the fallback for the DISCOVER path
+// only (RadioDiscoverResult.Errors) — the import path threads structured categories
+// out at the source (see categorizedToRunErrors / recordImportError), so its
+// categories are exact, not guessed.
 func stringErrs(msgs []string) []runError {
 	if len(msgs) == 0 {
 		return nil
@@ -724,7 +749,19 @@ func stringErrs(msgs []string) []runError {
 	return out
 }
 
-// categorizeRunError maps a typed error to a radio_sync_run_errors category.
+// categorizeRunError maps an error to a radio_sync_run_errors category. Typed checks
+// (deadline, RadioHTTPError, net.Error timeout) come first; a remaining non-HTTP,
+// non-timeout error is then parse-detected by message before defaulting to
+// provider_unreachable.
+//
+// The parse arm is load-bearing for escalation (PSY-1141): a provider format/scraper
+// change surfaces as a wrapped parse failure (every provider wraps it
+// "parsing X response: %w"), reaching here via importEpisode's FetchErrorCategory.
+// Without this arm a parse failure defaulted to provider_unreachable and the
+// scraper-drift Sentry escalation (escalationError's parse_error arm) was unreachable
+// on the import path. Only parse is string-matched here (not drop/truncation — those
+// are import-path-only concepts handled structurally, and matching "dropped" risks
+// false positives on network-error strings).
 func categorizeRunError(err error) string {
 	if err == nil {
 		return catalogm.RadioSyncRunErrorProviderUnreachable
@@ -743,6 +780,19 @@ func categorizeRunError(err error) string {
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return catalogm.RadioSyncRunErrorTimeout
 	}
+	// Reached only after the typed transient checks above (deadline / RadioHTTPError
+	// 429 / net timeout), so a parse-classified error here is permanent by
+	// construction. Invariant: providers signal transience via RadioHTTPError/net
+	// (caught above), NOT by joining ErrTransient onto a "parsing …" message — a
+	// hypothetical transient-tagged parse string would mis-route here. None do today.
+	// "parsing" (not just "parse") matters: every provider wraps parse failures as
+	// "parsing X response: %w" — strings.Contains("parsing","parse") is false.
+	ls := strings.ToLower(err.Error())
+	if strings.Contains(ls, "parsing") || strings.Contains(ls, "parse") ||
+		strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") ||
+		strings.Contains(ls, "invalid character") {
+		return catalogm.RadioSyncRunErrorParseError
+	}
 	return catalogm.RadioSyncRunErrorProviderUnreachable
 }
 
@@ -755,15 +805,15 @@ func categorizeErrorString(s string) string {
 		return catalogm.RadioSyncRunErrorTimeout
 	case strings.Contains(ls, "429") || strings.Contains(ls, "rate limit") || strings.Contains(ls, "too many"):
 		return catalogm.RadioSyncRunErrorRateLimited
-	case strings.Contains(ls, "parse") || strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") || strings.Contains(ls, "invalid character"):
+	case strings.Contains(ls, "parsing") || strings.Contains(ls, "parse") || strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") || strings.Contains(ls, "invalid character"):
 		return catalogm.RadioSyncRunErrorParseError
-	// validation_drop before truncation: every provider drop-summary starts
-	// "dropped N plays: ..." (summarizeDrops), so a summary that also mentions
-	// truncated titles correctly buckets as a drop. NOTE: this makes 'truncation'
-	// effectively unreachable from today's stringified drop-summaries — precise
-	// truncation categorization needs structured (typed) errors threaded out of
-	// importPlays, which is P3/P4. The 'truncat' arm stays for any future
-	// non-summary error string that mentions truncation without "dropped".
+	// NOTE: as of PSY-1141 this heuristic is the DISCOVER-path fallback only (the
+	// import path categorizes structurally — see categorizedToRunErrors). Drop/
+	// truncation summaries arise ONLY on the import path, so the two arms below are
+	// unreachable from both current callers; they are retained purely as a defensive
+	// default for arbitrary future free-text error strings. validation_drop is checked
+	// before truncation so a combined "dropped N plays: ... truncated" summary buckets
+	// as a drop.
 	case strings.Contains(ls, "missing artist") || strings.Contains(ls, "dropped"):
 		return catalogm.RadioSyncRunErrorValidationDrop
 	case strings.Contains(ls, "truncat"):
@@ -773,6 +823,72 @@ func categorizeErrorString(s string) string {
 	default:
 		return catalogm.RadioSyncRunErrorProviderUnreachable
 	}
+}
+
+// ───────────────────────────── permanent-failure escalation ─────────────────────────────
+
+// escalationError decides whether a resolved run carries a failure worth paging on,
+// returning its category + the representative error (nil error → do not escalate).
+// Pure (no I/O) so it is unit-tested directly. Policy (PSY-1141 + the locked decision — "every
+// permanent failure on a scheduled/auto run"):
+//   - manual trigger → never (the operator already sees the result);
+//   - a hard FAILED run whose error classifies PERMANENT → escalate. NOTE this is
+//     deliberately BROAD per the locked decision: it includes config/setup/DB hard
+//     errors (a misconfigured station IS a permanent failure worth knowing about), not
+//     only provider drift. The error_category tag distinguishes them downstream
+//     (parse_error = format change vs provider_unreachable = config/infra/4xx-5xx);
+//   - a run carrying any per-episode parse_error → escalate once: a scraper format
+//     change surfaces as a PARTIAL run of per-episode parse failures, not a hard
+//     failure (the episode loop continues), so escalating only on FAILED would miss
+//     the headline signal. parse_error is reachable on the import path now that
+//     categorizeRunError parse-detects (it was dead before — the PSY-1141 review fix);
+//   - everything else (transient, data-quality drops, success/partial-without-parse) →
+//     no escalation.
+func escalationError(out syncOutcome, trigger string) (string, error) {
+	if trigger == catalogm.RadioSyncRunTriggerManual {
+		return "", nil
+	}
+	if out.status == catalogm.RadioSyncRunStatusFailed && out.hardErr != nil &&
+		classifyError(out.hardErr) == kindPermanent {
+		return categorizeRunError(out.hardErr), out.hardErr
+	}
+	for _, e := range out.errs {
+		if e.category == catalogm.RadioSyncRunErrorParseError {
+			return catalogm.RadioSyncRunErrorParseError, errors.New(e.detail)
+		}
+	}
+	return "", nil
+}
+
+// escalatePermanentFailure escalates a permanent radio sync failure to Sentry, tagged
+// with the station + error category (the canonical sentry.WithScope + CaptureException
+// pattern used across the services). The onPermanentFailure seam lets tests observe
+// escalation without a Sentry transport; nil → the real call (a no-op when Sentry is
+// not initialised, e.g. in tests that don't set the seam).
+func (s *RadioService) escalatePermanentFailure(err error, stationID uint, category string) {
+	if s.onPermanentFailure != nil {
+		s.onPermanentFailure(err, stationID, category)
+		return
+	}
+	sentry.WithScope(func(scope *sentry.Scope) {
+		stationTag := strconv.FormatUint(uint64(stationID), 10)
+		scope.SetTag("service", "radio_sync")
+		scope.SetTag("radio_station_id", stationTag)
+		scope.SetTag("error_category", category)
+		// Group ALL escalations for a (station, category) into ONE Sentry issue with a
+		// rising occurrence count, instead of fragmenting per-episode (the captured
+		// detail varies by episode, so the default fingerprint would open a new issue
+		// per episode per run). This is what makes the locked "rely on Sentry's native
+		// grouping" decision actually hold for the parse-drift case, which recurs every
+		// fetch cycle — a parse-drift run is PARTIAL (some episodes created), so it does
+		// not trip the breaker and is not otherwise damped (PSY-1141 review).
+		scope.SetFingerprint([]string{"radio_sync", category, stationTag})
+		// Cap the captured message to the same bound the run-errors table enforces
+		// (truncateForDetail), so a provider's raw response body — RadioHTTPError
+		// embeds up to 512B of it — can't be exfiltrated to Sentry unbounded. The DB
+		// path truncates; escalation must too (PSY-1141 review).
+		sentry.CaptureException(errors.New(truncateForDetail(err.Error())))
+	})
 }
 
 // runErrorDetailLimit caps a radio_sync_run_errors.detail so a flapping provider
