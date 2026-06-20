@@ -19,6 +19,12 @@ import (
 // survives TranslateError untouched and errors.As can recover it.
 const pgSerializationFailure = "40001"
 
+// pgDeadlockDetected is the Postgres SQLSTATE for a detected deadlock — the other
+// half of the canonical "safe to retry after a transient conflict" pair (with
+// 40001). Like 40001 it is absent from GORM's TranslateError code map, so the
+// original *pgconn.PgError survives untouched.
+const pgDeadlockDetected = "40P01"
+
 // IsDuplicateKey reports whether err is a GORM duplicate-key (unique
 // constraint) violation.
 //
@@ -47,6 +53,21 @@ func IsSerializationFailure(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		return pgErr.Code == pgSerializationFailure
+	}
+	return false
+}
+
+// IsDeadlock reports whether err is a Postgres deadlock_detected (SQLSTATE 40P01)
+// — a transient conflict that is safe to retry. Unlike a serialization failure
+// (which only arises at REPEATABLE READ / SERIALIZABLE), a deadlock can occur at
+// any isolation level including READ COMMITTED, so a retry-on-conflict guard that
+// omits it is incomplete. Keys on the typed *pgconn.PgError directly (40P01 is
+// not in GORM's TranslateError map either); see IsSerializationFailure for the
+// TranslateError rationale.
+func IsDeadlock(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == pgDeadlockDetected
 	}
 	return false
 }

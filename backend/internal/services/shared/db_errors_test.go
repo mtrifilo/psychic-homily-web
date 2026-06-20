@@ -50,6 +50,7 @@ func TestIsSerializationFailure(t *testing.T) {
 		{"raw driver string", errors.New("could not serialize access due to concurrent update"), false},
 		{"pg 40001 direct", &pgconn.PgError{Code: "40001"}, true},
 		{"pg 40001 wrapped", fmt.Errorf("batch inserting plays: %w", &pgconn.PgError{Code: "40001"}), true},
+		{"pg 40P01 deadlock", &pgconn.PgError{Code: "40P01"}, false},
 		{"pg 23505 duplicate", &pgconn.PgError{Code: "23505"}, false},
 		{"gorm dup sentinel", gorm.ErrDuplicatedKey, false},
 	}
@@ -57,6 +58,29 @@ func TestIsSerializationFailure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := IsSerializationFailure(tc.err); got != tc.want {
 				t.Errorf("IsSerializationFailure(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsDeadlock(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("connection refused"), false},
+		{"raw driver string", errors.New("deadlock detected"), false},
+		{"pg 40P01 direct", &pgconn.PgError{Code: "40P01"}, true},
+		{"pg 40P01 wrapped", fmt.Errorf("batch inserting plays: %w", &pgconn.PgError{Code: "40P01"}), true},
+		{"pg 40001 serialization", &pgconn.PgError{Code: "40001"}, false},
+		{"pg 23505 duplicate", &pgconn.PgError{Code: "23505"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsDeadlock(tc.err); got != tc.want {
+				t.Errorf("IsDeadlock(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
 	}
@@ -74,6 +98,12 @@ func TestIsSerializationFailure_SurvivesTranslateError(t *testing.T) {
 	serErr := dialector.Translate(&pgconn.PgError{Code: "40001"})
 	if !IsSerializationFailure(serErr) {
 		t.Errorf("40001 must survive TranslateError and remain detectable; got %T: %v", serErr, serErr)
+	}
+
+	// 40P01 likewise is not translated → survives as a *pgconn.PgError.
+	deadlockErr := dialector.Translate(&pgconn.PgError{Code: "40P01"})
+	if !IsDeadlock(deadlockErr) {
+		t.Errorf("40P01 must survive TranslateError and remain detectable; got %T: %v", deadlockErr, deadlockErr)
 	}
 
 	// Control: 23505 IS translated to the sentinel, so it is a duplicate-key error,
