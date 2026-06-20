@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import type { RadioSyncRun } from '@/lib/hooks/admin/useAdminRadio'
 
 // SyncRunRow's only hook dependency is useCancelSyncRun (a useMutation). We stub
@@ -11,12 +11,15 @@ import type { RadioSyncRun } from '@/lib/hooks/admin/useAdminRadio'
 //      errors[], NOT a plain green "success";
 //   2. a run that imported zero plays shows "no plays found", never "0% matched";
 //   3. a clean `success` run with plays still shows the "% matched" summary.
+// cancelMutate is hoisted so the cancel-button-wiring test can assert it fires.
+const { cancelMutate } = vi.hoisted(() => ({ cancelMutate: vi.fn() }))
+
 vi.mock('@/lib/hooks/admin/useAdminRadio', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/lib/hooks/admin/useAdminRadio')>()
   return {
     ...actual,
-    useCancelSyncRun: () => ({ mutate: vi.fn(), isPending: false }),
+    useCancelSyncRun: () => ({ mutate: cancelMutate, isPending: false }),
   }
 })
 
@@ -112,6 +115,68 @@ describe('SyncRunRow — partial (completed-with-errors) run (PSY-1119/1120/1136
 
     expect(screen.getByText('skipped (breaker)')).toBeInTheDocument()
     expect(screen.getByText(/circuit breaker was open/)).toBeInTheDocument()
+  })
+
+  it('renders a fallback reason for a failed run with no categorized errors', () => {
+    const run = makeRun({ status: 'failed', errors: [] })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    expect(
+      screen.getByText(/failed before any detailed error was recorded/)
+    ).toBeInTheDocument()
+  })
+
+  it('renders a cancelled body line (not just the badge)', () => {
+    const run = makeRun({ status: 'cancelled', finished_at: null })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.getByText('cancelled')).toBeInTheDocument()
+    expect(screen.getByText(/Cancelled before completion/)).toBeInTheDocument()
+  })
+
+  it('caps the error list and shows a "+N more" overflow note', () => {
+    const errors = Array.from({ length: 25 }, (_, i) => ({
+      category: 'provider_unreachable',
+      detail: `error ${i}`,
+    }))
+    const run = makeRun({ status: 'failed', errors })
+    render(<SyncRunRow run={run} />)
+
+    // 25 errors, capped at 20 displayed → "+5 more".
+    expect(screen.getByText(/\+5 more/)).toBeInTheDocument()
+  })
+
+  it('shows the Cancel button only for a running run and calls cancel with the run id', () => {
+    cancelMutate.mockClear()
+    const run = makeRun({ id: 99, status: 'running', finished_at: null })
+    render(<SyncRunRow run={run} />)
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel/i })
+    fireEvent.click(cancelBtn)
+    expect(cancelMutate).toHaveBeenCalledWith(99)
+  })
+
+  it('does NOT show a Cancel button on a terminal run', () => {
+    const run = makeRun({ status: 'success' })
+    render(<SyncRunRow run={run} />)
+    expect(screen.queryByRole('button', { name: /Cancel/i })).toBeNull()
+  })
+
+  it('suppresses the episode progress bar for a discover run even with episodes_found > 0', () => {
+    // A discover run reports an episode scan count but imports no episodes; the
+    // progress bar (gated on run_type !== "discover") must not render, and the
+    // summary reads "discovery finished".
+    const run = makeRun({
+      run_type: 'discover',
+      status: 'success',
+      episodes_found: 10,
+      episodes_imported: 0,
+    })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.queryByText(/\/ 10 episodes/)).toBeNull()
+    expect(screen.getByText(/discovery finished/)).toBeInTheDocument()
   })
 })
 

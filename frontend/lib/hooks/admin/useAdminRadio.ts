@@ -472,6 +472,10 @@ export function useTriggerStationSync() {
   return useMutation({
     mutationFn: async ({
       stationId,
+      // 'fetch' is backend-supported but has no manual UI trigger yet — episode
+      // fetching runs on the scheduled ticker; the admin UI only triggers
+      // 'discover' (PSY-1136). The arm is kept so a future "Fetch now" button can
+      // use this same hook.
       mode,
     }: {
       stationId: number
@@ -513,12 +517,16 @@ export function useTriggerShowBackfill() {
 }
 
 /**
- * Poll a single sync run's status. Refetches every 3 seconds until a TERMINAL
- * status is observed. Replaces useImportJob (now run-id-keyed, no `pending`
- * state). Polls while the status is `running` OR still unknown (`undefined`) so a
- * transient first-poll failure (e.g. a brief read-after-write 404) keeps retrying
- * rather than stranding the run with no row ever shown; it stops only once a
- * terminal status (success/partial/failed/skipped/cancelled) is seen.
+ * Poll a single sync run's status. Refetches every 3 seconds while the run is
+ * `running`, and STOPS once a terminal status is observed OR a fetch error lands.
+ * Replaces useImportJob (now run-id-keyed, no `pending` state).
+ *
+ * The `query.state.error` guard is load-bearing: without it, a run whose GET
+ * persistently errors (e.g. the run was reaped → 404, which the global QueryClient
+ * does NOT retry) would poll every 3s forever, because react-query keeps firing
+ * refetchInterval in the error state. Transient errors are absorbed by the global
+ * retry config before they ever set state.error, so this stops only on a
+ * genuinely stuck poll — the consumer surfaces that via the query's isError.
  */
 export function useSyncRun(runId: number, enabled = true) {
   return useQuery({
@@ -529,8 +537,8 @@ export function useSyncRun(runId: number, enabled = true) {
     },
     enabled: enabled && runId > 0,
     refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === undefined || status === 'running' ? 3000 : false
+      if (query.state.error) return false
+      return query.state.data?.status === 'running' ? 3000 : false
     },
   })
 }

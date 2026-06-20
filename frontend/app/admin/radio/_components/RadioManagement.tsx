@@ -777,12 +777,18 @@ function EditShowForm({
 // appear). The settled guard keys on the run ID, not the status string: two
 // same-session runs that both end on the same terminal status (e.g. a fast
 // discover that's already `success` on its first poll) must each invalidate, so
-// a boolean/once-on-`running` guard would miss the second run. Shared by
-// ShowImportSection (backfill) and StationDetailPanel (discover).
-function useTrackedSyncRun(stationId: number) {
+// a boolean/once-on-`running` guard would miss the second run.
+//
+// `trackRun` takes the FULL run returned by the trigger (not just its id) and
+// seeds it into the query cache, so `isRunning` flips true on the same render the
+// trigger resolves — without it there's a gap between the mutation settling and
+// the first poll returning `running` where the trigger button is briefly
+// re-enabled and a second run could be fired. Shared by ShowImportSection
+// (backfill) and StationDetailPanel (discover). Exported for direct hook testing.
+export function useTrackedSyncRun(stationId: number) {
   const queryClient = useQueryClient()
   const [runId, setRunId] = useState<number | null>(null)
-  const { data: run } = useSyncRun(runId ?? 0, runId != null)
+  const { data: run, isError } = useSyncRun(runId ?? 0, runId != null)
   const settledRunRef = useRef<number | null>(null)
   const status = run?.status
 
@@ -795,7 +801,21 @@ function useTrackedSyncRun(stationId: number) {
     queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
   }, [runId, status, queryClient, stationId])
 
-  return { run, isRunning: status === 'running', trackRun: setRunId }
+  const trackRun = useCallback(
+    (opened: RadioSyncRun) => {
+      queryClient.setQueryData(radioQueryKeys.syncRun(opened.id), opened)
+      setRunId(opened.id)
+    },
+    [queryClient]
+  )
+
+  // isRunning is false once the poll has errored out, even if the cache still
+  // holds a seeded/last-good `running` value — react-query RETAINS prior data on a
+  // fetch error, so without the `!isError` guard a first-poll error after seeding
+  // would leave isRunning stuck true (button frozen "…Running") with the poll
+  // already stopped. On error the consumer shows an error note + re-enables the
+  // trigger instead of a permanently-spinning row.
+  return { run, isRunning: status === 'running' && !isError, isError, trackRun }
 }
 
 // Render the play-match summary for a job. A job that imported zero plays has
@@ -906,8 +926,13 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
         </div>
       </div>
 
-      {/* Episode progress (running / terminal good) — episode-importing runs only */}
-      {(run.status === 'running' || isTerminalGood) && run.episodes_found > 0 && (
+      {/* Episode progress (running / terminal good) — episode-importing runs only
+          (fetch/backfill). Gated on run_type, not just episodes_found, so a
+          discover run never shows an episode-import progress bar even if the
+          provider reports a non-zero episode scan count. */}
+      {run.run_type !== 'discover' &&
+        (run.status === 'running' || isTerminalGood) &&
+        run.episodes_found > 0 && (
         <div className="space-y-1">
           <div className="h-2 rounded-full bg-muted overflow-hidden">
             <div
@@ -1005,6 +1030,14 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
           Skipped &mdash; the station circuit breaker was open.
         </div>
       )}
+
+      {/* Cancelled — body line for symmetry with the other terminal states (so a
+          cancelled run isn't a bare badge). */}
+      {run.status === 'cancelled' && (
+        <div className="text-xs text-muted-foreground">
+          Cancelled before completion.
+        </div>
+      )}
     </div>
   )
 }
@@ -1027,7 +1060,7 @@ function ShowImportSection({
   stationId: number
 }) {
   const triggerMutation = useTriggerShowBackfill()
-  const { run: liveRun, isRunning, trackRun } = useTrackedSyncRun(stationId)
+  const { run: liveRun, isRunning, isError, trackRun } = useTrackedSyncRun(stationId)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
@@ -1046,7 +1079,7 @@ function ShowImportSection({
         { showId: show.id, since, until },
         {
           onSuccess: (run) => {
-            trackRun(run.id)
+            trackRun(run)
             setShowCreateForm(false)
             setSince('')
             setUntil('')
@@ -1060,8 +1093,15 @@ function ShowImportSection({
 
   return (
     <div className="mt-3 space-y-3">
-      {/* Live (and last-settled) run for this show */}
-      {liveRun && <SyncRunRow run={liveRun} />}
+      {/* Live (and last-settled) run for this show. On a poll error we hide the
+          (possibly-stale, retained-by-react-query) row and show the error instead,
+          so the operator isn't left staring at a frozen "running" row. */}
+      {liveRun && !isError && <SyncRunRow run={liveRun} />}
+      {isError && (
+        <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+          Couldn&apos;t load the backfill run status. Reload to try again.
+        </div>
+      )}
 
       {/* Create backfill form */}
       {showCreateForm ? (
@@ -1146,15 +1186,19 @@ function StationDetailPanel({
   // run and refreshes the shows list once it settles. (The old endpoint returned
   // the discovered names synchronously; a discover sync-run carries no name list,
   // so the new shows simply appear in the list below on completion.)
-  const { run: discoverRun, isRunning: discoverRunning, trackRun: trackDiscoverRun } =
-    useTrackedSyncRun(station.id)
+  const {
+    run: discoverRun,
+    isRunning: discoverRunning,
+    isError: discoverPollError,
+    trackRun: trackDiscoverRun,
+  } = useTrackedSyncRun(station.id)
 
   const handleDiscoverShows = useCallback(() => {
     setDiscoverError(null)
     triggerMutation.mutate(
       { stationId: station.id, mode: 'discover' },
       {
-        onSuccess: (run) => trackDiscoverRun(run.id),
+        onSuccess: (run) => trackDiscoverRun(run),
         onError: (err) => setDiscoverError(err.message),
       }
     )
@@ -1267,8 +1311,13 @@ function StationDetailPanel({
           {discoverError && (
             <span className="text-sm text-destructive">Discovery failed: {discoverError}</span>
           )}
+          {discoverPollError && (
+            <span className="text-sm text-destructive">
+              Couldn&apos;t load the discover run status. Reload to try again.
+            </span>
+          )}
         </div>
-        {discoverRun && <SyncRunRow run={discoverRun} />}
+        {discoverRun && !discoverPollError && <SyncRunRow run={discoverRun} />}
       </div>
 
       {/* Shows */}
