@@ -136,11 +136,11 @@ func (s *RadioSyncSuite) TestLockContention_NoRow() {
 	s.Require().NoError(err)
 	conn, err := sqlDB.Conn(context.Background())
 	s.Require().NoError(err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	key := fnvHash(fmt.Sprintf("radio_sync:station:%d", st.ID))
 	_, err = conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", key)
 	s.Require().NoError(err)
-	defer conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+	defer func() { _, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key) }()
 
 	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
 		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
@@ -303,11 +303,11 @@ func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
 	s.Require().NoError(err)
 	conn, err := sqlDB.Conn(context.Background())
 	s.Require().NoError(err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	key := fnvHash(fmt.Sprintf("radio_sync:station:%d", st.ID))
 	_, err = conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", key)
 	s.Require().NoError(err)
-	defer conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+	defer func() { _, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key) }()
 
 	fs.runFetchCycle()
 
