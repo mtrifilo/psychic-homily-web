@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Plus,
@@ -19,11 +20,9 @@ import {
   BarChart3,
   Radar,
   Upload,
-  Clock,
   PlayCircle,
   XCircle,
   CheckCircle2,
-  History,
 } from 'lucide-react'
 import { AdminEmptyState } from '@/components/admin'
 import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
@@ -72,19 +71,17 @@ import {
   useCreateRadioShow,
   useUpdateRadioShow,
   useDeleteRadioShow,
-  useFetchPlaylists,
-  useDiscoverShows,
-  useCreateImportJob,
-  useImportJob,
-  useCancelImportJob,
-  useShowImportJobs,
+  radioQueryKeys,
+  useTriggerStationSync,
+  useTriggerShowBackfill,
+  useSyncRun,
+  useCancelSyncRun,
   useUnmatchedPlays,
   useBulkLinkPlays,
   type RadioStationListItem,
   type RadioStationDetail,
   type RadioShowListItem,
-  type RadioDiscoverResult,
-  type RadioImportJob,
+  type RadioSyncRun,
   type CreateRadioStationInput,
   type UpdateRadioStationInput,
   type CreateRadioShowInput,
@@ -771,30 +768,34 @@ function EditShowForm({
 // ============================================================================
 
 // ============================================================================
-// Import Job Progress Row
+// Sync run tracking + progress row
 // ============================================================================
 
-// A completed import job carries no dedicated error-count columns: the backend
-// (PSY-1119) avoids a status-enum migration and instead writes a stable,
-// machine-greppable header as the FIRST line of error_log when the import lost
-// data — "completed with errors: N episodes failed to fetch, M play matches
-// failed to persist". A `completed` job with such a header lost plays; it did
-// NOT run clean. We parse N/M so the UI can render an explicit warning rather
-// than a plain green "completed". Returns null when the job ran clean (no header
-// / no error_log), so callers can treat null as "no warning". (PSY-1120)
-const IMPORT_ERROR_HEADER =
-  /^completed with errors:\s*(\d+)\s+episodes failed to fetch,\s*(\d+)\s+play matches failed to persist/i
+// Track a triggered sync run: hold its id, poll it (useSyncRun), and when it
+// reaches a terminal status invalidate the station's shows + the stations/stats
+// lists exactly ONCE per run (so newly-discovered shows / updated episode counts
+// appear). The settled guard keys on the run ID, not the status string: two
+// same-session runs that both end on the same terminal status (e.g. a fast
+// discover that's already `success` on its first poll) must each invalidate, so
+// a boolean/once-on-`running` guard would miss the second run. Shared by
+// ShowImportSection (backfill) and StationDetailPanel (discover).
+function useTrackedSyncRun(stationId: number) {
+  const queryClient = useQueryClient()
+  const [runId, setRunId] = useState<number | null>(null)
+  const { data: run } = useSyncRun(runId ?? 0, runId != null)
+  const settledRunRef = useRef<number | null>(null)
+  const status = run?.status
 
-function parseImportWarning(
-  errorLog: string | null | undefined
-): { fetchErrors: number; persistErrors: number } | null {
-  if (!errorLog) return null
-  const match = errorLog.match(IMPORT_ERROR_HEADER)
-  if (!match) return null
-  const fetchErrors = Number(match[1])
-  const persistErrors = Number(match[2])
-  if (fetchErrors === 0 && persistErrors === 0) return null
-  return { fetchErrors, persistErrors }
+  useEffect(() => {
+    if (runId == null || !status || status === 'running') return
+    if (settledRunRef.current === runId) return
+    settledRunRef.current = runId
+    queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(stationId) })
+    queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+    queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+  }, [runId, status, queryClient, stationId])
+
+  return { run, isRunning: status === 'running', trackRun: setRunId }
 }
 
 // Render the play-match summary for a job. A job that imported zero plays has
@@ -819,62 +820,71 @@ function PlaysMatchSummary({
   )
 }
 
-// Exported only for direct regression-test access (the completed-with-errors
-// warning, the 0-plays match display). Production callers reach it through
-// ShowImportSection. (PSY-1120)
-export function ImportJobRow({ job }: { job: RadioImportJob }) {
-  const cancelMutation = useCancelImportJob()
+// Status display config for a sync run (PSY-1136). `partial` = imported data but
+// hit per-episode/match errors (the old "completed with errors"); `skipped` = the
+// station circuit breaker was open.
+const SYNC_RUN_STATUS_DISPLAY: Record<RadioSyncRun['status'], { label: string; color: string }> = {
+  running: { label: 'running', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  success: { label: 'success', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  partial: { label: 'completed with errors', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  failed: { label: 'failed', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+  skipped: { label: 'skipped (breaker)', color: 'bg-muted text-muted-foreground' },
+  cancelled: { label: 'cancelled', color: 'bg-muted text-muted-foreground' },
+}
 
-  const isActive = job.status === 'running' || job.status === 'pending'
-  // A `completed` job whose error_log carries the PSY-1119 header lost data —
-  // surface it as a warning rather than a clean green "completed". (PSY-1120)
-  const importWarning =
-    job.status === 'completed' ? parseImportWarning(job.error_log) : null
-  const progress = job.episodes_found > 0
-    ? Math.round((job.episodes_imported / job.episodes_found) * 100)
+function SyncRunStatusIcon({ status }: { status: RadioSyncRun['status'] }) {
+  switch (status) {
+    case 'running':
+      return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+    case 'success':
+      return <CheckCircle2 className="h-4 w-4 text-green-500" />
+    case 'partial':
+      return <AlertCircle className="h-4 w-4 text-amber-500" />
+    case 'failed':
+      return <AlertCircle className="h-4 w-4 text-destructive" />
+    case 'skipped':
+    case 'cancelled':
+      return <XCircle className="h-4 w-4 text-muted-foreground" />
+  }
+}
+
+// Render a sync run (radio_sync_runs) — the unified ingestion-run row replacing
+// ImportJobRow (PSY-1136). A `partial` run carries the old "completed with errors"
+// meaning (imported data, but some episodes/matches failed); the structured
+// errors[] list replaces the parsed error_log header. window_start/end render
+// only for backfill runs; the episode progress bar only for episode-importing
+// runs (fetch/backfill), not discover. Exported for direct regression-test access;
+// production callers reach it through ShowImportSection / StationDetailPanel.
+export function SyncRunRow({ run }: { run: RadioSyncRun }) {
+  const cancelMutation = useCancelSyncRun()
+
+  const isActive = run.status === 'running'
+  const isTerminalGood = run.status === 'success' || run.status === 'partial'
+  const display = SYNC_RUN_STATUS_DISPLAY[run.status]
+  const progress = run.episodes_found > 0
+    ? Math.round((run.episodes_imported / run.episodes_found) * 100)
     : 0
-
-  // When a completed job carries the PSY-1119 "completed with errors" header,
-  // present it in amber-warning styling (icon + badge label + color) so it never
-  // reads as a clean green success. (PSY-1120)
-  const statusIcon = importWarning ? (
-    <AlertCircle className="h-4 w-4 text-amber-500" />
-  ) : (
-    {
-      pending: <Clock className="h-4 w-4 text-muted-foreground" />,
-      running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
-      completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-      failed: <AlertCircle className="h-4 w-4 text-destructive" />,
-      cancelled: <XCircle className="h-4 w-4 text-muted-foreground" />,
-    }[job.status]
-  )
-
-  const statusColor = importWarning
-    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-    : {
-        pending: 'bg-muted text-muted-foreground',
-        running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-        completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-        failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-        cancelled: 'bg-muted text-muted-foreground',
-      }[job.status]
-
-  const statusLabel = importWarning ? 'completed with errors' : job.status
+  const errors = run.errors ?? []
 
   return (
     <div className="rounded-lg border p-4 space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {statusIcon}
-          <Badge className={statusColor}>{statusLabel}</Badge>
-          <span className="text-sm text-muted-foreground">
-            {job.since} to {job.until}
+          <SyncRunStatusIcon status={run.status} />
+          <Badge className={display.color}>{display.label}</Badge>
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            {run.run_type}
           </span>
+          {run.window_start && run.window_end && (
+            <span className="text-sm text-muted-foreground">
+              {run.window_start} to {run.window_end}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          {job.started_at && (
+          {run.started_at && (
             <span className="text-xs text-muted-foreground">
-              Started {new Date(job.started_at).toLocaleString()}
+              Started {new Date(run.started_at).toLocaleString()}
             </span>
           )}
           {isActive && (
@@ -883,7 +893,7 @@ export function ImportJobRow({ job }: { job: RadioImportJob }) {
               size="sm"
               className="text-destructive"
               disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate(job.id)}
+              onClick={() => cancelMutation.mutate(run.id)}
             >
               {cancelMutation.isPending ? (
                 <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -896,80 +906,103 @@ export function ImportJobRow({ job }: { job: RadioImportJob }) {
         </div>
       </div>
 
-      {/* Progress bar for running/completed jobs */}
-      {(job.status === 'running' || job.status === 'completed') && job.episodes_found > 0 && (
+      {/* Episode progress (running / terminal good) — episode-importing runs only */}
+      {(run.status === 'running' || isTerminalGood) && run.episodes_found > 0 && (
         <div className="space-y-1">
           <div className="h-2 rounded-full bg-muted overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
-                job.status === 'completed' ? 'bg-chart-2' : 'bg-chart-6'
+                run.status === 'running' ? 'bg-chart-6' : 'bg-chart-2'
               }`}
               style={{ width: `${progress}%` }}
             />
           </div>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
-              {job.episodes_imported.toLocaleString()} / {job.episodes_found.toLocaleString()} episodes
-              {job.current_episode_date && job.status === 'running' && (
-                <> &mdash; processing {job.current_episode_date}</>
+              {run.episodes_imported.toLocaleString()} / {run.episodes_found.toLocaleString()} episodes
+              {run.current_episode_date && run.status === 'running' && (
+                <> &mdash; processing {run.current_episode_date}</>
               )}
             </span>
             <span>
               <PlaysMatchSummary
-                playsImported={job.plays_imported}
-                playsMatched={job.plays_matched}
+                playsImported={run.plays_imported}
+                playsMatched={run.plays_matched}
               />
             </span>
           </div>
         </div>
       )}
 
-      {/* Error log for failed jobs */}
-      {job.status === 'failed' && job.error_log && (
-        <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive whitespace-pre-wrap max-h-24 overflow-y-auto">
-          {job.error_log}
-        </div>
-      )}
-
-      {/* Warning banner for a completed-with-errors job (PSY-1119/1120). The job
-          finished but lost data: N episodes' playlists failed to fetch (all of
-          their plays were lost) and/or M computed matches failed to persist. */}
-      {importWarning && (
+      {/* Partial-run warning: the run finished but some episodes/matches failed.
+          We summarise the ERROR count (not plays_unmatched — unmatched plays are a
+          normal outcome for unknown artists, not a failure). The episode count is
+          shown only for episode-importing runs; a `partial` discover run just shows
+          the error count + the categorized list below. */}
+      {run.status === 'partial' && (
         <div className="rounded-md bg-amber-100 p-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
           <p className="font-medium">Completed with errors</p>
           <p>
-            {job.episodes_imported.toLocaleString()} episode
-            {job.episodes_imported === 1 ? '' : 's'} imported
-            {importWarning.fetchErrors > 0 && (
+            {run.run_type !== 'discover' && (
               <>
-                , {importWarning.fetchErrors.toLocaleString()} failed to fetch
-                playlists
+                {run.episodes_imported.toLocaleString()} episode
+                {run.episodes_imported === 1 ? '' : 's'} imported &mdash;{' '}
               </>
             )}
-            {importWarning.persistErrors > 0 && (
-              <>
-                , {importWarning.persistErrors.toLocaleString()} play match
-                {importWarning.persistErrors === 1 ? '' : 'es'} failed to persist
-              </>
-            )}
-            .
+            {errors.length.toLocaleString()} error{errors.length === 1 ? '' : 's'}.
           </p>
         </div>
       )}
 
-      {/* Completed summary */}
-      {job.status === 'completed' && (
-        <div className="text-xs text-muted-foreground">
-          Completed {job.completed_at ? new Date(job.completed_at).toLocaleString() : ''} &mdash;{' '}
-          {job.episodes_imported.toLocaleString()} episodes,{' '}
-          {job.plays_imported > 0 ? (
-            <>
-              {job.plays_imported.toLocaleString()} plays,{' '}
-              {job.plays_matched.toLocaleString()} matched
-            </>
-          ) : (
-            'no plays found'
+      {/* Categorized error list (failed / partial runs) */}
+      {errors.length > 0 && (run.status === 'failed' || run.status === 'partial') && (
+        <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive max-h-24 overflow-y-auto space-y-1">
+          {errors.slice(0, 20).map((e, i) => (
+            <p key={i}>
+              <span className="font-medium">{e.category}</span>
+              {e.detail ? `: ${e.detail}` : ''}
+            </p>
+          ))}
+          {errors.length > 20 && (
+            <p className="text-muted-foreground">+{(errors.length - 20).toLocaleString()} more</p>
           )}
+        </div>
+      )}
+
+      {/* Failed run with no categorized errors recorded — still give the operator
+          a reason rather than a bare red badge. */}
+      {run.status === 'failed' && errors.length === 0 && (
+        <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+          The run failed before any detailed error was recorded.
+        </div>
+      )}
+
+      {/* Completed summary (success / partial) */}
+      {isTerminalGood && (
+        <div className="text-xs text-muted-foreground">
+          Completed {run.finished_at ? new Date(run.finished_at).toLocaleString() : ''} &mdash;{' '}
+          {run.run_type === 'discover' ? (
+            'discovery finished'
+          ) : (
+            <>
+              {run.episodes_imported.toLocaleString()} episodes,{' '}
+              {run.plays_imported > 0 ? (
+                <>
+                  {run.plays_imported.toLocaleString()} plays,{' '}
+                  {run.plays_matched.toLocaleString()} matched
+                </>
+              ) : (
+                'no plays found'
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Skipped (breaker open) */}
+      {run.status === 'skipped' && (
+        <div className="text-xs text-muted-foreground">
+          Skipped &mdash; the station circuit breaker was open.
         </div>
       )}
     </div>
@@ -977,9 +1010,15 @@ export function ImportJobRow({ job }: { job: RadioImportJob }) {
 }
 
 // ============================================================================
-// Show Import Section (per-show import history + active job tracking)
+// Show Import Section (per-show historic backfill + live run tracking)
 // ============================================================================
 
+// Per-show backfill: trigger an async RunStationSync(backfill) over [since, until]
+// and poll the returned run to completion (PSY-1136). The per-show import HISTORY
+// list is intentionally gone — PR2 (PSY-1135) retired the list-jobs endpoint; the
+// unified cross-show sync-run feed is P5 (PSY-1130). A run is tracked only within
+// this component's session; reloading mid-run loses the handle (no list endpoint
+// to recover it from until P5).
 function ShowImportSection({
   show,
   stationId,
@@ -987,29 +1026,12 @@ function ShowImportSection({
   show: RadioShowListItem
   stationId: number
 }) {
-  const { data: jobsData, isLoading } = useShowImportJobs(show.id)
-  const createMutation = useCreateImportJob()
+  const triggerMutation = useTriggerShowBackfill()
+  const { run: liveRun, isRunning, trackRun } = useTrackedSyncRun(stationId)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
   const [error, setError] = useState<string | null>(null)
-
-  const jobs = jobsData?.jobs ?? []
-  const hasActiveJob = jobs.some(j => j.status === 'running' || j.status === 'pending')
-
-  // Poll the MOST-RECENTLY-CREATED active job, derived explicitly by created_at
-  // rather than relying on the list's incidental order. `jobs.find(...)` returned
-  // the FIRST active job in list order; if a second import is started mid-view,
-  // the list can momentarily carry both the old and new active job, and find()
-  // could keep returning the old one — so the live progress row would track the
-  // stale job. Reducing to the max created_at pins the poll to the newest active
-  // job regardless of list ordering. (PSY-1121)
-  const activeJob = jobs.reduce<RadioImportJob | undefined>((latest, j) => {
-    if (j.status !== 'running' && j.status !== 'pending') return latest
-    if (!latest || j.created_at > latest.created_at) return j
-    return latest
-  }, undefined)
-  const { data: liveJob } = useImportJob(activeJob?.id ?? 0, !!activeJob)
 
   const handleCreate = useCallback(
     (e: React.FormEvent) => {
@@ -1020,10 +1042,11 @@ function ShowImportSection({
       if (!until) { setError('End date is required'); return }
       if (since > until) { setError('Start date must be before end date'); return }
 
-      createMutation.mutate(
+      triggerMutation.mutate(
         { showId: show.id, since, until },
         {
-          onSuccess: () => {
+          onSuccess: (run) => {
+            trackRun(run.id)
             setShowCreateForm(false)
             setSince('')
             setUntil('')
@@ -1032,17 +1055,15 @@ function ShowImportSection({
         }
       )
     },
-    [since, until, show.id, createMutation]
+    [since, until, show.id, triggerMutation, trackRun]
   )
 
   return (
     <div className="mt-3 space-y-3">
-      {/* Active job with live progress */}
-      {liveJob && (liveJob.status === 'running' || liveJob.status === 'pending') && (
-        <ImportJobRow job={liveJob} />
-      )}
+      {/* Live (and last-settled) run for this show */}
+      {liveRun && <SyncRunRow run={liveRun} />}
 
-      {/* Create import form */}
+      {/* Create backfill form */}
       {showCreateForm ? (
         <form onSubmit={handleCreate} className="rounded-lg border border-dashed p-4 space-y-3">
           {error && (
@@ -1067,13 +1088,13 @@ function ShowImportSection({
             </div>
           </div>
           <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={createMutation.isPending}>
-              {createMutation.isPending ? (
+            <Button type="submit" size="sm" disabled={triggerMutation.isPending}>
+              {triggerMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />
               ) : (
                 <PlayCircle className="h-4 w-4 mr-1" />
               )}
-              Start Import
+              Start Backfill
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateForm(false)}>
               Cancel
@@ -1085,29 +1106,11 @@ function ShowImportSection({
           variant="outline"
           size="sm"
           onClick={() => setShowCreateForm(true)}
-          disabled={hasActiveJob}
+          disabled={isRunning}
         >
           <Download className="h-4 w-4 mr-1" />
-          {hasActiveJob ? 'Import Running...' : 'Import Episodes'}
+          {isRunning ? 'Backfill Running...' : 'Backfill Episodes'}
         </Button>
-      )}
-
-      {/* Job history (non-active) */}
-      {!isLoading && jobs.filter(j => j.status !== 'running' && j.status !== 'pending').length > 0 && (
-        <details className="text-sm">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-1">
-            <History className="h-3 w-3" />
-            Import History ({jobs.filter(j => j.status !== 'running' && j.status !== 'pending').length})
-          </summary>
-          <div className="mt-2 space-y-2">
-            {jobs
-              .filter(j => j.status !== 'running' && j.status !== 'pending')
-              .map(job => (
-                <ImportJobRow key={job.id} job={job} />
-              ))
-            }
-          </div>
-        </details>
       )}
     </div>
   )
@@ -1128,29 +1131,34 @@ function StationDetailPanel({
 }) {
   const { data: stationDetail } = useRadioStationDetail(station.id)
   const { data: showsData, isLoading: showsLoading } = useRadioShows(station.id)
-  const discoverMutation = useDiscoverShows()
+  const triggerMutation = useTriggerStationSync()
   const deleteShowMutation = useDeleteRadioShow()
 
   const [dialogMode, setDialogMode] = useState<'create-show' | 'edit-show' | 'delete-show' | null>(null)
   const [selectedShow, setSelectedShow] = useState<RadioShowListItem | null>(null)
-  const [discoverResult, setDiscoverResult] = useState<RadioDiscoverResult | null>(null)
   const [discoverError, setDiscoverError] = useState<string | null>(null)
   const [expandedShows, setExpandedShows] = useState<Set<number>>(new Set())
 
   const shows = showsData?.shows ?? []
 
+  // Discover is now async (PSY-1135): the trigger returns a run handle; the shows
+  // it discovers are created by the BACKGROUND run, so useTrackedSyncRun polls the
+  // run and refreshes the shows list once it settles. (The old endpoint returned
+  // the discovered names synchronously; a discover sync-run carries no name list,
+  // so the new shows simply appear in the list below on completion.)
+  const { run: discoverRun, isRunning: discoverRunning, trackRun: trackDiscoverRun } =
+    useTrackedSyncRun(station.id)
+
   const handleDiscoverShows = useCallback(() => {
-    setDiscoverResult(null)
     setDiscoverError(null)
-    discoverMutation.mutate(station.id, {
-      onSuccess: (result) => {
-        setDiscoverResult(result)
-      },
-      onError: (err) => {
-        setDiscoverError(err.message)
-      },
-    })
-  }, [station.id, discoverMutation])
+    triggerMutation.mutate(
+      { stationId: station.id, mode: 'discover' },
+      {
+        onSuccess: (run) => trackDiscoverRun(run.id),
+        onError: (err) => setDiscoverError(err.message),
+      }
+    )
+  }, [station.id, triggerMutation, trackDiscoverRun])
 
   const handleDeleteShow = useCallback(
     (show: RadioShowListItem) => {
@@ -1240,34 +1248,27 @@ function StationDetailPanel({
         </div>
       )}
 
-      {/* Discover Shows */}
+      {/* Discover Shows (async — poll the run, shows appear in the list below on
+          completion) */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <Button onClick={handleDiscoverShows} disabled={discoverMutation.isPending} size="sm">
-            {discoverMutation.isPending ? (
+          <Button
+            onClick={handleDiscoverShows}
+            disabled={triggerMutation.isPending || discoverRunning}
+            size="sm"
+          >
+            {triggerMutation.isPending || discoverRunning ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Radar className="mr-2 h-4 w-4" />
             )}
             Discover Shows
           </Button>
-          {discoverResult && (
-            <span className="text-sm text-muted-foreground">
-              Discovered {discoverResult.shows_discovered} show(s)
-              {discoverResult.show_names.length > 0 && `: ${discoverResult.show_names.join(', ')}`}
-            </span>
-          )}
           {discoverError && (
             <span className="text-sm text-destructive">Discovery failed: {discoverError}</span>
           )}
         </div>
-        {discoverResult?.errors && discoverResult.errors.length > 0 && (
-          <div className="text-xs text-destructive space-y-0.5">
-            {discoverResult.errors.map((e, i) => (
-              <p key={i}>{e}</p>
-            ))}
-          </div>
-        )}
+        {discoverRun && <SyncRunRow run={discoverRun} />}
       </div>
 
       {/* Shows */}
@@ -1308,7 +1309,7 @@ function StationDetailPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      aria-label={`Import episodes for ${show.name}`}
+                      aria-label={`Backfill episodes for ${show.name}`}
                       onClick={() => toggleShowExpanded(show.id)}
                     >
                       <Upload className="h-4 w-4" />

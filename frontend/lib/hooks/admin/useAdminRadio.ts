@@ -21,8 +21,7 @@ export const radioQueryKeys = {
   stationDetail: (id: number) => ['radio', 'stations', id] as const,
   shows: (stationId: number) => ['radio', 'shows', stationId] as const,
   stats: ['radio', 'stats'] as const,
-  importJob: (jobId: number) => ['radio', 'import-jobs', jobId] as const,
-  showImportJobs: (showId: number) => ['radio', 'show-import-jobs', showId] as const,
+  syncRun: (runId: number) => ['radio', 'sync-runs', runId] as const,
   unmatched: (stationId: number) => ['radio', 'unmatched', stationId] as const,
 }
 
@@ -43,13 +42,13 @@ const RADIO_ENDPOINTS = {
   ADMIN_CREATE_SHOW: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/shows`,
   ADMIN_UPDATE_SHOW: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}`,
   ADMIN_DELETE_SHOW: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}`,
-  ADMIN_FETCH_PLAYLISTS: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/fetch`,
-  ADMIN_DISCOVER_SHOWS: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/discover`,
-  ADMIN_IMPORT_SHOW_EPISODES: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import`,
-  ADMIN_CREATE_IMPORT_JOB: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import-job`,
-  ADMIN_GET_IMPORT_JOB: (jobId: number) => `${API_BASE_URL}/admin/radio/import-jobs/${jobId}`,
-  ADMIN_CANCEL_IMPORT_JOB: (jobId: number) => `${API_BASE_URL}/admin/radio/import-jobs/${jobId}/cancel`,
-  ADMIN_LIST_IMPORT_JOBS: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import-jobs`,
+  // Unified ingestion triggers + run poll/cancel (PSY-1135 backend; PSY-1136 FE).
+  // Station-scoped sync (discover|fetch) and show-scoped backfill are async: they
+  // return a RadioSyncRun handle the UI polls via ADMIN_GET_SYNC_RUN.
+  ADMIN_STATION_SYNC: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/sync`,
+  ADMIN_SHOW_BACKFILL: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/backfill`,
+  ADMIN_GET_SYNC_RUN: (runId: number) => `${API_BASE_URL}/admin/radio/sync-runs/${runId}`,
+  ADMIN_CANCEL_SYNC_RUN: (runId: number) => `${API_BASE_URL}/admin/radio/sync-runs/${runId}/cancel`,
   // Matching
   ADMIN_UNMATCHED: `${API_BASE_URL}/admin/radio/unmatched`,
   ADMIN_LINK_PLAY: (playId: number) => `${API_BASE_URL}/admin/radio/plays/${playId}/link`,
@@ -202,44 +201,51 @@ export interface UpdateRadioShowInput {
   is_active?: boolean
 }
 
-export interface RadioDiscoverResult {
-  shows_discovered: number
-  show_names: string[]
-  errors?: string[]
+// Status of a radio_sync_runs row (PSY-1135). `partial` = the run imported data
+// but hit per-episode/match errors (replaces the old import-job "completed with
+// errors" error_log header); `skipped` = the circuit breaker was open.
+export type RadioSyncRunStatus =
+  | 'running'
+  | 'success'
+  | 'partial'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled'
+
+// One categorized error recorded against a sync run (radio_sync_run_errors).
+export interface RadioSyncRunError {
+  category: string
+  detail?: string | null
+  episode_ref?: string | null
 }
 
-export interface RadioImportResult {
-  shows_discovered: number
-  episodes_imported: number
-  plays_imported: number
-  plays_matched: number
-  errors?: string[]
-}
-
-export interface RadioImportJob {
+// A radio_sync_runs row — the unified trace of any ingestion run, returned by the
+// station-sync / show-backfill triggers and the run-poll endpoint (PSY-1135).
+// Replaces RadioImportJob. show_id/show_name are set only for backfill runs;
+// window_start/window_end (YYYY-MM-DD) only for backfill.
+export interface RadioSyncRun {
   id: number
-  show_id: number
-  show_name: string
   station_id: number
   station_name: string
-  since: string
-  until: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  show_id?: number | null
+  show_name?: string | null
+  run_type: 'discover' | 'fetch' | 'backfill'
+  trigger: 'scheduled' | 'manual' | 'auto_backfill'
+  status: RadioSyncRunStatus
+  window_start?: string | null
+  window_end?: string | null
   episodes_found: number
   episodes_imported: number
   plays_imported: number
   plays_matched: number
-  current_episode_date: string | null
-  error_log: string | null
-  started_at: string | null
-  completed_at: string | null
+  plays_unmatched: number
+  current_episode_date?: string | null
+  breaker_skipped: boolean
+  errors?: RadioSyncRunError[]
+  started_at: string
+  finished_at?: string | null
   created_at: string
   updated_at: string
-}
-
-export interface CreateImportJobInput {
-  since: string
-  until: string
 }
 
 // ──────────────────────────────────────────────
@@ -453,144 +459,97 @@ export function useDeleteRadioShow() {
   })
 }
 
-/**
- * Hook to trigger playlist fetch for a station
- */
-export function useFetchPlaylists() {
-  const queryClient = useQueryClient()
+// ============================================================================
+// Unified sync triggers + run poll/cancel (PSY-1135 backend, PSY-1136 FE)
+// ============================================================================
 
+/**
+ * Trigger a manual station-scoped sync (discover|fetch). Async: returns the
+ * opened RadioSyncRun (status `running`) which the caller polls via useSyncRun.
+ * Replaces useFetchPlaylists + useDiscoverShows.
+ */
+export function useTriggerStationSync() {
   return useMutation({
-    mutationFn: async (stationId: number) => {
-      return apiRequest<void>(RADIO_ENDPOINTS.ADMIN_FETCH_PLAYLISTS(stationId), {
+    mutationFn: async ({
+      stationId,
+      mode,
+    }: {
+      stationId: number
+      mode: 'discover' | 'fetch'
+    }) => {
+      return apiRequest<RadioSyncRun>(RADIO_ENDPOINTS.ADMIN_STATION_SYNC(stationId), {
         method: 'POST',
+        body: JSON.stringify({ mode }),
       })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
-    },
+    // The run executes in the background; the discovered shows / fetched episodes
+    // don't exist until it reaches a terminal status, so invalidation happens in
+    // the consumer when the polled run settles, NOT here on trigger-accepted.
   })
 }
 
 /**
- * Hook to discover shows for a station
+ * Trigger a manual historic backfill of one show over [since, until]. Async:
+ * returns the opened RadioSyncRun the caller polls via useSyncRun. Replaces
+ * useCreateImportJob + useImportShowEpisodes.
  */
-export function useDiscoverShows() {
-  const queryClient = useQueryClient()
-
+export function useTriggerShowBackfill() {
   return useMutation({
-    mutationFn: async (stationId: number) => {
-      return apiRequest<RadioDiscoverResult>(RADIO_ENDPOINTS.ADMIN_DISCOVER_SHOWS(stationId), {
-        method: 'POST',
-      })
-    },
-    onSuccess: (_data, stationId) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(stationId) })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
-    },
-  })
-}
-
-/**
- * Hook to import episodes for a specific radio show
- */
-export function useImportShowEpisodes() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({ showId, since, until }: { showId: number; since: string; until: string }) => {
-      return apiRequest<RadioImportResult>(RADIO_ENDPOINTS.ADMIN_IMPORT_SHOW_EPISODES(showId), {
+    mutationFn: async ({
+      showId,
+      since,
+      until,
+    }: {
+      showId: number
+      since: string
+      until: string
+    }) => {
+      return apiRequest<RadioSyncRun>(RADIO_ENDPOINTS.ADMIN_SHOW_BACKFILL(showId), {
         method: 'POST',
         body: JSON.stringify({ since, until }),
       })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
-    },
-  })
-}
-
-// ============================================================================
-// Import Job Hooks
-// ============================================================================
-
-/**
- * Hook to create and start an import job for a radio show.
- */
-export function useCreateImportJob() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({ showId, ...input }: CreateImportJobInput & { showId: number }) => {
-      return apiRequest<RadioImportJob>(RADIO_ENDPOINTS.ADMIN_CREATE_IMPORT_JOB(showId), {
-        method: 'POST',
-        body: JSON.stringify(input),
-      })
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.showImportJobs(variables.showId) })
-    },
   })
 }
 
 /**
- * Hook to get a single import job's status. Polls every 3 seconds while running.
+ * Poll a single sync run's status. Refetches every 3 seconds until a TERMINAL
+ * status is observed. Replaces useImportJob (now run-id-keyed, no `pending`
+ * state). Polls while the status is `running` OR still unknown (`undefined`) so a
+ * transient first-poll failure (e.g. a brief read-after-write 404) keeps retrying
+ * rather than stranding the run with no row ever shown; it stops only once a
+ * terminal status (success/partial/failed/skipped/cancelled) is seen.
  */
-export function useImportJob(jobId: number, enabled = true) {
+export function useSyncRun(runId: number, enabled = true) {
   return useQuery({
-    queryKey: radioQueryKeys.importJob(jobId),
+    queryKey: radioQueryKeys.syncRun(runId),
     queryFn: async () => {
-      const data = await apiRequest<RadioImportJob>(
-        RADIO_ENDPOINTS.ADMIN_GET_IMPORT_JOB(jobId)
-      )
+      const data = await apiRequest<RadioSyncRun>(RADIO_ENDPOINTS.ADMIN_GET_SYNC_RUN(runId))
       return data
     },
-    enabled: enabled && jobId > 0,
+    enabled: enabled && runId > 0,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status === 'running' || status === 'pending') {
-        return 3000
-      }
-      return false
+      return status === undefined || status === 'running' ? 3000 : false
     },
   })
 }
 
 /**
- * Hook to cancel a running import job.
+ * Cancel a running sync run. Replaces useCancelImportJob.
  */
-export function useCancelImportJob() {
+export function useCancelSyncRun() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (jobId: number) => {
-      return apiRequest<{ success: boolean }>(RADIO_ENDPOINTS.ADMIN_CANCEL_IMPORT_JOB(jobId), {
+    mutationFn: async (runId: number) => {
+      return apiRequest<{ success: boolean }>(RADIO_ENDPOINTS.ADMIN_CANCEL_SYNC_RUN(runId), {
         method: 'POST',
       })
     },
-    onSuccess: (_data, jobId) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.importJob(jobId) })
-      // Also invalidate show-level lists
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.all })
+    onSuccess: (_data, runId) => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.syncRun(runId) })
     },
-  })
-}
-
-/**
- * Hook to list import jobs for a show.
- */
-export function useShowImportJobs(showId: number, enabled = true) {
-  return useQuery({
-    queryKey: radioQueryKeys.showImportJobs(showId),
-    queryFn: async () => {
-      const data = await apiRequest<{ jobs: RadioImportJob[]; count: number }>(
-        RADIO_ENDPOINTS.ADMIN_LIST_IMPORT_JOBS(showId)
-      )
-      return data
-    },
-    enabled: enabled && showId > 0,
   })
 }
 

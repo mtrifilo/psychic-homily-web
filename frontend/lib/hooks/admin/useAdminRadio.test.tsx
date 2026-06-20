@@ -25,13 +25,10 @@ import {
   useCreateRadioShow,
   useUpdateRadioShow,
   useDeleteRadioShow,
-  useFetchPlaylists,
-  useDiscoverShows,
-  useImportShowEpisodes,
-  useCreateImportJob,
-  useImportJob,
-  useCancelImportJob,
-  useShowImportJobs,
+  useTriggerStationSync,
+  useTriggerShowBackfill,
+  useSyncRun,
+  useCancelSyncRun,
   useUnmatchedPlays,
   useBulkLinkPlays,
 } from './useAdminRadio'
@@ -43,19 +40,10 @@ describe('radioQueryKeys', () => {
     expect(radioQueryKeys.stats).toEqual(['radio', 'stats'])
   })
 
-  it('generates parameterised keys for station/show/job scopes', () => {
+  it('generates parameterised keys for station/show/run scopes', () => {
     expect(radioQueryKeys.stationDetail(42)).toEqual(['radio', 'stations', 42])
     expect(radioQueryKeys.shows(7)).toEqual(['radio', 'shows', 7])
-    expect(radioQueryKeys.importJob(99)).toEqual([
-      'radio',
-      'import-jobs',
-      99,
-    ])
-    expect(radioQueryKeys.showImportJobs(7)).toEqual([
-      'radio',
-      'show-import-jobs',
-      7,
-    ])
+    expect(radioQueryKeys.syncRun(99)).toEqual(['radio', 'sync-runs', 99])
     expect(radioQueryKeys.unmatched(0)).toEqual(['radio', 'unmatched', 0])
   })
 })
@@ -395,210 +383,117 @@ describe('useDeleteRadioShow', () => {
   })
 })
 
-describe('useFetchPlaylists', () => {
+describe('useTriggerStationSync', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
   })
 
-  it('triggers a fetch and invalidates stations + stats', async () => {
-    mockApiRequest.mockResolvedValueOnce(undefined)
+  it('POSTs the mode to the station sync endpoint and returns the run handle', async () => {
+    mockApiRequest.mockResolvedValueOnce({ id: 7, status: 'running', run_type: 'discover' })
 
-    const queryClient = createTestQueryClient()
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
-    const { result } = renderHook(() => useFetchPlaylists(), {
-      wrapper: createWrapperWithClient(queryClient),
-    })
-
-    await act(async () => {
-      result.current.mutate(42)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio-stations/42/fetch',
-      { method: 'POST' }
-    )
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['radio', 'stations'] })
-  })
-})
-
-describe('useDiscoverShows', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
-  it('POSTs to discover and invalidates that station’s show list', async () => {
-    // onSuccess receives the stationId as the second argument (the
-    // mutation variable) and uses it to invalidate the precise show
-    // scope rather than the whole tree.
-    mockApiRequest.mockResolvedValueOnce({ shows_discovered: 3, show_names: [] })
-
-    const queryClient = createTestQueryClient()
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
-    const { result } = renderHook(() => useDiscoverShows(), {
-      wrapper: createWrapperWithClient(queryClient),
-    })
-
-    await act(async () => {
-      result.current.mutate(42)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio-stations/42/discover',
-      { method: 'POST' }
-    )
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['radio', 'shows', 42],
-    })
-  })
-})
-
-describe('useImportShowEpisodes', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
-  it('POSTs to the show-import endpoint with since/until', async () => {
-    mockApiRequest.mockResolvedValueOnce({
-      shows_discovered: 0,
-      episodes_imported: 5,
-      plays_imported: 100,
-      plays_matched: 80,
-    })
-
-    const { result } = renderHook(() => useImportShowEpisodes(), {
+    const { result } = renderHook(() => useTriggerStationSync(), {
       wrapper: createWrapper(),
     })
 
     await act(async () => {
-      result.current.mutate({
-        showId: 99,
-        since: '2026-01-01',
-        until: '2026-02-01',
-      })
+      result.current.mutate({ stationId: 42, mode: 'discover' })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio-shows/99/import',
+      'http://localhost:8080/admin/radio-stations/42/sync',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({
-          since: '2026-01-01',
-          until: '2026-02-01',
-        }),
+        body: JSON.stringify({ mode: 'discover' }),
       })
     )
+    expect(result.current.data?.id).toBe(7)
   })
 })
 
-describe('useCreateImportJob', () => {
+describe('useTriggerShowBackfill', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
   })
 
-  it('POSTs to the import-job endpoint and invalidates that show’s jobs', async () => {
-    mockApiRequest.mockResolvedValueOnce({
-      id: 1,
-      show_id: 99,
-      status: 'pending',
-    })
+  it('POSTs since/until to the show backfill endpoint and returns the run handle', async () => {
+    mockApiRequest.mockResolvedValueOnce({ id: 9, status: 'running', run_type: 'backfill' })
 
-    const queryClient = createTestQueryClient()
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
-    const { result } = renderHook(() => useCreateImportJob(), {
-      wrapper: createWrapperWithClient(queryClient),
+    const { result } = renderHook(() => useTriggerShowBackfill(), {
+      wrapper: createWrapper(),
     })
 
     await act(async () => {
-      result.current.mutate({
-        showId: 99,
-        since: '2026-01-01',
-        until: '2026-02-01',
-      })
+      result.current.mutate({ showId: 99, since: '2026-01-01', until: '2026-02-01' })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio-shows/99/import-job',
+      'http://localhost:8080/admin/radio-shows/99/backfill',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({
-          since: '2026-01-01',
-          until: '2026-02-01',
-        }),
+        body: JSON.stringify({ since: '2026-01-01', until: '2026-02-01' }),
       })
     )
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['radio', 'show-import-jobs', 99],
-    })
+    expect(result.current.data?.id).toBe(9)
   })
 })
 
-describe('useImportJob', () => {
+describe('useSyncRun', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
   })
 
-  it('fetches a completed job WITHOUT setting a polling interval', async () => {
-    // refetchInterval should be `false` for terminal states so we don't
-    // keep polling a job that will never change.
+  it('fetches a terminal run WITHOUT setting a polling interval', async () => {
+    // refetchInterval is false for any non-`running` status so we don't keep
+    // polling a run that will never change.
     mockApiRequest.mockResolvedValueOnce({
       id: 1,
-      show_id: 99,
-      status: 'completed',
+      status: 'success',
       episodes_imported: 5,
       plays_imported: 100,
     })
 
-    const { result } = renderHook(() => useImportJob(1), {
+    const { result } = renderHook(() => useSyncRun(1), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio/import-jobs/1'
+      'http://localhost:8080/admin/radio/sync-runs/1'
     )
-    expect(result.current.data?.status).toBe('completed')
+    expect(result.current.data?.status).toBe('success')
   })
 
-  it('does not fetch when jobId is 0 or enabled=false', () => {
-    const { result: zero } = renderHook(() => useImportJob(0), {
+  it('does not fetch when runId is 0 or enabled=false', () => {
+    const { result: zero } = renderHook(() => useSyncRun(0), {
       wrapper: createWrapper(),
     })
     expect(zero.current.fetchStatus).toBe('idle')
 
-    const { result: disabled } = renderHook(() => useImportJob(1, false), {
+    const { result: disabled } = renderHook(() => useSyncRun(1, false), {
       wrapper: createWrapper(),
     })
     expect(disabled.current.fetchStatus).toBe('idle')
   })
 })
 
-describe('useCancelImportJob', () => {
+describe('useCancelSyncRun', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
   })
 
-  it('POSTs to the cancel endpoint and invalidates job + radio.all', async () => {
-    // Cancelling a job invalidates the specific job key AND the broad
-    // ['radio'] umbrella so show-level lists pick up the new state.
+  it('POSTs to the cancel endpoint and invalidates that run', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const { result } = renderHook(() => useCancelImportJob(), {
+    const { result } = renderHook(() => useCancelSyncRun(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -608,41 +503,12 @@ describe('useCancelImportJob', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio/import-jobs/42/cancel',
+      'http://localhost:8080/admin/radio/sync-runs/42/cancel',
       { method: 'POST' }
     )
     expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['radio', 'import-jobs', 42],
+      queryKey: ['radio', 'sync-runs', 42],
     })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['radio'] })
-  })
-})
-
-describe('useShowImportJobs', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
-  it('fetches the job list for a show', async () => {
-    mockApiRequest.mockResolvedValueOnce({ jobs: [], count: 0 })
-
-    const { result } = renderHook(() => useShowImportJobs(99), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      'http://localhost:8080/admin/radio-shows/99/import-jobs'
-    )
-  })
-
-  it('does not fetch when showId is 0', () => {
-    const { result } = renderHook(() => useShowImportJobs(0), {
-      wrapper: createWrapper(),
-    })
-
-    expect(result.current.fetchStatus).toBe('idle')
   })
 })
 
