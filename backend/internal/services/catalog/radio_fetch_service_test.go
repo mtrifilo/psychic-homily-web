@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -248,8 +249,8 @@ func TestClassifyError(t *testing.T) {
 // a station_id-PK schema property, tested via two distinct stations) is in
 // radio_sync_integration_test.go's RadioSyncSuite.
 
-// TestFetchStationWithRetry_TransientRecovers exercises the single-retry
-// behavior: a transient error on the first attempt followed by success on
+// TestFetchStationWithRetry_TransientRecovers exercises the transient-retry
+// recovery path: a transient error on the first attempt followed by success on
 // the retry must surface as success (no error reported to the cycle counter).
 func TestFetchStationWithRetry_TransientRecovers(t *testing.T) {
 	svc := newTestFetchService()
@@ -470,6 +471,52 @@ func TestFetchStationWithRetry_BudgetSheds(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("a budget-shed transient must not retry; got %d calls", calls.Load())
 	}
+}
+
+// TestFetchStationWithRetry_TurnsPermanentMidRetry covers the branch where a retry's
+// error reclassifies from transient to permanent: the loop must stop and surface the
+// permanent error, not keep retrying (PSY-1142).
+func TestFetchStationWithRetry_TurnsPermanentMidRetry(t *testing.T) {
+	svc := newTestFetchService()
+	svc.retryBackoffFn = func(int) time.Duration { return 0 }
+
+	var calls atomic.Int32
+	call := func() (any, error) {
+		if calls.Add(1) == 1 {
+			return nil, context.DeadlineExceeded // transient → triggers a retry
+		}
+		return nil, &RadioHTTPError{Provider: "KEXP API", StatusCode: 500} // permanent → stop
+	}
+
+	_, err := svc.fetchStationWithRetry(1, "S", "fetch", call)
+	if err == nil {
+		t.Fatal("expected the permanent error to surface")
+	}
+	if classifyError(err) != kindPermanent {
+		t.Fatalf("surfaced error must be permanent; got %v", errorKindName(classifyError(err)))
+	}
+	// Exactly 2 calls: the initial transient + the retry that turned permanent (no 3rd).
+	if calls.Load() != 2 {
+		t.Fatalf("must stop once the error turns permanent; got %d calls", calls.Load())
+	}
+}
+
+// TestRetryBudget_Concurrent proves the shared budget is race-free under the
+// fetch + discover goroutines' concurrent access (the gate is `go test -race`). PSY-1142.
+func TestRetryBudget_Concurrent(t *testing.T) {
+	b := newRetryBudget()
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				b.noteRequest()
+				b.allowRetry()
+			}
+		}()
+	}
+	wg.Wait() // no assertion beyond "no race / no panic / no deadlock"
 }
 
 // TestRadioHTTPError_UnwrapClassification documents the contract that the

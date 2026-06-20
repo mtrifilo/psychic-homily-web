@@ -59,15 +59,24 @@ const (
 	// load growth ~1.1×). radioRetryBudgetMinReqs is a low-volume guard — below this
 	// many requests in the window the budget is inactive (a handful of retries can't
 	// form a storm, and a strict ratio would otherwise shed the first retry of every
-	// low-volume cycle). At the radio loop's volume tier 1 is the dominant control;
-	// the budget is the safety net if request volume ever grows.
+	// low-volume cycle).
+	//
+	// Honest scope: at the radio loop's steady-state cadence (6h fetch / 24h discover,
+	// stations processed sequentially behind a 1-rps-per-provider rate limiter) the
+	// per-request attempt cap (tier 1) is the dominant control, and ≥minReqs requests
+	// rarely land within a single 2-min window — so tier 2 engages essentially only on
+	// the startup co-fire (both loops runImmediately) or if request volume grows. It is
+	// a forward-looking safety net, not a per-cycle limiter. The events slice is bounded
+	// by that same upstream provider rate limiter (≈1 noteRequest/sec/provider) — a
+	// change that removes that throttle would need to revisit this.
 	radioRetryBudgetWindow  = 2 * time.Minute
 	radioRetryBudgetRatio   = 0.10
 	radioRetryBudgetMinReqs = 10
 )
 
 // errorKind classifies a radio provider error for retry + breaker routing.
-// kindTransient → retry once (fetchStationWithRetry); never trips the breaker.
+// kindTransient → retried (up to radioRetryMaxAttempts) by fetchStationWithRetry;
+// never trips the breaker.
 // kindPermanent → no retry; increments the persistent breaker counter and trips
 // it at radioCircuitBreakerThreshold (see breakerTransition in radio_sync.go).
 type errorKind int
@@ -376,7 +385,11 @@ func (s *RadioFetchService) retryDelay(exp int) time.Duration {
 // source is fine for jitter (no determinism needed).
 func fullJitterBackoff(exp int) time.Duration {
 	ceiling := radioRetryBackoffCap
-	// base << exp = base·2^exp; guard against shift overflow and clamp to the cap.
+	// In practice exp is only 0..1 (radioRetryMaxAttempts=3). The guards keep this
+	// safe if a caller ever passes a large exponent: base (5e8 ns) << exp overflows
+	// int64 around exp 35 (wrapping to ≤0), and the < 62 rail avoids an out-of-range
+	// shift; either way `scaled > 0` carries the real check and ceiling stays at the
+	// 30s cap, so rand.Int64N never sees a non-positive bound.
 	if exp >= 0 && exp < 62 {
 		if scaled := radioRetryBackoffBase << exp; scaled > 0 && scaled < ceiling {
 			ceiling = scaled
@@ -426,7 +439,11 @@ func newRetryBudget() *retryBudget {
 	}
 }
 
-// noteRequest records one original (non-retry) request.
+// noteRequest records one original (non-retry) request. It is called per
+// fetchStationWithRetry invocation, before the op runs — so a no-op run (breaker-open
+// Skipped / LockContended, no provider hit) is still counted. That inflates the ratio
+// denominator slightly, which only makes the budget MORE lenient (errs toward allowing
+// retries, never over-shedding); keeping the helper op-agnostic is worth that.
 func (b *retryBudget) noteRequest() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -510,8 +527,8 @@ func (s *RadioFetchService) runFetchCycle() {
 		// radio_sync_runs, and as of PSY-1140 RunStationSync OWNS the persistent
 		// breaker end-to-end (reads the gate, writes the outcome via
 		// updateStationHealth) — it is now the sole, authoritative breaker. The
-		// returned hard error still feeds the transient single-retry below
-		// (fetchStationWithRetry, PSY-887); the retry-budget rework is PSY-1142.
+		// returned hard error still feeds the two-tier transient retry below
+		// (fetchStationWithRetry: Full-Jitter backoff + retry budget, PSY-1142).
 		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "fetch",
 			func() (any, error) {
 				return s.radioService.RunStationSync(context.Background(), station.ID, RunStationSyncOpts{
