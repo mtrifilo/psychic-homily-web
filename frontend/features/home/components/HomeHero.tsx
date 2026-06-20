@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
+import { ScryingGridWordmark } from './scrying-grid/ScryingGridWordmark'
+import { HeroLightning } from './scrying-grid/HeroLightning'
 
 /**
  * HomeHero (PSY-389) — the centered discovery-landing hero for the logged-out
@@ -34,18 +36,19 @@ export function HomeHero() {
   return (
     <section
       aria-labelledby="home-hero-heading"
-      className="flex w-full flex-col items-center gap-4 pb-3.5 pt-6"
+      className="relative isolate flex w-full flex-col items-center gap-4 pb-3.5 pt-6"
     >
-      <h1
-        id="home-hero-heading"
-        className="text-center text-4xl font-bold tracking-tight text-foreground sm:text-5xl"
-      >
-        This is not a mirage.
-      </h1>
+      <HeroLightning />
+      <ScryingGridWordmark className="max-w-[860px] pt-2" />
 
-      <div className="max-w-[720px] text-center text-base leading-relaxed text-muted-foreground sm:text-lg">
-        <p>You&rsquo;ve stumbled upon a door where your imagination is the limit.</p>
-        <p>Bring your true self without compromise, and you&rsquo;ll find your answers.</p>
+      <div className="max-w-[720px] text-center">
+        <p className="text-balance text-lg font-medium text-foreground sm:text-xl">
+          This is not a mirage.
+        </p>
+        <div className="mt-2 text-base leading-relaxed text-muted-foreground sm:text-lg">
+          <p>You&rsquo;ve stumbled upon a door where your imagination is the limit.</p>
+          <p>Bring your true self without compromise, and you&rsquo;ll find your answers.</p>
+        </div>
       </div>
 
       {/* Dominant action: search + Find a show */}
