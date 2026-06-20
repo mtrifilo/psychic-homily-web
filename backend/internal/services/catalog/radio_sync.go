@@ -243,7 +243,7 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// Escalate a PERMANENT scheduled/auto failure to Sentry (the scraper-drift /
 	// format-change signal). Manual failures stay log-only (the operator already sees
 	// the result); transient failures retry and stay log-only (PSY-1141).
-	if escErr, category := escalationError(out, opts.Trigger); escErr != nil {
+	if category, escErr := escalationError(out, opts.Trigger); escErr != nil {
 		s.escalatePermanentFailure(escErr, stationID, category)
 	}
 
@@ -828,8 +828,8 @@ func categorizeErrorString(s string) string {
 // ───────────────────────────── permanent-failure escalation ─────────────────────────────
 
 // escalationError decides whether a resolved run carries a failure worth paging on,
-// returning the representative error + its category (or nil to not escalate). Pure (no
-// I/O) so it is unit-tested directly. Policy (PSY-1141 + the locked decision — "every
+// returning its category + the representative error (nil error → do not escalate).
+// Pure (no I/O) so it is unit-tested directly. Policy (PSY-1141 + the locked decision — "every
 // permanent failure on a scheduled/auto run"):
 //   - manual trigger → never (the operator already sees the result);
 //   - a hard FAILED run whose error classifies PERMANENT → escalate. NOTE this is
@@ -844,20 +844,20 @@ func categorizeErrorString(s string) string {
 //     categorizeRunError parse-detects (it was dead before — the PSY-1141 review fix);
 //   - everything else (transient, data-quality drops, success/partial-without-parse) →
 //     no escalation.
-func escalationError(out syncOutcome, trigger string) (error, string) {
+func escalationError(out syncOutcome, trigger string) (string, error) {
 	if trigger == catalogm.RadioSyncRunTriggerManual {
-		return nil, ""
+		return "", nil
 	}
 	if out.status == catalogm.RadioSyncRunStatusFailed && out.hardErr != nil &&
 		classifyError(out.hardErr) == kindPermanent {
-		return out.hardErr, categorizeRunError(out.hardErr)
+		return categorizeRunError(out.hardErr), out.hardErr
 	}
 	for _, e := range out.errs {
 		if e.category == catalogm.RadioSyncRunErrorParseError {
-			return errors.New(e.detail), catalogm.RadioSyncRunErrorParseError
+			return catalogm.RadioSyncRunErrorParseError, errors.New(e.detail)
 		}
 	}
-	return nil, ""
+	return "", nil
 }
 
 // escalatePermanentFailure escalates a permanent radio sync failure to Sentry, tagged

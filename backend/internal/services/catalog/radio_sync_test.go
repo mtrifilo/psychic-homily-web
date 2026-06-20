@@ -215,33 +215,33 @@ func TestEscalationError(t *testing.T) {
 	failed := catalogm.RadioSyncRunStatusFailed
 
 	t.Run("manual never escalates", func(t *testing.T) {
-		err, _ := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerManual)
+		_, err := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerManual)
 		assert.Nil(t, err)
 	})
 	t.Run("scheduled permanent hard failure escalates", func(t *testing.T) {
-		err, cat := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerScheduled)
+		cat, err := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerScheduled)
 		assert.Equal(t, permanentHard, err)
 		assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable, cat)
 	})
 	t.Run("scheduled transient hard failure does NOT escalate", func(t *testing.T) {
-		err, _ := escalationError(syncOutcome{status: failed, hardErr: transientHard}, catalogm.RadioSyncRunTriggerScheduled)
+		_, err := escalationError(syncOutcome{status: failed, hardErr: transientHard}, catalogm.RadioSyncRunTriggerScheduled)
 		assert.Nil(t, err)
 	})
 	t.Run("scheduled partial with a parse_error escalates (scraper drift)", func(t *testing.T) {
-		err, cat := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusPartial, errs: parseErrs}, catalogm.RadioSyncRunTriggerScheduled)
+		cat, err := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusPartial, errs: parseErrs}, catalogm.RadioSyncRunTriggerScheduled)
 		assert.Error(t, err)
 		assert.Equal(t, catalogm.RadioSyncRunErrorParseError, cat)
 	})
 	t.Run("scheduled partial with only validation_drop does NOT escalate", func(t *testing.T) {
-		err, _ := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusPartial, errs: dropErrs}, catalogm.RadioSyncRunTriggerScheduled)
+		_, err := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusPartial, errs: dropErrs}, catalogm.RadioSyncRunTriggerScheduled)
 		assert.Nil(t, err)
 	})
 	t.Run("scheduled success does NOT escalate", func(t *testing.T) {
-		err, _ := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusSuccess}, catalogm.RadioSyncRunTriggerScheduled)
+		_, err := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusSuccess}, catalogm.RadioSyncRunTriggerScheduled)
 		assert.Nil(t, err)
 	})
 	t.Run("auto_backfill permanent escalates like scheduled", func(t *testing.T) {
-		err, _ := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerAutoBackfill)
+		_, err := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerAutoBackfill)
 		assert.Equal(t, permanentHard, err)
 	})
 }
