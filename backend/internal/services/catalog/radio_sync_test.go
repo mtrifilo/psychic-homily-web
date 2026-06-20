@@ -91,17 +91,23 @@ func TestImportResultOutcome(t *testing.T) {
 		assert.NotNil(t, out.importResult)
 	})
 
-	t.Run("errors -> partial", func(t *testing.T) {
-		// accumulateEpisodeResult always appends an Errors string whenever it bumps
-		// EpisodeFetchErrors/MatchPersistErrors, so Errors is the superset that
-		// drives the partial status (errCount = len(Errors)).
+	t.Run("categorized errors -> partial", func(t *testing.T) {
+		// importResultOutcome flips to partial on len(CategorizedErrors), and the
+		// structured category flows straight through with no re-categorization
+		// (PSY-1141). accumulateEpisodeResult records one categorized error per
+		// per-episode failure, parallel to the human Errors line.
 		out := importResultOutcome(&contracts.RadioImportResult{
 			PlaysImported: 10, PlaysMatched: 10,
 			EpisodeFetchErrors: 1,
 			Errors:             []string{"fetch failed for episode ep-1: boom"},
+			CategorizedErrors: []contracts.RadioRunError{
+				{Category: catalogm.RadioSyncRunErrorProviderUnreachable, Detail: "fetch failed for episode ep-1: boom"},
+			},
 		}, 0)
 		assert.Equal(t, catalogm.RadioSyncRunStatusPartial, out.status)
 		assert.Equal(t, 0, out.playsUnmatched) // never negative
+		assert.Len(t, out.errs, 1)
+		assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable, out.errs[0].category)
 	})
 
 	t.Run("matched exceeding imported clamps unmatched to 0", func(t *testing.T) {
@@ -124,6 +130,48 @@ func TestCategorizeRunError(t *testing.T) {
 	// wrapped deadline still detected
 	assert.Equal(t, catalogm.RadioSyncRunErrorTimeout,
 		categorizeRunError(errors.Join(errors.New("fetch"), context.DeadlineExceeded)))
+}
+
+// escalationError — the pure Sentry-escalation decision (PSY-1141). Every permanent
+// scheduled/auto failure escalates; manual never; transient never; a per-episode
+// parse_error in a PARTIAL run escalates (scraper drift surfaces as partial).
+func TestEscalationError(t *testing.T) {
+	permanentHard := errors.New("provider format changed") // classifyError → permanent (default)
+	transientHard := context.DeadlineExceeded              // classifyError → transient
+	parseErrs := []runError{{category: catalogm.RadioSyncRunErrorParseError, detail: "episode ep-1: parse failed"}}
+	dropErrs := []runError{{category: catalogm.RadioSyncRunErrorValidationDrop, detail: "episode ep-1: dropped 2 plays"}}
+	failed := catalogm.RadioSyncRunStatusFailed
+
+	t.Run("manual never escalates", func(t *testing.T) {
+		err, _ := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerManual)
+		assert.Nil(t, err)
+	})
+	t.Run("scheduled permanent hard failure escalates", func(t *testing.T) {
+		err, cat := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerScheduled)
+		assert.Equal(t, permanentHard, err)
+		assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable, cat)
+	})
+	t.Run("scheduled transient hard failure does NOT escalate", func(t *testing.T) {
+		err, _ := escalationError(syncOutcome{status: failed, hardErr: transientHard}, catalogm.RadioSyncRunTriggerScheduled)
+		assert.Nil(t, err)
+	})
+	t.Run("scheduled partial with a parse_error escalates (scraper drift)", func(t *testing.T) {
+		err, cat := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusPartial, errs: parseErrs}, catalogm.RadioSyncRunTriggerScheduled)
+		assert.Error(t, err)
+		assert.Equal(t, catalogm.RadioSyncRunErrorParseError, cat)
+	})
+	t.Run("scheduled partial with only validation_drop does NOT escalate", func(t *testing.T) {
+		err, _ := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusPartial, errs: dropErrs}, catalogm.RadioSyncRunTriggerScheduled)
+		assert.Nil(t, err)
+	})
+	t.Run("scheduled success does NOT escalate", func(t *testing.T) {
+		err, _ := escalationError(syncOutcome{status: catalogm.RadioSyncRunStatusSuccess}, catalogm.RadioSyncRunTriggerScheduled)
+		assert.Nil(t, err)
+	})
+	t.Run("auto_backfill permanent escalates like scheduled", func(t *testing.T) {
+		err, _ := escalationError(syncOutcome{status: failed, hardErr: permanentHard}, catalogm.RadioSyncRunTriggerAutoBackfill)
+		assert.Equal(t, permanentHard, err)
+	})
 }
 
 func TestCategorizeErrorString(t *testing.T) {

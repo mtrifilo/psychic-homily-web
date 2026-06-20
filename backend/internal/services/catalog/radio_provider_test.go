@@ -1731,11 +1731,13 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_BatchInsert() {
 		{Position: 2, ArtistName: "Sonic Youth"},
 	}
 
-	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 
 	suite.Require().NoError(err)
-	suite.Equal(3, count)
-	suite.Empty(dropSummary, "clean batch should produce no drop summary")
+	suite.Equal(3, ipo.Imported)
+	suite.Empty(ipo.Summary, "clean batch should produce no drop summary")
+	suite.Zero(ipo.Truncated)
+	suite.Zero(ipo.Dropped)
 
 	// Verify plays in DB
 	var dbPlays []catalogm.RadioPlay
@@ -1753,11 +1755,11 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_Empty() {
 	show := suite.createShow(station.ID, "Morning Show")
 	ep := suite.createEpisode(show.ID, "2026-01-15")
 
-	count, dropSummary, err := suite.radioService.importPlays(ep.ID, []RadioPlayImport{})
+	ipo, err := suite.radioService.importPlays(ep.ID, []RadioPlayImport{})
 
 	suite.Require().NoError(err)
-	suite.Equal(0, count)
-	suite.Empty(dropSummary)
+	suite.Equal(0, ipo.Imported)
+	suite.Empty(ipo.Summary)
 }
 
 // PSY-885: validate-at-boundary tests for importPlays. Cover the four cases
@@ -1780,14 +1782,18 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_TruncatesOverLengt
 		{Position: 0, ArtistName: overLength},
 	}
 
-	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err)
-	suite.Equal(1, count, "truncated row should still be committed")
+	suite.Equal(1, ipo.Imported, "truncated row should still be committed")
 	// Summary counts truncated rows in N (per PSY-885 format spec) — "dropped"
 	// is used loosely to mean "required boundary intervention", with the
 	// per-class breakdown distinguishing salvage from data loss.
-	suite.Contains(dropSummary, "dropped 1 plays")
-	suite.Contains(dropSummary, "1 over-length titles truncated")
+	suite.Contains(ipo.Summary, "dropped 1 plays")
+	suite.Contains(ipo.Summary, "1 over-length titles truncated")
+	// PSY-1141: the structured counts are what make 'truncation' a reachable
+	// run-error category (vs the old "dropped"-prefixed string heuristic).
+	suite.Equal(1, ipo.Truncated)
+	suite.Zero(ipo.Dropped)
 
 	var dbPlays []catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).Find(&dbPlays)
@@ -1807,10 +1813,11 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_TruncatesOverLengt
 		{Position: 0, ArtistName: "Boundary Band", TrackTitle: &overTitle, AlbumTitle: &overAlbum, LabelName: &overLabel},
 	}
 
-	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err)
-	suite.Equal(1, count)
-	suite.Contains(dropSummary, "1 over-length titles truncated", "a single row with multiple over-length fields counts once")
+	suite.Equal(1, ipo.Imported)
+	suite.Contains(ipo.Summary, "1 over-length titles truncated", "a single row with multiple over-length fields counts once")
+	suite.Equal(1, ipo.Truncated, "multiple over-length fields on one row count as one truncated row")
 
 	var dbPlays []catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).Find(&dbPlays)
@@ -1835,9 +1842,9 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_TruncatesMultiByte
 		{Position: 0, ArtistName: overLength},
 	}
 
-	count, _, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err, "truncation must respect rune boundaries, not split a multi-byte char")
-	suite.Equal(1, count)
+	suite.Equal(1, ipo.Imported)
 
 	var dbPlays []catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).Find(&dbPlays)
@@ -1857,11 +1864,13 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_DropsMissingArtist
 		{Position: 1, ArtistName: "   "}, // whitespace-only also dropped
 	}
 
-	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err)
-	suite.Equal(0, count, "rows with NULL/blank artist_name must be dropped")
-	suite.Contains(dropSummary, "dropped 2 plays")
-	suite.Contains(dropSummary, "2 missing artist_name")
+	suite.Equal(0, ipo.Imported, "rows with NULL/blank artist_name must be dropped")
+	suite.Contains(ipo.Summary, "dropped 2 plays")
+	suite.Contains(ipo.Summary, "2 missing artist_name")
+	suite.Equal(2, ipo.Dropped, "PSY-1141: drops are categorized as validation_drop")
+	suite.Zero(ipo.Truncated)
 
 	var playCount int64
 	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&playCount)
@@ -1875,26 +1884,30 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_MixedBatch() {
 
 	overLength := strings.Repeat("x", 600)
 	plays := []RadioPlayImport{
-		{Position: 0, ArtistName: "Radiohead"},          // clean
-		{Position: 1, ArtistName: ""},                   // dropped: blank artist
-		{Position: 2, ArtistName: overLength},           // truncated
-		{Position: 3, ArtistName: "Deerhunter"},         // clean
-		{Position: 4, ArtistName: "Sonic Youth"},        // clean
-		{Position: 5, ArtistName: "  \t  "},             // dropped: whitespace-only
+		{Position: 0, ArtistName: "Radiohead"},   // clean
+		{Position: 1, ArtistName: ""},            // dropped: blank artist
+		{Position: 2, ArtistName: overLength},    // truncated
+		{Position: 3, ArtistName: "Deerhunter"},  // clean
+		{Position: 4, ArtistName: "Sonic Youth"}, // clean
+		{Position: 5, ArtistName: "  \t  "},      // dropped: whitespace-only
 	}
 
-	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err)
 	// 4 rows commit: Radiohead, Deerhunter, Sonic Youth, truncated overLength row.
 	// 2 rows drop: the two blank artist_name rows.
-	suite.Equal(4, count, "return value must reflect rows COMMITTED, not rows received")
+	suite.Equal(4, ipo.Imported, "return value must reflect rows COMMITTED, not rows received")
 
 	// Summary covers BOTH classes in one line, no per-play entries. The
 	// PSY-885 format counts truncated + missing as the leading N: 1 + 2 = 3.
-	suite.Contains(dropSummary, "dropped 3 plays")
-	suite.Contains(dropSummary, "1 over-length titles truncated")
-	suite.Contains(dropSummary, "2 missing artist_name")
-	suite.Equal(1, strings.Count(dropSummary, "\n")+1, "summary must be a single line")
+	suite.Contains(ipo.Summary, "dropped 3 plays")
+	suite.Contains(ipo.Summary, "1 over-length titles truncated")
+	suite.Contains(ipo.Summary, "2 missing artist_name")
+	suite.Equal(1, strings.Count(ipo.Summary, "\n")+1, "summary must be a single line")
+	// PSY-1141: both classes separately counted (accumulateEpisodeResult records a
+	// validation_drop run-error for the dropped rows; the truncation is named in detail).
+	suite.Equal(1, ipo.Truncated)
+	suite.Equal(2, ipo.Dropped)
 
 	var dbPlays []catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).Order("position ASC").Find(&dbPlays)
@@ -1928,18 +1941,18 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_DedupOnReimport() 
 	}
 
 	// First import — all three rows inserted.
-	count, _, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err)
-	suite.Equal(3, count)
+	suite.Equal(3, ipo.Imported)
 
 	var dbCount int64
 	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
 	suite.Equal(int64(3), dbCount, "first import should insert all 3 rows")
 
 	// Second import (re-fetch) — same playlist, no new rows, no error.
-	count2, _, err := suite.radioService.importPlays(ep.ID, plays)
+	ipo2, err := suite.radioService.importPlays(ep.ID, plays)
 	suite.Require().NoError(err, "re-importing duplicates must not error")
-	suite.Equal(3, count2, "importPlays returns attempted count for play_count stability")
+	suite.Equal(3, ipo2.Imported, "importPlays returns attempted count for play_count stability")
 
 	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
 	suite.Equal(int64(3), dbCount, "re-import must not insert duplicate rows")
@@ -1964,7 +1977,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_PartialOverlapInse
 		{Position: 0, ArtistName: "Radiohead", TrackTitle: &track1, AirTimestamp: &ts1},
 		{Position: 1, ArtistName: "Deerhunter", TrackTitle: &track2, AirTimestamp: &ts2},
 	}
-	_, _, err := suite.radioService.importPlays(ep.ID, firstBatch)
+	_, err := suite.radioService.importPlays(ep.ID, firstBatch)
 	suite.Require().NoError(err)
 
 	// Second fetch — first two are dupes, third is new.
@@ -1973,7 +1986,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_PartialOverlapInse
 		{Position: 1, ArtistName: "Deerhunter", TrackTitle: &track2, AirTimestamp: &ts2},
 		{Position: 2, ArtistName: "Cocteau Twins", TrackTitle: &track3, AirTimestamp: &ts3},
 	}
-	_, _, err = suite.radioService.importPlays(ep.ID, secondBatch)
+	_, err = suite.radioService.importPlays(ep.ID, secondBatch)
 	suite.Require().NoError(err, "partial overlap must not roll back the batch")
 
 	var dbCount int64
@@ -2001,7 +2014,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_NonUniqueConstrain
 	}
 
 	// Use a non-existent episode ID so the FK to radio_episodes fires.
-	_, _, err := suite.radioService.importPlays(ep.ID+99999, plays)
+	_, err := suite.radioService.importPlays(ep.ID+99999, plays)
 	suite.Require().Error(err, "non-UNIQUE constraint failures must still surface as errors")
 }
 

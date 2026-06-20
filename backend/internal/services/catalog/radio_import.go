@@ -190,20 +190,47 @@ func accumulateEpisodeResult(result *contracts.RadioImportResult, episodeExterna
 	result.PlaysImported += epResult.PlaysImported
 	result.PlaysMatched += epResult.PlaysMatched
 
+	ref := episodeExternalID
 	if epResult.FetchError != "" {
 		result.EpisodeFetchErrors++
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("fetch failed for episode %s: %s", episodeExternalID, epResult.FetchError))
+		cat := epResult.FetchErrorCategory
+		if cat == "" {
+			cat = catalogm.RadioSyncRunErrorProviderUnreachable
+		}
+		recordImportError(result, cat,
+			fmt.Sprintf("fetch failed for episode %s: %s", episodeExternalID, epResult.FetchError), &ref)
 	}
 	if epResult.MatchPersistErrors > 0 {
 		result.MatchPersistErrors += epResult.MatchPersistErrors
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("episode %s: %d play matches failed to persist", episodeExternalID, epResult.MatchPersistErrors))
+		recordImportError(result, catalogm.RadioSyncRunErrorMatchPersistError,
+			fmt.Sprintf("episode %s: %d play matches failed to persist", episodeExternalID, epResult.MatchPersistErrors), &ref)
 	}
 	if epResult.DropSummary != "" {
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("episode %s: %s", episodeExternalID, epResult.DropSummary))
+		// Pick the category by precedence: a real drop (data loss) outranks a
+		// salvaged truncation. A truncation-only episode records as 'truncation' —
+		// the case the old string heuristic could never reach, since summarizeDrops
+		// always prefixes "dropped N plays:" which categorizeErrorString bucketed as
+		// validation_drop. The detail still names both classes. PSY-1141.
+		cat := catalogm.RadioSyncRunErrorTruncation
+		if epResult.DroppedPlays > 0 {
+			cat = catalogm.RadioSyncRunErrorValidationDrop
+		}
+		recordImportError(result, cat,
+			fmt.Sprintf("episode %s: %s", episodeExternalID, epResult.DropSummary), &ref)
 	}
+}
+
+// recordImportError appends a per-import error to BOTH the human Errors slice (the
+// admin log line) and the structured CategorizedErrors slice (the pre-typed category
+// the sync layer records into radio_sync_run_errors, with no substring
+// re-categorization). The two slices stay parallel — same order, same length. PSY-1141.
+func recordImportError(result *contracts.RadioImportResult, category, detail string, episodeRef *string) {
+	result.Errors = append(result.Errors, detail)
+	result.CategorizedErrors = append(result.CategorizedErrors, contracts.RadioRunError{
+		Category:   category,
+		Detail:     detail,
+		EpisodeRef: episodeRef,
+	})
 }
 
 // FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at.
@@ -248,14 +275,17 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 
 		episodes, err := provider.FetchNewEpisodes(*show.ExternalID, since, time.Time{})
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err))
+			recordImportError(result, categorizeRunError(err),
+				fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err), nil)
 			continue
 		}
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(show.ID, ep, provider)
 			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
+				ref := ep.ExternalID
+				recordImportError(result, categorizeRunError(err),
+					fmt.Sprintf("import episode %s: %v", ep.ExternalID, err), &ref)
 				continue
 			}
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
@@ -304,7 +334,7 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 		return nil, fmt.Errorf("fetching playlist: %w", err)
 	}
 
-	imported, dropSummary, err := s.importPlays(episode.ID, plays)
+	drops, err := s.importPlays(episode.ID, plays)
 	if err != nil {
 		return nil, fmt.Errorf("importing plays: %w", err)
 	}
@@ -313,15 +343,13 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 	matcher := NewRadioMatchingEngine(s.db)
 	matchResult, err := matcher.MatchPlaysForEpisode(episode.ID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
+		return episodeResultFromDrops(drops), nil
 	}
 
-	return &contracts.EpisodeImportResult{
-		PlaysImported:      imported,
-		PlaysMatched:       matchResult.Matched,
-		DropSummary:        dropSummary,
-		MatchPersistErrors: matchResult.PersistErrors,
-	}, nil
+	res := episodeResultFromDrops(drops)
+	res.PlaysMatched = matchResult.Matched
+	res.MatchPersistErrors = matchResult.PersistErrors
+	return res, nil
 }
 
 // MatchPlays runs the matching engine on unmatched plays for an episode.
@@ -459,7 +487,9 @@ func (s *RadioService) importShowEpisodesWithProgress(
 	for _, ep := range filtered {
 		epResult, importErr := s.importEpisode(show.ID, ep, provider)
 		if importErr != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, importErr))
+			ref := ep.ExternalID
+			recordImportError(result, categorizeRunError(importErr),
+				fmt.Sprintf("import episode %s: %v", ep.ExternalID, importErr), &ref)
 		} else {
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
 		}
@@ -639,30 +669,42 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 			"episode_id", episode.ID,
 			"external_id", ep.ExternalID,
 			"error", err)
-		return &contracts.EpisodeImportResult{FetchError: err.Error()}, nil
+		// Categorize the FetchError here, where the provider error's type is still
+		// live (the same classifier the top-level path uses) — PSY-1141.
+		return &contracts.EpisodeImportResult{FetchError: err.Error(), FetchErrorCategory: categorizeRunError(err)}, nil
 	}
 
-	imported, dropSummary, err := s.importPlays(episode.ID, plays)
+	drops, err := s.importPlays(episode.ID, plays)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
+		return episodeResultFromDrops(drops), nil
 	}
 
 	// Update play count on episode
-	s.db.Model(episode).Update("play_count", imported)
+	s.db.Model(episode).Update("play_count", drops.Imported)
 
 	// Run matching
 	matcher := NewRadioMatchingEngine(s.db)
 	matchResult, err := matcher.MatchPlaysForEpisode(episode.ID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
+		return episodeResultFromDrops(drops), nil
 	}
 
+	res := episodeResultFromDrops(drops)
+	res.PlaysMatched = matchResult.Matched
+	res.MatchPersistErrors = matchResult.PersistErrors
+	return res, nil
+}
+
+// episodeResultFromDrops builds the per-episode result carrying the play tally plus
+// the structured drop counts (truncation salvage + validation drop), shared by
+// importEpisode's and ImportEpisodePlaylist's returns (PSY-1141).
+func episodeResultFromDrops(d importPlaysOutcome) *contracts.EpisodeImportResult {
 	return &contracts.EpisodeImportResult{
-		PlaysImported:      imported,
-		PlaysMatched:       matchResult.Matched,
-		DropSummary:        dropSummary,
-		MatchPersistErrors: matchResult.PersistErrors,
-	}, nil
+		PlaysImported:  d.Imported,
+		DropSummary:    d.Summary,
+		TruncatedPlays: d.Truncated,
+		DroppedPlays:   d.Dropped,
+	}
 }
 
 // importPlays batch-creates play records for an episode.
@@ -679,9 +721,9 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 // human-readable per-episode aggregate of "dropped N plays: ..." or "" when
 // no intervention was needed; callers append it to RadioImportResult.Errors
 // so the outcome is visible in admin job logs without per-row noise.
-func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int, string, error) {
+func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (importPlaysOutcome, error) {
 	if len(plays) == 0 {
-		return 0, "", nil
+		return importPlaysOutcome{}, nil
 	}
 
 	records := make([]catalogm.RadioPlay, 0, len(plays))
@@ -714,9 +756,10 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// reflected in the N total — only the per-class breakdown will lag.
 	droppedRows := len(plays) - len(records)
 	summary := summarizeDrops(droppedRows, truncatedRows, missingArtistRows)
+	drops := importPlaysOutcome{Summary: summary, Truncated: truncatedRows, Dropped: droppedRows}
 
 	if len(records) == 0 {
-		return 0, summary, nil
+		return drops, nil
 	}
 
 	// Batch insert with ON CONFLICT DO NOTHING so duplicate rows (re-imports
@@ -729,7 +772,7 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// infrastructural error — bubble it up.
 	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
 	if err := result.Error; err != nil {
-		return 0, summary, fmt.Errorf("batch inserting plays: %w", err)
+		return drops, fmt.Errorf("batch inserting plays: %w", err)
 	}
 
 	if skipped := len(records) - int(result.RowsAffected); skipped > 0 {
@@ -744,7 +787,18 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// inserted) so callers like importEpisode keep using it to set
 	// play_count on the episode without regressing on re-imports where
 	// most rows are duplicates. summary carries the PSY-885 drop aggregate.
-	return len(records), summary, nil
+	drops.Imported = len(records)
+	return drops, nil
+}
+
+// importPlaysOutcome is importPlays' structured result: rows committed plus the
+// per-class boundary-intervention counts, so callers categorize drops (truncation
+// salvage vs validation drop) without re-parsing the human Summary string (PSY-1141).
+type importPlaysOutcome struct {
+	Imported  int
+	Summary   string
+	Truncated int // over-length rows salvaged → truncation category
+	Dropped   int // rows rejected by sanitizePlay → validation_drop category
 }
 
 // errMissingArtistName flags a play with no artist_name. radio_plays.artist_name
