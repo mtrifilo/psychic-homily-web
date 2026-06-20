@@ -7,8 +7,17 @@ package shared
 import (
 	"errors"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
+
+// pgSerializationFailure is the Postgres SQLSTATE for a serialization failure —
+// a concurrent-transaction conflict that is safe to retry. Unlike 23505
+// (duplicate key), GORM's postgres driver does NOT translate this code into a
+// sentinel: its errCodes map only special-cases 23505 (unique) / 23503 (fk) /
+// 42703 (invalid field) / 23514 (check), so the original *pgconn.PgError
+// survives TranslateError untouched and errors.As can recover it.
+const pgSerializationFailure = "40001"
 
 // IsDuplicateKey reports whether err is a GORM duplicate-key (unique
 // constraint) violation.
@@ -24,4 +33,20 @@ import (
 // versions.
 func IsDuplicateKey(err error) bool {
 	return errors.Is(err, gorm.ErrDuplicatedKey)
+}
+
+// IsSerializationFailure reports whether err is a Postgres serialization_failure
+// (SQLSTATE 40001) — a transient concurrency conflict that is safe to retry.
+//
+// Unlike IsDuplicateKey (which keys on a translated gorm sentinel), this keys on
+// the typed *pgconn.PgError directly, because 40001 is NOT in GORM's
+// TranslateError code map (see pgSerializationFailure) — so it reaches callers
+// unchanged even with gorm.Config.TranslateError = true. errors.As unwraps any
+// fmt.Errorf-wrapped chain. A nil or non-pg error returns false.
+func IsSerializationFailure(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == pgSerializationFailure
+	}
+	return false
 }

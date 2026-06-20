@@ -193,7 +193,20 @@ type RadioEpisodeImport struct {
 
 // RadioPlayImport is the intermediate DTO for importing a track play from a provider.
 type RadioPlayImport struct {
-	Position               int        `json:"position"`
+	Position int `json:"position"`
+	// ProviderPlayID is a stable, provider-supplied play identifier (KEXP sets it
+	// from the play `id`). When non-nil it becomes the row's generated dedup_key,
+	// making re-imports idempotent even if positions shift across fetches. NTS and
+	// WFMU have no such id and leave it nil, so dedup_key falls back to the
+	// content hash over (position, artist_name, track_title). It must be either
+	// nil or a non-empty string — an empty value would make dedup_key COALESCE to
+	// '' and collide every such play in the episode (sanitizePlay enforces this).
+	//
+	// A future non-KEXP provider must normalize its id at its own boundary: it
+	// shares the dedup_key namespace with the 32-char md5 content hash (no
+	// separator) and the column is VARCHAR(255), so an id that is 32-hex-shaped or
+	// longer than 255 chars must be namespaced/length-checked before reaching here.
+	ProviderPlayID         *string    `json:"provider_play_id,omitempty"`
 	ArtistName             string     `json:"artist_name"`
 	TrackTitle             *string    `json:"track_title,omitempty"`
 	AlbumTitle             *string    `json:"album_title,omitempty"`

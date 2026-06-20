@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -31,5 +33,56 @@ func TestIsDuplicateKey(t *testing.T) {
 				t.Errorf("IsDuplicateKey(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestIsSerializationFailure(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("connection refused"), false},
+		// Typed-only, like IsDuplicateKey: a raw driver message must NOT match, so
+		// a caller relying on substring matching gets a loud false rather than a
+		// brittle hit.
+		{"raw driver string", errors.New("could not serialize access due to concurrent update"), false},
+		{"pg 40001 direct", &pgconn.PgError{Code: "40001"}, true},
+		{"pg 40001 wrapped", fmt.Errorf("batch inserting plays: %w", &pgconn.PgError{Code: "40001"}), true},
+		{"pg 23505 duplicate", &pgconn.PgError{Code: "23505"}, false},
+		{"gorm dup sentinel", gorm.ErrDuplicatedKey, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsSerializationFailure(tc.err); got != tc.want {
+				t.Errorf("IsSerializationFailure(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIsSerializationFailure_SurvivesTranslateError is the explicit guard that the
+// retry-on-serialization path (PSY-1143) depends on: a 40001 must survive GORM's
+// TranslateError as a *pgconn.PgError (pattern_gorm_translate_error.md), unlike
+// 23505 which is replaced by the bare gorm.ErrDuplicatedKey sentinel. Asserted
+// against the REAL postgres dialector rather than a reimplementation of its map.
+func TestIsSerializationFailure_SurvivesTranslateError(t *testing.T) {
+	dialector := postgres.Dialector{}
+
+	// 40001 is not in the driver's errCodes map → passes through untranslated.
+	serErr := dialector.Translate(&pgconn.PgError{Code: "40001"})
+	if !IsSerializationFailure(serErr) {
+		t.Errorf("40001 must survive TranslateError and remain detectable; got %T: %v", serErr, serErr)
+	}
+
+	// Control: 23505 IS translated to the sentinel, so it is a duplicate-key error,
+	// NOT a serialization failure. Proves the two helpers don't cross-classify.
+	dupErr := dialector.Translate(&pgconn.PgError{Code: "23505"})
+	if IsSerializationFailure(dupErr) {
+		t.Errorf("23505 must not be classified as a serialization failure; got %T: %v", dupErr, dupErr)
+	}
+	if !IsDuplicateKey(dupErr) {
+		t.Errorf("23505 must translate to the duplicate-key sentinel; got %T: %v", dupErr, dupErr)
 	}
 }

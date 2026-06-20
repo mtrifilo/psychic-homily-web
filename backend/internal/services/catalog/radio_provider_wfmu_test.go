@@ -410,6 +410,9 @@ func TestWFMU_ParsePlaylistPage_AllFields(t *testing.T) {
 	assert.Equal(t, "Sound Stage 7", *p0.LabelName)
 	assert.Nil(t, p0.AlbumTitle, "no album for single")
 	assert.Nil(t, p0.ReleaseYear, "no year specified")
+	// PSY-1143: WFMU has no stable provider play id, so dedup falls back to the
+	// content hash. ProviderPlayID must stay nil.
+	assert.Nil(t, p0.ProviderPlayID)
 	assert.False(t, p0.IsNew)
 
 	// Check V.I.P.'s — has DJ comment

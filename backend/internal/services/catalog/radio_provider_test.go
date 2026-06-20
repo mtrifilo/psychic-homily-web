@@ -73,6 +73,9 @@ func TestParseKEXPPlay_FullFields(t *testing.T) {
 	play := parseKEXPPlay(kPlay, 5)
 
 	assert.Equal(t, 5, play.Position)
+	// PSY-1143: the KEXP play `id` is stringified into ProviderPlayID (plain, not
+	// namespaced) so dedup_key uses the stable id rather than the content hash.
+	assert.Equal(t, "12345", *play.ProviderPlayID)
 	assert.Equal(t, "Radiohead", play.ArtistName)
 	assert.Equal(t, "Everything In Its Right Place", *play.TrackTitle)
 	assert.Equal(t, "Kid A", *play.AlbumTitle)
@@ -99,6 +102,9 @@ func TestParseKEXPPlay_MinimalFields(t *testing.T) {
 
 	assert.Equal(t, 0, play.Position)
 	assert.Equal(t, "Sonic Youth", play.ArtistName)
+	// PSY-1143: a missing/zero KEXP id leaves ProviderPlayID nil so dedup falls
+	// back to the content hash (never an empty dedup_key).
+	assert.Nil(t, play.ProviderPlayID)
 	assert.Nil(t, play.TrackTitle)
 	assert.Nil(t, play.AlbumTitle)
 	assert.Nil(t, play.LabelName)
@@ -2016,6 +2022,103 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_NonUniqueConstrain
 	// Use a non-existent episode ID so the FK to radio_episodes fires.
 	_, err := suite.radioService.importPlays(ep.ID+99999, plays)
 	suite.Require().Error(err, "non-UNIQUE constraint failures must still surface as errors")
+}
+
+// PSY-1143: When a provider supplies a stable provider_play_id (KEXP), dedup_key
+// is that id, so re-importing the SAME play at a DIFFERENT position (and even
+// different content) dedups — where the content-hash branch, which includes
+// position, would have inserted a second row. Proves id-based, position-
+// independent idempotency.
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_KEXPStableID_DedupsAcrossPositionChange() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	id := "778899" // stringified KEXP play id
+	track1 := "Karma Police"
+	first := []RadioPlayImport{
+		{Position: 0, ArtistName: "Radiohead", TrackTitle: &track1, ProviderPlayID: &id},
+	}
+	ipo, err := suite.radioService.importPlays(ep.ID, first)
+	suite.Require().NoError(err)
+	suite.Equal(1, ipo.Imported)
+
+	// Same provider id at a different position with different content → still one row.
+	track2 := "No Surprises"
+	second := []RadioPlayImport{
+		{Position: 7, ArtistName: "Radiohead", TrackTitle: &track2, ProviderPlayID: &id},
+	}
+	_, err = suite.radioService.importPlays(ep.ID, second)
+	suite.Require().NoError(err)
+
+	var dbCount int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
+	suite.Equal(int64(1), dbCount, "same provider_play_id dedups regardless of position/content")
+
+	// The stored row carries the provider id, and dedup_key equals it (COALESCE
+	// first branch) — not the 32-char content hash.
+	var play catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("episode_id = ?", ep.ID).First(&play).Error)
+	suite.Require().NotNil(play.ProviderPlayID)
+	suite.Equal(id, *play.ProviderPlayID)
+	suite.Equal(id, play.DedupKey, "dedup_key should equal provider_play_id")
+}
+
+// PSY-1143: Two genuinely-distinct plays at the SAME position with identical
+// artist+track previously collided on the content-hash key (the migration-note
+// bug). Distinct provider_play_ids give distinct dedup_keys, so both rows persist.
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_KEXPStableID_DistinctIDsAvoidContentCollision() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	track := "Untitled"
+	idA := "1001"
+	idB := "1002"
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: "Stereolab", TrackTitle: &track, ProviderPlayID: &idA},
+		{Position: 0, ArtistName: "Stereolab", TrackTitle: &track, ProviderPlayID: &idB},
+	}
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	suite.Equal(2, ipo.Imported)
+
+	var dbCount int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
+	suite.Equal(int64(2), dbCount, "distinct provider ids must not collide despite identical content+position")
+}
+
+// PSY-1143: A blank/whitespace provider_play_id must NOT make dedup_key COALESCE
+// to '' (which would collide every such play in the episode). sanitizePlay
+// normalizes blank → nil so the content-hash branch applies; two distinct plays
+// with blank ids both persist, each with a real content-hash dedup_key.
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_BlankProviderID_FallsBackToContentHash() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	blank := "   "
+	empty := ""
+	t1 := "Song A"
+	t2 := "Song B"
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: "Broadcast", TrackTitle: &t1, ProviderPlayID: &blank},
+		{Position: 1, ArtistName: "Broadcast", TrackTitle: &t2, ProviderPlayID: &empty},
+	}
+	ipo, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	suite.Equal(2, ipo.Imported)
+
+	var dbCount int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
+	suite.Equal(int64(2), dbCount, "blank provider ids fall back to content hash, no spurious collision")
+
+	var rows []catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("episode_id = ?", ep.ID).Order("position").Find(&rows).Error)
+	for _, r := range rows {
+		suite.Nil(r.ProviderPlayID, "blank provider id normalized to nil")
+		suite.Len(r.DedupKey, 32, "dedup_key should be the md5 content hash")
+	}
 }
 
 func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelCaseInsensitive() {
