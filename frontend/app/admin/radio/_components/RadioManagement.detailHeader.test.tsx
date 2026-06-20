@@ -75,7 +75,10 @@ vi.mock('@/lib/hooks/admin/useAdminRadio', async (importOriginal) => {
     useRadioStationDetail: () => hoisted.detailReturn,
     useRadioShows: () => ({ data: { shows: [], count: 0 }, isLoading: false }),
     useDeleteRadioStation: noopMutation,
-    useDiscoverShows: noopMutation,
+    useTriggerStationSync: noopMutation,
+    useTriggerShowBackfill: noopMutation,
+    useSyncRun: () => ({ data: undefined }),
+    useCancelSyncRun: noopMutation,
     useDeleteRadioShow: noopMutation,
   }
 })

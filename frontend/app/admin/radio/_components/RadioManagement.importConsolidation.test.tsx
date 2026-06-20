@@ -6,11 +6,11 @@ import type {
   RadioShowListItem,
 } from '@/lib/hooks/admin/useAdminRadio'
 
-// PSY-1120 consolidated the two parallel import systems (one-shot
-// ShowImportControls + async job-based ShowImportSection) down to the single
-// job-based ShowImportSection. This test asserts that exactly ONE import
-// affordance renders on an expanded show row — the job-based one — and that the
-// deleted one-shot "Since"/"Until" controls are gone.
+// PSY-1120 consolidated the two parallel import systems down to one
+// ShowImportSection; PSY-1136 then repointed it at the unified sync-run backend
+// (the per-show "Backfill Episodes" affordance). This test asserts that exactly
+// ONE backfill affordance renders on an expanded show row and that the deleted
+// one-shot "Since"/"Until" controls are gone.
 
 const listItem: RadioStationListItem = {
   id: 1,
@@ -52,13 +52,12 @@ vi.mock('@/lib/hooks/admin/useAdminRadio', async (importOriginal) => {
     useRadioStationDetail: () => ({ data: undefined }),
     useRadioShows: () => ({ data: { shows: [show], count: 1 }, isLoading: false }),
     useDeleteRadioStation: noopMutation,
-    useDiscoverShows: noopMutation,
+    useTriggerStationSync: noopMutation,
     useDeleteRadioShow: noopMutation,
-    // Job-based import (kept): no jobs yet, no active job.
-    useShowImportJobs: () => ({ data: { jobs: [], count: 0 }, isLoading: false }),
-    useCreateImportJob: noopMutation,
-    useImportJob: () => ({ data: undefined }),
-    useCancelImportJob: noopMutation,
+    // Unified sync triggers (PSY-1136): no active run.
+    useTriggerShowBackfill: noopMutation,
+    useSyncRun: () => ({ data: undefined }),
+    useCancelSyncRun: noopMutation,
   }
 })
 
@@ -75,50 +74,44 @@ function openShowImport() {
   )
   // Open the station detail.
   fireEvent.click(screen.getByRole('button', { name: /Station: KEXP/i }))
-  // Expand the show's import panel.
+  // Expand the show's backfill panel.
   fireEvent.click(
-    screen.getByRole('button', { name: /Import episodes for Morning Show/i })
+    screen.getByRole('button', { name: /Backfill episodes for Morning Show/i })
   )
 }
 
-describe('Import consolidation — one affordance per show (PSY-1120)', () => {
+describe('Backfill affordance — one per show (PSY-1120/1136)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('renders exactly one "Import Episodes" affordance (the job-based one)', () => {
+  it('renders exactly one "Backfill Episodes" affordance', () => {
     openShowImport()
 
-    // Exactly one "Import Episodes" button — the job-based ShowImportSection's
-    // collapsed trigger. The deleted one-shot ShowImportControls also rendered
-    // an "Import Episodes" button; if it were still mounted there would be two.
-    const importButtons = screen.getAllByRole('button', {
-      name: /^Import Episodes$/,
+    const backfillButtons = screen.getAllByRole('button', {
+      name: /^Backfill Episodes$/,
     })
-    expect(importButtons).toHaveLength(1)
+    expect(backfillButtons).toHaveLength(1)
   })
 
   it('does not render the deleted one-shot Since/Until controls', () => {
     openShowImport()
 
-    // The job-based create form uses "From"/"To" labels and only appears after
-    // clicking the trigger; the deleted one-shot path rendered "Since"/"Until"
-    // inputs inline immediately on expand.
+    // The backfill form uses "From"/"To" labels and only appears after clicking
+    // the trigger; the deleted one-shot path rendered "Since"/"Until" inputs
+    // inline immediately on expand.
     expect(screen.queryByText('Since')).toBeNull()
     expect(screen.queryByText('Until')).toBeNull()
   })
 
-  it('opens the job-based create form with From/To when triggered', () => {
+  it('opens the backfill form with From/To when triggered', () => {
     openShowImport()
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Import Episodes$/ })
-    )
-    // The job-based form fields.
+    fireEvent.click(screen.getByRole('button', { name: /^Backfill Episodes$/ }))
     expect(screen.getByText('From')).toBeInTheDocument()
     expect(screen.getByText('To')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Start Import/i })
+      screen.getByRole('button', { name: /Start Backfill/i })
     ).toBeInTheDocument()
   })
 })

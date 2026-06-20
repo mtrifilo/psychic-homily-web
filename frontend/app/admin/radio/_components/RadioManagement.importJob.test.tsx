@@ -1,168 +1,235 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import type { RadioImportJob } from '@/lib/hooks/admin/useAdminRadio'
+import { render, screen, fireEvent } from '@testing-library/react'
+import type { RadioSyncRun } from '@/lib/hooks/admin/useAdminRadio'
 
-// ImportJobRow's only hook dependency is useCancelImportJob (a useMutation). We
-// stub it so the row can be rendered standalone without a QueryClientProvider.
-// The point of these tests is the rendered OUTPUT for the PSY-1120 fixes:
-//   1. a completed job whose error_log carries the PSY-1119 "completed with
-//      errors" header renders an amber warning, NOT a plain green "completed";
-//   2. a completed/running job that imported zero plays shows "no plays found",
-//      never "0% matched" (which reads as a matching failure);
-//   3. a clean completed job with plays still shows the "% matched" summary.
+// SyncRunRow's only hook dependency is useCancelSyncRun (a useMutation). We stub
+// it so the row renders standalone without a QueryClientProvider. These tests
+// cover the rendered OUTPUT for the PSY-1120 fixes, carried onto the PSY-1136
+// sync-run shape:
+//   1. a `partial` run (imported data but hit per-episode/match errors — the old
+//      "completed with errors") renders an amber warning + its categorized
+//      errors[], NOT a plain green "success";
+//   2. a run that imported zero plays shows "no plays found", never "0% matched";
+//   3. a clean `success` run with plays still shows the "% matched" summary.
+// cancelMutate is hoisted so the cancel-button-wiring test can assert it fires.
+const { cancelMutate } = vi.hoisted(() => ({ cancelMutate: vi.fn() }))
+
 vi.mock('@/lib/hooks/admin/useAdminRadio', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/lib/hooks/admin/useAdminRadio')>()
   return {
     ...actual,
-    useCancelImportJob: () => ({ mutate: vi.fn(), isPending: false }),
+    useCancelSyncRun: () => ({ mutate: cancelMutate, isPending: false }),
   }
 })
 
-import { ImportJobRow } from './RadioManagement'
+import { SyncRunRow } from './RadioManagement'
 
-// Minimal complete RadioImportJob. Overrides are spread last.
-function makeJob(overrides: Partial<RadioImportJob>): RadioImportJob {
+// Minimal complete RadioSyncRun. Overrides are spread last.
+function makeRun(overrides: Partial<RadioSyncRun>): RadioSyncRun {
   return {
     id: 1,
-    show_id: 10,
-    show_name: 'Morning Show',
     station_id: 100,
     station_name: 'KEXP',
-    since: '2025-04-01',
-    until: '2025-04-30',
-    status: 'completed',
+    show_id: 10,
+    show_name: 'Morning Show',
+    run_type: 'backfill',
+    trigger: 'manual',
+    status: 'success',
+    window_start: '2025-04-01',
+    window_end: '2025-04-30',
     episodes_found: 4,
     episodes_imported: 4,
     plays_imported: 0,
     plays_matched: 0,
+    plays_unmatched: 0,
     current_episode_date: null,
-    error_log: null,
+    breaker_skipped: false,
+    errors: [],
     started_at: '2025-05-01T10:00:00Z',
-    completed_at: '2025-05-01T10:05:00Z',
+    finished_at: '2025-05-01T10:05:00Z',
     created_at: '2025-05-01T09:59:00Z',
     updated_at: '2025-05-01T10:05:00Z',
     ...overrides,
   }
 }
 
-describe('ImportJobRow — completed-with-errors warning (PSY-1119/1120)', () => {
-  it('renders an amber warning (not plain green) when error_log carries the PSY-1119 header', () => {
-    const job = makeJob({
-      status: 'completed',
+describe('SyncRunRow — partial (completed-with-errors) run (PSY-1119/1120/1136)', () => {
+  it('renders an amber warning (not plain green) for a partial run, with its categorized errors', () => {
+    const run = makeRun({
+      status: 'partial',
       episodes_found: 64,
       episodes_imported: 64,
       plays_imported: 50,
       plays_matched: 40,
-      error_log:
-        'completed with errors: 3 episodes failed to fetch, 2 play matches failed to persist\n' +
-        'fetch failed for episode abc: 404\n',
+      plays_unmatched: 10,
+      errors: [
+        { category: 'provider_unreachable', detail: 'fetch failed for episode abc: 404' },
+        { category: 'match_persist_error', detail: 'could not persist match' },
+      ],
     })
-    render(<ImportJobRow job={job} />)
+    render(<SyncRunRow run={run} />)
 
-    // The status badge reads "completed with errors", not "completed".
+    // The status badge reads "completed with errors", not "success".
     expect(screen.getByText('completed with errors')).toBeInTheDocument()
-    // The badge label is replaced — there is no plain "completed" badge.
-    expect(screen.queryByText(/^completed$/)).toBeNull()
+    expect(screen.queryByText(/^success$/)).toBeNull()
 
-    // The warning banner spells out the failure counts.
-    const warning = screen.getByText('Completed with errors')
-    expect(warning).toBeInTheDocument()
-    expect(screen.getByText(/3 failed to fetch playlists/)).toBeInTheDocument()
-    expect(
-      screen.getByText(/2 play matches failed to persist/)
-    ).toBeInTheDocument()
+    // The warning banner (error count, not plays_unmatched) + the categorized list.
+    expect(screen.getByText('Completed with errors')).toBeInTheDocument()
+    expect(screen.getByText(/64 episodes imported/)).toBeInTheDocument()
+    expect(screen.getByText(/2 errors/)).toBeInTheDocument()
+    expect(screen.getByText('provider_unreachable')).toBeInTheDocument()
+    expect(screen.getByText('match_persist_error')).toBeInTheDocument()
   })
 
-  it('does NOT render the warning for a clean completed job (no error_log)', () => {
-    const job = makeJob({
-      status: 'completed',
+  it('does NOT render the warning for a clean success run', () => {
+    const run = makeRun({
+      status: 'success',
       plays_imported: 50,
       plays_matched: 40,
-      error_log: null,
+      errors: [],
     })
-    render(<ImportJobRow job={job} />)
+    render(<SyncRunRow run={run} />)
 
     expect(screen.queryByText('Completed with errors')).toBeNull()
     expect(screen.queryByText('completed with errors')).toBeNull()
-    // The plain "completed" badge is shown.
-    expect(screen.getByText('completed')).toBeInTheDocument()
+    expect(screen.getByText('success')).toBeInTheDocument()
   })
 
-  it('does NOT treat a 0/0 header as a warning (clean import)', () => {
-    const job = makeJob({
-      status: 'completed',
-      plays_imported: 10,
-      plays_matched: 10,
-      error_log:
-        'completed with errors: 0 episodes failed to fetch, 0 play matches failed to persist\n',
-    })
-    render(<ImportJobRow job={job} />)
-
-    expect(screen.queryByText('Completed with errors')).toBeNull()
-    expect(screen.getByText('completed')).toBeInTheDocument()
-  })
-
-  it('does NOT render the warning for a failed job even if error_log is present', () => {
-    const job = makeJob({
+  it('renders the categorized error list for a failed run (not the partial banner)', () => {
+    const run = makeRun({
       status: 'failed',
-      error_log: 'fatal: provider unreachable',
+      errors: [{ category: 'provider_unreachable', detail: 'provider 500' }],
     })
-    render(<ImportJobRow job={job} />)
+    render(<SyncRunRow run={run} />)
 
-    // failed jobs render their own error_log block, not the completed-with-errors banner.
+    // A failed run shows its error list, not the partial "Completed with errors" banner.
     expect(screen.queryByText('Completed with errors')).toBeNull()
-    expect(screen.getByText('fatal: provider unreachable')).toBeInTheDocument()
+    expect(screen.getByText('provider_unreachable')).toBeInTheDocument()
+    expect(screen.getByText(/provider 500/)).toBeInTheDocument()
+  })
+
+  it('renders a skipped (breaker) note', () => {
+    const run = makeRun({ status: 'skipped', breaker_skipped: true })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.getByText('skipped (breaker)')).toBeInTheDocument()
+    expect(screen.getByText(/circuit breaker was open/)).toBeInTheDocument()
+  })
+
+  it('renders a fallback reason for a failed run with no categorized errors', () => {
+    const run = makeRun({ status: 'failed', errors: [] })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    expect(
+      screen.getByText(/failed before any detailed error was recorded/)
+    ).toBeInTheDocument()
+  })
+
+  it('renders a cancelled body line (not just the badge)', () => {
+    const run = makeRun({ status: 'cancelled', finished_at: null })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.getByText('cancelled')).toBeInTheDocument()
+    expect(screen.getByText(/Cancelled before completion/)).toBeInTheDocument()
+  })
+
+  it('caps the error list and shows a "+N more" overflow note', () => {
+    const errors = Array.from({ length: 25 }, (_, i) => ({
+      category: 'provider_unreachable',
+      detail: `error ${i}`,
+    }))
+    const run = makeRun({ status: 'failed', errors })
+    render(<SyncRunRow run={run} />)
+
+    // 25 errors, capped at 20 displayed → "+5 more".
+    expect(screen.getByText(/\+5 more/)).toBeInTheDocument()
+  })
+
+  it('shows the Cancel button only for a running run and calls cancel with the run id', () => {
+    cancelMutate.mockClear()
+    const run = makeRun({ id: 99, status: 'running', finished_at: null })
+    render(<SyncRunRow run={run} />)
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel/i })
+    fireEvent.click(cancelBtn)
+    expect(cancelMutate).toHaveBeenCalledWith(99)
+  })
+
+  it('does NOT show a Cancel button on a terminal run', () => {
+    const run = makeRun({ status: 'success' })
+    render(<SyncRunRow run={run} />)
+    expect(screen.queryByRole('button', { name: /Cancel/i })).toBeNull()
+  })
+
+  it('suppresses the episode progress bar for a discover run even with episodes_found > 0', () => {
+    // A discover run reports an episode scan count but imports no episodes; the
+    // progress bar (gated on run_type !== "discover") must not render, and the
+    // summary reads "discovery finished".
+    const run = makeRun({
+      run_type: 'discover',
+      status: 'success',
+      episodes_found: 10,
+      episodes_imported: 0,
+    })
+    render(<SyncRunRow run={run} />)
+
+    expect(screen.queryByText(/\/ 10 episodes/)).toBeNull()
+    expect(screen.getByText(/discovery finished/)).toBeInTheDocument()
   })
 })
 
-describe('ImportJobRow — 0-plays match display (PSY-1120)', () => {
-  it('shows "no plays found" instead of "0% matched" for a completed 0-play job', () => {
-    const job = makeJob({
-      status: 'completed',
+describe('SyncRunRow — 0-plays match display (PSY-1120/1136)', () => {
+  it('shows "no plays found" instead of "0% matched" for a success 0-play run', () => {
+    const run = makeRun({
+      status: 'success',
       episodes_found: 4,
       episodes_imported: 4,
       plays_imported: 0,
       plays_matched: 0,
-      error_log: null,
     })
-    render(<ImportJobRow job={job} />)
+    render(<SyncRunRow run={run} />)
 
-    // No misleading "0% matched" anywhere.
     expect(screen.queryByText(/0% matched/)).toBeNull()
     expect(screen.queryByText(/% matched/)).toBeNull()
-    // The completed summary and the progress row both say "no plays found".
+    // Both the progress row and the completed summary say "no plays found".
     expect(screen.getAllByText(/no plays found/).length).toBeGreaterThan(0)
   })
 
-  it('shows "% matched" for a completed job that imported plays', () => {
-    const job = makeJob({
-      status: 'completed',
+  it('shows "% matched" for a success run that imported plays', () => {
+    const run = makeRun({
+      status: 'success',
       episodes_found: 4,
       episodes_imported: 4,
       plays_imported: 50,
       plays_matched: 40,
-      error_log: null,
     })
-    render(<ImportJobRow job={job} />)
+    render(<SyncRunRow run={run} />)
 
     // 40 / 50 = 80%.
     expect(screen.getByText(/80% matched/)).toBeInTheDocument()
     expect(screen.queryByText(/no plays found/)).toBeNull()
   })
 
-  it('shows "no plays found" in the progress row for a running 0-play job', () => {
-    const job = makeJob({
+  it('shows "no plays found" in the progress row for a running 0-play run', () => {
+    const run = makeRun({
       status: 'running',
       episodes_found: 4,
       episodes_imported: 1,
       plays_imported: 0,
       plays_matched: 0,
-      completed_at: null,
+      finished_at: null,
     })
-    render(<ImportJobRow job={job} />)
+    render(<SyncRunRow run={run} />)
 
     expect(screen.queryByText(/0% matched/)).toBeNull()
     expect(screen.getByText(/no plays found/)).toBeInTheDocument()
+  })
+
+  it('renders window dates for a backfill run', () => {
+    const run = makeRun({ status: 'running', finished_at: null })
+    render(<SyncRunRow run={run} />)
+    expect(screen.getByText(/2025-04-01 to 2025-04-30/)).toBeInTheDocument()
   })
 })
