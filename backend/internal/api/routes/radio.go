@@ -41,19 +41,21 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Put(rc.Admin, "/admin/radio-stations/{id}", radioHandler.AdminUpdateRadioStationHandler)
 	huma.Delete(rc.Admin, "/admin/radio-stations/{id}", radioHandler.AdminDeleteRadioStationHandler)
 	huma.Post(rc.Admin, "/admin/radio-stations/{id}/shows", radioHandler.AdminCreateRadioShowHandler)
-	huma.Post(rc.Admin, "/admin/radio-stations/{id}/fetch", radioHandler.AdminTriggerFetchHandler)
-	huma.Post(rc.Admin, "/admin/radio-stations/{id}/discover", radioHandler.AdminDiscoverShowsHandler)
+	// PSY-1135: one station-scoped trigger (discover|fetch) replaces the old
+	// /fetch + /discover endpoints; runs async through RunStationSync.
+	huma.Post(rc.Admin, "/admin/radio-stations/{id}/sync", radioHandler.AdminTriggerStationSyncHandler)
 
 	// Admin radio show endpoints
 	huma.Put(rc.Admin, "/admin/radio-shows/{id}", radioHandler.AdminUpdateRadioShowHandler)
 	huma.Delete(rc.Admin, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
-	huma.Post(rc.Admin, "/admin/radio-shows/{id}/import", radioHandler.AdminImportShowEpisodesHandler)
+	// PSY-1135: show-scoped historic backfill replaces the old synchronous /import
+	// and the /import-job create+start; runs async through RunStationSync.
+	huma.Post(rc.Admin, "/admin/radio-shows/{id}/backfill", radioHandler.AdminTriggerShowBackfillHandler)
 
-	// Admin import job endpoints
-	huma.Post(rc.Admin, "/admin/radio-shows/{id}/import-job", radioHandler.AdminCreateImportJobHandler)
-	huma.Get(rc.Admin, "/admin/radio/import-jobs/{id}", radioHandler.AdminGetImportJobHandler)
-	huma.Post(rc.Admin, "/admin/radio/import-jobs/{id}/cancel", radioHandler.AdminCancelImportJobHandler)
-	huma.Get(rc.Admin, "/admin/radio-shows/{id}/import-jobs", radioHandler.AdminListImportJobsHandler)
+	// Admin sync-run observability (PSY-1135): poll + cancel, mapped onto
+	// radio_sync_runs (replaces the import-job get/cancel/list endpoints).
+	huma.Get(rc.Admin, "/admin/radio/sync-runs/{id}", radioHandler.AdminGetSyncRunHandler)
+	huma.Post(rc.Admin, "/admin/radio/sync-runs/{id}/cancel", radioHandler.AdminCancelSyncRunHandler)
 
 	// Admin unmatched play management endpoints
 	huma.Get(rc.Admin, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)

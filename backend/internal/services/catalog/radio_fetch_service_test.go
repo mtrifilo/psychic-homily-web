@@ -211,43 +211,6 @@ func TestRadioFetchService_AutoBackfillDays_NegativeFallsBackToDefault(t *testin
 	}
 }
 
-// PSY-672: waitForJobCompletion respects stopCh — a service shutdown mid-poll
-// should return jobWaitShutdown within one poll interval so the drain goroutine
-// can return cleanly without orphan ticks.
-func TestRadioFetchService_WaitForJobCompletion_ShutdownAbort(t *testing.T) {
-	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
-	}
-
-	// Close stopCh immediately; the wait should return jobWaitShutdown on the
-	// first select iteration without ever hitting GetImportJob.
-	close(svc.stopCh)
-	done := make(chan struct{})
-	var (
-		job    *contracts.RadioImportJobResponse
-		result jobWaitResult
-	)
-	go func() {
-		job, result = svc.waitForJobCompletion(1)
-		close(done)
-	}()
-	select {
-	case <-done:
-		if result != jobWaitShutdown {
-			t.Fatalf("expected jobWaitShutdown on stopCh close, got %v", result)
-		}
-		if job != nil {
-			t.Fatal("expected nil job on stopCh close")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("waitForJobCompletion did not honor stopCh within 2s")
-	}
-}
-
 // =============================================================================
 // PSY-887: error classification + transient retry tests
 // =============================================================================

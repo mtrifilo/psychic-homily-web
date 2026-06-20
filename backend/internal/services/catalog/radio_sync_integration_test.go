@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -446,4 +447,128 @@ func (s *RadioSyncSuite) TestExecutorPanic_ClosesRunAsFailed() {
 	s.Require().Len(runs, 1)
 	s.Equal(catalogm.RadioSyncRunStatusFailed, runs[0].Status, "a panicked run must be closed as failed")
 	s.Require().NotNil(runs[0].FinishedAt, "a panicked run must still set finished_at (lifecycle CHECK)")
+}
+
+// A cancel that lands mid-backfill must WIN over the run's own terminal close: the
+// backfill's progressFn observes status='cancelled' and stops, and the close path's
+// WHERE status='running' guard leaves the row 'cancelled' (not overwritten to
+// success/partial) with health untouched. This is the regression guard for the
+// cancellation design — the close/fail/progress UPDATEs all key on status='running'
+// so exactly one of {cancel, close} wins. (PSY-1135, adversarial-review.)
+func (s *RadioSyncSuite) TestBackfill_CancelMidRun_WinsOverClose() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "cancel-show-ext"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Cancel Show", Slug: "cancel-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	var runID uint
+	track := "Track A"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			// FetchPlaylist runs inside importEpisode, BEFORE the post-episode
+			// progressFn. Cancelling here means the very next progressFn check
+			// observes status='cancelled' and stops the import — deterministically
+			// racing the close path against an already-terminal row.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				s.Require().NotZero(runID, "OnRunOpened must set runID before the executor runs")
+				s.Require().NoError(s.svc.CancelSyncRun(runID))
+				return []RadioPlayImport{{Position: 1, ArtistName: "Artist A", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerManual,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+		OnRunOpened: func(id uint) { runID = id },
+	})
+	s.Require().NoError(err)
+	s.Require().NotNil(res)
+	s.Equal(catalogm.RadioSyncRunStatusCancelled, res.Status, "close path must not overwrite the cancel")
+
+	var run catalogm.RadioSyncRun
+	s.Require().NoError(s.db.First(&run, res.RunID).Error)
+	s.Equal(catalogm.RadioSyncRunStatusCancelled, run.Status)
+	s.Require().NotNil(run.FinishedAt)
+
+	// The cancelled branch returns before updateStationHealth, so a cancelled run
+	// is health-neutral: no success recorded, not counted as a failure.
+	var health catalogm.RadioStationHealth
+	if herr := s.db.First(&health, "station_id = ?", st.ID).Error; herr == nil {
+		s.Nil(health.LastSuccessAt, "a cancelled run must not record a success")
+		s.Equal(0, health.ConsecutiveFailures, "a cancelled run is not a failure")
+	}
+}
+
+// runAutoBackfillShow cancels its in-flight run on service shutdown (s.stopCh) and
+// joins the watcher (<-watcherExited) before returning, so no goroutine does DB
+// work past Stop()'s WaitGroup barrier. A blocking provider holds the run open so
+// the cancel is observed mid-run, deterministically (no sleeps). Replaces the
+// coverage of the deleted waitForJobCompletion shutdown test. (PSY-1135.)
+func (s *RadioSyncSuite) TestAutoBackfillShow_CancelsOnShutdown() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "shutdown-show-ext"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Shutdown Show", Slug: "shutdown-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	fs := &RadioFetchService{
+		radioService:        s.svc,
+		logger:              testLogger(),
+		stopCh:              make(chan struct{}),
+		consecutiveFailures: make(map[uint]int),
+		transientFailures:   make(map[uint]int),
+	}
+
+	runStarted := make(chan struct{})
+	proceed := make(chan struct{})
+	var once sync.Once
+	track := "T"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			// Block the run open (mid-episode) until the test has closed stopCh and
+			// confirmed the watcher cancelled the run.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				once.Do(func() { close(runStarted); <-proceed })
+				return []RadioPlayImport{{Position: 1, ArtistName: "A", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	since := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	var res *RunStationSyncResult
+	done := make(chan struct{})
+	go func() {
+		res = fs.runAutoBackfillShow(st.ID, show.ID, since, until)
+		close(done)
+	}()
+
+	<-runStarted     // run row open + executing, blocked inside FetchPlaylist
+	close(fs.stopCh) // watcher (holds runID via OnRunOpened) cancels the run
+	s.Require().Eventually(func() bool {
+		var run catalogm.RadioSyncRun
+		if err := s.db.Where("station_id = ?", st.ID).Order("id DESC").First(&run).Error; err != nil {
+			return false
+		}
+		return run.Status == catalogm.RadioSyncRunStatusCancelled
+	}, 3*time.Second, 10*time.Millisecond, "watcher must cancel the in-flight run on stopCh")
+	close(proceed) // let the episode finish; progressFn observes the cancel → stops
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		s.Require().FailNow("runAutoBackfillShow did not return after the shutdown cancel (watcher not joined?)")
+	}
+	s.Require().NotNil(res)
+	s.Equal(catalogm.RadioSyncRunStatusCancelled, res.Status)
 }

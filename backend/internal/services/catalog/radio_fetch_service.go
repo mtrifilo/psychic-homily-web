@@ -35,11 +35,6 @@ const DefaultDiscoverInterval = 24 * time.Hour
 // Set RADIO_AUTO_BACKFILL_DAYS=0 to disable auto-backfill entirely.
 const DefaultAutoBackfillDays = 90
 
-// autoBackfillPollInterval is how often the per-station backfill goroutine
-// polls a running import job for completion. The job updates its DB row every
-// 10 episodes; 5s is comfortably finer-grained than typical job tick rates.
-const autoBackfillPollInterval = 5 * time.Second
-
 // radioCircuitBreakerThreshold is the number of consecutive PERMANENT failures
 // before a station is temporarily skipped during fetch cycles. Transient errors
 // (timeout, connection refused, 429) bump a separate counter and trigger a
@@ -144,7 +139,8 @@ type RadioFetchService struct {
 	discoverInterval time.Duration
 
 	// autoBackfillDays: how far back to backfill when discovery finds a new show.
-	// 0 disables auto-backfill (admins can still manually trigger via /admin/radio-shows/{id}/import-job).
+	// 0 disables auto-backfill (admins can still manually trigger a backfill via
+	// POST /admin/radio-shows/{id}/backfill).
 	autoBackfillDays int
 
 	stopCh chan struct{}
@@ -685,16 +681,16 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			// runs during unwind before GoSafe's recover, so the WaitGroup
 			// stays balanced even on panic.
 			//
-			// NOTE (PSY-1134 / P2): auto-backfill still drives the import-job
-			// machinery (CreateImportJob/StartImportJob), so its runs are traced in
-			// radio_import_jobs, NOT yet radio_sync_runs. It moves onto
-			// RunStationSync(backfill, auto_backfill) in PR2 when import-jobs retire.
+			// PSY-1135: auto-backfill now runs through RunStationSync(backfill,
+			// auto_backfill), so each newly-discovered show's history is traced in
+			// radio_sync_runs alongside every other ingestion path.
 			s.wg.Add(1)
+			stationID := station.ID
 			showIDs := disc.NewShowIDs
 			showNames := disc.NewShowNames
 			stationName := station.Name
 			shared.GoSafe(context.Background(), "radio_auto_backfill", func() {
-				s.autoBackfillStation(stationName, showIDs, showNames)
+				s.autoBackfillStation(stationID, stationName, showIDs, showNames)
 			})
 		}
 	}
@@ -712,33 +708,32 @@ func (s *RadioFetchService) runDiscoverCycle() {
 }
 
 // autoBackfillStation drains a per-station batch of newly-discovered shows
-// SERIALLY — one import job at a time per station, polling each to completion
+// SERIALLY — one RunStationSync(backfill) at a time per station, blocking on each
 // before starting the next. Single batched Discord notification at the end.
 //
 // Why serial: provider HTTP clients are rate-limited at 1 req/sec PER INSTANCE
-// (existing wfmuRateLimit / kexpRateLimit / ntsRateLimit). Each import job
-// gets its own provider instance via getProvider, so parallel jobs would each
-// have an independent rate limiter and could collectively hit a provider
-// faster than the per-instance cap intends. Per-station serialization keeps
-// effective egress at ~1 req/sec/provider.
+// (existing wfmuRateLimit / kexpRateLimit / ntsRateLimit). Each backfill run gets
+// its own provider instance via getProvider, so parallel runs would each have an
+// independent rate limiter and could collectively hit a provider faster than the
+// per-instance cap intends. Per-station serialization keeps effective egress at
+// ~1 req/sec/provider. The per-station advisory lock inside RunStationSync is the
+// other guard: if a scheduled fetch/discover for this station is mid-flight, the
+// backfill no-ops (lock contended) and is retried on the next discover cycle.
 //
-// Process lifetime: the goroutine respects s.stopCh so a service Stop()
-// abandons pending jobs cleanly (no orphan ticker goroutines). Already-started
-// jobs continue in their own runImportJob goroutine until they finish or are
-// cancelled.
-func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []uint, showNames []string) {
+// Process lifetime: runAutoBackfillShow cancels the in-flight run on s.stopCh, so
+// a service Stop() unwinds within ~one episode instead of blocking on a full
+// historic import; the loop also checks s.stopCh between shows.
+func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName string, showIDs []uint, showNames []string) {
 	defer s.wg.Done()
 
 	until := time.Now()
 	since := until.AddDate(0, 0, -s.autoBackfillDays)
-	sinceStr := since.Format("2006-01-02")
-	untilStr := until.Format("2006-01-02")
 
 	s.logger.Info("auto_backfill_started",
 		"station", stationName,
 		"shows", len(showIDs),
-		"since", sinceStr,
-		"until", untilStr,
+		"since", since.Format("2006-01-02"),
+		"until", until.Format("2006-01-02"),
 	)
 
 	var (
@@ -748,45 +743,43 @@ func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []ui
 	)
 
 	for i, showID := range showIDs {
+		// Stop cleanly between shows on shutdown.
+		select {
+		case <-s.stopCh:
+			s.logger.Info("auto_backfill_abandoned_on_shutdown", "station", stationName)
+			return
+		default:
+		}
+
 		showName := showNames[i]
 
-		job, err := s.radioService.CreateImportJob(showID, sinceStr, untilStr)
-		if err != nil {
-			s.logger.Warn("auto_backfill_create_job_failed",
-				"show_id", showID,
-				"show", showName,
-				"error", err,
-			)
+		res := s.runAutoBackfillShow(stationID, showID, since, until)
+		if res == nil {
+			continue // pre-open failure, already logged
+		}
+		if res.LockContended || res.Skipped {
+			reason := "breaker_open"
+			if res.LockContended {
+				reason = "sync_already_running"
+			}
+			s.logger.Info("auto_backfill_show_skipped", "show_id", showID, "show", showName, "reason", reason)
 			continue
 		}
-
-		if err := s.radioService.StartImportJob(job.ID); err != nil {
-			s.logger.Warn("auto_backfill_start_job_failed",
-				"show_id", showID,
-				"job_id", job.ID,
-				"error", err,
-			)
-			continue
-		}
-
-		finalJob, result := s.waitForJobCompletion(job.ID)
-		switch result {
-		case jobWaitShutdown:
-			s.logger.Info("auto_backfill_abandoned_on_shutdown", "job_id", job.ID)
+		if res.Status == catalogm.RadioSyncRunStatusCancelled {
+			// Cancelled by the shutdown watcher — stop draining the batch.
+			s.logger.Info("auto_backfill_abandoned_on_shutdown", "station", stationName)
 			return
-		case jobWaitPollError:
-			continue
 		}
 
-		if finalJob.Status == catalogm.RadioImportJobStatusCompleted {
+		// Import is non-nil on success AND partial (partial imported data with some
+		// per-episode noise); nil on a failed run.
+		if imp := res.Import; imp != nil {
 			completedShows = append(completedShows, showName)
-			totalEpisodes += finalJob.EpisodesImported
-			totalPlays += finalJob.PlaysMatched
+			totalEpisodes += imp.EpisodesImported
+			totalPlays += imp.PlaysMatched
 		} else {
-			s.logger.Warn("auto_backfill_job_did_not_complete",
-				"job_id", job.ID,
-				"status", finalJob.Status,
-			)
+			s.logger.Warn("auto_backfill_show_did_not_complete",
+				"show_id", showID, "show", showName, "status", res.Status)
 		}
 	}
 
@@ -802,40 +795,52 @@ func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []ui
 	}
 }
 
-// jobWaitResult distinguishes the three outcomes of waitForJobCompletion so the
-// caller can route shutdown vs poll-error vs terminal without bool-overloading.
-type jobWaitResult int
-
-const (
-	jobWaitTerminal  jobWaitResult = iota // job reached completed/failed/cancelled — *Job is non-nil
-	jobWaitShutdown                       // service shutting down — caller should return
-	jobWaitPollError                      // GetImportJob failed — caller should continue to next show
-)
-
-// waitForJobCompletion polls a running import job every autoBackfillPollInterval
-// until it reaches a terminal status (catalogm.RadioImportJobStatus{Completed,
-// Failed,Cancelled}), or returns earlier if s.stopCh closes (shutdown) or a
-// GetImportJob call errors (poll error).
-func (s *RadioFetchService) waitForJobCompletion(jobID uint) (*contracts.RadioImportJobResponse, jobWaitResult) {
-	for {
+// runAutoBackfillShow runs one show's auto-backfill through RunStationSync and
+// cancels it on service shutdown so Stop() never blocks on a long historic
+// import. A watcher goroutine learns the run id via OnRunOpened and, if s.stopCh
+// closes before the run finishes, flips the run to cancelled — the backfill
+// executor's progressFn observes the cancel and returns within one episode.
+// Returns the run result, or nil on a pre-open failure (logged).
+func (s *RadioFetchService) runAutoBackfillShow(stationID, showID uint, since, until time.Time) *RunStationSyncResult {
+	runIDCh := make(chan uint, 1)
+	done := make(chan struct{})
+	watcherExited := make(chan struct{})
+	shared.GoSafe(context.Background(), "radio_auto_backfill_cancel", func() {
+		defer close(watcherExited)
 		select {
-		case <-s.stopCh:
-			return nil, jobWaitShutdown
-		case <-time.After(autoBackfillPollInterval):
+		case runID := <-runIDCh:
+			select {
+			case <-s.stopCh:
+				_ = s.radioService.CancelSyncRun(runID)
+			case <-done:
+			}
+		case <-done:
 		}
+	})
 
-		job, err := s.radioService.GetImportJob(jobID)
-		if err != nil {
-			s.logger.Warn("auto_backfill_poll_job_load_failed", "job_id", jobID, "error", err)
-			return nil, jobWaitPollError
-		}
-		switch job.Status {
-		case catalogm.RadioImportJobStatusCompleted,
-			catalogm.RadioImportJobStatusFailed,
-			catalogm.RadioImportJobStatusCancelled:
-			return job, jobWaitTerminal
-		}
+	res, err := s.radioService.RunStationSync(context.Background(), stationID, RunStationSyncOpts{
+		Mode:        catalogm.RadioSyncRunTypeBackfill,
+		Trigger:     catalogm.RadioSyncRunTriggerAutoBackfill,
+		ShowID:      &showID,
+		WindowStart: &since,
+		WindowEnd:   &until,
+		OnRunOpened: func(id uint) { runIDCh <- id },
+	})
+	close(done)
+	// Join the watcher: it may still be issuing CancelSyncRun on the shutdown
+	// path, so don't return (and let autoBackfillStation's wg.Done fire) until the
+	// watcher has fully exited — no goroutine doing DB work outlives the WaitGroup
+	// barrier in Stop().
+	<-watcherExited
+
+	if res == nil {
+		s.logger.Warn("auto_backfill_open_failed", "show_id", showID, "error", err)
+		return nil
 	}
+	if err != nil && res.Status == catalogm.RadioSyncRunStatusFailed {
+		s.logger.Warn("auto_backfill_show_failed", "show_id", showID, "error", err)
+	}
+	return res
 }
 
 // GetConsecutiveFailures returns the PERMANENT failure count for a station.

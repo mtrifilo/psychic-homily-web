@@ -77,17 +77,35 @@ func discoverShowsForStation(provider RadioPlaylistProvider, station *catalogm.R
 	return provider.DiscoverShows()
 }
 
-// parseImportDate parses an import-window bound (since/until). The value may
-// arrive date-only ("2026-03-02") from the API, or as a Postgres DATE-column
-// round-trip ("2026-03-02T00:00:00Z") when read back from a persisted import
-// job — normalizeDateString trims the time suffix so both forms parse. Without
-// it the auto-backfill job-execution path failed on every job, since
-// radio_import_job.go feeds job.Since/job.Until straight from the DB. (PSY-927)
+// parseImportDate parses an import-window bound (since/until). Backfill windows
+// now arrive as RunStationSync formats them (date-only "2026-03-02"), but the
+// defensive normalizeDateString trim is kept so a Postgres DATE-column round-trip
+// form ("2026-03-02T00:00:00Z") still parses if a future caller passes one
+// (PSY-927; the original import-job path that round-tripped from the DB is
+// retired in PSY-1135).
 func parseImportDate(s string) (time.Time, error) {
 	return time.Parse("2006-01-02", normalizeDateString(s))
 }
 
+// normalizeDateString strips any time component from a date string so a value
+// always parses as YYYY-MM-DD. Postgres DATE columns round-trip through GORM into
+// Go strings as "2026-04-01T00:00:00Z" even though the column only holds a date;
+// this trims it back to the 10-char form.
+func normalizeDateString(s string) string {
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
 // ImportStation runs a full import: discover shows + fetch episodes for the last N days.
+//
+// NOTE (PSY-1135): this is a legacy full-import helper that does NOT route through
+// RunStationSync, so it leaves NO radio_sync_runs trace. It is intentionally not
+// wired to any admin route or ticker. Do NOT expose it as an ingestion entry point
+// — a new "full import" action must go through RunStationSync (discover then
+// backfill) so every run is observable. Kept only because it predates the
+// orchestrator and is still part of the service contract.
 func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -460,11 +478,6 @@ func (s *RadioService) importShowEpisodesWithProgress(
 	}
 
 	return result, nil
-}
-
-// ImportShowEpisodes imports episodes for a single show within a date range.
-func (s *RadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
-	return s.importShowEpisodesWithProgress(showID, since, until, nil, nil)
 }
 
 // =============================================================================

@@ -11,6 +11,15 @@ const (
 	CodeRadioEpisodeNotFound     = "RADIO_EPISODE_NOT_FOUND"
 	CodeRadioStationNameConflict = "RADIO_STATION_NAME_CONFLICT"
 	CodeRadioScheduleInvalid     = "RADIO_SCHEDULE_INVALID"
+	// CodeRadioSyncAlreadyRunning is returned when a manual sync trigger loses the
+	// per-station advisory lock to an in-flight run (PSY-1135). Mapped to HTTP 409.
+	CodeRadioSyncAlreadyRunning = "RADIO_SYNC_ALREADY_RUNNING"
+	// CodeRadioSyncRunNotFound is returned when a sync-run poll/cancel targets a
+	// run id that does not exist (PSY-1135). Mapped to HTTP 404.
+	CodeRadioSyncRunNotFound = "RADIO_SYNC_RUN_NOT_FOUND"
+	// CodeRadioSyncNotCancellable is returned when a cancel targets a run that is
+	// no longer running (already terminal) (PSY-1135). Mapped to HTTP 409.
+	CodeRadioSyncNotCancellable = "RADIO_SYNC_NOT_CANCELLABLE"
 )
 
 // RadioError represents a radio-related error with additional context.
@@ -74,5 +83,33 @@ func ErrRadioScheduleInvalid(detail string) *RadioError {
 	return &RadioError{
 		Code:    CodeRadioScheduleInvalid,
 		Message: fmt.Sprintf("Invalid schedule: %s", detail),
+	}
+}
+
+// ErrRadioSyncAlreadyRunning creates a conflict error for a manual sync trigger
+// that could not start because another run already holds the station's sync lock
+// (PSY-1135). Mapped to HTTP 409.
+func ErrRadioSyncAlreadyRunning(stationID uint) *RadioError {
+	return &RadioError{
+		Code:    CodeRadioSyncAlreadyRunning,
+		Message: fmt.Sprintf("A sync is already running for station %d", stationID),
+	}
+}
+
+// ErrRadioSyncRunNotFound creates a not-found error for a sync-run poll/cancel
+// (PSY-1135). Mapped to HTTP 404.
+func ErrRadioSyncRunNotFound(runID uint) *RadioError {
+	return &RadioError{
+		Code:    CodeRadioSyncRunNotFound,
+		Message: fmt.Sprintf("Sync run %d not found", runID),
+	}
+}
+
+// ErrRadioSyncNotCancellable creates a conflict error for cancelling a run that
+// is no longer running (PSY-1135). Mapped to HTTP 409.
+func ErrRadioSyncNotCancellable(runID uint, status string) *RadioError {
+	return &RadioError{
+		Code:    CodeRadioSyncNotCancellable,
+		Message: fmt.Sprintf("Sync run %d cannot be cancelled (status: %s)", runID, status),
 	}
 }

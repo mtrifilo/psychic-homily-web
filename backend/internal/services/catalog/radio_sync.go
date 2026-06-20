@@ -18,15 +18,16 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// RunStationSync is the unified ingestion orchestrator (PSY-1134, PR1 of phase P2
-// of the Radio Ingestion Redesign). Every ingestion path will eventually flow through here so
+// RunStationSync is the unified ingestion orchestrator (PSY-1134/PSY-1135, phase P2
+// of the Radio Ingestion Redesign). Every ingestion path flows through here so
 // each run leaves ONE durable, queryable trace in radio_sync_runs (with
-// categorized radio_sync_run_errors and a radio_station_health rollup). In PR1
-// ONLY the scheduled fetch/discover tickers route through it; the manual admin
-// triggers and auto-backfill still use the legacy executors / import-jobs and
-// move onto RunStationSync in PR2 (PSY-1135). It wraps the existing mode executors
-// (DiscoverStationShows / FetchNewEpisodes / importShowEpisodesWithProgress)
-// rather than re-implementing them.
+// categorized radio_sync_run_errors and a radio_station_health rollup). As of PR2
+// (PSY-1135) all four paths route through it: the scheduled fetch/discover
+// tickers, the manual admin triggers (radio_sync_manual.go: station discover/fetch
+// + show backfill, plus the poll/cancel surface), and the discover loop's
+// auto-backfill. It wraps the existing mode executors (DiscoverStationShows /
+// FetchNewEpisodes / importShowEpisodesWithProgress) rather than re-implementing
+// them.
 //
 // Lifecycle (design doc §4): acquire a per-station advisory lock → open a
 // 'running' row → check the breaker → execute the mode → record counts/errors →
@@ -43,14 +44,12 @@ import (
 // (there is no schema column to distinguish lock-skip from breaker-skip, and
 // contention is benign).
 //
-// SCOPE: this is PR1 of phase P2 — additive; only the scheduled fetch/discover
-// tickers route through it here. The breaker is only READ; the logic that OPENS it
-// (thresholds, half-open) is phase P3 (a later ticket, NOT PSY-1135). PR2 =
-// PSY-1135 (manual triggers + auto-backfill onto RunStationSync). Modes are
-// discover|fetch|backfill; rematch stays on its own global ticker. Count plumbing
-// not yet done: fetch leaves episodes_found=0 (FetchNewEpisodes returns no
-// found-count) and discover persists no count columns; plays_dropped /
-// plays_truncated are left 0 — all P4.
+// SCOPE: phase P2 — all four entry points route through here (PR2/PSY-1135). The
+// breaker is only READ; the logic that OPENS it (thresholds, half-open) is phase
+// P3 (a later ticket). Modes are discover|fetch|backfill; rematch stays on its own
+// global ticker. Count plumbing not yet done: fetch leaves episodes_found=0
+// (FetchNewEpisodes returns no found-count) and discover persists no count
+// columns; plays_dropped / plays_truncated are left 0 — all P4.
 type RunStationSyncOpts struct {
 	Mode    string // catalogm.RadioSyncRunType{Discover,Fetch,Backfill}
 	Trigger string // catalogm.RadioSyncRunTrigger{Scheduled,Manual,AutoBackfill}
@@ -60,6 +59,14 @@ type RunStationSyncOpts struct {
 	ShowID      *uint
 	WindowStart *time.Time
 	WindowEnd   *time.Time
+
+	// OnRunOpened, if non-nil, is invoked synchronously with the new run id the
+	// instant the radio_sync_runs row is created (after the lock + breaker checks,
+	// before the mode executes). The async manual-trigger wrapper (PSY-1135) uses
+	// it to learn the run id and return a 202 to the operator while the run
+	// continues in the background. It fires only on the row-opened path — never on
+	// lock contention or a pre-open error (those produce no row).
+	OnRunOpened func(runID uint)
 }
 
 // RunStationSyncResult is what RunStationSync returns: the run-row metadata plus
@@ -150,6 +157,12 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		return nil, fmt.Errorf("open sync run: %w", err)
 	}
 
+	// The run row exists now — hand the id to an async caller (PSY-1135) so it can
+	// return a poll handle while the rest of this call runs in the background.
+	if opts.OnRunOpened != nil {
+		opts.OnRunOpened(run.ID)
+	}
+
 	// A panic in the executor (provider/import code) must still terminate the run's
 	// trace — otherwise the row is orphaned at status=running forever (the ticker's
 	// RunTickerLoop recovers + continues, so the process survives). The lock's own
@@ -171,9 +184,17 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// 6. Close the run to its terminal status (finished_at set → lifecycle CHECK)
 	//    BEFORE the health rollup, so a failed close never leaves radio_station_health
 	//    reporting an outcome the run row itself doesn't reflect.
+	//
+	//    The WHERE status='running' guard is load-bearing for cancellation (PSY-1135):
+	//    a mid-run cancel sets status='cancelled' (+ finished_at) out-of-band via
+	//    CancelSyncRun, and the backfill executor returns a partial result with NO
+	//    error (progressFn cancel=true). Without the guard this close would overwrite
+	//    'cancelled' with success/partial. RowsAffected==0 ⟺ the run is already
+	//    terminal (cancelled) — leave it, and skip the health rollup (a manual cancel
+	//    is not a station-health signal).
 	now := time.Now()
-	if err := s.db.Model(&catalogm.RadioSyncRun{}).
-		Where("id = ?", run.ID).
+	res := s.db.Model(&catalogm.RadioSyncRun{}).
+		Where("id = ? AND status = ?", run.ID, catalogm.RadioSyncRunStatusRunning).
 		Updates(map[string]any{
 			"status":            out.status,
 			"finished_at":       now,
@@ -183,11 +204,23 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 			"plays_matched":     out.playsMatched,
 			"plays_unmatched":   out.playsUnmatched,
 			"updated_at":        now,
-		}).Error; err != nil {
+		})
+	if res.Error != nil {
 		return &RunStationSyncResult{RunID: run.ID, Status: out.status, Import: out.importResult, Discover: out.discoverResult},
-			fmt.Errorf("close sync run %d: %w", run.ID, err)
+			fmt.Errorf("close sync run %d: %w", run.ID, res.Error)
 	}
 	closed = true
+
+	if res.RowsAffected == 0 {
+		// Cancelled mid-run: the row is already terminal (cancelled, finished_at set
+		// by CancelSyncRun). Report the cancelled status and do NOT roll up health.
+		return &RunStationSyncResult{
+			RunID:    run.ID,
+			Status:   catalogm.RadioSyncRunStatusCancelled,
+			Import:   out.importResult,
+			Discover: out.discoverResult,
+		}, out.hardErr
+	}
 
 	// 7. Roll up station health (last_run/last_success, consecutive_failures).
 	s.updateStationHealth(stationID, out.status)
@@ -204,14 +237,19 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 
 // failRun best-effort closes an orphaned run as failed — used by the panic
 // recovery path so a panicked run still terminates its trace (lifecycle CHECK:
-// terminal ⇒ finished_at set).
+// terminal ⇒ finished_at set). The WHERE status='running' guard is symmetric with
+// the close path: a run that was cancelled out-of-band (CancelSyncRun) before the
+// panic is already terminal, and must NOT be rewritten to 'failed' — the operator's
+// cancel wins.
 func (s *RadioService) failRun(runID uint) {
 	now := time.Now()
-	_ = s.db.Model(&catalogm.RadioSyncRun{}).Where("id = ?", runID).Updates(map[string]any{
-		"status":      catalogm.RadioSyncRunStatusFailed,
-		"finished_at": now,
-		"updated_at":  now,
-	}).Error
+	_ = s.db.Model(&catalogm.RadioSyncRun{}).
+		Where("id = ? AND status = ?", runID, catalogm.RadioSyncRunStatusRunning).
+		Updates(map[string]any{
+			"status":      catalogm.RadioSyncRunStatusFailed,
+			"finished_at": now,
+			"updated_at":  now,
+		}).Error
 }
 
 // syncOutcome is the unified result of executing one mode, mapped onto the
@@ -265,23 +303,33 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		since := opts.WindowStart.Format("2006-01-02")
 		until := opts.WindowEnd.Format("2006-01-02")
 		var found int
-		// progressFn streams progress onto the run row (throttled) so the async
-		// poll (PR2) can observe an in-flight backfill. Cancellation wiring (the
-		// cancel endpoint) is PR2; this never returns cancel=true in PR1.
+		// progressFn streams progress onto the run row (throttled) so the async poll
+		// can observe an in-flight backfill, and honors a mid-run cancel (PSY-1135):
+		// when CancelSyncRun has flipped this run to 'cancelled', it returns true so
+		// the importer stops early. The cancel check runs every episode (a cheap
+		// single-column SELECT); the progress write stays throttled to every 10.
 		var sinceLastWrite int
 		progressFn := func(epImported, plImported, plMatched int, currentDate string, _ []string) bool {
+			if s.isSyncRunCancelled(runID) {
+				return true
+			}
 			sinceLastWrite++
 			if sinceLastWrite < 10 {
 				return false
 			}
 			sinceLastWrite = 0
-			s.db.Model(&catalogm.RadioSyncRun{}).Where("id = ?", runID).Updates(map[string]any{
-				"episodes_imported":    epImported,
-				"plays_imported":       plImported,
-				"plays_matched":        plMatched,
-				"current_episode_date": currentDate,
-				"updated_at":           time.Now(),
-			})
+			// status='running' guard: if a cancel landed between the cancel-poll
+			// above and this write (the poll's best-effort read can miss it), don't
+			// rewrite counters/updated_at onto an already-terminal (cancelled) row.
+			s.db.Model(&catalogm.RadioSyncRun{}).
+				Where("id = ? AND status = ?", runID, catalogm.RadioSyncRunStatusRunning).
+				Updates(map[string]any{
+					"episodes_imported":    epImported,
+					"plays_imported":       plImported,
+					"plays_matched":        plMatched,
+					"current_episode_date": currentDate,
+					"updated_at":           time.Now(),
+				})
 			return false
 		}
 		res, err := s.importShowEpisodesWithProgress(*opts.ShowID, since, until, func(n int) { found = n }, progressFn)
@@ -440,6 +488,19 @@ func (s *RadioService) breakerOpen(stationID uint) bool {
 		return false
 	}
 	return health.BreakerState == catalogm.RadioBreakerStateOpen
+}
+
+// isSyncRunCancelled reports whether the run has been flipped to 'cancelled'
+// out-of-band (CancelSyncRun). Polled by the backfill executor's progressFn so a
+// long historic re-ingestion can be stopped mid-flight (PSY-1135). A read error
+// is treated as not-cancelled (best-effort) so an observability hiccup never
+// aborts an otherwise-healthy import.
+func (s *RadioService) isSyncRunCancelled(runID uint) bool {
+	var run catalogm.RadioSyncRun
+	if err := s.db.Select("status").First(&run, runID).Error; err != nil {
+		return false
+	}
+	return run.Status == catalogm.RadioSyncRunStatusCancelled
 }
 
 // acquireStationSyncLock pins a connection and takes a non-blocking per-station

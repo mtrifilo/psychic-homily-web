@@ -627,26 +627,53 @@ type BulkLinkResult struct {
 // Import job types
 // ──────────────────────────────────────────────
 
-// RadioImportJobResponse is the DTO for a radio import job.
-type RadioImportJobResponse struct {
-	ID                 uint       `json:"id"`
-	ShowID             uint       `json:"show_id"`
-	ShowName           string     `json:"show_name"`
-	StationID          uint       `json:"station_id"`
-	StationName        string     `json:"station_name"`
-	Since              string     `json:"since"`
-	Until              string     `json:"until"`
-	Status             string     `json:"status"`
-	EpisodesFound      int        `json:"episodes_found"`
-	EpisodesImported   int        `json:"episodes_imported"`
-	PlaysImported      int        `json:"plays_imported"`
-	PlaysMatched       int        `json:"plays_matched"`
-	CurrentEpisodeDate *string    `json:"current_episode_date,omitempty"`
-	ErrorLog           *string    `json:"error_log,omitempty"`
-	StartedAt          *time.Time `json:"started_at,omitempty"`
-	CompletedAt        *time.Time `json:"completed_at,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+// RadioSyncRunResponse is the DTO for a radio_sync_runs row — the unified trace
+// of any ingestion run (scheduled, manual, or auto-backfill) returned by the
+// manual-trigger + poll endpoints (PSY-1135). It replaces RadioImportJobResponse:
+// honest 1:1 with the radio_sync_runs columns, exposing the run_type, trigger,
+// partial status, derived unmatched count, and the structured per-run error list
+// the old import-job DTO could not represent.
+type RadioSyncRunResponse struct {
+	ID          uint   `json:"id"`
+	StationID   uint   `json:"station_id"`
+	StationName string `json:"station_name"`
+	// ShowID/ShowName are set only for show-scoped runs (backfill); nil for
+	// station-scoped discover/fetch runs.
+	ShowID   *uint   `json:"show_id,omitempty"`
+	ShowName *string `json:"show_name,omitempty"`
+
+	RunType string `json:"run_type"` // discover | fetch | backfill
+	Trigger string `json:"trigger"`  // scheduled | manual | auto_backfill
+	Status  string `json:"status"`   // running | success | partial | failed | skipped | cancelled
+
+	// WindowStart/WindowEnd are the requested historic range (backfill only),
+	// formatted YYYY-MM-DD; nil on discover/fetch runs.
+	WindowStart *string `json:"window_start,omitempty"`
+	WindowEnd   *string `json:"window_end,omitempty"`
+
+	EpisodesFound    int `json:"episodes_found"`
+	EpisodesImported int `json:"episodes_imported"`
+	PlaysImported    int `json:"plays_imported"`
+	PlaysMatched     int `json:"plays_matched"`
+	PlaysUnmatched   int `json:"plays_unmatched"`
+
+	CurrentEpisodeDate *string `json:"current_episode_date,omitempty"`
+	BreakerSkipped     bool    `json:"breaker_skipped"`
+
+	Errors []RadioSyncRunErrorResponse `json:"errors,omitempty"`
+
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// RadioSyncRunErrorResponse is one categorized error recorded against a sync run
+// (radio_sync_run_errors), surfaced in the poll payload (PSY-1135).
+type RadioSyncRunErrorResponse struct {
+	Category   string  `json:"category"`
+	Detail     *string `json:"detail,omitempty"`
+	EpisodeRef *string `json:"episode_ref,omitempty"`
 }
 
 // SyncAffinityResult summarizes the result of syncing radio affinity data
@@ -711,7 +738,6 @@ type RadioServiceInterface interface {
 	FetchNewEpisodes(stationID uint) (*RadioImportResult, error)
 	ImportEpisodePlaylist(showID uint, episodeExternalID string) (*EpisodeImportResult, error)
 	DiscoverStationShows(stationID uint) (*RadioDiscoverResult, error)
-	ImportShowEpisodes(showID uint, since string, until string) (*RadioImportResult, error)
 
 	// Matching
 	MatchPlays(episodeID uint) (*MatchResult, error)
@@ -728,10 +754,11 @@ type RadioServiceInterface interface {
 	// Re-matching
 	ReMatchUnmatched() (*MatchResult, error)
 
-	// Import jobs
-	CreateImportJob(showID uint, since, until string) (*RadioImportJobResponse, error)
-	StartImportJob(jobID uint) error
-	CancelImportJob(jobID uint) error
-	GetImportJob(jobID uint) (*RadioImportJobResponse, error)
-	ListImportJobs(showID uint) ([]*RadioImportJobResponse, error)
+	// Unified sync triggers + observability (PSY-1135). The manual triggers are
+	// async: they open a radio_sync_runs row, return its poll handle, and execute
+	// in the background. Discover/fetch are station-scoped; backfill is show-scoped.
+	TriggerStationSync(stationID uint, mode string) (*RadioSyncRunResponse, error)
+	TriggerShowBackfill(showID uint, since, until string) (*RadioSyncRunResponse, error)
+	GetSyncRun(runID uint) (*RadioSyncRunResponse, error)
+	CancelSyncRun(runID uint) error
 }
