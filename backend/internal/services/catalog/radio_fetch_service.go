@@ -35,21 +35,16 @@ const DefaultDiscoverInterval = 24 * time.Hour
 // Set RADIO_AUTO_BACKFILL_DAYS=0 to disable auto-backfill entirely.
 const DefaultAutoBackfillDays = 90
 
-// radioCircuitBreakerThreshold is the number of consecutive PERMANENT failures
-// before a station is temporarily skipped during fetch cycles. Transient errors
-// (timeout, connection refused, 429) bump a separate counter and trigger a
-// single in-cycle retry instead of incrementing this one (PSY-887).
-const radioCircuitBreakerThreshold = 5
-
 // radioTransientRetryBackoff is the brief delay before retrying a station once
 // after a transient error. Single retry per station per cycle; we don't carry
 // transient-retry state across cycles (no exponential backoff) — that's an
 // explicit non-goal of PSY-887 to keep the fetch loop's failure modes obvious.
 const radioTransientRetryBackoff = 500 * time.Millisecond
 
-// errorKind classifies a radio provider error for circuit-breaker routing.
-// kindTransient → bump transientFailures + retry once, do NOT trip breaker.
-// kindPermanent → bump consecutiveFailures, trip breaker at threshold.
+// errorKind classifies a radio provider error for retry + breaker routing.
+// kindTransient → retry once (fetchStationWithRetry); never trips the breaker.
+// kindPermanent → no retry; increments the persistent breaker counter and trips
+// it at radioCircuitBreakerThreshold (see breakerTransition in radio_sync.go).
 type errorKind int
 
 const (
@@ -147,22 +142,12 @@ type RadioFetchService struct {
 	wg     sync.WaitGroup
 	logger *slog.Logger
 
-	// consecutiveFailures tracks per-station PERMANENT failures within a fetch
-	// cycle. Reset on success. Stations with >= threshold permanent failures are
-	// skipped until the counter resets. Shared across the fetch and discover
-	// loops so a wedged provider gets one circuit breaker, not two (per the
-	// shared-failures-map design intent from PSY-671).
-	//
-	// transientFailures (PSY-887): tracks transient errors (timeout, conn
-	// refused, 429) separately. These do NOT trip the breaker; they trigger a
-	// single in-cycle retry with brief backoff. Reset on success alongside
-	// consecutiveFailures. Exposed via GetTransientFailures for testing /
-	// observability. Kept as a separate map so a station with intermittent
-	// network blips on a healthy provider doesn't get wedged for the rest of
-	// the 6h cycle (the original PSY-887 bug).
-	mu                  sync.Mutex
-	consecutiveFailures map[uint]int
-	transientFailures   map[uint]int
+	// The circuit breaker is no longer in-memory (PSY-1140): it lives in
+	// radio_station_health.breaker_state and is owned end-to-end by RunStationSync
+	// (read at the gate, written on the run's outcome via updateStationHealth), so
+	// it survives restarts. The loops below just consult RunStationSyncResult.Skipped
+	// for a breaker-open station and keep the transient-error single-retry
+	// (fetchStationWithRetry); the retry budget rework is PSY-1142.
 }
 
 // NewRadioFetchService creates a new radio fetch background service.
@@ -214,17 +199,15 @@ func NewRadioFetchService(
 	}
 
 	return &RadioFetchService{
-		radioService:        radioService,
-		discordService:      discordService,
-		fetchInterval:       fetchInterval,
-		affinityInterval:    affinityInterval,
-		rematchInterval:     rematchInterval,
-		discoverInterval:    discoverInterval,
-		autoBackfillDays:    autoBackfillDays,
-		stopCh:              make(chan struct{}),
-		logger:              slog.Default(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     radioService,
+		discordService:   discordService,
+		fetchInterval:    fetchInterval,
+		affinityInterval: affinityInterval,
+		rematchInterval:  rematchInterval,
+		discoverInterval: discoverInterval,
+		autoBackfillDays: autoBackfillDays,
+		stopCh:           make(chan struct{}),
+		logger:           slog.Default(),
 	}
 }
 
@@ -289,52 +272,15 @@ func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
 	})
 }
 
-// stationBreakerSkip reports whether the station should be skipped this cycle
-// because its PERMANENT failure count is at threshold. Transient failures are
-// tracked separately and do NOT cause skip (PSY-887).
-//
-// Locks/unlocks internally — caller MUST NOT hold s.mu.
-func (s *RadioFetchService) stationBreakerSkip(stationID uint) (skip bool, failures int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	failures = s.consecutiveFailures[stationID]
-	return failures >= radioCircuitBreakerThreshold, failures
-}
-
-// recordStationSuccess resets BOTH counters for a station after a successful
-// fetch. Reset transientFailures too so a station that recovered from a
-// transient blip doesn't carry the count into the next blip (PSY-887).
-func (s *RadioFetchService) recordStationSuccess(stationID uint) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.consecutiveFailures[stationID] = 0
-	s.transientFailures[stationID] = 0
-}
-
-// recordStationFailure routes a fetch error to the right counter per PSY-887.
-// Returns the classification so callers can branch on retry-or-skip without a
-// second classifyError call.
-func (s *RadioFetchService) recordStationFailure(stationID uint, err error) errorKind {
-	kind := classifyError(err)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if kind == kindTransient {
-		s.transientFailures[stationID]++
-	} else {
-		s.consecutiveFailures[stationID]++
-	}
-	return kind
-}
-
-// fetchStationWithRetry calls FetchNewEpisodes. On a transient error, sleeps
+// fetchStationWithRetry calls the run op. On a transient error, sleeps
 // radioTransientRetryBackoff and tries ONCE more. Returns the final result/err
-// pair. Counter updates are the caller's responsibility — this helper only
-// owns the retry decision so the two loops (fetch + discover) can share it
-// even though they call different RadioService methods (PSY-887).
+// pair. The breaker counter is the caller's responsibility (now persisted by
+// RunStationSync's updateStationHealth); this helper only owns the retry decision
+// so the two loops (fetch + discover) can share it even though they call different
+// RadioService methods (PSY-887).
 //
-// Single retry, not exponential — explicit non-goal of the PSY-887 design.
-// Cross-cycle backoff would require persisting transientFailures state, which
-// the ticket explicitly defers ("DO NOT add persistent state").
+// Single fixed-delay retry, not exponential — kept as-is in PSY-1140; the Full
+// Jitter backoff + two-tier retry budget rework is PSY-1142.
 func (s *RadioFetchService) fetchStationWithRetry(
 	stationID uint,
 	stationName string,
@@ -402,21 +348,14 @@ func (s *RadioFetchService) runFetchCycle() {
 		totalMatched   int
 		totalFailed    int
 		totalTransient int
+		totalSkipped   int // breaker-open or lock-contended no-ops (no fetch happened)
 	)
 
-	// Process stations sequentially to respect per-provider rate limits
+	// Process stations sequentially to respect per-provider rate limits. The
+	// breaker is no longer pre-checked here (PSY-1140): RunStationSync consults the
+	// persistent breaker itself and returns Skipped for an open station (writing a
+	// skipped run row — better observability than the old silent in-memory skip).
 	for _, station := range stations {
-		// PSY-887: breaker only trips on PERMANENT failures. A station with
-		// transient blips can still attempt this cycle.
-		if skip, failures := s.stationBreakerSkip(station.ID); skip {
-			s.logger.Warn("skipping station (circuit breaker)",
-				"station_id", station.ID,
-				"station_name", station.Name,
-				"consecutive_failures", failures,
-			)
-			continue
-		}
-
 		totalProcessed++
 		s.logger.Info("fetching station",
 			"station_id", station.ID,
@@ -424,10 +363,11 @@ func (s *RadioFetchService) runFetchCycle() {
 		)
 
 		// Route through the unified orchestrator (PSY-1134): the run is recorded in
-		// radio_sync_runs and the returned hard error still drives the in-memory
-		// PSY-887 breaker/retry below (that in-memory breaker remains authoritative
-		// until P3 migrates it to radio_station_health; RunStationSync only READS
-		// the persistent breaker, which stays closed in P2).
+		// radio_sync_runs, and as of PSY-1140 RunStationSync OWNS the persistent
+		// breaker end-to-end (reads the gate, writes the outcome via
+		// updateStationHealth) — it is now the sole, authoritative breaker. The
+		// returned hard error still feeds the transient single-retry below
+		// (fetchStationWithRetry, PSY-887); the retry-budget rework is PSY-1142.
 		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "fetch",
 			func() (any, error) {
 				return s.radioService.RunStationSync(context.Background(), station.ID, RunStationSyncOpts{
@@ -438,7 +378,10 @@ func (s *RadioFetchService) runFetchCycle() {
 		)
 		if err != nil {
 			totalFailed++
-			kind := s.recordStationFailure(station.ID, err)
+			// The persistent breaker counter is owned by RunStationSync's
+			// updateStationHealth; here we classify only to label the log + tally
+			// post-retry transients (the count drives no breaker decision now).
+			kind := classifyError(err)
 			if kind == kindTransient {
 				totalTransient++
 			}
@@ -453,10 +396,11 @@ func (s *RadioFetchService) runFetchCycle() {
 
 		result := raw.(*RunStationSyncResult)
 		// A no-op run — the per-station lock was held by another in-flight sync, or
-		// the persistent breaker is open — did NOT execute, so leave the in-memory
-		// PSY-887 breaker counters untouched (do NOT count it as a success, which
-		// would reset the failure counter and stop the in-memory breaker tripping).
+		// the persistent breaker is open (a skipped run row was written) — produced
+		// no Import payload, so skip the result handling below. The persistent
+		// breaker counter is reset by RunStationSync's own success path, not here.
 		if result.LockContended || result.Skipped {
+			totalSkipped++
 			reason := "breaker_open"
 			if result.LockContended {
 				reason = "sync_already_running"
@@ -465,7 +409,6 @@ func (s *RadioFetchService) runFetchCycle() {
 				"station_id", station.ID, "station_name", station.Name, "reason", reason)
 			continue
 		}
-		s.recordStationSuccess(station.ID)
 
 		if imp := result.Import; imp != nil {
 			totalEpisodes += imp.EpisodesImported
@@ -494,6 +437,10 @@ func (s *RadioFetchService) runFetchCycle() {
 	cycleDuration := time.Since(cycleStart)
 	s.logger.Info("radio fetch cycle complete",
 		"stations_processed", totalProcessed,
+		// PSY-1140: stations the breaker skipped (or that another run held the lock
+		// for) — counted in stations_processed but did NOT fetch. Each also wrote a
+		// skipped run row.
+		"stations_skipped", totalSkipped,
 		"episodes_imported", totalEpisodes,
 		"plays_imported", totalPlays,
 		"plays_matched", totalMatched,
@@ -588,21 +535,14 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		totalNew         int
 		totalFailed      int
 		totalTransient   int
+		totalSkipped     int // breaker-open or lock-contended no-ops (no discover happened)
 		stationsNotified int
 	)
 
 	for _, station := range stations {
-		// PSY-887: same shared-counter policy as runFetchCycle — breaker only
-		// trips on PERMANENT failures.
-		if skip, failures := s.stationBreakerSkip(station.ID); skip {
-			s.logger.Warn("skipping station for discover (circuit breaker)",
-				"station_id", station.ID,
-				"station_name", station.Name,
-				"consecutive_failures", failures,
-			)
-			continue
-		}
-
+		// Breaker pre-check removed (PSY-1140) — RunStationSync handles the
+		// persistent breaker and returns Skipped for an open station, same as
+		// runFetchCycle.
 		totalProcessed++
 		s.logger.Info("discovering shows for station",
 			"station_id", station.ID,
@@ -620,7 +560,7 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		)
 		if err != nil {
 			totalFailed++
-			kind := s.recordStationFailure(station.ID, err)
+			kind := classifyError(err) // log label + transient tally only (see runFetchCycle)
 			if kind == kindTransient {
 				totalTransient++
 			}
@@ -634,9 +574,10 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		}
 
 		result := raw.(*RunStationSyncResult)
-		// See runFetchCycle: a no-op (lock contended or breaker open) must not be
-		// recorded as an in-memory success.
+		// See runFetchCycle: a no-op (lock contended or breaker open) carries no
+		// Discover payload, so skip the result handling below.
 		if result.LockContended || result.Skipped {
+			totalSkipped++
 			reason := "breaker_open"
 			if result.LockContended {
 				reason = "sync_already_running"
@@ -645,7 +586,6 @@ func (s *RadioFetchService) runDiscoverCycle() {
 				"station_id", station.ID, "station_name", station.Name, "reason", reason)
 			continue
 		}
-		s.recordStationSuccess(station.ID)
 
 		disc := result.Discover
 		if disc == nil {
@@ -697,6 +637,7 @@ func (s *RadioFetchService) runDiscoverCycle() {
 
 	s.logger.Info("radio discover cycle complete",
 		"stations_processed", totalProcessed,
+		"stations_skipped", totalSkipped, // breaker/lock no-ops, counted in processed (PSY-1140)
 		"shows_discovered", totalDiscovered,
 		"shows_new", totalNew,
 		"failures", totalFailed,
@@ -841,30 +782,6 @@ func (s *RadioFetchService) runAutoBackfillShow(stationID, showID uint, since, u
 		s.logger.Warn("auto_backfill_show_failed", "show_id", showID, "error", err)
 	}
 	return res
-}
-
-// GetConsecutiveFailures returns the PERMANENT failure count for a station.
-// Exported for testing.
-func (s *RadioFetchService) GetConsecutiveFailures(stationID uint) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.consecutiveFailures[stationID]
-}
-
-// SetConsecutiveFailures sets the PERMANENT failure count for a station.
-// Exported for testing.
-func (s *RadioFetchService) SetConsecutiveFailures(stationID uint, count int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.consecutiveFailures[stationID] = count
-}
-
-// GetTransientFailures returns the TRANSIENT failure count for a station
-// (PSY-887). Exported for testing.
-func (s *RadioFetchService) GetTransientFailures(stationID uint) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.transientFailures[stationID]
 }
 
 // RunFetchCycleNow triggers an immediate fetch cycle (useful for testing/admin).

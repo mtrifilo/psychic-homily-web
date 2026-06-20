@@ -24,14 +24,12 @@ func TestRadioFetchService_StartStop(t *testing.T) {
 	// Create a fetch service with a nil radio service — it will fail on actual operations
 	// but Start/Stop should work cleanly.
 	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		fetchInterval:       1 * time.Hour,
-		affinityInterval:    24 * time.Hour,
-		rematchInterval:     168 * time.Hour,
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     &RadioService{db: nil},
+		fetchInterval:    1 * time.Hour,
+		affinityInterval: 24 * time.Hour,
+		rematchInterval:  168 * time.Hour,
+		stopCh:           make(chan struct{}),
+		logger:           testLogger(),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,50 +54,16 @@ func TestRadioFetchService_StartStop(t *testing.T) {
 	}
 }
 
-// TestRadioFetchService_CircuitBreaker verifies that stations are skipped after
-// reaching the circuit breaker threshold.
-func TestRadioFetchService_CircuitBreaker(t *testing.T) {
-	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		fetchInterval:       1 * time.Hour,
-		affinityInterval:    24 * time.Hour,
-		rematchInterval:     168 * time.Hour,
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
-	}
-
-	// Set failures below threshold
-	svc.SetConsecutiveFailures(1, radioCircuitBreakerThreshold-1)
-	if svc.GetConsecutiveFailures(1) != radioCircuitBreakerThreshold-1 {
-		t.Fatalf("expected %d failures, got %d", radioCircuitBreakerThreshold-1, svc.GetConsecutiveFailures(1))
-	}
-
-	// Set failures at threshold
-	svc.SetConsecutiveFailures(2, radioCircuitBreakerThreshold)
-	if svc.GetConsecutiveFailures(2) != radioCircuitBreakerThreshold {
-		t.Fatalf("expected %d failures, got %d", radioCircuitBreakerThreshold, svc.GetConsecutiveFailures(2))
-	}
-
-	// Station 3 has no failures — should return 0
-	if svc.GetConsecutiveFailures(3) != 0 {
-		t.Fatalf("expected 0 failures for unknown station, got %d", svc.GetConsecutiveFailures(3))
-	}
-}
-
 // TestRadioFetchService_RunFetchCycleNoStations verifies fetch cycle handles no active stations.
 func TestRadioFetchService_RunFetchCycleNoStations(t *testing.T) {
 	// RadioService with nil DB will return error from GetActiveStationsWithPlaylistSource
 	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		fetchInterval:       1 * time.Hour,
-		affinityInterval:    24 * time.Hour,
-		rematchInterval:     168 * time.Hour,
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     &RadioService{db: nil},
+		fetchInterval:    1 * time.Hour,
+		affinityInterval: 24 * time.Hour,
+		rematchInterval:  168 * time.Hour,
+		stopCh:           make(chan struct{}),
+		logger:           testLogger(),
 	}
 
 	// Should not panic
@@ -109,14 +73,12 @@ func TestRadioFetchService_RunFetchCycleNoStations(t *testing.T) {
 // TestRadioFetchService_RunAffinityCycleNilDB verifies affinity cycle handles nil DB gracefully.
 func TestRadioFetchService_RunAffinityCycleNilDB(t *testing.T) {
 	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		fetchInterval:       1 * time.Hour,
-		affinityInterval:    24 * time.Hour,
-		rematchInterval:     168 * time.Hour,
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     &RadioService{db: nil},
+		fetchInterval:    1 * time.Hour,
+		affinityInterval: 24 * time.Hour,
+		rematchInterval:  168 * time.Hour,
+		stopCh:           make(chan struct{}),
+		logger:           testLogger(),
 	}
 
 	// Should not panic — just log an error
@@ -126,15 +88,13 @@ func TestRadioFetchService_RunAffinityCycleNilDB(t *testing.T) {
 // TestRadioFetchService_RunReMatchCycleNilDB verifies re-match cycle handles nil DB gracefully.
 func TestRadioFetchService_RunReMatchCycleNilDB(t *testing.T) {
 	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		fetchInterval:       1 * time.Hour,
-		affinityInterval:    24 * time.Hour,
-		rematchInterval:     168 * time.Hour,
-		discoverInterval:    24 * time.Hour,
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     &RadioService{db: nil},
+		fetchInterval:    1 * time.Hour,
+		affinityInterval: 24 * time.Hour,
+		rematchInterval:  168 * time.Hour,
+		discoverInterval: 24 * time.Hour,
+		stopCh:           make(chan struct{}),
+		logger:           testLogger(),
 	}
 
 	// Should not panic — just log an error
@@ -146,15 +106,13 @@ func TestRadioFetchService_RunReMatchCycleNilDB(t *testing.T) {
 // and the cycle logs the failure without panicking.
 func TestRadioFetchService_RunDiscoverCycleNilDB(t *testing.T) {
 	svc := &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		fetchInterval:       1 * time.Hour,
-		affinityInterval:    24 * time.Hour,
-		rematchInterval:     168 * time.Hour,
-		discoverInterval:    24 * time.Hour,
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     &RadioService{db: nil},
+		fetchInterval:    1 * time.Hour,
+		affinityInterval: 24 * time.Hour,
+		rematchInterval:  168 * time.Hour,
+		discoverInterval: 24 * time.Hour,
+		stopCh:           make(chan struct{}),
+		logger:           testLogger(),
 	}
 
 	svc.RunDiscoverCycleNow()
@@ -216,16 +174,14 @@ func TestRadioFetchService_AutoBackfillDays_NegativeFallsBackToDefault(t *testin
 // =============================================================================
 
 // newTestFetchService returns a minimal RadioFetchService suitable for testing
-// the PSY-887 circuit-breaker classifier helpers in isolation. Maps are
-// pre-allocated so the test can use the typed counter setters/getters without
-// nil-map panics.
+// the transient-retry helper (fetchStationWithRetry) in isolation. The circuit
+// breaker now lives in radio_station_health (PSY-1140) and is exercised by the
+// DB-backed RadioSyncSuite, not here.
 func newTestFetchService() *RadioFetchService {
 	return &RadioFetchService{
-		radioService:        &RadioService{db: nil},
-		stopCh:              make(chan struct{}),
-		logger:              testLogger(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService: &RadioService{db: nil},
+		stopCh:       make(chan struct{}),
+		logger:       testLogger(),
 	}
 }
 
@@ -284,155 +240,13 @@ func TestClassifyError(t *testing.T) {
 	}
 }
 
-// TestCircuitBreaker_TransientDoesNotTrip exercises the core PSY-887 fix:
-// even 10x the threshold worth of transient errors must NOT trip the breaker.
-// AC item (a). Before PSY-887, this loop would have wedged the station after
-// 5 timeouts; now consecutiveFailures stays at 0 and the station remains
-// eligible for the next attempt.
-func TestCircuitBreaker_TransientDoesNotTrip(t *testing.T) {
-	svc := newTestFetchService()
-	const stationID uint = 1
-
-	rateLimited := &RadioHTTPError{Provider: "KEXP API", StatusCode: 429, Body: ""}
-
-	// Record more transient failures than the breaker threshold — should
-	// only bump transientFailures, never consecutiveFailures.
-	for i := 0; i < radioCircuitBreakerThreshold*2; i++ {
-		kind := svc.recordStationFailure(stationID, rateLimited)
-		if kind != kindTransient {
-			t.Fatalf("iteration %d: expected kindTransient, got %v", i, errorKindName(kind))
-		}
-	}
-
-	if got := svc.GetConsecutiveFailures(stationID); got != 0 {
-		t.Fatalf("transient failures must NOT bump consecutiveFailures; got %d", got)
-	}
-	if got := svc.GetTransientFailures(stationID); got != radioCircuitBreakerThreshold*2 {
-		t.Fatalf("expected %d transient failures, got %d", radioCircuitBreakerThreshold*2, got)
-	}
-
-	skip, _ := svc.stationBreakerSkip(stationID)
-	if skip {
-		t.Fatal("breaker tripped on transient-only failures — PSY-887 regression")
-	}
-}
-
-// TestCircuitBreaker_PermanentTrips verifies the breaker still catches the
-// failure modes it was designed for: 5xx responses, parse failures, 4xx
-// (non-429) errors. AC item (b).
-func TestCircuitBreaker_PermanentTrips(t *testing.T) {
-	svc := newTestFetchService()
-	const stationID uint = 1
-
-	cases := []error{
-		&RadioHTTPError{Provider: "WFMU", StatusCode: 503, Body: ""},
-		fmt.Errorf("parsing response: %w", errors.New("EOF")),
-		&RadioHTTPError{Provider: "NTS API", StatusCode: 400, Body: "bad request"},
-		errors.New("schema mismatch on field foo"),
-		&RadioHTTPError{Provider: "KEXP API", StatusCode: 500, Body: ""},
-	}
-
-	// Hit threshold exactly — breaker should trip on the 5th.
-	for i, e := range cases {
-		kind := svc.recordStationFailure(stationID, e)
-		if kind != kindPermanent {
-			t.Fatalf("case %d (%v): expected kindPermanent, got %v", i, e, errorKindName(kind))
-		}
-	}
-
-	if got := svc.GetConsecutiveFailures(stationID); got != radioCircuitBreakerThreshold {
-		t.Fatalf("expected breaker at threshold %d, got %d", radioCircuitBreakerThreshold, got)
-	}
-
-	skip, failures := svc.stationBreakerSkip(stationID)
-	if !skip {
-		t.Fatalf("breaker should trip at threshold (%d failures); skip=false", failures)
-	}
-}
-
-// TestCircuitBreaker_NoWedgeAfterReset exercises AC item (c): the breaker must
-// not wedge across cycle boundaries under the new policy. The pre-PSY-887 bug
-// shape was: 5 transient failures → breaker trips → station can't succeed
-// while skipped → wedged until next cycle. Under Option A, transient failures
-// don't trip the breaker, and a successful fetch resets BOTH counters, so the
-// station never gets stuck in a "skipped, can't recover" state.
-func TestCircuitBreaker_NoWedgeAfterReset(t *testing.T) {
-	svc := newTestFetchService()
-	const stationID uint = 1
-
-	// Simulate a stretch of transient blips (the original wedge trigger).
-	timeout := context.DeadlineExceeded
-	for i := 0; i < radioCircuitBreakerThreshold; i++ {
-		svc.recordStationFailure(stationID, timeout)
-	}
-
-	// Breaker should still be open (no skip) because transient ≠ breaker bump.
-	if skip, _ := svc.stationBreakerSkip(stationID); skip {
-		t.Fatal("breaker should not trip on transient failures (no-wedge invariant)")
-	}
-
-	// One success: BOTH counters reset, station is fully clean going into the
-	// next cycle.
-	svc.recordStationSuccess(stationID)
-
-	if got := svc.GetConsecutiveFailures(stationID); got != 0 {
-		t.Fatalf("recordStationSuccess must reset consecutiveFailures; got %d", got)
-	}
-	if got := svc.GetTransientFailures(stationID); got != 0 {
-		t.Fatalf("recordStationSuccess must reset transientFailures; got %d", got)
-	}
-
-	// Permanent failures from this point should accumulate from zero — i.e. the
-	// success "closed the wound", a single new permanent error doesn't push us
-	// to threshold because old transient blips don't haunt us.
-	svc.recordStationFailure(stationID, errors.New("permanent error"))
-	if got := svc.GetConsecutiveFailures(stationID); got != 1 {
-		t.Fatalf("post-success permanent count should start fresh at 1; got %d", got)
-	}
-}
-
-// TestCircuitBreaker_PerStationIsolation verifies AC item (d): one wedged
-// station does not affect other stations. The failures map is keyed by
-// station ID, so this should be naturally true — the test guards against a
-// future refactor that accidentally globalizes the breaker.
-func TestCircuitBreaker_PerStationIsolation(t *testing.T) {
-	svc := newTestFetchService()
-
-	// Wedge station 1 with permanent errors.
-	for i := 0; i < radioCircuitBreakerThreshold; i++ {
-		svc.recordStationFailure(1, errors.New("permanent"))
-	}
-	if skip, _ := svc.stationBreakerSkip(1); !skip {
-		t.Fatal("station 1 should be wedged")
-	}
-
-	// Stations 2 and 3 should be untouched.
-	if skip, failures := svc.stationBreakerSkip(2); skip {
-		t.Fatalf("station 2 should not be wedged; failures=%d skip=%v", failures, skip)
-	}
-	if skip, failures := svc.stationBreakerSkip(3); skip {
-		t.Fatalf("station 3 should not be wedged; failures=%d skip=%v", failures, skip)
-	}
-
-	// Wedge station 2 separately — confirms the counters are per-station.
-	for i := 0; i < radioCircuitBreakerThreshold; i++ {
-		svc.recordStationFailure(2, errors.New("permanent"))
-	}
-
-	// Station 1 should still be wedged at exactly threshold (not double-counted).
-	if got := svc.GetConsecutiveFailures(1); got != radioCircuitBreakerThreshold {
-		t.Fatalf("station 1 failures should be unchanged at %d; got %d", radioCircuitBreakerThreshold, got)
-	}
-
-	// Resetting station 1 should not affect station 2.
-	svc.recordStationSuccess(1)
-	if got := svc.GetConsecutiveFailures(1); got != 0 {
-		t.Fatalf("station 1 should reset; got %d", got)
-	}
-	if got := svc.GetConsecutiveFailures(2); got != radioCircuitBreakerThreshold {
-		t.Fatalf("station 2 should still be wedged; got %d", got)
-	}
-}
+// The persistent circuit-breaker state machine (transient-doesn't-trip,
+// permanent-trips-at-threshold, half-open trial, no-wedge-after-reset) moved from
+// the in-memory map to radio_station_health in PSY-1140. Its pure transition logic
+// is table-tested in radio_breaker_test.go; the DB wiring (gate → run → health
+// write-back, manual-probe policy, restart survival, and per-station isolation — now
+// a station_id-PK schema property, tested via two distinct stations) is in
+// radio_sync_integration_test.go's RadioSyncSuite.
 
 // TestFetchStationWithRetry_TransientRecovers exercises the single-retry
 // behavior: a transient error on the first attempt followed by success on

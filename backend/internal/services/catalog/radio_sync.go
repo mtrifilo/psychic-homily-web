@@ -127,17 +127,27 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		return nil, fmt.Errorf("station not found: %w", err)
 	}
 
-	// 2/3. Breaker check. Scheduled + auto-backfill honor an open breaker (skip with
-	//      a trace); a manual trigger BYPASSES it (operator override). The breaker
-	//      SET/CLEAR logic (open after N failures, half-open trial, close on
-	//      recovery) is all P3 — PR1 only READS breaker_state, and nothing here
-	//      opens OR clears it, so a manual success does not yet reset an open breaker.
-	if opts.Trigger != catalogm.RadioSyncRunTriggerManual && s.breakerOpen(stationID) {
-		return &RunStationSyncResult{
-			RunID:   s.recordSkippedRun(stationID, opts),
-			Status:  catalogm.RadioSyncRunStatusSkipped,
-			Skipped: true,
-		}, nil
+	// 2/3. Breaker gate. Scheduled + auto-backfill honor the persistent breaker; a
+	//      manual trigger BYPASSES it (operator override — the manual run is itself a
+	//      deliberate half-open probe, see updateStationHealth's trigger handling).
+	//      An open breaker that is past its cooldown promotes to half_open for a
+	//      single trial run; the breaker write-back (open / half_open / close) happens
+	//      in updateStationHealth on the run's outcome (PSY-1140).
+	if opts.Trigger != catalogm.RadioSyncRunTriggerManual {
+		switch breakerGateFor(s.readBreakerSnapshot(stationID), time.Now()) {
+		case gateBlocked:
+			return &RunStationSyncResult{
+				RunID:   s.recordSkippedRun(stationID, opts),
+				Status:  catalogm.RadioSyncRunStatusSkipped,
+				Skipped: true,
+			}, nil
+		case gateTrial:
+			// Open past cooldown → this run is the half-open trial. Mark it so the
+			// state is observable; the outcome closes (success) or re-opens (failure).
+			s.markBreakerHalfOpen(stationID)
+		case gateAllow:
+			// closed (or never-synced) → run normally.
+		}
 	}
 
 	// Open the run row (status=running, started_at set explicitly — do NOT lean on
@@ -222,8 +232,11 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		}, out.hardErr
 	}
 
-	// 7. Roll up station health (last_run/last_success, consecutive_failures).
-	s.updateStationHealth(stationID, out.status)
+	// 7. Roll up station health (last_run/last_success, breaker state). The error
+	//    kind drives the breaker: only a PERMANENT failure increments the counter /
+	//    trips it (transient errors retry, never trip — PSY-887). classifyError(nil)
+	//    is harmless on success/partial (breakerTransition ignores errKind there).
+	s.updateStationHealth(stationID, out.status, opts.Trigger, classifyError(out.hardErr))
 
 	// Surface the executor's hard error (nil on success/partial) so callers that
 	// need it keep their signal; the run is recorded regardless.
@@ -405,7 +418,11 @@ func (s *RadioService) recordSkippedRun(stationID uint, opts RunStationSyncOpts)
 		slog.Warn("radio: failed to record skipped run", "station_id", stationID, "error", err)
 		return 0
 	}
-	s.updateStationHealth(stationID, catalogm.RadioSyncRunStatusSkipped)
+	// A skipped run touches only last_run_at; breakerTransition's default arm leaves
+	// the breaker state + counter unchanged for 'skipped', so trigger/errKind are
+	// inert here (kindPermanent is a placeholder — if you ever make the skipped/
+	// default arm read errKind, revisit this call site).
+	s.updateStationHealth(stationID, catalogm.RadioSyncRunStatusSkipped, opts.Trigger, kindPermanent)
 	return run.ID
 }
 
@@ -430,64 +447,202 @@ func (s *RadioService) recordRunErrors(runID uint, errs []runError) {
 	_ = s.db.Create(&rows).Error
 }
 
-// updateStationHealth upserts the per-station health rollup by station_id (ON
-// CONFLICT column-set inference). PR1 maintains last_run/last_success +
-// consecutive_failures only; the breaker-open decision + rate computations are
-// P3/P4. consecutive_failures matches the in-memory PSY-887 breaker's posture so
-// the two don't diverge: only a 'failed' run (station/provider unreachable)
-// increments it; 'success' AND 'partial' both reset it — a partial imported data
-// (just some per-episode noise) and is NOT a breaker failure, else a chronically-
-// noisy-but-healthy station would climb the counter forever and trip the P3
-// breaker. last_success_at is set ONLY on a clean success; 'skipped' touches only
-// last_run_at.
-func (s *RadioService) updateStationHealth(stationID uint, status string) {
+// ───────────────────────────── persistent circuit breaker ─────────────────────────────
+//
+// PSY-1140 migrates the radio breaker from the in-memory PSY-887 map (which reset
+// on every deploy) onto radio_station_health.breaker_state, so a tripped station
+// stays tripped across restarts. The state machine — closed → open (at threshold)
+// → half_open (after cooldown) → closed (successful trial) / → open (failed trial)
+// — is split into PURE decision functions (breakerGateFor, breakerTransition; no
+// I/O, exhaustively unit-tested) and thin DB wiring (readBreakerSnapshot,
+// markBreakerHalfOpen, updateStationHealth). Every write path runs under the
+// per-station advisory lock RunStationSync holds, so updateStationHealth's
+// read-modify-write is race-free per station.
+
+// radioCircuitBreakerThreshold is the number of consecutive PERMANENT failures
+// before the persistent breaker opens and the station is skipped on scheduled/auto
+// cycles. Transient errors (timeout, connection refused, 429) retry instead of
+// counting toward this — they never trip the breaker (PSY-887, preserved by
+// PSY-1140).
+const radioCircuitBreakerThreshold = 5
+
+// radioBreakerCooldown is how long an open breaker waits before it allows a single
+// half-open trial. A successful trial closes the breaker; a failed trial re-opens
+// it with a fresh cooldown. 30 min balances "recover quickly once the provider is
+// back" against "don't hammer a still-broken provider every cycle."
+const radioBreakerCooldown = 30 * time.Minute
+
+// breakerSnapshot is the persisted breaker state read from radio_station_health. A
+// never-synced station (no row) is the zero value — closed, 0 failures, no trip
+// time — so a brand-new station is never born tripped.
+type breakerSnapshot struct {
+	state     string
+	failures  int
+	trippedAt *time.Time
+}
+
+// breakerGate is the gate decision for a scheduled/auto run (manual bypasses).
+type breakerGate int
+
+const (
+	gateAllow   breakerGate = iota // closed / never-synced → run normally
+	gateBlocked                    // open and still within cooldown → skip
+	gateTrial                      // open past cooldown (or half_open) → run one trial
+)
+
+// breakerGateFor decides whether a scheduled/auto run may proceed. Pure (no I/O) so
+// it is unit-tested directly. Both open AND half_open are cooldown-gated against
+// breaker_tripped_at: past the cooldown → one trial; within it → blocked. half_open
+// is gated identically to open (NOT allowed unconditionally) so a trial that never
+// resolved cannot re-trial every cycle: a run cancelled on shutdown or a panic
+// leaves the row at half_open (updateStationHealth never ran), and markBreakerHalfOpen
+// stamped breaker_tripped_at at trial start — so the stranded breaker still waits a
+// full cooldown before the next trial instead of defeating the cooldown. An
+// open/half_open row with no trip time is treated as freshly tripped (blocked) —
+// defensive against a row written without breaker_tripped_at.
+func breakerGateFor(snap breakerSnapshot, now time.Time) breakerGate {
+	switch snap.state {
+	case catalogm.RadioBreakerStateOpen, catalogm.RadioBreakerStateHalfOpen:
+		if snap.trippedAt == nil {
+			return gateBlocked
+		}
+		if now.Sub(*snap.trippedAt) >= radioBreakerCooldown {
+			return gateTrial
+		}
+		return gateBlocked
+	default: // closed (or never-synced) → allow
+		return gateAllow
+	}
+}
+
+// breakerTransition is the PURE next-state function for the persistent breaker.
+// Given the current snapshot and a run outcome (status, trigger, errKind), it
+// returns the next snapshot. No I/O — exhaustively unit-tested; updateStationHealth
+// applies the result. Policy (design §5.2/§5.3 + the PSY-1140 locked decision):
+//   - success / partial → reset to closed (a partial imported data; it is recovery,
+//     not a breaker failure — keeps a chronically-noisy-but-healthy station from
+//     ever climbing the counter).
+//   - skipped (and any non-terminal) → unchanged (a breaker skip is not a signal).
+//   - failed + MANUAL → unchanged: a manual run is a half-open probe; the operator
+//     chose to poke a known-bad station, so a manual failure never trips (a manual
+//     SUCCESS still closes via the success arm above — the asymmetric policy).
+//   - failed + scheduled/auto → only a PERMANENT error increments the counter
+//     (transient retries, never trips — PSY-887). A failed half-open trial re-opens
+//     with a fresh cooldown regardless of kind; a permanent failure reaching the
+//     threshold opens the breaker.
+func breakerTransition(cur breakerSnapshot, status, trigger string, errKind errorKind, now time.Time) breakerSnapshot {
+	switch status {
+	case catalogm.RadioSyncRunStatusSuccess, catalogm.RadioSyncRunStatusPartial:
+		return breakerSnapshot{state: catalogm.RadioBreakerStateClosed, failures: 0, trippedAt: nil}
+	case catalogm.RadioSyncRunStatusFailed:
+		if trigger == catalogm.RadioSyncRunTriggerManual {
+			return cur // half-open probe: a manual failure never trips
+		}
+		next := cur
+		if errKind == kindPermanent {
+			next.failures = cur.failures + 1
+		}
+		// transient: counter unchanged (PSY-887 — transient never trips)
+		switch {
+		case cur.state == catalogm.RadioBreakerStateHalfOpen:
+			// The trial failed (permanent OR transient) → re-open with fresh cooldown.
+			t := now
+			next.state, next.trippedAt = catalogm.RadioBreakerStateOpen, &t
+		case errKind == kindPermanent && next.failures >= radioCircuitBreakerThreshold:
+			t := now
+			next.state, next.trippedAt = catalogm.RadioBreakerStateOpen, &t
+		}
+		return next
+	default: // skipped / running / cancelled → leave the breaker untouched
+		return cur
+	}
+}
+
+// readBreakerSnapshot loads the persisted breaker state for a station. A missing
+// row (never synced) or a read error returns the closed zero value — a station is
+// never born tripped, and an observability-layer hiccup must not halt ingestion
+// (the breaker's BLOCK state is 'open', so defaulting to closed/allow is the
+// permissive choice).
+func (s *RadioService) readBreakerSnapshot(stationID uint) breakerSnapshot {
+	var health catalogm.RadioStationHealth
+	err := s.db.Select("breaker_state", "consecutive_failures", "breaker_tripped_at").
+		First(&health, "station_id = ?", stationID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return breakerSnapshot{state: catalogm.RadioBreakerStateClosed}
+	}
+	if err != nil {
+		slog.Warn("radio: breaker snapshot read failed; treating as closed", "station_id", stationID, "error", err)
+		return breakerSnapshot{state: catalogm.RadioBreakerStateClosed}
+	}
+	return breakerSnapshot{
+		state:     health.BreakerState,
+		failures:  health.ConsecutiveFailures,
+		trippedAt: health.BreakerTrippedAt,
+	}
+}
+
+// markBreakerHalfOpen flips a tripped breaker (open, or a still-stranded half_open
+// from a prior unresolved trial) to half_open AND stamps breaker_tripped_at=now —
+// the trial-start time. That timestamp refresh is what bounds a stranded trial: if
+// this run never resolves the state (cancelled on shutdown, or a panic — both skip
+// updateStationHealth), the row stays half_open with a recent trip time, so
+// breakerGateFor keeps it blocked for a full cooldown before the next trial instead
+// of re-trialing every cycle.
+//
+// Best-effort: if this write fails (a DB error), the row stays as the gate read it
+// (open/half_open with its prior trip time). The breaker still works — it stays
+// cooldown-gated via that prior timestamp — losing only the half_open label and this
+// trial's cooldown refresh; on a DB flaky enough to drop this write the run's own
+// writes would be failing too.
+func (s *RadioService) markBreakerHalfOpen(stationID uint) {
 	now := time.Now()
+	_ = s.db.Model(&catalogm.RadioStationHealth{}).
+		Where("station_id = ? AND breaker_state IN ?", stationID,
+			[]string{catalogm.RadioBreakerStateOpen, catalogm.RadioBreakerStateHalfOpen}).
+		Updates(map[string]any{
+			"breaker_state":      catalogm.RadioBreakerStateHalfOpen,
+			"breaker_tripped_at": now,
+			"updated_at":         now,
+		}).Error
+}
+
+// updateStationHealth upserts the per-station health rollup by station_id (ON
+// CONFLICT column-set inference) and applies the breaker state machine. It reads the
+// current snapshot, computes the next state via the pure breakerTransition, and
+// writes it back — safe because RunStationSync holds the per-station advisory lock
+// for the whole run, so no concurrent run mutates this station's health. last_run_at
+// is always bumped; last_success_at only on a clean success ('partial' resets the
+// breaker but is not a "last success").
+func (s *RadioService) updateStationHealth(stationID uint, status, trigger string, errKind errorKind) {
+	now := time.Now()
+	next := breakerTransition(s.readBreakerSnapshot(stationID), status, trigger, errKind, now)
+
 	assignments := map[string]any{
-		"last_run_at": now,
-		"updated_at":  now,
+		"last_run_at":          now,
+		"consecutive_failures": next.failures,
+		"breaker_state":        next.state,
+		"updated_at":           now,
+	}
+	if next.trippedAt != nil {
+		assignments["breaker_tripped_at"] = *next.trippedAt
+	} else {
+		assignments["breaker_tripped_at"] = gorm.Expr("NULL")
 	}
 	health := catalogm.RadioStationHealth{
-		StationID:    stationID,
-		LastRunAt:    &now,
-		BreakerState: catalogm.RadioBreakerStateClosed,
+		StationID:           stationID,
+		LastRunAt:           &now,
+		ConsecutiveFailures: next.failures,
+		BreakerState:        next.state,
+		BreakerTrippedAt:    next.trippedAt,
 	}
-	switch status {
-	case catalogm.RadioSyncRunStatusSuccess:
+	if status == catalogm.RadioSyncRunStatusSuccess {
 		health.LastSuccessAt = &now
 		assignments["last_success_at"] = now
-		assignments["consecutive_failures"] = 0
-	case catalogm.RadioSyncRunStatusPartial:
-		assignments["consecutive_failures"] = 0 // imported data; not a breaker failure
-	case catalogm.RadioSyncRunStatusFailed:
-		// INSERT path (first-ever run for this station) starts the counter at 1;
-		// the ON CONFLICT path increments the stored value.
-		health.ConsecutiveFailures = 1
-		assignments["consecutive_failures"] = gorm.Expr("radio_station_health.consecutive_failures + 1")
 	}
 	_ = s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "station_id"}},
 		DoUpdates: clause.Assignments(assignments),
 	}).Create(&health).Error
-}
-
-// breakerOpen reports whether the persisted breaker for a station is open. A
-// missing health row means "never synced" → treated as closed (not open), so a
-// brand-new station is never born tripped.
-func (s *RadioService) breakerOpen(stationID uint) bool {
-	var health catalogm.RadioStationHealth
-	err := s.db.Select("breaker_state").First(&health, "station_id = ?", stationID).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false // never synced → breaker closed (never born tripped)
-	}
-	if err != nil {
-		// A real read error fails PERMISSIVE (treated as breaker-closed → run
-		// proceeds; note "open" is the BLOCK state in this domain, so don't call
-		// this "fail-open") so the observability layer's own hiccup can't halt
-		// ingestion — but log it; revisit once P3 makes the breaker load-bearing.
-		slog.Warn("radio: breaker state read failed; treating as closed", "station_id", stationID, "error", err)
-		return false
-	}
-	return health.BreakerState == catalogm.RadioBreakerStateOpen
 }
 
 // isSyncRunCancelled reports whether the run has been flipped to 'cancelled'
