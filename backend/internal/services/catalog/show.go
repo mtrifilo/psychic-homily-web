@@ -26,7 +26,8 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// fnvHash produces a stable int64 hash for use as a pg_advisory_xact_lock key.
+// fnvHash produces a stable int64 advisory-lock key (xact- or session-scoped):
+// show.go uses it for pg_advisory_xact_lock; radio_sync.go for a session lock.
 func fnvHash(s string) int64 {
 	h := fnv.New64a()
 	h.Write([]byte(s))

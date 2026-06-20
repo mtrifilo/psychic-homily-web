@@ -31,6 +31,10 @@ type RadioService struct {
 	// liveProviderFactory overrides live-provider resolution in tests;
 	// nil → the real providers (see resolveLiveProvider).
 	liveProviderFactory func(source string) (RadioLiveProvider, func(), bool)
+
+	// playlistProviderFactory overrides playlist-provider resolution in tests
+	// (the RunStationSync / import paths); nil → the real providers (see getProvider).
+	playlistProviderFactory func(source string) (RadioPlaylistProvider, error)
 }
 
 // NewRadioService creates a new radio service

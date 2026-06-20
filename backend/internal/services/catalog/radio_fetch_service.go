@@ -427,9 +427,17 @@ func (s *RadioFetchService) runFetchCycle() {
 			"station_name", station.Name,
 		)
 
+		// Route through the unified orchestrator (PSY-1134): the run is recorded in
+		// radio_sync_runs and the returned hard error still drives the in-memory
+		// PSY-887 breaker/retry below (that in-memory breaker remains authoritative
+		// until P3 migrates it to radio_station_health; RunStationSync only READS
+		// the persistent breaker, which stays closed in P2).
 		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "fetch",
 			func() (any, error) {
-				return s.radioService.FetchNewEpisodes(station.ID)
+				return s.radioService.RunStationSync(context.Background(), station.ID, RunStationSyncOpts{
+					Mode:    catalogm.RadioSyncRunTypeFetch,
+					Trigger: catalogm.RadioSyncRunTriggerScheduled,
+				})
 			},
 		)
 		if err != nil {
@@ -447,27 +455,43 @@ func (s *RadioFetchService) runFetchCycle() {
 			continue
 		}
 
-		result := raw.(*contracts.RadioImportResult)
+		result := raw.(*RunStationSyncResult)
+		// A no-op run — the per-station lock was held by another in-flight sync, or
+		// the persistent breaker is open — did NOT execute, so leave the in-memory
+		// PSY-887 breaker counters untouched (do NOT count it as a success, which
+		// would reset the failure counter and stop the in-memory breaker tripping).
+		if result.LockContended || result.Skipped {
+			reason := "breaker_open"
+			if result.LockContended {
+				reason = "sync_already_running"
+			}
+			s.logger.Info("station fetch skipped",
+				"station_id", station.ID, "station_name", station.Name, "reason", reason)
+			continue
+		}
 		s.recordStationSuccess(station.ID)
 
-		totalEpisodes += result.EpisodesImported
-		totalPlays += result.PlaysImported
-		totalMatched += result.PlaysMatched
+		if imp := result.Import; imp != nil {
+			totalEpisodes += imp.EpisodesImported
+			totalPlays += imp.PlaysImported
+			totalMatched += imp.PlaysMatched
 
-		s.logger.Info("station fetch complete",
-			"station_id", station.ID,
-			"station_name", station.Name,
-			"episodes_imported", result.EpisodesImported,
-			"plays_imported", result.PlaysImported,
-			"plays_matched", result.PlaysMatched,
-		)
-
-		if len(result.Errors) > 0 {
-			s.logger.Warn("station fetch had errors",
+			s.logger.Info("station fetch complete",
 				"station_id", station.ID,
 				"station_name", station.Name,
-				"error_count", len(result.Errors),
+				"run_id", result.RunID,
+				"episodes_imported", imp.EpisodesImported,
+				"plays_imported", imp.PlaysImported,
+				"plays_matched", imp.PlaysMatched,
 			)
+
+			if len(imp.Errors) > 0 {
+				s.logger.Warn("station fetch had errors",
+					"station_id", station.ID,
+					"station_name", station.Name,
+					"error_count", len(imp.Errors),
+				)
+			}
 		}
 	}
 
@@ -589,9 +613,13 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			"station_name", station.Name,
 		)
 
+		// Route through the unified orchestrator (PSY-1134) — see runFetchCycle.
 		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "discover",
 			func() (any, error) {
-				return s.radioService.DiscoverStationShows(station.ID)
+				return s.radioService.RunStationSync(context.Background(), station.ID, RunStationSyncOpts{
+					Mode:    catalogm.RadioSyncRunTypeDiscover,
+					Trigger: catalogm.RadioSyncRunTriggerScheduled,
+				})
 			},
 		)
 		if err != nil {
@@ -609,22 +637,39 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			continue
 		}
 
-		result := raw.(*contracts.RadioDiscoverResult)
+		result := raw.(*RunStationSyncResult)
+		// See runFetchCycle: a no-op (lock contended or breaker open) must not be
+		// recorded as an in-memory success.
+		if result.LockContended || result.Skipped {
+			reason := "breaker_open"
+			if result.LockContended {
+				reason = "sync_already_running"
+			}
+			s.logger.Info("station discover skipped",
+				"station_id", station.ID, "station_name", station.Name, "reason", reason)
+			continue
+		}
 		s.recordStationSuccess(station.ID)
 
-		totalDiscovered += result.ShowsDiscovered
-		totalNew += result.ShowsNew
+		disc := result.Discover
+		if disc == nil {
+			continue
+		}
+
+		totalDiscovered += disc.ShowsDiscovered
+		totalNew += disc.ShowsNew
 
 		s.logger.Info("station discover complete",
 			"station_id", station.ID,
 			"station_name", station.Name,
-			"shows_discovered", result.ShowsDiscovered,
-			"shows_new", result.ShowsNew,
-			"error_count", len(result.Errors),
+			"run_id", result.RunID,
+			"shows_discovered", disc.ShowsDiscovered,
+			"shows_new", disc.ShowsNew,
+			"error_count", len(disc.Errors),
 		)
 
-		if result.ShowsNew > 0 && s.discordService != nil {
-			s.discordService.NotifyNewRadioShows(station.Name, result.NewShowNames)
+		if disc.ShowsNew > 0 && s.discordService != nil {
+			s.discordService.NotifyNewRadioShows(station.Name, disc.NewShowNames)
 			stationsNotified++
 		}
 
@@ -633,15 +678,20 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		// (one at a time) so a 56-show provider burst doesn't fan out into
 		// concurrent provider hits — the existing 1-rps per-instance rate
 		// limiter on each provider handles per-episode pacing.
-		if s.autoBackfillDays > 0 && len(result.NewShowIDs) > 0 {
+		if s.autoBackfillDays > 0 && len(disc.NewShowIDs) > 0 {
 			// GoSafe contains a panic here: this child goroutine escapes the
 			// discover tick's RunTickerLoop guard, which only covers the tick
 			// goroutine itself. autoBackfillStation defers s.wg.Done(), which
 			// runs during unwind before GoSafe's recover, so the WaitGroup
 			// stays balanced even on panic.
+			//
+			// NOTE (PSY-1134 / P2): auto-backfill still drives the import-job
+			// machinery (CreateImportJob/StartImportJob), so its runs are traced in
+			// radio_import_jobs, NOT yet radio_sync_runs. It moves onto
+			// RunStationSync(backfill, auto_backfill) in PR2 when import-jobs retire.
 			s.wg.Add(1)
-			showIDs := result.NewShowIDs
-			showNames := result.NewShowNames
+			showIDs := disc.NewShowIDs
+			showNames := disc.NewShowNames
 			stationName := station.Name
 			shared.GoSafe(context.Background(), "radio_auto_backfill", func() {
 				s.autoBackfillStation(stationName, showIDs, showNames)
