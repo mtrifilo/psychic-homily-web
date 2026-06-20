@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { mix, readWordmarkColors, resolveFontFamily, rgba, sampleWordmark, type RGB } from './sampleWordmark'
+import { readWordmarkColors, resolveFontFamily, rgba, sampleWordmark, type RGB } from './sampleWordmark'
 
 const LINES = ['PSYCHIC', 'HOMILY'] as const
 
@@ -32,17 +32,21 @@ interface Particle {
 
 export function ScryingGridWordmark({
   className,
+  headingId,
   gapFactor = 6,
-  spotlight = 'pool',
+  spotlight = 'cells',
 }: {
   className?: string
+  /** id for the rendered <h1> — the owning page sets this when a section labels itself by it. */
+  headingId?: string
   /** Sampling pitch in CSS px (× dpr) — smaller = denser dot field, cleaner letterforms. */
   gapFactor?: number
   /**
-   * Cursor-glow treatment (dark mode):
+   * Cursor-glow treatment (dark mode). Production (`HomeHero`) uses `cells`;
+   * `pool`/`oversized` exist for the /admin/hero-lab comparison:
+   * - `cells`     — no pool; only the dots ignite/lean (the chosen production mode).
    * - `pool`      — radial pool drawn on the wordmark canvas (clips at canvas edges).
    * - `oversized` — same pool, but the wordmark is inset so the pool fits over the letters.
-   * - `cells`     — no pool; only the dots ignite/lean (pair with an external full-bleed glow).
    */
   spotlight?: 'pool' | 'oversized' | 'cells'
 }) {
@@ -171,9 +175,14 @@ export function ScryingGridWordmark({
           p.y = p.hy
         }
         const bright = Math.max(0, Math.min(1, shimmer + ignite * 0.8))
-        const col = mix(fg, primary, ignite)
+        // Inline the fg→primary lerp + rgba — avoids a per-particle array
+        // allocation (and helper call) in this hot loop (~N particles × 60fps).
+        const cr = Math.round(fg[0] + (primary[0] - fg[0]) * ignite)
+        const cg = Math.round(fg[1] + (primary[1] - fg[1]) * ignite)
+        const cb = Math.round(fg[2] + (primary[2] - fg[2]) * ignite)
+        const alpha = isDark ? 0.32 + 0.68 * bright : 0.5 + 0.5 * bright
         const r = baseDot * (0.7 + 0.7 * bright) * (1 + ignite * 0.6)
-        ctx.fillStyle = rgba(col, isDark ? 0.32 + 0.68 * bright : 0.5 + 0.5 * bright)
+        ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha})`
         ctx.beginPath()
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
         ctx.fill()
@@ -215,7 +224,7 @@ export function ScryingGridWordmark({
       bloomCanvas.height = Math.max(1, Math.round(h / 3))
       const points = sampleWordmark(w, h, {
         lines: LINES,
-        fontFamily: resolveFontFamily('--font-display'),
+        fontFamily: resolveFontFamily(),
         gapDev: Math.round(gapFactor * dpr),
         // Oversized: inset the wordmark so the pool has room to fully fade
         // inside the canvas instead of getting sliced at the edge.
@@ -317,7 +326,7 @@ export function ScryingGridWordmark({
       style={{ touchAction: 'pan-y' }}
     >
       <h1
-        id="home-hero-heading"
+        id={headingId}
         className={`m-0 text-center transition-opacity duration-700 ${enhanced ? 'opacity-0' : 'opacity-100'}`}
       >
         <span className="sr-only">Psychic Homily</span>

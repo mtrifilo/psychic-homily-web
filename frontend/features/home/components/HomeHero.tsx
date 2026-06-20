@@ -50,6 +50,7 @@ export function HomeHero() {
           • Variant 3 "Glow only" (coarse):  className="max-w-[860px]"  gapFactor={6}
       */}
       <ScryingGridWordmark
+        headingId="home-hero-heading"
         className="h-[clamp(220px,29vw,372px)] w-full max-w-[1080px]"
         gapFactor={5}
         spotlight="cells"

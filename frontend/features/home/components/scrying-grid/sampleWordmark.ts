@@ -10,6 +10,9 @@
 
 const LINE_GAP_FACTOR = 0.95
 const CAP_FACTOR = 0.74
+const FONT_WEIGHT = 700
+/** Alpha (0–255) above which a sampled pixel counts as part of a glyph. */
+const ALPHA_THRESHOLD = 140
 
 function fitFontSize(
   ctx: CanvasRenderingContext2D,
@@ -35,26 +38,25 @@ export interface SampledPoint {
 export interface SampleOpts {
   lines: readonly string[]
   fontFamily: string
-  weight?: number
   /** Sampling step in device px — smaller = denser field. */
   gapDev?: number
-  alphaThreshold?: number
   /** Scale the fit box (<1 = more margin around the wordmark inside the canvas). */
   padScale?: number
 }
 
 /** Sample the wordmark into a list of lit points (device-px coords). */
 export function sampleWordmark(widthDev: number, heightDev: number, opts: SampleOpts): SampledPoint[] {
-  const weight = opts.weight ?? 700
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(widthDev))
   canvas.height = Math.max(1, Math.round(heightDev))
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  // One getImageData per rebuild (rare) — willReadFrequently would force a slower
+  // CPU backing store, the opposite of what a single read wants.
+  const ctx = canvas.getContext('2d')
   if (!ctx) return []
 
   const pad = opts.padScale ?? 1
-  const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86 * pad, canvas.height * 0.78 * pad, opts.fontFamily, weight)
-  ctx.font = `${weight} ${size}px ${opts.fontFamily}`
+  const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86 * pad, canvas.height * 0.78 * pad, opts.fontFamily, FONT_WEIGHT)
+  ctx.font = `${FONT_WEIGHT} ${size}px ${opts.fontFamily}`
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -67,7 +69,7 @@ export function sampleWordmark(widthDev: number, heightDev: number, opts: Sample
 
   const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const gap = Math.max(2, Math.round(opts.gapDev ?? 7))
-  const threshold = opts.alphaThreshold ?? 140
+  const threshold = ALPHA_THRESHOLD
   const points: SampledPoint[] = []
   for (let y = 0; y < canvas.height; y += gap) {
     for (let x = 0; x < canvas.width; x += gap) {
