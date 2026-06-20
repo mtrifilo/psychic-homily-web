@@ -253,9 +253,7 @@ func TestClassifyError(t *testing.T) {
 // the retry must surface as success (no error reported to the cycle counter).
 func TestFetchStationWithRetry_TransientRecovers(t *testing.T) {
 	svc := newTestFetchService()
-	// Drop the retry backoff to a hair so the test stays fast — restored by
-	// the test's lifetime alone (constant override isn't possible in Go, but
-	// 500ms is acceptable for one test).
+	svc.retryBackoffFn = func(int) time.Duration { return 0 } // no real sleep
 	var calls atomic.Int32
 	call := func() (any, error) {
 		calls.Add(1)
@@ -267,9 +265,7 @@ func TestFetchStationWithRetry_TransientRecovers(t *testing.T) {
 		return &contracts.RadioImportResult{EpisodesImported: 1}, nil
 	}
 
-	start := time.Now()
 	got, err := svc.fetchStationWithRetry(1, "TestStation", "fetch", call)
-	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("expected nil error after retry recovery; got %v", err)
@@ -279,9 +275,6 @@ func TestFetchStationWithRetry_TransientRecovers(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("expected exactly 2 calls (initial + 1 retry); got %d", calls.Load())
-	}
-	if elapsed < radioTransientRetryBackoff {
-		t.Fatalf("retry should sleep at least %v; elapsed=%v", radioTransientRetryBackoff, elapsed)
 	}
 }
 
@@ -313,8 +306,8 @@ func TestFetchStationWithRetry_NoRetryOnPermanent(t *testing.T) {
 	}
 	// Permanent path should be well under the backoff window — confirms we
 	// didn't accidentally sleep on the non-retry branch.
-	if elapsed >= radioTransientRetryBackoff {
-		t.Fatalf("permanent path should not sleep; elapsed=%v >= backoff %v", elapsed, radioTransientRetryBackoff)
+	if elapsed >= radioRetryBackoffBase {
+		t.Fatalf("permanent path should not sleep; elapsed=%v >= base %v", elapsed, radioRetryBackoffBase)
 	}
 }
 
@@ -323,6 +316,7 @@ func TestFetchStationWithRetry_NoRetryOnPermanent(t *testing.T) {
 // caller (which then bumps the transient counter — NOT the breaker counter).
 func TestFetchStationWithRetry_TransientPersists(t *testing.T) {
 	svc := newTestFetchService()
+	svc.retryBackoffFn = func(int) time.Duration { return 0 } // no real sleep
 
 	var calls atomic.Int32
 	rateLimited := &RadioHTTPError{Provider: "WFMU", StatusCode: 429, Body: ""}
@@ -338,8 +332,10 @@ func TestFetchStationWithRetry_TransientPersists(t *testing.T) {
 	if got != nil {
 		t.Fatalf("expected nil result on persisted error; got %v", got)
 	}
-	if calls.Load() != 2 {
-		t.Fatalf("expected initial + 1 retry = 2 calls; got %d", calls.Load())
+	// Initial + (radioRetryMaxAttempts-1) retries; the per-client budget is inactive
+	// at this low volume so all retries are attempted (PSY-1142).
+	if calls.Load() != int32(radioRetryMaxAttempts) {
+		t.Fatalf("expected %d total attempts; got %d", radioRetryMaxAttempts, calls.Load())
 	}
 	if classifyError(err) != kindTransient {
 		t.Fatalf("persisted error must still classify as transient; got %v", errorKindName(classifyError(err)))
@@ -351,6 +347,9 @@ func TestFetchStationWithRetry_TransientPersists(t *testing.T) {
 // immediately rather than wasting the full retry-backoff window.
 func TestFetchStationWithRetry_ShutdownAbortsBackoff(t *testing.T) {
 	svc := newTestFetchService()
+	// A long backoff so the closed stopCh deterministically wins the select before
+	// time.After fires (with Full Jitter the real delay could be ~0 and race).
+	svc.retryBackoffFn = func(int) time.Duration { return 30 * time.Second }
 	// Close stopCh BEFORE the call so the select hits the shutdown branch
 	// immediately on the first transient error.
 	close(svc.stopCh)
@@ -371,10 +370,105 @@ func TestFetchStationWithRetry_ShutdownAbortsBackoff(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("shutdown must abort before retry; got %d calls", calls.Load())
 	}
-	// We took the stopCh branch, so elapsed should be far less than the
-	// backoff window. Allow some slack for scheduling.
-	if elapsed >= radioTransientRetryBackoff {
-		t.Fatalf("shutdown should abort backoff; elapsed=%v >= backoff %v", elapsed, radioTransientRetryBackoff)
+	// We took the stopCh branch, so elapsed should be far less than the 30s backoff.
+	if elapsed >= radioRetryBackoffBase {
+		t.Fatalf("shutdown should abort backoff; elapsed=%v", elapsed)
+	}
+}
+
+// TestFullJitterBackoff asserts BOUNDS, not exact values (Full Jitter is random):
+// the nth retry delay lies in [0, min(cap, base·2^n)), and a large exponent clamps
+// to the cap without overflowing negative (PSY-1142).
+func TestFullJitterBackoff(t *testing.T) {
+	for exp := 0; exp < 4; exp++ {
+		ceiling := radioRetryBackoffCap
+		if scaled := radioRetryBackoffBase << exp; scaled < ceiling {
+			ceiling = scaled
+		}
+		for i := 0; i < 300; i++ {
+			d := fullJitterBackoff(exp)
+			if d < 0 || d >= ceiling {
+				t.Fatalf("exp=%d: delay %v out of [0,%v)", exp, d, ceiling)
+			}
+		}
+	}
+	for i := 0; i < 300; i++ {
+		if d := fullJitterBackoff(40); d < 0 || d >= radioRetryBackoffCap {
+			t.Fatalf("large exp must clamp to cap; got %v", d)
+		}
+	}
+}
+
+// TestRetryBudget covers the per-client tier (PSY-1142): inactive below minRequests,
+// caps retries at ~ratio of requests, and recovers after the window expires. Uses an
+// injected clock for determinism.
+func TestRetryBudget(t *testing.T) {
+	at := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+
+	t.Run("inactive below minRequests", func(t *testing.T) {
+		b := newRetryBudget()
+		b.now = func() time.Time { return at }
+		for i := 0; i < radioRetryBudgetMinReqs-1; i++ {
+			b.noteRequest()
+		}
+		if !b.allowRetry() {
+			t.Fatal("below minRequests the budget must allow retries (too little volume to storm)")
+		}
+	})
+
+	t.Run("caps retries at the ratio, then recovers after the window", func(t *testing.T) {
+		now := at
+		b := newRetryBudget()
+		b.now = func() time.Time { return now }
+		const reqs = 20 // 10% → 2 retries permitted
+		for i := 0; i < reqs; i++ {
+			b.noteRequest()
+		}
+		allowed := 0
+		for i := 0; i < 5; i++ {
+			if b.allowRetry() {
+				allowed++
+			}
+		}
+		if allowed != 2 {
+			t.Fatalf("expected 2 retries within the 10%% budget of %d requests; allowed=%d", reqs, allowed)
+		}
+		// Advance past the window → all events expire → budget recovers.
+		now = now.Add(radioRetryBudgetWindow + time.Second)
+		if !b.allowRetry() {
+			t.Fatal("after the window expires the budget must recover")
+		}
+	})
+}
+
+// TestFetchStationWithRetry_BudgetSheds verifies the per-client budget actually
+// stops a transient retry in fetchStationWithRetry when it is exhausted (PSY-1142).
+func TestFetchStationWithRetry_BudgetSheds(t *testing.T) {
+	svc := newTestFetchService()
+	svc.retryBackoffFn = func(int) time.Duration { return 0 }
+
+	at := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	b := svc.budget()
+	b.now = func() time.Time { return at }
+	// Pre-load a clearly-over-budget window: 100 requests + 20 retries (20% > 10%).
+	for i := 0; i < 100; i++ {
+		b.events = append(b.events, budgetEvent{at: at})
+	}
+	for i := 0; i < 20; i++ {
+		b.events = append(b.events, budgetEvent{at: at, retry: true})
+	}
+
+	var calls atomic.Int32
+	call := func() (any, error) {
+		calls.Add(1)
+		return nil, context.DeadlineExceeded // transient
+	}
+	_, err := svc.fetchStationWithRetry(1, "S", "fetch", call)
+	if err == nil {
+		t.Fatal("expected the transient error to surface")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("a budget-shed transient must not retry; got %d calls", calls.Load())
 	}
 }
 

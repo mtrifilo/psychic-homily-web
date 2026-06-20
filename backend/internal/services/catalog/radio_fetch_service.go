@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"strconv"
@@ -35,11 +36,35 @@ const DefaultDiscoverInterval = 24 * time.Hour
 // Set RADIO_AUTO_BACKFILL_DAYS=0 to disable auto-backfill entirely.
 const DefaultAutoBackfillDays = 90
 
-// radioTransientRetryBackoff is the brief delay before retrying a station once
-// after a transient error. Single retry per station per cycle; we don't carry
-// transient-retry state across cycles (no exponential backoff) — that's an
-// explicit non-goal of PSY-887 to keep the fetch loop's failure modes obvious.
-const radioTransientRetryBackoff = 500 * time.Millisecond
+// Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
+// model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
+// §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
+// total with Full-Jitter exponential backoff. Tier 2 (per-client): a process-wide
+// retry budget sheds retries once they exceed radioRetryBudgetRatio of requests over
+// a rolling window, so a degraded provider fails fast instead of amplifying load.
+const (
+	// radioRetryMaxAttempts is the total number of attempts per request (1 initial +
+	// up to N-1 retries). Google SRE's per-request cap is ≤3.
+	radioRetryMaxAttempts = 3
+
+	// radioRetryBackoffBase / radioRetryBackoffCap bound the Full-Jitter window: the
+	// nth retry sleeps a random duration in [0, min(cap, base·2^n)). Jitter (vs fixed
+	// or plain-exponential backoff) de-synchronizes retries across stations so they
+	// don't thunder.
+	radioRetryBackoffBase = 500 * time.Millisecond
+	radioRetryBackoffCap  = 30 * time.Second
+
+	// radioRetryBudgetWindow / radioRetryBudgetRatio are the per-client tier: at most
+	// ~10% of requests over a rolling 2-min window may be retries (Google SRE; keeps
+	// load growth ~1.1×). radioRetryBudgetMinReqs is a low-volume guard — below this
+	// many requests in the window the budget is inactive (a handful of retries can't
+	// form a storm, and a strict ratio would otherwise shed the first retry of every
+	// low-volume cycle). At the radio loop's volume tier 1 is the dominant control;
+	// the budget is the safety net if request volume ever grows.
+	radioRetryBudgetWindow  = 2 * time.Minute
+	radioRetryBudgetRatio   = 0.10
+	radioRetryBudgetMinReqs = 10
+)
 
 // errorKind classifies a radio provider error for retry + breaker routing.
 // kindTransient → retry once (fetchStationWithRetry); never trips the breaker.
@@ -146,8 +171,17 @@ type RadioFetchService struct {
 	// radio_station_health.breaker_state and is owned end-to-end by RunStationSync
 	// (read at the gate, written on the run's outcome via updateStationHealth), so
 	// it survives restarts. The loops below just consult RunStationSyncResult.Skipped
-	// for a breaker-open station and keep the transient-error single-retry
-	// (fetchStationWithRetry); the retry budget rework is PSY-1142.
+	// for a breaker-open station.
+
+	// retryBudget is the per-client (per-process) transient-retry budget (PSY-1142),
+	// shared across the fetch + discover loops. Lazily initialized via budget() so
+	// tests that build &RadioFetchService{...} directly still work.
+	retryBudget *retryBudget
+	budgetOnce  sync.Once
+
+	// retryBackoffFn, when non-nil, overrides the Full-Jitter backoff delay — tests
+	// set it to return 0 so the retry loop doesn't actually sleep. nil → fullJitterBackoff.
+	retryBackoffFn func(retry int) time.Duration
 }
 
 // NewRadioFetchService creates a new radio fetch background service.
@@ -272,57 +306,167 @@ func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
 	})
 }
 
-// fetchStationWithRetry calls the run op. On a transient error, sleeps
-// radioTransientRetryBackoff and tries ONCE more. Returns the final result/err
-// pair. The breaker counter is the caller's responsibility (now persisted by
-// RunStationSync's updateStationHealth); this helper only owns the retry decision
-// so the two loops (fetch + discover) can share it even though they call different
-// RadioService methods (PSY-887).
-//
-// Single fixed-delay retry, not exponential — kept as-is in PSY-1140; the Full
-// Jitter backoff + two-tier retry budget rework is PSY-1142.
+// fetchStationWithRetry calls the run op and retries a TRANSIENT error per the
+// two-tier policy (PSY-1142): up to radioRetryMaxAttempts total attempts with
+// Full-Jitter backoff (tier 1), each retry gated by the per-client retry budget
+// (tier 2). Permanent errors fail immediately; an error that turns permanent on a
+// retry stops the loop. The breaker counter is the caller's responsibility (persisted
+// by RunStationSync's updateStationHealth); this helper only owns the retry decision
+// so the fetch + discover loops can share it. The stopCh-aware sleep unwinds a
+// mid-backoff service shutdown promptly.
 func (s *RadioFetchService) fetchStationWithRetry(
 	stationID uint,
 	stationName string,
 	op string, // "fetch" or "discover" — for log clarity
 	call func() (any, error),
 ) (any, error) {
+	s.budget().noteRequest()
+
 	result, err := call()
 	if err == nil {
 		return result, nil
 	}
-
 	if classifyError(err) != kindTransient {
 		return nil, err
 	}
 
-	// Transient — one retry after brief backoff. Use a stopCh-aware sleep so
-	// a service shutdown mid-backoff doesn't waste 500ms before returning.
-	s.logger.Warn("transient station error, retrying after backoff",
-		"station_id", stationID,
-		"station_name", stationName,
-		"op", op,
-		"backoff", radioTransientRetryBackoff,
-		"error", err,
-	)
-	select {
-	case <-time.After(radioTransientRetryBackoff):
-	case <-s.stopCh:
-		return nil, err // caller will record the original transient failure
-	}
+	for retry := 1; retry < radioRetryMaxAttempts; retry++ {
+		if !s.budget().allowRetry() {
+			s.logger.Warn("transient station error; retry shed by per-client budget",
+				"station_id", stationID, "station_name", stationName, "op", op, "error", err)
+			return nil, err
+		}
 
-	result, retryErr := call()
-	if retryErr == nil {
-		s.logger.Info("station recovered after transient retry",
-			"station_id", stationID,
-			"station_name", stationName,
-			"op", op,
-		)
-		return result, nil
+		delay := s.retryDelay(retry - 1) // retry 1 → exponent 0
+		s.logger.Warn("transient station error, retrying after jittered backoff",
+			"station_id", stationID, "station_name", stationName, "op", op,
+			"retry", retry, "backoff", delay, "error", err)
+		select {
+		case <-time.After(delay):
+		case <-s.stopCh:
+			return nil, err // shutdown mid-backoff: surface the original transient error
+		}
+
+		result, err = call()
+		if err == nil {
+			s.logger.Info("station recovered after transient retry",
+				"station_id", stationID, "station_name", stationName, "op", op, "retry", retry)
+			return result, nil
+		}
+		if classifyError(err) != kindTransient {
+			return nil, err // turned permanent — stop retrying
+		}
 	}
-	// Return the retry error so the caller's log/counter reflects the
-	// post-retry state.
-	return nil, retryErr
+	// Exhausted attempts; surface the last (still-transient) error so the caller's
+	// log reflects the post-retry state.
+	return nil, err
+}
+
+// retryDelay returns the backoff for the given 0-based retry exponent, using the
+// test seam when set, else Full-Jitter.
+func (s *RadioFetchService) retryDelay(exp int) time.Duration {
+	if s.retryBackoffFn != nil {
+		return s.retryBackoffFn(exp)
+	}
+	return fullJitterBackoff(exp)
+}
+
+// fullJitterBackoff returns a random duration in [0, min(cap, base·2^exp)) — AWS
+// "Full Jitter", the recommended de-synchronizing backoff. math/rand/v2's global
+// source is fine for jitter (no determinism needed).
+func fullJitterBackoff(exp int) time.Duration {
+	ceiling := radioRetryBackoffCap
+	// base << exp = base·2^exp; guard against shift overflow and clamp to the cap.
+	if exp >= 0 && exp < 62 {
+		if scaled := radioRetryBackoffBase << exp; scaled > 0 && scaled < ceiling {
+			ceiling = scaled
+		}
+	}
+	return time.Duration(rand.Int64N(int64(ceiling)))
+}
+
+// budget returns the per-client retry budget, lazily initialized so direct-literal
+// test constructions work without wiring it up.
+func (s *RadioFetchService) budget() *retryBudget {
+	s.budgetOnce.Do(func() {
+		if s.retryBudget == nil {
+			s.retryBudget = newRetryBudget()
+		}
+	})
+	return s.retryBudget
+}
+
+// ───────────────────────────── per-client retry budget (PSY-1142) ─────────────────────────────
+
+// retryBudget caps the transient-retry RATIO (retries / requests) over a rolling
+// window — the per-client tier of the Google SRE retry budget. Below minRequests
+// requests in the window it is inactive (too little volume to storm). now is
+// injectable for deterministic window tests.
+type retryBudget struct {
+	mu          sync.Mutex
+	window      time.Duration
+	ratio       float64
+	minRequests int
+	now         func() time.Time
+	events      []budgetEvent
+}
+
+// budgetEvent is one request or retry, timestamped for the rolling window.
+type budgetEvent struct {
+	at    time.Time
+	retry bool // false = an original request, true = a retry
+}
+
+func newRetryBudget() *retryBudget {
+	return &retryBudget{
+		window:      radioRetryBudgetWindow,
+		ratio:       radioRetryBudgetRatio,
+		minRequests: radioRetryBudgetMinReqs,
+		now:         time.Now,
+	}
+}
+
+// noteRequest records one original (non-retry) request.
+func (b *retryBudget) noteRequest() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.prune()
+	b.events = append(b.events, budgetEvent{at: b.now()})
+}
+
+// allowRetry reports whether a retry is within budget; when it returns true it also
+// records the retry (so the ratio reflects retries granted). Below minRequests the
+// budget is inactive — the per-request attempt cap is then the only limit.
+func (b *retryBudget) allowRetry() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.prune()
+	var requests, retries int
+	for _, e := range b.events {
+		if e.retry {
+			retries++
+		} else {
+			requests++
+		}
+	}
+	if requests >= b.minRequests && float64(retries) >= b.ratio*float64(requests) {
+		return false
+	}
+	b.events = append(b.events, budgetEvent{at: b.now(), retry: true})
+	return true
+}
+
+// prune drops events older than the window, compacting in place so the backing array
+// stays bounded to one window's events (the loops are low-rate).
+func (b *retryBudget) prune() {
+	cutoff := b.now().Add(-b.window)
+	live := b.events[:0]
+	for _, e := range b.events {
+		if !e.at.Before(cutoff) {
+			live = append(live, e)
+		}
+	}
+	b.events = live
 }
 
 // runFetchCycle fetches new episodes from all active stations sequentially.
