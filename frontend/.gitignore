@@ -45,3 +45,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# hero-lab (PSY-1137) dev-scratch smoke clips — heavy binaries, regenerate per
+# app/hero-lab/README.md (Mixkit URLs + ffmpeg). Remove with the lab before the PR.
+public/hero-lab/*.mp4

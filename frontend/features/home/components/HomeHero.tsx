@@ -39,7 +39,21 @@ export function HomeHero() {
       className="relative isolate flex w-full flex-col items-center gap-4 pb-3.5 pt-6"
     >
       <HeroLightning />
-      <ScryingGridWordmark className="max-w-[860px] pt-2" />
+      {/*
+        Hero wordmark — Scrying Grid, Variant 1 "Bigger & denser" (chosen June 2026).
+        The wordmark is sampled into a dense field of light-cells (gapFactor=5) at a
+        large size. spotlight="cells": the cursor only ignites/leans the dots — no
+        floating gradient pool (the pool clipped on the rectangular canvas; see the
+        /hero-lab comparison + docs/features/hero-wordmark-animation.md). Density
+        alternates preserved for revisiting:
+          • Variant 2 "Denser, same size":  className="max-w-[860px]"  gapFactor={3.5}
+          • Variant 3 "Glow only" (coarse):  className="max-w-[860px]"  gapFactor={6}
+      */}
+      <ScryingGridWordmark
+        className="h-[clamp(220px,29vw,372px)] w-full max-w-[1080px]"
+        gapFactor={5}
+        spotlight="cells"
+      />
 
       <div className="max-w-[720px] text-center">
         <p className="text-balance text-lg font-medium text-foreground sm:text-xl">

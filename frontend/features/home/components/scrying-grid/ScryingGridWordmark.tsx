@@ -30,7 +30,22 @@ interface Particle {
   phase: number
 }
 
-export function ScryingGridWordmark({ className }: { className?: string }) {
+export function ScryingGridWordmark({
+  className,
+  gapFactor = 6,
+  spotlight = 'pool',
+}: {
+  className?: string
+  /** Sampling pitch in CSS px (× dpr) — smaller = denser dot field, cleaner letterforms. */
+  gapFactor?: number
+  /**
+   * Cursor-glow treatment (dark mode):
+   * - `pool`      — radial pool drawn on the wordmark canvas (clips at canvas edges).
+   * - `oversized` — same pool, but the wordmark is inset so the pool fits over the letters.
+   * - `cells`     — no pool; only the dots ignite/lean (pair with an external full-bleed glow).
+   */
+  spotlight?: 'pool' | 'oversized' | 'cells'
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [enhanced, setEnhanced] = useState(false)
@@ -85,42 +100,50 @@ export function ScryingGridWordmark({ className }: { className?: string }) {
       // Dark-mode hover: a layered, grain-textured spotlight over the bulging
       // dots — warm-white hot core → terracotta → soft tail, additive, with a
       // grain pass that kills banding. Tracks the cursor directly (no lag).
-      if (isDark && !isStatic && pt.active) {
+      if (isDark && !isStatic && pt.active && spotlight !== 'cells') {
         const sx = pt.x
         const sy = pt.y
-        const sr = radius * 1.25
-        ctx.globalCompositeOperation = 'lighter'
-        const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr)
-        halo.addColorStop(0, rgba(primary, 0.13))
-        halo.addColorStop(0.3, rgba(primary, 0.06))
-        halo.addColorStop(0.65, rgba(primary, 0.02))
-        halo.addColorStop(1, rgba(primary, 0))
-        ctx.fillStyle = halo
-        ctx.beginPath()
-        ctx.arc(sx, sy, sr, 0, Math.PI * 2)
-        ctx.fill()
-        const cr = sr * 0.42
-        const core = ctx.createRadialGradient(sx, sy, 0, sx, sy, cr)
-        core.addColorStop(0, rgba(HOT, 0.24))
-        core.addColorStop(0.4, rgba(primary, 0.12))
-        core.addColorStop(1, rgba(primary, 0))
-        ctx.fillStyle = core
-        ctx.beginPath()
-        ctx.arc(sx, sy, cr, 0, Math.PI * 2)
-        ctx.fill()
-        // Grain pass — source-atop textures only the lit pool (not the empty
-        // background), breaking the radial-gradient banding.
-        if (noiseCtx) {
-          const pattern = ctx.createPattern(noiseTile, 'repeat')
-          if (pattern) {
-            ctx.globalCompositeOperation = 'source-atop'
-            ctx.globalAlpha = 0.07
-            ctx.fillStyle = pattern
-            ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2)
-            ctx.globalAlpha = 1
+        // Pool radius is capped so it stays contained on the large wordmark.
+        const sr = Math.min(radius * 1.2, 150 * dpr)
+        // Edge feather: the pool is a circle, the canvas is a rectangle, so a
+        // pool that overruns an edge gets sliced into a hard straight line. Fade
+        // the whole pool to nothing as the cursor approaches any boundary so the
+        // cutoff is always soft. (Distance to nearest edge, normalized by sr.)
+        const edgeFade = Math.max(0, Math.min(1, Math.min(sx, sy, w - sx, h - sy) / sr))
+        if (edgeFade > 0.002) {
+          ctx.globalCompositeOperation = 'lighter'
+          const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr)
+          halo.addColorStop(0, rgba(primary, 0.13 * edgeFade))
+          halo.addColorStop(0.3, rgba(primary, 0.06 * edgeFade))
+          halo.addColorStop(0.65, rgba(primary, 0.02 * edgeFade))
+          halo.addColorStop(1, rgba(primary, 0))
+          ctx.fillStyle = halo
+          ctx.beginPath()
+          ctx.arc(sx, sy, sr, 0, Math.PI * 2)
+          ctx.fill()
+          const cr = sr * 0.42
+          const core = ctx.createRadialGradient(sx, sy, 0, sx, sy, cr)
+          core.addColorStop(0, rgba(HOT, 0.24 * edgeFade))
+          core.addColorStop(0.4, rgba(primary, 0.12 * edgeFade))
+          core.addColorStop(1, rgba(primary, 0))
+          ctx.fillStyle = core
+          ctx.beginPath()
+          ctx.arc(sx, sy, cr, 0, Math.PI * 2)
+          ctx.fill()
+          // Grain pass — source-atop textures only the lit pool (not the empty
+          // background), breaking the radial-gradient banding.
+          if (noiseCtx) {
+            const pattern = ctx.createPattern(noiseTile, 'repeat')
+            if (pattern) {
+              ctx.globalCompositeOperation = 'source-atop'
+              ctx.globalAlpha = 0.07
+              ctx.fillStyle = pattern
+              ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2)
+              ctx.globalAlpha = 1
+            }
           }
+          ctx.globalCompositeOperation = 'source-over'
         }
-        ctx.globalCompositeOperation = 'source-over'
       }
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]
@@ -156,9 +179,10 @@ export function ScryingGridWordmark({ className }: { className?: string }) {
         ctx.fill()
       }
 
-      // HDR-style bloom: downscale the scene, square it for a cheap bright-pass,
-      // then additively draw it back blurred — the spotlight + ignited dots bleed
-      // a luminous glow. Dark mode only (light mode would wash out).
+      // Subtle halo: downscale the scene, square it for a cheap bright-pass, then
+      // additively draw it back blurred — each lit dot gets a soft glow without
+      // the heavy bloom washing out the letterforms. Dark mode only (light mode
+      // would wash out). Tuned restrained per the chosen "subtle halo" direction.
       if (isDark && !isStatic && supportsFilter && bloomCtx && bloomCanvas.width > 1) {
         const bw = bloomCanvas.width
         const bh = bloomCanvas.height
@@ -170,8 +194,8 @@ export function ScryingGridWordmark({ className }: { className?: string }) {
         bloomCtx.globalCompositeOperation = 'source-over'
         ctx.save()
         ctx.globalCompositeOperation = 'lighter'
-        ctx.globalAlpha = 0.85
-        ctx.filter = `blur(${Math.round(7 * dpr)}px)`
+        ctx.globalAlpha = 0.32
+        ctx.filter = `blur(${Math.round(4 * dpr)}px)`
         ctx.drawImage(bloomCanvas, 0, 0, bw, bh, 0, 0, canvas.width, canvas.height)
         ctx.restore()
       }
@@ -192,7 +216,10 @@ export function ScryingGridWordmark({ className }: { className?: string }) {
       const points = sampleWordmark(w, h, {
         lines: LINES,
         fontFamily: resolveFontFamily('--font-display'),
-        gapDev: Math.round(6 * dpr),
+        gapDev: Math.round(gapFactor * dpr),
+        // Oversized: inset the wordmark so the pool has room to fully fade
+        // inside the canvas instead of getting sliced at the edge.
+        padScale: spotlight === 'oversized' ? 0.6 : 1,
       })
       if (points.length === 0) return false
       particles = points.map((p) => ({
@@ -281,12 +308,12 @@ export function ScryingGridWordmark({ className }: { className?: string }) {
       ro.disconnect()
       io.disconnect()
     }
-  }, [])
+  }, [gapFactor, spotlight])
 
   return (
     <div
       ref={containerRef}
-      className={`relative isolate w-full select-none ${className ?? ''}`}
+      className={`relative isolate flex w-full items-center justify-center select-none ${className ?? ''}`}
       style={{ touchAction: 'pan-y' }}
     >
       <h1
@@ -296,7 +323,7 @@ export function ScryingGridWordmark({ className }: { className?: string }) {
         <span className="sr-only">Psychic Homily</span>
         <span
           aria-hidden
-          className="block font-display text-[clamp(2.75rem,10vw,7rem)] font-bold leading-[0.9] tracking-tight text-foreground"
+          className="block font-display text-[clamp(3.25rem,12vw,10rem)] font-bold leading-[0.9] tracking-tight text-foreground"
         >
           PSYCHIC
           <br />

@@ -39,6 +39,8 @@ export interface SampleOpts {
   /** Sampling step in device px — smaller = denser field. */
   gapDev?: number
   alphaThreshold?: number
+  /** Scale the fit box (<1 = more margin around the wordmark inside the canvas). */
+  padScale?: number
 }
 
 /** Sample the wordmark into a list of lit points (device-px coords). */
@@ -50,7 +52,8 @@ export function sampleWordmark(widthDev: number, heightDev: number, opts: Sample
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return []
 
-  const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86, canvas.height * 0.78, opts.fontFamily, weight)
+  const pad = opts.padScale ?? 1
+  const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86 * pad, canvas.height * 0.78 * pad, opts.fontFamily, weight)
   ctx.font = `${weight} ${size}px ${opts.fontFamily}`
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'center'
