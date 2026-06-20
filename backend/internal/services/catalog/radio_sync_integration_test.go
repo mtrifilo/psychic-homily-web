@@ -282,22 +282,25 @@ func (s *RadioSyncSuite) TestBackfill_IdempotentReimport() {
 	s.Equal(int64(2), afterSecond, "re-import must not duplicate radio_plays")
 }
 
-// The scheduled-cycle skip guard: a lock-contended (no-op) run must NOT be
-// recorded as an in-memory PSY-887 success (which would reset the failure
-// counter). Regression guard for the breaker-skip/lock-contention guard in
-// runFetchCycle.
+// The scheduled-cycle skip guard: a lock-contended (no-op) run must NOT touch the
+// persistent breaker counter (RunStationSync returns LockContended before opening a
+// run or rolling up health). Regression guard for the lock-contention path in
+// runFetchCycle now that the breaker lives in radio_station_health (PSY-1140).
 func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	// Pre-seed persistent health below the breaker threshold so the gate allows the
+	// station (not blocked). A lock-contended no-op must leave this counter intact.
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		ConsecutiveFailures: radioCircuitBreakerThreshold - 2,
+		BreakerState:        catalogm.RadioBreakerStateClosed,
+	}).Error)
 
 	fs := &RadioFetchService{
-		radioService:        s.svc,
-		logger:              testLogger(),
-		stopCh:              make(chan struct{}),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService: s.svc,
+		logger:       testLogger(),
+		stopCh:       make(chan struct{}),
 	}
-	// Below the breaker threshold so the cycle attempts the station (not pre-skipped).
-	fs.SetConsecutiveFailures(st.ID, radioCircuitBreakerThreshold-2)
 
 	// Hold the station's advisory lock so the cycle's RunStationSync contends.
 	sqlDB, err := s.db.DB()
@@ -312,8 +315,10 @@ func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
 
 	fs.runFetchCycle()
 
-	s.Equal(radioCircuitBreakerThreshold-2, fs.GetConsecutiveFailures(st.ID),
-		"a lock-contended no-op run must not reset the in-memory failure counter")
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(radioCircuitBreakerThreshold-2, health.ConsecutiveFailures,
+		"a lock-contended no-op run must not touch the persistent failure counter")
 	s.Empty(s.runsForStation(st.ID), "contended run writes no row")
 }
 
@@ -354,27 +359,30 @@ func (s *RadioSyncSuite) TestDiscover_WritesRunAndShows() {
 }
 
 // Cycle-level Skipped guard: a breaker-open (Skipped) run writes a skipped row but
-// must NOT reset the in-memory PSY-887 counter (the Skipped arm of the guard, the
-// sibling of the lock-contention case above).
+// must NOT reset the persistent failure counter (a 'skipped' status leaves the
+// breaker untouched — only last_run_at moves). Sibling of the lock-contention case.
 func (s *RadioSyncSuite) TestFetchCycle_BreakerOpen_DoesNotResetBreaker() {
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	// Open + a non-zero counter, no trip time → within-cooldown ⇒ blocked. The skip
+	// must leave the counter at threshold (proves it does not reset on skip).
 	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
-		StationID: st.ID, BreakerState: catalogm.RadioBreakerStateOpen,
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
 	}).Error)
 
 	fs := &RadioFetchService{
-		radioService:        s.svc,
-		logger:              testLogger(),
-		stopCh:              make(chan struct{}),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService: s.svc,
+		logger:       testLogger(),
+		stopCh:       make(chan struct{}),
 	}
-	fs.SetConsecutiveFailures(st.ID, radioCircuitBreakerThreshold-2)
 
 	fs.runFetchCycle()
 
-	s.Equal(radioCircuitBreakerThreshold-2, fs.GetConsecutiveFailures(st.ID),
-		"a breaker-skipped run must not reset the in-memory failure counter")
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(radioCircuitBreakerThreshold, health.ConsecutiveFailures,
+		"a breaker-skipped run must not reset the persistent failure counter")
 	runs := s.runsForStation(st.ID)
 	s.Require().Len(runs, 1, "a breaker skip writes a skipped row (unlike lock contention)")
 	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status)
@@ -518,11 +526,9 @@ func (s *RadioSyncSuite) TestAutoBackfillShow_CancelsOnShutdown() {
 	s.Require().NoError(s.db.Create(&show).Error)
 
 	fs := &RadioFetchService{
-		radioService:        s.svc,
-		logger:              testLogger(),
-		stopCh:              make(chan struct{}),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService: s.svc,
+		logger:       testLogger(),
+		stopCh:       make(chan struct{}),
 	}
 
 	runStarted := make(chan struct{})
@@ -571,4 +577,143 @@ func (s *RadioSyncSuite) TestAutoBackfillShow_CancelsOnShutdown() {
 	}
 	s.Require().NotNil(res)
 	s.Equal(catalogm.RadioSyncRunStatusCancelled, res.Status)
+}
+
+// ───────────────────── persistent breaker state machine (PSY-1140) ─────────────────────
+
+// The breaker opens after radioCircuitBreakerThreshold consecutive PERMANENT
+// failures (a manual-source station fails in getProvider, classified permanent),
+// recording breaker_tripped_at. End-to-end through RunStationSync's health write-back.
+func (s *RadioSyncSuite) TestBreaker_OpensAfterThresholdPermanentFailures() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // getProvider error → permanent
+
+	for i := 0; i < radioCircuitBreakerThreshold; i++ {
+		_, _ = s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+			Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+		})
+	}
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(radioCircuitBreakerThreshold, health.ConsecutiveFailures)
+	s.Equal(catalogm.RadioBreakerStateOpen, health.BreakerState, "breaker opens at the threshold")
+	s.Require().NotNil(health.BreakerTrippedAt, "an opened breaker records when it tripped")
+}
+
+// The headline AC: a tripped breaker survives a process restart because it is pure
+// DB state now. A BRAND-NEW service instance (no in-memory carry-over — the old
+// PSY-887 map would be empty and let the station run) must still skip the station.
+func (s *RadioSyncSuite) TestBreaker_PersistsAcrossRestart() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedRecently := time.Now().Add(-time.Minute) // well within the cooldown
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedRecently,
+	}).Error)
+
+	fs := &RadioFetchService{radioService: s.svc, logger: testLogger(), stopCh: make(chan struct{})}
+	fs.runFetchCycle()
+
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1)
+	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status, "a tripped breaker must survive a restart")
+	s.True(runs[0].BreakerSkipped)
+}
+
+// open → half_open → closed: past the cooldown, a scheduled run is allowed as a
+// half-open trial; a successful trial closes the breaker and clears the trip time.
+func (s *RadioSyncSuite) TestBreaker_HalfOpenTrial_SuccessCloses() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedLongAgo := time.Now().Add(-radioBreakerCooldown - time.Minute)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedLongAgo,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+	s.False(res.Skipped, "past cooldown the breaker allows a half-open trial")
+	s.Equal(catalogm.RadioSyncRunStatusSuccess, res.Status)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a successful trial closes the breaker")
+	s.Equal(0, health.ConsecutiveFailures)
+	s.Nil(health.BreakerTrippedAt, "closing clears breaker_tripped_at")
+}
+
+// half_open → open: a failed half-open trial re-opens the breaker with a fresh
+// cooldown (so the next trial waits another full cooldown).
+func (s *RadioSyncSuite) TestBreaker_HalfOpenTrial_FailureReopens() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // permanent fail in getProvider
+	trippedLongAgo := time.Now().Add(-radioBreakerCooldown - time.Minute)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedLongAgo,
+	}).Error)
+
+	_, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().Error(err) // the trial failed
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateOpen, health.BreakerState, "a failed trial re-opens the breaker")
+	s.Equal(radioCircuitBreakerThreshold+1, health.ConsecutiveFailures)
+	s.Require().NotNil(health.BreakerTrippedAt)
+	s.True(health.BreakerTrippedAt.After(trippedLongAgo), "re-open refreshes breaker_tripped_at")
+}
+
+// Manual-probe policy (LOCKED): a manual run bypasses the gate AND a successful
+// manual probe CLOSES the breaker (the asymmetric half-open-probe semantics).
+func (s *RadioSyncSuite) TestBreaker_ManualProbe_SuccessCloses() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedRecently := time.Now().Add(-time.Minute) // within cooldown — irrelevant, manual bypasses
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedRecently,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerManual,
+	})
+	s.Require().NoError(err)
+	s.False(res.Skipped, "manual bypasses an open breaker (operator override)")
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a manual success closes the breaker")
+	s.Equal(0, health.ConsecutiveFailures)
+}
+
+// Manual-probe policy (LOCKED): a manual FAILURE never increments the counter / trips
+// the breaker — the operator chose to poke a known-bad station.
+func (s *RadioSyncSuite) TestBreaker_ManualProbe_FailureDoesNotTrip() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // permanent fail
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateClosed,
+		ConsecutiveFailures: radioCircuitBreakerThreshold - 1, // one short of tripping
+	}).Error)
+
+	_, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerManual,
+	})
+	s.Require().Error(err)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a manual failure must not trip the breaker")
+	s.Equal(radioCircuitBreakerThreshold-1, health.ConsecutiveFailures, "a manual failure must not increment the counter")
 }
