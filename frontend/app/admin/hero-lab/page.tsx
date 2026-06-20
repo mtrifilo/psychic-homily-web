@@ -4,7 +4,8 @@
  * Spotlight comparison (PSY-1137) — three ways to fix the hard rectangular
  * cutoff of the dark-mode cursor glow. All use the chosen Variant 1 density
  * (gapFactor=5). Hover each near its top/left/right edges to compare how the
- * glow behaves at a boundary. DEV SCRATCH — admin-gate or delete before the PR.
+ * glow behaves at a boundary. Admin-only dev tool (/admin/hero-lab, gated by
+ * AdminGuard) — comparison scratch, not a user-facing surface.
  *
  *  1. Full-bleed glow layer — glow lives on a hero-spanning layer (here a CSS
  *     radial-gradient on the whole box), so it has no nearby edge to clip.

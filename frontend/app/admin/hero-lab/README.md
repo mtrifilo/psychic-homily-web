@@ -1,7 +1,8 @@
-# /hero-lab — dev-scratch comparison page (PSY-1137)
+# /admin/hero-lab — dev comparison page (PSY-1137)
 
-**Not for production.** A throwaway route for comparing hero-wordmark treatments.
-Admin-gate or delete before the production PR. Full rationale + decisions:
+**Admin-only dev tool** (gated by `AdminGuard` via the `/admin` layout — not a
+user-facing surface). A scratch route for comparing hero-wordmark treatments;
+delete if the exploration is abandoned. Full rationale + decisions:
 `docs/features/hero-wordmark-animation.md`.
 
 ## What's here
