@@ -20,10 +20,18 @@ describe('HomeHero', () => {
     vi.clearAllMocks()
   })
 
-  it('renders the "This is not a mirage." headline as the page h1', () => {
+  it('renders the "Psychic Homily" wordmark as the page h1 (SSR/SEO/a11y anchor)', () => {
     render(<HomeHero />)
-    const heading = screen.getByRole('heading', { name: 'This is not a mirage.' })
+    const heading = screen.getByRole('heading', { name: 'Psychic Homily' })
     expect(heading.tagName).toBe('H1')
+  })
+
+  it('keeps "This is not a mirage." as supporting copy, no longer the h1', () => {
+    render(<HomeHero />)
+    expect(screen.getByText('This is not a mirage.')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'This is not a mirage.' })
+    ).toBeNull()
   })
 
   it('opens the command palette when the hero search is clicked', async () => {
