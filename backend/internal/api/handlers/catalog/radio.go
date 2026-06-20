@@ -84,23 +84,15 @@ type RadioShowWriter interface {
 	DeleteShow(showID uint) error
 }
 
-// RadioImporter handles radio show discovery and episode import.
-type RadioImporter interface {
-	DiscoverStationShows(stationID uint) (*contracts.RadioDiscoverResult, error)
-	ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error)
-}
-
-// RadioImportJobManager manages radio import jobs (admin endpoints).
-type RadioImportJobManager interface {
-	CreateImportJob(showID uint, since, until string) (*contracts.RadioImportJobResponse, error)
-	CancelImportJob(jobID uint) error
-	GetImportJob(jobID uint) (*contracts.RadioImportJobResponse, error)
-	ListImportJobs(showID uint) ([]*contracts.RadioImportJobResponse, error)
-}
-
-// RadioImportJobStarter can start import jobs (admin endpoints).
-type RadioImportJobStarter interface {
-	StartImportJob(jobID uint) error
+// RadioSyncManager triggers and observes unified ingestion runs (admin
+// endpoints, PSY-1135). The triggers are async: they open a radio_sync_runs row
+// and return its poll handle (status=running) while the run executes in the
+// background. Replaces the old discover/fetch/import + import-job interfaces.
+type RadioSyncManager interface {
+	TriggerStationSync(stationID uint, mode string) (*contracts.RadioSyncRunResponse, error)
+	TriggerShowBackfill(showID uint, since, until string) (*contracts.RadioSyncRunResponse, error)
+	GetSyncRun(runID uint) (*contracts.RadioSyncRunResponse, error)
+	CancelSyncRun(runID uint) error
 }
 
 // ArtistSlugResolver resolves artist slugs to IDs.
@@ -127,9 +119,7 @@ type RadioHandler struct {
 	stationWriter     RadioStationWriter
 	showWriter        RadioShowWriter
 	unmatchedManager  RadioUnmatchedManager
-	importer          RadioImporter
-	importJobManager  RadioImportJobManager
-	importJobStarter  RadioImportJobStarter
+	syncManager       RadioSyncManager
 	artistResolver    ArtistSlugResolver
 	releaseResolver   ReleaseSlugResolver
 	auditLogService   contracts.AuditLogServiceInterface
@@ -151,9 +141,7 @@ func NewRadioHandler(
 		stationWriter:     radioService,
 		showWriter:        radioService,
 		unmatchedManager:  radioService,
-		importer:          radioService,
-		importJobManager:  radioService,
-		importJobStarter:  radioService,
+		syncManager:       radioService,
 		artistResolver:    artistResolver,
 		releaseResolver:   releaseResolver,
 		auditLogService:   auditLogService,
@@ -1307,75 +1295,108 @@ func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *Adm
 }
 
 // ============================================================================
-// Admin: Discover Shows for Station
+// Admin: Trigger Station Sync (discover | fetch) — PSY-1135
 // ============================================================================
 
-// AdminDiscoverShowsRequest represents the request for discovering shows for a station.
-type AdminDiscoverShowsRequest struct {
+// AdminSyncRunResponse wraps a sync-run DTO; shared by the trigger + poll
+// endpoints so the frontend renders one shape across all radio ingestion runs.
+type AdminSyncRunResponse struct {
+	Body *contracts.RadioSyncRunResponse
+}
+
+// AdminTriggerStationSyncRequest triggers a manual station-scoped sync.
+type AdminTriggerStationSyncRequest struct {
 	StationID uint `path:"id" doc:"Radio station ID" example:"1"`
+	Body      struct {
+		Mode string `json:"mode" enum:"discover,fetch" doc:"Sync mode: 'discover' (find new shows) or 'fetch' (pull new episodes)" example:"fetch"`
+	}
 }
 
-// AdminDiscoverShowsResponse represents the response for discovering shows.
-type AdminDiscoverShowsResponse struct {
-	Body contracts.RadioDiscoverResult
-}
+// AdminTriggerStationSyncHandler handles POST /admin/radio-stations/{id}/sync.
+// Async: opens a radio_sync_runs row and returns it (status=running) while the
+// run executes in the background. A manual trigger bypasses the circuit breaker.
+func (h *RadioHandler) AdminTriggerStationSyncHandler(ctx context.Context, req *AdminTriggerStationSyncRequest) (*AdminSyncRunResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+	user := middleware.GetUserFromContext(ctx)
 
-// AdminDiscoverShowsHandler handles POST /admin/radio-stations/{id}/discover
-func (h *RadioHandler) AdminDiscoverShowsHandler(ctx context.Context, req *AdminDiscoverShowsRequest) (*AdminDiscoverShowsResponse, error) {
-	result, err := h.importer.DiscoverStationShows(req.StationID)
+	run, err := h.syncManager.TriggerStationSync(req.StationID, req.Body.Mode)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
+		return nil, mapRadioSyncError(ctx, err, "Failed to trigger station sync")
 	}
 
-	return &AdminDiscoverShowsResponse{Body: *result}, nil
-}
-
-// ============================================================================
-// Admin: Trigger Playlist Fetch (redirects to discover)
-// ============================================================================
-
-// AdminTriggerFetchRequest represents the request for triggering a playlist fetch.
-type AdminTriggerFetchRequest struct {
-	StationID uint `path:"id" doc:"Radio station ID" example:"1"`
-}
-
-// AdminTriggerFetchHandler handles POST /admin/radio-stations/{id}/fetch
-// Repurposed to call DiscoverStationShows.
-func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*AdminDiscoverShowsResponse, error) {
-	result, err := h.importer.DiscoverStationShows(req.StationID)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
+	if h.auditLogService != nil {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "trigger_radio_station_sync", "radio_station", req.StationID, map[string]interface{}{
+				"mode":   req.Body.Mode,
+				"run_id": run.ID,
+			})
+		})
 	}
 
-	return &AdminDiscoverShowsResponse{Body: *result}, nil
+	logger.FromContext(ctx).Info("radio_station_sync_triggered",
+		"station_id", req.StationID,
+		"mode", req.Body.Mode,
+		"run_id", run.ID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminSyncRunResponse{Body: run}, nil
 }
 
 // ============================================================================
-// Admin: Import Show Episodes
+// Admin: Trigger Show Backfill — PSY-1135
 // ============================================================================
 
-// AdminImportShowEpisodesRequest represents the request for importing episodes for a show.
-type AdminImportShowEpisodesRequest struct {
+// AdminTriggerShowBackfillRequest triggers a manual historic backfill of one show.
+type AdminTriggerShowBackfillRequest struct {
 	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
 	Body   struct {
-		Since string `json:"since" doc:"Start date (YYYY-MM-DD)" example:"2024-01-01"`
-		Until string `json:"until" doc:"End date (YYYY-MM-DD)" example:"2024-12-31"`
+		Since string `json:"since" doc:"Start date (YYYY-MM-DD)" example:"2025-01-01"`
+		Until string `json:"until" doc:"End date (YYYY-MM-DD)" example:"2025-12-31"`
 	}
 }
 
-// AdminImportShowEpisodesResponse represents the response for importing show episodes.
-type AdminImportShowEpisodesResponse struct {
-	Body contracts.RadioImportResult
-}
+// AdminTriggerShowBackfillHandler handles POST /admin/radio-shows/{id}/backfill.
+// Async historic re-ingestion of one show over [since, until]; replaces the old
+// import-job create+start.
+func (h *RadioHandler) AdminTriggerShowBackfillHandler(ctx context.Context, req *AdminTriggerShowBackfillRequest) (*AdminSyncRunResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+	user := middleware.GetUserFromContext(ctx)
 
-// AdminImportShowEpisodesHandler handles POST /admin/radio-shows/{id}/import
-func (h *RadioHandler) AdminImportShowEpisodesHandler(ctx context.Context, req *AdminImportShowEpisodesRequest) (*AdminImportShowEpisodesResponse, error) {
-	result, err := h.importer.ImportShowEpisodes(req.ShowID, req.Body.Since, req.Body.Until)
+	if req.Body.Since == "" || req.Body.Until == "" {
+		return nil, huma.Error422UnprocessableEntity("since and until dates are required")
+	}
+	if _, err := shared.ParseDate(req.Body.Since); err != nil {
+		return nil, huma.Error422UnprocessableEntity("Invalid since date, expected YYYY-MM-DD")
+	}
+	if _, err := shared.ParseDate(req.Body.Until); err != nil {
+		return nil, huma.Error422UnprocessableEntity("Invalid until date, expected YYYY-MM-DD")
+	}
+
+	run, err := h.syncManager.TriggerShowBackfill(req.ShowID, req.Body.Since, req.Body.Until)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("Failed to import show episodes", err)
+		return nil, mapRadioSyncError(ctx, err, "Failed to trigger backfill")
 	}
 
-	return &AdminImportShowEpisodesResponse{Body: *result}, nil
+	if h.auditLogService != nil {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "trigger_radio_show_backfill", "radio_show", req.ShowID, map[string]interface{}{
+				"since":  req.Body.Since,
+				"until":  req.Body.Until,
+				"run_id": run.ID,
+			})
+		})
+	}
+
+	logger.FromContext(ctx).Info("radio_show_backfill_triggered",
+		"show_id", req.ShowID,
+		"run_id", run.ID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminSyncRunResponse{Body: run}, nil
 }
 
 // ============================================================================
@@ -1550,183 +1571,64 @@ func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *Admin
 }
 
 // ============================================================================
-// Admin: Create Import Job
+// Admin: Get Sync Run (poll) — PSY-1135
 // ============================================================================
 
-// AdminCreateImportJobRequest represents the request for creating an import job.
-type AdminCreateImportJobRequest struct {
-	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
-	Body   struct {
-		Since string `json:"since" doc:"Start date (YYYY-MM-DD)" example:"2025-01-01"`
-		Until string `json:"until" doc:"End date (YYYY-MM-DD)" example:"2025-12-31"`
-	}
+// AdminGetSyncRunRequest polls a single sync run by id.
+type AdminGetSyncRunRequest struct {
+	RunID uint `path:"id" doc:"Sync run ID" example:"1"`
 }
 
-// AdminCreateImportJobResponse represents the response for creating an import job.
-type AdminCreateImportJobResponse struct {
-	Body *contracts.RadioImportJobResponse
-}
-
-// AdminCreateImportJobHandler handles POST /admin/radio-shows/{id}/import-job
-func (h *RadioHandler) AdminCreateImportJobHandler(ctx context.Context, req *AdminCreateImportJobRequest) (*AdminCreateImportJobResponse, error) {
-	requestID := logger.GetRequestID(ctx)
-
-	user := middleware.GetUserFromContext(ctx)
-
-	if req.Body.Since == "" {
-		return nil, huma.Error422UnprocessableEntity("since date is required")
-	}
-	if req.Body.Until == "" {
-		return nil, huma.Error422UnprocessableEntity("until date is required")
-	}
-
-	job, err := h.importJobManager.CreateImportJob(req.ShowID, req.Body.Since, req.Body.Until)
+// AdminGetSyncRunHandler handles GET /admin/radio/sync-runs/{id}
+func (h *RadioHandler) AdminGetSyncRunHandler(ctx context.Context, req *AdminGetSyncRunRequest) (*AdminSyncRunResponse, error) {
+	run, err := h.syncManager.GetSyncRun(req.RunID)
 	if err != nil {
-		logger.FromContext(ctx).Error("create_import_job_failed",
-			"show_id", req.ShowID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to create import job (request_id: %s)", requestID),
-		)
+		return nil, mapRadioSyncError(ctx, err, "Failed to fetch sync run")
 	}
-
-	// Start the job (fire and forget — errors are logged in the job runner)
-	if startErr := h.importJobStarter.StartImportJob(job.ID); startErr != nil {
-		logger.FromContext(ctx).Error("start_import_job_failed",
-			"job_id", job.ID,
-			"error", startErr.Error(),
-			"request_id", requestID,
-		)
-		// Return the job anyway — it was created, just failed to start
-	}
-
-	// Audit log (fire and forget)
-	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "create_radio_import_job", "radio_import_job", job.ID, map[string]interface{}{
-				"show_id": req.ShowID,
-				"since":   req.Body.Since,
-				"until":   req.Body.Until,
-			})
-		})
-	}
-
-	logger.FromContext(ctx).Info("radio_import_job_created",
-		"job_id", job.ID,
-		"show_id", req.ShowID,
-		"admin_id", user.ID,
-		"request_id", requestID,
-	)
-
-	return &AdminCreateImportJobResponse{Body: job}, nil
+	return &AdminSyncRunResponse{Body: run}, nil
 }
 
 // ============================================================================
-// Admin: Get Import Job
+// Admin: Cancel Sync Run — PSY-1135
 // ============================================================================
 
-// AdminGetImportJobRequest represents the request for getting an import job.
-type AdminGetImportJobRequest struct {
-	JobID uint `path:"id" doc:"Import job ID" example:"1"`
+// AdminCancelSyncRunRequest cancels a running sync run by id.
+type AdminCancelSyncRunRequest struct {
+	RunID uint `path:"id" doc:"Sync run ID" example:"1"`
 }
 
-// AdminGetImportJobResponse represents the response for getting an import job.
-type AdminGetImportJobResponse struct {
-	Body *contracts.RadioImportJobResponse
-}
-
-// AdminGetImportJobHandler handles GET /admin/radio/import-jobs/{id}
-func (h *RadioHandler) AdminGetImportJobHandler(ctx context.Context, req *AdminGetImportJobRequest) (*AdminGetImportJobResponse, error) {
-	job, err := h.importJobManager.GetImportJob(req.JobID)
-	if err != nil {
-		return nil, huma.Error404NotFound("Import job not found")
-	}
-
-	return &AdminGetImportJobResponse{Body: job}, nil
-}
-
-// ============================================================================
-// Admin: Cancel Import Job
-// ============================================================================
-
-// AdminCancelImportJobRequest represents the request for cancelling an import job.
-type AdminCancelImportJobRequest struct {
-	JobID uint `path:"id" doc:"Import job ID" example:"1"`
-}
-
-// AdminCancelImportJobResponse represents the response for cancelling an import job.
-type AdminCancelImportJobResponse struct {
+// AdminCancelSyncRunResponse reports the cancel outcome.
+type AdminCancelSyncRunResponse struct {
 	Body struct {
 		Success bool `json:"success"`
 	}
 }
 
-// AdminCancelImportJobHandler handles POST /admin/radio/import-jobs/{id}/cancel
-func (h *RadioHandler) AdminCancelImportJobHandler(ctx context.Context, req *AdminCancelImportJobRequest) (*AdminCancelImportJobResponse, error) {
+// AdminCancelSyncRunHandler handles POST /admin/radio/sync-runs/{id}/cancel
+func (h *RadioHandler) AdminCancelSyncRunHandler(ctx context.Context, req *AdminCancelSyncRunRequest) (*AdminCancelSyncRunResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
 	user := middleware.GetUserFromContext(ctx)
 
-	if err := h.importJobManager.CancelImportJob(req.JobID); err != nil {
-		logger.FromContext(ctx).Error("cancel_import_job_failed",
-			"job_id", req.JobID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to cancel import job (request_id: %s)", requestID),
-		)
+	if err := h.syncManager.CancelSyncRun(req.RunID); err != nil {
+		return nil, mapRadioSyncError(ctx, err, "Failed to cancel sync run")
 	}
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "cancel_radio_import_job", "radio_import_job", req.JobID, nil)
+			h.auditLogService.LogAction(user.ID, "cancel_radio_sync_run", "radio_sync_run", req.RunID, nil)
 		})
 	}
 
-	logger.FromContext(ctx).Info("radio_import_job_cancelled",
-		"job_id", req.JobID,
+	logger.FromContext(ctx).Info("radio_sync_run_cancelled",
+		"run_id", req.RunID,
 		"admin_id", user.ID,
 		"request_id", requestID,
 	)
 
-	resp := &AdminCancelImportJobResponse{}
+	resp := &AdminCancelSyncRunResponse{}
 	resp.Body.Success = true
-	return resp, nil
-}
-
-// ============================================================================
-// Admin: List Import Jobs for Show
-// ============================================================================
-
-// AdminListImportJobsRequest represents the request for listing import jobs.
-type AdminListImportJobsRequest struct {
-	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
-}
-
-// AdminListImportJobsResponse represents the response for listing import jobs.
-type AdminListImportJobsResponse struct {
-	Body struct {
-		Jobs  []*contracts.RadioImportJobResponse `json:"jobs" doc:"Import jobs for this show"`
-		Count int                                 `json:"count" doc:"Number of jobs"`
-	}
-}
-
-// AdminListImportJobsHandler handles GET /admin/radio-shows/{id}/import-jobs
-func (h *RadioHandler) AdminListImportJobsHandler(ctx context.Context, req *AdminListImportJobsRequest) (*AdminListImportJobsResponse, error) {
-	jobs, err := h.importJobManager.ListImportJobs(req.ShowID)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("Failed to list import jobs", err)
-	}
-
-	resp := &AdminListImportJobsResponse{}
-	resp.Body.Jobs = jobs
-	if jobs != nil {
-		resp.Body.Count = len(jobs)
-	}
 	return resp, nil
 }
 
@@ -1833,4 +1735,30 @@ func mapRadioShowError(err error) error {
 		return huma.Error404NotFound("Radio show not found")
 	}
 	return huma.Error500InternalServerError("Failed to fetch radio show", err)
+}
+
+// mapRadioSyncError maps a sync trigger/poll/cancel service error to a Huma HTTP
+// error (PSY-1135). The typed RadioError codes carry the intended status
+// (404 not-found, 409 already-running / not-cancellable); an unrecognized error
+// is a 500 with a request-id-tagged log line and message.
+func mapRadioSyncError(ctx context.Context, err error, msg500 string) error {
+	var radioErr *apperrors.RadioError
+	if errors.As(err, &radioErr) {
+		switch radioErr.Code {
+		case apperrors.CodeRadioStationNotFound:
+			return huma.Error404NotFound("Radio station not found")
+		case apperrors.CodeRadioShowNotFound:
+			return huma.Error404NotFound("Radio show not found")
+		case apperrors.CodeRadioSyncRunNotFound:
+			return huma.Error404NotFound(radioErr.Message)
+		case apperrors.CodeRadioSyncAlreadyRunning, apperrors.CodeRadioSyncNotCancellable:
+			return huma.Error409Conflict(radioErr.Message)
+		}
+	}
+	requestID := logger.GetRequestID(ctx)
+	logger.FromContext(ctx).Error("radio_sync_operation_failed",
+		"error", err.Error(),
+		"request_id", requestID,
+	)
+	return huma.Error500InternalServerError(fmt.Sprintf("%s (request_id: %s)", msg500, requestID))
 }

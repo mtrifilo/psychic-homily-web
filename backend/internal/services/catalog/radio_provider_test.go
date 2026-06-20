@@ -1050,7 +1050,11 @@ func TestRadioService_NilDB_Import(t *testing.T) {
 	assertNilDBError(t, func() error { _, err := svc.ImportEpisodePlaylist(1, "ext-1"); return err })
 	assertNilDBError(t, func() error { _, err := svc.MatchPlays(1); return err })
 	assertNilDBError(t, func() error { _, err := svc.DiscoverStationShows(1); return err })
-	assertNilDBError(t, func() error { _, err := svc.ImportShowEpisodes(1, "2024-01-01", "2024-12-31"); return err })
+	// PSY-1135 unified sync triggers + poll/cancel all nil-DB guard.
+	assertNilDBError(t, func() error { _, err := svc.TriggerStationSync(1, "fetch"); return err })
+	assertNilDBError(t, func() error { _, err := svc.TriggerShowBackfill(1, "2024-01-01", "2024-12-31"); return err })
+	assertNilDBError(t, func() error { _, err := svc.GetSyncRun(1); return err })
+	assertNilDBError(t, func() error { return svc.CancelSyncRun(1) })
 }
 
 func TestRadioMatchingEngine_NilDB(t *testing.T) {

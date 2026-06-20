@@ -2442,7 +2442,6 @@ type MockRadioService struct {
 	FetchNewEpisodesFn            func(uint) (*contracts.RadioImportResult, error)
 	ImportEpisodePlaylistFn       func(uint, string) (*contracts.EpisodeImportResult, error)
 	DiscoverStationShowsFn        func(uint) (*contracts.RadioDiscoverResult, error)
-	ImportShowEpisodesFn          func(uint, string, string) (*contracts.RadioImportResult, error)
 	MatchPlaysFn                  func(uint) (*contracts.MatchResult, error)
 	GetUnmatchedPlaysFn           func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
 	LinkPlayFn                    func(uint, *contracts.LinkPlayRequest) error
@@ -2450,11 +2449,10 @@ type MockRadioService struct {
 	ComputeAffinityFn             func() error
 	SyncAffinityToRelationshipsFn func() (*contracts.SyncAffinityResult, error)
 	ReMatchUnmatchedFn            func() (*contracts.MatchResult, error)
-	CreateImportJobFn             func(uint, string, string) (*contracts.RadioImportJobResponse, error)
-	StartImportJobFn              func(uint) error
-	CancelImportJobFn             func(uint) error
-	GetImportJobFn                func(uint) (*contracts.RadioImportJobResponse, error)
-	ListImportJobsFn              func(uint) ([]*contracts.RadioImportJobResponse, error)
+	TriggerStationSyncFn          func(uint, string) (*contracts.RadioSyncRunResponse, error)
+	TriggerShowBackfillFn         func(uint, string, string) (*contracts.RadioSyncRunResponse, error)
+	GetSyncRunFn                  func(uint) (*contracts.RadioSyncRunResponse, error)
+	CancelSyncRunFn               func(uint) error
 }
 
 func (m *MockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -2649,12 +2647,6 @@ func (m *MockRadioService) DiscoverStationShows(stationID uint) (*contracts.Radi
 	}
 	return nil, nil
 }
-func (m *MockRadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
-	if m.ImportShowEpisodesFn != nil {
-		return m.ImportShowEpisodesFn(showID, since, until)
-	}
-	return nil, nil
-}
 func (m *MockRadioService) MatchPlays(episodeID uint) (*contracts.MatchResult, error) {
 	if m.MatchPlaysFn != nil {
 		return m.MatchPlaysFn(episodeID)
@@ -2697,35 +2689,29 @@ func (m *MockRadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 	}
 	return nil, nil
 }
-func (m *MockRadioService) CreateImportJob(showID uint, since string, until string) (*contracts.RadioImportJobResponse, error) {
-	if m.CreateImportJobFn != nil {
-		return m.CreateImportJobFn(showID, since, until)
+func (m *MockRadioService) TriggerStationSync(stationID uint, mode string) (*contracts.RadioSyncRunResponse, error) {
+	if m.TriggerStationSyncFn != nil {
+		return m.TriggerStationSyncFn(stationID, mode)
 	}
 	return nil, nil
 }
-func (m *MockRadioService) StartImportJob(jobID uint) error {
-	if m.StartImportJobFn != nil {
-		return m.StartImportJobFn(jobID)
+func (m *MockRadioService) TriggerShowBackfill(showID uint, since string, until string) (*contracts.RadioSyncRunResponse, error) {
+	if m.TriggerShowBackfillFn != nil {
+		return m.TriggerShowBackfillFn(showID, since, until)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) GetSyncRun(runID uint) (*contracts.RadioSyncRunResponse, error) {
+	if m.GetSyncRunFn != nil {
+		return m.GetSyncRunFn(runID)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) CancelSyncRun(runID uint) error {
+	if m.CancelSyncRunFn != nil {
+		return m.CancelSyncRunFn(runID)
 	}
 	return nil
-}
-func (m *MockRadioService) CancelImportJob(jobID uint) error {
-	if m.CancelImportJobFn != nil {
-		return m.CancelImportJobFn(jobID)
-	}
-	return nil
-}
-func (m *MockRadioService) GetImportJob(jobID uint) (*contracts.RadioImportJobResponse, error) {
-	if m.GetImportJobFn != nil {
-		return m.GetImportJobFn(jobID)
-	}
-	return nil, nil
-}
-func (m *MockRadioService) ListImportJobs(showID uint) ([]*contracts.RadioImportJobResponse, error) {
-	if m.ListImportJobsFn != nil {
-		return m.ListImportJobsFn(showID)
-	}
-	return nil, nil
 }
 
 // ============================================================================
