@@ -120,16 +120,88 @@ func TestImportResultOutcome(t *testing.T) {
 // error categorization
 // =============================================================================
 
+// accumulateEpisodeResult categorizes per-episode signals (PSY-1141). Pure (no DB):
+// covers the drop precedence (validation_drop outranks truncation), the FetchError
+// category + its empty-fallback, and the Errors/CategorizedErrors 1:1 invariant.
+func TestAccumulateEpisodeResult(t *testing.T) {
+	t.Run("truncation-only records truncation + episode ref", func(t *testing.T) {
+		res := &contracts.RadioImportResult{}
+		accumulateEpisodeResult(res, "ep-1", &contracts.EpisodeImportResult{
+			DropSummary: "dropped 1 plays: 1 over-length titles truncated", TruncatedPlays: 1,
+		})
+		assert.Len(t, res.CategorizedErrors, 1)
+		assert.Equal(t, catalogm.RadioSyncRunErrorTruncation, res.CategorizedErrors[0].Category)
+		assert.Equal(t, "ep-1", *res.CategorizedErrors[0].EpisodeRef)
+		assert.Len(t, res.Errors, 1, "1:1 with CategorizedErrors")
+	})
+	t.Run("drop-only records validation_drop", func(t *testing.T) {
+		res := &contracts.RadioImportResult{}
+		accumulateEpisodeResult(res, "ep-1", &contracts.EpisodeImportResult{
+			DropSummary: "dropped 2 plays: 2 missing artist_name", DroppedPlays: 2,
+		})
+		assert.Len(t, res.CategorizedErrors, 1)
+		assert.Equal(t, catalogm.RadioSyncRunErrorValidationDrop, res.CategorizedErrors[0].Category)
+	})
+	t.Run("both classes collapse to one validation_drop (data loss outranks salvage)", func(t *testing.T) {
+		res := &contracts.RadioImportResult{}
+		accumulateEpisodeResult(res, "ep-1", &contracts.EpisodeImportResult{
+			DropSummary:    "dropped 3 plays: 1 over-length titles truncated, 2 missing artist_name",
+			TruncatedPlays: 1, DroppedPlays: 2,
+		})
+		assert.Len(t, res.CategorizedErrors, 1, "precedence picks one category, not two rows")
+		assert.Equal(t, catalogm.RadioSyncRunErrorValidationDrop, res.CategorizedErrors[0].Category)
+	})
+	t.Run("FetchError uses its typed category", func(t *testing.T) {
+		res := &contracts.RadioImportResult{}
+		accumulateEpisodeResult(res, "ep-1", &contracts.EpisodeImportResult{
+			FetchError: "parsing plays response: boom", FetchErrorCategory: catalogm.RadioSyncRunErrorParseError,
+		})
+		assert.Len(t, res.CategorizedErrors, 1)
+		assert.Equal(t, catalogm.RadioSyncRunErrorParseError, res.CategorizedErrors[0].Category)
+		assert.Equal(t, 1, res.EpisodeFetchErrors)
+	})
+	t.Run("FetchError with empty category falls back to provider_unreachable", func(t *testing.T) {
+		res := &contracts.RadioImportResult{}
+		accumulateEpisodeResult(res, "ep-1", &contracts.EpisodeImportResult{FetchError: "boom"})
+		assert.Len(t, res.CategorizedErrors, 1)
+		assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable, res.CategorizedErrors[0].Category)
+	})
+	t.Run("multiple signals keep Errors and CategorizedErrors 1:1", func(t *testing.T) {
+		res := &contracts.RadioImportResult{}
+		// All three branches active — artificial but exercises the invariant across appends.
+		accumulateEpisodeResult(res, "ep-1", &contracts.EpisodeImportResult{
+			FetchError: "boom", MatchPersistErrors: 1,
+			DropSummary: "dropped 1 plays: 1 missing artist_name", DroppedPlays: 1,
+		})
+		assert.Len(t, res.CategorizedErrors, 3, "fetch + persist + drop")
+		assert.Equal(t, len(res.Errors), len(res.CategorizedErrors), "parallel-slice invariant")
+		// The persist entry carries the match_persist_error category (structural assignment).
+		var sawPersist bool
+		for _, e := range res.CategorizedErrors {
+			if e.Category == catalogm.RadioSyncRunErrorMatchPersistError {
+				sawPersist = true
+			}
+		}
+		assert.True(t, sawPersist, "MatchPersistErrors records a match_persist_error category")
+	})
+}
+
 func TestCategorizeRunError(t *testing.T) {
 	assert.Equal(t, catalogm.RadioSyncRunErrorTimeout, categorizeRunError(context.DeadlineExceeded))
 	assert.Equal(t, catalogm.RadioSyncRunErrorRateLimited,
 		categorizeRunError(&RadioHTTPError{Provider: "KEXP", StatusCode: http.StatusTooManyRequests}))
 	assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable,
 		categorizeRunError(&RadioHTTPError{Provider: "KEXP", StatusCode: http.StatusInternalServerError}))
-	assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable, categorizeRunError(errors.New("boom")))
+	assert.Equal(t, catalogm.RadioSyncRunErrorProviderUnreachable, categorizeRunError(errors.New("show not found")))
 	// wrapped deadline still detected
 	assert.Equal(t, catalogm.RadioSyncRunErrorTimeout,
 		categorizeRunError(errors.Join(errors.New("fetch"), context.DeadlineExceeded)))
+	// PSY-1141: a provider parse/format failure (wrapped, untyped) is parse-detected so
+	// it routes to parse_error and escalates instead of defaulting to provider_unreachable.
+	assert.Equal(t, catalogm.RadioSyncRunErrorParseError,
+		categorizeRunError(errors.New("parsing plays response: unexpected end of JSON input")))
+	assert.Equal(t, catalogm.RadioSyncRunErrorParseError,
+		categorizeRunError(errors.New("json: cannot unmarshal number into Go value of type string")))
 }
 
 // escalationError — the pure Sentry-escalation decision (PSY-1141). Every permanent

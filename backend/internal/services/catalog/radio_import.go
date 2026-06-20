@@ -128,10 +128,14 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 
 	result := &contracts.RadioImportResult{}
 
-	// 1. Discover shows (station-scoped for multi-stream providers, PSY-1073)
+	// 1. Discover shows (station-scoped for multi-stream providers, PSY-1073). Errors
+	// go through recordImportError so the Errors/CategorizedErrors invariant holds here
+	// too — even though this legacy helper no longer routes through RunStationSync
+	// (PSY-1135), keeping it consistent prevents the dead path from becoming a landmine
+	// if it is ever re-wired (PSY-1141 review).
 	importedShows, err := discoverShowsForStation(provider, &station)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("discover shows: %v", err))
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("discover shows: %v", err), nil)
 		return result, nil
 	}
 
@@ -139,7 +143,7 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	for _, importShow := range importedShows {
 		showID, _, err := s.upsertRadioShow(stationID, importShow)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
+			recordImportError(result, categorizeRunError(err), fmt.Sprintf("upsert show %s: %v", importShow.Name, err), nil)
 			continue
 		}
 		showMap[importShow.ExternalID] = showID
@@ -151,14 +155,15 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	for extID, showID := range showMap {
 		episodes, err := provider.FetchNewEpisodes(extID, since, time.Time{})
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes for show %s: %v", extID, err))
+			recordImportError(result, categorizeRunError(err), fmt.Sprintf("fetch episodes for show %s: %v", extID, err), nil)
 			continue
 		}
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(showID, ep, provider)
 			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
+				ref := ep.ExternalID
+				recordImportError(result, categorizeRunError(err), fmt.Sprintf("import episode %s: %v", ep.ExternalID, err), &ref)
 				continue
 			}
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
