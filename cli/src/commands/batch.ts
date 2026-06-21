@@ -1,6 +1,7 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
+import { expandInlineRosters, type RosterItem } from "../lib/roster";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
 // -- Types --
@@ -330,6 +331,17 @@ export async function runBatch(
   if (items.length === 0) {
     display.warn("Empty array — nothing to process.");
     return;
+  }
+
+  // Expand any inline label rosters ({entity_type:"label", artists:[...]}) into
+  // flat label + artist items before validation/grouping. The existing
+  // label-before-artist processing order then links each roster artist.
+  const expansion = expandInlineRosters(items as RosterItem[]);
+  items = expansion.items as BatchItem[];
+  if (expansion.expandedLabels > 0) {
+    display.info(
+      `Expanded ${expansion.expandedLabels} label roster(s) into ${expansion.expandedArtists} artist item(s).`,
+    );
   }
 
   // Validate

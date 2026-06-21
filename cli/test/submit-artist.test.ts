@@ -147,6 +147,75 @@ describe("submitArtists", () => {
     expect(postFn).toHaveBeenCalledTimes(1);
   });
 
+  test("links a created artist to its label via the roster endpoint (--confirm)", async () => {
+    const postCalls: string[] = [];
+    const client = createMockClient({
+      get: mock((path: string) => {
+        if (path === "/labels/search") {
+          return Promise.resolve({
+            labels: [{ id: 7, name: "Sacred Bones Records", slug: "sacred-bones-records" }],
+          });
+        }
+        return Promise.resolve({ artists: [] }); // artist dup-check → create
+      }),
+      post: mock((path: string) => {
+        postCalls.push(path);
+        if (path === "/admin/artists") {
+          return Promise.resolve({ artist: { id: 99, name: "Anika" } });
+        }
+        return Promise.resolve({ success: true }); // label-link endpoint
+      }),
+    });
+
+    const artists = [{ name: "Anika", label: "Sacred Bones Records" }];
+    const results = await submitArtists(client, artists, { confirm: true });
+
+    expect(results[0].action).toBe("created");
+    expect(postCalls).toContain("/admin/artists");
+    expect(postCalls).toContain("/admin/labels/7/artists");
+  });
+
+  test("creates the artist but attempts no link when the label is not found (--confirm)", async () => {
+    const postCalls: string[] = [];
+    const client = createMockClient({
+      get: mock((path: string) => {
+        if (path === "/labels/search") return Promise.resolve({ labels: [] }); // not found
+        return Promise.resolve({ artists: [] });
+      }),
+      post: mock((path: string) => {
+        postCalls.push(path);
+        return Promise.resolve({ artist: { id: 5, name: "Orphan" } });
+      }),
+    });
+
+    const artists = [{ name: "Orphan", label: "Nonexistent Label" }];
+    const results = await submitArtists(client, artists, { confirm: true });
+
+    // Artist is still created; the unresolved label link is tallied/surfaced, not linked.
+    expect(results[0].action).toBe("created");
+    expect(postCalls).toContain("/admin/artists");
+    expect(postCalls.some((p) => p.startsWith("/admin/labels/"))).toBe(false);
+  });
+
+  test("does not write anything in dry-run even when a label is referenced", async () => {
+    const postFn = mock(() => Promise.resolve({ artist: { id: 1, name: "Anika" } }));
+    const client = createMockClient({
+      get: mock((path: string) => {
+        if (path === "/labels/search") {
+          return Promise.resolve({ labels: [{ id: 7, name: "Sacred Bones Records", slug: "sb" }] });
+        }
+        return Promise.resolve({ artists: [] });
+      }),
+      post: postFn,
+    });
+
+    const artists = [{ name: "Anika", label: "Sacred Bones Records" }];
+    const results = await submitArtists(client, artists, { confirm: false });
+
+    expect(results[0].action).toBe("created"); // dry-run reports planned action
+    expect(postFn).not.toHaveBeenCalled();
+  });
+
   test("single artist update — duplicate found with new info", async () => {
     const patchFn = mock(() => Promise.resolve({}));
     const client = createMockClient({

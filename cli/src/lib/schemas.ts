@@ -112,7 +112,7 @@ export function validateRelease(data: unknown): ValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-/** Validate label data. Required: name. */
+/** Validate label data. Required: name. Optional inline `artists` roster. */
 export function validateLabel(data: unknown): ValidationResult {
   const errors: ValidationError[] = [];
 
@@ -122,6 +122,30 @@ export function validateLabel(data: unknown): ValidationResult {
 
   const d = data as Record<string, unknown>;
   requireField(d, "name", errors);
+
+  // Optional inline roster: each entry must be a non-empty name string or an
+  // object carrying a name. Deeper per-artist validation happens once the roster
+  // is expanded into artist items (see lib/roster.ts), but catch obvious shape
+  // errors here so a malformed roster fails fast.
+  if (d.artists !== undefined && d.artists !== null) {
+    if (!Array.isArray(d.artists)) {
+      errors.push({ field: "artists", message: "artists must be an array" });
+    } else {
+      d.artists.forEach((entry, idx) => {
+        const okString = typeof entry === "string" && entry.trim().length > 0;
+        const okObject =
+          !!entry &&
+          typeof entry === "object" &&
+          isNonEmptyString((entry as Record<string, unknown>).name);
+        if (!okString && !okObject) {
+          errors.push({
+            field: `artists[${idx}]`,
+            message: "each roster entry must be a name string or an object with a name",
+          });
+        }
+      });
+    }
+  }
 
   return { valid: errors.length === 0, errors };
 }

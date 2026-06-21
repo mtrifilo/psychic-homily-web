@@ -4,6 +4,7 @@ import { validateLabel } from "../lib/schemas";
 import { checkDuplicate, type DuplicateCheckResult } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
+import { expandInlineRosters } from "../lib/roster";
 import * as display from "../lib/display";
 
 interface LabelInput {
@@ -13,8 +14,29 @@ interface LabelInput {
   country?: string;
   website?: string;
   description?: string;
+  /** Canonical Bandcamp field (matches the backend `bandcamp` API field). */
+  bandcamp?: string;
+  /** Legacy alias for `bandcamp`; normalized away before submit. */
   bandcamp_url?: string;
+  /** Inline roster — expanded into artist items upstream; never sent to the label API. */
+  artists?: unknown[];
   [key: string]: unknown;
+}
+
+/**
+ * Normalize the legacy `bandcamp_url` alias onto the canonical `bandcamp` field.
+ * The backend label API only accepts `bandcamp` (see catalog/label.go), so a
+ * stray `bandcamp_url` would otherwise be silently dropped.
+ */
+function normalizeBandcamp(label: LabelInput): void {
+  if (
+    typeof label.bandcamp_url === "string" &&
+    label.bandcamp_url &&
+    !(typeof label.bandcamp === "string" && label.bandcamp)
+  ) {
+    label.bandcamp = label.bandcamp_url;
+  }
+  delete label.bandcamp_url;
 }
 
 interface SubmitResult {
@@ -98,7 +120,9 @@ export async function submitLabels(
       continue;
     }
 
-    validated.push({ label: item as LabelInput, index: i });
+    const label = item as LabelInput;
+    normalizeBandcamp(label);
+    validated.push({ label, index: i });
   }
 
   if (validated.length === 0) {
@@ -148,7 +172,7 @@ export async function submitLabels(
         if (label.state) display.kv("State", label.state);
         if (label.country) display.kv("Country", label.country);
         if (label.website) display.kv("Website", label.website);
-        if (label.bandcamp_url) display.kv("Bandcamp", label.bandcamp_url);
+        if (label.bandcamp) display.kv("Bandcamp", label.bandcamp);
         if (label.description) display.kv("Description", label.description);
         creates++;
         break;
@@ -207,7 +231,7 @@ export async function submitLabels(
           // label_name (not part of label API).
           const labelApiFields = [
             "name", "city", "state", "country", "website",
-            "description", "bandcamp_url", "bandcamp",
+            "description", "bandcamp",
             "founded_year", "status",
             "instagram", "facebook", "twitter", "youtube",
             "spotify", "soundcloud",
@@ -290,6 +314,7 @@ export async function runSubmitLabel(
   env: EnvironmentConfig,
 ): Promise<void> {
   const client = new APIClient(env);
+  const confirm = opts.confirm ?? false;
 
   let items: unknown[];
   try {
@@ -300,11 +325,41 @@ export async function runSubmitLabel(
     process.exit(1);
   }
 
-  display.info(`Processing ${items.length} label${items.length !== 1 ? "s" : ""}...`);
+  // Support inline rosters: a label item may carry an `artists` array. Tag each
+  // input as a label, expand rosters into label + artist items, then process
+  // labels first so each roster artist can resolve and link to its label.
+  const tagged = (items as Record<string, unknown>[]).map((i) => ({
+    ...(i as Record<string, unknown>),
+    entity_type: "label",
+  }));
+  const { items: expanded, expandedLabels, expandedArtists } = expandInlineRosters(tagged);
+  if (expandedLabels > 0) {
+    display.info(
+      `Expanded ${expandedLabels} label roster(s) into ${expandedArtists} artist item(s).`,
+    );
+  }
 
-  const result = await submitLabels(items, client, opts.confirm ?? false);
+  const labelItems = expanded
+    .filter((i) => i.entity_type === "label")
+    .map(({ entity_type, ...rest }) => rest);
+  const artistItems = expanded
+    .filter((i) => i.entity_type === "artist")
+    .map(({ entity_type, ...rest }) => rest);
 
-  if (result.errors > 0) {
+  display.info(
+    `Processing ${labelItems.length} label${labelItems.length !== 1 ? "s" : ""}...`,
+  );
+  const result = await submitLabels(labelItems, client, confirm);
+
+  let artistErrors = 0;
+  if (artistItems.length > 0) {
+    display.info(`Processing ${artistItems.length} roster artist(s)...`);
+    const { submitArtists } = await import("./submit-artist");
+    const artistResults = await submitArtists(client, artistItems, { confirm });
+    artistErrors = artistResults.filter((r) => r.action === "error").length;
+  }
+
+  if (result.errors > 0 || artistErrors > 0) {
     process.exit(1);
   }
 }

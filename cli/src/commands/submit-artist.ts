@@ -5,7 +5,7 @@ import { checkDuplicate } from "../lib/duplicates";
 import { validateArtist } from "../lib/schemas";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
-import { resolveAndLinkArtistLabel } from "../lib/labels";
+import { linkArtistToLabel, resolveLabelByName } from "../lib/labels";
 import * as display from "../lib/display";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
@@ -179,18 +179,39 @@ export async function submitArtists(
     }
   }
 
+  // Phase 2c: Resolve each distinct referenced label ONCE (keyed
+  // case-insensitively) so both the preview and the execute-path link reuse the
+  // same lookup — no per-artist re-resolution. Only artists that name a label
+  // incur a lookup.
+  const labelResolution = new Map<string, { id: number; name: string } | null>();
+  for (const artist of artists) {
+    if (typeof artist.label === "string" && artist.label) {
+      const key = artist.label.toLowerCase();
+      if (!labelResolution.has(key)) {
+        labelResolution.set(key, await resolveLabelByName(client, artist.label));
+      }
+    }
+  }
+
   // Phase 3: Display preview
   let creates = 0;
   let updates = 0;
   let skips = 0;
+  let plannedLinks = 0;
 
   for (let i = 0; i < artists.length; i++) {
     displayArtistPreview(artists[i], dupResults[i], i);
 
-    // Show label if specified
+    // Show label link plan if specified
     const labelField = artists[i].label;
     if (typeof labelField === "string" && labelField) {
-      display.kv("label", `${labelField} (will link after create/resolve)`);
+      plannedLinks++;
+      const resolved = labelResolution.get(labelField.toLowerCase());
+      if (resolved) {
+        display.kv("label", `${labelField} → will link (resolved ✓ ID ${resolved.id})`);
+      } else {
+        display.kv("label", `${labelField} → will link after label is created (not found yet)`);
+      }
     }
 
     // Show tags if any
@@ -217,6 +238,12 @@ export async function submitArtists(
 
   display.summary(creates, updates, skips);
 
+  if (labelResolution.size > 0) {
+    display.info(
+      `Label links: ${plannedLinks} planned across ${labelResolution.size} label(s)`,
+    );
+  }
+
   // Phase 4: Execute if --confirm
   if (!options.confirm) {
     display.info("Dry run. Use --confirm to execute.");
@@ -233,6 +260,26 @@ export async function submitArtists(
   }
 
   display.info("Executing...");
+
+  // Link each artist to its (already-resolved) label, tallying outcomes so a
+  // failed link is surfaced, not silently warned. Reuses the Phase 2c lookup
+  // rather than re-resolving the label per artist.
+  const linkTally = { linked: 0, notFound: 0, failed: 0 };
+  const linkArtist = async (artistId: number, labelName: string): Promise<void> => {
+    const resolved = labelResolution.get(labelName.toLowerCase());
+    if (!resolved) {
+      display.warn(`Label "${labelName}" not found — skipping artist-label link`);
+      linkTally.notFound++;
+      return;
+    }
+    const ok = await linkArtistToLabel(client, resolved.id, artistId);
+    if (ok) {
+      display.info(`  Linked artist ${artistId} to label "${resolved.name}" (ID: ${resolved.id})`);
+      linkTally.linked++;
+    } else {
+      linkTally.failed++;
+    }
+  };
 
   for (let i = 0; i < artists.length; i++) {
     const artist = artists[i];
@@ -277,7 +324,7 @@ export async function submitArtists(
           }
           // Link artist to label if specified
           if (id && labelName) {
-            await resolveAndLinkArtistLabel(client, labelName, id);
+            await linkArtist(id, labelName);
           }
           results.push({ name, action: "created", id });
           break;
@@ -289,7 +336,7 @@ export async function submitArtists(
             display.info(`No new fields to update for "${name}", skipping.`);
             // Still link to label even when no field updates
             if (dup.existingId && labelName) {
-              await resolveAndLinkArtistLabel(client, labelName, dup.existingId);
+              await linkArtist(dup.existingId, labelName);
             }
             results.push({
               name,
@@ -315,7 +362,7 @@ export async function submitArtists(
           }
           // Link artist to label if specified
           if (dup.existingId && labelName) {
-            await resolveAndLinkArtistLabel(client, labelName, dup.existingId);
+            await linkArtist(dup.existingId, labelName);
           }
           results.push({
             name,
@@ -339,7 +386,7 @@ export async function submitArtists(
           }
           // Link artist to label even on skip
           if (dup.existingId && labelName) {
-            await resolveAndLinkArtistLabel(client, labelName, dup.existingId);
+            await linkArtist(dup.existingId, labelName);
           }
           results.push({
             name,
@@ -353,6 +400,18 @@ export async function submitArtists(
       const message = err instanceof Error ? err.message : "Unknown error";
       display.error(`Failed to process "${name}": ${message}`);
       results.push({ name, action: "error", error: message });
+    }
+  }
+
+  if (labelResolution.size > 0) {
+    const parts = [`${linkTally.linked} linked`];
+    if (linkTally.notFound > 0) parts.push(`${linkTally.notFound} label-not-found`);
+    if (linkTally.failed > 0) parts.push(`${linkTally.failed} link-failed`);
+    const summary = `Label links: ${parts.join(", ")}`;
+    if (linkTally.notFound > 0 || linkTally.failed > 0) {
+      display.warn(summary);
+    } else {
+      display.success(summary);
     }
   }
 
