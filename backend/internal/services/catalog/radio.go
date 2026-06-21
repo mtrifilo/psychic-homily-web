@@ -546,6 +546,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 			GenreTags:       sh.GenreTags,
 			ImageURL:        sh.ImageURL,
 			IsActive:        sh.IsActive,
+			LifecycleState:  sh.LifecycleState,
 			EpisodeCount:    episodeCounts[sh.ID],
 			LatestAirDate:   latest,
 		}
@@ -1490,6 +1491,7 @@ func (s *RadioService) buildShowDetailResponse(show *catalogm.RadioShow) (*contr
 		ArchiveURL:      show.ArchiveURL,
 		ImageURL:        show.ImageURL,
 		IsActive:        show.IsActive,
+		LifecycleState:  show.LifecycleState,
 		EpisodeCount:    episodeCount,
 		CreatedAt:       show.CreatedAt,
 		UpdatedAt:       show.UpdatedAt,
