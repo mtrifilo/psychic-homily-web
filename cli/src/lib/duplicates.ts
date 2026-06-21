@@ -297,7 +297,7 @@ const RELEASE_FIELDS = [
 
 const LABEL_FIELDS = [
   "name", "city", "state", "country", "website", "description",
-  "bandcamp_url", "bandcamp", "founded_year", "status",
+  "bandcamp", "founded_year", "status",
   "instagram", "facebook", "twitter", "youtube",
   "spotify", "soundcloud",
 ];
@@ -440,7 +440,10 @@ async function searchLabels(
   client: APIClient,
   name: string,
 ): Promise<EntitySearchResult[]> {
-  // Client-side filter until backend search endpoint exists
+  // Client-side filter until backend search endpoint exists.
+  // The list/search response carries the dedup fields (country/website/bandcamp/
+  // description) as of PSY-1157, so existing values compare correctly instead of
+  // always reading empty (which forced spurious UPDATEs on re-ingest).
   const result = await client.get<{
     labels: Array<{
       id: number;
@@ -450,8 +453,8 @@ async function searchLabels(
       state?: string;
       country?: string;
       website?: string;
+      bandcamp?: string;
       description?: string;
-      bandcamp_url?: string;
     }>;
   }>("/labels", {});
 
@@ -467,8 +470,8 @@ async function searchLabels(
       state: l.state || "",
       country: l.country || "",
       website: l.website || "",
+      bandcamp: l.bandcamp || "",
       description: l.description || "",
-      bandcamp_url: l.bandcamp_url || "",
     }));
 }
 

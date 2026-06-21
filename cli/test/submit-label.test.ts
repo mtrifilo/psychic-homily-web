@@ -168,6 +168,46 @@ describe("submitLabels", () => {
     expect((client.put as ReturnType<typeof mock>).mock.calls.length).toBe(0);
   });
 
+  test("re-ingest of an unchanged label skips on matching bandcamp (PSY-1157)", async () => {
+    // The /labels list response now returns `bandcamp` (not `bandcamp_url`), so
+    // dedup compares it — a re-ingest with the same bandcamp/website/country
+    // skips instead of issuing a spurious UPDATE.
+    const client = createMockClient({
+      getResponse: {
+        labels: [
+          {
+            id: 42,
+            name: "Numero",
+            slug: "numero",
+            city: "Chicago",
+            state: "IL",
+            country: "US",
+            website: "https://numerogroup.com",
+            bandcamp: "https://numero.bandcamp.com",
+            description: "",
+          },
+        ],
+      },
+    });
+
+    const items = [
+      {
+        name: "Numero",
+        city: "Chicago",
+        state: "IL",
+        country: "US",
+        website: "https://numerogroup.com",
+        bandcamp: "https://numero.bandcamp.com",
+      },
+    ];
+
+    const result = await submitLabels(items, client, true);
+
+    expect(result.skipped).toBe(1);
+    expect(result.updated).toBe(0);
+    expect((client.put as ReturnType<typeof mock>).mock.calls.length).toBe(0);
+  });
+
   test("handles minimal label (name-only, WFMU-style)", async () => {
     const client = createMockClient();
     const items = [{ name: "Drag City" }];
