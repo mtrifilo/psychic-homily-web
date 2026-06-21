@@ -546,6 +546,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 			GenreTags:       sh.GenreTags,
 			ImageURL:        sh.ImageURL,
 			IsActive:        sh.IsActive,
+			LifecycleState:  sh.LifecycleState,
 			EpisodeCount:    episodeCounts[sh.ID],
 			LatestAirDate:   latest,
 		}
@@ -556,6 +557,13 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 	if sortBy == RadioShowSortLatest {
 		sort.SliceStable(responses, func(i, j int) bool {
 			a, b := responses[i], responses[j]
+			// NOTE: this active-first sort intentionally still keys off is_active, not
+			// the new lifecycle_state (PSY-1155). The janitor maintains lifecycle_state
+			// (active↔dormant) but deliberately leaves is_active untouched (so dormant
+			// shows keep polling); the two can diverge. lifecycle_state is the future
+			// authoritative signal for the active-vs-historical split — switching this
+			// sort (and any new active/historical filter) to it is the frontend
+			// follow-up, not done here (backend-only scope).
 			if a.IsActive != b.IsActive {
 				return a.IsActive
 			}
@@ -1490,6 +1498,7 @@ func (s *RadioService) buildShowDetailResponse(show *catalogm.RadioShow) (*contr
 		ArchiveURL:      show.ArchiveURL,
 		ImageURL:        show.ImageURL,
 		IsActive:        show.IsActive,
+		LifecycleState:  show.LifecycleState,
 		EpisodeCount:    episodeCount,
 		CreatedAt:       show.CreatedAt,
 		UpdatedAt:       show.UpdatedAt,

@@ -219,6 +219,47 @@ func TestRadioFetchService_BackfillLookbackDays_NegativeFallsBackToDefault(t *te
 	}
 }
 
+// PSY-1155: janitor env vars.
+func TestRadioFetchService_Janitor_Defaults(t *testing.T) {
+	t.Setenv("RADIO_JANITOR_INTERVAL_HOURS", "")
+	t.Setenv("RADIO_JANITOR_DORMANT_DAYS", "")
+	t.Setenv("RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS", "")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if !svc.janitorEnabled {
+		t.Fatal("janitor should be enabled by default")
+	}
+	if svc.janitorInterval != DefaultJanitorInterval {
+		t.Fatalf("expected default interval %v, got %v", DefaultJanitorInterval, svc.janitorInterval)
+	}
+	if svc.janitorDormantDays != DefaultJanitorDormantDays {
+		t.Fatalf("expected default dormant %d, got %d", DefaultJanitorDormantDays, svc.janitorDormantDays)
+	}
+	if svc.janitorBackfillLookbackDays != DefaultJanitorBackfillLookbackDays {
+		t.Fatalf("expected default lookback %d, got %d", DefaultJanitorBackfillLookbackDays, svc.janitorBackfillLookbackDays)
+	}
+}
+
+func TestRadioFetchService_Janitor_EnvOverride(t *testing.T) {
+	t.Setenv("RADIO_JANITOR_INTERVAL_HOURS", "12")
+	t.Setenv("RADIO_JANITOR_DORMANT_DAYS", "45")
+	t.Setenv("RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS", "60")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if !svc.janitorEnabled || svc.janitorInterval != 12*time.Hour {
+		t.Fatalf("expected enabled + 12h, got enabled=%v interval=%v", svc.janitorEnabled, svc.janitorInterval)
+	}
+	if svc.janitorDormantDays != 45 || svc.janitorBackfillLookbackDays != 60 {
+		t.Fatalf("expected dormant=45 lookback=60, got %d / %d", svc.janitorDormantDays, svc.janitorBackfillLookbackDays)
+	}
+}
+
+func TestRadioFetchService_Janitor_DisableViaZero(t *testing.T) {
+	t.Setenv("RADIO_JANITOR_INTERVAL_HOURS", "0")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.janitorEnabled {
+		t.Fatal("RADIO_JANITOR_INTERVAL_HOURS=0 should disable the janitor")
+	}
+}
+
 // =============================================================================
 // PSY-887: error classification + transient retry tests
 // =============================================================================

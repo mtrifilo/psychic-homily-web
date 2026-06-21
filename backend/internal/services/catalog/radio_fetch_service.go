@@ -56,6 +56,24 @@ const DefaultBackfillInterval = 1 * time.Hour
 // "Off" means "no proactive sweep," not "playlist_state is frozen."
 const DefaultBackfillLookbackDays = 7
 
+// Default janitor/reconcile interval (24 hours — nightly). The janitor reconciles
+// show lifecycle (active↔dormant), corrects play_count drift, and sweeps backfill
+// stragglers (PSY-1155). RADIO_JANITOR_INTERVAL_HOURS=0 disables the whole cycle.
+const DefaultJanitorInterval = 24 * time.Hour
+
+// Default dormancy window (30 days). A show with no episode aired in this window is
+// marked 'dormant' (inactive/historical, still browsable); a show that aired within
+// it is 'active'. Owner decision (2026-06-21). Env: RADIO_JANITOR_DORMANT_DAYS.
+const DefaultJanitorDormantDays = 30
+
+// Default janitor backfill straggler lookback (30 days) — wider than the hourly
+// post-air sweep (DefaultBackfillLookbackDays=7) so the nightly run catches aired
+// incomplete episodes the hourly sweep missed (service downtime, late-created rows).
+// Env: RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS. NOTE: 0 is a today-only window (not a
+// disable — the sweep still runs); to disable the whole janitor use
+// RADIO_JANITOR_INTERVAL_HOURS=0.
+const DefaultJanitorBackfillLookbackDays = 30
+
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
 // model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
 // §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
@@ -199,6 +217,15 @@ type RadioFetchService struct {
 	backfillInterval     time.Duration
 	backfillLookbackDays int
 
+	// janitor* drive the nightly reconcile cycle (PSY-1155): lifecycle (active↔dormant
+	// by janitorDormantDays of episode idle), play_count drift, and a wider-lookback
+	// (janitorBackfillLookbackDays) backfill straggler sweep. janitorEnabled == false
+	// (RADIO_JANITOR_INTERVAL_HOURS=0) disables the whole cycle (no goroutine started).
+	janitorEnabled              bool
+	janitorInterval             time.Duration
+	janitorDormantDays          int
+	janitorBackfillLookbackDays int
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
@@ -229,6 +256,9 @@ type RadioFetchService struct {
 //   - RADIO_AUTO_BACKFILL_DAYS (default 90; 0 disables auto-backfill)
 //   - RADIO_BACKFILL_INTERVAL_HOURS (default 1; post-air playlist backfill sweep)
 //   - RADIO_BACKFILL_LOOKBACK_DAYS (default 7; 0 disables the post-air backfill loop)
+//   - RADIO_JANITOR_INTERVAL_HOURS (default 24; 0 disables the nightly janitor cycle)
+//   - RADIO_JANITOR_DORMANT_DAYS (default 30; active↔dormant idle threshold)
+//   - RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS (default 30; janitor straggler sweep window)
 func NewRadioFetchService(
 	radioService *RadioService,
 	discordService contracts.DiscordServiceInterface,
@@ -286,18 +316,50 @@ func NewRadioFetchService(
 		}
 	}
 
+	// Janitor cycle (PSY-1155). RADIO_JANITOR_INTERVAL_HOURS=0 (or negative) disables
+	// the whole nightly cycle; otherwise it sets the interval (default 24h).
+	janitorEnabled := true
+	janitorInterval := DefaultJanitorInterval
+	if envVal := os.Getenv("RADIO_JANITOR_INTERVAL_HOURS"); envVal != "" {
+		if hours, err := strconv.Atoi(envVal); err == nil {
+			if hours <= 0 {
+				janitorEnabled = false
+			} else {
+				janitorInterval = time.Duration(hours) * time.Hour
+			}
+		}
+	}
+
+	janitorDormantDays := DefaultJanitorDormantDays
+	if envVal := os.Getenv("RADIO_JANITOR_DORMANT_DAYS"); envVal != "" {
+		if days, err := strconv.Atoi(envVal); err == nil && days > 0 {
+			janitorDormantDays = days
+		}
+	}
+
+	janitorBackfillLookbackDays := DefaultJanitorBackfillLookbackDays
+	if envVal := os.Getenv("RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS"); envVal != "" {
+		if days, err := strconv.Atoi(envVal); err == nil && days >= 0 {
+			janitorBackfillLookbackDays = days
+		}
+	}
+
 	return &RadioFetchService{
-		radioService:         radioService,
-		discordService:       discordService,
-		fetchInterval:        fetchInterval,
-		affinityInterval:     affinityInterval,
-		rematchInterval:      rematchInterval,
-		discoverInterval:     discoverInterval,
-		autoBackfillDays:     autoBackfillDays,
-		backfillInterval:     backfillInterval,
-		backfillLookbackDays: backfillLookbackDays,
-		stopCh:               make(chan struct{}),
-		logger:               slog.Default(),
+		radioService:                radioService,
+		discordService:              discordService,
+		fetchInterval:               fetchInterval,
+		affinityInterval:            affinityInterval,
+		rematchInterval:             rematchInterval,
+		discoverInterval:            discoverInterval,
+		autoBackfillDays:            autoBackfillDays,
+		backfillInterval:            backfillInterval,
+		backfillLookbackDays:        backfillLookbackDays,
+		janitorEnabled:              janitorEnabled,
+		janitorInterval:             janitorInterval,
+		janitorDormantDays:          janitorDormantDays,
+		janitorBackfillLookbackDays: janitorBackfillLookbackDays,
+		stopCh:                      make(chan struct{}),
+		logger:                      slog.Default(),
 	}
 }
 
@@ -319,6 +381,13 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		go s.runBackfillLoop(ctx)
 	}
 
+	// Nightly janitor/reconcile (PSY-1155). Skipped when disabled
+	// (RADIO_JANITOR_INTERVAL_HOURS=0).
+	if s.janitorEnabled {
+		s.wg.Add(1)
+		go s.runJanitorLoop(ctx)
+	}
+
 	s.logger.Info("radio fetch service started",
 		"fetch_interval_hours", s.fetchInterval.Hours(),
 		"affinity_interval_hours", s.affinityInterval.Hours(),
@@ -326,6 +395,9 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		"discover_interval_hours", s.discoverInterval.Hours(),
 		"backfill_interval_hours", s.backfillInterval.Hours(),
 		"backfill_lookback_days", s.backfillLookbackDays,
+		"janitor_enabled", s.janitorEnabled,
+		"janitor_interval_hours", s.janitorInterval.Hours(),
+		"janitor_dormant_days", s.janitorDormantDays,
 	)
 }
 
@@ -352,6 +424,18 @@ func (s *RadioFetchService) runBackfillLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "radio_backfill", s.backfillInterval, s.stopCh, false, func(_ context.Context) {
 		s.runBackfillCycle()
+	})
+}
+
+// runJanitorLoop runs the nightly janitor/reconcile cycle (PSY-1155).
+// runImmediately=false: it's a maintenance sweep with no urgency at boot, and the
+// lifecycle + play_count reconciles + the straggler backfill are heavier than a
+// normal tick — skipping the startup fire avoids piling them onto the fetch+discover
+// co-fire. Admins can force a run via RunJanitorCycleNow.
+func (s *RadioFetchService) runJanitorLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "radio_janitor", s.janitorInterval, s.stopCh, false, func(_ context.Context) {
+		s.runJanitorCycle()
 	})
 }
 
@@ -1023,65 +1107,106 @@ func (s *RadioFetchService) runAutoBackfillShow(stationID, showID uint, since, u
 func (s *RadioFetchService) runBackfillCycle() {
 	cycleStart := time.Now()
 	lookback := time.Duration(s.backfillLookbackDays) * 24 * time.Hour
+	r := s.runBackfillSweep(lookback)
+	s.logger.Info("radio backfill cycle complete",
+		"lookback_days", s.backfillLookbackDays,
+		"shows_processed", r.processed,
+		"shows_completed", r.completed,
+		"shows_skipped", r.skipped,
+		"episodes_imported", r.episodes,
+		"plays_matched", r.plays,
+		"duration", time.Since(cycleStart),
+	)
+}
+
+// backfillSweepResult tallies one backfill sweep.
+type backfillSweepResult struct {
+	processed, completed, skipped, episodes, plays int
+}
+
+// runBackfillSweep re-fetches playlists for aired incomplete episodes within lookback,
+// per show, through RunStationSync(backfill) (reusing runAutoBackfillShow — traced in
+// radio_sync_runs, per-station-lock + breaker + shutdown-cancel honored). Shows are
+// processed SEQUENTIALLY to respect the per-provider rate limit, bailing between shows
+// on shutdown. Shared by the hourly post-air sweep (PSY-1154) and the nightly janitor's
+// wider straggler sweep (PSY-1155), which differ only in `lookback`.
+func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSweepResult {
+	var r backfillSweepResult
 
 	candidates, err := s.radioService.ListBackfillCandidates(lookback, catalogm.RadioBackfillMaxAttempts, time.Now())
 	if err != nil {
 		s.logger.Error("radio backfill: listing candidates failed", "error", err)
-		return
+		return r
 	}
 	if len(candidates) == 0 {
-		s.logger.Info("radio backfill cycle: nothing to backfill",
-			"lookback_days", s.backfillLookbackDays)
-		return
+		return r
 	}
-
-	s.logger.Info("starting radio backfill cycle",
-		"shows", len(candidates), "lookback_days", s.backfillLookbackDays)
-
-	var (
-		processed int
-		completed int
-		skipped   int
-		episodes  int
-		plays     int
-	)
 
 	for _, c := range candidates {
 		// Stop cleanly between shows on shutdown.
 		select {
 		case <-s.stopCh:
-			s.logger.Info("radio backfill cycle: abandoned on shutdown", "processed", processed)
-			return
+			s.logger.Info("radio backfill sweep abandoned on shutdown", "processed", r.processed)
+			return r
 		default:
 		}
 
-		processed++
+		r.processed++
 		res := s.runAutoBackfillShow(c.StationID, c.ShowID, c.Since, c.Until)
 		if res == nil {
 			continue // pre-open failure, already logged
 		}
 		if res.LockContended || res.Skipped {
-			skipped++
+			r.skipped++
 			continue // a scheduled run holds the lock, or the breaker is open — retry next cycle
 		}
 		if res.Status == catalogm.RadioSyncRunStatusCancelled {
-			s.logger.Info("radio backfill cycle: abandoned on shutdown", "processed", processed)
-			return
+			s.logger.Info("radio backfill sweep abandoned on shutdown", "processed", r.processed)
+			return r
 		}
 		if imp := res.Import; imp != nil {
-			completed++
-			episodes += imp.EpisodesImported
-			plays += imp.PlaysMatched
+			r.completed++
+			r.episodes += imp.EpisodesImported
+			r.plays += imp.PlaysMatched
 		}
 	}
 
-	s.logger.Info("radio backfill cycle complete",
-		"shows_processed", processed,
-		"shows_completed", completed,
-		"shows_skipped", skipped,
-		"episodes_imported", episodes,
-		"plays_matched", plays,
-		"duration", time.Since(cycleStart),
+	return r
+}
+
+// runJanitorCycle is the nightly reconcile (PSY-1155). Three independent steps, each
+// guarded so one failure doesn't abort the others:
+//  1. lifecycle reconcile — active↔dormant by episode idle (the active/historical split);
+//  2. play_count reconcile — correct denormalized counts against radio_plays;
+//  3. backfill straggler sweep — a wider-lookback pass for aired incomplete episodes the
+//     hourly post-air sweep missed.
+//
+// The fast DB reconciles (1, 2) run before the slow provider-HTTP sweep (3), so a
+// shutdown mid-sweep still leaves the reconciles done.
+func (s *RadioFetchService) runJanitorCycle() {
+	now := time.Now()
+
+	promoted, demoted, err := s.radioService.ReconcileShowLifecycle(
+		time.Duration(s.janitorDormantDays)*24*time.Hour, now)
+	if err != nil {
+		s.logger.Error("radio janitor: lifecycle reconcile failed", "error", err)
+	}
+
+	pcCorrected, err := s.radioService.ReconcilePlayCounts()
+	if err != nil {
+		s.logger.Error("radio janitor: play_count reconcile failed", "error", err)
+	}
+
+	sweep := s.runBackfillSweep(time.Duration(s.janitorBackfillLookbackDays) * 24 * time.Hour)
+
+	s.logger.Info("radio janitor cycle complete",
+		"dormant_days", s.janitorDormantDays,
+		"shows_promoted", promoted,
+		"shows_demoted", demoted,
+		"play_counts_corrected", pcCorrected,
+		"backfill_shows_processed", sweep.processed,
+		"backfill_shows_completed", sweep.completed,
+		"duration", time.Since(now),
 	)
 }
 
@@ -1094,6 +1219,12 @@ func (s *RadioFetchService) RunFetchCycleNow() {
 // testing/admin).
 func (s *RadioFetchService) RunBackfillCycleNow() {
 	s.runBackfillCycle()
+}
+
+// RunJanitorCycleNow triggers an immediate janitor/reconcile cycle (useful for
+// testing/admin).
+func (s *RadioFetchService) RunJanitorCycleNow() {
+	s.runJanitorCycle()
 }
 
 // RunAffinityCycleNow triggers an immediate affinity computation (useful for testing/admin).

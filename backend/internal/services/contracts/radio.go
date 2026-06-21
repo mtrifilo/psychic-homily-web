@@ -176,9 +176,16 @@ type RadioShowDetailResponse struct {
 	ArchiveURL      *string          `json:"archive_url"`
 	ImageURL        *string          `json:"image_url"`
 	IsActive        bool             `json:"is_active"`
-	EpisodeCount    int64            `json:"episode_count"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	// LifecycleState (active | dormant | retired) is the operational signal the
+	// janitor maintains (PSY-1155): 'active' = aired within the dormancy window,
+	// 'dormant' = inactive/historical (still browsable). Additive + emitted now so
+	// the frontend can later show active shows primarily and tuck historical ones
+	// behind a dig-deeper affordance — that FE consumer is a follow-up; no reader
+	// exists yet (and ListShows is intentionally NOT filtered by it).
+	LifecycleState string    `json:"lifecycle_state"`
+	EpisodeCount   int64     `json:"episode_count"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // RadioShowListResponse represents a radio show in list views
@@ -195,7 +202,10 @@ type RadioShowListResponse struct {
 	GenreTags       *json.RawMessage `json:"genre_tags"`
 	ImageURL        *string          `json:"image_url"`
 	IsActive        bool             `json:"is_active"`
-	EpisodeCount    int64            `json:"episode_count"`
+	// LifecycleState (active | dormant | retired) — see RadioShowDetailResponse.
+	// Surfaced in list rows so the station page can split active vs historical shows.
+	LifecycleState string `json:"lifecycle_state"`
+	EpisodeCount   int64  `json:"episode_count"`
 	// LatestAirDate is the air date (YYYY-MM-DD) of the show's most recent
 	// episode, nil when the show has no episodes (PSY-1048).
 	LatestAirDate *string `json:"latest_air_date"`
@@ -215,13 +225,13 @@ type RadioEpisodePreviewArtist struct {
 
 // RadioEpisodeResponse represents a radio episode in list views
 type RadioEpisodeResponse struct {
-	ID              uint      `json:"id"`
-	ShowID          uint      `json:"show_id"`
-	Title           *string   `json:"title"`
-	AirDate         string    `json:"air_date"`
-	AirTime         *string   `json:"air_time"`
-	DurationMinutes *int      `json:"duration_minutes"`
-	ArchiveURL      *string   `json:"archive_url"`
+	ID              uint    `json:"id"`
+	ShowID          uint    `json:"show_id"`
+	Title           *string `json:"title"`
+	AirDate         string  `json:"air_date"`
+	AirTime         *string `json:"air_time"`
+	DurationMinutes *int    `json:"duration_minutes"`
+	ArchiveURL      *string `json:"archive_url"`
 	// StartsAt/EndsAt are the frozen air window (PSY-1152); Status is the
 	// lifecycle state (scheduled/live/aired/archived) computed on read from that
 	// window — "live" only inside it. A null window is never "live" (e.g. WFMU
