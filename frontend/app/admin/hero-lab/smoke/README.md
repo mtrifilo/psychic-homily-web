@@ -11,13 +11,14 @@ decisions: `docs/features/hero-wordmark-animation.md`.
 Spotlight mocks (chosen: #3 `cells`, now live on the homepage):
 1. Full-bleed glow layer · 2. Oversized canvas · 3. Cells only ✓
 
-Stage-smoke mocks (exploration; none shipped to the homepage yet):
+Stage-smoke / atmosphere mocks (exploration; none shipped to the homepage yet):
 4. Photoreal video (Mixkit footage + `mix-blend-mode: screen`)
 5. Interactive 2D fluid (`webgl-fluid`)
-6. Volumetric raymarch fog + god-rays (`VolumetricSmoke.tsx`)
+6. Volumetric raymarch fog — soft rolling Sunn O))) fog (`VolumetricSmoke.tsx`)
+7. Screen-space radial god-rays — crisp beams (`RadialGodRays.tsx`, PSY-1161)
 
-> WebGL mocks (5, 6) render **blank in headless Chromium** (no WebGL2). View in a
-> real browser; to screenshot them with agent-browser use `--headed`.
+> WebGL mocks (5, 6, 7) render **blank in headless Chromium** (no WebGL2). View in
+> a real browser; to screenshot them with agent-browser use `--headed`.
 
 ## Regenerating the smoke clips (gitignored)
 
@@ -34,8 +35,11 @@ ffmpeg -y -i public/hero-lab/smoke-white.mp4 \
   -an -c:v libx264 -crf 23 -pix_fmt yuv420p public/hero-lab/smoke-white-slow.mp4
 ```
 
-## Deferred
+## Mock 6 vs 7
 
-Screen-space radial god-rays — a separate mock to build later (the technique that
-yields crisp sunbeam shafts; the volumetric in-scatter in #6 reads as atmospheric
-backlit fog, not hard beams).
+Two takes on stage atmosphere, kept side-by-side to compare:
+- **6 (volumetric fog)** — soft rolling Sunn O))) fog that fills the frame.
+- **7 (god-rays)** — screen-space radial light-scattering (GPU Gems 3): the bright
+  wordmark + a backlight throw crisp beam shafts; the light follows the cursor.
+  Tunable in `RadialGodRays.tsx` (`uExposure`, `WEIGHT`, the backlight `disc`,
+  and the default `light` position).

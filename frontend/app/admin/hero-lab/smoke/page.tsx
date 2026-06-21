@@ -19,6 +19,7 @@
 
 import { useEffect, useRef } from 'react'
 import { ScryingGridWordmark } from '@/features/home/components/scrying-grid/ScryingGridWordmark'
+import { RadialGodRays } from './RadialGodRays'
 import { VolumetricSmoke } from './VolumetricSmoke'
 
 const BOX =
@@ -277,6 +278,26 @@ export default function HeroLabPage() {
               className="relative z-10 h-[260px] w-full max-w-[720px]"
             />
             <VolumetricSmoke className="pointer-events-none absolute inset-0 z-20 h-full w-full opacity-70" />
+          </div>
+        </section>
+
+        {/* 7 — Cells + screen-space radial god-rays */}
+        <section aria-label="Cells plus god-rays">
+          <h2 className="mb-1 font-display text-lg font-bold text-foreground">
+            <span className="text-primary">7</span> Cells + screen-space god-rays (crisp beams)
+          </h2>
+          <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
+            Post-process radial light-scattering (GPU Gems 3) — the bright wordmark + a backlight throw crisp
+            beam shafts; the gaps between light-cells stripe them. The light follows the cursor — sweep it to
+            rake the beams. This is the crisp-beam counterpart to mock 6&rsquo;s soft volumetric fog.
+          </p>
+          <div className={`${BOX} bg-black`}>
+            <RadialGodRays className="absolute inset-0 z-0 h-full w-full" />
+            <ScryingGridWordmark
+              spotlight="cells"
+              gapFactor={5}
+              className="pointer-events-none relative z-10 h-[260px] w-full max-w-[720px]"
+            />
           </div>
         </section>
       </div>
