@@ -1,4 +1,3 @@
-export { PipelineVenues } from './PipelineVenues'
 export { AdminEmptyState } from './AdminEmptyState'
 export type { AdminEmptyStateProps } from './AdminEmptyState'
 export { CategoryBadge } from './CategoryBadge'
