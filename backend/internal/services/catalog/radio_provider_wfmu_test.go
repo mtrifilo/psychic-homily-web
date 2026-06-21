@@ -655,6 +655,10 @@ func TestWFMU_FetchNewEpisodes_Integration(t *testing.T) {
 		assert.NotEmpty(t, ep.ExternalID)
 		assert.Equal(t, "BT", ep.ShowExternalID)
 		assert.NotEmpty(t, ep.AirDate)
+		// PSY-1152: WFMU archive rows carry a date but no air time, so the frozen
+		// window stays nil until the schedule lands (PSY-1159) → never falsely live.
+		assert.Nil(t, ep.StartsAt)
+		assert.Nil(t, ep.EndsAt)
 	}
 }
 

@@ -334,11 +334,16 @@ func parseNTSEpisode(ntsEp ntsEpisode, showExternalID string) RadioEpisodeImport
 		ShowExternalID: showExternalID,
 	}
 
-	// Parse the broadcast timestamp for both air date and air time.
+	// Parse the broadcast timestamp for both air date and air time, and preserve
+	// the instant as the frozen window start (PSY-1152). NTS supplies no end /
+	// duration here, so EndsAt stays nil — its episodes are Mixcloud archives, so
+	// the windowless-end case settles to 'aired' (never falsely 'live').
 	if t, ok := parseNTSBroadcast(ntsEp.Broadcast); ok {
 		ep.AirDate = t.Format("2006-01-02")
 		airTime := t.Format("15:04:05")
 		ep.AirTime = &airTime
+		start := t
+		ep.StartsAt = &start
 	}
 
 	// Fallback for the rare episode with no `broadcast`: recover the date from

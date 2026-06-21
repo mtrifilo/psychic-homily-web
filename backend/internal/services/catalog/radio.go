@@ -665,8 +665,11 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	}
 
 	var episodes []catalogm.RadioEpisode
+	// id DESC tiebreak so "latest" (episodes[0], drives the show-page ON AIR
+	// strip's live derivation) is deterministic when two episodes share an
+	// air_date (PSY-1152) — matches the dial-wide feed's ordering.
 	err := s.db.Where("show_id = ?", showID).
-		Order("air_date DESC").
+		Order("air_date DESC, id DESC").
 		Limit(limit).
 		Offset(offset).
 		Find(&episodes).Error
@@ -683,6 +686,7 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 		return nil, 0, err
 	}
 
+	now := time.Now()
 	responses := make([]*contracts.RadioEpisodeResponse, len(episodes))
 	for i, ep := range episodes {
 		responses[i] = &contracts.RadioEpisodeResponse{
@@ -693,9 +697,14 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 			AirTime:         ep.AirTime,
 			DurationMinutes: ep.DurationMinutes,
 			ArchiveURL:      ep.ArchiveURL,
-			PlayCount:       ep.PlayCount,
-			CreatedAt:       ep.CreatedAt,
-			ArtistPreview:   previewOrEmpty(previews, ep.ID),
+			StartsAt:        ep.StartsAt,
+			EndsAt:          ep.EndsAt,
+			// Status is computed on read — "live" is a function of now, so a stored
+			// value would go stale the instant the window ends (the PSY-1128 bug).
+			Status:        catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, ep.PlaylistState, now),
+			PlayCount:     ep.PlayCount,
+			CreatedAt:     ep.CreatedAt,
+			ArtistPreview: previewOrEmpty(previews, ep.ID),
 		}
 	}
 

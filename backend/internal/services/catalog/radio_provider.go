@@ -189,6 +189,13 @@ type RadioEpisodeImport struct {
 	AirTime         *string `json:"air_time,omitempty"`
 	DurationMinutes *int    `json:"duration_minutes,omitempty"`
 	ArchiveURL      *string `json:"archive_url,omitempty"`
+	// StartsAt/EndsAt are the episode's real air window as instants (PSY-1152),
+	// FROZEN at ingest from whatever the provider supplies — KEXP/NTS carry
+	// RFC3339 timestamps; WFMU has none until the schedule lands (PSY-1159). The
+	// episode-lifecycle status (live/aired/...) is computed from this window,
+	// never re-derived from a show's current schedule (which churns seasonally).
+	StartsAt *time.Time `json:"starts_at,omitempty"`
+	EndsAt   *time.Time `json:"ends_at,omitempty"`
 }
 
 // RadioPlayImport is the intermediate DTO for importing a track play from a provider.

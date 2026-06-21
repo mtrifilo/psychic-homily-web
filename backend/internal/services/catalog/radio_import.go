@@ -628,7 +628,21 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	var existing catalogm.RadioEpisode
 	err := s.db.Where("show_id = ? AND external_id = ?", showID, ep.ExternalID).First(&existing).Error
 	if err == nil {
-		// Episode already exists — skip to avoid duplicates
+		// Episode already exists — skip re-processing the playlist (dedup). But
+		// backfill the air window (PSY-1152) if this row predates window stamping
+		// and the provider now supplies one: rows imported before this change have
+		// a NULL window and would never show "live", and a show airing across the
+		// deploy would lose its ON AIR strip until the P6 re-ingest. Only the
+		// window heals here; playlist completeness stays PSY-1154's domain.
+		if existing.StartsAt == nil && ep.StartsAt != nil {
+			if err := s.db.Model(&existing).Updates(map[string]any{
+				"starts_at": ep.StartsAt,
+				"ends_at":   ep.EndsAt,
+				"status":    catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, existing.PlaylistState, time.Now()),
+			}).Error; err != nil {
+				return nil, fmt.Errorf("backfilling episode air window: %w", err)
+			}
+		}
 		return &contracts.EpisodeImportResult{}, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -643,7 +657,13 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return &contracts.EpisodeImportResult{}, nil
 	}
 
-	// Create episode
+	// Create episode. StartsAt/EndsAt are the frozen air window (PSY-1152) — set
+	// once here from the provider's instants and never re-derived. Status is a
+	// best-effort snapshot computed at ingest; the authoritative live/aired state
+	// is recomputed on read (a stored "live" would go stale), and the column is
+	// kept fresh by the janitor (PSY-1155). Playlist completeness is PSY-1154's
+	// domain, so at create the playlist is still pending → status is never
+	// 'archived' here (that transition arrives with PSY-1154).
 	episode := &catalogm.RadioEpisode{
 		ShowID:          showID,
 		Title:           ep.Title,
@@ -652,6 +672,11 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		DurationMinutes: ep.DurationMinutes,
 		ArchiveURL:      ep.ArchiveURL,
 		ExternalID:      &ep.ExternalID,
+		StartsAt:        ep.StartsAt,
+		EndsAt:          ep.EndsAt,
+		Status: catalogm.ComputeEpisodeStatus(
+			ep.StartsAt, ep.EndsAt, catalogm.RadioPlaylistStatePending, time.Now(),
+		),
 	}
 
 	if err := s.db.Create(episode).Error; err != nil {

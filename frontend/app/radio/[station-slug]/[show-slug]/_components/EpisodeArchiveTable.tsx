@@ -5,7 +5,7 @@ import { DenseTable } from '@/components/shared/DenseTable'
 import {
   ArtistHops,
   formatArchiveDate,
-  isAirDateToday,
+  isLiveNow,
   previewToHops,
 } from '@/features/radio'
 import type { RadioEpisodeListItem } from '@/features/radio'
@@ -44,7 +44,7 @@ export function EpisodeArchiveTable({
       <tbody>
         {episodes.map(episode => {
           const episodeUrl = `/radio/${stationSlug}/${showSlug}/${episode.air_date}`
-          const isToday = isAirDateToday(episode.air_date)
+          const isLive = isLiveNow(episode.starts_at, episode.ends_at)
           const hops = previewToHops(episode.artist_preview)
 
           return (
@@ -87,7 +87,7 @@ export function EpisodeArchiveTable({
                 {episode.play_count}
               </td>
               <td className="text-right whitespace-nowrap font-mono text-xs">
-                {isToday ? (
+                {isLive ? (
                   <span className="text-primary">
                     <span aria-hidden="true">●</span> live
                   </span>

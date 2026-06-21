@@ -473,19 +473,28 @@ func parseKEXPEpisode(show kexpShow, programExternalID string) RadioEpisodeImpor
 		ShowExternalID: programExternalID,
 	}
 
-	// Parse start_time to extract air_date and air_time
+	// Parse start_time to extract air_date and air_time, and PRESERVE the full
+	// RFC3339 instants as the episode's frozen air window (PSY-1152) — previously
+	// these were decomposed into date/time/duration and the instants discarded.
 	if show.StartTime != "" {
 		if t, err := time.Parse(time.RFC3339, show.StartTime); err == nil {
 			airDate := t.Format("2006-01-02")
 			airTime := t.Format("15:04:05")
 			ep.AirDate = airDate
 			ep.AirTime = &airTime
+			start := t
+			ep.StartsAt = &start
 
-			// Calculate duration if end_time is available
+			// Window end + duration, only for a forward window (end > start). A
+			// backwards end < start (clock-skewed feed) would violate the DB
+			// air-window CHECK (ends_at >= starts_at) and drop the whole episode;
+			// the strict end.After(t) guard also skips a pointless zero-length
+			// end == start window. Leave EndsAt nil instead (unbounded → never
+			// falsely live), mirroring the dur > 0 guard.
 			if show.EndTime != "" {
-				if end, err := time.Parse(time.RFC3339, show.EndTime); err == nil {
-					dur := int(end.Sub(t).Minutes())
-					if dur > 0 {
+				if end, err := time.Parse(time.RFC3339, show.EndTime); err == nil && end.After(t) {
+					ep.EndsAt = &end
+					if dur := int(end.Sub(t).Minutes()); dur > 0 {
 						ep.DurationMinutes = &dur
 					}
 				}

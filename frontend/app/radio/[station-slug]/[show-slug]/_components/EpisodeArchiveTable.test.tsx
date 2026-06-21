@@ -18,20 +18,14 @@ function makeEpisode(overrides: Partial<RadioEpisodeListItem> = {}): RadioEpisod
     air_time: null,
     duration_minutes: null,
     archive_url: null,
+    starts_at: null,
+    ends_at: null,
+    status: 'aired',
     play_count: 24,
     created_at: '2026-06-02T00:00:00Z',
     artist_preview: [],
     ...overrides,
   }
-}
-
-function localToday(): string {
-  const now = new Date()
-  return [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-  ].join('-')
 }
 
 const defaultProps = {
@@ -112,13 +106,15 @@ describe('EpisodeArchiveTable', () => {
     expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
   })
 
-  it("marks today's episode as live instead of showing an [mp3] link", () => {
+  it('marks a currently-live episode (now inside its air window) as live, not [mp3]', () => {
+    const now = Date.now()
     render(
       <EpisodeArchiveTable
         {...defaultProps}
         episodes={[
           makeEpisode({
-            air_date: localToday(),
+            starts_at: new Date(now - 60 * 60 * 1000).toISOString(),
+            ends_at: new Date(now + 60 * 60 * 1000).toISOString(),
             archive_url: 'https://example.com/ep.mp3',
           }),
         ]}
@@ -126,5 +122,28 @@ describe('EpisodeArchiveTable', () => {
     )
     expect(screen.getByText('live')).toBeInTheDocument()
     expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+  })
+
+  // PSY-1128 regression: an episode whose air window has ENDED is NOT live, even
+  // if it aired earlier today (the old air_date-equality bug marked it live all
+  // day). It shows the archive link instead.
+  it('does not mark an episode whose window has ended as live', () => {
+    const now = Date.now()
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            starts_at: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
+            ends_at: new Date(now - 60 * 60 * 1000).toISOString(),
+            archive_url: 'https://example.com/ep.mp3',
+          }),
+        ]}
+      />
+    )
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /archive/ })
+    ).toHaveAttribute('href', 'https://example.com/ep.mp3')
   })
 })

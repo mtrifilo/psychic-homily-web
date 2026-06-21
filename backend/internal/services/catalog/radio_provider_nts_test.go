@@ -717,6 +717,11 @@ func TestNTS_ParseNTSEpisode(t *testing.T) {
 	assert.Equal(t, "Show - March 2026", *ep.Title)
 	require.NotNil(t, ep.ArchiveURL)
 	assert.Contains(t, *ep.ArchiveURL, "mixcloud.com")
+	// PSY-1152: NTS broadcast start preserved as the frozen window start; NTS
+	// gives no end/duration here, so EndsAt is nil (→ aired, never falsely live).
+	require.NotNil(t, ep.StartsAt)
+	assert.Equal(t, "2026-03-15T20:00:00Z", ep.StartsAt.Format(time.RFC3339))
+	assert.Nil(t, ep.EndsAt)
 
 	// Episode with no mixcloud
 	minEp := parseNTSEpisode(ntsEpisode{
@@ -739,6 +744,9 @@ func TestNTS_ParseNTSEpisode_DateOnlyBroadcast(t *testing.T) {
 	assert.Equal(t, "2026-03-15", ep.AirDate)
 	require.NotNil(t, ep.AirTime)
 	assert.Equal(t, "00:00:00", *ep.AirTime)
+	// PSY-1152: a date-only broadcast still yields a (midnight) StartsAt; no end.
+	assert.NotNil(t, ep.StartsAt)
+	assert.Nil(t, ep.EndsAt)
 }
 
 func TestNTS_ParseNTSEpisode_DerivesDateFromAliasWhenNoBroadcast(t *testing.T) {

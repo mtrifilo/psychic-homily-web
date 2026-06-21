@@ -11,7 +11,7 @@ import {
   useRadioEpisodes,
   useRadioTopArtists,
   useRadioTopLabels,
-  isAirDateToday,
+  isLiveNow,
 } from '@/features/radio'
 import type { RadioTopArtist, RadioTopLabel } from '@/features/radio'
 import { EpisodeArchiveTable } from './EpisodeArchiveTable'
@@ -155,10 +155,12 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  // v1 "on air" heuristic (PSY-1051): live when the latest episode aired
-  // today. Swaps to PSY-1022's live now-playing endpoint without layout change.
+  // "On air" when the latest episode is live RIGHT NOW — inside its real air
+  // window (PSY-1152), not merely dated today (the PSY-1128 false-ON-AIR bug:
+  // a Tuesday-morning show read "live" all day). A windowless episode (WFMU
+  // until PSY-1159) is never "on air" here.
   const latestEpisode = latestData?.episodes?.[0]
-  const isOnAir = isAirDateToday(latestEpisode?.air_date)
+  const isOnAir = isLiveNow(latestEpisode?.starts_at, latestEpisode?.ends_at)
   const livePlaylistUrl = latestEpisode
     ? `/radio/${stationSlug}/${showSlug}/${latestEpisode.air_date}`
     : null
@@ -220,14 +222,14 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
           )}
         </header>
 
-        {/* ON AIR strip (v1 heuristic until PSY-1022) */}
+        {/* ON AIR strip — shown only while the latest episode is genuinely live (PSY-1152) */}
         {isOnAir && livePlaylistUrl && (
           <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
             <span className="font-mono text-xs text-foreground">
               <span className="text-primary" aria-hidden="true">
                 ●
               </span>{' '}
-              ON AIR NOW — tonight&apos;s playlist is updating live
+              ON AIR NOW — the playlist is updating live
             </span>
             <BracketLink
               label="open live playlist →"

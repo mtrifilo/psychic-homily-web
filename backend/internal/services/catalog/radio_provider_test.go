@@ -141,6 +141,11 @@ func TestParseKEXPEpisode(t *testing.T) {
 	assert.Equal(t, "The Morning Show", *ep.Title)
 	assert.NotNil(t, ep.ArchiveURL)
 	assert.Equal(t, "https://kexp.org/archive/2026-01-15", *ep.ArchiveURL)
+	// PSY-1152: the RFC3339 start/end instants are preserved as the frozen window.
+	require.NotNil(t, ep.StartsAt)
+	assert.Equal(t, "2026-01-15T06:00:00-08:00", ep.StartsAt.Format(time.RFC3339))
+	require.NotNil(t, ep.EndsAt)
+	assert.Equal(t, "2026-01-15T10:00:00-08:00", ep.EndsAt.Format(time.RFC3339))
 }
 
 // TestParseKEXPEpisode_NoEndTime exercises the list-endpoint shape: KEXP's
@@ -160,6 +165,27 @@ func TestParseKEXPEpisode_NoEndTime(t *testing.T) {
 	assert.Nil(t, ep.DurationMinutes)
 	assert.Nil(t, ep.ArchiveURL,
 		"PSY-813: list endpoint omits archive_url, parser must leave ArchiveURL nil")
+	// PSY-1152: start preserved, but no end_time → EndsAt nil (window unbounded → never live).
+	assert.NotNil(t, ep.StartsAt)
+	assert.Nil(t, ep.EndsAt)
+}
+
+// TestParseKEXPEpisode_EndBeforeStart: a clock-skewed KEXP feed (end < start)
+// must NOT set a backwards window (PSY-1152) — that would violate the DB
+// air-window CHECK and drop the whole episode. The strict end.After(start) guard
+// leaves EndsAt nil (unbounded → aired, never falsely live); StartsAt preserved.
+func TestParseKEXPEpisode_EndBeforeStart(t *testing.T) {
+	show := kexpShow{
+		ID:        4242,
+		StartTime: "2026-01-15T10:00:00-08:00",
+		EndTime:   "2026-01-15T06:00:00-08:00", // 4h before start — clock-skewed
+	}
+
+	ep := parseKEXPEpisode(show, "1")
+
+	require.NotNil(t, ep.StartsAt)
+	assert.Nil(t, ep.EndsAt, "a backwards window must not be persisted")
+	assert.Nil(t, ep.DurationMinutes, "no positive duration from a backwards window")
 }
 
 // =============================================================================
@@ -1626,6 +1652,48 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_DeduplicatesByEx
 	suite.Equal(int64(1), count)
 }
 
+// TestImportEpisode_StampsAndBackfillsWindow verifies AC3 + the PSY-1152
+// re-import backfill: importEpisode persists the frozen window + computed status
+// on create, and re-importing a row that predates window stamping (NULL window)
+// HEALS it rather than skipping past it (the windowless-rows-never-show-live gap).
+func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_StampsAndBackfillsWindow() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	mockProvider := &mockPlaylistProvider{
+		fetchPlaylistFn: func(string) ([]RadioPlayImport, error) { return nil, nil },
+	}
+
+	now := time.Now()
+	start, end := now.Add(-1*time.Hour), now.Add(1*time.Hour) // window contains now → live
+
+	// (1) Create with a window → the frozen window + computed status are persisted.
+	ep := RadioEpisodeImport{ExternalID: "ep-window", ShowExternalID: "42", AirDate: "2026-06-16", StartsAt: &start, EndsAt: &end}
+	_, err := suite.radioService.importEpisode(show.ID, ep, mockProvider)
+	suite.Require().NoError(err)
+
+	var got catalogm.RadioEpisode
+	suite.Require().NoError(suite.db.Where("show_id = ? AND external_id = ?", show.ID, "ep-window").First(&got).Error)
+	suite.Require().NotNil(got.StartsAt, "frozen window persisted at import")
+	suite.Require().NotNil(got.EndsAt)
+	suite.WithinDuration(start, *got.StartsAt, time.Second)
+	suite.Equal(catalogm.RadioEpisodeStatusLive, got.Status, "status snapshot computed at import")
+
+	// (2) A row imported BEFORE window stamping (NULL window) heals on re-import.
+	legacyExtID := "ep-legacy"
+	legacy := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2026-06-15", ExternalID: &legacyExtID}
+	suite.Require().NoError(suite.db.Create(legacy).Error)
+	suite.Require().Nil(legacy.StartsAt)
+
+	reimport := RadioEpisodeImport{ExternalID: "ep-legacy", ShowExternalID: "42", AirDate: "2026-06-15", StartsAt: &start, EndsAt: &end}
+	_, err = suite.radioService.importEpisode(show.ID, reimport, mockProvider)
+	suite.Require().NoError(err)
+
+	var healed catalogm.RadioEpisode
+	suite.Require().NoError(suite.db.First(&healed, legacy.ID).Error)
+	suite.Require().NotNil(healed.StartsAt, "re-import backfills the missing window onto the existing row")
+	suite.Equal(catalogm.RadioEpisodeStatusLive, healed.Status)
+}
+
 // PSY-1119: a FetchPlaylist failure must NOT pass as a clean 0-play success.
 // Before this fix, importEpisode returned an empty EpisodeImportResult on a
 // fetch error, indistinguishable from a legitimately empty playlist — so the
@@ -2089,7 +2157,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_KEXPStableID_Disti
 }
 
 // PSY-1143: A blank/whitespace provider_play_id must NOT make dedup_key COALESCE
-// to '' (which would collide every such play in the episode). sanitizePlay
+// to ” (which would collide every such play in the episode). sanitizePlay
 // normalizes blank → nil so the content-hash branch applies; two distinct plays
 // with blank ids both persist, each with a real content-hash dedup_key.
 func (suite *RadioImportIntegrationTestSuite) TestImportPlays_BlankProviderID_FallsBackToContentHash() {

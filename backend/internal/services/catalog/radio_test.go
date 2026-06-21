@@ -1260,6 +1260,44 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_ArtistPreview() {
 	suite.Equal("Third Artist", preview[2].ArtistName)
 }
 
+// TestGetEpisodes_ComputedStatusFromWindow verifies the service-mapping seam
+// (PSY-1152): GetEpisodes computes episode Status on READ from the frozen window
+// and surfaces starts_at/ends_at. A window containing now → live; a past window
+// → aired; no window → aired (never falsely live — the PSY-1128 fix at the wire).
+func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_ComputedStatusFromWindow() {
+	station := suite.createStation("KWIN")
+	show := suite.createShow(station.ID, "Window Show")
+
+	now := time.Now()
+	pastStart, pastEnd := now.Add(-3*time.Hour), now.Add(-2*time.Hour)
+	liveStart, liveEnd := now.Add(-1*time.Hour), now.Add(1*time.Hour)
+
+	live := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2026-06-03", StartsAt: &liveStart, EndsAt: &liveEnd}
+	windowless := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2026-06-02"}
+	aired := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2026-06-01", StartsAt: &pastStart, EndsAt: &pastEnd}
+	for _, e := range []*catalogm.RadioEpisode{live, windowless, aired} {
+		suite.Require().NoError(suite.db.Create(e).Error)
+	}
+
+	episodes, _, err := suite.radioService.GetEpisodes(show.ID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(episodes, 3)
+
+	// Index by air_date so the assertions don't depend on result ordering.
+	statusByDate := map[string]string{}
+	startsByDate := map[string]*time.Time{}
+	for _, e := range episodes {
+		statusByDate[e.AirDate] = e.Status
+		startsByDate[e.AirDate] = e.StartsAt
+	}
+
+	suite.Equal(catalogm.RadioEpisodeStatusLive, statusByDate["2026-06-03"], "now inside the window → live")
+	suite.NotNil(startsByDate["2026-06-03"], "the frozen window is surfaced on the response")
+	suite.Equal(catalogm.RadioEpisodeStatusAired, statusByDate["2026-06-02"], "no window → aired, never live")
+	suite.Nil(startsByDate["2026-06-02"], "windowless episode has a nil starts_at")
+	suite.Equal(catalogm.RadioEpisodeStatusAired, statusByDate["2026-06-01"], "past window → aired")
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_StrictPerStation() {
 	flagship, sibling, standalone := suite.createNetworkFamily()
 
