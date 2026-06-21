@@ -77,6 +77,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupArtistReportRoutes(rc)
 	setupAdminRoutes(rc)
 	setupPipelineRoutes(rc)
+	setupSourceRoutes(rc)
 	setupContributorProfileRoutes(rc)
 	setupCollectionRoutes(rc)
 	setupRequestRoutes(rc)
