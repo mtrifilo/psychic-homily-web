@@ -354,9 +354,13 @@ func (s *RadioSyncSuite) TestDiscover_WritesRunAndShows() {
 	s.Equal(catalogm.RadioSyncRunStatusSuccess, runs[0].Status)
 	s.Require().NotNil(runs[0].FinishedAt)
 
+	// PSY-1153 create-on-first-episode: discovery NO LONGER persists rows. The two
+	// roster shows come back as NewRosterShows (candidates) and zero radio_shows rows
+	// exist until a first episode is ingested (via the auto-backfill).
+	s.Len(res.Discover.NewRosterShows, 2)
 	var showCount int64
 	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", st.ID).Count(&showCount).Error)
-	s.Equal(int64(2), showCount)
+	s.Equal(int64(0), showCount, "discovery must not persist roster shows")
 }
 
 // Cycle-level Skipped guard: a breaker-open (Skipped) run writes a skipped row but

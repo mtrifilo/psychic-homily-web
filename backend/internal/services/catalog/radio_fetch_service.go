@@ -842,13 +842,12 @@ func (s *RadioFetchService) runDiscoverCycle() {
 	}
 
 	var (
-		totalProcessed   int
-		totalDiscovered  int
-		totalNew         int
-		totalFailed      int
-		totalTransient   int
-		totalSkipped     int // breaker-open or lock-contended no-ops (no discover happened)
-		stationsNotified int
+		totalProcessed  int
+		totalDiscovered int
+		totalNew        int
+		totalFailed     int
+		totalTransient  int
+		totalSkipped    int // breaker-open or lock-contended no-ops (no discover happened)
 	)
 
 	for _, station := range stations {
@@ -916,33 +915,30 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			"error_count", len(disc.Errors),
 		)
 
-		if disc.ShowsNew > 0 && s.discordService != nil {
-			s.discordService.NotifyNewRadioShows(station.Name, disc.NewShowNames)
-			stationsNotified++
-		}
+		// PSY-1153: discovery no longer persists rows or fires the "new shows
+		// discovered" ping — a roster show isn't real until its first episode is
+		// ingested. The auto-backfill below creates the row on first episode and
+		// notifies then (NotifyBackfillCompleted).
 
-		// Kick off the per-station auto-backfill drain in its own goroutine so
-		// the discover cycle returns immediately. Serializes jobs PER STATION
-		// (one at a time) so a 56-show provider burst doesn't fan out into
-		// concurrent provider hits — the existing 1-rps per-instance rate
-		// limiter on each provider handles per-episode pacing.
-		if s.autoBackfillDays > 0 && len(disc.NewShowIDs) > 0 {
-			// GoSafe contains a panic here: this child goroutine escapes the
-			// discover tick's RunTickerLoop guard, which only covers the tick
-			// goroutine itself. autoBackfillStation defers s.wg.Done(), which
-			// runs during unwind before GoSafe's recover, so the WaitGroup
-			// stays balanced even on panic.
-			//
-			// PSY-1135: auto-backfill now runs through RunStationSync(backfill,
-			// auto_backfill), so each newly-discovered show's history is traced in
-			// radio_sync_runs alongside every other ingestion path.
+		// Kick off the per-station auto-backfill drain in its own goroutine so the
+		// discover cycle returns immediately. This is now also the create-on-first
+		// path: for each NewRosterShow it fetches episodes and persists a row only if
+		// the show aired in the window (PSY-1153). Serialized PER STATION (one at a
+		// time) so a roster burst doesn't fan out into concurrent provider hits.
+		//
+		// Coupling note (accepted): auto-backfill IS the only episode-fetch path for a
+		// never-seen roster show, so RADIO_AUTO_BACKFILL_DAYS=0 now means new shows are
+		// never created (no window to detect a first episode). Default 90 is enabled.
+		if s.autoBackfillDays > 0 && len(disc.NewRosterShows) > 0 {
+			// GoSafe contains a panic here: this child goroutine escapes the discover
+			// tick's RunTickerLoop guard. autoBackfillStation defers s.wg.Done(), which
+			// runs during unwind before GoSafe's recover, so the WaitGroup stays balanced.
 			s.wg.Add(1)
 			stationID := station.ID
-			showIDs := disc.NewShowIDs
-			showNames := disc.NewShowNames
+			rosterShows := disc.NewRosterShows
 			stationName := station.Name
 			shared.GoSafe(context.Background(), "radio_auto_backfill", func() {
-				s.autoBackfillStation(stationID, stationName, showIDs, showNames)
+				s.autoBackfillStation(stationID, stationName, rosterShows)
 			})
 		}
 	}
@@ -955,7 +951,6 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		"failures", totalFailed,
 		// PSY-887: same semantics as runFetchCycle — see fetch-cycle log note.
 		"transient_failures_after_retry", totalTransient,
-		"stations_notified", stationsNotified,
 		"duration", time.Since(cycleStart),
 	)
 }
@@ -976,7 +971,7 @@ func (s *RadioFetchService) runDiscoverCycle() {
 // Process lifetime: runAutoBackfillShow cancels the in-flight run on s.stopCh, so
 // a service Stop() unwinds within ~one episode instead of blocking on a full
 // historic import; the loop also checks s.stopCh between shows.
-func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName string, showIDs []uint, showNames []string) {
+func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName string, rosterShows []contracts.RadioRosterShow) {
 	defer s.wg.Done()
 
 	until := time.Now()
@@ -984,18 +979,18 @@ func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName stri
 
 	s.logger.Info("auto_backfill_started",
 		"station", stationName,
-		"shows", len(showIDs),
+		"shows", len(rosterShows),
 		"since", since.Format("2006-01-02"),
 		"until", until.Format("2006-01-02"),
 	)
 
 	var (
-		completedShows []string
-		totalEpisodes  int
-		totalPlays     int
+		createdShows  []string
+		totalEpisodes int
+		totalPlays    int
 	)
 
-	for i, showID := range showIDs {
+	for _, roster := range rosterShows {
 		// Stop cleanly between shows on shutdown.
 		select {
 		case <-s.stopCh:
@@ -1004,8 +999,20 @@ func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName stri
 		default:
 		}
 
-		showName := showNames[i]
+		// PSY-1153 create-on-first-episode: persist the row only if the show has an
+		// episode in the window; an episode-less roster DJ is skipped (no row created).
+		showID, created, err := s.radioService.CreateShowIfHasEpisodes(stationID, roster, since, until)
+		if err != nil {
+			s.logger.Warn("auto_backfill_create_failed", "show", roster.Name, "error", err)
+			continue
+		}
+		if showID == 0 {
+			s.logger.Info("auto_backfill_skipped_no_episodes", "show", roster.Name)
+			continue // no episode in window → no row; the show stays invisible (§9 dec 1)
+		}
 
+		// Row now exists; import its full history through RunStationSync (traced + lock +
+		// breaker + shutdown-cancel) exactly like the pre-PSY-1153 path.
 		res := s.runAutoBackfillShow(stationID, showID, since, until)
 		if res == nil {
 			continue // pre-open failure, already logged
@@ -1015,7 +1022,7 @@ func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName stri
 			if res.LockContended {
 				reason = "sync_already_running"
 			}
-			s.logger.Info("auto_backfill_show_skipped", "show_id", showID, "show", showName, "reason", reason)
+			s.logger.Info("auto_backfill_show_skipped", "show_id", showID, "show", roster.Name, "reason", reason)
 			continue
 		}
 		if res.Status == catalogm.RadioSyncRunStatusCancelled {
@@ -1024,27 +1031,32 @@ func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName stri
 			return
 		}
 
-		// Import is non-nil on success AND partial (partial imported data with some
-		// per-episode noise); nil on a failed run.
+		// Import is non-nil on success AND partial; nil on a failed run.
 		if imp := res.Import; imp != nil {
-			completedShows = append(completedShows, showName)
+			if created {
+				createdShows = append(createdShows, roster.Name)
+			}
 			totalEpisodes += imp.EpisodesImported
 			totalPlays += imp.PlaysMatched
 		} else {
 			s.logger.Warn("auto_backfill_show_did_not_complete",
-				"show_id", showID, "show", showName, "status", res.Status)
+				"show_id", showID, "show", roster.Name, "status", res.Status)
 		}
 	}
 
 	s.logger.Info("auto_backfill_finished",
 		"station", stationName,
-		"completed", len(completedShows),
+		"created", len(createdShows),
 		"episodes_imported", totalEpisodes,
 		"plays_matched", totalPlays,
 	)
 
-	if s.discordService != nil && len(completedShows) > 0 {
-		s.discordService.NotifyBackfillCompleted(stationName, completedShows, totalEpisodes, totalPlays)
+	// Notify on shows that were actually CREATED (have a first episode) — under
+	// create-on-first-episode this is the "a new show is now real" event (PSY-1153),
+	// replacing the discover-time "new shows discovered" ping that fired before a row
+	// was guaranteed to exist.
+	if s.discordService != nil && len(createdShows) > 0 {
+		s.discordService.NotifyBackfillCompleted(stationName, createdShows, totalEpisodes, totalPlays)
 	}
 }
 

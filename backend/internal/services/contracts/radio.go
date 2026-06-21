@@ -569,20 +569,35 @@ type RadioRunError struct {
 	EpisodeRef *string `json:"episode_ref,omitempty"`
 }
 
+// RadioRosterShow is a provider-roster show that discovery saw but did NOT persist
+// (PSY-1153 create-on-first-episode): a radio_shows row is created only once the
+// show's first episode is successfully ingested, so discovery returns the roster
+// metadata for the auto-backfill to create-on-first. Mirrors the catalog-layer
+// RadioShowImport (kept here so the contracts layer doesn't import the service layer).
+type RadioRosterShow struct {
+	ExternalID  string  `json:"external_id"`
+	Name        string  `json:"name"`
+	HostName    *string `json:"host_name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	ImageURL    *string `json:"image_url,omitempty"`
+	ArchiveURL  *string `json:"archive_url,omitempty"`
+}
+
 // RadioDiscoverResult summarizes the result of discovering shows for a station.
-// ShowsDiscovered + ShowNames count every show the provider returned
-// (idempotent upserts included). ShowsNew + NewShowNames count only the rows
-// that didn't previously exist — callers use this delta to drive notifications
-// on actually-new shows, not on every cycle. NewShowIDs is parallel to
-// NewShowNames (same length, same order); the discover orchestrator uses the
-// IDs to enqueue auto-backfill import jobs.
+// ShowsDiscovered + ShowNames count every show the provider returned. ShowsNew +
+// NewShowNames count the roster shows that did NOT already have a row.
+//
+// PSY-1153: discovery no longer persists rows. NewRosterShows carries the not-yet-
+// persisted new shows (external_id + metadata) so the auto-backfill creates a row
+// only when the show's first episode is ingested. ShowsNew is therefore a count of
+// new-show *candidates*, not rows created — the actual creation happens downstream.
 type RadioDiscoverResult struct {
-	ShowsDiscovered int      `json:"shows_discovered"`
-	ShowNames       []string `json:"show_names"`
-	ShowsNew        int      `json:"shows_new"`
-	NewShowNames    []string `json:"new_show_names"`
-	NewShowIDs      []uint   `json:"new_show_ids"`
-	Errors          []string `json:"errors,omitempty"`
+	ShowsDiscovered int               `json:"shows_discovered"`
+	ShowNames       []string          `json:"show_names"`
+	ShowsNew        int               `json:"shows_new"`
+	NewShowNames    []string          `json:"new_show_names"`
+	NewRosterShows  []RadioRosterShow `json:"new_roster_shows"`
+	Errors          []string          `json:"errors,omitempty"`
 }
 
 // EpisodeImportResult summarizes the result of importing a single episode's playlist.
