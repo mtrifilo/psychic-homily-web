@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import {
   normalizeForComparison,
   similarityScore,
@@ -6,7 +6,9 @@ import {
   classifyAction,
   classifyMatch,
   showDedupWindow,
+  checkDuplicate,
 } from "../src/lib/duplicates";
+import type { APIClient } from "../src/lib/api";
 
 describe("showDedupWindow", () => {
   // Regression guard: shows are stored at venue-local 20:00 → UTC, which for
@@ -378,5 +380,163 @@ describe("classifyMatch", () => {
     expect(classifyMatch(0.5)).toBe("none");
     expect(classifyMatch(0.0)).toBe("none");
     expect(classifyMatch(0.59)).toBe("none");
+  });
+});
+
+// -- checkDuplicate: link enrichment on re-ingest (PSY-1171) ------------------
+//
+// The artist/venue search endpoints return the full *DetailResponse, which nests
+// the link fields (website + socials) under `social`. These guard that dedup
+// reads them from there and aligns to the canonical field names the
+// create/update path uses (`bandcamp`, not `bandcamp_url`). Without the fix, a
+// re-ingest never enriches an existing entity's links: the comparison read empty
+// top-level values and the proposed entity's `bandcamp` never matched the
+// `bandcamp_url` the field list asked for, so no link ever surfaced as new_info.
+
+/** Minimal APIClient mock that answers a single search path. */
+function mockSearchClient(path: string, payload: unknown): APIClient {
+  return {
+    get: mock((p: string) =>
+      p === path ? Promise.resolve(payload) : Promise.resolve({}),
+    ),
+  } as unknown as APIClient;
+}
+
+describe("checkDuplicate — link enrichment (PSY-1171)", () => {
+  test("artist: a new bandcamp on an existing artist surfaces as new_info under the canonical key", async () => {
+    const client = mockSearchClient("/artists/search", {
+      artists: [
+        { id: 10, name: "Nina Hagen", slug: "nina-hagen", city: "Berlin", social: {} },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "artist", {
+      name: "Nina Hagen",
+      bandcamp: "https://ninahagen.bandcamp.com",
+    });
+
+    expect(result.action).toBe("update");
+    const bandcamp = result.fields.find((f) => f.field === "bandcamp");
+    expect(bandcamp?.status).toBe("new_info");
+    expect(bandcamp?.proposed).toBe("https://ninahagen.bandcamp.com");
+    // The legacy *_url key must never appear — the proposed entity uses `bandcamp`.
+    expect(result.fields.find((f) => f.field === "bandcamp_url")).toBeUndefined();
+  });
+
+  test("artist: re-ingesting the same nested-social bandcamp skips (no spurious update)", async () => {
+    const client = mockSearchClient("/artists/search", {
+      artists: [
+        {
+          id: 10,
+          name: "Nina Hagen",
+          slug: "nina-hagen",
+          city: "Berlin",
+          social: { bandcamp: "https://ninahagen.bandcamp.com" },
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "artist", {
+      name: "Nina Hagen",
+      city: "Berlin",
+      bandcamp: "https://ninahagen.bandcamp.com",
+    });
+
+    expect(result.action).toBe("skip");
+    expect(result.fields.find((f) => f.field === "bandcamp")?.status).toBe("unchanged");
+  });
+
+  test("artist: an existing different bandcamp is left alone (already_set → no update)", async () => {
+    const client = mockSearchClient("/artists/search", {
+      artists: [
+        {
+          id: 10,
+          name: "Nina Hagen",
+          slug: "nina-hagen",
+          social: { bandcamp: "https://old.bandcamp.com" },
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "artist", {
+      name: "Nina Hagen",
+      bandcamp: "https://new.bandcamp.com",
+    });
+
+    expect(result.action).toBe("skip");
+    expect(result.fields.find((f) => f.field === "bandcamp")?.status).toBe("already_set");
+  });
+
+  test("artist: every social flattens from nested `social`, not the top level", async () => {
+    const client = mockSearchClient("/artists/search", {
+      artists: [
+        {
+          id: 10,
+          name: "Nina Hagen",
+          slug: "nina-hagen",
+          social: { instagram: "@nina", soundcloud: "https://soundcloud.com/nina" },
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "artist", {
+      name: "Nina Hagen",
+      instagram: "@nina", // unchanged
+      youtube: "https://youtube.com/nina", // new
+    });
+
+    expect(result.fields.find((f) => f.field === "instagram")?.status).toBe("unchanged");
+    expect(result.fields.find((f) => f.field === "youtube")?.status).toBe("new_info");
+    expect(result.action).toBe("update");
+  });
+
+  test("venue: a new instagram on an existing venue is detected from nested `social`", async () => {
+    const client = mockSearchClient("/venues/search", {
+      venues: [
+        {
+          id: 42,
+          name: "Crescent Ballroom",
+          slug: "crescent-ballroom",
+          city: "Phoenix",
+          state: "AZ",
+          social: {},
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "venue", {
+      name: "Crescent Ballroom",
+      city: "Phoenix",
+      state: "AZ",
+      instagram: "@crescentphx",
+    });
+
+    expect(result.action).toBe("update");
+    expect(result.fields.find((f) => f.field === "instagram")?.status).toBe("new_info");
+  });
+
+  test("venue: re-ingesting the same nested-social website skips", async () => {
+    const client = mockSearchClient("/venues/search", {
+      venues: [
+        {
+          id: 42,
+          name: "Crescent Ballroom",
+          slug: "crescent-ballroom",
+          city: "Phoenix",
+          state: "AZ",
+          social: { website: "https://crescentphx.com" },
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "venue", {
+      name: "Crescent Ballroom",
+      city: "Phoenix",
+      state: "AZ",
+      website: "https://crescentphx.com",
+    });
+
+    expect(result.action).toBe("skip");
+    expect(result.fields.find((f) => f.field === "website")?.status).toBe("unchanged");
   });
 });

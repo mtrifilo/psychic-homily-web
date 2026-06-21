@@ -278,9 +278,13 @@ export function classifyMatch(confidence: number): MatchResult {
 
 // -- Entity-specific field lists for comparison --
 
+// Canonical field names matching the create/update path (submit-artist.ts
+// artistApiFields) — these names double as PATCH body keys via buildUpdateBody,
+// so they MUST be the flat API names (bandcamp, not bandcamp_url). PSY-1171.
 const ARTIST_FIELDS = [
-  "name", "city", "state", "country", "website", "bandcamp_url",
-  "spotify_url", "instagram_url", "description",
+  "name", "city", "state", "country", "description",
+  "website", "bandcamp", "spotify", "instagram",
+  "facebook", "twitter", "youtube", "soundcloud",
 ];
 
 const VENUE_FIELDS = [
@@ -333,6 +337,12 @@ async function searchArtists(
   client: APIClient,
   name: string,
 ): Promise<EntitySearchResult[]> {
+  // /artists/search returns the full ArtistDetailResponse, which nests the link
+  // fields (website + socials) under `social`. Flatten them to the canonical
+  // top-level names the create/update path uses so dedup compares real existing
+  // values instead of always reading empty — which previously suppressed link
+  // enrichment on re-ingest (the field names also never matched: ARTIST_FIELDS
+  // asked for bandcamp_url while the proposed entity carries bandcamp). PSY-1171.
   const result = await client.get<{
     artists: Array<{
       id: number;
@@ -341,11 +351,17 @@ async function searchArtists(
       city?: string;
       state?: string;
       country?: string;
-      website?: string;
-      bandcamp_url?: string;
-      spotify_url?: string;
-      instagram_url?: string;
       description?: string;
+      social?: {
+        website?: string;
+        bandcamp?: string;
+        spotify?: string;
+        instagram?: string;
+        facebook?: string;
+        twitter?: string;
+        youtube?: string;
+        soundcloud?: string;
+      };
     }>;
   }>("/artists/search", { q: name });
 
@@ -356,11 +372,15 @@ async function searchArtists(
     city: a.city || "",
     state: a.state || "",
     country: a.country || "",
-    website: a.website || "",
-    bandcamp_url: a.bandcamp_url || "",
-    spotify_url: a.spotify_url || "",
-    instagram_url: a.instagram_url || "",
     description: a.description || "",
+    website: a.social?.website || "",
+    bandcamp: a.social?.bandcamp || "",
+    spotify: a.social?.spotify || "",
+    instagram: a.social?.instagram || "",
+    facebook: a.social?.facebook || "",
+    twitter: a.social?.twitter || "",
+    youtube: a.social?.youtube || "",
+    soundcloud: a.social?.soundcloud || "",
   }));
 }
 
@@ -368,6 +388,14 @@ async function searchVenues(
   client: APIClient,
   name: string,
 ): Promise<EntitySearchResult[]> {
+  // /venues/search returns the full VenueDetailResponse, which nests the link
+  // fields (website + socials) under `social`. Flatten them to the canonical
+  // top-level names the create/update path uses so dedup compares real existing
+  // values instead of always reading empty (which suppressed link enrichment on
+  // re-ingest). Mirrors the artist fix above. PSY-1171.
+  // NOTE: capacity is absent from this response and address/zipcode are hidden
+  // for unverified venues, so those non-link fields still can't be compared —
+  // tracked as a separate follow-up.
   const result = await client.get<{
     venues: Array<{
       id: number;
@@ -378,9 +406,18 @@ async function searchVenues(
       country?: string;
       address?: string;
       zip_code?: string;
-      website?: string;
       capacity?: number;
       description?: string;
+      social?: {
+        website?: string;
+        bandcamp?: string;
+        spotify?: string;
+        instagram?: string;
+        facebook?: string;
+        twitter?: string;
+        youtube?: string;
+        soundcloud?: string;
+      };
     }>;
   }>("/venues/search", { q: name });
 
@@ -393,9 +430,16 @@ async function searchVenues(
     country: v.country || "",
     address: v.address || "",
     zip_code: v.zip_code || "",
-    website: v.website || "",
     capacity: v.capacity ? String(v.capacity) : "",
     description: v.description || "",
+    website: v.social?.website || "",
+    bandcamp: v.social?.bandcamp || "",
+    spotify: v.social?.spotify || "",
+    instagram: v.social?.instagram || "",
+    facebook: v.social?.facebook || "",
+    twitter: v.social?.twitter || "",
+    youtube: v.social?.youtube || "",
+    soundcloud: v.social?.soundcloud || "",
   }));
 }
 

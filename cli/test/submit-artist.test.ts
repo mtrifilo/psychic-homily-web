@@ -96,7 +96,7 @@ describe("buildUpdateBody", () => {
         status: "new_info" as const,
       },
       {
-        field: "bandcamp_url",
+        field: "bandcamp",
         existing: "",
         proposed: "https://test.bandcamp.com",
         status: "new_info" as const,
@@ -106,7 +106,7 @@ describe("buildUpdateBody", () => {
     const body = buildUpdateBody(fields);
     expect(body).toEqual({
       city: "Phoenix",
-      bandcamp_url: "https://test.bandcamp.com",
+      bandcamp: "https://test.bandcamp.com",
     });
   });
 });
@@ -219,6 +219,8 @@ describe("submitArtists", () => {
   test("single artist update — duplicate found with new info", async () => {
     const patchFn = mock(() => Promise.resolve({}));
     const client = createMockClient({
+      // /artists/search returns the full ArtistDetailResponse: link fields are
+      // nested under `social` (PSY-1171), not top-level *_url keys.
       get: mock(() =>
         Promise.resolve({
           artists: [
@@ -229,11 +231,8 @@ describe("submitArtists", () => {
               city: "",
               state: "",
               country: "",
-              website: "",
-              bandcamp_url: "",
-              spotify_url: "",
-              instagram_url: "",
               description: "",
+              social: {},
             },
           ],
         }),
@@ -245,7 +244,7 @@ describe("submitArtists", () => {
       {
         name: "Nina Hagen",
         city: "Berlin",
-        bandcamp_url: "https://ninahagen.bandcamp.com",
+        bandcamp: "https://ninahagen.bandcamp.com",
       },
     ];
     const results = await submitArtists(client, artists, { confirm: true });
@@ -255,11 +254,15 @@ describe("submitArtists", () => {
     expect(results[0].id).toBe(10);
     expect(patchFn).toHaveBeenCalledTimes(1);
 
-    // Verify that only new_info fields were sent
+    // Only new_info fields are sent, keyed by the canonical API name (`bandcamp`,
+    // not `bandcamp_url`) so the backend actually persists the link.
     const patchCall = patchFn.mock.calls[0] as unknown as [string, Record<string, string>];
+    const patchPath = patchCall[0];
     const patchBody = patchCall[1];
+    expect(patchPath).toBe("/admin/artists/10");
     expect(patchBody.city).toBe("Berlin");
-    expect(patchBody.bandcamp_url).toBe("https://ninahagen.bandcamp.com");
+    expect(patchBody.bandcamp).toBe("https://ninahagen.bandcamp.com");
+    expect(patchBody.bandcamp_url).toBeUndefined();
     expect(patchBody.name).toBeUndefined(); // name is unchanged, not new_info
   });
 
@@ -277,11 +280,8 @@ describe("submitArtists", () => {
               city: "Berlin",
               state: "",
               country: "",
-              website: "",
-              bandcamp_url: "",
-              spotify_url: "",
-              instagram_url: "",
               description: "",
+              social: {},
             },
           ],
         }),
@@ -317,11 +317,8 @@ describe("submitArtists", () => {
               city: "",
               state: "",
               country: "",
-              website: "",
-              bandcamp_url: "",
-              spotify_url: "",
-              instagram_url: "",
               description: "",
+              social: {},
             },
           ],
         });
@@ -336,11 +333,8 @@ describe("submitArtists", () => {
               city: "Phoenix",
               state: "AZ",
               country: "US",
-              website: "https://complete.com",
-              bandcamp_url: "",
-              spotify_url: "",
-              instagram_url: "",
               description: "",
+              social: { website: "https://complete.com" },
             },
           ],
         });
@@ -449,11 +443,8 @@ describe("submitArtists", () => {
               city: "",
               state: "",
               country: "",
-              website: "",
-              bandcamp_url: "",
-              spotify_url: "",
-              instagram_url: "",
               description: "",
+              social: {},
             },
           ],
         }),
