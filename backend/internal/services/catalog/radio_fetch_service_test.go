@@ -170,6 +170,55 @@ func TestRadioFetchService_AutoBackfillDays_NegativeFallsBackToDefault(t *testin
 	}
 }
 
+// PSY-1154: RADIO_BACKFILL_INTERVAL_HOURS / RADIO_BACKFILL_LOOKBACK_DAYS env vars.
+func TestRadioFetchService_BackfillInterval_Default(t *testing.T) {
+	t.Setenv("RADIO_BACKFILL_INTERVAL_HOURS", "")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.backfillInterval != DefaultBackfillInterval {
+		t.Fatalf("expected default %v, got %v", DefaultBackfillInterval, svc.backfillInterval)
+	}
+}
+
+func TestRadioFetchService_BackfillInterval_EnvOverride(t *testing.T) {
+	t.Setenv("RADIO_BACKFILL_INTERVAL_HOURS", "3")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.backfillInterval != 3*time.Hour {
+		t.Fatalf("expected 3h backfill interval, got %v", svc.backfillInterval)
+	}
+}
+
+func TestRadioFetchService_BackfillLookbackDays_Default(t *testing.T) {
+	t.Setenv("RADIO_BACKFILL_LOOKBACK_DAYS", "")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.backfillLookbackDays != DefaultBackfillLookbackDays {
+		t.Fatalf("expected default %d, got %d", DefaultBackfillLookbackDays, svc.backfillLookbackDays)
+	}
+}
+
+func TestRadioFetchService_BackfillLookbackDays_EnvOverride(t *testing.T) {
+	t.Setenv("RADIO_BACKFILL_LOOKBACK_DAYS", "14")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.backfillLookbackDays != 14 {
+		t.Fatalf("expected 14, got %d", svc.backfillLookbackDays)
+	}
+}
+
+func TestRadioFetchService_BackfillLookbackDays_DisableViaZero(t *testing.T) {
+	t.Setenv("RADIO_BACKFILL_LOOKBACK_DAYS", "0")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.backfillLookbackDays != 0 {
+		t.Fatalf("expected 0 (disabled), got %d", svc.backfillLookbackDays)
+	}
+}
+
+func TestRadioFetchService_BackfillLookbackDays_NegativeFallsBackToDefault(t *testing.T) {
+	t.Setenv("RADIO_BACKFILL_LOOKBACK_DAYS", "-3")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.backfillLookbackDays != DefaultBackfillLookbackDays {
+		t.Fatalf("negative value should fall back to default %d, got %d", DefaultBackfillLookbackDays, svc.backfillLookbackDays)
+	}
+}
+
 // =============================================================================
 // PSY-887: error classification + transient retry tests
 // =============================================================================
