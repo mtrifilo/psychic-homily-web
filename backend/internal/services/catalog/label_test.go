@@ -252,6 +252,36 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_All() {
 	suite.Equal("Charlie Records", resp[2].Name)
 }
 
+func (suite *LabelServiceIntegrationTestSuite) TestListLabels_IncludesDedupFields() {
+	country := "US"
+	website := "https://sacredbonesrecords.com"
+	bandcamp := "https://sacredbones.bandcamp.com"
+	desc := "Brooklyn label"
+	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{
+		Name:        "Sacred Bones",
+		Country:     &country,
+		Website:     &website,
+		Bandcamp:    &bandcamp,
+		Description: &desc,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.labelService.ListLabels(map[string]interface{}{})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	// PSY-1157: the dedup-relevant fields must round-trip through the list
+	// response so the CLI doesn't read them as always-empty (which previously
+	// forced a spurious UPDATE on every re-ingest).
+	suite.Require().NotNil(resp[0].Country)
+	suite.Equal("US", *resp[0].Country)
+	suite.Require().NotNil(resp[0].Website)
+	suite.Equal(website, *resp[0].Website)
+	suite.Require().NotNil(resp[0].Bandcamp)
+	suite.Equal(bandcamp, *resp[0].Bandcamp)
+	suite.Require().NotNil(resp[0].Description)
+	suite.Equal(desc, *resp[0].Description)
+}
+
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByStatus() {
 	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
 	suite.Require().NoError(err)

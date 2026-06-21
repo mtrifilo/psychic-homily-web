@@ -65,13 +65,22 @@ type LabelDetailResponse struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
-// LabelListResponse represents a label in list views
+// LabelListResponse represents a label in list views.
+//
+// Carries the dedup-relevant identity fields (country, website, bandcamp,
+// description) so the `ph` CLI can compare them against proposed values and
+// avoid spurious UPDATEs on re-ingest (PSY-1157). website/bandcamp live under
+// the model's embedded Social struct; they're flattened here.
 type LabelListResponse struct {
 	ID           uint    `json:"id"`
 	Name         string  `json:"name"`
 	Slug         string  `json:"slug"`
 	City         *string `json:"city"`
 	State        *string `json:"state"`
+	Country      *string `json:"country"`
+	Website      *string `json:"website"`
+	Bandcamp     *string `json:"bandcamp"`
+	Description  *string `json:"description"`
 	Status       string  `json:"status"`
 	ArtistCount  int     `json:"artist_count"`
 	ReleaseCount int     `json:"release_count"`
