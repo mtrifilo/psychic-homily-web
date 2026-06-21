@@ -7,8 +7,10 @@ import {
   classifyMatch,
   showDedupWindow,
   checkDuplicate,
+  getFieldsForType,
 } from "../src/lib/duplicates";
 import type { APIClient } from "../src/lib/api";
+import type { EntityType } from "../src/lib/types";
 
 describe("showDedupWindow", () => {
   // Regression guard: shows are stored at venue-local 20:00 → UTC, which for
@@ -539,4 +541,62 @@ describe("checkDuplicate — link enrichment (PSY-1171)", () => {
     expect(result.action).toBe("skip");
     expect(result.fields.find((f) => f.field === "website")?.status).toBe("unchanged");
   });
+});
+
+// -- Symmetry guard: every compared field must be populated by the search mapper
+//
+// The whole bug class PSY-1171 addresses is a field that's in the comparison
+// list (*_FIELDS) but NOT mapped by the search function — it then reads empty
+// for every existing entity, so any proposed value looks like new_info and
+// forces a spurious UPDATE on every re-ingest. This asserts the invariant
+// behaviorally: a fully-populated re-ingest whose proposed values exactly match
+// the existing entity must be a PURE SKIP (zero new_info). If a *_FIELDS entry
+// isn't mapped by its searchX, its existing value reads empty → new_info → the
+// test fails.
+//
+// Crucially, both sides are DERIVED from getFieldsForType() rather than
+// hardcoded — so adding a field to a *_FIELDS list without mapping it in searchX
+// makes this fail automatically. The existing entity sets each value at BOTH the
+// top level and under nested `social`, so whichever location the mapper reads
+// (links are nested; the rest are flat), it finds the value. Covers all five
+// non-`show` entity types so release/festival are guarded too.
+
+const ENTITY_SEARCH: Record<
+  Exclude<EntityType, "show">,
+  { path: string; key: string }
+> = {
+  artist: { path: "/artists/search", key: "artists" },
+  venue: { path: "/venues/search", key: "venues" },
+  label: { path: "/labels", key: "labels" },
+  release: { path: "/releases", key: "releases" },
+  festival: { path: "/festivals", key: "festivals" },
+};
+
+describe("checkDuplicate — fully-populated re-ingest is a pure skip (field-list ⊆ search mapping)", () => {
+  for (const [type, cfg] of Object.entries(ENTITY_SEARCH)) {
+    test(`${type}: identical values across every compared field → skip, no phantom new_info`, async () => {
+      const fields = getFieldsForType(type as EntityType);
+      const valueFor = (f: string) => `val-${f}`;
+
+      // Existing entity exactly as the search response returns it: every field
+      // set both top-level and under nested `social` so any mapper finds it.
+      const social: Record<string, string> = {};
+      const existing: Record<string, unknown> = { id: 1, slug: "fixture" };
+      for (const f of fields) {
+        existing[f] = valueFor(f);
+        social[f] = valueFor(f);
+      }
+      existing.social = social;
+
+      // Proposed entity carries the identical values, derived from the same list.
+      const proposed: Record<string, unknown> = {};
+      for (const f of fields) proposed[f] = valueFor(f);
+
+      const client = mockSearchClient(cfg.path, { [cfg.key]: [existing] });
+      const result = await checkDuplicate(client, type as EntityType, proposed);
+
+      expect(result.action).toBe("skip");
+      expect(result.fields.filter((f) => f.status === "new_info")).toEqual([]);
+    });
+  }
 });

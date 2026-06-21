@@ -287,11 +287,17 @@ const ARTIST_FIELDS = [
   "facebook", "twitter", "youtube", "soundcloud",
 ];
 
+// Mirrors ARTIST_FIELDS: only fields searchVenues can populate from the
+// /venues/search response are compared. address/zipcode/capacity are
+// deliberately excluded — capacity has no backend column at all, the response
+// key is `zipcode` (never `zip_code`), and address/zipcode are hidden for
+// unverified venues — so comparing any of them reads empty and forces a
+// spurious UPDATE on every re-ingest. Restoring them correctly (verified-gated,
+// plus a capacity column) is tracked in PSY-1179. PSY-1171.
 const VENUE_FIELDS = [
-  "name", "city", "state", "country", "address", "zip_code",
-  "zipcode", "website", "capacity", "description",
-  "instagram", "facebook", "twitter", "youtube",
-  "spotify", "soundcloud", "bandcamp",
+  "name", "city", "state", "country", "description",
+  "website", "bandcamp", "spotify", "instagram",
+  "facebook", "twitter", "youtube", "soundcloud",
 ];
 
 const RELEASE_FIELDS = [
@@ -299,11 +305,14 @@ const RELEASE_FIELDS = [
   "bandcamp_url", "spotify_url", "description",
 ];
 
+// Only fields searchLabels maps from the /labels list response are compared.
+// founded_year/status and the non-website/bandcamp socials are excluded: the
+// LabelListResponse (PSY-1157) carries only website + bandcamp, so comparing the
+// others reads empty and forces a spurious UPDATE every re-ingest. Enriching
+// label socials needs the list response widened first — tracked in PSY-1179,
+// matching the venue treatment above. PSY-1171.
 const LABEL_FIELDS = [
-  "name", "city", "state", "country", "website", "description",
-  "bandcamp", "founded_year", "status",
-  "instagram", "facebook", "twitter", "youtube",
-  "spotify", "soundcloud",
+  "name", "city", "state", "country", "website", "bandcamp", "description",
 ];
 
 const FESTIVAL_FIELDS = [
@@ -311,8 +320,9 @@ const FESTIVAL_FIELDS = [
   "city", "state", "country", "website", "description",
 ];
 
-/** Get the comparable fields for a given entity type. */
-function getFieldsForType(entityType: EntityType): string[] {
+/** Get the comparable fields for a given entity type. Exported so tests can
+ * assert the field-list ⊆ search-mapper invariant without hardcoding the set. */
+export function getFieldsForType(entityType: EntityType): string[] {
   switch (entityType) {
     case "artist": return ARTIST_FIELDS;
     case "venue": return VENUE_FIELDS;
@@ -393,9 +403,8 @@ async function searchVenues(
   // top-level names the create/update path uses so dedup compares real existing
   // values instead of always reading empty (which suppressed link enrichment on
   // re-ingest). Mirrors the artist fix above. PSY-1171.
-  // NOTE: capacity is absent from this response and address/zipcode are hidden
-  // for unverified venues, so those non-link fields still can't be compared —
-  // tracked as a separate follow-up.
+  // Only the fields in VENUE_FIELDS are mapped; address/zipcode/capacity are
+  // deliberately omitted (see VENUE_FIELDS for why).
   const result = await client.get<{
     venues: Array<{
       id: number;
@@ -404,9 +413,6 @@ async function searchVenues(
       city: string;
       state: string;
       country?: string;
-      address?: string;
-      zip_code?: string;
-      capacity?: number;
       description?: string;
       social?: {
         website?: string;
@@ -428,9 +434,6 @@ async function searchVenues(
     city: v.city,
     state: v.state,
     country: v.country || "",
-    address: v.address || "",
-    zip_code: v.zip_code || "",
-    capacity: v.capacity ? String(v.capacity) : "",
     description: v.description || "",
     website: v.social?.website || "",
     bandcamp: v.social?.bandcamp || "",
