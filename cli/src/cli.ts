@@ -16,6 +16,7 @@ import { runBatch } from "./commands/batch";
 import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
+import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
 
 const program = new Command();
 
@@ -127,6 +128,39 @@ program
   .action(async (file: string, opts: { confirm?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runBatch(file, env, !!opts.confirm);
+  });
+
+// ─── ph sources ──────────────────────────────────────────────────────────────
+
+const sourcesCmd = program
+  .command("sources")
+  .description("Manage the source-config registry (stale-first roster/calendar refresh)");
+
+sourcesCmd
+  .command("stale")
+  .description("List registered sources, stalest first (never-refreshed first)")
+  .option("--limit <n>", "Max rows to return")
+  .option("--max-failures <n>", "Exclude sources at or over this consecutive-failure count")
+  .action(async (opts: { limit?: string; maxFailures?: string }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runSourcesStale(env, { limit: opts.limit, maxFailures: opts.maxFailures });
+  });
+
+sourcesCmd
+  .command("register <entity-type> <entity-id> [source-url]")
+  .description("Register or update a source (venue|label) for refresh tracking")
+  .action(async (entityType: string, entityId: string, sourceUrl: string | undefined) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runSourcesRegister(entityType, entityId, sourceUrl, env);
+  });
+
+sourcesCmd
+  .command("refresh <entity-type> <entity-id>")
+  .description("Stamp a successful refresh (sets last_refreshed_at, resets failures)")
+  .option("--content-hash <hash>", "Optional content hash for change detection")
+  .action(async (entityType: string, entityId: string, opts: { contentHash?: string }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runSourcesRefresh(entityType, entityId, env, { contentHash: opts.contentHash });
   });
 
 // ─── ph festival ─────────────────────────────────────────────────────────────
