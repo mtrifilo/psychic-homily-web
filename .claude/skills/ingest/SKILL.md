@@ -216,8 +216,8 @@ For keeping a venue's whole calendar current (re-run every few weeks). Proven on
 
 ### Invoking (what the user types)
 
-- **Add a new venue:** `/ingest <env> — add a new venue from its events page: <URL>. Run the venue events-page workflow: extract all upcoming months, music concerts only, correct city/state, dry-run + both QA scans, pause for my OK, then write and add a registry row.`
-- **Refresh an existing venue:** `/ingest <env> — refresh <venue name>'s listings using its registry row below. Re-scrape all upcoming months, dry-run (idempotent → only new shows), both QA scans, my OK, then write.`
+- **Add a new venue:** `/ingest <env> — add a new venue from its events page: <URL>. Run the venue events-page workflow: extract all upcoming months, music concerts only, correct city/state, dry-run + both QA scans, pause for my OK, then write, add a registry row, AND register it in the source registry so it joins stale-first refresh.`
+- **Refresh an existing venue:** `/ingest <env> — refresh <venue name>'s listings using its registry row below. Re-scrape all upcoming months, dry-run (idempotent → only new shows), both QA scans, my OK, then write and stamp the refresh.`
 
 Either way: always dry-run + the two QA scans (step 6) and get explicit confirmation before `--confirm`.
 
@@ -230,6 +230,13 @@ Either way: always dry-run + the two QA scans (step 6) and get explicit confirma
 5. **Transform programmatically** (never hand-transcribe hundreds of rows) — start from the **skeleton + shared rulesets below**. Apply the room→city/state map, the shared music-only **exclusion** + **headliner-cleaning** rulesets, parse headliner + supports, emit `/tmp/ph-ingest.json`. **Keep co-billed headliners as a single entity** ("X and Y") rather than auto-splitting `and`/`&` (would break real names like "Amyl and The Sniffers"); list them for a manual split pass afterward.
 6. **Dry-run + two QA scans.** `ph batch --env <env> /tmp/ph-ingest.json`. (a) **Artist-skip scan** — check the skip list for fuzzy false-positives (0.6 batch threshold — Casket Cassette / Automatic; pre-create the distinct artist via `POST /admin/artists` so its 1.0 exact match wins). (b) **Headliner sanity scan** — grep kept headliners for leaked presenter/billing tokens: `/presents|present:|featuring| with |aftershow| pass$|hosted by|celebrates| w\/?$/i`. Any hit = the cleaning missed a presenter/theme line (this caught ~20 garbled Empty Bottle entries) → fix the transform and re-run.
 7. **Confirm + ingest.** A 0-show or garbage result means the site changed → re-inspect (steps 1–3). Confirm counts are non-zero and plausible, then `--confirm`. Clean up scratch files.
+8. **Register + stamp for stale-first refresh** (so the venue auto-joins the `ph sources stale` worklist — this is what makes "add a new venue" one step). Resolve the id, register the calendar URL once, and stamp this run:
+   ```bash
+   bun run src/entry.ts --env <env> search venue "<name>"                 # -> id
+   bun run src/entry.ts --env <env> sources register venue <id> "<events_url>"
+   bun run src/entry.ts --env <env> sources refresh venue <id>            # stamp last_refreshed_at
+   ```
+   Multi-room org (one calendar → several venues): register each venue the ingest created shows for, all pointing at the shared URL, and stamp each. On a **refresh** of an already-registered venue, skip `register` — just `sources refresh`.
 
 Manual fix-ups via API: rename an artist `PATCH /admin/artists/{id} {"name":...}`; re-link a show's artists `PUT /shows/{id} {"artists":[{"id","is_headliner"}]}`; create one `POST /admin/artists {"name":...}` (exact find-or-create); delete an orphan (0-show) artist `DELETE /artists/{id}`. (Admin token required.)
 
