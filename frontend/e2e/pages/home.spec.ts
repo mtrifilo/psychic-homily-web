@@ -9,10 +9,14 @@ test.describe('Homepage', () => {
     // "Arizona Music Community").
     await expect(page).toHaveTitle(/Psychic Homily/)
 
-    // Discovery hero (PSY-389)
+    // Discovery hero (PSY-389; PSY-1137 animated wordmark). The <h1> is now the
+    // "Psychic Homily" wordmark (an sr-only heading backs the decorative canvas
+    // for SEO/a11y); "This is not a mirage." moved to a supporting tagline and is
+    // no longer a heading.
     await expect(
-      page.getByRole('heading', { name: 'This is not a mirage.' })
+      page.getByRole('heading', { name: 'Psychic Homily', level: 1 })
     ).toBeVisible()
+    await expect(page.getByText('This is not a mirage.')).toBeVisible()
 
     // "Upcoming shows" section heading
     await expect(

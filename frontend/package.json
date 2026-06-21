@@ -57,6 +57,7 @@
     "recharts": "^3.8.0",
     "tailwind-merge": "^3.4.0",
     "use-debounce": "^10.0.6",
+    "webgl-fluid": "^0.4.0",
     "zod": "^4.1.13"
   },
   "devDependencies": {
