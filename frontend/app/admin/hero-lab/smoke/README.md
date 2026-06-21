@@ -1,9 +1,10 @@
-# /admin/hero-lab — dev comparison page (PSY-1137)
+# /admin/hero-lab/smoke — spotlight + stage-smoke comparison (PSY-1137)
 
 **Admin-only dev tool** (gated by `AdminGuard` via the `/admin` layout — not a
-user-facing surface). A scratch route for comparing hero-wordmark treatments;
-delete if the exploration is abandoned. Full rationale + decisions:
-`docs/features/hero-wordmark-animation.md`.
+user-facing surface). Sub-route of the Hero Lab: spotlight-cutoff fixes + the
+stage-smoke / god-ray atmosphere mocks. The A–E hero gallery lives at the parent
+`/admin/hero-lab`. Delete if the smoke exploration is abandoned. Full rationale +
+decisions: `docs/features/hero-wordmark-animation.md`.
 
 ## What's here
 
