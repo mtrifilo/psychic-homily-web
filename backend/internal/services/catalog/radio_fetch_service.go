@@ -36,6 +36,26 @@ const DefaultDiscoverInterval = 24 * time.Hour
 // Set RADIO_AUTO_BACKFILL_DAYS=0 to disable auto-backfill entirely.
 const DefaultAutoBackfillDays = 90
 
+// Default post-air backfill sweep interval (1 hour). The backfill loop re-fetches
+// aired episodes whose playlist is still incomplete (PSY-1154); an hourly sweep
+// catches a playlist soon after it's published without hammering providers (the
+// candidate set is small — only recently-aired incomplete episodes — and each run
+// is per-station-lock + breaker + rate-limit gated). Env: RADIO_BACKFILL_INTERVAL_HOURS.
+const DefaultBackfillInterval = 1 * time.Hour
+
+// Default post-air backfill lookback (7 days). Only episodes that aired within this
+// window are swept — it bounds the candidate set (and the one-time re-fetch burst at
+// rollout) and reflects that providers only keep recent episodes listable for
+// re-fetch. The per-episode attempt cap (RadioBackfillMaxAttempts) is the real
+// give-up control; the lookback just bounds the scan.
+//
+// RADIO_BACKFILL_LOOKBACK_DAYS=0 disables the DEDICATED sweep (this loop's goroutine
+// isn't started). It does NOT disable post-air healing entirely: the scheduled fetch
+// loop still re-lists recently-aired episodes and importEpisode's re-fetch is
+// state-driven, so an incomplete aired episode it re-lists is still healed/advanced.
+// "Off" means "no proactive sweep," not "playlist_state is frozen."
+const DefaultBackfillLookbackDays = 7
+
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
 // model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
 // §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
@@ -172,6 +192,13 @@ type RadioFetchService struct {
 	// POST /admin/radio-shows/{id}/backfill).
 	autoBackfillDays int
 
+	// backfillInterval / backfillLookbackDays drive the post-air backfill sweep
+	// (PSY-1154): every backfillInterval, re-fetch playlists for aired episodes that
+	// are still incomplete and aired within backfillLookbackDays. backfillLookbackDays
+	// == 0 disables the loop (no goroutine started).
+	backfillInterval     time.Duration
+	backfillLookbackDays int
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
@@ -200,6 +227,8 @@ type RadioFetchService struct {
 //   - RADIO_REMATCH_INTERVAL_HOURS (default 168, i.e. 7 days)
 //   - RADIO_DISCOVER_INTERVAL_HOURS (default 24)
 //   - RADIO_AUTO_BACKFILL_DAYS (default 90; 0 disables auto-backfill)
+//   - RADIO_BACKFILL_INTERVAL_HOURS (default 1; post-air playlist backfill sweep)
+//   - RADIO_BACKFILL_LOOKBACK_DAYS (default 7; 0 disables the post-air backfill loop)
 func NewRadioFetchService(
 	radioService *RadioService,
 	discordService contracts.DiscordServiceInterface,
@@ -241,16 +270,34 @@ func NewRadioFetchService(
 		}
 	}
 
+	backfillInterval := DefaultBackfillInterval
+	if envVal := os.Getenv("RADIO_BACKFILL_INTERVAL_HOURS"); envVal != "" {
+		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
+			backfillInterval = time.Duration(hours) * time.Hour
+		}
+	}
+
+	// 0 explicitly disables the post-air backfill loop. Negative → 0 (defensive).
+	// Default 7 if env unset or invalid.
+	backfillLookbackDays := DefaultBackfillLookbackDays
+	if envVal := os.Getenv("RADIO_BACKFILL_LOOKBACK_DAYS"); envVal != "" {
+		if days, err := strconv.Atoi(envVal); err == nil && days >= 0 {
+			backfillLookbackDays = days
+		}
+	}
+
 	return &RadioFetchService{
-		radioService:     radioService,
-		discordService:   discordService,
-		fetchInterval:    fetchInterval,
-		affinityInterval: affinityInterval,
-		rematchInterval:  rematchInterval,
-		discoverInterval: discoverInterval,
-		autoBackfillDays: autoBackfillDays,
-		stopCh:           make(chan struct{}),
-		logger:           slog.Default(),
+		radioService:         radioService,
+		discordService:       discordService,
+		fetchInterval:        fetchInterval,
+		affinityInterval:     affinityInterval,
+		rematchInterval:      rematchInterval,
+		discoverInterval:     discoverInterval,
+		autoBackfillDays:     autoBackfillDays,
+		backfillInterval:     backfillInterval,
+		backfillLookbackDays: backfillLookbackDays,
+		stopCh:               make(chan struct{}),
+		logger:               slog.Default(),
 	}
 }
 
@@ -265,11 +312,20 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go s.runDiscoverLoop(ctx)
 
+	// Post-air playlist backfill (PSY-1154). Skipped entirely when disabled
+	// (RADIO_BACKFILL_LOOKBACK_DAYS=0) so no goroutine spins on an empty sweep.
+	if s.backfillLookbackDays > 0 {
+		s.wg.Add(1)
+		go s.runBackfillLoop(ctx)
+	}
+
 	s.logger.Info("radio fetch service started",
 		"fetch_interval_hours", s.fetchInterval.Hours(),
 		"affinity_interval_hours", s.affinityInterval.Hours(),
 		"rematch_interval_hours", s.rematchInterval.Hours(),
 		"discover_interval_hours", s.discoverInterval.Hours(),
+		"backfill_interval_hours", s.backfillInterval.Hours(),
+		"backfill_lookback_days", s.backfillLookbackDays,
 	)
 }
 
@@ -285,6 +341,17 @@ func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "radio_fetch", s.fetchInterval, s.stopCh, true, func(_ context.Context) {
 		s.runFetchCycle()
+	})
+}
+
+// runBackfillLoop runs the periodic post-air playlist backfill sweep (PSY-1154).
+// runImmediately=false: unlike fetch/discover there is no "see output now" payoff in
+// firing it at boot, and skipping the startup tick avoids piling a third sweep onto
+// the fetch+discover co-fire (which both run immediately).
+func (s *RadioFetchService) runBackfillLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "radio_backfill", s.backfillInterval, s.stopCh, false, func(_ context.Context) {
+		s.runBackfillCycle()
 	})
 }
 
@@ -945,9 +1012,88 @@ func (s *RadioFetchService) runAutoBackfillShow(stationID, showID uint, since, u
 	return res
 }
 
+// runBackfillCycle is the post-air playlist backfill sweep (PSY-1154). It finds shows
+// with aired episodes whose playlist is still incomplete (within the lookback window),
+// then re-fetches each show's playlists through RunStationSync(backfill) — reusing
+// runAutoBackfillShow, so each sweep is traced in radio_sync_runs and honors the
+// per-station lock, persistent breaker, and shutdown cancellation exactly like the
+// discovery auto-backfill. Shows are processed SEQUENTIALLY to respect the per-provider
+// rate limit (same rationale as autoBackfillStation), and the loop bails between shows
+// on shutdown.
+func (s *RadioFetchService) runBackfillCycle() {
+	cycleStart := time.Now()
+	lookback := time.Duration(s.backfillLookbackDays) * 24 * time.Hour
+
+	candidates, err := s.radioService.ListBackfillCandidates(lookback, catalogm.RadioBackfillMaxAttempts, time.Now())
+	if err != nil {
+		s.logger.Error("radio backfill: listing candidates failed", "error", err)
+		return
+	}
+	if len(candidates) == 0 {
+		s.logger.Info("radio backfill cycle: nothing to backfill",
+			"lookback_days", s.backfillLookbackDays)
+		return
+	}
+
+	s.logger.Info("starting radio backfill cycle",
+		"shows", len(candidates), "lookback_days", s.backfillLookbackDays)
+
+	var (
+		processed int
+		completed int
+		skipped   int
+		episodes  int
+		plays     int
+	)
+
+	for _, c := range candidates {
+		// Stop cleanly between shows on shutdown.
+		select {
+		case <-s.stopCh:
+			s.logger.Info("radio backfill cycle: abandoned on shutdown", "processed", processed)
+			return
+		default:
+		}
+
+		processed++
+		res := s.runAutoBackfillShow(c.StationID, c.ShowID, c.Since, c.Until)
+		if res == nil {
+			continue // pre-open failure, already logged
+		}
+		if res.LockContended || res.Skipped {
+			skipped++
+			continue // a scheduled run holds the lock, or the breaker is open — retry next cycle
+		}
+		if res.Status == catalogm.RadioSyncRunStatusCancelled {
+			s.logger.Info("radio backfill cycle: abandoned on shutdown", "processed", processed)
+			return
+		}
+		if imp := res.Import; imp != nil {
+			completed++
+			episodes += imp.EpisodesImported
+			plays += imp.PlaysMatched
+		}
+	}
+
+	s.logger.Info("radio backfill cycle complete",
+		"shows_processed", processed,
+		"shows_completed", completed,
+		"shows_skipped", skipped,
+		"episodes_imported", episodes,
+		"plays_matched", plays,
+		"duration", time.Since(cycleStart),
+	)
+}
+
 // RunFetchCycleNow triggers an immediate fetch cycle (useful for testing/admin).
 func (s *RadioFetchService) RunFetchCycleNow() {
 	s.runFetchCycle()
+}
+
+// RunBackfillCycleNow triggers an immediate post-air backfill sweep (useful for
+// testing/admin).
+func (s *RadioFetchService) RunBackfillCycleNow() {
+	s.runBackfillCycle()
 }
 
 // RunAffinityCycleNow triggers an immediate affinity computation (useful for testing/admin).

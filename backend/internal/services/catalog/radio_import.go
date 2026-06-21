@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -516,6 +517,90 @@ func (s *RadioService) importShowEpisodesWithProgress(
 	return result, nil
 }
 
+// BackfillCandidate is one show with aired episodes still missing a complete
+// playlist, plus the air-date window spanning those episodes (PSY-1154). The
+// post-air backfill ticker runs RunStationSync(backfill) per candidate over
+// [Since, Until], which re-lists the show's episodes in that window and re-fetches
+// the playlists of the incomplete-aired ones (the complete ones are dedup-skipped).
+type BackfillCandidate struct {
+	StationID uint
+	ShowID    uint
+	Since     time.Time
+	Until     time.Time
+}
+
+// ListBackfillCandidates finds shows whose aired episodes still need a post-air
+// playlist re-fetch (PSY-1154): playlist_state pending/partial, attempts left, aired,
+// and aired within `lookback` of `now`. The lookback bounds the candidate set (and,
+// at rollout, the one-time re-fetch of recently-aired episodes) and matches the
+// reality that providers only keep recent episodes listable for re-fetch — older
+// stragglers are the janitor's job (PSY-1155).
+//
+// A coarse SQL filter (state / attempts / air_date) narrows the scan; the precise
+// aired check is the shared ShouldBackfillPlaylist predicate applied per row, so the
+// sweep selection and the in-flight re-fetch decision (importEpisode) can never
+// diverge. Results are grouped by show — one [min, max] air-date window each — and
+// ordered by show id for deterministic processing.
+func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempts int, now time.Time) ([]BackfillCandidate, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	cutoff := now.Add(-lookback).Format("2006-01-02")
+
+	type candidateRow struct {
+		ShowID                uint
+		StationID             uint
+		AirDate               string
+		StartsAt              *time.Time
+		EndsAt                *time.Time
+		PlaylistState         string
+		PlaylistFetchAttempts int
+	}
+	var rows []candidateRow
+	err := s.db.Model(&catalogm.RadioEpisode{}).
+		Select("radio_episodes.show_id, radio_shows.station_id, radio_episodes.air_date, "+
+			"radio_episodes.starts_at, radio_episodes.ends_at, radio_episodes.playlist_state, "+
+			"radio_episodes.playlist_fetch_attempts").
+		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
+		Where("radio_episodes.playlist_state IN ?", []string{catalogm.RadioPlaylistStatePending, catalogm.RadioPlaylistStatePartial}).
+		Where("radio_episodes.playlist_fetch_attempts < ?", maxAttempts).
+		Where("radio_episodes.air_date >= ?", cutoff).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("listing backfill candidates: %w", err)
+	}
+
+	byShow := make(map[uint]*BackfillCandidate)
+	for _, r := range rows {
+		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, r.PlaylistState, r.PlaylistFetchAttempts, maxAttempts, now) {
+			continue
+		}
+		d, perr := parseImportDate(r.AirDate)
+		if perr != nil {
+			continue // unparseable air_date can't bound a window; it won't be re-listed anyway
+		}
+		c, ok := byShow[r.ShowID]
+		if !ok {
+			byShow[r.ShowID] = &BackfillCandidate{StationID: r.StationID, ShowID: r.ShowID, Since: d, Until: d}
+			continue
+		}
+		if d.Before(c.Since) {
+			c.Since = d
+		}
+		if d.After(c.Until) {
+			c.Until = d
+		}
+	}
+
+	candidates := make([]BackfillCandidate, 0, len(byShow))
+	for _, c := range byShow {
+		candidates = append(candidates, *c)
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ShowID < candidates[j].ShowID })
+	return candidates, nil
+}
+
 // =============================================================================
 // Internal import helpers
 // =============================================================================
@@ -622,28 +707,18 @@ func (s *RadioService) buildNullSafeShowUpdates(existing *catalogm.RadioShow, im
 	return updates
 }
 
-// importEpisode imports a single episode and its playlist.
+// importEpisode imports a single episode and its playlist. A brand-new episode is
+// created and its playlist fetched. An episode that already exists heals a missing
+// air window (PSY-1152) and, if it has aired with an incomplete playlist, runs a
+// post-air backfill re-fetch (PSY-1154) — otherwise it is a dedup skip.
 func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provider RadioPlaylistProvider) (*contracts.EpisodeImportResult, error) {
+	now := time.Now()
+
 	// Check for existing episode (dedup by show_id + external_id)
 	var existing catalogm.RadioEpisode
 	err := s.db.Where("show_id = ? AND external_id = ?", showID, ep.ExternalID).First(&existing).Error
 	if err == nil {
-		// Episode already exists — skip re-processing the playlist (dedup). But
-		// backfill the air window (PSY-1152) if this row predates window stamping
-		// and the provider now supplies one: rows imported before this change have
-		// a NULL window and would never show "live", and a show airing across the
-		// deploy would lose its ON AIR strip until the P6 re-ingest. Only the
-		// window heals here; playlist completeness stays PSY-1154's domain.
-		if existing.StartsAt == nil && ep.StartsAt != nil {
-			if err := s.db.Model(&existing).Updates(map[string]any{
-				"starts_at": ep.StartsAt,
-				"ends_at":   ep.EndsAt,
-				"status":    catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, existing.PlaylistState, time.Now()),
-			}).Error; err != nil {
-				return nil, fmt.Errorf("backfilling episode air window: %w", err)
-			}
-		}
-		return &contracts.EpisodeImportResult{}, nil
+		return s.reimportExistingEpisode(&existing, ep, provider, now)
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("checking existing episode: %w", err)
@@ -661,9 +736,9 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	// once here from the provider's instants and never re-derived. Status is a
 	// best-effort snapshot computed at ingest; the authoritative live/aired state
 	// is recomputed on read (a stored "live" would go stale), and the column is
-	// kept fresh by the janitor (PSY-1155). Playlist completeness is PSY-1154's
-	// domain, so at create the playlist is still pending → status is never
-	// 'archived' here (that transition arrives with PSY-1154).
+	// kept fresh by the janitor (PSY-1155). The playlist starts pending; the
+	// fetch below settles it (PSY-1154), which is what can promote status to
+	// 'archived'.
 	episode := &catalogm.RadioEpisode{
 		ShowID:          showID,
 		Title:           ep.Title,
@@ -675,7 +750,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		StartsAt:        ep.StartsAt,
 		EndsAt:          ep.EndsAt,
 		Status: catalogm.ComputeEpisodeStatus(
-			ep.StartsAt, ep.EndsAt, catalogm.RadioPlaylistStatePending, time.Now(),
+			ep.StartsAt, ep.EndsAt, catalogm.RadioPlaylistStatePending, now,
 		),
 	}
 
@@ -683,22 +758,62 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return nil, fmt.Errorf("creating episode: %w", err)
 	}
 
-	// Fetch and import playlist.
-	//
-	// A FetchPlaylist failure is non-fatal to the batch (the episode row is
-	// kept) but it is NOT silently swallowed: the episode created above now has
-	// zero plays purely because the fetch failed, which is a real data loss the
-	// caller must be able to distinguish from a legitimately empty playlist.
-	// Providers signal "legitimately empty" with (nil, nil) — e.g. KEXP returns
-	// that for a 404 / no-start-time episode — which leaves FetchError empty.
-	// Only a non-nil error sets FetchError, so empty playlists stay clean
-	// successes while fetch failures become visible to the orchestrators and
-	// the job error_log (PSY-1119).
-	plays, err := provider.FetchPlaylist(ep.ExternalID)
+	return s.fetchImportAndRecordPlaylist(episode, ep.ExternalID, provider, now)
+}
+
+// reimportExistingEpisode handles importEpisode's already-exists path. It first
+// heals a missing frozen air window (PSY-1152): rows imported before window stamping
+// have a NULL window and would never show "live", so a show airing across the deploy
+// would lose its ON AIR strip until re-ingest. It then runs a post-air playlist
+// backfill (PSY-1154) iff the episode has aired with an incomplete playlist and has
+// attempts left — a complete, exhausted (unavailable), still-live, or scheduled
+// episode is left untouched (dedup skip), so a routine re-list never re-fetches a
+// playlist that is already final or legitimately still in progress.
+func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
+	if existing.StartsAt == nil && ep.StartsAt != nil {
+		if err := s.db.Model(existing).Updates(map[string]any{
+			"starts_at": ep.StartsAt,
+			"ends_at":   ep.EndsAt,
+			"status":    catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, existing.PlaylistState, now),
+		}).Error; err != nil {
+			return nil, fmt.Errorf("backfilling episode air window: %w", err)
+		}
+		// Keep the in-memory row consistent so the eligibility check below sees the
+		// healed window.
+		existing.StartsAt = ep.StartsAt
+		existing.EndsAt = ep.EndsAt
+	}
+
+	if !catalogm.ShouldBackfillPlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState,
+		existing.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts, now) {
+		return &contracts.EpisodeImportResult{}, nil
+	}
+
+	return s.fetchImportAndRecordPlaylist(existing, ep.ExternalID, provider, now)
+}
+
+// fetchImportAndRecordPlaylist fetches an episode's provider playlist, imports its
+// plays (idempotent — P3's per-play dedup makes re-fetch safe), runs matching, and
+// records the playlist-completeness outcome (playlist_state, playlist_fetched_at,
+// playlist_fetch_attempts, recomputed status + play_count). Shared by the
+// first-import path and the post-air backfill re-fetch path (PSY-1154).
+//
+// A FetchPlaylist failure is non-fatal to the batch (the episode row is kept) but is
+// NOT silently swallowed (PSY-1119): the episode has no new plays purely because the
+// fetch failed. Providers signal a legitimately-empty playlist with (nil, nil) — e.g.
+// KEXP returns that for a 404 / no-start-time episode — which leaves FetchError empty;
+// only a non-nil error sets FetchError. Either way, a post-air attempt that yields no
+// playlist is recorded so the backfill loop can eventually give up (PSY-1154) instead
+// of retrying a permanently-missing playlist forever.
+func (s *RadioService) fetchImportAndRecordPlaylist(episode *catalogm.RadioEpisode, externalID string, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
+	plays, err := provider.FetchPlaylist(externalID)
 	if err != nil {
-		slog.Error("radio import: playlist fetch failed; episode created with no plays",
+		if recErr := s.recordPlaylistOutcome(episode, 0, true, now); recErr != nil {
+			slog.Error("radio import: recording failed playlist outcome", "episode_id", episode.ID, "error", recErr)
+		}
+		slog.Error("radio import: playlist fetch failed; episode kept with no new plays",
 			"episode_id", episode.ID,
-			"external_id", ep.ExternalID,
+			"external_id", externalID,
 			"error", err)
 		// Categorize the FetchError here, where the provider error's type is still
 		// live (the same classifier the top-level path uses) — PSY-1141.
@@ -707,11 +822,16 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 
 	drops, err := s.importPlays(episode.ID, plays)
 	if err != nil {
+		// Hard infra error persisting plays — NOT a "playlist unavailable" signal.
+		// Leave playlist_state unchanged (still eligible) and don't burn an attempt;
+		// a transient persist failure should be retried, not counted toward giving up.
 		return episodeResultFromDrops(drops), nil
 	}
 
-	// Update play count on episode
-	s.db.Model(episode).Update("play_count", drops.Imported)
+	// Settle the playlist (state/attempts/status/play_count) from the fetched playlist.
+	if err := s.recordPlaylistOutcome(episode, drops.Imported, false, now); err != nil {
+		slog.Error("radio import: recording playlist outcome", "episode_id", episode.ID, "error", err)
+	}
 
 	// Run matching
 	matcher := NewRadioMatchingEngine(s.db)
@@ -724,6 +844,53 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	res.PlaysMatched = matchResult.Matched
 	res.MatchPersistErrors = matchResult.PersistErrors
 	return res, nil
+}
+
+// recordPlaylistOutcome applies the PSY-1154 completeness policy to an episode after
+// one playlist fetch attempt: it derives the new playlist_state + attempt count
+// (ComputePlaylistState), recomputes the episode status from the frozen window
+// (ComputeEpisodeStatus — so a now-complete playlist promotes the episode to
+// 'archived'), stamps playlist_fetched_at, and persists them in a single update. The
+// in-memory episode is kept in sync for the caller.
+//
+// play_count is maintained MONOTONICALLY — max(current, fetched) — and only on a
+// fetch that returned plays. radio_plays is append-only (importPlays does ON CONFLICT
+// DO NOTHING, never deletes), so the row count never legitimately shrinks. A naive
+// `play_count = playsImported` would corrupt the denormalized count when a re-fetch of
+// an existing `partial` episode returns fewer plays than are already stored — e.g. a
+// live KEXP snapshot of 5 tracks followed by a transient empty/short post-air re-fetch
+// would zero/shrink play_count while the original rows persist, surfacing "0 plays" on
+// an episode that has tracks. max() + the empty-fetch skip make the count never decrease.
+func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, playsImported int, fetchFailed bool, now time.Time) error {
+	phase := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, catalogm.RadioPlaylistStatePending, now)
+	isAired := phase == catalogm.RadioEpisodeStatusAired
+	newState, newAttempts := catalogm.ComputePlaylistState(
+		isAired, playsImported > 0, fetchFailed, episode.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts)
+	newStatus := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, newState, now)
+
+	updates := map[string]any{
+		"playlist_state":          newState,
+		"playlist_fetched_at":     now,
+		"playlist_fetch_attempts": newAttempts,
+		"status":                  newStatus,
+	}
+	// Only advance play_count on a fetch that actually returned plays, and never
+	// below the current value (a failed/empty/short re-fetch must not clobber it).
+	newPlayCount := episode.PlayCount
+	if !fetchFailed && playsImported > 0 {
+		newPlayCount = max(episode.PlayCount, playsImported)
+		updates["play_count"] = newPlayCount
+	}
+	if err := s.db.Model(episode).Updates(updates).Error; err != nil {
+		return fmt.Errorf("recording playlist outcome for episode %d: %w", episode.ID, err)
+	}
+
+	episode.PlaylistState = newState
+	episode.PlaylistFetchAttempts = newAttempts
+	episode.Status = newStatus
+	episode.PlaylistFetchedAt = &now
+	episode.PlayCount = newPlayCount
+	return nil
 }
 
 // episodeResultFromDrops builds the per-episode result carrying the play tally plus

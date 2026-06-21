@@ -83,6 +83,24 @@ const (
 	RadioPlaylistStateUnavailable = "unavailable"
 )
 
+// RadioBackfillMaxAttempts is the number of failed post-air playlist re-fetches
+// after which an aired episode is marked playlist_state='unavailable' and stops
+// being retried (PSY-1154). A "failed attempt" is a post-air fetch that returned
+// no playlist (an empty broadcast, a pulled show, or a provider error) — a fetch
+// that returns plays settles the episode to 'complete' and never increments the
+// counter. Modeled as a const (like radioCircuitBreakerThreshold), not env-tunable:
+// the value is a data-quality policy, not an operational cadence. The backfill
+// cadence (sweep interval, lookback window) IS env-tunable — see radio_fetch_service.go.
+//
+// Give-up budget: a windowless (WFMU) or start-only (NTS) episode is "aired" the
+// moment it has started (no live window guards it), so attempts begin accruing at the
+// first post-start fetch. The effective budget before 'unavailable' is therefore
+// ~ maxAttempts × sweep-interval (default 5 × 1h = ~5h), which comfortably covers the
+// usual minutes-to-hours playlist-publish delay; a provider that publishes a playlist
+// slower than that budget can strand an episode at 'unavailable' until the janitor
+// (PSY-1155) re-attempts it. Widen RADIO_BACKFILL_INTERVAL_HOURS for slow providers.
+const RadioBackfillMaxAttempts = 5
+
 // ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
 // window, playlist completeness, and the current time (PSY-1152).
 //
@@ -114,6 +132,61 @@ func ComputeEpisodeStatus(startsAt, endsAt *time.Time, playlistState string, now
 		return RadioEpisodeStatusLive
 	}
 	return settled
+}
+
+// ComputePlaylistState decides an episode's playlist_state after one playlist fetch
+// attempt, along with its (possibly incremented) attempt count (PSY-1154). It is the
+// single completeness policy shared by the first-import path and the post-air backfill
+// re-fetch path, kept pure so the transition table is unit-testable without a DB.
+//
+//   - fetch returned plays + episode has aired  → complete   (the final post-air playlist)
+//   - fetch returned plays + episode still live → partial    (snapshot; more plays coming)
+//   - no plays + episode not yet aired          → pending     (live/scheduled with nothing yet — normal)
+//   - no plays + episode aired                  → a FAILED post-air attempt: increment the
+//     counter; at maxAttempts give up → unavailable, else stay pending (eligible to retry).
+//
+// "no plays" covers both a fetch error and a legitimately empty playlist (provider
+// returned zero tracks) — for the give-up policy they are the same: we still don't
+// have a playlist. A failed re-fetch normalizes a prior 'partial' back to 'pending';
+// both remain eligible, and the already-imported plays are untouched, so this is
+// behavior-neutral.
+func ComputePlaylistState(isAired, hasPlays, fetchFailed bool, attempts, maxAttempts int) (state string, newAttempts int) {
+	if hasPlays && !fetchFailed {
+		if isAired {
+			return RadioPlaylistStateComplete, attempts
+		}
+		return RadioPlaylistStatePartial, attempts
+	}
+	if !isAired {
+		// Live or scheduled with no playlist yet — expected, not a failure.
+		return RadioPlaylistStatePending, attempts
+	}
+	// Aired but still no playlist: a genuine failed post-air attempt.
+	newAttempts = attempts + 1
+	if newAttempts >= maxAttempts {
+		return RadioPlaylistStateUnavailable, newAttempts
+	}
+	return RadioPlaylistStatePending, newAttempts
+}
+
+// ShouldBackfillPlaylist reports whether an aired episode still needs a post-air
+// playlist re-fetch (PSY-1154). It is the single source of truth for backfill
+// eligibility — both importEpisode's existing-row branch and the backfill ticker's
+// candidate query refine to it, so the in-flight re-fetch decision and the sweep
+// selection can never drift. An episode is eligible when it is still incomplete
+// (pending/partial — never complete/unavailable), has attempts left, and has aired
+// (a windowless episode counts as aired; scheduled/live episodes are skipped — their
+// playlist is legitimately not final yet).
+func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, attempts, maxAttempts int, now time.Time) bool {
+	if playlistState != RadioPlaylistStatePending && playlistState != RadioPlaylistStatePartial {
+		return false
+	}
+	if attempts >= maxAttempts {
+		return false
+	}
+	// Pass pending so the result is the pure time-phase (scheduled/live/aired),
+	// never 'archived' — completeness is already handled by the state check above.
+	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
 }
 
 // Match-state constants (radio_plays.match_state). PSY-1131. Replaces the
@@ -588,8 +661,13 @@ type RadioEpisode struct {
 	// decoupled from episode Status.
 	PlaylistState     string     `gorm:"column:playlist_state;not null;default:pending"`
 	PlaylistFetchedAt *time.Time `gorm:"column:playlist_fetched_at"`
-	CreatedAt         time.Time  `gorm:"not null"`
-	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	// PlaylistFetchAttempts counts FAILED post-air playlist re-fetches (PSY-1154).
+	// At RadioBackfillMaxAttempts the backfill loop gives up → playlist_state
+	// 'unavailable'. A fetch that returns plays settles to 'complete' and never
+	// increments this.
+	PlaylistFetchAttempts int       `gorm:"column:playlist_fetch_attempts;not null;default:0"`
+	CreatedAt             time.Time `gorm:"not null"`
+	UpdatedAt             time.Time `gorm:"column:updated_at;not null"`
 
 	// Relationships
 	Show  RadioShow   `gorm:"foreignKey:ShowID"`
