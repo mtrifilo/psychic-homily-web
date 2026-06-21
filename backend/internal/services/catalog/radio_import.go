@@ -430,58 +430,104 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 	return result, nil
 }
 
-// CreateShowIfHasEpisodes implements PSY-1153 create-on-first-episode: it fetches a
-// roster show's episodes in [since, until] and creates the radio_shows row ONLY if at
-// least one episode exists in that window. Returns (showID, created, err); showID == 0
-// means "no episode in window → no row created" (the episode-less roster DJ stays
-// invisible per §9 decision 1). created reports whether a brand-new row was inserted
-// (false if the row already existed — e.g. a concurrent create). The row is created
-// here; the caller (auto-backfill) then imports the full history via RunStationSync so
-// the import is traced in radio_sync_runs.
-func (s *RadioService) CreateShowIfHasEpisodes(stationID uint, roster contracts.RadioRosterShow, since, until time.Time) (uint, bool, error) {
-	if s.db == nil {
-		return 0, false, fmt.Errorf("database not initialized")
+// createOnFirstForRoster implements PSY-1153 create-on-first-episode for the
+// newly-discovered roster shows of a discover run. For each roster show it fetches the
+// show's episodes and — only if ≥1 aired in [since, until] — creates the radio_shows
+// row AND imports those episodes, so a row never exists empty and an episode-less
+// roster DJ never becomes a row (§9 decision 1). It runs INSIDE the calling discover
+// run (executeSyncMode), i.e. under that run's per-station advisory lock + breaker gate,
+// so both the scheduled discover cycle and the manual admin "discover" trigger
+// materialize aired shows through the same path. The loop is cancel-aware
+// (isSyncRunCancelled) so a shutdown/cancel unwinds within ~one show.
+//
+// Returns the merged import result and the names of shows actually CREATED (for the
+// discover cycle's notification). One provider instance is opened for the whole loop.
+func (s *RadioService) createOnFirstForRoster(stationID, runID uint, roster []contracts.RadioRosterShow, since, until time.Time) (*contracts.RadioImportResult, []string) {
+	result := &contracts.RadioImportResult{}
+	var createdNames []string
+	if len(roster) == 0 {
+		return result, createdNames
 	}
 
 	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
-		return 0, false, fmt.Errorf("station not found: %w", err)
+		recordImportError(result, catalogm.RadioSyncRunErrorValidationDrop, fmt.Sprintf("load station %d: %v", stationID, err), nil)
+		return result, createdNames
 	}
 	if station.PlaylistSource == nil || *station.PlaylistSource == "" {
-		return 0, false, fmt.Errorf("station %d has no playlist source configured", stationID)
+		return result, createdNames // nothing to fetch; not an error
 	}
 	provider, err := s.getProvider(*station.PlaylistSource)
 	if err != nil {
-		return 0, false, err
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("get provider: %v", err), nil)
+		return result, createdNames
 	}
 	defer closeProvider(provider)
 
-	episodes, err := provider.FetchNewEpisodes(roster.ExternalID, since, until)
-	if err != nil {
-		return 0, false, fmt.Errorf("fetching episodes for roster show %s: %w", roster.ExternalID, err)
-	}
-
-	// Precise window bound (providers filter coarsely) — mirrors importShowEpisodesWithProgress.
-	hasEpisodeInWindow := false
-	for _, ep := range episodes {
-		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)
-		if parseErr != nil {
-			continue
-		}
-		if !epDate.Before(since) && !epDate.After(until) {
-			hasEpisodeInWindow = true
+	for _, rs := range roster {
+		// Stop within ~one show on a mid-run cancel / shutdown (the discover cycle's
+		// watcher flips the run to cancelled on stopCh — same mechanism as backfill).
+		if s.isSyncRunCancelled(runID) {
 			break
 		}
+		if s.importRosterShowEpisodes(stationID, rs, since, until, provider, result) {
+			createdNames = append(createdNames, rs.Name)
+		}
 	}
-	if !hasEpisodeInWindow {
-		return 0, false, nil // no episode in window → do not create a row
+	return result, createdNames
+}
+
+// importRosterShowEpisodes fetches one roster show's episodes once, and if ≥1 aired in
+// [since, until], creates the row (create-on-first) and imports those episodes,
+// accumulating per-episode outcomes into result. Returns true iff a row was created.
+// A single fetch serves both the create decision and the import (no double fetch).
+func (s *RadioService) importRosterShowEpisodes(stationID uint, roster contracts.RadioRosterShow, since, until time.Time, provider RadioPlaylistProvider, result *contracts.RadioImportResult) (created bool) {
+	episodes, err := provider.FetchNewEpisodes(roster.ExternalID, since, until)
+	if err != nil {
+		ref := roster.ExternalID
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("fetch episodes for roster show %s: %v", roster.ExternalID, err), &ref)
+		return false
 	}
 
-	showID, created, err := s.upsertRadioShow(stationID, rosterToImport(roster))
-	if err != nil {
-		return 0, false, err
+	var filtered []RadioEpisodeImport
+	for _, ep := range episodes {
+		if episodeInWindow(ep, since, until) {
+			filtered = append(filtered, ep)
+		}
 	}
-	return showID, created, nil
+	if len(filtered) == 0 {
+		return false // no episode in window → do not create a row (§9 dec 1)
+	}
+
+	showID, wasCreated, err := s.upsertRadioShow(stationID, rosterToImport(roster))
+	if err != nil {
+		ref := roster.ExternalID
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("create roster show %s: %v", roster.ExternalID, err), &ref)
+		return false
+	}
+
+	for _, ep := range filtered {
+		epResult, impErr := s.importEpisode(showID, ep, provider)
+		if impErr != nil {
+			ref := ep.ExternalID
+			recordImportError(result, categorizeRunError(impErr), fmt.Sprintf("import episode %s: %v", ep.ExternalID, impErr), &ref)
+			continue
+		}
+		accumulateEpisodeResult(result, ep.ExternalID, epResult)
+	}
+	return wasCreated
+}
+
+// episodeInWindow reports whether a provider episode's air_date falls within the
+// inclusive [since, until] bound. Shared by the create-on-first path and
+// importShowEpisodesWithProgress so the two never diverge on the boundary semantics
+// (providers filter coarsely; this is the precise bound).
+func episodeInWindow(ep RadioEpisodeImport, since, until time.Time) bool {
+	epDate, err := time.Parse("2006-01-02", ep.AirDate)
+	if err != nil {
+		return false
+	}
+	return !epDate.Before(since) && !epDate.After(until)
 }
 
 // rosterToImport maps the contracts-layer roster carrier back to the catalog import shape.
@@ -550,15 +596,11 @@ func (s *RadioService) importShowEpisodesWithProgress(
 		return nil, fmt.Errorf("fetching episodes: %w", err)
 	}
 
-	// Filter episodes by air_date within [since, until] (inclusive both ends)
-	// Providers apply coarse date filtering, but we still apply precise bounds here.
+	// Filter episodes by air_date within [since, until] (inclusive both ends).
+	// Providers filter coarsely; episodeInWindow is the shared precise bound.
 	var filtered []RadioEpisodeImport
 	for _, ep := range episodes {
-		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)
-		if parseErr != nil {
-			continue
-		}
-		if !epDate.Before(sinceTime) && !epDate.After(untilTime) {
+		if episodeInWindow(ep, sinceTime, untilTime) {
 			filtered = append(filtered, ep)
 		}
 	}

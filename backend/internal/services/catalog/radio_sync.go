@@ -308,11 +308,15 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		if err != nil {
 			return syncOutcome{status: catalogm.RadioSyncRunStatusFailed, hardErr: err, errs: topLevelErr(err)}
 		}
-		return syncOutcome{
-			status:         terminalStatus(false, len(res.Errors)),
-			errs:           stringErrs(res.Errors),
-			discoverResult: res,
-		}
+		// PSY-1153 create-on-first-episode: materialize the newly-discovered roster
+		// shows that aired in the window — create the row + import its episodes — HERE,
+		// inside this discover run (under its per-station lock + breaker gate). Both the
+		// scheduled discover cycle and the manual admin "discover" trigger flow through
+		// here, so both create aired shows; an episode-less roster DJ never becomes a row.
+		since, until := discoverCreateWindow(opts)
+		imp, createdNames := s.createOnFirstForRoster(stationID, runID, res.NewRosterShows, since, until)
+		res.CreatedShowNames = createdNames
+		return discoverOutcome(res, imp)
 
 	case catalogm.RadioSyncRunTypeFetch:
 		res, err := s.FetchNewEpisodes(stationID)
@@ -390,6 +394,49 @@ func importResultOutcome(res *contracts.RadioImportResult, episodesFound int) sy
 		playsUnmatched:   unmatched,
 		errs:             errs,
 		importResult:     res,
+	}
+}
+
+// defaultDiscoverCreateLookbackDays bounds create-on-first when the discover run
+// carries no explicit window (e.g. the manual admin trigger). A roster show with an
+// episode within this many days is created; older-only shows stay invisible (§9 dec 1).
+// The scheduled discover cycle overrides this with RADIO_AUTO_BACKFILL_DAYS so history
+// depth stays operator-tunable. 90 matches the prior auto-backfill default.
+const defaultDiscoverCreateLookbackDays = 90
+
+// discoverCreateWindow resolves the [since, until] create-on-first window for a discover
+// run from opts, defaulting to the last defaultDiscoverCreateLookbackDays.
+func discoverCreateWindow(opts RunStationSyncOpts) (since, until time.Time) {
+	until = time.Now()
+	if opts.WindowEnd != nil {
+		until = *opts.WindowEnd
+	}
+	since = until.AddDate(0, 0, -defaultDiscoverCreateLookbackDays)
+	if opts.WindowStart != nil {
+		since = *opts.WindowStart
+	}
+	return since, until
+}
+
+// discoverOutcome merges a discover result with the create-on-first import result into
+// a single syncOutcome (PSY-1153). The discover run's counts now reflect the episodes
+// imported while materializing new shows; its errors combine discovery errors with
+// per-show/per-episode import errors, so any import noise flips the run to 'partial'.
+func discoverOutcome(disc *contracts.RadioDiscoverResult, imp *contracts.RadioImportResult) syncOutcome {
+	unmatched := imp.PlaysImported - imp.PlaysMatched
+	if unmatched < 0 {
+		unmatched = 0
+	}
+	errs := append(stringErrs(disc.Errors), categorizedToRunErrors(imp.CategorizedErrors)...)
+	return syncOutcome{
+		status:           terminalStatus(false, len(errs)),
+		episodesImported: imp.EpisodesImported,
+		playsImported:    imp.PlaysImported,
+		playsMatched:     imp.PlaysMatched,
+		playsUnmatched:   unmatched,
+		errs:             errs,
+		discoverResult:   disc,
+		importResult:     imp,
 	}
 }
 

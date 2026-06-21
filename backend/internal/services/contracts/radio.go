@@ -597,7 +597,11 @@ type RadioDiscoverResult struct {
 	ShowsNew        int               `json:"shows_new"`
 	NewShowNames    []string          `json:"new_show_names"`
 	NewRosterShows  []RadioRosterShow `json:"new_roster_shows"`
-	Errors          []string          `json:"errors,omitempty"`
+	// CreatedShowNames are the roster shows the discover run actually CREATED via
+	// create-on-first-episode (had ≥1 episode in the window) — a subset of
+	// NewShowNames. Drives the "new shows" notification on real creations (PSY-1153).
+	CreatedShowNames []string `json:"created_show_names"`
+	Errors           []string `json:"errors,omitempty"`
 }
 
 // EpisodeImportResult summarizes the result of importing a single episode's playlist.
