@@ -118,13 +118,28 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, limiter func(http.Handle
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isAdminTokenRequest(jwtService, r) {
+			// API tokens (phk_ prefix) and JWT admins both bypass: API tokens are
+			// admin-only and trusted, so they shouldn't be throttled during bulk
+			// imports — matching routes.rateLimitUnlessAPIToken (show creation).
+			// Without the API-token branch the ph CLI (which authenticates with a
+			// phk_ token, not a JWT) gets throttled on bulk tagging despite PSY-345.
+			if isTrustedAPIToken(r) || isAdminTokenRequest(jwtService, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			limited.ServeHTTP(w, r)
 		})
 	}
+}
+
+// isTrustedAPIToken reports whether the request carries an API token (phk_
+// prefix). API tokens are admin-only and trusted by construction (see
+// internal/services/admin/api_token.go), so — like routes.rateLimitUnlessAPIToken used
+// for show creation — they bypass the per-IP limiter. This intentionally trusts
+// the prefix rather than re-validating the token (the JWT validator rejects
+// phk_ tokens anyway); it covers the ph CLI doing bulk imports (PSY-345).
+func isTrustedAPIToken(r *http.Request) bool {
+	return strings.HasPrefix(extractJWT(r), APITokenPrefix)
 }
 
 // isAdminTokenRequest returns true when the request carries a valid JWT whose

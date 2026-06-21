@@ -175,3 +175,60 @@ func TestExtractJWT_IgnoresNonBearerAuthHeader(t *testing.T) {
 		t.Errorf("extractJWT = %q, want empty string for non-Bearer header", got)
 	}
 }
+
+// PSY-1173: isTrustedAPIToken recognizes the phk_ API-token prefix (and only
+// that) so admin API clients bypass the limiter like show creation does.
+func TestIsTrustedAPIToken(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		want   bool
+	}{
+		{"phk_ bearer token", "Bearer " + APITokenPrefix + "abc123", true},
+		{"jwt bearer token", "Bearer eyJhbGciOi.foo.bar", false},
+		{"non-bearer header", "Basic dXNlcjpwYXNz", false},
+		{"no auth header", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/tag", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			if got := isTrustedAPIToken(req); got != tc.want {
+				t.Errorf("isTrustedAPIToken() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// PSY-1173: a phk_ API token bypasses the limiter past the limit even with a
+// nil JWTService — API tokens are admin-only and trusted (mirrors show
+// creation's rateLimitUnlessAPIToken). Without this the ph CLI gets throttled
+// during bulk tagging despite PSY-345's admin-bypass intent.
+func TestSkipRateLimitForAdmin_APITokenBypassesLimit(t *testing.T) {
+	// 1 request / minute limiter — trivially saturated without a bypass.
+	base := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP))
+	mw := SkipRateLimitForAdmin(nil, base)
+
+	hits := 0
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Five rapid same-IP requests, all carrying an API token, all pass.
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/tag", nil)
+		req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"deadbeef")
+		req.RemoteAddr = "9.9.9.9:1000"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 (phk_ token must bypass the limiter)", i+1, rr.Code)
+		}
+	}
+	if hits != 5 {
+		t.Errorf("handler hits = %d, want 5 (all phk_ requests should reach the handler)", hits)
+	}
+}
