@@ -305,6 +305,13 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
 5. **Dry-run + the artist-skip QA scan** — `bun run src/entry.ts --env <env> batch /tmp/ph-ingest.json`. Map every SKIP back to the proposed name (the skip header shows the *existing* matched entity): the 0.6 fuzzy threshold conflates distinct artists (caught on Sacred Bones: **Institute→"Prostitute", Lathe of Heaven→"Left of Heaven", Cheena→"Cheem"**, plus a collab→member, **Emma Ruth Rundle & Thou→"Emma Ruth Rundle"**). A wrong skip also links the *wrong* existing artist to the label. **Fix:** pre-create each distinct artist via `POST /admin/labels`-adjacent `POST /admin/artists {"name":…}` (exact find-or-create) so its 1.0 match wins, then re-run. Do NOT pre-create via `ph submit artist` — that fuzzy-matches too.
 6. **Confirm + verify** — `batch --confirm`, then verify against the API, not the CLI's self-report: `GET /labels/search?q=<name>` → id, then `GET /labels/{id}/artists` and check the **`count`** field equals the roster size (the roster response is `{artists, count}` — there is no `total` field, and it takes no `limit` param). The label's website is stored under `social.website` in the detail response (top-level `website` in *search* results is a separate projection and may read null).
 
+7. **Stamp the source registry** (Catalog Refresh, PSY-1146) — so stale-first refresh knows this roster was just pulled. After a successful confirm, register the source (once) and stamp the refresh, using the label/venue id from step 6:
+   ```bash
+   bun run src/entry.ts --env <env> sources register label <label_id> "<roster_url>"
+   bun run src/entry.ts --env <env> sources refresh label <label_id>
+   ```
+   To decide **what to refresh next**, list the stalest sources first: `ph sources stale --limit 20` (never-refreshed sort first). Venues use `sources register venue <venue_id> "<calendar_url>"` the same way.
+
 ### Label registry
 
 | Label | Roster URL | Render | Sections (music kept / excluded) | Notes |
@@ -330,4 +337,9 @@ bun run src/entry.ts submit festival '[{"name": "...", "series_slug": "...", ...
 
 # All commands support --confirm (default is dry-run)
 # All commands accept JSON as argument or piped via stdin
+
+# Source-config registry (stale-first refresh; entity-type is venue|label)
+bun run src/entry.ts sources stale --limit 20            # stalest sources first
+bun run src/entry.ts sources register label 1 "https://..."  # register/update a source
+bun run src/entry.ts sources refresh label 1             # stamp a successful refresh
 ```
