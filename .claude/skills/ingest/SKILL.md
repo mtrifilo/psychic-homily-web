@@ -318,6 +318,47 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
 | --- | --- | --- | --- | --- |
 | **Sacred Bones Records** | `https://www.sacredbonesrecords.com/pages/artists` | JS (Shopify) — browser MCP; artists are `/collections/<slug>` links under `#MainContent` | **Artists (80) + Alumni (50) = 130 kept**; **Books (12) excluded** (visual artists/authors: Peter Beste, Jesse Draxler, …) | First run 2026-06-20 → **stage**: label id 1 + 130 linked. Pre-created Institute / Lathe of Heaven / Cheena / Emma Ruth Rundle & Thou to beat 0.6 fuzzy false-matches. 2 source typos fixed via slug (Children's Hospital, Daily Void). `release_count` 0 (roster page has no release data). |
 
+## Stale-first global refresh (Catalog Refresh)
+
+Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the periodic operator/agent workflow that ties the per-source ingest workflows together.
+
+### The loop
+
+```bash
+cd /Users/mtrifilo/dev/psychic-homily-web/cli
+# 1. What's stalest? (never-refreshed sort first; excludes circuit-broken sources)
+bun run src/entry.ts --env <env> sources stale --limit 20 --max-failures 5
+```
+
+For each row returned (it shows `TYPE ID LAST-REFRESHED FAILS SOURCE-URL`):
+
+2. **Run the matching ingest workflow** already documented above, using the row's `SOURCE URL`:
+   - `TYPE=venue` → the **Venue events-page periodic ingest** workflow (registry table for render/pagination hints).
+   - `TYPE=label` → the **Label roster-page ingest** workflow.
+   Always dry-run + the QA scans, get OK, then `--confirm` (re-runs are idempotent — unchanged entities skip cleanly thanks to the PSY-1157 dedup fix).
+3. **Stamp the refresh** so the source drops to the bottom of the stale list:
+   ```bash
+   bun run src/entry.ts --env <env> sources refresh <venue|label> <id>
+   # on a failed/abandoned run instead, record it so the circuit breaker can engage:
+   bun run src/entry.ts --env <env> sources failure <venue|label> <id>   # (admin API; see note)
+   ```
+   Repeat until the stalest `last_refreshed_at` is recent enough for your cadence.
+
+### Seeding the registry
+
+The loop only sees **registered** sources, so seed them once (then refreshes keep them current):
+
+```bash
+# Resolve the entity id, then register its source URL.
+bun run src/entry.ts --env <env> search venue "Empty Bottle"     # -> id
+bun run src/entry.ts --env <env> sources register venue <id> "https://www.emptybottle.com/"
+bun run src/entry.ts --env <env> sources register label <id> "https://www.sacredbonesrecords.com/pages/artists"
+```
+
+Seed venues from the **Venue registry** table above (each row's events URL) and labels from the **Label registry** table. Registering is idempotent (upsert on `entity_type`+`entity_id`) and does NOT reset `last_refreshed_at`, so re-running `register` to update a URL is safe.
+
+> `sources failure` is exposed by the admin API (`POST /admin/sources/failure`) but not yet a `ph` subcommand — call it via `curl` if needed, or just rely on `register`/`refresh` for the manual loop.
+
 ## Individual Commands Reference
 
 ```bash
