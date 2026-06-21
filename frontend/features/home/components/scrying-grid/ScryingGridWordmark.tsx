@@ -53,6 +53,10 @@ export function ScryingGridWordmark({
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [enhanced, setEnhanced] = useState(false)
+  // The visible <h1> fallback is hidden for JS users so the solid-font wordmark
+  // never flashes before the canvas fades in. It's only revealed if enhancement
+  // fails (`failed`), or for no-JS via the <noscript> style below.
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     const container = containerRef.current
@@ -259,7 +263,12 @@ export function ScryingGridWordmark({
     }
 
     const begin = () => {
-      if (disposed || !rebuild()) return
+      if (disposed) return
+      if (!rebuild()) {
+        // Canvas couldn't sample (e.g. zero-size container) — reveal the text.
+        setFailed(true)
+        return
+      }
       setEnhanced(true)
       if (reduced) draw(0, true)
       else startLoop()
@@ -325,14 +334,16 @@ export function ScryingGridWordmark({
       className={`relative isolate flex w-full items-center justify-center select-none ${className ?? ''}`}
       style={{ touchAction: 'pan-y' }}
     >
-      <h1
-        id={headingId}
-        className={`m-0 text-center transition-opacity duration-700 ${enhanced ? 'opacity-0' : 'opacity-100'}`}
-      >
+      <h1 id={headingId} className="m-0 text-center">
         <span className="sr-only">Psychic Homily</span>
+        {/* Visible fallback — hidden by default so it never flashes before the
+            canvas; revealed on enhancement failure, or for no-JS (noscript). */}
         <span
           aria-hidden
-          className="block font-display text-[clamp(3.25rem,12vw,10rem)] font-bold leading-[0.9] tracking-tight text-foreground"
+          data-hero-fallback
+          className={`block font-display text-[clamp(3.25rem,12vw,10rem)] font-bold leading-[0.9] tracking-tight text-foreground transition-opacity duration-700 ${
+            failed ? 'opacity-100' : 'opacity-0'
+          }`}
         >
           PSYCHIC
           <br />
@@ -346,6 +357,10 @@ export function ScryingGridWordmark({
           enhanced ? 'opacity-100' : 'opacity-0'
         }`}
       />
+      {/* No-JS: the canvas never enhances, so reveal the text fallback. */}
+      <noscript>
+        <style>{`[data-hero-fallback]{opacity:1!important}`}</style>
+      </noscript>
     </div>
   )
 }
