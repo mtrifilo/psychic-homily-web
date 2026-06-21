@@ -76,29 +76,6 @@ export async function linkReleaseToLabel(
 }
 
 /**
- * Resolve a label name and link it to an artist.
- * Returns the label ID if successful, or null.
- */
-export async function resolveAndLinkArtistLabel(
-  client: APIClient,
-  labelName: string,
-  artistId: number,
-): Promise<number | null> {
-  const label = await resolveLabelByName(client, labelName);
-  if (!label) {
-    display.warn(`Label "${labelName}" not found — skipping artist-label link`);
-    return null;
-  }
-
-  const linked = await linkArtistToLabel(client, label.id, artistId);
-  if (linked) {
-    display.info(`  Linked artist ${artistId} to label "${label.name}" (ID: ${label.id})`);
-    return label.id;
-  }
-  return null;
-}
-
-/**
  * Resolve a label name and link it to a release (and optionally its artists).
  * Returns the label ID if successful, or null.
  */

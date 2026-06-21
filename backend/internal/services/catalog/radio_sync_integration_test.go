@@ -3,6 +3,8 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -281,22 +283,25 @@ func (s *RadioSyncSuite) TestBackfill_IdempotentReimport() {
 	s.Equal(int64(2), afterSecond, "re-import must not duplicate radio_plays")
 }
 
-// The scheduled-cycle skip guard: a lock-contended (no-op) run must NOT be
-// recorded as an in-memory PSY-887 success (which would reset the failure
-// counter). Regression guard for the breaker-skip/lock-contention guard in
-// runFetchCycle.
+// The scheduled-cycle skip guard: a lock-contended (no-op) run must NOT touch the
+// persistent breaker counter (RunStationSync returns LockContended before opening a
+// run or rolling up health). Regression guard for the lock-contention path in
+// runFetchCycle now that the breaker lives in radio_station_health (PSY-1140).
 func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	// Pre-seed persistent health below the breaker threshold so the gate allows the
+	// station (not blocked). A lock-contended no-op must leave this counter intact.
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		ConsecutiveFailures: radioCircuitBreakerThreshold - 2,
+		BreakerState:        catalogm.RadioBreakerStateClosed,
+	}).Error)
 
 	fs := &RadioFetchService{
-		radioService:        s.svc,
-		logger:              testLogger(),
-		stopCh:              make(chan struct{}),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService: s.svc,
+		logger:       testLogger(),
+		stopCh:       make(chan struct{}),
 	}
-	// Below the breaker threshold so the cycle attempts the station (not pre-skipped).
-	fs.SetConsecutiveFailures(st.ID, radioCircuitBreakerThreshold-2)
 
 	// Hold the station's advisory lock so the cycle's RunStationSync contends.
 	sqlDB, err := s.db.DB()
@@ -311,8 +316,10 @@ func (s *RadioSyncSuite) TestFetchCycle_LockContended_DoesNotResetBreaker() {
 
 	fs.runFetchCycle()
 
-	s.Equal(radioCircuitBreakerThreshold-2, fs.GetConsecutiveFailures(st.ID),
-		"a lock-contended no-op run must not reset the in-memory failure counter")
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(radioCircuitBreakerThreshold-2, health.ConsecutiveFailures,
+		"a lock-contended no-op run must not touch the persistent failure counter")
 	s.Empty(s.runsForStation(st.ID), "contended run writes no row")
 }
 
@@ -353,27 +360,30 @@ func (s *RadioSyncSuite) TestDiscover_WritesRunAndShows() {
 }
 
 // Cycle-level Skipped guard: a breaker-open (Skipped) run writes a skipped row but
-// must NOT reset the in-memory PSY-887 counter (the Skipped arm of the guard, the
-// sibling of the lock-contention case above).
+// must NOT reset the persistent failure counter (a 'skipped' status leaves the
+// breaker untouched — only last_run_at moves). Sibling of the lock-contention case.
 func (s *RadioSyncSuite) TestFetchCycle_BreakerOpen_DoesNotResetBreaker() {
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	// Open + a non-zero counter, no trip time → within-cooldown ⇒ blocked. The skip
+	// must leave the counter at threshold (proves it does not reset on skip).
 	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
-		StationID: st.ID, BreakerState: catalogm.RadioBreakerStateOpen,
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
 	}).Error)
 
 	fs := &RadioFetchService{
-		radioService:        s.svc,
-		logger:              testLogger(),
-		stopCh:              make(chan struct{}),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService: s.svc,
+		logger:       testLogger(),
+		stopCh:       make(chan struct{}),
 	}
-	fs.SetConsecutiveFailures(st.ID, radioCircuitBreakerThreshold-2)
 
 	fs.runFetchCycle()
 
-	s.Equal(radioCircuitBreakerThreshold-2, fs.GetConsecutiveFailures(st.ID),
-		"a breaker-skipped run must not reset the in-memory failure counter")
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(radioCircuitBreakerThreshold, health.ConsecutiveFailures,
+		"a breaker-skipped run must not reset the persistent failure counter")
 	runs := s.runsForStation(st.ID)
 	s.Require().Len(runs, 1, "a breaker skip writes a skipped row (unlike lock contention)")
 	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status)
@@ -446,4 +456,464 @@ func (s *RadioSyncSuite) TestExecutorPanic_ClosesRunAsFailed() {
 	s.Require().Len(runs, 1)
 	s.Equal(catalogm.RadioSyncRunStatusFailed, runs[0].Status, "a panicked run must be closed as failed")
 	s.Require().NotNil(runs[0].FinishedAt, "a panicked run must still set finished_at (lifecycle CHECK)")
+}
+
+// A cancel that lands mid-backfill must WIN over the run's own terminal close: the
+// backfill's progressFn observes status='cancelled' and stops, and the close path's
+// WHERE status='running' guard leaves the row 'cancelled' (not overwritten to
+// success/partial) with health untouched. This is the regression guard for the
+// cancellation design — the close/fail/progress UPDATEs all key on status='running'
+// so exactly one of {cancel, close} wins. (PSY-1135, adversarial-review.)
+func (s *RadioSyncSuite) TestBackfill_CancelMidRun_WinsOverClose() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "cancel-show-ext"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Cancel Show", Slug: "cancel-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	var runID uint
+	track := "Track A"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			// FetchPlaylist runs inside importEpisode, BEFORE the post-episode
+			// progressFn. Cancelling here means the very next progressFn check
+			// observes status='cancelled' and stops the import — deterministically
+			// racing the close path against an already-terminal row.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				s.Require().NotZero(runID, "OnRunOpened must set runID before the executor runs")
+				s.Require().NoError(s.svc.CancelSyncRun(runID))
+				return []RadioPlayImport{{Position: 1, ArtistName: "Artist A", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerManual,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+		OnRunOpened: func(id uint) { runID = id },
+	})
+	s.Require().NoError(err)
+	s.Require().NotNil(res)
+	s.Equal(catalogm.RadioSyncRunStatusCancelled, res.Status, "close path must not overwrite the cancel")
+
+	var run catalogm.RadioSyncRun
+	s.Require().NoError(s.db.First(&run, res.RunID).Error)
+	s.Equal(catalogm.RadioSyncRunStatusCancelled, run.Status)
+	s.Require().NotNil(run.FinishedAt)
+
+	// The cancelled branch returns before updateStationHealth, so a cancelled run
+	// is health-neutral: no success recorded, not counted as a failure.
+	var health catalogm.RadioStationHealth
+	if herr := s.db.First(&health, "station_id = ?", st.ID).Error; herr == nil {
+		s.Nil(health.LastSuccessAt, "a cancelled run must not record a success")
+		s.Equal(0, health.ConsecutiveFailures, "a cancelled run is not a failure")
+	}
+}
+
+// runAutoBackfillShow cancels its in-flight run on service shutdown (s.stopCh) and
+// joins the watcher (<-watcherExited) before returning, so no goroutine does DB
+// work past Stop()'s WaitGroup barrier. A blocking provider holds the run open so
+// the cancel is observed mid-run, deterministically (no sleeps). Replaces the
+// coverage of the deleted waitForJobCompletion shutdown test. (PSY-1135.)
+func (s *RadioSyncSuite) TestAutoBackfillShow_CancelsOnShutdown() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "shutdown-show-ext"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Shutdown Show", Slug: "shutdown-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	fs := &RadioFetchService{
+		radioService: s.svc,
+		logger:       testLogger(),
+		stopCh:       make(chan struct{}),
+	}
+
+	runStarted := make(chan struct{})
+	proceed := make(chan struct{})
+	var once sync.Once
+	track := "T"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			// Block the run open (mid-episode) until the test has closed stopCh and
+			// confirmed the watcher cancelled the run.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				once.Do(func() { close(runStarted); <-proceed })
+				return []RadioPlayImport{{Position: 1, ArtistName: "A", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	since := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	var res *RunStationSyncResult
+	done := make(chan struct{})
+	go func() {
+		res = fs.runAutoBackfillShow(st.ID, show.ID, since, until)
+		close(done)
+	}()
+
+	<-runStarted     // run row open + executing, blocked inside FetchPlaylist
+	close(fs.stopCh) // watcher (holds runID via OnRunOpened) cancels the run
+	s.Require().Eventually(func() bool {
+		var run catalogm.RadioSyncRun
+		if err := s.db.Where("station_id = ?", st.ID).Order("id DESC").First(&run).Error; err != nil {
+			return false
+		}
+		return run.Status == catalogm.RadioSyncRunStatusCancelled
+	}, 3*time.Second, 10*time.Millisecond, "watcher must cancel the in-flight run on stopCh")
+	close(proceed) // let the episode finish; progressFn observes the cancel → stops
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		s.Require().FailNow("runAutoBackfillShow did not return after the shutdown cancel (watcher not joined?)")
+	}
+	s.Require().NotNil(res)
+	s.Equal(catalogm.RadioSyncRunStatusCancelled, res.Status)
+}
+
+// ───────────────────── persistent breaker state machine (PSY-1140) ─────────────────────
+
+// The breaker opens after radioCircuitBreakerThreshold consecutive PERMANENT
+// failures (a manual-source station fails in getProvider, classified permanent),
+// recording breaker_tripped_at. End-to-end through RunStationSync's health write-back.
+func (s *RadioSyncSuite) TestBreaker_OpensAfterThresholdPermanentFailures() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // getProvider error → permanent
+
+	for i := 0; i < radioCircuitBreakerThreshold; i++ {
+		_, _ = s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+			Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+		})
+	}
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(radioCircuitBreakerThreshold, health.ConsecutiveFailures)
+	s.Equal(catalogm.RadioBreakerStateOpen, health.BreakerState, "breaker opens at the threshold")
+	s.Require().NotNil(health.BreakerTrippedAt, "an opened breaker records when it tripped")
+}
+
+// The headline AC: a tripped breaker survives a process restart because it is pure
+// DB state now. A BRAND-NEW service instance (no in-memory carry-over — the old
+// PSY-887 map would be empty and let the station run) must still skip the station.
+func (s *RadioSyncSuite) TestBreaker_PersistsAcrossRestart() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedRecently := time.Now().Add(-time.Minute) // well within the cooldown
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedRecently,
+	}).Error)
+
+	fs := &RadioFetchService{radioService: s.svc, logger: testLogger(), stopCh: make(chan struct{})}
+	fs.runFetchCycle()
+
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1)
+	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status, "a tripped breaker must survive a restart")
+	s.True(runs[0].BreakerSkipped)
+}
+
+// open → half_open → closed: past the cooldown, a scheduled run is allowed as a
+// half-open trial; a successful trial closes the breaker and clears the trip time.
+func (s *RadioSyncSuite) TestBreaker_HalfOpenTrial_SuccessCloses() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedLongAgo := time.Now().Add(-radioBreakerCooldown - time.Minute)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedLongAgo,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+	s.False(res.Skipped, "past cooldown the breaker allows a half-open trial")
+	s.Equal(catalogm.RadioSyncRunStatusSuccess, res.Status)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a successful trial closes the breaker")
+	s.Equal(0, health.ConsecutiveFailures)
+	s.Nil(health.BreakerTrippedAt, "closing clears breaker_tripped_at")
+}
+
+// half_open → open: a failed half-open trial re-opens the breaker with a fresh
+// cooldown (so the next trial waits another full cooldown).
+func (s *RadioSyncSuite) TestBreaker_HalfOpenTrial_FailureReopens() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // permanent fail in getProvider
+	trippedLongAgo := time.Now().Add(-radioBreakerCooldown - time.Minute)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedLongAgo,
+	}).Error)
+
+	_, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().Error(err) // the trial failed
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateOpen, health.BreakerState, "a failed trial re-opens the breaker")
+	s.Equal(radioCircuitBreakerThreshold+1, health.ConsecutiveFailures)
+	s.Require().NotNil(health.BreakerTrippedAt)
+	s.True(health.BreakerTrippedAt.After(trippedLongAgo), "re-open refreshes breaker_tripped_at")
+}
+
+// Manual-probe policy (LOCKED): a manual run bypasses the gate AND a successful
+// manual probe CLOSES the breaker (the asymmetric half-open-probe semantics).
+func (s *RadioSyncSuite) TestBreaker_ManualProbe_SuccessCloses() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedRecently := time.Now().Add(-time.Minute) // within cooldown — irrelevant, manual bypasses
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedRecently,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerManual,
+	})
+	s.Require().NoError(err)
+	s.False(res.Skipped, "manual bypasses an open breaker (operator override)")
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a manual success closes the breaker")
+	s.Equal(0, health.ConsecutiveFailures)
+}
+
+// Manual-probe policy (LOCKED): a manual FAILURE never increments the counter / trips
+// the breaker — the operator chose to poke a known-bad station.
+func (s *RadioSyncSuite) TestBreaker_ManualProbe_FailureDoesNotTrip() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // permanent fail
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateClosed,
+		ConsecutiveFailures: radioCircuitBreakerThreshold - 1, // one short of tripping
+	}).Error)
+
+	_, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerManual,
+	})
+	s.Require().Error(err)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, health.BreakerState, "a manual failure must not trip the breaker")
+	s.Equal(radioCircuitBreakerThreshold-1, health.ConsecutiveFailures, "a manual failure must not increment the counter")
+}
+
+// markBreakerHalfOpen flips a tripped breaker to half_open AND refreshes
+// breaker_tripped_at to the trial-start time (the timestamp refresh is what bounds a
+// stranded trial — adversarial-review fix). Direct method test: the half_open state
+// only exists in the DB mid-run, so the end-to-end trial tests can't observe it.
+func (s *RadioSyncSuite) TestMarkBreakerHalfOpen_StampsTrialStart() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedLongAgo := time.Now().Add(-radioBreakerCooldown - time.Hour)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedLongAgo,
+	}).Error)
+
+	s.svc.markBreakerHalfOpen(st.ID)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateHalfOpen, health.BreakerState, "open → half_open at trial start")
+	s.Require().NotNil(health.BreakerTrippedAt)
+	s.True(health.BreakerTrippedAt.After(trippedLongAgo), "trial start refreshes breaker_tripped_at")
+}
+
+// A breaker STRANDED at half_open (a trial that was cancelled/panicked so
+// updateStationHealth never resolved it) must NOT re-trial every cycle: with a
+// recent breaker_tripped_at it is gate-blocked for a full cooldown, exactly like an
+// open breaker. Regression guard for the cooldown-defeat the adversarial review found.
+func (s *RadioSyncSuite) TestBreaker_StrandedHalfOpen_RespectsCooldown() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	trippedRecently := time.Now().Add(-time.Minute) // trial started a minute ago, never resolved
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:           st.ID,
+		BreakerState:        catalogm.RadioBreakerStateHalfOpen,
+		ConsecutiveFailures: radioCircuitBreakerThreshold,
+		BreakerTrippedAt:    &trippedRecently,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+	s.True(res.Skipped, "a stranded half_open within cooldown must be blocked, not re-trialed")
+
+	runs := s.runsForStation(st.ID)
+	s.Require().Len(runs, 1)
+	s.Equal(catalogm.RadioSyncRunStatusSkipped, runs[0].Status)
+	s.True(runs[0].BreakerSkipped)
+}
+
+// Per-station isolation: wedging one station's breaker (permanent failures to the
+// threshold) must not touch another station's health row. Now a schema property
+// (station_id PK) rather than an in-memory map; this guards a future query that
+// drops the station_id predicate.
+func (s *RadioSyncSuite) TestBreaker_PerStationIsolation() {
+	wedged := s.seedStation(catalogm.PlaylistSourceManual) // permanent fail in getProvider
+	healthy := s.seedStation(catalogm.PlaylistSourceKEXP)  // clean fetch (no shows)
+
+	// Drive the wedged station to the breaker threshold.
+	for i := 0; i < radioCircuitBreakerThreshold; i++ {
+		_, _ = s.svc.RunStationSync(context.Background(), wedged.ID, RunStationSyncOpts{
+			Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+		})
+	}
+	// Run the healthy station once (success).
+	_, err := s.svc.RunStationSync(context.Background(), healthy.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+
+	var wh catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&wh, "station_id = ?", wedged.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateOpen, wh.BreakerState, "wedged station opens")
+	s.Equal(radioCircuitBreakerThreshold, wh.ConsecutiveFailures)
+
+	var hh catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&hh, "station_id = ?", healthy.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateClosed, hh.BreakerState, "the other station is unaffected")
+	s.Equal(0, hh.ConsecutiveFailures)
+}
+
+// ───────────────────── typed errors + Sentry escalation (PSY-1141) ─────────────────────
+
+// A PERMANENT failure on a scheduled run escalates via the onPermanentFailure seam;
+// the SAME permanent failure on a manual run does NOT (the operator already sees the
+// result). End-to-end through RunStationSync's escalation hook.
+func (s *RadioSyncSuite) TestEscalation_PermanentScheduledFires_ManualDoesNot() {
+	st := s.seedStation(catalogm.PlaylistSourceManual) // getProvider error → permanent hard failure
+
+	var categories []string
+	s.svc.onPermanentFailure = func(_ error, _ uint, category string) {
+		categories = append(categories, category)
+	}
+	defer func() { s.svc.onPermanentFailure = nil }()
+
+	_, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().Error(err)
+	s.Require().Len(categories, 1, "a permanent scheduled failure must escalate")
+	s.Equal(catalogm.RadioSyncRunErrorProviderUnreachable, categories[0])
+
+	categories = nil
+	_, err = s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerManual,
+	})
+	s.Require().Error(err)
+	s.Empty(categories, "a manual failure must NOT escalate")
+}
+
+// End-to-end: a truncated play records a radio_sync_run_errors row categorized as
+// 'truncation' — the case the old string heuristic could never reach (it always
+// bucketed drop-summaries as validation_drop). The headline PSY-1141 AC.
+func (s *RadioSyncSuite) TestBackfill_TruncationRecordsTruncationCategory() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "trunc-show"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Trunc Show", Slug: "trunc-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	overLength := strings.Repeat("z", 600) // > 500-rune column → salvaged via truncation
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return []RadioPlayImport{{Position: 1, ArtistName: overLength}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerManual,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+	})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioSyncRunStatusPartial, res.Status, "a truncation makes the run partial")
+
+	var errs []catalogm.RadioSyncRunError
+	s.Require().NoError(s.db.Where("sync_run_id = ?", res.RunID).Find(&errs).Error)
+	s.Require().Len(errs, 1)
+	s.Equal(catalogm.RadioSyncRunErrorTruncation, errs[0].Category,
+		"PSY-1141: a truncation records as 'truncation', not validation_drop")
+	s.Require().NotNil(errs[0].EpisodeRef)
+	s.Equal("ep-1", *errs[0].EpisodeRef, "structured error carries the episode ref")
+}
+
+// The headline scraper-drift escalation, end-to-end: a provider PARSE failure on a
+// per-episode playlist fetch surfaces as a PARTIAL run (the episode loop continues,
+// no hard error) carrying a parse_error — and it must still escalate to Sentry. This
+// guards the import-path parse_error reachability that the adversarial review found
+// dead (categorizeRunError had no parse arm → it defaulted to provider_unreachable →
+// nothing paged). Uses an AUTO trigger (manual would not escalate).
+func (s *RadioSyncSuite) TestEscalation_ParsePartialRun_FiresParseError() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	showExt := "parse-show"
+	show := catalogm.RadioShow{StationID: st.ID, Name: "Parse Show", Slug: "parse-show", ExternalID: &showExt}
+	s.Require().NoError(s.db.Create(&show).Error)
+
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "ep-1", ShowExternalID: showExt, AirDate: "2026-06-15"}}, nil
+			},
+			// A provider format change surfaces as a wrapped parse failure.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return nil, fmt.Errorf("parsing plays response: unexpected end of JSON input")
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	var categories []string
+	s.svc.onPermanentFailure = func(_ error, _ uint, category string) {
+		categories = append(categories, category)
+	}
+	defer func() { s.svc.onPermanentFailure = nil }()
+
+	ws := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	we := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeBackfill, Trigger: catalogm.RadioSyncRunTriggerAutoBackfill,
+		ShowID: &show.ID, WindowStart: &ws, WindowEnd: &we,
+	})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioSyncRunStatusPartial, res.Status, "a per-episode parse failure → partial run, not hard-failed")
+
+	s.Require().Len(categories, 1, "a parse failure on an auto run must escalate (scraper drift)")
+	s.Equal(catalogm.RadioSyncRunErrorParseError, categories[0])
+
+	// And it is recorded as parse_error (not provider_unreachable) in the run-errors table.
+	var errs []catalogm.RadioSyncRunError
+	s.Require().NoError(s.db.Where("sync_run_id = ?", res.RunID).Find(&errs).Error)
+	s.Require().Len(errs, 1)
+	s.Equal(catalogm.RadioSyncRunErrorParseError, errs[0].Category)
 }

@@ -587,6 +587,15 @@ func parseKEXPPlay(kPlay kexpPlay, position int) RadioPlayImport {
 		IsRequest:         kPlay.IsRequest,
 	}
 
+	// KEXP plays carry a stable numeric id; stringify it (plain "12345", not
+	// namespaced — dedup_key is scoped per episode_id) so re-imports dedup by id
+	// rather than by content hash. Guard id <= 0 (missing/zero) → leave nil so the
+	// content-hash fallback applies and we never write an empty dedup_key.
+	if kPlay.ID > 0 {
+		pid := strconv.Itoa(kPlay.ID)
+		play.ProviderPlayID = &pid
+	}
+
 	if kPlay.Song != "" {
 		play.TrackTitle = &kPlay.Song
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"strconv"
@@ -35,26 +36,49 @@ const DefaultDiscoverInterval = 24 * time.Hour
 // Set RADIO_AUTO_BACKFILL_DAYS=0 to disable auto-backfill entirely.
 const DefaultAutoBackfillDays = 90
 
-// autoBackfillPollInterval is how often the per-station backfill goroutine
-// polls a running import job for completion. The job updates its DB row every
-// 10 episodes; 5s is comfortably finer-grained than typical job tick rates.
-const autoBackfillPollInterval = 5 * time.Second
+// Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
+// model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
+// §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
+// total with Full-Jitter exponential backoff. Tier 2 (per-client): a process-wide
+// retry budget sheds retries once they exceed radioRetryBudgetRatio of requests over
+// a rolling window, so a degraded provider fails fast instead of amplifying load.
+const (
+	// radioRetryMaxAttempts is the total number of attempts per request (1 initial +
+	// up to N-1 retries). Google SRE's per-request cap is ≤3.
+	radioRetryMaxAttempts = 3
 
-// radioCircuitBreakerThreshold is the number of consecutive PERMANENT failures
-// before a station is temporarily skipped during fetch cycles. Transient errors
-// (timeout, connection refused, 429) bump a separate counter and trigger a
-// single in-cycle retry instead of incrementing this one (PSY-887).
-const radioCircuitBreakerThreshold = 5
+	// radioRetryBackoffBase / radioRetryBackoffCap bound the Full-Jitter window: the
+	// nth retry sleeps a random duration in [0, min(cap, base·2^n)). Jitter (vs fixed
+	// or plain-exponential backoff) de-synchronizes retries across stations so they
+	// don't thunder.
+	radioRetryBackoffBase = 500 * time.Millisecond
+	radioRetryBackoffCap  = 30 * time.Second
 
-// radioTransientRetryBackoff is the brief delay before retrying a station once
-// after a transient error. Single retry per station per cycle; we don't carry
-// transient-retry state across cycles (no exponential backoff) — that's an
-// explicit non-goal of PSY-887 to keep the fetch loop's failure modes obvious.
-const radioTransientRetryBackoff = 500 * time.Millisecond
+	// radioRetryBudgetWindow / radioRetryBudgetRatio are the per-client tier: at most
+	// ~10% of requests over a rolling 2-min window may be retries (Google SRE; keeps
+	// load growth ~1.1×). radioRetryBudgetMinReqs is a low-volume guard — below this
+	// many requests in the window the budget is inactive (a handful of retries can't
+	// form a storm, and a strict ratio would otherwise shed the first retry of every
+	// low-volume cycle).
+	//
+	// Honest scope: at the radio loop's steady-state cadence (6h fetch / 24h discover,
+	// stations processed sequentially behind a 1-rps-per-provider rate limiter) the
+	// per-request attempt cap (tier 1) is the dominant control, and ≥minReqs requests
+	// rarely land within a single 2-min window — so tier 2 engages essentially only on
+	// the startup co-fire (both loops runImmediately) or if request volume grows. It is
+	// a forward-looking safety net, not a per-cycle limiter. The events slice is bounded
+	// by that same upstream provider rate limiter (≈1 noteRequest/sec/provider) — a
+	// change that removes that throttle would need to revisit this.
+	radioRetryBudgetWindow  = 2 * time.Minute
+	radioRetryBudgetRatio   = 0.10
+	radioRetryBudgetMinReqs = 10
+)
 
-// errorKind classifies a radio provider error for circuit-breaker routing.
-// kindTransient → bump transientFailures + retry once, do NOT trip breaker.
-// kindPermanent → bump consecutiveFailures, trip breaker at threshold.
+// errorKind classifies a radio provider error for retry + breaker routing.
+// kindTransient → retried (up to radioRetryMaxAttempts) by fetchStationWithRetry;
+// never trips the breaker.
+// kindPermanent → no retry; increments the persistent breaker counter and trips
+// it at radioCircuitBreakerThreshold (see breakerTransition in radio_sync.go).
 type errorKind int
 
 const (
@@ -144,29 +168,29 @@ type RadioFetchService struct {
 	discoverInterval time.Duration
 
 	// autoBackfillDays: how far back to backfill when discovery finds a new show.
-	// 0 disables auto-backfill (admins can still manually trigger via /admin/radio-shows/{id}/import-job).
+	// 0 disables auto-backfill (admins can still manually trigger a backfill via
+	// POST /admin/radio-shows/{id}/backfill).
 	autoBackfillDays int
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
 
-	// consecutiveFailures tracks per-station PERMANENT failures within a fetch
-	// cycle. Reset on success. Stations with >= threshold permanent failures are
-	// skipped until the counter resets. Shared across the fetch and discover
-	// loops so a wedged provider gets one circuit breaker, not two (per the
-	// shared-failures-map design intent from PSY-671).
-	//
-	// transientFailures (PSY-887): tracks transient errors (timeout, conn
-	// refused, 429) separately. These do NOT trip the breaker; they trigger a
-	// single in-cycle retry with brief backoff. Reset on success alongside
-	// consecutiveFailures. Exposed via GetTransientFailures for testing /
-	// observability. Kept as a separate map so a station with intermittent
-	// network blips on a healthy provider doesn't get wedged for the rest of
-	// the 6h cycle (the original PSY-887 bug).
-	mu                  sync.Mutex
-	consecutiveFailures map[uint]int
-	transientFailures   map[uint]int
+	// The circuit breaker is no longer in-memory (PSY-1140): it lives in
+	// radio_station_health.breaker_state and is owned end-to-end by RunStationSync
+	// (read at the gate, written on the run's outcome via updateStationHealth), so
+	// it survives restarts. The loops below just consult RunStationSyncResult.Skipped
+	// for a breaker-open station.
+
+	// retryBudget is the per-client (per-process) transient-retry budget (PSY-1142),
+	// shared across the fetch + discover loops. Lazily initialized via budget() so
+	// tests that build &RadioFetchService{...} directly still work.
+	retryBudget *retryBudget
+	budgetOnce  sync.Once
+
+	// retryBackoffFn, when non-nil, overrides the Full-Jitter backoff delay — tests
+	// set it to return 0 so the retry loop doesn't actually sleep. nil → fullJitterBackoff.
+	retryBackoffFn func(retry int) time.Duration
 }
 
 // NewRadioFetchService creates a new radio fetch background service.
@@ -218,17 +242,15 @@ func NewRadioFetchService(
 	}
 
 	return &RadioFetchService{
-		radioService:        radioService,
-		discordService:      discordService,
-		fetchInterval:       fetchInterval,
-		affinityInterval:    affinityInterval,
-		rematchInterval:     rematchInterval,
-		discoverInterval:    discoverInterval,
-		autoBackfillDays:    autoBackfillDays,
-		stopCh:              make(chan struct{}),
-		logger:              slog.Default(),
-		consecutiveFailures: make(map[uint]int),
-		transientFailures:   make(map[uint]int),
+		radioService:     radioService,
+		discordService:   discordService,
+		fetchInterval:    fetchInterval,
+		affinityInterval: affinityInterval,
+		rematchInterval:  rematchInterval,
+		discoverInterval: discoverInterval,
+		autoBackfillDays: autoBackfillDays,
+		stopCh:           make(chan struct{}),
+		logger:           slog.Default(),
 	}
 }
 
@@ -293,94 +315,175 @@ func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
 	})
 }
 
-// stationBreakerSkip reports whether the station should be skipped this cycle
-// because its PERMANENT failure count is at threshold. Transient failures are
-// tracked separately and do NOT cause skip (PSY-887).
-//
-// Locks/unlocks internally — caller MUST NOT hold s.mu.
-func (s *RadioFetchService) stationBreakerSkip(stationID uint) (skip bool, failures int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	failures = s.consecutiveFailures[stationID]
-	return failures >= radioCircuitBreakerThreshold, failures
-}
-
-// recordStationSuccess resets BOTH counters for a station after a successful
-// fetch. Reset transientFailures too so a station that recovered from a
-// transient blip doesn't carry the count into the next blip (PSY-887).
-func (s *RadioFetchService) recordStationSuccess(stationID uint) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.consecutiveFailures[stationID] = 0
-	s.transientFailures[stationID] = 0
-}
-
-// recordStationFailure routes a fetch error to the right counter per PSY-887.
-// Returns the classification so callers can branch on retry-or-skip without a
-// second classifyError call.
-func (s *RadioFetchService) recordStationFailure(stationID uint, err error) errorKind {
-	kind := classifyError(err)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if kind == kindTransient {
-		s.transientFailures[stationID]++
-	} else {
-		s.consecutiveFailures[stationID]++
-	}
-	return kind
-}
-
-// fetchStationWithRetry calls FetchNewEpisodes. On a transient error, sleeps
-// radioTransientRetryBackoff and tries ONCE more. Returns the final result/err
-// pair. Counter updates are the caller's responsibility — this helper only
-// owns the retry decision so the two loops (fetch + discover) can share it
-// even though they call different RadioService methods (PSY-887).
-//
-// Single retry, not exponential — explicit non-goal of the PSY-887 design.
-// Cross-cycle backoff would require persisting transientFailures state, which
-// the ticket explicitly defers ("DO NOT add persistent state").
+// fetchStationWithRetry calls the run op and retries a TRANSIENT error per the
+// two-tier policy (PSY-1142): up to radioRetryMaxAttempts total attempts with
+// Full-Jitter backoff (tier 1), each retry gated by the per-client retry budget
+// (tier 2). Permanent errors fail immediately; an error that turns permanent on a
+// retry stops the loop. The breaker counter is the caller's responsibility (persisted
+// by RunStationSync's updateStationHealth); this helper only owns the retry decision
+// so the fetch + discover loops can share it. The stopCh-aware sleep unwinds a
+// mid-backoff service shutdown promptly.
 func (s *RadioFetchService) fetchStationWithRetry(
 	stationID uint,
 	stationName string,
 	op string, // "fetch" or "discover" — for log clarity
 	call func() (any, error),
 ) (any, error) {
+	s.budget().noteRequest()
+
 	result, err := call()
 	if err == nil {
 		return result, nil
 	}
-
 	if classifyError(err) != kindTransient {
 		return nil, err
 	}
 
-	// Transient — one retry after brief backoff. Use a stopCh-aware sleep so
-	// a service shutdown mid-backoff doesn't waste 500ms before returning.
-	s.logger.Warn("transient station error, retrying after backoff",
-		"station_id", stationID,
-		"station_name", stationName,
-		"op", op,
-		"backoff", radioTransientRetryBackoff,
-		"error", err,
-	)
-	select {
-	case <-time.After(radioTransientRetryBackoff):
-	case <-s.stopCh:
-		return nil, err // caller will record the original transient failure
-	}
+	for retry := 1; retry < radioRetryMaxAttempts; retry++ {
+		if !s.budget().allowRetry() {
+			s.logger.Warn("transient station error; retry shed by per-client budget",
+				"station_id", stationID, "station_name", stationName, "op", op, "error", err)
+			return nil, err
+		}
 
-	result, retryErr := call()
-	if retryErr == nil {
-		s.logger.Info("station recovered after transient retry",
-			"station_id", stationID,
-			"station_name", stationName,
-			"op", op,
-		)
-		return result, nil
+		delay := s.retryDelay(retry - 1) // retry 1 → exponent 0
+		s.logger.Warn("transient station error, retrying after jittered backoff",
+			"station_id", stationID, "station_name", stationName, "op", op,
+			"retry", retry, "backoff", delay, "error", err)
+		select {
+		case <-time.After(delay):
+		case <-s.stopCh:
+			return nil, err // shutdown mid-backoff: surface the original transient error
+		}
+
+		result, err = call()
+		if err == nil {
+			s.logger.Info("station recovered after transient retry",
+				"station_id", stationID, "station_name", stationName, "op", op, "retry", retry)
+			return result, nil
+		}
+		if classifyError(err) != kindTransient {
+			return nil, err // turned permanent — stop retrying
+		}
 	}
-	// Return the retry error so the caller's log/counter reflects the
-	// post-retry state.
-	return nil, retryErr
+	// Exhausted attempts; surface the last (still-transient) error so the caller's
+	// log reflects the post-retry state.
+	return nil, err
+}
+
+// retryDelay returns the backoff for the given 0-based retry exponent, using the
+// test seam when set, else Full-Jitter.
+func (s *RadioFetchService) retryDelay(exp int) time.Duration {
+	if s.retryBackoffFn != nil {
+		return s.retryBackoffFn(exp)
+	}
+	return fullJitterBackoff(exp)
+}
+
+// fullJitterBackoff returns a random duration in [0, min(cap, base·2^exp)) — AWS
+// "Full Jitter", the recommended de-synchronizing backoff. math/rand/v2's global
+// source is fine for jitter (no determinism needed).
+func fullJitterBackoff(exp int) time.Duration {
+	ceiling := radioRetryBackoffCap
+	// In practice exp is only 0..1 (radioRetryMaxAttempts=3). The guards keep this
+	// safe if a caller ever passes a large exponent: base (5e8 ns) << exp overflows
+	// int64 around exp 35 (wrapping to ≤0), and the < 62 rail avoids an out-of-range
+	// shift; either way `scaled > 0` carries the real check and ceiling stays at the
+	// 30s cap, so rand.Int64N never sees a non-positive bound.
+	if exp >= 0 && exp < 62 {
+		if scaled := radioRetryBackoffBase << exp; scaled > 0 && scaled < ceiling {
+			ceiling = scaled
+		}
+	}
+	return time.Duration(rand.Int64N(int64(ceiling)))
+}
+
+// budget returns the per-client retry budget, lazily initialized so direct-literal
+// test constructions work without wiring it up.
+func (s *RadioFetchService) budget() *retryBudget {
+	s.budgetOnce.Do(func() {
+		if s.retryBudget == nil {
+			s.retryBudget = newRetryBudget()
+		}
+	})
+	return s.retryBudget
+}
+
+// ───────────────────────────── per-client retry budget (PSY-1142) ─────────────────────────────
+
+// retryBudget caps the transient-retry RATIO (retries / requests) over a rolling
+// window — the per-client tier of the Google SRE retry budget. Below minRequests
+// requests in the window it is inactive (too little volume to storm). now is
+// injectable for deterministic window tests.
+type retryBudget struct {
+	mu          sync.Mutex
+	window      time.Duration
+	ratio       float64
+	minRequests int
+	now         func() time.Time
+	events      []budgetEvent
+}
+
+// budgetEvent is one request or retry, timestamped for the rolling window.
+type budgetEvent struct {
+	at    time.Time
+	retry bool // false = an original request, true = a retry
+}
+
+func newRetryBudget() *retryBudget {
+	return &retryBudget{
+		window:      radioRetryBudgetWindow,
+		ratio:       radioRetryBudgetRatio,
+		minRequests: radioRetryBudgetMinReqs,
+		now:         time.Now,
+	}
+}
+
+// noteRequest records one original (non-retry) request. It is called per
+// fetchStationWithRetry invocation, before the op runs — so a no-op run (breaker-open
+// Skipped / LockContended, no provider hit) is still counted. That inflates the ratio
+// denominator slightly, which only makes the budget MORE lenient (errs toward allowing
+// retries, never over-shedding); keeping the helper op-agnostic is worth that.
+func (b *retryBudget) noteRequest() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.prune()
+	b.events = append(b.events, budgetEvent{at: b.now()})
+}
+
+// allowRetry reports whether a retry is within budget; when it returns true it also
+// records the retry (so the ratio reflects retries granted). Below minRequests the
+// budget is inactive — the per-request attempt cap is then the only limit.
+func (b *retryBudget) allowRetry() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.prune()
+	var requests, retries int
+	for _, e := range b.events {
+		if e.retry {
+			retries++
+		} else {
+			requests++
+		}
+	}
+	if requests >= b.minRequests && float64(retries) >= b.ratio*float64(requests) {
+		return false
+	}
+	b.events = append(b.events, budgetEvent{at: b.now(), retry: true})
+	return true
+}
+
+// prune drops events older than the window, compacting in place so the backing array
+// stays bounded to one window's events (the loops are low-rate).
+func (b *retryBudget) prune() {
+	cutoff := b.now().Add(-b.window)
+	live := b.events[:0]
+	for _, e := range b.events {
+		if !e.at.Before(cutoff) {
+			live = append(live, e)
+		}
+	}
+	b.events = live
 }
 
 // runFetchCycle fetches new episodes from all active stations sequentially.
@@ -406,21 +509,14 @@ func (s *RadioFetchService) runFetchCycle() {
 		totalMatched   int
 		totalFailed    int
 		totalTransient int
+		totalSkipped   int // breaker-open or lock-contended no-ops (no fetch happened)
 	)
 
-	// Process stations sequentially to respect per-provider rate limits
+	// Process stations sequentially to respect per-provider rate limits. The
+	// breaker is no longer pre-checked here (PSY-1140): RunStationSync consults the
+	// persistent breaker itself and returns Skipped for an open station (writing a
+	// skipped run row — better observability than the old silent in-memory skip).
 	for _, station := range stations {
-		// PSY-887: breaker only trips on PERMANENT failures. A station with
-		// transient blips can still attempt this cycle.
-		if skip, failures := s.stationBreakerSkip(station.ID); skip {
-			s.logger.Warn("skipping station (circuit breaker)",
-				"station_id", station.ID,
-				"station_name", station.Name,
-				"consecutive_failures", failures,
-			)
-			continue
-		}
-
 		totalProcessed++
 		s.logger.Info("fetching station",
 			"station_id", station.ID,
@@ -428,10 +524,11 @@ func (s *RadioFetchService) runFetchCycle() {
 		)
 
 		// Route through the unified orchestrator (PSY-1134): the run is recorded in
-		// radio_sync_runs and the returned hard error still drives the in-memory
-		// PSY-887 breaker/retry below (that in-memory breaker remains authoritative
-		// until P3 migrates it to radio_station_health; RunStationSync only READS
-		// the persistent breaker, which stays closed in P2).
+		// radio_sync_runs, and as of PSY-1140 RunStationSync OWNS the persistent
+		// breaker end-to-end (reads the gate, writes the outcome via
+		// updateStationHealth) — it is now the sole, authoritative breaker. The
+		// returned hard error still feeds the two-tier transient retry below
+		// (fetchStationWithRetry: Full-Jitter backoff + retry budget, PSY-1142).
 		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "fetch",
 			func() (any, error) {
 				return s.radioService.RunStationSync(context.Background(), station.ID, RunStationSyncOpts{
@@ -442,7 +539,10 @@ func (s *RadioFetchService) runFetchCycle() {
 		)
 		if err != nil {
 			totalFailed++
-			kind := s.recordStationFailure(station.ID, err)
+			// The persistent breaker counter is owned by RunStationSync's
+			// updateStationHealth; here we classify only to label the log + tally
+			// post-retry transients (the count drives no breaker decision now).
+			kind := classifyError(err)
 			if kind == kindTransient {
 				totalTransient++
 			}
@@ -457,10 +557,11 @@ func (s *RadioFetchService) runFetchCycle() {
 
 		result := raw.(*RunStationSyncResult)
 		// A no-op run — the per-station lock was held by another in-flight sync, or
-		// the persistent breaker is open — did NOT execute, so leave the in-memory
-		// PSY-887 breaker counters untouched (do NOT count it as a success, which
-		// would reset the failure counter and stop the in-memory breaker tripping).
+		// the persistent breaker is open (a skipped run row was written) — produced
+		// no Import payload, so skip the result handling below. The persistent
+		// breaker counter is reset by RunStationSync's own success path, not here.
 		if result.LockContended || result.Skipped {
+			totalSkipped++
 			reason := "breaker_open"
 			if result.LockContended {
 				reason = "sync_already_running"
@@ -469,7 +570,6 @@ func (s *RadioFetchService) runFetchCycle() {
 				"station_id", station.ID, "station_name", station.Name, "reason", reason)
 			continue
 		}
-		s.recordStationSuccess(station.ID)
 
 		if imp := result.Import; imp != nil {
 			totalEpisodes += imp.EpisodesImported
@@ -498,6 +598,10 @@ func (s *RadioFetchService) runFetchCycle() {
 	cycleDuration := time.Since(cycleStart)
 	s.logger.Info("radio fetch cycle complete",
 		"stations_processed", totalProcessed,
+		// PSY-1140: stations the breaker skipped (or that another run held the lock
+		// for) — counted in stations_processed but did NOT fetch. Each also wrote a
+		// skipped run row.
+		"stations_skipped", totalSkipped,
 		"episodes_imported", totalEpisodes,
 		"plays_imported", totalPlays,
 		"plays_matched", totalMatched,
@@ -592,21 +696,14 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		totalNew         int
 		totalFailed      int
 		totalTransient   int
+		totalSkipped     int // breaker-open or lock-contended no-ops (no discover happened)
 		stationsNotified int
 	)
 
 	for _, station := range stations {
-		// PSY-887: same shared-counter policy as runFetchCycle — breaker only
-		// trips on PERMANENT failures.
-		if skip, failures := s.stationBreakerSkip(station.ID); skip {
-			s.logger.Warn("skipping station for discover (circuit breaker)",
-				"station_id", station.ID,
-				"station_name", station.Name,
-				"consecutive_failures", failures,
-			)
-			continue
-		}
-
+		// Breaker pre-check removed (PSY-1140) — RunStationSync handles the
+		// persistent breaker and returns Skipped for an open station, same as
+		// runFetchCycle.
 		totalProcessed++
 		s.logger.Info("discovering shows for station",
 			"station_id", station.ID,
@@ -624,7 +721,7 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		)
 		if err != nil {
 			totalFailed++
-			kind := s.recordStationFailure(station.ID, err)
+			kind := classifyError(err) // log label + transient tally only (see runFetchCycle)
 			if kind == kindTransient {
 				totalTransient++
 			}
@@ -638,9 +735,10 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		}
 
 		result := raw.(*RunStationSyncResult)
-		// See runFetchCycle: a no-op (lock contended or breaker open) must not be
-		// recorded as an in-memory success.
+		// See runFetchCycle: a no-op (lock contended or breaker open) carries no
+		// Discover payload, so skip the result handling below.
 		if result.LockContended || result.Skipped {
+			totalSkipped++
 			reason := "breaker_open"
 			if result.LockContended {
 				reason = "sync_already_running"
@@ -649,7 +747,6 @@ func (s *RadioFetchService) runDiscoverCycle() {
 				"station_id", station.ID, "station_name", station.Name, "reason", reason)
 			continue
 		}
-		s.recordStationSuccess(station.ID)
 
 		disc := result.Discover
 		if disc == nil {
@@ -685,22 +782,23 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			// runs during unwind before GoSafe's recover, so the WaitGroup
 			// stays balanced even on panic.
 			//
-			// NOTE (PSY-1134 / P2): auto-backfill still drives the import-job
-			// machinery (CreateImportJob/StartImportJob), so its runs are traced in
-			// radio_import_jobs, NOT yet radio_sync_runs. It moves onto
-			// RunStationSync(backfill, auto_backfill) in PR2 when import-jobs retire.
+			// PSY-1135: auto-backfill now runs through RunStationSync(backfill,
+			// auto_backfill), so each newly-discovered show's history is traced in
+			// radio_sync_runs alongside every other ingestion path.
 			s.wg.Add(1)
+			stationID := station.ID
 			showIDs := disc.NewShowIDs
 			showNames := disc.NewShowNames
 			stationName := station.Name
 			shared.GoSafe(context.Background(), "radio_auto_backfill", func() {
-				s.autoBackfillStation(stationName, showIDs, showNames)
+				s.autoBackfillStation(stationID, stationName, showIDs, showNames)
 			})
 		}
 	}
 
 	s.logger.Info("radio discover cycle complete",
 		"stations_processed", totalProcessed,
+		"stations_skipped", totalSkipped, // breaker/lock no-ops, counted in processed (PSY-1140)
 		"shows_discovered", totalDiscovered,
 		"shows_new", totalNew,
 		"failures", totalFailed,
@@ -712,33 +810,32 @@ func (s *RadioFetchService) runDiscoverCycle() {
 }
 
 // autoBackfillStation drains a per-station batch of newly-discovered shows
-// SERIALLY — one import job at a time per station, polling each to completion
+// SERIALLY — one RunStationSync(backfill) at a time per station, blocking on each
 // before starting the next. Single batched Discord notification at the end.
 //
 // Why serial: provider HTTP clients are rate-limited at 1 req/sec PER INSTANCE
-// (existing wfmuRateLimit / kexpRateLimit / ntsRateLimit). Each import job
-// gets its own provider instance via getProvider, so parallel jobs would each
-// have an independent rate limiter and could collectively hit a provider
-// faster than the per-instance cap intends. Per-station serialization keeps
-// effective egress at ~1 req/sec/provider.
+// (existing wfmuRateLimit / kexpRateLimit / ntsRateLimit). Each backfill run gets
+// its own provider instance via getProvider, so parallel runs would each have an
+// independent rate limiter and could collectively hit a provider faster than the
+// per-instance cap intends. Per-station serialization keeps effective egress at
+// ~1 req/sec/provider. The per-station advisory lock inside RunStationSync is the
+// other guard: if a scheduled fetch/discover for this station is mid-flight, the
+// backfill no-ops (lock contended) and is retried on the next discover cycle.
 //
-// Process lifetime: the goroutine respects s.stopCh so a service Stop()
-// abandons pending jobs cleanly (no orphan ticker goroutines). Already-started
-// jobs continue in their own runImportJob goroutine until they finish or are
-// cancelled.
-func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []uint, showNames []string) {
+// Process lifetime: runAutoBackfillShow cancels the in-flight run on s.stopCh, so
+// a service Stop() unwinds within ~one episode instead of blocking on a full
+// historic import; the loop also checks s.stopCh between shows.
+func (s *RadioFetchService) autoBackfillStation(stationID uint, stationName string, showIDs []uint, showNames []string) {
 	defer s.wg.Done()
 
 	until := time.Now()
 	since := until.AddDate(0, 0, -s.autoBackfillDays)
-	sinceStr := since.Format("2006-01-02")
-	untilStr := until.Format("2006-01-02")
 
 	s.logger.Info("auto_backfill_started",
 		"station", stationName,
 		"shows", len(showIDs),
-		"since", sinceStr,
-		"until", untilStr,
+		"since", since.Format("2006-01-02"),
+		"until", until.Format("2006-01-02"),
 	)
 
 	var (
@@ -748,45 +845,43 @@ func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []ui
 	)
 
 	for i, showID := range showIDs {
+		// Stop cleanly between shows on shutdown.
+		select {
+		case <-s.stopCh:
+			s.logger.Info("auto_backfill_abandoned_on_shutdown", "station", stationName)
+			return
+		default:
+		}
+
 		showName := showNames[i]
 
-		job, err := s.radioService.CreateImportJob(showID, sinceStr, untilStr)
-		if err != nil {
-			s.logger.Warn("auto_backfill_create_job_failed",
-				"show_id", showID,
-				"show", showName,
-				"error", err,
-			)
+		res := s.runAutoBackfillShow(stationID, showID, since, until)
+		if res == nil {
+			continue // pre-open failure, already logged
+		}
+		if res.LockContended || res.Skipped {
+			reason := "breaker_open"
+			if res.LockContended {
+				reason = "sync_already_running"
+			}
+			s.logger.Info("auto_backfill_show_skipped", "show_id", showID, "show", showName, "reason", reason)
 			continue
 		}
-
-		if err := s.radioService.StartImportJob(job.ID); err != nil {
-			s.logger.Warn("auto_backfill_start_job_failed",
-				"show_id", showID,
-				"job_id", job.ID,
-				"error", err,
-			)
-			continue
-		}
-
-		finalJob, result := s.waitForJobCompletion(job.ID)
-		switch result {
-		case jobWaitShutdown:
-			s.logger.Info("auto_backfill_abandoned_on_shutdown", "job_id", job.ID)
+		if res.Status == catalogm.RadioSyncRunStatusCancelled {
+			// Cancelled by the shutdown watcher — stop draining the batch.
+			s.logger.Info("auto_backfill_abandoned_on_shutdown", "station", stationName)
 			return
-		case jobWaitPollError:
-			continue
 		}
 
-		if finalJob.Status == catalogm.RadioImportJobStatusCompleted {
+		// Import is non-nil on success AND partial (partial imported data with some
+		// per-episode noise); nil on a failed run.
+		if imp := res.Import; imp != nil {
 			completedShows = append(completedShows, showName)
-			totalEpisodes += finalJob.EpisodesImported
-			totalPlays += finalJob.PlaysMatched
+			totalEpisodes += imp.EpisodesImported
+			totalPlays += imp.PlaysMatched
 		} else {
-			s.logger.Warn("auto_backfill_job_did_not_complete",
-				"job_id", job.ID,
-				"status", finalJob.Status,
-			)
+			s.logger.Warn("auto_backfill_show_did_not_complete",
+				"show_id", showID, "show", showName, "status", res.Status)
 		}
 	}
 
@@ -802,64 +897,52 @@ func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []ui
 	}
 }
 
-// jobWaitResult distinguishes the three outcomes of waitForJobCompletion so the
-// caller can route shutdown vs poll-error vs terminal without bool-overloading.
-type jobWaitResult int
-
-const (
-	jobWaitTerminal  jobWaitResult = iota // job reached completed/failed/cancelled — *Job is non-nil
-	jobWaitShutdown                       // service shutting down — caller should return
-	jobWaitPollError                      // GetImportJob failed — caller should continue to next show
-)
-
-// waitForJobCompletion polls a running import job every autoBackfillPollInterval
-// until it reaches a terminal status (catalogm.RadioImportJobStatus{Completed,
-// Failed,Cancelled}), or returns earlier if s.stopCh closes (shutdown) or a
-// GetImportJob call errors (poll error).
-func (s *RadioFetchService) waitForJobCompletion(jobID uint) (*contracts.RadioImportJobResponse, jobWaitResult) {
-	for {
+// runAutoBackfillShow runs one show's auto-backfill through RunStationSync and
+// cancels it on service shutdown so Stop() never blocks on a long historic
+// import. A watcher goroutine learns the run id via OnRunOpened and, if s.stopCh
+// closes before the run finishes, flips the run to cancelled — the backfill
+// executor's progressFn observes the cancel and returns within one episode.
+// Returns the run result, or nil on a pre-open failure (logged).
+func (s *RadioFetchService) runAutoBackfillShow(stationID, showID uint, since, until time.Time) *RunStationSyncResult {
+	runIDCh := make(chan uint, 1)
+	done := make(chan struct{})
+	watcherExited := make(chan struct{})
+	shared.GoSafe(context.Background(), "radio_auto_backfill_cancel", func() {
+		defer close(watcherExited)
 		select {
-		case <-s.stopCh:
-			return nil, jobWaitShutdown
-		case <-time.After(autoBackfillPollInterval):
+		case runID := <-runIDCh:
+			select {
+			case <-s.stopCh:
+				_ = s.radioService.CancelSyncRun(runID)
+			case <-done:
+			}
+		case <-done:
 		}
+	})
 
-		job, err := s.radioService.GetImportJob(jobID)
-		if err != nil {
-			s.logger.Warn("auto_backfill_poll_job_load_failed", "job_id", jobID, "error", err)
-			return nil, jobWaitPollError
-		}
-		switch job.Status {
-		case catalogm.RadioImportJobStatusCompleted,
-			catalogm.RadioImportJobStatusFailed,
-			catalogm.RadioImportJobStatusCancelled:
-			return job, jobWaitTerminal
-		}
+	res, err := s.radioService.RunStationSync(context.Background(), stationID, RunStationSyncOpts{
+		Mode:        catalogm.RadioSyncRunTypeBackfill,
+		Trigger:     catalogm.RadioSyncRunTriggerAutoBackfill,
+		ShowID:      &showID,
+		WindowStart: &since,
+		WindowEnd:   &until,
+		OnRunOpened: func(id uint) { runIDCh <- id },
+	})
+	close(done)
+	// Join the watcher: it may still be issuing CancelSyncRun on the shutdown
+	// path, so don't return (and let autoBackfillStation's wg.Done fire) until the
+	// watcher has fully exited — no goroutine doing DB work outlives the WaitGroup
+	// barrier in Stop().
+	<-watcherExited
+
+	if res == nil {
+		s.logger.Warn("auto_backfill_open_failed", "show_id", showID, "error", err)
+		return nil
 	}
-}
-
-// GetConsecutiveFailures returns the PERMANENT failure count for a station.
-// Exported for testing.
-func (s *RadioFetchService) GetConsecutiveFailures(stationID uint) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.consecutiveFailures[stationID]
-}
-
-// SetConsecutiveFailures sets the PERMANENT failure count for a station.
-// Exported for testing.
-func (s *RadioFetchService) SetConsecutiveFailures(stationID uint, count int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.consecutiveFailures[stationID] = count
-}
-
-// GetTransientFailures returns the TRANSIENT failure count for a station
-// (PSY-887). Exported for testing.
-func (s *RadioFetchService) GetTransientFailures(stationID uint) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.transientFailures[stationID]
+	if err != nil && res.Status == catalogm.RadioSyncRunStatusFailed {
+		s.logger.Warn("auto_backfill_show_failed", "show_id", showID, "error", err)
+	}
+	return res
 }
 
 // RunFetchCycleNow triggers an immediate fetch cycle (useful for testing/admin).

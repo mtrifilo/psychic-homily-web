@@ -13,6 +13,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -77,17 +78,35 @@ func discoverShowsForStation(provider RadioPlaylistProvider, station *catalogm.R
 	return provider.DiscoverShows()
 }
 
-// parseImportDate parses an import-window bound (since/until). The value may
-// arrive date-only ("2026-03-02") from the API, or as a Postgres DATE-column
-// round-trip ("2026-03-02T00:00:00Z") when read back from a persisted import
-// job — normalizeDateString trims the time suffix so both forms parse. Without
-// it the auto-backfill job-execution path failed on every job, since
-// radio_import_job.go feeds job.Since/job.Until straight from the DB. (PSY-927)
+// parseImportDate parses an import-window bound (since/until). Backfill windows
+// now arrive as RunStationSync formats them (date-only "2026-03-02"), but the
+// defensive normalizeDateString trim is kept so a Postgres DATE-column round-trip
+// form ("2026-03-02T00:00:00Z") still parses if a future caller passes one
+// (PSY-927; the original import-job path that round-tripped from the DB is
+// retired in PSY-1135).
 func parseImportDate(s string) (time.Time, error) {
 	return time.Parse("2006-01-02", normalizeDateString(s))
 }
 
+// normalizeDateString strips any time component from a date string so a value
+// always parses as YYYY-MM-DD. Postgres DATE columns round-trip through GORM into
+// Go strings as "2026-04-01T00:00:00Z" even though the column only holds a date;
+// this trims it back to the 10-char form.
+func normalizeDateString(s string) string {
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
 // ImportStation runs a full import: discover shows + fetch episodes for the last N days.
+//
+// NOTE (PSY-1135): this is a legacy full-import helper that does NOT route through
+// RunStationSync, so it leaves NO radio_sync_runs trace. It is intentionally not
+// wired to any admin route or ticker. Do NOT expose it as an ingestion entry point
+// — a new "full import" action must go through RunStationSync (discover then
+// backfill) so every run is observable. Kept only because it predates the
+// orchestrator and is still part of the service contract.
 func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -110,10 +129,14 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 
 	result := &contracts.RadioImportResult{}
 
-	// 1. Discover shows (station-scoped for multi-stream providers, PSY-1073)
+	// 1. Discover shows (station-scoped for multi-stream providers, PSY-1073). Errors
+	// go through recordImportError so the Errors/CategorizedErrors invariant holds here
+	// too — even though this legacy helper no longer routes through RunStationSync
+	// (PSY-1135), keeping it consistent prevents the dead path from becoming a landmine
+	// if it is ever re-wired (PSY-1141 review).
 	importedShows, err := discoverShowsForStation(provider, &station)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("discover shows: %v", err))
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("discover shows: %v", err), nil)
 		return result, nil
 	}
 
@@ -121,7 +144,7 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	for _, importShow := range importedShows {
 		showID, _, err := s.upsertRadioShow(stationID, importShow)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
+			recordImportError(result, categorizeRunError(err), fmt.Sprintf("upsert show %s: %v", importShow.Name, err), nil)
 			continue
 		}
 		showMap[importShow.ExternalID] = showID
@@ -133,14 +156,15 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	for extID, showID := range showMap {
 		episodes, err := provider.FetchNewEpisodes(extID, since, time.Time{})
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes for show %s: %v", extID, err))
+			recordImportError(result, categorizeRunError(err), fmt.Sprintf("fetch episodes for show %s: %v", extID, err), nil)
 			continue
 		}
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(showID, ep, provider)
 			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
+				ref := ep.ExternalID
+				recordImportError(result, categorizeRunError(err), fmt.Sprintf("import episode %s: %v", ep.ExternalID, err), &ref)
 				continue
 			}
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
@@ -172,20 +196,47 @@ func accumulateEpisodeResult(result *contracts.RadioImportResult, episodeExterna
 	result.PlaysImported += epResult.PlaysImported
 	result.PlaysMatched += epResult.PlaysMatched
 
+	ref := episodeExternalID
 	if epResult.FetchError != "" {
 		result.EpisodeFetchErrors++
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("fetch failed for episode %s: %s", episodeExternalID, epResult.FetchError))
+		cat := epResult.FetchErrorCategory
+		if cat == "" {
+			cat = catalogm.RadioSyncRunErrorProviderUnreachable
+		}
+		recordImportError(result, cat,
+			fmt.Sprintf("fetch failed for episode %s: %s", episodeExternalID, epResult.FetchError), &ref)
 	}
 	if epResult.MatchPersistErrors > 0 {
 		result.MatchPersistErrors += epResult.MatchPersistErrors
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("episode %s: %d play matches failed to persist", episodeExternalID, epResult.MatchPersistErrors))
+		recordImportError(result, catalogm.RadioSyncRunErrorMatchPersistError,
+			fmt.Sprintf("episode %s: %d play matches failed to persist", episodeExternalID, epResult.MatchPersistErrors), &ref)
 	}
 	if epResult.DropSummary != "" {
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("episode %s: %s", episodeExternalID, epResult.DropSummary))
+		// Pick the category by precedence: a real drop (data loss) outranks a
+		// salvaged truncation. A truncation-only episode records as 'truncation' —
+		// the case the old string heuristic could never reach, since summarizeDrops
+		// always prefixes "dropped N plays:" which categorizeErrorString bucketed as
+		// validation_drop. The detail still names both classes. PSY-1141.
+		cat := catalogm.RadioSyncRunErrorTruncation
+		if epResult.DroppedPlays > 0 {
+			cat = catalogm.RadioSyncRunErrorValidationDrop
+		}
+		recordImportError(result, cat,
+			fmt.Sprintf("episode %s: %s", episodeExternalID, epResult.DropSummary), &ref)
 	}
+}
+
+// recordImportError appends a per-import error to BOTH the human Errors slice (the
+// admin log line) and the structured CategorizedErrors slice (the pre-typed category
+// the sync layer records into radio_sync_run_errors, with no substring
+// re-categorization). The two slices stay parallel — same order, same length. PSY-1141.
+func recordImportError(result *contracts.RadioImportResult, category, detail string, episodeRef *string) {
+	result.Errors = append(result.Errors, detail)
+	result.CategorizedErrors = append(result.CategorizedErrors, contracts.RadioRunError{
+		Category:   category,
+		Detail:     detail,
+		EpisodeRef: episodeRef,
+	})
 }
 
 // FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at.
@@ -230,14 +281,17 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 
 		episodes, err := provider.FetchNewEpisodes(*show.ExternalID, since, time.Time{})
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err))
+			recordImportError(result, categorizeRunError(err),
+				fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err), nil)
 			continue
 		}
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(show.ID, ep, provider)
 			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
+				ref := ep.ExternalID
+				recordImportError(result, categorizeRunError(err),
+					fmt.Sprintf("import episode %s: %v", ep.ExternalID, err), &ref)
 				continue
 			}
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
@@ -286,7 +340,7 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 		return nil, fmt.Errorf("fetching playlist: %w", err)
 	}
 
-	imported, dropSummary, err := s.importPlays(episode.ID, plays)
+	drops, err := s.importPlays(episode.ID, plays)
 	if err != nil {
 		return nil, fmt.Errorf("importing plays: %w", err)
 	}
@@ -295,15 +349,13 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 	matcher := NewRadioMatchingEngine(s.db)
 	matchResult, err := matcher.MatchPlaysForEpisode(episode.ID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
+		return episodeResultFromDrops(drops), nil
 	}
 
-	return &contracts.EpisodeImportResult{
-		PlaysImported:      imported,
-		PlaysMatched:       matchResult.Matched,
-		DropSummary:        dropSummary,
-		MatchPersistErrors: matchResult.PersistErrors,
-	}, nil
+	res := episodeResultFromDrops(drops)
+	res.PlaysMatched = matchResult.Matched
+	res.MatchPersistErrors = matchResult.PersistErrors
+	return res, nil
 }
 
 // MatchPlays runs the matching engine on unmatched plays for an episode.
@@ -441,7 +493,9 @@ func (s *RadioService) importShowEpisodesWithProgress(
 	for _, ep := range filtered {
 		epResult, importErr := s.importEpisode(show.ID, ep, provider)
 		if importErr != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, importErr))
+			ref := ep.ExternalID
+			recordImportError(result, categorizeRunError(importErr),
+				fmt.Sprintf("import episode %s: %v", ep.ExternalID, importErr), &ref)
 		} else {
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
 		}
@@ -460,11 +514,6 @@ func (s *RadioService) importShowEpisodesWithProgress(
 	}
 
 	return result, nil
-}
-
-// ImportShowEpisodes imports episodes for a single show within a date range.
-func (s *RadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
-	return s.importShowEpisodesWithProgress(showID, since, until, nil, nil)
 }
 
 // =============================================================================
@@ -626,30 +675,92 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 			"episode_id", episode.ID,
 			"external_id", ep.ExternalID,
 			"error", err)
-		return &contracts.EpisodeImportResult{FetchError: err.Error()}, nil
+		// Categorize the FetchError here, where the provider error's type is still
+		// live (the same classifier the top-level path uses) — PSY-1141.
+		return &contracts.EpisodeImportResult{FetchError: err.Error(), FetchErrorCategory: categorizeRunError(err)}, nil
 	}
 
-	imported, dropSummary, err := s.importPlays(episode.ID, plays)
+	drops, err := s.importPlays(episode.ID, plays)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
+		return episodeResultFromDrops(drops), nil
 	}
 
 	// Update play count on episode
-	s.db.Model(episode).Update("play_count", imported)
+	s.db.Model(episode).Update("play_count", drops.Imported)
 
 	// Run matching
 	matcher := NewRadioMatchingEngine(s.db)
 	matchResult, err := matcher.MatchPlaysForEpisode(episode.ID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
+		return episodeResultFromDrops(drops), nil
 	}
 
+	res := episodeResultFromDrops(drops)
+	res.PlaysMatched = matchResult.Matched
+	res.MatchPersistErrors = matchResult.PersistErrors
+	return res, nil
+}
+
+// episodeResultFromDrops builds the per-episode result carrying the play tally plus
+// the structured drop counts (truncation salvage + validation drop), shared by
+// importEpisode's and ImportEpisodePlaylist's returns (PSY-1141).
+func episodeResultFromDrops(d importPlaysOutcome) *contracts.EpisodeImportResult {
 	return &contracts.EpisodeImportResult{
-		PlaysImported:      imported,
-		PlaysMatched:       matchResult.Matched,
-		DropSummary:        dropSummary,
-		MatchPersistErrors: matchResult.PersistErrors,
-	}, nil
+		PlaysImported:  d.Imported,
+		DropSummary:    d.Summary,
+		TruncatedPlays: d.Truncated,
+		DroppedPlays:   d.Dropped,
+	}
+}
+
+const (
+	// playUpsertMaxAttempts caps the retry-on-conflict loop on the play upsert. A
+	// transient conflict (deadlock / serialization failure) is rare here — the
+	// per-station advisory lock (P2) serializes same-station runs and different
+	// stations touch disjoint rows — so a low cap absorbs the transient case while
+	// still surfacing a genuinely stuck transaction instead of looping on it.
+	playUpsertMaxAttempts = 3
+	// playUpsertRetryBackoff is the base inter-attempt delay; it scales linearly
+	// with the attempt number (5ms, then 10ms). Plain linear backoff (not the
+	// Full-Jitter that PSY-1142 uses for cross-station HTTP fetches) is sufficient
+	// here because this upsert is single-process and advisory-lock-serialized per
+	// station — there is no cross-station retry herd to de-synchronize.
+	playUpsertRetryBackoff = 5 * time.Millisecond
+)
+
+// retryTransientConflict runs op, retrying up to playUpsertMaxAttempts times on a
+// transient Postgres conflict — a deadlock (SQLSTATE 40P01) or a serialization
+// failure (40001) — with a short linear backoff. Success or any other error
+// returns immediately and unchanged, so the caller's "hard infrastructural error
+// — bubble it up" contract is preserved; a persistent conflict surfaces after the
+// final attempt rather than looping forever.
+//
+// This is mostly defense-in-depth. At the production READ COMMITTED isolation
+// (db/connection.go), a plain INSERT … ON CONFLICT DO NOTHING does NOT raise
+// 40001 (that needs REPEATABLE READ / SERIALIZABLE); a 40P01 deadlock can arise
+// even at READ COMMITTED but is very unlikely here, because the per-station
+// advisory lock serializes same-station writes and different stations insert
+// disjoint rows. The guard exists so the upsert stays correct if it is ever moved
+// to a higher isolation level (research §3 recommends the lock + retry pair).
+// Retrying is safe because the upsert is idempotent: a conflict rolls the
+// transaction back fully, so re-running the whole CreateInBatches re-inserts
+// cleanly — and any row that did commit re-conflicts on the (episode_id,
+// dedup_key) unique index and is skipped. Kept local to this package per
+// PSY-1143 (promote to services/shared only if a second caller appears).
+func retryTransientConflict(op func() error) error {
+	var err error
+	for attempt := 1; attempt <= playUpsertMaxAttempts; attempt++ {
+		err = op()
+		// Retry only the two canonical transient-conflict codes; everything else
+		// (and success) returns immediately so a real error still bubbles up.
+		if err == nil || (!shared.IsSerializationFailure(err) && !shared.IsDeadlock(err)) {
+			return err
+		}
+		if attempt < playUpsertMaxAttempts {
+			time.Sleep(playUpsertRetryBackoff * time.Duration(attempt))
+		}
+	}
+	return err
 }
 
 // importPlays batch-creates play records for an episode.
@@ -666,9 +777,9 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 // human-readable per-episode aggregate of "dropped N plays: ..." or "" when
 // no intervention was needed; callers append it to RadioImportResult.Errors
 // so the outcome is visible in admin job logs without per-row noise.
-func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int, string, error) {
+func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (importPlaysOutcome, error) {
 	if len(plays) == 0 {
-		return 0, "", nil
+		return importPlaysOutcome{}, nil
 	}
 
 	records := make([]catalogm.RadioPlay, 0, len(plays))
@@ -701,9 +812,10 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// reflected in the N total — only the per-class breakdown will lag.
 	droppedRows := len(plays) - len(records)
 	summary := summarizeDrops(droppedRows, truncatedRows, missingArtistRows)
+	drops := importPlaysOutcome{Summary: summary, Truncated: truncatedRows, Dropped: droppedRows}
 
 	if len(records) == 0 {
-		return 0, summary, nil
+		return drops, nil
 	}
 
 	// Batch insert with ON CONFLICT DO NOTHING so duplicate rows (re-imports
@@ -714,9 +826,20 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// artist_name, track_title), PSY-1131. Records are pre-validated (PSY-885), so
 	// a non-UNIQUE constraint violation here (FK gone, NOT NULL) is a hard
 	// infrastructural error — bubble it up.
-	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
-	if err := result.Error; err != nil {
-		return 0, summary, fmt.Errorf("batch inserting plays: %w", err)
+	// Wrap the upsert in retry-on-transient-conflict (deadlock 40P01 /
+	// serialization 40001) as defense-in-depth. ON CONFLICT is not a blanket
+	// atomic-under-concurrency guarantee (research §3). The per-station advisory
+	// lock already serializes same-station runs, and at READ COMMITTED these
+	// conflicts are unlikely on this upsert — so this mainly guards a future
+	// higher-isolation move (see retryTransientConflict). It re-runs the
+	// idempotent ON CONFLICT upsert a bounded number of times before surfacing a
+	// stuck txn.
+	var result *gorm.DB
+	if err := retryTransientConflict(func() error {
+		result = s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
+		return result.Error
+	}); err != nil {
+		return drops, fmt.Errorf("batch inserting plays: %w", err)
 	}
 
 	if skipped := len(records) - int(result.RowsAffected); skipped > 0 {
@@ -731,7 +854,18 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 	// inserted) so callers like importEpisode keep using it to set
 	// play_count on the episode without regressing on re-imports where
 	// most rows are duplicates. summary carries the PSY-885 drop aggregate.
-	return len(records), summary, nil
+	drops.Imported = len(records)
+	return drops, nil
+}
+
+// importPlaysOutcome is importPlays' structured result: rows committed plus the
+// per-class boundary-intervention counts, so callers categorize drops (truncation
+// salvage vs validation drop) without re-parsing the human Summary string (PSY-1141).
+type importPlaysOutcome struct {
+	Imported  int
+	Summary   string
+	Truncated int // over-length rows salvaged → truncation category
+	Dropped   int // rows rejected by sanitizePlay → validation_drop category
 }
 
 // errMissingArtistName flags a play with no artist_name. radio_plays.artist_name
@@ -755,9 +889,21 @@ func sanitizePlay(episodeID uint, p RadioPlayImport) (catalogm.RadioPlay, error)
 		return catalogm.RadioPlay{}, errMissingArtistName
 	}
 
+	// Defensive boundary guard: an empty/whitespace provider_play_id would make
+	// the generated dedup_key COALESCE to '' and collide every such play in the
+	// episode. Normalize blank to nil so the content-hash branch applies instead.
+	// KEXP already guards id <= 0; this protects against a future provider wiring
+	// an empty id (trust internally — every downstream RadioPlay is then known to
+	// carry either a non-empty provider id or nil).
+	providerPlayID := p.ProviderPlayID
+	if providerPlayID != nil && strings.TrimSpace(*providerPlayID) == "" {
+		providerPlayID = nil
+	}
+
 	return catalogm.RadioPlay{
 		EpisodeID:              episodeID,
 		Position:               p.Position,
+		ProviderPlayID:         providerPlayID,
 		ArtistName:             truncateRunes(p.ArtistName, radioPlayVarcharMaxRunes),
 		TrackTitle:             truncateOptionalRunes(p.TrackTitle, radioPlayVarcharMaxRunes),
 		AlbumTitle:             truncateOptionalRunes(p.AlbumTitle, radioPlayVarcharMaxRunes),

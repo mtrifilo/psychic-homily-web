@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -18,15 +20,16 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// RunStationSync is the unified ingestion orchestrator (PSY-1134, PR1 of phase P2
-// of the Radio Ingestion Redesign). Every ingestion path will eventually flow through here so
+// RunStationSync is the unified ingestion orchestrator (PSY-1134/PSY-1135, phase P2
+// of the Radio Ingestion Redesign). Every ingestion path flows through here so
 // each run leaves ONE durable, queryable trace in radio_sync_runs (with
-// categorized radio_sync_run_errors and a radio_station_health rollup). In PR1
-// ONLY the scheduled fetch/discover tickers route through it; the manual admin
-// triggers and auto-backfill still use the legacy executors / import-jobs and
-// move onto RunStationSync in PR2 (PSY-1135). It wraps the existing mode executors
-// (DiscoverStationShows / FetchNewEpisodes / importShowEpisodesWithProgress)
-// rather than re-implementing them.
+// categorized radio_sync_run_errors and a radio_station_health rollup). As of PR2
+// (PSY-1135) all four paths route through it: the scheduled fetch/discover
+// tickers, the manual admin triggers (radio_sync_manual.go: station discover/fetch
+// + show backfill, plus the poll/cancel surface), and the discover loop's
+// auto-backfill. It wraps the existing mode executors (DiscoverStationShows /
+// FetchNewEpisodes / importShowEpisodesWithProgress) rather than re-implementing
+// them.
 //
 // Lifecycle (design doc §4): acquire a per-station advisory lock → open a
 // 'running' row → check the breaker → execute the mode → record counts/errors →
@@ -43,14 +46,12 @@ import (
 // (there is no schema column to distinguish lock-skip from breaker-skip, and
 // contention is benign).
 //
-// SCOPE: this is PR1 of phase P2 — additive; only the scheduled fetch/discover
-// tickers route through it here. The breaker is only READ; the logic that OPENS it
-// (thresholds, half-open) is phase P3 (a later ticket, NOT PSY-1135). PR2 =
-// PSY-1135 (manual triggers + auto-backfill onto RunStationSync). Modes are
-// discover|fetch|backfill; rematch stays on its own global ticker. Count plumbing
-// not yet done: fetch leaves episodes_found=0 (FetchNewEpisodes returns no
-// found-count) and discover persists no count columns; plays_dropped /
-// plays_truncated are left 0 — all P4.
+// SCOPE: phase P2 — all four entry points route through here (PR2/PSY-1135). The
+// breaker is only READ; the logic that OPENS it (thresholds, half-open) is phase
+// P3 (a later ticket). Modes are discover|fetch|backfill; rematch stays on its own
+// global ticker. Count plumbing not yet done: fetch leaves episodes_found=0
+// (FetchNewEpisodes returns no found-count) and discover persists no count
+// columns; plays_dropped / plays_truncated are left 0 — all P4.
 type RunStationSyncOpts struct {
 	Mode    string // catalogm.RadioSyncRunType{Discover,Fetch,Backfill}
 	Trigger string // catalogm.RadioSyncRunTrigger{Scheduled,Manual,AutoBackfill}
@@ -60,6 +61,14 @@ type RunStationSyncOpts struct {
 	ShowID      *uint
 	WindowStart *time.Time
 	WindowEnd   *time.Time
+
+	// OnRunOpened, if non-nil, is invoked synchronously with the new run id the
+	// instant the radio_sync_runs row is created (after the lock + breaker checks,
+	// before the mode executes). The async manual-trigger wrapper (PSY-1135) uses
+	// it to learn the run id and return a 202 to the operator while the run
+	// continues in the background. It fires only on the row-opened path — never on
+	// lock contention or a pre-open error (those produce no row).
+	OnRunOpened func(runID uint)
 }
 
 // RunStationSyncResult is what RunStationSync returns: the run-row metadata plus
@@ -120,17 +129,27 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 		return nil, fmt.Errorf("station not found: %w", err)
 	}
 
-	// 2/3. Breaker check. Scheduled + auto-backfill honor an open breaker (skip with
-	//      a trace); a manual trigger BYPASSES it (operator override). The breaker
-	//      SET/CLEAR logic (open after N failures, half-open trial, close on
-	//      recovery) is all P3 — PR1 only READS breaker_state, and nothing here
-	//      opens OR clears it, so a manual success does not yet reset an open breaker.
-	if opts.Trigger != catalogm.RadioSyncRunTriggerManual && s.breakerOpen(stationID) {
-		return &RunStationSyncResult{
-			RunID:   s.recordSkippedRun(stationID, opts),
-			Status:  catalogm.RadioSyncRunStatusSkipped,
-			Skipped: true,
-		}, nil
+	// 2/3. Breaker gate. Scheduled + auto-backfill honor the persistent breaker; a
+	//      manual trigger BYPASSES it (operator override — the manual run is itself a
+	//      deliberate half-open probe, see updateStationHealth's trigger handling).
+	//      An open breaker that is past its cooldown promotes to half_open for a
+	//      single trial run; the breaker write-back (open / half_open / close) happens
+	//      in updateStationHealth on the run's outcome (PSY-1140).
+	if opts.Trigger != catalogm.RadioSyncRunTriggerManual {
+		switch breakerGateFor(s.readBreakerSnapshot(stationID), time.Now()) {
+		case gateBlocked:
+			return &RunStationSyncResult{
+				RunID:   s.recordSkippedRun(stationID, opts),
+				Status:  catalogm.RadioSyncRunStatusSkipped,
+				Skipped: true,
+			}, nil
+		case gateTrial:
+			// Open past cooldown → this run is the half-open trial. Mark it so the
+			// state is observable; the outcome closes (success) or re-opens (failure).
+			s.markBreakerHalfOpen(stationID)
+		case gateAllow:
+			// closed (or never-synced) → run normally.
+		}
 	}
 
 	// Open the run row (status=running, started_at set explicitly — do NOT lean on
@@ -148,6 +167,12 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	}
 	if err := s.db.Create(&run).Error; err != nil {
 		return nil, fmt.Errorf("open sync run: %w", err)
+	}
+
+	// The run row exists now — hand the id to an async caller (PSY-1135) so it can
+	// return a poll handle while the rest of this call runs in the background.
+	if opts.OnRunOpened != nil {
+		opts.OnRunOpened(run.ID)
 	}
 
 	// A panic in the executor (provider/import code) must still terminate the run's
@@ -171,9 +196,17 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// 6. Close the run to its terminal status (finished_at set → lifecycle CHECK)
 	//    BEFORE the health rollup, so a failed close never leaves radio_station_health
 	//    reporting an outcome the run row itself doesn't reflect.
+	//
+	//    The WHERE status='running' guard is load-bearing for cancellation (PSY-1135):
+	//    a mid-run cancel sets status='cancelled' (+ finished_at) out-of-band via
+	//    CancelSyncRun, and the backfill executor returns a partial result with NO
+	//    error (progressFn cancel=true). Without the guard this close would overwrite
+	//    'cancelled' with success/partial. RowsAffected==0 ⟺ the run is already
+	//    terminal (cancelled) — leave it, and skip the health rollup (a manual cancel
+	//    is not a station-health signal).
 	now := time.Now()
-	if err := s.db.Model(&catalogm.RadioSyncRun{}).
-		Where("id = ?", run.ID).
+	res := s.db.Model(&catalogm.RadioSyncRun{}).
+		Where("id = ? AND status = ?", run.ID, catalogm.RadioSyncRunStatusRunning).
 		Updates(map[string]any{
 			"status":            out.status,
 			"finished_at":       now,
@@ -183,14 +216,36 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 			"plays_matched":     out.playsMatched,
 			"plays_unmatched":   out.playsUnmatched,
 			"updated_at":        now,
-		}).Error; err != nil {
+		})
+	if res.Error != nil {
 		return &RunStationSyncResult{RunID: run.ID, Status: out.status, Import: out.importResult, Discover: out.discoverResult},
-			fmt.Errorf("close sync run %d: %w", run.ID, err)
+			fmt.Errorf("close sync run %d: %w", run.ID, res.Error)
 	}
 	closed = true
 
-	// 7. Roll up station health (last_run/last_success, consecutive_failures).
-	s.updateStationHealth(stationID, out.status)
+	if res.RowsAffected == 0 {
+		// Cancelled mid-run: the row is already terminal (cancelled, finished_at set
+		// by CancelSyncRun). Report the cancelled status and do NOT roll up health.
+		return &RunStationSyncResult{
+			RunID:    run.ID,
+			Status:   catalogm.RadioSyncRunStatusCancelled,
+			Import:   out.importResult,
+			Discover: out.discoverResult,
+		}, out.hardErr
+	}
+
+	// 7. Roll up station health (last_run/last_success, breaker state). The error
+	//    kind drives the breaker: only a PERMANENT failure increments the counter /
+	//    trips it (transient errors retry, never trip — PSY-887). classifyError(nil)
+	//    is harmless on success/partial (breakerTransition ignores errKind there).
+	s.updateStationHealth(stationID, out.status, opts.Trigger, classifyError(out.hardErr))
+
+	// Escalate a PERMANENT scheduled/auto failure to Sentry (the scraper-drift /
+	// format-change signal). Manual failures stay log-only (the operator already sees
+	// the result); transient failures retry and stay log-only (PSY-1141).
+	if category, escErr := escalationError(out, opts.Trigger); escErr != nil {
+		s.escalatePermanentFailure(escErr, stationID, category)
+	}
 
 	// Surface the executor's hard error (nil on success/partial) so callers that
 	// need it keep their signal; the run is recorded regardless.
@@ -204,14 +259,19 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 
 // failRun best-effort closes an orphaned run as failed — used by the panic
 // recovery path so a panicked run still terminates its trace (lifecycle CHECK:
-// terminal ⇒ finished_at set).
+// terminal ⇒ finished_at set). The WHERE status='running' guard is symmetric with
+// the close path: a run that was cancelled out-of-band (CancelSyncRun) before the
+// panic is already terminal, and must NOT be rewritten to 'failed' — the operator's
+// cancel wins.
 func (s *RadioService) failRun(runID uint) {
 	now := time.Now()
-	_ = s.db.Model(&catalogm.RadioSyncRun{}).Where("id = ?", runID).Updates(map[string]any{
-		"status":      catalogm.RadioSyncRunStatusFailed,
-		"finished_at": now,
-		"updated_at":  now,
-	}).Error
+	_ = s.db.Model(&catalogm.RadioSyncRun{}).
+		Where("id = ? AND status = ?", runID, catalogm.RadioSyncRunStatusRunning).
+		Updates(map[string]any{
+			"status":      catalogm.RadioSyncRunStatusFailed,
+			"finished_at": now,
+			"updated_at":  now,
+		}).Error
 }
 
 // syncOutcome is the unified result of executing one mode, mapped onto the
@@ -265,23 +325,33 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		since := opts.WindowStart.Format("2006-01-02")
 		until := opts.WindowEnd.Format("2006-01-02")
 		var found int
-		// progressFn streams progress onto the run row (throttled) so the async
-		// poll (PR2) can observe an in-flight backfill. Cancellation wiring (the
-		// cancel endpoint) is PR2; this never returns cancel=true in PR1.
+		// progressFn streams progress onto the run row (throttled) so the async poll
+		// can observe an in-flight backfill, and honors a mid-run cancel (PSY-1135):
+		// when CancelSyncRun has flipped this run to 'cancelled', it returns true so
+		// the importer stops early. The cancel check runs every episode (a cheap
+		// single-column SELECT); the progress write stays throttled to every 10.
 		var sinceLastWrite int
 		progressFn := func(epImported, plImported, plMatched int, currentDate string, _ []string) bool {
+			if s.isSyncRunCancelled(runID) {
+				return true
+			}
 			sinceLastWrite++
 			if sinceLastWrite < 10 {
 				return false
 			}
 			sinceLastWrite = 0
-			s.db.Model(&catalogm.RadioSyncRun{}).Where("id = ?", runID).Updates(map[string]any{
-				"episodes_imported":    epImported,
-				"plays_imported":       plImported,
-				"plays_matched":        plMatched,
-				"current_episode_date": currentDate,
-				"updated_at":           time.Now(),
-			})
+			// status='running' guard: if a cancel landed between the cancel-poll
+			// above and this write (the poll's best-effort read can miss it), don't
+			// rewrite counters/updated_at onto an already-terminal (cancelled) row.
+			s.db.Model(&catalogm.RadioSyncRun{}).
+				Where("id = ? AND status = ?", runID, catalogm.RadioSyncRunStatusRunning).
+				Updates(map[string]any{
+					"episodes_imported":    epImported,
+					"plays_imported":       plImported,
+					"plays_matched":        plMatched,
+					"current_episode_date": currentDate,
+					"updated_at":           time.Now(),
+				})
 			return false
 		}
 		res, err := s.importShowEpisodesWithProgress(*opts.ShowID, since, until, func(n int) { found = n }, progressFn)
@@ -305,20 +375,35 @@ func importResultOutcome(res *contracts.RadioImportResult, episodesFound int) sy
 	if unmatched < 0 {
 		unmatched = 0
 	}
-	// res.Errors is the superset: EpisodeFetchErrors/MatchPersistErrors are each
-	// also appended to Errors (contract), so counting len(Errors) alone avoids
-	// double-counting while still flipping the status to partial when any occurred.
-	errCount := len(res.Errors)
+	// CategorizedErrors carries the category decided AT THE SOURCE (PSY-1141), so the
+	// import path records the real radio_sync_run_errors category instead of the
+	// substring heuristic — it is parallel to res.Errors (same order, same length).
+	// The fetch/match counters are each also recorded as a categorized error, so the
+	// length flips the status to 'partial' when any occurred without double-counting.
+	errs := categorizedToRunErrors(res.CategorizedErrors)
 	return syncOutcome{
-		status:           terminalStatus(false, errCount),
+		status:           terminalStatus(false, len(errs)),
 		episodesFound:    episodesFound,
 		episodesImported: res.EpisodesImported,
 		playsImported:    res.PlaysImported,
 		playsMatched:     res.PlaysMatched,
 		playsUnmatched:   unmatched,
-		errs:             stringErrs(res.Errors),
+		errs:             errs,
 		importResult:     res,
 	}
+}
+
+// categorizedToRunErrors maps the structured import errors (category decided at the
+// source) straight onto run-error rows — no re-categorization. PSY-1141.
+func categorizedToRunErrors(cats []contracts.RadioRunError) []runError {
+	if len(cats) == 0 {
+		return nil
+	}
+	out := make([]runError, 0, len(cats))
+	for _, c := range cats {
+		out = append(out, runError{category: c.Category, detail: c.Detail, episodeRef: c.EpisodeRef})
+	}
+	return out
 }
 
 // terminalStatus resolves the non-skipped, non-cancelled terminal status. The
@@ -357,7 +442,11 @@ func (s *RadioService) recordSkippedRun(stationID uint, opts RunStationSyncOpts)
 		slog.Warn("radio: failed to record skipped run", "station_id", stationID, "error", err)
 		return 0
 	}
-	s.updateStationHealth(stationID, catalogm.RadioSyncRunStatusSkipped)
+	// A skipped run touches only last_run_at; breakerTransition's default arm leaves
+	// the breaker state + counter unchanged for 'skipped', so trigger/errKind are
+	// inert here (kindPermanent is a placeholder — if you ever make the skipped/
+	// default arm read errKind, revisit this call site).
+	s.updateStationHealth(stationID, catalogm.RadioSyncRunStatusSkipped, opts.Trigger, kindPermanent)
 	return run.ID
 }
 
@@ -382,39 +471,197 @@ func (s *RadioService) recordRunErrors(runID uint, errs []runError) {
 	_ = s.db.Create(&rows).Error
 }
 
-// updateStationHealth upserts the per-station health rollup by station_id (ON
-// CONFLICT column-set inference). PR1 maintains last_run/last_success +
-// consecutive_failures only; the breaker-open decision + rate computations are
-// P3/P4. consecutive_failures matches the in-memory PSY-887 breaker's posture so
-// the two don't diverge: only a 'failed' run (station/provider unreachable)
-// increments it; 'success' AND 'partial' both reset it — a partial imported data
-// (just some per-episode noise) and is NOT a breaker failure, else a chronically-
-// noisy-but-healthy station would climb the counter forever and trip the P3
-// breaker. last_success_at is set ONLY on a clean success; 'skipped' touches only
-// last_run_at.
-func (s *RadioService) updateStationHealth(stationID uint, status string) {
+// ───────────────────────────── persistent circuit breaker ─────────────────────────────
+//
+// PSY-1140 migrates the radio breaker from the in-memory PSY-887 map (which reset
+// on every deploy) onto radio_station_health.breaker_state, so a tripped station
+// stays tripped across restarts. The state machine — closed → open (at threshold)
+// → half_open (after cooldown) → closed (successful trial) / → open (failed trial)
+// — is split into PURE decision functions (breakerGateFor, breakerTransition; no
+// I/O, exhaustively unit-tested) and thin DB wiring (readBreakerSnapshot,
+// markBreakerHalfOpen, updateStationHealth). Every write path runs under the
+// per-station advisory lock RunStationSync holds, so updateStationHealth's
+// read-modify-write is race-free per station.
+
+// radioCircuitBreakerThreshold is the number of consecutive PERMANENT failures
+// before the persistent breaker opens and the station is skipped on scheduled/auto
+// cycles. Transient errors (timeout, connection refused, 429) retry instead of
+// counting toward this — they never trip the breaker (PSY-887, preserved by
+// PSY-1140).
+const radioCircuitBreakerThreshold = 5
+
+// radioBreakerCooldown is how long an open breaker waits before it allows a single
+// half-open trial. A successful trial closes the breaker; a failed trial re-opens
+// it with a fresh cooldown. 30 min balances "recover quickly once the provider is
+// back" against "don't hammer a still-broken provider every cycle."
+const radioBreakerCooldown = 30 * time.Minute
+
+// breakerSnapshot is the persisted breaker state read from radio_station_health. A
+// never-synced station (no row) is the zero value — closed, 0 failures, no trip
+// time — so a brand-new station is never born tripped.
+type breakerSnapshot struct {
+	state     string
+	failures  int
+	trippedAt *time.Time
+}
+
+// breakerGate is the gate decision for a scheduled/auto run (manual bypasses).
+type breakerGate int
+
+const (
+	gateAllow   breakerGate = iota // closed / never-synced → run normally
+	gateBlocked                    // open and still within cooldown → skip
+	gateTrial                      // open past cooldown (or half_open) → run one trial
+)
+
+// breakerGateFor decides whether a scheduled/auto run may proceed. Pure (no I/O) so
+// it is unit-tested directly. Both open AND half_open are cooldown-gated against
+// breaker_tripped_at: past the cooldown → one trial; within it → blocked. half_open
+// is gated identically to open (NOT allowed unconditionally) so a trial that never
+// resolved cannot re-trial every cycle: a run cancelled on shutdown or a panic
+// leaves the row at half_open (updateStationHealth never ran), and markBreakerHalfOpen
+// stamped breaker_tripped_at at trial start — so the stranded breaker still waits a
+// full cooldown before the next trial instead of defeating the cooldown. An
+// open/half_open row with no trip time is treated as freshly tripped (blocked) —
+// defensive against a row written without breaker_tripped_at.
+func breakerGateFor(snap breakerSnapshot, now time.Time) breakerGate {
+	switch snap.state {
+	case catalogm.RadioBreakerStateOpen, catalogm.RadioBreakerStateHalfOpen:
+		if snap.trippedAt == nil {
+			return gateBlocked
+		}
+		if now.Sub(*snap.trippedAt) >= radioBreakerCooldown {
+			return gateTrial
+		}
+		return gateBlocked
+	default: // closed (or never-synced) → allow
+		return gateAllow
+	}
+}
+
+// breakerTransition is the PURE next-state function for the persistent breaker.
+// Given the current snapshot and a run outcome (status, trigger, errKind), it
+// returns the next snapshot. No I/O — exhaustively unit-tested; updateStationHealth
+// applies the result. Policy (design §5.2/§5.3 + the PSY-1140 locked decision):
+//   - success / partial → reset to closed (a partial imported data; it is recovery,
+//     not a breaker failure — keeps a chronically-noisy-but-healthy station from
+//     ever climbing the counter).
+//   - skipped (and any non-terminal) → unchanged (a breaker skip is not a signal).
+//   - failed + MANUAL → unchanged: a manual run is a half-open probe; the operator
+//     chose to poke a known-bad station, so a manual failure never trips (a manual
+//     SUCCESS still closes via the success arm above — the asymmetric policy).
+//   - failed + scheduled/auto → only a PERMANENT error increments the counter
+//     (transient retries, never trips — PSY-887). A failed half-open trial re-opens
+//     with a fresh cooldown regardless of kind; a permanent failure reaching the
+//     threshold opens the breaker.
+func breakerTransition(cur breakerSnapshot, status, trigger string, errKind errorKind, now time.Time) breakerSnapshot {
+	switch status {
+	case catalogm.RadioSyncRunStatusSuccess, catalogm.RadioSyncRunStatusPartial:
+		return breakerSnapshot{state: catalogm.RadioBreakerStateClosed, failures: 0, trippedAt: nil}
+	case catalogm.RadioSyncRunStatusFailed:
+		if trigger == catalogm.RadioSyncRunTriggerManual {
+			return cur // half-open probe: a manual failure never trips
+		}
+		next := cur
+		if errKind == kindPermanent {
+			next.failures = cur.failures + 1
+		}
+		// transient: counter unchanged (PSY-887 — transient never trips)
+		switch {
+		case cur.state == catalogm.RadioBreakerStateHalfOpen:
+			// The trial failed (permanent OR transient) → re-open with fresh cooldown.
+			t := now
+			next.state, next.trippedAt = catalogm.RadioBreakerStateOpen, &t
+		case errKind == kindPermanent && next.failures >= radioCircuitBreakerThreshold:
+			t := now
+			next.state, next.trippedAt = catalogm.RadioBreakerStateOpen, &t
+		}
+		return next
+	default: // skipped / running / cancelled → leave the breaker untouched
+		return cur
+	}
+}
+
+// readBreakerSnapshot loads the persisted breaker state for a station. A missing
+// row (never synced) or a read error returns the closed zero value — a station is
+// never born tripped, and an observability-layer hiccup must not halt ingestion
+// (the breaker's BLOCK state is 'open', so defaulting to closed/allow is the
+// permissive choice).
+func (s *RadioService) readBreakerSnapshot(stationID uint) breakerSnapshot {
+	var health catalogm.RadioStationHealth
+	err := s.db.Select("breaker_state", "consecutive_failures", "breaker_tripped_at").
+		First(&health, "station_id = ?", stationID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return breakerSnapshot{state: catalogm.RadioBreakerStateClosed}
+	}
+	if err != nil {
+		slog.Warn("radio: breaker snapshot read failed; treating as closed", "station_id", stationID, "error", err)
+		return breakerSnapshot{state: catalogm.RadioBreakerStateClosed}
+	}
+	return breakerSnapshot{
+		state:     health.BreakerState,
+		failures:  health.ConsecutiveFailures,
+		trippedAt: health.BreakerTrippedAt,
+	}
+}
+
+// markBreakerHalfOpen flips a tripped breaker (open, or a still-stranded half_open
+// from a prior unresolved trial) to half_open AND stamps breaker_tripped_at=now —
+// the trial-start time. That timestamp refresh is what bounds a stranded trial: if
+// this run never resolves the state (cancelled on shutdown, or a panic — both skip
+// updateStationHealth), the row stays half_open with a recent trip time, so
+// breakerGateFor keeps it blocked for a full cooldown before the next trial instead
+// of re-trialing every cycle.
+//
+// Best-effort: if this write fails (a DB error), the row stays as the gate read it
+// (open/half_open with its prior trip time). The breaker still works — it stays
+// cooldown-gated via that prior timestamp — losing only the half_open label and this
+// trial's cooldown refresh; on a DB flaky enough to drop this write the run's own
+// writes would be failing too.
+func (s *RadioService) markBreakerHalfOpen(stationID uint) {
 	now := time.Now()
+	_ = s.db.Model(&catalogm.RadioStationHealth{}).
+		Where("station_id = ? AND breaker_state IN ?", stationID,
+			[]string{catalogm.RadioBreakerStateOpen, catalogm.RadioBreakerStateHalfOpen}).
+		Updates(map[string]any{
+			"breaker_state":      catalogm.RadioBreakerStateHalfOpen,
+			"breaker_tripped_at": now,
+			"updated_at":         now,
+		}).Error
+}
+
+// updateStationHealth upserts the per-station health rollup by station_id (ON
+// CONFLICT column-set inference) and applies the breaker state machine. It reads the
+// current snapshot, computes the next state via the pure breakerTransition, and
+// writes it back — safe because RunStationSync holds the per-station advisory lock
+// for the whole run, so no concurrent run mutates this station's health. last_run_at
+// is always bumped; last_success_at only on a clean success ('partial' resets the
+// breaker but is not a "last success").
+func (s *RadioService) updateStationHealth(stationID uint, status, trigger string, errKind errorKind) {
+	now := time.Now()
+	next := breakerTransition(s.readBreakerSnapshot(stationID), status, trigger, errKind, now)
+
 	assignments := map[string]any{
-		"last_run_at": now,
-		"updated_at":  now,
+		"last_run_at":          now,
+		"consecutive_failures": next.failures,
+		"breaker_state":        next.state,
+		"updated_at":           now,
+	}
+	if next.trippedAt != nil {
+		assignments["breaker_tripped_at"] = *next.trippedAt
+	} else {
+		assignments["breaker_tripped_at"] = gorm.Expr("NULL")
 	}
 	health := catalogm.RadioStationHealth{
-		StationID:    stationID,
-		LastRunAt:    &now,
-		BreakerState: catalogm.RadioBreakerStateClosed,
+		StationID:           stationID,
+		LastRunAt:           &now,
+		ConsecutiveFailures: next.failures,
+		BreakerState:        next.state,
+		BreakerTrippedAt:    next.trippedAt,
 	}
-	switch status {
-	case catalogm.RadioSyncRunStatusSuccess:
+	if status == catalogm.RadioSyncRunStatusSuccess {
 		health.LastSuccessAt = &now
 		assignments["last_success_at"] = now
-		assignments["consecutive_failures"] = 0
-	case catalogm.RadioSyncRunStatusPartial:
-		assignments["consecutive_failures"] = 0 // imported data; not a breaker failure
-	case catalogm.RadioSyncRunStatusFailed:
-		// INSERT path (first-ever run for this station) starts the counter at 1;
-		// the ON CONFLICT path increments the stored value.
-		health.ConsecutiveFailures = 1
-		assignments["consecutive_failures"] = gorm.Expr("radio_station_health.consecutive_failures + 1")
 	}
 	_ = s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "station_id"}},
@@ -422,24 +669,17 @@ func (s *RadioService) updateStationHealth(stationID uint, status string) {
 	}).Create(&health).Error
 }
 
-// breakerOpen reports whether the persisted breaker for a station is open. A
-// missing health row means "never synced" → treated as closed (not open), so a
-// brand-new station is never born tripped.
-func (s *RadioService) breakerOpen(stationID uint) bool {
-	var health catalogm.RadioStationHealth
-	err := s.db.Select("breaker_state").First(&health, "station_id = ?", stationID).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false // never synced → breaker closed (never born tripped)
-	}
-	if err != nil {
-		// A real read error fails PERMISSIVE (treated as breaker-closed → run
-		// proceeds; note "open" is the BLOCK state in this domain, so don't call
-		// this "fail-open") so the observability layer's own hiccup can't halt
-		// ingestion — but log it; revisit once P3 makes the breaker load-bearing.
-		slog.Warn("radio: breaker state read failed; treating as closed", "station_id", stationID, "error", err)
+// isSyncRunCancelled reports whether the run has been flipped to 'cancelled'
+// out-of-band (CancelSyncRun). Polled by the backfill executor's progressFn so a
+// long historic re-ingestion can be stopped mid-flight (PSY-1135). A read error
+// is treated as not-cancelled (best-effort) so an observability hiccup never
+// aborts an otherwise-healthy import.
+func (s *RadioService) isSyncRunCancelled(runID uint) bool {
+	var run catalogm.RadioSyncRun
+	if err := s.db.Select("status").First(&run, runID).Error; err != nil {
 		return false
 	}
-	return health.BreakerState == catalogm.RadioBreakerStateOpen
+	return run.Status == catalogm.RadioSyncRunStatusCancelled
 }
 
 // acquireStationSyncLock pins a connection and takes a non-blocking per-station
@@ -493,10 +733,11 @@ func topLevelErr(err error) []runError {
 	return []runError{{category: categorizeRunError(err), detail: err.Error()}}
 }
 
-// stringErrs maps the executors' free-text per-episode error strings into
-// categorized run-error rows. Fine-grained categorization from typed errors
-// threaded out of importEpisode/importPlays is a follow-up (the executors collapse
-// errors to strings today); the heuristic below covers the common shapes.
+// stringErrs maps free-text error strings into categorized run-error rows via the
+// substring heuristic. As of PSY-1141 this is the fallback for the DISCOVER path
+// only (RadioDiscoverResult.Errors) — the import path threads structured categories
+// out at the source (see categorizedToRunErrors / recordImportError), so its
+// categories are exact, not guessed.
 func stringErrs(msgs []string) []runError {
 	if len(msgs) == 0 {
 		return nil
@@ -508,7 +749,19 @@ func stringErrs(msgs []string) []runError {
 	return out
 }
 
-// categorizeRunError maps a typed error to a radio_sync_run_errors category.
+// categorizeRunError maps an error to a radio_sync_run_errors category. Typed checks
+// (deadline, RadioHTTPError, net.Error timeout) come first; a remaining non-HTTP,
+// non-timeout error is then parse-detected by message before defaulting to
+// provider_unreachable.
+//
+// The parse arm is load-bearing for escalation (PSY-1141): a provider format/scraper
+// change surfaces as a wrapped parse failure (every provider wraps it
+// "parsing X response: %w"), reaching here via importEpisode's FetchErrorCategory.
+// Without this arm a parse failure defaulted to provider_unreachable and the
+// scraper-drift Sentry escalation (escalationError's parse_error arm) was unreachable
+// on the import path. Only parse is string-matched here (not drop/truncation — those
+// are import-path-only concepts handled structurally, and matching "dropped" risks
+// false positives on network-error strings).
 func categorizeRunError(err error) string {
 	if err == nil {
 		return catalogm.RadioSyncRunErrorProviderUnreachable
@@ -527,6 +780,19 @@ func categorizeRunError(err error) string {
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return catalogm.RadioSyncRunErrorTimeout
 	}
+	// Reached only after the typed transient checks above (deadline / RadioHTTPError
+	// 429 / net timeout), so a parse-classified error here is permanent by
+	// construction. Invariant: providers signal transience via RadioHTTPError/net
+	// (caught above), NOT by joining ErrTransient onto a "parsing …" message — a
+	// hypothetical transient-tagged parse string would mis-route here. None do today.
+	// "parsing" (not just "parse") matters: every provider wraps parse failures as
+	// "parsing X response: %w" — strings.Contains("parsing","parse") is false.
+	ls := strings.ToLower(err.Error())
+	if strings.Contains(ls, "parsing") || strings.Contains(ls, "parse") ||
+		strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") ||
+		strings.Contains(ls, "invalid character") {
+		return catalogm.RadioSyncRunErrorParseError
+	}
 	return catalogm.RadioSyncRunErrorProviderUnreachable
 }
 
@@ -539,15 +805,15 @@ func categorizeErrorString(s string) string {
 		return catalogm.RadioSyncRunErrorTimeout
 	case strings.Contains(ls, "429") || strings.Contains(ls, "rate limit") || strings.Contains(ls, "too many"):
 		return catalogm.RadioSyncRunErrorRateLimited
-	case strings.Contains(ls, "parse") || strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") || strings.Contains(ls, "invalid character"):
+	case strings.Contains(ls, "parsing") || strings.Contains(ls, "parse") || strings.Contains(ls, "unmarshal") || strings.Contains(ls, "decode") || strings.Contains(ls, "invalid character"):
 		return catalogm.RadioSyncRunErrorParseError
-	// validation_drop before truncation: every provider drop-summary starts
-	// "dropped N plays: ..." (summarizeDrops), so a summary that also mentions
-	// truncated titles correctly buckets as a drop. NOTE: this makes 'truncation'
-	// effectively unreachable from today's stringified drop-summaries — precise
-	// truncation categorization needs structured (typed) errors threaded out of
-	// importPlays, which is P3/P4. The 'truncat' arm stays for any future
-	// non-summary error string that mentions truncation without "dropped".
+	// NOTE: as of PSY-1141 this heuristic is the DISCOVER-path fallback only (the
+	// import path categorizes structurally — see categorizedToRunErrors). Drop/
+	// truncation summaries arise ONLY on the import path, so the two arms below are
+	// unreachable from both current callers; they are retained purely as a defensive
+	// default for arbitrary future free-text error strings. validation_drop is checked
+	// before truncation so a combined "dropped N plays: ... truncated" summary buckets
+	// as a drop.
 	case strings.Contains(ls, "missing artist") || strings.Contains(ls, "dropped"):
 		return catalogm.RadioSyncRunErrorValidationDrop
 	case strings.Contains(ls, "truncat"):
@@ -557,6 +823,72 @@ func categorizeErrorString(s string) string {
 	default:
 		return catalogm.RadioSyncRunErrorProviderUnreachable
 	}
+}
+
+// ───────────────────────────── permanent-failure escalation ─────────────────────────────
+
+// escalationError decides whether a resolved run carries a failure worth paging on,
+// returning its category + the representative error (nil error → do not escalate).
+// Pure (no I/O) so it is unit-tested directly. Policy (PSY-1141 + the locked decision — "every
+// permanent failure on a scheduled/auto run"):
+//   - manual trigger → never (the operator already sees the result);
+//   - a hard FAILED run whose error classifies PERMANENT → escalate. NOTE this is
+//     deliberately BROAD per the locked decision: it includes config/setup/DB hard
+//     errors (a misconfigured station IS a permanent failure worth knowing about), not
+//     only provider drift. The error_category tag distinguishes them downstream
+//     (parse_error = format change vs provider_unreachable = config/infra/4xx-5xx);
+//   - a run carrying any per-episode parse_error → escalate once: a scraper format
+//     change surfaces as a PARTIAL run of per-episode parse failures, not a hard
+//     failure (the episode loop continues), so escalating only on FAILED would miss
+//     the headline signal. parse_error is reachable on the import path now that
+//     categorizeRunError parse-detects (it was dead before — the PSY-1141 review fix);
+//   - everything else (transient, data-quality drops, success/partial-without-parse) →
+//     no escalation.
+func escalationError(out syncOutcome, trigger string) (string, error) {
+	if trigger == catalogm.RadioSyncRunTriggerManual {
+		return "", nil
+	}
+	if out.status == catalogm.RadioSyncRunStatusFailed && out.hardErr != nil &&
+		classifyError(out.hardErr) == kindPermanent {
+		return categorizeRunError(out.hardErr), out.hardErr
+	}
+	for _, e := range out.errs {
+		if e.category == catalogm.RadioSyncRunErrorParseError {
+			return catalogm.RadioSyncRunErrorParseError, errors.New(e.detail)
+		}
+	}
+	return "", nil
+}
+
+// escalatePermanentFailure escalates a permanent radio sync failure to Sentry, tagged
+// with the station + error category (the canonical sentry.WithScope + CaptureException
+// pattern used across the services). The onPermanentFailure seam lets tests observe
+// escalation without a Sentry transport; nil → the real call (a no-op when Sentry is
+// not initialised, e.g. in tests that don't set the seam).
+func (s *RadioService) escalatePermanentFailure(err error, stationID uint, category string) {
+	if s.onPermanentFailure != nil {
+		s.onPermanentFailure(err, stationID, category)
+		return
+	}
+	sentry.WithScope(func(scope *sentry.Scope) {
+		stationTag := strconv.FormatUint(uint64(stationID), 10)
+		scope.SetTag("service", "radio_sync")
+		scope.SetTag("radio_station_id", stationTag)
+		scope.SetTag("error_category", category)
+		// Group ALL escalations for a (station, category) into ONE Sentry issue with a
+		// rising occurrence count, instead of fragmenting per-episode (the captured
+		// detail varies by episode, so the default fingerprint would open a new issue
+		// per episode per run). This is what makes the locked "rely on Sentry's native
+		// grouping" decision actually hold for the parse-drift case, which recurs every
+		// fetch cycle — a parse-drift run is PARTIAL (some episodes created), so it does
+		// not trip the breaker and is not otherwise damped (PSY-1141 review).
+		scope.SetFingerprint([]string{"radio_sync", category, stationTag})
+		// Cap the captured message to the same bound the run-errors table enforces
+		// (truncateForDetail), so a provider's raw response body — RadioHTTPError
+		// embeds up to 512B of it — can't be exfiltrated to Sentry unbounded. The DB
+		// path truncates; escalation must too (PSY-1141 review).
+		sentry.CaptureException(errors.New(truncateForDetail(err.Error())))
+	})
 }
 
 // runErrorDetailLimit caps a radio_sync_run_errors.detail so a flapping provider

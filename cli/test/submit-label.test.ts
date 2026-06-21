@@ -63,6 +63,32 @@ describe("submitLabels", () => {
     expect(postCall[1]).toEqual({ name: "Numero", city: "Chicago", state: "IL" });
   });
 
+  test("normalizes legacy bandcamp_url to the canonical bandcamp field (--confirm)", async () => {
+    const client = createMockClient();
+    const items = [{ name: "Numero", bandcamp_url: "https://numero.bandcamp.com" }];
+
+    await submitLabels(items, client, true);
+
+    const postCall = (client.post as ReturnType<typeof mock>).mock.calls[0];
+    expect(postCall[0]).toBe("/labels");
+    // Sent as `bandcamp`; the dead `bandcamp_url` alias is never sent.
+    expect(postCall[1]).toEqual({ name: "Numero", bandcamp: "https://numero.bandcamp.com" });
+    expect(postCall[1]).not.toHaveProperty("bandcamp_url");
+  });
+
+  test("does not send an inline artists roster to the label API (--confirm)", async () => {
+    const client = createMockClient();
+    // submitLabels operates on label items; an inline roster (normally expanded
+    // upstream) must never leak into the label POST payload.
+    const items = [{ name: "Sacred Bones", artists: [{ name: "Anika" }] }];
+
+    await submitLabels(items, client, true);
+
+    const postCall = (client.post as ReturnType<typeof mock>).mock.calls[0];
+    expect(postCall[1]).toEqual({ name: "Sacred Bones" });
+    expect(postCall[1]).not.toHaveProperty("artists");
+  });
+
   test("updates a label with new website info (--confirm)", async () => {
     const client = createMockClient({
       getResponse: {

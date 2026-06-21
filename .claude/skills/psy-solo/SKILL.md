@@ -92,6 +92,16 @@ cd frontend && bun run test:run features/<scope>          # scoped vitest (e.g. 
 cd backend && go build ./...
 cd backend && go test ./internal/services/<pkg>/...       # scoped test, or `./...` for large diffs
 
+# Then run the GATED LINTER — `go build` + `go vet` do NOT catch what the "Backend Lint"
+# CI job (golangci-lint: errorlint, ineffassign, staticcheck incl. ST1008) does. Run the
+# EXACT version CI uses (golangci-lint-action `version:` in .github/workflows/ci.yml — currently
+# v2.12.2) with the repo config, from backend/:
+cd backend && golangci-lint run --config=.golangci.yml ./internal/services/<pkg>/...
+#   install once, pinned to the CI version:
+#   GOBIN=$(go env GOPATH)/bin go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+# Skipping this is how PSY-1141 shipped an ST1008 ("error must be the last return value") that
+# build+vet+all tests passed but Backend Lint failed in CI. See feedback_golangci_lint_before_push.md.
+
 # Modified anything under frontend/e2e/ — OR changed a page/surface an E2E spec covers? Run that spec.
 # E2E global-setup requires :8080 to be free — STOP and surface if user's dev backend is on it.
 ```
@@ -140,6 +150,8 @@ git -C <repo> commit -m "PSY-{N}: <imperative summary>
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
+
+**`-m` with backticks is a shell trap — use `-F <file>` for any message with `` `code spans` `` or `$(...)`.** A `git commit -m "…"` string is shell-interpreted, so a backtick-quoted fragment (common in adversarial-fix messages — e.g. `` `scaled > 0` ``, function names) runs as a **command substitution**: it gets stripped from the message AND can execute / redirect (caught 2026-06-20 — `` `scaled > 0` `` ran as a command and created a stray `0` file via the `> 0`). Write the message to `/tmp/psy-{N}-msg.txt` and `git commit -F /tmp/psy-{N}-msg.txt` (same reason `psy-ticket` uses `--description-file`). Belt-and-suspenders: after committing, `git --no-pager log -1 --format=%B` to confirm the message isn't mangled, and `git status` to catch a stray redirect file before it gets `git add`-ed.
 
 Then invoke `Skill` with `skill: "adversarial-review"`. As the orchestrator you have the Agent tool, so it spawns the panel in parallel. Aggregate the verdict:
 
