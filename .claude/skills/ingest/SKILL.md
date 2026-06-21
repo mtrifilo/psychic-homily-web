@@ -216,8 +216,8 @@ For keeping a venue's whole calendar current (re-run every few weeks). Proven on
 
 ### Invoking (what the user types)
 
-- **Add a new venue:** `/ingest <env> — add a new venue from its events page: <URL>. Run the venue events-page workflow: extract all upcoming months, music concerts only, correct city/state, dry-run + both QA scans, pause for my OK, then write and add a registry row.`
-- **Refresh an existing venue:** `/ingest <env> — refresh <venue name>'s listings using its registry row below. Re-scrape all upcoming months, dry-run (idempotent → only new shows), both QA scans, my OK, then write.`
+- **Add a new venue:** `/ingest <env> — add a new venue from its events page: <URL>. Run the venue events-page workflow: extract all upcoming months, music concerts only, correct city/state, dry-run + both QA scans, pause for my OK, then write, add a registry row, AND register it in the source registry so it joins stale-first refresh.`
+- **Refresh an existing venue:** `/ingest <env> — refresh <venue name>'s listings using its registry row below. Re-scrape all upcoming months, dry-run (idempotent → only new shows), both QA scans, my OK, then write and stamp the refresh.`
 
 Either way: always dry-run + the two QA scans (step 6) and get explicit confirmation before `--confirm`.
 
@@ -230,6 +230,13 @@ Either way: always dry-run + the two QA scans (step 6) and get explicit confirma
 5. **Transform programmatically** (never hand-transcribe hundreds of rows) — start from the **skeleton + shared rulesets below**. Apply the room→city/state map, the shared music-only **exclusion** + **headliner-cleaning** rulesets, parse headliner + supports, emit `/tmp/ph-ingest.json`. **Keep co-billed headliners as a single entity** ("X and Y") rather than auto-splitting `and`/`&` (would break real names like "Amyl and The Sniffers"); list them for a manual split pass afterward.
 6. **Dry-run + two QA scans.** `ph batch --env <env> /tmp/ph-ingest.json`. (a) **Artist-skip scan** — check the skip list for fuzzy false-positives (0.6 batch threshold — Casket Cassette / Automatic; pre-create the distinct artist via `POST /admin/artists` so its 1.0 exact match wins). (b) **Headliner sanity scan** — grep kept headliners for leaked presenter/billing tokens: `/presents|present:|featuring| with |aftershow| pass$|hosted by|celebrates| w\/?$/i`. Any hit = the cleaning missed a presenter/theme line (this caught ~20 garbled Empty Bottle entries) → fix the transform and re-run.
 7. **Confirm + ingest.** A 0-show or garbage result means the site changed → re-inspect (steps 1–3). Confirm counts are non-zero and plausible, then `--confirm`. Clean up scratch files.
+8. **Register + stamp for stale-first refresh** (so the venue auto-joins the `ph sources stale` worklist — this is what makes "add a new venue" one step). Resolve the id, register the calendar URL once, and stamp this run:
+   ```bash
+   bun run src/entry.ts --env <env> search venue "<name>"                 # -> id
+   bun run src/entry.ts --env <env> sources register venue <id> "<events_url>"
+   bun run src/entry.ts --env <env> sources refresh venue <id>            # stamp last_refreshed_at
+   ```
+   Multi-room org (one calendar → several venues): register each venue the ingest created shows for, all pointing at the shared URL, and stamp each. On a **refresh** of an already-registered venue, skip `register` — just `sources refresh`.
 
 Manual fix-ups via API: rename an artist `PATCH /admin/artists/{id} {"name":...}`; re-link a show's artists `PUT /shows/{id} {"artists":[{"id","is_headliner"}]}`; create one `POST /admin/artists {"name":...}` (exact find-or-create); delete an orphan (0-show) artist `DELETE /artists/{id}`. (Admin token required.)
 
@@ -320,7 +327,15 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
 
 ## Stale-first global refresh (Catalog Refresh)
 
-Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the periodic operator/agent workflow that ties the per-source ingest workflows together.
+Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the operator/agent workflow that ties the per-source ingest workflows together.
+
+### Invoking (what you type)
+
+This is **manual + on-demand** — run it as time allows (daily, every other day, whenever); nothing is scheduled. One line:
+
+> `/ingest <env> — refresh the N stalest registered sources` (e.g. `/ingest stage — refresh the 5 stalest sources`).
+
+The agent then runs the loop below — `ph sources stale --limit N` → for each row, the matching ingest workflow (venue events-page / label roster-page) using the row's `SOURCE URL` → `ph sources refresh <type> <id>` to stamp. You pick `N` and the cadence; pause for your OK at each source's dry-run before `--confirm`, exactly like a normal ingest.
 
 ### The loop
 
@@ -356,6 +371,8 @@ bun run src/entry.ts --env <env> sources register label <id> "https://www.sacred
 ```
 
 Seed venues from the **Venue registry** table above (each row's events URL) and labels from the **Label registry** table. Registering is idempotent (upsert on `entity_type`+`entity_id`) and does NOT reset `last_refreshed_at`, so re-running `register` to update a URL is safe.
+
+**Multi-room venue orgs:** one calendar URL often covers several venue entities (First Avenue's MN rooms; Schubas + Lincoln Hall both under `lh-st.com`). Register **one source row per distinct venue that the ingest creates shows for**, all pointing at the shared calendar URL, and stamp each after a refresh. (Stage seed, 2026-06-21: registered First Avenue/94, Empty Bottle/14, Thalia Hall/107, Club Congress/109, Schubas/110, Lincoln Hall/111, Sleeping Village/112, Metro Baltimore/113, Zebulon/43 + Sacred Bones label/1.)
 
 > `sources failure` is exposed by the admin API (`POST /admin/sources/failure`) but not yet a `ph` subcommand — call it via `curl` if needed, or just rely on `register`/`refresh` for the manual loop.
 
