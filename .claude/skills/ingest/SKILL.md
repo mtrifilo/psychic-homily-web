@@ -320,7 +320,15 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
 
 ## Stale-first global refresh (Catalog Refresh)
 
-Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the periodic operator/agent workflow that ties the per-source ingest workflows together.
+Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the operator/agent workflow that ties the per-source ingest workflows together.
+
+### Invoking (what you type)
+
+This is **manual + on-demand** — run it as time allows (daily, every other day, whenever); nothing is scheduled. One line:
+
+> `/ingest <env> — refresh the N stalest registered sources` (e.g. `/ingest stage — refresh the 5 stalest sources`).
+
+The agent then runs the loop below — `ph sources stale --limit N` → for each row, the matching ingest workflow (venue events-page / label roster-page) using the row's `SOURCE URL` → `ph sources refresh <type> <id>` to stamp. You pick `N` and the cadence; pause for your OK at each source's dry-run before `--confirm`, exactly like a normal ingest.
 
 ### The loop
 
@@ -356,6 +364,8 @@ bun run src/entry.ts --env <env> sources register label <id> "https://www.sacred
 ```
 
 Seed venues from the **Venue registry** table above (each row's events URL) and labels from the **Label registry** table. Registering is idempotent (upsert on `entity_type`+`entity_id`) and does NOT reset `last_refreshed_at`, so re-running `register` to update a URL is safe.
+
+**Multi-room venue orgs:** one calendar URL often covers several venue entities (First Avenue's MN rooms; Schubas + Lincoln Hall both under `lh-st.com`). Register **one source row per distinct venue that the ingest creates shows for**, all pointing at the shared calendar URL, and stamp each after a refresh. (Stage seed, 2026-06-21: registered First Avenue/94, Empty Bottle/14, Thalia Hall/107, Club Congress/109, Schubas/110, Lincoln Hall/111, Sleeping Village/112, Metro Baltimore/113, Zebulon/43 + Sacred Bones label/1.)
 
 > `sources failure` is exposed by the admin API (`POST /admin/sources/failure`) but not yet a `ph` subcommand — call it via `curl` if needed, or just rely on `register`/`refresh` for the manual loop.
 
