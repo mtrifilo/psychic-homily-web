@@ -26,11 +26,11 @@ describe('HomeHero', () => {
     expect(heading.tagName).toBe('H1')
   })
 
-  it('keeps "This is not a mirage." as supporting copy, no longer the h1', () => {
+  it('renders the tagline as supporting copy, not a heading', () => {
     render(<HomeHero />)
-    expect(screen.getByText('This is not a mirage.')).toBeInTheDocument()
+    expect(screen.getByText('The knowledge graph of music.')).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: 'This is not a mirage.' })
+      screen.queryByRole('heading', { name: 'The knowledge graph of music.' })
     ).toBeNull()
   })
 

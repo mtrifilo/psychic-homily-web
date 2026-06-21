@@ -58,12 +58,8 @@ export function HomeHero() {
 
       <div className="max-w-[720px] text-center">
         <p className="text-balance text-lg font-medium text-foreground sm:text-xl">
-          This is not a mirage.
+          The knowledge graph of music.
         </p>
-        <div className="mt-2 text-base leading-relaxed text-muted-foreground sm:text-lg">
-          <p>You&rsquo;ve stumbled upon a door where your imagination is the limit.</p>
-          <p>Bring your true self without compromise, and you&rsquo;ll find your answers.</p>
-        </div>
       </div>
 
       {/* Dominant action: search + Find a show */}
