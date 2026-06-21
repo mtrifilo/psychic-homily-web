@@ -15,6 +15,7 @@ import (
 	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/services/sourceregistry"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/utils"
 )
@@ -67,6 +68,7 @@ type ServiceContainer struct {
 	RelationshipDerivation *catalog.RelationshipDerivationService
 	Venue                  *catalog.VenueService
 	VenueSourceConfig      *pipeline.VenueSourceConfigService
+	SourceConfig           *sourceregistry.SourceConfigService
 	StreamingWorklist      *pipeline.StreamingWorklistService
 
 	// Config-only services
@@ -124,6 +126,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	extraction := pipeline.NewExtractionService(database, cfg, artist, venue)
 	discovery := pipeline.NewDiscoveryService(database, venue)
 	venueSourceConfig := pipeline.NewVenueSourceConfigService(database)
+	sourceConfig := sourceregistry.NewSourceConfigService(database)
 
 	// Auth services — created first so we can share the JWT service with AppleAuth.
 	jwtService := auth.NewJWTService(database, cfg, userService)
@@ -220,6 +223,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		RelationshipDerivation: catalog.NewRelationshipDerivationService(artistRelSvc),
 		Venue:                  venue,
 		VenueSourceConfig:      venueSourceConfig,
+		SourceConfig:           sourceConfig,
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
 
 		// Config-only services
