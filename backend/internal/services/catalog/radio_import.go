@@ -643,7 +643,13 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return &contracts.EpisodeImportResult{}, nil
 	}
 
-	// Create episode
+	// Create episode. StartsAt/EndsAt are the frozen air window (PSY-1152) — set
+	// once here from the provider's instants and never re-derived. Status is a
+	// best-effort snapshot computed at ingest; the authoritative live/aired state
+	// is recomputed on read (a stored "live" would go stale), and the column is
+	// kept fresh by the janitor (PSY-1155). Playlist completeness is PSY-1154's
+	// domain, so at create the playlist is still pending → status is never
+	// 'archived' here (that transition arrives with PSY-1154).
 	episode := &catalogm.RadioEpisode{
 		ShowID:          showID,
 		Title:           ep.Title,
@@ -652,6 +658,11 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		DurationMinutes: ep.DurationMinutes,
 		ArchiveURL:      ep.ArchiveURL,
 		ExternalID:      &ep.ExternalID,
+		StartsAt:        ep.StartsAt,
+		EndsAt:          ep.EndsAt,
+		Status: catalogm.ComputeEpisodeStatus(
+			ep.StartsAt, ep.EndsAt, catalogm.RadioPlaylistStatePending, time.Now(),
+		),
 	}
 
 	if err := s.db.Create(episode).Error; err != nil {

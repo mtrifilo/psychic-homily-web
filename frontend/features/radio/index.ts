@@ -100,7 +100,7 @@ export type { ArtistHop } from './lib/stationOverview'
 // (RadioEpisodePreviewArtist is re-exported in the types block above)
 export { useEpisodeNeighbors } from './hooks'
 export {
-  isAirDateToday,
+  isLiveNow,
   previewToHops,
   computeArtistMatchStats,
   formatPlayTime,

@@ -171,6 +171,20 @@ export interface RadioEpisodeListItem {
   air_time: string | null
   duration_minutes: number | null
   archive_url: string | null
+  /**
+   * Frozen air window (PSY-1152), ISO instants; null when the provider has no
+   * time (WFMU until PSY-1159). "live now" is computed from these, never from
+   * air_date equality (which produced the PSY-1128 false-ON-AIR bug).
+   */
+  starts_at: string | null
+  ends_at: string | null
+  /**
+   * Coarse lifecycle state, computed by the backend at response time. Use this
+   * for a display label only — for "is it live RIGHT NOW", call isLiveNow() with
+   * the window below, which re-evaluates against the VIEWER's clock (a shipped
+   * status='live' would be a server-time snapshot that goes stale on the client).
+   */
+  status: 'scheduled' | 'live' | 'aired' | 'archived'
   play_count: number
   created_at: string
 }

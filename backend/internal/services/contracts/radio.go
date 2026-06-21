@@ -222,8 +222,15 @@ type RadioEpisodeResponse struct {
 	AirTime         *string   `json:"air_time"`
 	DurationMinutes *int      `json:"duration_minutes"`
 	ArchiveURL      *string   `json:"archive_url"`
-	PlayCount       int       `json:"play_count"`
-	CreatedAt       time.Time `json:"created_at"`
+	// StartsAt/EndsAt are the frozen air window (PSY-1152); Status is the
+	// lifecycle state (scheduled/live/aired/archived) computed on read from that
+	// window — "live" only inside it. A null window is never "live" (e.g. WFMU
+	// until PSY-1159 lands the schedule).
+	StartsAt  *time.Time `json:"starts_at"`
+	EndsAt    *time.Time `json:"ends_at"`
+	Status    string     `json:"status"`
+	PlayCount int        `json:"play_count"`
+	CreatedAt time.Time  `json:"created_at"`
 	// ArtistPreview holds the first few distinct artists from the episode's
 	// playlist, in play order (PSY-1048).
 	ArtistPreview []RadioEpisodePreviewArtist `json:"artist_preview"`

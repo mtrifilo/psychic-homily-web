@@ -141,6 +141,11 @@ func TestParseKEXPEpisode(t *testing.T) {
 	assert.Equal(t, "The Morning Show", *ep.Title)
 	assert.NotNil(t, ep.ArchiveURL)
 	assert.Equal(t, "https://kexp.org/archive/2026-01-15", *ep.ArchiveURL)
+	// PSY-1152: the RFC3339 start/end instants are preserved as the frozen window.
+	require.NotNil(t, ep.StartsAt)
+	assert.Equal(t, "2026-01-15T06:00:00-08:00", ep.StartsAt.Format(time.RFC3339))
+	require.NotNil(t, ep.EndsAt)
+	assert.Equal(t, "2026-01-15T10:00:00-08:00", ep.EndsAt.Format(time.RFC3339))
 }
 
 // TestParseKEXPEpisode_NoEndTime exercises the list-endpoint shape: KEXP's
@@ -160,6 +165,9 @@ func TestParseKEXPEpisode_NoEndTime(t *testing.T) {
 	assert.Nil(t, ep.DurationMinutes)
 	assert.Nil(t, ep.ArchiveURL,
 		"PSY-813: list endpoint omits archive_url, parser must leave ArchiveURL nil")
+	// PSY-1152: start preserved, but no end_time → EndsAt nil (window unbounded → never live).
+	assert.NotNil(t, ep.StartsAt)
+	assert.Nil(t, ep.EndsAt)
 }
 
 // =============================================================================

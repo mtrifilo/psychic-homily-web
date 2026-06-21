@@ -83,6 +83,39 @@ const (
 	RadioPlaylistStateUnavailable = "unavailable"
 )
 
+// ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
+// window, playlist completeness, and the current time (PSY-1152).
+//
+// "live" is computed here, never trusted as a durable stored value, because it
+// is a function of now — a stored "live" goes stale the instant the air window
+// ends, which is exactly the PSY-1128 false-ON-AIR bug. Callers compute it at
+// read time against the viewer's clock.
+//
+// A windowless episode (startsAt == nil — WFMU before PSY-1159, or any provider
+// that supplies no time) is NEVER "live": it is 'archived' once its playlist is
+// complete, else 'aired' (the conservative §9 decision-2 fallback). An episode
+// with a start but no end (e.g. NTS, which gives a broadcast start but no
+// duration) likewise can't be bounded as "live" and settles to aired/archived
+// once started.
+func ComputeEpisodeStatus(startsAt, endsAt *time.Time, playlistState string, now time.Time) string {
+	settled := RadioEpisodeStatusAired
+	if playlistState == RadioPlaylistStateComplete {
+		settled = RadioEpisodeStatusArchived
+	}
+
+	if startsAt == nil {
+		return settled // windowless: never scheduled or live
+	}
+	if now.Before(*startsAt) {
+		return RadioEpisodeStatusScheduled
+	}
+	// now is at/after startsAt. "live" only with a bounded window we're still inside.
+	if endsAt != nil && !now.After(*endsAt) {
+		return RadioEpisodeStatusLive
+	}
+	return settled
+}
+
 // Match-state constants (radio_plays.match_state). PSY-1131. Replaces the
 // implicit "artist_id IS NULL == unmatched" with an explicit state. no_match
 // (matcher ran, found nothing) is distinct from unmatched (matcher not yet run).

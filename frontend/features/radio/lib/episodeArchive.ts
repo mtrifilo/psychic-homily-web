@@ -16,23 +16,24 @@ import type {
 import type { ArtistHop } from './stationOverview'
 
 /**
- * v1 "on air" heuristic for a single show (PSY-1051, same register as the
- * PSY-1016 station-overview fallback): the show is treated as live when its
- * most-recent episode aired TODAY in the viewer's local date. Honest enough
- * until PSY-1022 ships a real live now-playing signal — the ON AIR strip is
- * built to swap to that endpoint without layout change.
+ * Whether an episode is live RIGHT NOW: `now` falls within its frozen air
+ * window [starts_at, ends_at] (PSY-1152). Replaces the old air-date-equality
+ * heuristic (isAirDateToday), which treated any episode dated "today" as live
+ * all day — the PSY-1128 false-ON-AIR bug (a Tuesday-morning show read "live"
+ * at 5:54 PM). A null/absent or unbounded window (WFMU until PSY-1159, or any
+ * provider with no time) is never live — the conservative default.
  */
-export function isAirDateToday(
-  airDate: string | null | undefined,
+export function isLiveNow(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
   now: Date = new Date()
 ): boolean {
-  if (!airDate) return false
-  const today = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-  ].join('-')
-  return airDate === today
+  if (!startsAt || !endsAt) return false
+  const start = new Date(startsAt).getTime()
+  const end = new Date(endsAt).getTime()
+  if (isNaN(start) || isNaN(end)) return false
+  const t = now.getTime()
+  return t >= start && t <= end
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  isAirDateToday,
+  isLiveNow,
   previewToHops,
   computeArtistMatchStats,
   formatPlayTime,
@@ -25,6 +25,9 @@ function makeEpisode(
     air_time: null,
     duration_minutes: null,
     archive_url: null,
+    starts_at: null,
+    ends_at: null,
+    status: 'aired',
     play_count: 10,
     created_at: '2026-01-01T00:00:00Z',
     artist_preview: [],
@@ -61,25 +64,34 @@ function makePlay(overrides: Partial<RadioPlay> = {}): RadioPlay {
   }
 }
 
-describe('isAirDateToday', () => {
-  const now = new Date(2026, 5, 9, 21, 30) // June 9 2026, local
+describe('isLiveNow', () => {
+  const start = '2026-06-09T21:00:00Z'
+  const end = '2026-06-09T23:00:00Z'
 
-  it('is true when the air date matches the local date of now', () => {
-    expect(isAirDateToday('2026-06-09', now)).toBe(true)
+  it('is true when now is within the air window', () => {
+    expect(isLiveNow(start, end, new Date('2026-06-09T22:00:00Z'))).toBe(true)
   })
 
-  it('is false for a past date', () => {
-    expect(isAirDateToday('2026-06-02', now)).toBe(false)
+  it('is true at the inclusive window edges', () => {
+    expect(isLiveNow(start, end, new Date(start))).toBe(true)
+    expect(isLiveNow(start, end, new Date(end))).toBe(true)
   })
 
-  it('is false for null / undefined / empty', () => {
-    expect(isAirDateToday(null, now)).toBe(false)
-    expect(isAirDateToday(undefined, now)).toBe(false)
-    expect(isAirDateToday('', now)).toBe(false)
+  it('is false before and after the window (the PSY-1128 fix)', () => {
+    expect(isLiveNow(start, end, new Date('2026-06-09T20:59:00Z'))).toBe(false)
+    expect(isLiveNow(start, end, new Date('2026-06-09T23:01:00Z'))).toBe(false)
   })
 
-  it('zero-pads month and day when comparing', () => {
-    expect(isAirDateToday('2026-01-05', new Date(2026, 0, 5))).toBe(true)
+  it('is false for a null / absent / unbounded window (WFMU, NTS)', () => {
+    const now = new Date('2026-06-09T22:00:00Z')
+    expect(isLiveNow(null, null, now)).toBe(false)
+    expect(isLiveNow(undefined, undefined, now)).toBe(false)
+    expect(isLiveNow(start, null, now)).toBe(false) // start but no end
+    expect(isLiveNow(null, end, now)).toBe(false)
+  })
+
+  it('is false for an unparseable window', () => {
+    expect(isLiveNow('not-a-date', end, new Date('2026-06-09T22:00:00Z'))).toBe(false)
   })
 })
 
