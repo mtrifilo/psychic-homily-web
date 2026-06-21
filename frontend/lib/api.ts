@@ -224,22 +224,6 @@ export const API_ENDPOINTS = {
       DECIDE: (requestId: string | number) =>
         `${API_BASE_URL}/admin/entity-requests/${requestId}/decide`,
     },
-    PIPELINE: {
-      VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
-      IMPORTS: `${API_BASE_URL}/admin/pipeline/imports`,
-      EXTRACT: (venueId: string | number) =>
-        `${API_BASE_URL}/admin/pipeline/extract/${venueId}`,
-      VENUE_STATS: (venueId: string | number) =>
-        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/stats`,
-      VENUE_NOTES: (venueId: string | number) =>
-        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/notes`,
-      VENUE_CONFIG: (venueId: string | number) =>
-        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/config`,
-      VENUE_RUNS: (venueId: string | number) =>
-        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/runs`,
-      VENUE_RESET_RENDER: (venueId: string | number) =>
-        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/reset-render-method`,
-    },
   },
 
   // Contributor profile endpoints (public)

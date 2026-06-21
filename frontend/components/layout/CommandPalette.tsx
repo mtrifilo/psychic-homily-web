@@ -193,7 +193,6 @@ const ADMIN_ROUTE_KEYWORDS: Record<AdminTab, string[]> = {
   releases: ['releases', 'albums', 'manage'],
   labels: ['labels', 'record labels', 'manage'],
   festivals: ['festivals', 'manage'],
-  pipeline: ['pipeline', 'extraction', 'scraping', 'venues', 'data', 'import'],
   collections: ['collections', 'manage', 'featured'],
   tags: ['tags', 'manage', 'genres'],
   'data-quality': ['data', 'quality', 'health', 'issues'],

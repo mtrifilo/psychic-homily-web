@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShieldCheck, Clock, BadgeCheck, Flag,
   Disc3, Tag, Tent, Music, Radio, Library, Tags,
-  Upload, Workflow, ClipboardCheck, BarChart3, Users, ScrollText,
+  Upload, ClipboardCheck, BarChart3, Users, ScrollText,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
@@ -24,7 +24,7 @@ import type { AdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
  */
 export const VALID_TABS = [
   'dashboard', 'moderation', 'pending-shows', 'unverified-venues',
-  'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
+  'reports', 'import-show', 'releases', 'labels', 'festivals',
   'collections', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
   'users', 'audit-log',
 ] as const
@@ -88,7 +88,6 @@ export const adminNavGroups: AdminNavGroup[] = [
     label: 'Tools',
     items: [
       { tab: 'import-show', label: 'Import Show', icon: Upload },
-      { tab: 'pipeline', label: 'Data Pipeline', icon: Workflow },
       { tab: 'data-quality', label: 'Data Quality', icon: ClipboardCheck },
     ],
   },

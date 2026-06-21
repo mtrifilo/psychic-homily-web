@@ -84,17 +84,6 @@ const FestivalsPage = dynamic(() => import('./festivals/page'), {
   ),
 })
 
-const PipelineVenuesComponent = dynamic(
-  () => import('@/components/admin/PipelineVenues').then(m => m.PipelineVenues),
-  {
-    loading: () => (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    ),
-  }
-)
-
 const UsersPage = dynamic(() => import('./users/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
@@ -257,10 +246,6 @@ function AdminPageContent() {
 
           <TabsContent value="festivals" className="space-y-4" data-testid="admin-tab-festivals">
             <FestivalsPage />
-          </TabsContent>
-
-          <TabsContent value="pipeline" className="space-y-4" data-testid="admin-tab-pipeline">
-            <PipelineVenuesComponent />
           </TabsContent>
 
           <TabsContent value="collections" className="space-y-4" data-testid="admin-tab-collections">

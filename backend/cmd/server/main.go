@@ -205,13 +205,17 @@ func main() {
 		log.Printf("DISABLE_REMINDERS=1: skipping reminder service startup")
 	}
 
-	// Start extraction scheduler (background job for automated venue extraction)
-	if os.Getenv("DISABLE_SCHEDULER") != "1" {
+	// Legacy venue AI-extraction scheduler — RETIRED (PSY-1158). Superseded by the
+	// /ingest skill; default-OFF now (was default-on, gated by DISABLE_SCHEDULER).
+	// Set ENABLE_SCHEDULER=1 to opt back in. Deep removal of the pipeline service
+	// is a tracked follow-up.
+	if os.Getenv("ENABLE_SCHEDULER") == "1" {
 		var schedulerCtx context.Context
 		schedulerCtx, schedulerCancel = context.WithCancel(context.Background())
 		sc.Scheduler.Start(schedulerCtx)
+		log.Printf("ENABLE_SCHEDULER=1: starting legacy extraction scheduler")
 	} else {
-		log.Printf("DISABLE_SCHEDULER=1: skipping extraction scheduler startup")
+		log.Printf("extraction scheduler disabled (retired, PSY-1158; set ENABLE_SCHEDULER=1 to opt in)")
 	}
 
 	// Start enrichment worker (background job for post-import enrichment)
