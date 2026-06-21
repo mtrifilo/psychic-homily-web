@@ -13,6 +13,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -712,6 +713,56 @@ func episodeResultFromDrops(d importPlaysOutcome) *contracts.EpisodeImportResult
 	}
 }
 
+const (
+	// playUpsertMaxAttempts caps the retry-on-conflict loop on the play upsert. A
+	// transient conflict (deadlock / serialization failure) is rare here — the
+	// per-station advisory lock (P2) serializes same-station runs and different
+	// stations touch disjoint rows — so a low cap absorbs the transient case while
+	// still surfacing a genuinely stuck transaction instead of looping on it.
+	playUpsertMaxAttempts = 3
+	// playUpsertRetryBackoff is the base inter-attempt delay; it scales linearly
+	// with the attempt number (5ms, then 10ms). Plain linear backoff (not the
+	// Full-Jitter that PSY-1142 uses for cross-station HTTP fetches) is sufficient
+	// here because this upsert is single-process and advisory-lock-serialized per
+	// station — there is no cross-station retry herd to de-synchronize.
+	playUpsertRetryBackoff = 5 * time.Millisecond
+)
+
+// retryTransientConflict runs op, retrying up to playUpsertMaxAttempts times on a
+// transient Postgres conflict — a deadlock (SQLSTATE 40P01) or a serialization
+// failure (40001) — with a short linear backoff. Success or any other error
+// returns immediately and unchanged, so the caller's "hard infrastructural error
+// — bubble it up" contract is preserved; a persistent conflict surfaces after the
+// final attempt rather than looping forever.
+//
+// This is mostly defense-in-depth. At the production READ COMMITTED isolation
+// (db/connection.go), a plain INSERT … ON CONFLICT DO NOTHING does NOT raise
+// 40001 (that needs REPEATABLE READ / SERIALIZABLE); a 40P01 deadlock can arise
+// even at READ COMMITTED but is very unlikely here, because the per-station
+// advisory lock serializes same-station writes and different stations insert
+// disjoint rows. The guard exists so the upsert stays correct if it is ever moved
+// to a higher isolation level (research §3 recommends the lock + retry pair).
+// Retrying is safe because the upsert is idempotent: a conflict rolls the
+// transaction back fully, so re-running the whole CreateInBatches re-inserts
+// cleanly — and any row that did commit re-conflicts on the (episode_id,
+// dedup_key) unique index and is skipped. Kept local to this package per
+// PSY-1143 (promote to services/shared only if a second caller appears).
+func retryTransientConflict(op func() error) error {
+	var err error
+	for attempt := 1; attempt <= playUpsertMaxAttempts; attempt++ {
+		err = op()
+		// Retry only the two canonical transient-conflict codes; everything else
+		// (and success) returns immediately so a real error still bubbles up.
+		if err == nil || (!shared.IsSerializationFailure(err) && !shared.IsDeadlock(err)) {
+			return err
+		}
+		if attempt < playUpsertMaxAttempts {
+			time.Sleep(playUpsertRetryBackoff * time.Duration(attempt))
+		}
+	}
+	return err
+}
+
 // importPlays batch-creates play records for an episode.
 //
 // PSY-885: validate-at-the-boundary semantics. Each provider-returned play is
@@ -775,8 +826,19 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (imp
 	// artist_name, track_title), PSY-1131. Records are pre-validated (PSY-885), so
 	// a non-UNIQUE constraint violation here (FK gone, NOT NULL) is a hard
 	// infrastructural error — bubble it up.
-	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
-	if err := result.Error; err != nil {
+	// Wrap the upsert in retry-on-transient-conflict (deadlock 40P01 /
+	// serialization 40001) as defense-in-depth. ON CONFLICT is not a blanket
+	// atomic-under-concurrency guarantee (research §3). The per-station advisory
+	// lock already serializes same-station runs, and at READ COMMITTED these
+	// conflicts are unlikely on this upsert — so this mainly guards a future
+	// higher-isolation move (see retryTransientConflict). It re-runs the
+	// idempotent ON CONFLICT upsert a bounded number of times before surfacing a
+	// stuck txn.
+	var result *gorm.DB
+	if err := retryTransientConflict(func() error {
+		result = s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
+		return result.Error
+	}); err != nil {
 		return drops, fmt.Errorf("batch inserting plays: %w", err)
 	}
 
@@ -827,9 +889,21 @@ func sanitizePlay(episodeID uint, p RadioPlayImport) (catalogm.RadioPlay, error)
 		return catalogm.RadioPlay{}, errMissingArtistName
 	}
 
+	// Defensive boundary guard: an empty/whitespace provider_play_id would make
+	// the generated dedup_key COALESCE to '' and collide every such play in the
+	// episode. Normalize blank to nil so the content-hash branch applies instead.
+	// KEXP already guards id <= 0; this protects against a future provider wiring
+	// an empty id (trust internally — every downstream RadioPlay is then known to
+	// carry either a non-empty provider id or nil).
+	providerPlayID := p.ProviderPlayID
+	if providerPlayID != nil && strings.TrimSpace(*providerPlayID) == "" {
+		providerPlayID = nil
+	}
+
 	return catalogm.RadioPlay{
 		EpisodeID:              episodeID,
 		Position:               p.Position,
+		ProviderPlayID:         providerPlayID,
 		ArtistName:             truncateRunes(p.ArtistName, radioPlayVarcharMaxRunes),
 		TrackTitle:             truncateOptionalRunes(p.TrackTitle, radioPlayVarcharMaxRunes),
 		AlbumTitle:             truncateOptionalRunes(p.AlbumTitle, radioPlayVarcharMaxRunes),

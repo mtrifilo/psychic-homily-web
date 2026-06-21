@@ -348,6 +348,9 @@ func TestNTS_FetchPlaylist_WithTracklist(t *testing.T) {
 	assert.Nil(t, p0.MusicBrainzRecordingID)
 	assert.Nil(t, p0.MusicBrainzReleaseID)
 	assert.Nil(t, p0.AirTimestamp)
+	// PSY-1143: NTS has no stable provider play id, so dedup falls back to the
+	// content hash. ProviderPlayID must stay nil.
+	assert.Nil(t, p0.ProviderPlayID)
 
 	// Check middle track — verify position numbering
 	p2 := plays[2]
