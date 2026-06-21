@@ -22,14 +22,18 @@ import (
 //     on a dig-deeper affordance."
 //
 // The transition is reversible and non-destructive — a returning DJ's next episode
-// flips the show back to 'active' (here, and in real time via create-on-first-episode,
-// PSY-1153). is_active and the fetch set are intentionally NOT touched, so a dormant
-// show keeps being polled and can reactivate naturally.
+// flips the show back to 'active' on the next nightly run here (and, once PSY-1153
+// create-on-first-episode lands, in real time on ingest). is_active and the fetch set
+// are intentionally NOT touched, so a dormant show keeps being polled and can
+// reactivate naturally; until then the ~24h janitor cadence is the only promotion path.
 //
-// 'retired' is left untouched: it is a manual-only "ended forever" signal (the
-// provider can't distinguish a leave of absence from an ending, so the janitor never
-// auto-retires — owner decision, 2026-06-21). The 'active schedule changed → dormant'
-// signal is deferred to PSY-1159 (it needs the scraped wfmu.org/table schedule).
+// 'retired' is left untouched: the janitor never auto-retires (the provider can't
+// distinguish a leave of absence from an ending — owner decision, 2026-06-21).
+// 'retired' is reserved for a future explicit signal; NOTE there is no write path to
+// set it yet (UpdateRadioShowRequest exposes only is_active), so it is currently
+// unreachable — an admin "set lifecycle_state" capability is a follow-up. The
+// 'active schedule changed → dormant' signal is likewise deferred to PSY-1159 (it
+// needs the scraped wfmu.org/table schedule).
 //
 // Returns the number of shows promoted (dormant→active) and demoted (active→dormant).
 func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now time.Time) (promoted, demoted int, err error) {
@@ -83,6 +87,15 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 // One set-based statement: the LEFT JOIN yields 0 for episodes with no plays, and the
 // `<>` guard writes only the drifted rows, so a steady-state run touches nothing.
 // Returns the number of episodes corrected.
+//
+// Scale note (conscious decision): the aggregate READ is unbounded — it scans all of
+// radio_plays nightly regardless of recency — because the residual drift it targets is
+// chiefly historical (rows written before play_count became monotonic-on-write), which
+// a recency bound would skip. This is cheap now (sub-second on an indexed GROUP BY at
+// the current tens-of-shows scale) and the `<>` guard keeps the WRITE empty in steady
+// state. If radio_plays ever reaches millions, bound the read to recently-touched
+// episodes (e.g. updated_at >= cutoff) and run a one-off full reconcile for history —
+// tracked as a follow-up.
 func (s *RadioService) ReconcilePlayCounts() (corrected int, err error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")

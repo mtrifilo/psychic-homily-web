@@ -69,7 +69,9 @@ const DefaultJanitorDormantDays = 30
 // Default janitor backfill straggler lookback (30 days) — wider than the hourly
 // post-air sweep (DefaultBackfillLookbackDays=7) so the nightly run catches aired
 // incomplete episodes the hourly sweep missed (service downtime, late-created rows).
-// Env: RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS.
+// Env: RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS. NOTE: 0 is a today-only window (not a
+// disable — the sweep still runs); to disable the whole janitor use
+// RADIO_JANITOR_INTERVAL_HOURS=0.
 const DefaultJanitorBackfillLookbackDays = 30
 
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
@@ -1144,6 +1146,7 @@ func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSwe
 		// Stop cleanly between shows on shutdown.
 		select {
 		case <-s.stopCh:
+			s.logger.Info("radio backfill sweep abandoned on shutdown", "processed", r.processed)
 			return r
 		default:
 		}
@@ -1158,7 +1161,8 @@ func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSwe
 			continue // a scheduled run holds the lock, or the breaker is open — retry next cycle
 		}
 		if res.Status == catalogm.RadioSyncRunStatusCancelled {
-			return r // shutdown
+			s.logger.Info("radio backfill sweep abandoned on shutdown", "processed", r.processed)
+			return r
 		}
 		if imp := res.Import; imp != nil {
 			r.completed++
@@ -1180,7 +1184,6 @@ func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSwe
 // The fast DB reconciles (1, 2) run before the slow provider-HTTP sweep (3), so a
 // shutdown mid-sweep still leaves the reconciles done.
 func (s *RadioFetchService) runJanitorCycle() {
-	cycleStart := time.Now()
 	now := time.Now()
 
 	promoted, demoted, err := s.radioService.ReconcileShowLifecycle(
@@ -1203,7 +1206,7 @@ func (s *RadioFetchService) runJanitorCycle() {
 		"play_counts_corrected", pcCorrected,
 		"backfill_shows_processed", sweep.processed,
 		"backfill_shows_completed", sweep.completed,
-		"duration", time.Since(cycleStart),
+		"duration", time.Since(now),
 	)
 }
 
