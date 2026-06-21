@@ -485,12 +485,16 @@ func parseKEXPEpisode(show kexpShow, programExternalID string) RadioEpisodeImpor
 			start := t
 			ep.StartsAt = &start
 
-			// Calculate duration if end_time is available
+			// Window end + duration, only for a forward window (end > start). A
+			// backwards end < start (clock-skewed feed) would violate the DB
+			// air-window CHECK (ends_at >= starts_at) and drop the whole episode;
+			// the strict end.After(t) guard also skips a pointless zero-length
+			// end == start window. Leave EndsAt nil instead (unbounded → never
+			// falsely live), mirroring the dur > 0 guard.
 			if show.EndTime != "" {
-				if end, err := time.Parse(time.RFC3339, show.EndTime); err == nil {
+				if end, err := time.Parse(time.RFC3339, show.EndTime); err == nil && end.After(t) {
 					ep.EndsAt = &end
-					dur := int(end.Sub(t).Minutes())
-					if dur > 0 {
+					if dur := int(end.Sub(t).Minutes()); dur > 0 {
 						ep.DurationMinutes = &dur
 					}
 				}

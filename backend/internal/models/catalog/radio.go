@@ -572,8 +572,13 @@ type RadioEpisode struct {
 	GenreTags       *json.RawMessage `gorm:"column:genre_tags;type:jsonb"`
 	MoodTags        *json.RawMessage `gorm:"column:mood_tags;type:jsonb"`
 	PlayCount       int              `gorm:"column:play_count;not null;default:0"`
-	// Status makes "live" an explicit stored fact (PSY-1131); windowless
-	// episodes default to 'aired' and are never 'live'.
+	// Status is the episode lifecycle state. NOTE (PSY-1152): the API does NOT
+	// read this stored column for live/aired display — GetEpisodes recomputes it
+	// on read via ComputeEpisodeStatus, because "live" is a function of now and a
+	// stored value goes stale the instant the window ends. The persisted value is
+	// only an import-time snapshot, kept fresh by the janitor (PSY-1155, not yet
+	// shipped) — do NOT query it for live state until then. Windowless episodes
+	// are 'aired', never 'live'.
 	Status string `gorm:"column:status;not null;default:aired"`
 	// StartsAt/EndsAt are the real air window (timezone-aware), NULL when the
 	// provider supplies no time. The basis for the air-window "live" computation.

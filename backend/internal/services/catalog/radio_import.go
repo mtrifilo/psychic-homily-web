@@ -628,7 +628,21 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	var existing catalogm.RadioEpisode
 	err := s.db.Where("show_id = ? AND external_id = ?", showID, ep.ExternalID).First(&existing).Error
 	if err == nil {
-		// Episode already exists — skip to avoid duplicates
+		// Episode already exists — skip re-processing the playlist (dedup). But
+		// backfill the air window (PSY-1152) if this row predates window stamping
+		// and the provider now supplies one: rows imported before this change have
+		// a NULL window and would never show "live", and a show airing across the
+		// deploy would lose its ON AIR strip until the P6 re-ingest. Only the
+		// window heals here; playlist completeness stays PSY-1154's domain.
+		if existing.StartsAt == nil && ep.StartsAt != nil {
+			if err := s.db.Model(&existing).Updates(map[string]any{
+				"starts_at": ep.StartsAt,
+				"ends_at":   ep.EndsAt,
+				"status":    catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, existing.PlaylistState, time.Now()),
+			}).Error; err != nil {
+				return nil, fmt.Errorf("backfilling episode air window: %w", err)
+			}
+		}
 		return &contracts.EpisodeImportResult{}, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {

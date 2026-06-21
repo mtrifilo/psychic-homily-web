@@ -179,10 +179,10 @@ export interface RadioEpisodeListItem {
   starts_at: string | null
   ends_at: string | null
   /**
-   * Coarse lifecycle state, computed by the backend at response time. Use this
-   * for a display label only — for "is it live RIGHT NOW", call isLiveNow() with
-   * the window below, which re-evaluates against the VIEWER's clock (a shipped
-   * status='live' would be a server-time snapshot that goes stale on the client).
+   * Coarse server-computed lifecycle state. NOT rendered today (reserved for a
+   * future status label) and NOT a live signal: for "is it live RIGHT NOW" call
+   * isLiveNow() with the window below, which re-evaluates against the VIEWER's
+   * clock — a shipped status='live' is a server-time snapshot that goes stale.
    */
   status: 'scheduled' | 'live' | 'aired' | 'archived'
   play_count: number

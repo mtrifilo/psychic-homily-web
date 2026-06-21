@@ -665,8 +665,11 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	}
 
 	var episodes []catalogm.RadioEpisode
+	// id DESC tiebreak so "latest" (episodes[0], drives the show-page ON AIR
+	// strip's live derivation) is deterministic when two episodes share an
+	// air_date (PSY-1152) — matches the dial-wide feed's ordering.
 	err := s.db.Where("show_id = ?", showID).
-		Order("air_date DESC").
+		Order("air_date DESC, id DESC").
 		Limit(limit).
 		Offset(offset).
 		Find(&episodes).Error
