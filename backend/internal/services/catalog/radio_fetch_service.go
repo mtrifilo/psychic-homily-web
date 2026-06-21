@@ -47,8 +47,13 @@ const DefaultBackfillInterval = 1 * time.Hour
 // window are swept — it bounds the candidate set (and the one-time re-fetch burst at
 // rollout) and reflects that providers only keep recent episodes listable for
 // re-fetch. The per-episode attempt cap (RadioBackfillMaxAttempts) is the real
-// give-up control; the lookback just bounds the scan. Set RADIO_BACKFILL_LOOKBACK_DAYS=0
-// to disable the post-air backfill loop entirely.
+// give-up control; the lookback just bounds the scan.
+//
+// RADIO_BACKFILL_LOOKBACK_DAYS=0 disables the DEDICATED sweep (this loop's goroutine
+// isn't started). It does NOT disable post-air healing entirely: the scheduled fetch
+// loop still re-lists recently-aired episodes and importEpisode's re-fetch is
+// state-driven, so an incomplete aired episode it re-lists is still healed/advanced.
+// "Off" means "no proactive sweep," not "playlist_state is frozen."
 const DefaultBackfillLookbackDays = 7
 
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget

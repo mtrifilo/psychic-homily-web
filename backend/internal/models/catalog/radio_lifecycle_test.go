@@ -61,11 +61,11 @@ func TestComputePlaylistState(t *testing.T) {
 	const cap = 3
 
 	cases := []struct {
-		name                            string
-		isAired, hasPlays, fetchFailed  bool
-		attempts                        int
-		wantState                       string
-		wantAttempts                    int
+		name                           string
+		isAired, hasPlays, fetchFailed bool
+		attempts                       int
+		wantState                      string
+		wantAttempts                   int
 	}{
 		// Success paths — plays returned, no failure.
 		{"aired + plays → complete", true, true, false, 0, RadioPlaylistStateComplete, 0},
@@ -110,12 +110,12 @@ func TestShouldBackfillPlaylist(t *testing.T) {
 	ptr := func(tm time.Time) *time.Time { return &tm }
 
 	cases := []struct {
-		name          string
-		starts, ends  *time.Time
-		state         string
-		attempts      int
-		now           time.Time
-		want          bool
+		name         string
+		starts, ends *time.Time
+		state        string
+		attempts     int
+		now          time.Time
+		want         bool
 	}{
 		{"aired + pending + attempts left → eligible", ptr(start), ptr(end), RadioPlaylistStatePending, 0, after, true},
 		{"aired + partial + attempts left → eligible", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, after, true},

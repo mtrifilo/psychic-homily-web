@@ -559,8 +559,8 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 	}
 	var rows []candidateRow
 	err := s.db.Model(&catalogm.RadioEpisode{}).
-		Select("radio_episodes.show_id, radio_shows.station_id, radio_episodes.air_date, " +
-			"radio_episodes.starts_at, radio_episodes.ends_at, radio_episodes.playlist_state, " +
+		Select("radio_episodes.show_id, radio_shows.station_id, radio_episodes.air_date, "+
+			"radio_episodes.starts_at, radio_episodes.ends_at, radio_episodes.playlist_state, "+
 			"radio_episodes.playlist_fetch_attempts").
 		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
 		Where("radio_episodes.playlist_state IN ?", []string{catalogm.RadioPlaylistStatePending, catalogm.RadioPlaylistStatePartial}).
@@ -850,10 +850,17 @@ func (s *RadioService) fetchImportAndRecordPlaylist(episode *catalogm.RadioEpiso
 // one playlist fetch attempt: it derives the new playlist_state + attempt count
 // (ComputePlaylistState), recomputes the episode status from the frozen window
 // (ComputeEpisodeStatus — so a now-complete playlist promotes the episode to
-// 'archived'), stamps playlist_fetched_at, and persists them in a single update. On a
-// successful fetch it also refreshes play_count from the fetched playlist size (the
-// re-fetch is dedup-safe, so this is the full playlist count, not a delta). The
+// 'archived'), stamps playlist_fetched_at, and persists them in a single update. The
 // in-memory episode is kept in sync for the caller.
+//
+// play_count is maintained MONOTONICALLY — max(current, fetched) — and only on a
+// fetch that returned plays. radio_plays is append-only (importPlays does ON CONFLICT
+// DO NOTHING, never deletes), so the row count never legitimately shrinks. A naive
+// `play_count = playsImported` would corrupt the denormalized count when a re-fetch of
+// an existing `partial` episode returns fewer plays than are already stored — e.g. a
+// live KEXP snapshot of 5 tracks followed by a transient empty/short post-air re-fetch
+// would zero/shrink play_count while the original rows persist, surfacing "0 plays" on
+// an episode that has tracks. max() + the empty-fetch skip make the count never decrease.
 func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, playsImported int, fetchFailed bool, now time.Time) error {
 	phase := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, catalogm.RadioPlaylistStatePending, now)
 	isAired := phase == catalogm.RadioEpisodeStatusAired
@@ -867,8 +874,12 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 		"playlist_fetch_attempts": newAttempts,
 		"status":                  newStatus,
 	}
-	if !fetchFailed {
-		updates["play_count"] = playsImported
+	// Only advance play_count on a fetch that actually returned plays, and never
+	// below the current value (a failed/empty/short re-fetch must not clobber it).
+	newPlayCount := episode.PlayCount
+	if !fetchFailed && playsImported > 0 {
+		newPlayCount = max(episode.PlayCount, playsImported)
+		updates["play_count"] = newPlayCount
 	}
 	if err := s.db.Model(episode).Updates(updates).Error; err != nil {
 		return fmt.Errorf("recording playlist outcome for episode %d: %w", episode.ID, err)
@@ -878,9 +889,7 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 	episode.PlaylistFetchAttempts = newAttempts
 	episode.Status = newStatus
 	episode.PlaylistFetchedAt = &now
-	if !fetchFailed {
-		episode.PlayCount = playsImported
-	}
+	episode.PlayCount = newPlayCount
 	return nil
 }
 

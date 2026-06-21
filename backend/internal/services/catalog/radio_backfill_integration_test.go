@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"log/slog"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -163,4 +164,96 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_FiltersAndGroups() {
 	s.Equal(st.ID, c.StationID)
 	s.Equal(twoDaysAgo, c.Since.Format("2006-01-02"), "window starts at the earliest incomplete episode")
 	s.Equal(today, c.Until.Format("2006-01-02"), "window ends at the latest incomplete episode")
+}
+
+// A successful but EMPTY post-air re-fetch of an episode that already has plays must
+// NOT zero its play_count (radio_plays is append-only; the rows still exist). It still
+// burns an attempt and stays eligible. Regression guard for the play_count clobber.
+func (s *RadioSyncSuite) TestRecordPlaylistOutcome_EmptyRefetch_PreservesPlayCount() {
+	now := time.Now()
+	start, end := now.Add(-3*time.Hour), now.Add(-1*time.Hour)
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Preserve Show", "preserve-show", "ext-preserve")
+	ep := s.seedEpisodeFor(show.ID, "ep-preserve", now.Format("2006-01-02"),
+		catalogm.RadioPlaylistStatePartial, 0, &start, &end, now)
+	// Simulate a prior live snapshot of 5 plays already on the row.
+	s.Require().NoError(s.db.Model(&ep).Update("play_count", 5).Error)
+	ep.PlayCount = 5
+
+	s.Require().NoError(s.svc.recordPlaylistOutcome(&ep, 0, false, now))
+
+	got := s.reloadEpisode(ep.ID)
+	s.Equal(5, got.PlayCount, "an empty re-fetch must not zero an episode that already has plays")
+	s.Equal(catalogm.RadioPlaylistStatePending, got.PlaylistState, "empty post-air fetch stays eligible")
+	s.Equal(1, got.PlaylistFetchAttempts, "empty post-air fetch burns one attempt")
+}
+
+// play_count is monotonic: a non-empty but SHORTER re-fetch (10 → 3) must not shrink it
+// below the rows already stored.
+func (s *RadioSyncSuite) TestRecordPlaylistOutcome_ShortRefetch_DoesNotShrinkPlayCount() {
+	now := time.Now()
+	start, end := now.Add(-3*time.Hour), now.Add(-1*time.Hour)
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Monotonic Show", "monotonic-show", "ext-monotonic")
+	ep := s.seedEpisodeFor(show.ID, "ep-monotonic", now.Format("2006-01-02"),
+		catalogm.RadioPlaylistStatePartial, 0, &start, &end, now)
+	s.Require().NoError(s.db.Model(&ep).Update("play_count", 10).Error)
+	ep.PlayCount = 10
+
+	s.Require().NoError(s.svc.recordPlaylistOutcome(&ep, 3, false, now))
+
+	got := s.reloadEpisode(ep.ID)
+	s.Equal(10, got.PlayCount, "play_count is monotonic; a shorter re-fetch must not shrink it")
+	s.Equal(catalogm.RadioPlaylistStateComplete, got.PlaylistState, "aired + plays → complete")
+}
+
+// End-to-end: the backfill sweep (runBackfillCycle) finds an aired-incomplete episode,
+// routes through RunStationSync(backfill) → importEpisode's existing-row re-fetch, and
+// heals it to complete/archived. Asserts FetchPlaylist is ACTUALLY re-invoked — a guard
+// against an inverted eligibility check that the isolated unit tests wouldn't catch.
+func (s *RadioSyncSuite) TestBackfillCycle_HealsAiredIncompleteEpisode() {
+	now := time.Now()
+	start, end := now.Add(-3*time.Hour), now.Add(-1*time.Hour)
+	airDate := now.Format("2006-01-02")
+	showExt, epExt := "ext-heal", "ep-heal"
+
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Heal Show", "heal-show", showExt)
+	ep := s.seedEpisodeFor(show.ID, epExt, airDate, catalogm.RadioPlaylistStatePending, 0, &start, &end, now)
+
+	var fetchPlaylistCalls int
+	track := "Heal Track"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{
+					ExternalID:     epExt,
+					ShowExternalID: showExt,
+					AirDate:        airDate,
+					StartsAt:       &start,
+					EndsAt:         &end,
+				}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				fetchPlaylistCalls++
+				return []RadioPlayImport{{Position: 1, ArtistName: "Healer", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	fetchSvc := &RadioFetchService{
+		radioService:         s.svc,
+		stopCh:               make(chan struct{}),
+		logger:               slog.Default(),
+		backfillInterval:     time.Hour,
+		backfillLookbackDays: 7,
+	}
+	fetchSvc.RunBackfillCycleNow()
+
+	s.Positive(fetchPlaylistCalls, "the sweep must actually re-fetch the incomplete aired episode's playlist")
+	got := s.reloadEpisode(ep.ID)
+	s.Equal(catalogm.RadioPlaylistStateComplete, got.PlaylistState)
+	s.Equal(catalogm.RadioEpisodeStatusArchived, got.Status)
+	s.Positive(got.PlayCount)
 }

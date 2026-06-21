@@ -91,6 +91,14 @@ const (
 // counter. Modeled as a const (like radioCircuitBreakerThreshold), not env-tunable:
 // the value is a data-quality policy, not an operational cadence. The backfill
 // cadence (sweep interval, lookback window) IS env-tunable — see radio_fetch_service.go.
+//
+// Give-up budget: a windowless (WFMU) or start-only (NTS) episode is "aired" the
+// moment it has started (no live window guards it), so attempts begin accruing at the
+// first post-start fetch. The effective budget before 'unavailable' is therefore
+// ~ maxAttempts × sweep-interval (default 5 × 1h = ~5h), which comfortably covers the
+// usual minutes-to-hours playlist-publish delay; a provider that publishes a playlist
+// slower than that budget can strand an episode at 'unavailable' until the janitor
+// (PSY-1155) re-attempts it. Widen RADIO_BACKFILL_INTERVAL_HOURS for slow providers.
 const RadioBackfillMaxAttempts = 5
 
 // ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
@@ -657,9 +665,9 @@ type RadioEpisode struct {
 	// At RadioBackfillMaxAttempts the backfill loop gives up → playlist_state
 	// 'unavailable'. A fetch that returns plays settles to 'complete' and never
 	// increments this.
-	PlaylistFetchAttempts int `gorm:"column:playlist_fetch_attempts;not null;default:0"`
-	CreatedAt         time.Time  `gorm:"not null"`
-	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	PlaylistFetchAttempts int       `gorm:"column:playlist_fetch_attempts;not null;default:0"`
+	CreatedAt             time.Time `gorm:"not null"`
+	UpdatedAt             time.Time `gorm:"column:updated_at;not null"`
 
 	// Relationships
 	Show  RadioShow   `gorm:"foreignKey:ShowID"`
