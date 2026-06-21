@@ -128,8 +128,8 @@ export function HeroLab() {
         </p>
         <p className="mt-3 max-w-3xl font-mono text-xs text-muted-foreground">
           → Stage-smoke / god-ray atmosphere exploration:{' '}
-          <a href="/admin/hero-lab/smoke" className="text-primary underline-offset-4 hover:underline">
-            /admin/hero-lab/smoke
+          <a href="/hero-lab/smoke" className="text-primary underline-offset-4 hover:underline">
+            /hero-lab/smoke
           </a>
         </p>
       </header>

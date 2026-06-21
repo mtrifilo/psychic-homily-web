@@ -179,7 +179,7 @@ export default function HeroLabPage() {
     <main className="mx-auto max-w-[1200px] px-6 py-10">
       <header className="mb-8">
         <a
-          href="/admin/hero-lab"
+          href="/hero-lab"
           className="font-mono text-xs text-primary underline-offset-4 hover:underline"
         >
           ← Hero Lab (A–E gallery)
