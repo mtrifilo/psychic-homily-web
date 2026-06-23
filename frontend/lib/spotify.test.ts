@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   parseSpotifyArtistId,
+  parseSpotifyEmbed,
   isValidSpotifyArtistUrl,
   resolveSpotifyArtist,
 } from './spotify'
@@ -42,12 +43,74 @@ describe('parseSpotifyArtistId', () => {
     ).toBeNull()
   })
   it('rejects a non-artist path, the wrong host, and garbage', () => {
+    // The save/validation flow must still reject album/track URLs even though
+    // parseSpotifyEmbed (PSY-1195) now accepts them for embedding.
     expect(parseSpotifyArtistId(`https://open.spotify.com/track/${ID}`)).toBeNull()
+    expect(parseSpotifyArtistId(`https://open.spotify.com/album/${ID}`)).toBeNull()
     expect(parseSpotifyArtistId(`https://evil.test/artist/${ID}`)).toBeNull()
     expect(
       parseSpotifyArtistId(`https://open.spotify.com.evil.test/artist/${ID}`)
     ).toBeNull()
     expect(parseSpotifyArtistId('not a url')).toBeNull()
+  })
+})
+
+describe('parseSpotifyEmbed', () => {
+  it('parses an artist URL (the artist-page path, unchanged)', () => {
+    expect(parseSpotifyEmbed(`https://open.spotify.com/artist/${ID}`)).toEqual({
+      kind: 'artist',
+      id: ID,
+    })
+  })
+  it('parses an album URL (the release-page path, PSY-1195)', () => {
+    expect(parseSpotifyEmbed(`https://open.spotify.com/album/${ID}`)).toEqual({
+      kind: 'album',
+      id: ID,
+    })
+  })
+  it('parses a track URL', () => {
+    expect(parseSpotifyEmbed(`https://open.spotify.com/track/${ID}`)).toEqual({
+      kind: 'track',
+      id: ID,
+    })
+  })
+  it('parses spotify: URIs for all three kinds', () => {
+    expect(parseSpotifyEmbed(`spotify:artist:${ID}`)).toEqual({ kind: 'artist', id: ID })
+    expect(parseSpotifyEmbed(`spotify:album:${ID}`)).toEqual({ kind: 'album', id: ID })
+    expect(parseSpotifyEmbed(`spotify:track:${ID}`)).toEqual({ kind: 'track', id: ID })
+  })
+  it('tolerates `?si=` share suffix, trailing slash, locale prefix, trailing segment', () => {
+    expect(parseSpotifyEmbed(`https://open.spotify.com/album/${ID}?si=abc123XYZ`)).toEqual({
+      kind: 'album',
+      id: ID,
+    })
+    expect(parseSpotifyEmbed(`https://open.spotify.com/album/${ID}/`)).toEqual({
+      kind: 'album',
+      id: ID,
+    })
+    expect(parseSpotifyEmbed(`https://open.spotify.com/intl-de/album/${ID}`)).toEqual({
+      kind: 'album',
+      id: ID,
+    })
+  })
+  it('tolerates a scheme-less stored URL but still checks the host', () => {
+    expect(parseSpotifyEmbed(`open.spotify.com/album/${ID}`)).toEqual({
+      kind: 'album',
+      id: ID,
+    })
+    // scheme-less must NOT bypass the host allowlist
+    expect(parseSpotifyEmbed(`evil.test/album/${ID}`)).toBeNull()
+  })
+  it('rejects a look-alike host, a non-22-char id, and garbage', () => {
+    expect(parseSpotifyEmbed(`https://open.spotify.com.evil.test/album/${ID}`)).toBeNull()
+    expect(parseSpotifyEmbed('https://open.spotify.com/album/abc123')).toBeNull()
+    expect(parseSpotifyEmbed(`https://open.spotify.com/album/${ID}EXTRA`)).toBeNull()
+    expect(parseSpotifyEmbed('not a url')).toBeNull()
+  })
+  it('rejects non-embeddable Spotify entity types (playlist, show, episode)', () => {
+    expect(parseSpotifyEmbed(`https://open.spotify.com/playlist/${ID}`)).toBeNull()
+    expect(parseSpotifyEmbed(`https://open.spotify.com/show/${ID}`)).toBeNull()
+    expect(parseSpotifyEmbed(`https://open.spotify.com/episode/${ID}`)).toBeNull()
   })
 })
 

@@ -7,11 +7,12 @@
 // module is the single source of truth: parse the URL, require the canonical
 // host, and enforce the 22-char base62 artist id.
 
-// Spotify artist IDs are base62, exactly 22 characters. Keep the id pattern in
-// one place so the URI and path matchers stay in agreement.
-const SPOTIFY_ARTIST_ID = '[A-Za-z0-9]{22}'
-const SPOTIFY_URI_RE = new RegExp(`^spotify:artist:(${SPOTIFY_ARTIST_ID})$`)
-const SPOTIFY_PATH_RE = new RegExp(`/artist/(${SPOTIFY_ARTIST_ID})(?:/|$)`)
+// Spotify entity IDs are base62, exactly 22 characters across all entity types
+// (artist, album, track). Keep the id pattern in one place so the URI and path
+// matchers stay in agreement.
+const SPOTIFY_ID = '[A-Za-z0-9]{22}'
+const SPOTIFY_URI_RE = new RegExp(`^spotify:artist:(${SPOTIFY_ID})$`)
+const SPOTIFY_PATH_RE = new RegExp(`/artist/(${SPOTIFY_ID})(?:/|$)`)
 const SPOTIFY_OEMBED_TIMEOUT_MS = 8000
 
 // Extract the artist id from a web URL or a `spotify:artist:<id>` URI. Tolerant
@@ -45,6 +46,52 @@ export function parseSpotifyArtistId(input: string): string | null {
 
 export function isValidSpotifyArtistUrl(input: string): boolean {
   return parseSpotifyArtistId(input) !== null
+}
+
+// The Spotify entity types MusicEmbed can render as a playable iframe. An
+// artist URL drives the artist-page embed; album/track URLs drive the
+// release-page embed (PSY-1195).
+export type SpotifyEmbedKind = 'artist' | 'album' | 'track'
+
+const SPOTIFY_EMBED_URI_RE = new RegExp(
+  `^spotify:(artist|album|track):(${SPOTIFY_ID})$`
+)
+const SPOTIFY_EMBED_PATH_RE = new RegExp(
+  `/(artist|album|track)/(${SPOTIFY_ID})(?:/|$)`
+)
+
+// Parse an artist, album, OR track Spotify URL/URI into its embed kind + id.
+//
+// This is the embed-rendering counterpart to parseSpotifyArtistId (which stays
+// artist-only for the save/validation flows that must reject non-artist URLs).
+// It applies the SAME host-anchoring and 22-char base62 id discipline so a
+// hallucinated id, a slug, or a look-alike host (`open.spotify.com.evil.test`)
+// returns null rather than resolving to a broken — or attacker-pointed — embed.
+// The id+kind it returns are the only values that reach the iframe src, so the
+// caller's raw input never flows into the embed URL untrusted.
+export function parseSpotifyEmbed(
+  input: string
+): { kind: SpotifyEmbedKind; id: string } | null {
+  const uri = input.match(SPOTIFY_EMBED_URI_RE)
+  if (uri) return { kind: uri[1] as SpotifyEmbedKind, id: uri[2] }
+
+  let parsed: URL
+  try {
+    parsed = new URL(input)
+  } catch {
+    // Retry as a scheme-less value (e.g. a stored "open.spotify.com/album/...").
+    try {
+      parsed = new URL(`https://${input}`)
+    } catch {
+      return null
+    }
+  }
+  if (parsed.hostname.toLowerCase() !== 'open.spotify.com') return null
+  // pathname excludes the query string, so `?si=...` is tolerated; matching the
+  // segment anywhere in the path tolerates locale prefixes (`/intl-de/album/…`)
+  // and trailing parts (`/album/<id>/...`).
+  const path = parsed.pathname.match(SPOTIFY_EMBED_PATH_RE)
+  return path ? { kind: path[1] as SpotifyEmbedKind, id: path[2] } : null
 }
 
 export type ResolveSpotifyResult =
