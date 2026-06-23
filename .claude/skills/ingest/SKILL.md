@@ -430,15 +430,15 @@ Capture **full on-platform URLs** (same host rules as Step 1 "Social links"; the
 
 Apply a link only when the **name matches AND a second signal corroborates**:
 - **artist:** genre / hometown / a release or label that fits what we already know — the roster's label is a strong prior (a band on Sacred Bones' Bandcamp belongs to that scene). Same-name collisions are rife — the dedup section's "Fan Club → Yot Club" lesson applies to web search too.
-- **venue:** city / street address matches.
+- **venue:** city **plus** a second independent signal — the venue's own site stating city+state, capacity/booking details, or a cross-link from the calendar source. Note `address`/`zipcode` are redacted for **unverified** venues (see the PSY-1179 note above), so they're usually unavailable here — **city alone does NOT clear the bar** for a common/ambiguous name ("The Echo", "Lincoln Hall", "The Independent"); SKIP it.
 
-Can't corroborate → **SKIP**, leave it for manual review. When the source is the streaming worklist, record the outcome either way: `POST /admin/artists/{id}/streaming-discovery-status` → `linked` or `no_links_found`.
+**Open the candidate page and confirm the corroborating signal *on that page* before applying — a search-result snippet is not corroboration** (snippets are exactly where same-name acts/venues look identical). Can't corroborate → **SKIP**, leave it for manual review. When the entity came from the streaming worklist (worklist-sourced artists **only** — roster/venue-sourced entities have no worklist row, so don't POST a status for them), record the outcome either way: `POST /admin/artists/{id}/streaming-discovery-status` → `linked` or `no_links_found`.
 
 ### Dry-run → confirm → PATCH
 
 1. **Preview** per entity: the links found + the corroborating evidence, marking new vs already-set. Pause for the user's OK (exactly like a batch dry-run).
 2. **On confirm**, PATCH only the confirmed links:
-   - **artist:** `PATCH /admin/artists/{id}` (all 8 socials in one body) — or the dedicated `/admin/artists/{id}/bandcamp` + `/spotify` endpoints (which also accept `X-Internal-Secret`).
+   - **artist:** `PATCH /admin/artists/{id}` (admin; all 8 social fields in one body, as profile URLs — same as the roster batch, which is what makes the Bandcamp section render).
    - **venue:** `PUT /venues/{id}` (admin-gated; partial body of `website`/`instagram`/… — same endpoint the batch uses).
 3. **Verify** via `GET /artists/{id}` / `GET /venues/{id}` **detail** (the list/roster projections omit `social`).
 
