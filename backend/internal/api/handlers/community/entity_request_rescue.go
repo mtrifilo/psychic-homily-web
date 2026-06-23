@@ -240,8 +240,15 @@ func (h *EntityRequestHandler) voidApproved(ctx context.Context, requestID, admi
 	resp.Body.Request = fresh
 
 	if h.auditLogService != nil {
+		// Log the row's real entity type (artist/venue/...), matching the
+		// fulfill + decide audit rows so a by-entity-type audit query sees the
+		// void. Fall back to "entity_request" only if the re-read above failed.
+		entityType := "entity_request"
+		if fresh != nil {
+			entityType = fresh.EntityType
+		}
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(adminID, "void_entity_request", "entity_request", requestID,
+			h.auditLogService.LogAction(adminID, "void_entity_request", entityType, requestID,
 				map[string]interface{}{"request_id": requestID})
 		})
 	}
