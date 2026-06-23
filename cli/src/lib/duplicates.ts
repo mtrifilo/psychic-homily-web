@@ -278,16 +278,26 @@ export function classifyMatch(confidence: number): MatchResult {
 
 // -- Entity-specific field lists for comparison --
 
+// Canonical field names matching the create/update path (submit-artist.ts
+// artistApiFields) — these names double as PATCH body keys via buildUpdateBody,
+// so they MUST be the flat API names (bandcamp, not bandcamp_url). PSY-1171.
 const ARTIST_FIELDS = [
-  "name", "city", "state", "country", "website", "bandcamp_url",
-  "spotify_url", "instagram_url", "description",
+  "name", "city", "state", "country", "description",
+  "website", "bandcamp", "spotify", "instagram",
+  "facebook", "twitter", "youtube", "soundcloud",
 ];
 
+// Mirrors ARTIST_FIELDS: only fields searchVenues can populate from the
+// /venues/search response are compared. address/zipcode/capacity are
+// deliberately excluded — capacity has no backend column at all, the response
+// key is `zipcode` (never `zip_code`), and address/zipcode are hidden for
+// unverified venues — so comparing any of them reads empty and forces a
+// spurious UPDATE on every re-ingest. Restoring them correctly (verified-gated,
+// plus a capacity column) is tracked in PSY-1179. PSY-1171.
 const VENUE_FIELDS = [
-  "name", "city", "state", "country", "address", "zip_code",
-  "zipcode", "website", "capacity", "description",
-  "instagram", "facebook", "twitter", "youtube",
-  "spotify", "soundcloud", "bandcamp",
+  "name", "city", "state", "country", "description",
+  "website", "bandcamp", "spotify", "instagram",
+  "facebook", "twitter", "youtube", "soundcloud",
 ];
 
 const RELEASE_FIELDS = [
@@ -295,11 +305,14 @@ const RELEASE_FIELDS = [
   "bandcamp_url", "spotify_url", "description",
 ];
 
+// Only fields searchLabels maps from the /labels list response are compared.
+// founded_year/status and the non-website/bandcamp socials are excluded: the
+// LabelListResponse (PSY-1157) carries only website + bandcamp, so comparing the
+// others reads empty and forces a spurious UPDATE every re-ingest. Enriching
+// label socials needs the list response widened first — tracked in PSY-1179,
+// matching the venue treatment above. PSY-1171.
 const LABEL_FIELDS = [
-  "name", "city", "state", "country", "website", "description",
-  "bandcamp", "founded_year", "status",
-  "instagram", "facebook", "twitter", "youtube",
-  "spotify", "soundcloud",
+  "name", "city", "state", "country", "website", "bandcamp", "description",
 ];
 
 const FESTIVAL_FIELDS = [
@@ -307,8 +320,9 @@ const FESTIVAL_FIELDS = [
   "city", "state", "country", "website", "description",
 ];
 
-/** Get the comparable fields for a given entity type. */
-function getFieldsForType(entityType: EntityType): string[] {
+/** Get the comparable fields for a given entity type. Exported so tests can
+ * assert the field-list ⊆ search-mapper invariant without hardcoding the set. */
+export function getFieldsForType(entityType: EntityType): string[] {
   switch (entityType) {
     case "artist": return ARTIST_FIELDS;
     case "venue": return VENUE_FIELDS;
@@ -333,6 +347,12 @@ async function searchArtists(
   client: APIClient,
   name: string,
 ): Promise<EntitySearchResult[]> {
+  // /artists/search returns the full ArtistDetailResponse, which nests the link
+  // fields (website + socials) under `social`. Flatten them to the canonical
+  // top-level names the create/update path uses so dedup compares real existing
+  // values instead of always reading empty — which previously suppressed link
+  // enrichment on re-ingest (the field names also never matched: ARTIST_FIELDS
+  // asked for bandcamp_url while the proposed entity carries bandcamp). PSY-1171.
   const result = await client.get<{
     artists: Array<{
       id: number;
@@ -341,11 +361,17 @@ async function searchArtists(
       city?: string;
       state?: string;
       country?: string;
-      website?: string;
-      bandcamp_url?: string;
-      spotify_url?: string;
-      instagram_url?: string;
       description?: string;
+      social?: {
+        website?: string;
+        bandcamp?: string;
+        spotify?: string;
+        instagram?: string;
+        facebook?: string;
+        twitter?: string;
+        youtube?: string;
+        soundcloud?: string;
+      };
     }>;
   }>("/artists/search", { q: name });
 
@@ -356,11 +382,15 @@ async function searchArtists(
     city: a.city || "",
     state: a.state || "",
     country: a.country || "",
-    website: a.website || "",
-    bandcamp_url: a.bandcamp_url || "",
-    spotify_url: a.spotify_url || "",
-    instagram_url: a.instagram_url || "",
     description: a.description || "",
+    website: a.social?.website || "",
+    bandcamp: a.social?.bandcamp || "",
+    spotify: a.social?.spotify || "",
+    instagram: a.social?.instagram || "",
+    facebook: a.social?.facebook || "",
+    twitter: a.social?.twitter || "",
+    youtube: a.social?.youtube || "",
+    soundcloud: a.social?.soundcloud || "",
   }));
 }
 
@@ -368,6 +398,13 @@ async function searchVenues(
   client: APIClient,
   name: string,
 ): Promise<EntitySearchResult[]> {
+  // /venues/search returns the full VenueDetailResponse, which nests the link
+  // fields (website + socials) under `social`. Flatten them to the canonical
+  // top-level names the create/update path uses so dedup compares real existing
+  // values instead of always reading empty (which suppressed link enrichment on
+  // re-ingest). Mirrors the artist fix above. PSY-1171.
+  // Only the fields in VENUE_FIELDS are mapped; address/zipcode/capacity are
+  // deliberately omitted (see VENUE_FIELDS for why).
   const result = await client.get<{
     venues: Array<{
       id: number;
@@ -376,11 +413,17 @@ async function searchVenues(
       city: string;
       state: string;
       country?: string;
-      address?: string;
-      zip_code?: string;
-      website?: string;
-      capacity?: number;
       description?: string;
+      social?: {
+        website?: string;
+        bandcamp?: string;
+        spotify?: string;
+        instagram?: string;
+        facebook?: string;
+        twitter?: string;
+        youtube?: string;
+        soundcloud?: string;
+      };
     }>;
   }>("/venues/search", { q: name });
 
@@ -391,11 +434,15 @@ async function searchVenues(
     city: v.city,
     state: v.state,
     country: v.country || "",
-    address: v.address || "",
-    zip_code: v.zip_code || "",
-    website: v.website || "",
-    capacity: v.capacity ? String(v.capacity) : "",
     description: v.description || "",
+    website: v.social?.website || "",
+    bandcamp: v.social?.bandcamp || "",
+    spotify: v.social?.spotify || "",
+    instagram: v.social?.instagram || "",
+    facebook: v.social?.facebook || "",
+    twitter: v.social?.twitter || "",
+    youtube: v.social?.youtube || "",
+    soundcloud: v.social?.soundcloud || "",
   }));
 }
 
