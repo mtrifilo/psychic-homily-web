@@ -94,6 +94,14 @@ func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*co
 			}
 		}
 
+		// PSY-1189: keep the artist Bandcamp embed fresh — if this release carries
+		// an embeddable /album|/track Bandcamp link and a credited artist's embed
+		// is still NULL, fill it (release_derived). Same tx, so a failure rolls the
+		// whole create back. No-op when there's no Bandcamp link or no empty artist.
+		if err := fillReleaseDerivedEmbedsForRelease(tx, release.ID); err != nil {
+			return err
+		}
+
 		return nil
 	})
 
@@ -339,13 +347,24 @@ func (s *ReleaseService) DeleteRelease(releaseID uint) error {
 		return fmt.Errorf("failed to get release: %w", err)
 	}
 
-	// Delete the release (cascades handle junction cleanup via FK)
-	err = s.db.Delete(&release).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete release: %w", err)
-	}
+	// PSY-1189: deleting a release can strand a release_derived embed that pointed
+	// at it. Capture the credited artists with such an embed BEFORE the delete
+	// (the cascade removes the artist_releases rows, so they'd be unfindable
+	// after), then re-derive from each artist's REMAINING releases — all in one
+	// transaction so a recompute failure rolls the delete back.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		artistIDs, err := releaseDerivedArtistIDsForRelease(tx, releaseID)
+		if err != nil {
+			return err
+		}
 
-	return nil
+		// Delete the release (cascades handle junction cleanup via FK)
+		if err := tx.Delete(&release).Error; err != nil {
+			return fmt.Errorf("failed to delete release: %w", err)
+		}
+
+		return recomputeReleaseDerivedEmbeds(tx, artistIDs)
+	})
 }
 
 // GetReleasesForArtist retrieves all releases for a given artist
@@ -448,8 +467,16 @@ func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (
 		URL:       url,
 	}
 
-	if err := s.db.Create(link).Error; err != nil {
-		return nil, fmt.Errorf("failed to create external link: %w", err)
+	// Create the link AND keep the artist Bandcamp embed fresh in one transaction
+	// (PSY-1189): a newly-added embeddable Bandcamp link should populate a credited
+	// artist's NULL embed, and the two writes must roll back together on failure.
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(link).Error; err != nil {
+			return fmt.Errorf("failed to create external link: %w", err)
+		}
+		return fillReleaseDerivedEmbedsForRelease(tx, releaseID)
+	}); err != nil {
+		return nil, err
 	}
 
 	return &contracts.ReleaseExternalLinkResponse{
@@ -465,15 +492,36 @@ func (s *ReleaseService) RemoveExternalLink(linkID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&catalogm.ReleaseExternalLink{}, linkID)
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete external link: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("external link not found")
-	}
+	// Capture which release the link belongs to BEFORE deleting it, so the
+	// PSY-1189 recompute below can re-derive the credited artists' embeds from
+	// their REMAINING links. Done inside the same transaction as the delete so a
+	// recompute failure rolls the delete back.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var link catalogm.ReleaseExternalLink
+		if err := tx.First(&link, linkID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("external link not found")
+			}
+			return fmt.Errorf("failed to load external link: %w", err)
+		}
 
-	return nil
+		// Artists credited on the release whose embed came from a release link
+		// (release_derived) — the only ones a removal can affect.
+		artistIDs, err := releaseDerivedArtistIDsForRelease(tx, link.ReleaseID)
+		if err != nil {
+			return err
+		}
+
+		result := tx.Delete(&catalogm.ReleaseExternalLink{}, linkID)
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete external link: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("external link not found")
+		}
+
+		return recomputeReleaseDerivedEmbeds(tx, artistIDs)
+	})
 }
 
 // buildListResponses converts a slice of Release models to ReleaseListResponse, batch-loading
