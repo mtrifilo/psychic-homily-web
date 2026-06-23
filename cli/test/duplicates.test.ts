@@ -568,7 +568,7 @@ const ENTITY_SEARCH: Record<
   artist: { path: "/artists/search", key: "artists" },
   venue: { path: "/venues/search", key: "venues" },
   label: { path: "/labels", key: "labels" },
-  release: { path: "/releases", key: "releases" },
+  release: { path: "/releases/search", key: "releases" },
   festival: { path: "/festivals", key: "festivals" },
 };
 

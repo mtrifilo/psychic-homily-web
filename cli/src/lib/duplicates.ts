@@ -450,7 +450,12 @@ async function searchReleases(
   client: APIClient,
   title: string,
 ): Promise<EntitySearchResult[]> {
-  // Client-side filter until backend search endpoint exists
+  // PSY-1184: hit the dedicated /releases/search endpoint (searches the whole
+  // dataset) instead of GET /releases (first page only) + a client-side filter.
+  // The old approach silently missed any release past page 1, so re-running a
+  // release batch at scale re-created existing releases as duplicates. Mirrors
+  // searchArtists/searchVenues. findBestMatch applies the fuzzy score, so no
+  // client-side pre-filter is needed.
   const result = await client.get<{
     releases: Array<{
       id: number;
@@ -463,24 +468,20 @@ async function searchReleases(
       spotify_url?: string;
       description?: string;
     }>;
-  }>("/releases", {});
+  }>("/releases/search", { q: title });
 
-  const normalizedTitle = normalizeForComparison(title);
-  return (result.releases || [])
-    .filter((r) => normalizeForComparison(r.title).includes(normalizedTitle) ||
-      normalizedTitle.includes(normalizeForComparison(r.title)))
-    .map((r) => ({
-      id: r.id,
-      name: r.title,
-      slug: r.slug,
-      title: r.title,
-      release_type: r.release_type || "",
-      release_year: r.release_year ? String(r.release_year) : "",
-      release_date: r.release_date || "",
-      bandcamp_url: r.bandcamp_url || "",
-      spotify_url: r.spotify_url || "",
-      description: r.description || "",
-    }));
+  return (result.releases || []).map((r) => ({
+    id: r.id,
+    name: r.title,
+    slug: r.slug,
+    title: r.title,
+    release_type: r.release_type || "",
+    release_year: r.release_year ? String(r.release_year) : "",
+    release_date: r.release_date || "",
+    bandcamp_url: r.bandcamp_url || "",
+    spotify_url: r.spotify_url || "",
+    description: r.description || "",
+  }));
 }
 
 async function searchLabels(
