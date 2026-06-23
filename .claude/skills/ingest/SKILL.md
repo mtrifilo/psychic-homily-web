@@ -444,6 +444,38 @@ Apply a link only when the **name matches AND a second signal corroborates**:
 
 > **Why a targeted PATCH, not a re-ingest batch?** The batch enriches links on re-ingest now (PSY-1171), but only for fields the *source page* supplied. This follow exists for names-only sources — the links come from web research, so a per-confirmed-entity PATCH is cleaner than hand-populating a batch.
 
+## Label discography-page ingest (catalog list → label + artists + releases)
+
+Some labels — especially **defunct** ones — publish a flat **discography page** (a catalogue list) rather than a Bandcamp roster. Parse it into a label + its artists + its releases directly (no Bandcamp). Proven on **Creation Records** (`creation-records.com/discography/`, 104 artists + 325 single releases, 2026-06-22).
+
+### Parser
+
+- **Format is usually `CAT – Artist – Title`**, one per line, `<br>`-separated inside a `<p>` (Creation: `CRE001 – The Legend! – '73 in '83`). Split on `<br>`, then on ` – ` (en-dash `&#8211;`) → `cat / artist / title` (rejoin parts[2:] so titles keep their own dashes).
+- **Parse the BODY copy, NOT the `<head>` JSON-LD/meta copy.** WordPress/SEO plugins embed a *truncated, run-together* (no `<br>`) copy of the list in a `<head>` `og:description`/schema block — matching that first gives you 1 giant "release." Anchor on the body (`h[h.rfind('</head>'):]`).
+- **Exclude placeholder catalogue numbers** — Creation had 8 `CRE### – Not used` rows (allocated-but-unused). Drop any artist/title == "Not used" (and a trailing "THE END" terminator).
+
+### Fields + decisions
+
+- **`release_type`**: infer from the page's framing. Creation's `CRE` page is its **singles** catalogue (albums use `CRELP`, a different page) → default `single`. Then **re-type EP-titled releases** (`\bEP\b` in the title → `ep`; caught 18: Glider EP, Ride EP, Tremolo (EP)…) via `PUT /releases/{id} {"release_type":"ep"}` (partial update — pointer fields, not PATCH).
+- **No year, no catalogue number stored** — the page rarely lists years, and the release schema has no `catalog_number` field (tracked: **PSY-1183**). The `CAT` is dedup/order-only.
+- **Label metadata** from known history, flagged as such (Creation = London, UK — owner/era well-documented, not on the page). **Don't set `website` to a fan-archive URL** (creation-records.com is a fan site, not the defunct label's official site).
+- **Collaborations kept whole** (`Nikki Sudden and Rowland Howard`, `Primal Scream, Irvine Welsh & On-U-Sound System`). **Same person, different credit** (Creation's `Ed Ball` / `Edward Ball`) kept as the page credits them — flag for a manual merge.
+
+### Workflow + gotchas
+
+1. Parse the body list → unique artists + releases; build a label item with the inline `artists` roster + one `release` item per row (`artists:[{name}]`, `release_type`).
+2. **Artist-skip QA scan is CRITICAL here** — a famous-label roster collides hard at the 0.6 fuzzy threshold. Creation hit **5 false matches** (BMX Bandits→"RX Bandits", Momus→"Momma", Phil Wilson→"Ric Wilson", Silverfish→"Silverada", William→"WILLIS"); pre-create each distinct act via `POST /admin/artists`. Exact-name matches to bare existing stubs (Sugar, Swervedriver, 18 Wheeler) are kept + linked — flag generic ones.
+3. Dry-run: the **"N unresolved releases" is the usual artifact** (new artists aren't created until `--confirm`); on confirm they resolve. Confirm → verify roster `count` + a few `GET /artists/{id}/releases`.
+4. **Don't register a defunct label as a refresh source** — its discography is frozen; nothing to re-scrape.
+
+> **⚠️ Release re-runs are NOT idempotent until PSY-1184.** The CLI's release dedup (`searchReleases`) is **first-page-only** — re-running any release batch against a large dataset (Creation/Feel It/12XU) classifies existing releases as CREATE and **duplicates** them. Until PSY-1184 lands, never re-run a release batch to "enrich"; apply tags directly to existing release ids (`POST /entities/release/{id}/tags`), matching by artist + normalized title.
+
+### Label registry (discography pages)
+
+| Label | Discography URL | Render | Notes |
+| --- | --- | --- | --- |
+| **Creation Records** | `https://creation-records.com/discography/` (fan archive) | Server-rendered (WordPress) — plain `curl`; the list is a `<br>`-separated `<p>` (parse the BODY, not the truncated `<head>` meta copy) | First run 2026-06-22 → **stage**: label id 4 (London, UK — from known history) + **104 artists + 325 singles**. The `CRE` catalogue = singles (albums are `CRELP`, not on this page). 8 "Not used" placeholders excluded; 18 EP-titled re-typed `single`→`ep`. Pre-created BMX Bandits / Momus / Phil Wilson / Silverfish / William to beat 0.6 fuzzy false-matches. Ed Ball/Edward Ball kept as 2 (same person, source credits both). No year / no catalogue number (PSY-1183). Not registered for refresh (defunct = frozen). |
+
 ## Stale-first global refresh (Catalog Refresh)
 
 Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the operator/agent workflow that ties the per-source ingest workflows together.
