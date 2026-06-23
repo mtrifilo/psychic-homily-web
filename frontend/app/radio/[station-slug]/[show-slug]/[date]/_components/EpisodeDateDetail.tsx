@@ -71,7 +71,9 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
   const matchStats = computeArtistMatchStats(plays)
   const duration = formatDurationMinutes(episode.duration_minutes)
   const airTime = formatTimeOfDay(episode.air_time)
-  const airedLine = `aired ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
+  // A not-yet-aired episode reads "airs {day}", never "aired {day}" (PSY-1205) —
+  // its empty playlist is expected, not missing data.
+  const airedLine = `${episode.is_upcoming ? 'airs' : 'aired'} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
 
   const metaParts = [
     `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}`,

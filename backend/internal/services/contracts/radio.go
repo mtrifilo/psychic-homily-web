@@ -256,11 +256,17 @@ type RadioEpisodeResponse struct {
 	// lifecycle state (scheduled/live/aired/archived) computed on read from that
 	// window — "live" only inside it. A null window is never "live" (e.g. WFMU
 	// until PSY-1159 lands the schedule).
-	StartsAt  *time.Time `json:"starts_at"`
-	EndsAt    *time.Time `json:"ends_at"`
-	Status    string     `json:"status"`
-	PlayCount int        `json:"play_count"`
-	CreatedAt time.Time  `json:"created_at"`
+	StartsAt *time.Time `json:"starts_at"`
+	EndsAt   *time.Time `json:"ends_at"`
+	Status   string     `json:"status"`
+	// IsUpcoming marks an episode whose air_date is still in the future in the
+	// station's local timezone — a not-yet-aired broadcast (PSY-1205). Windowless
+	// providers (WFMU) can't express this through Status (a null air window
+	// settles to "aired"), so the per-show archive uses this flag to label
+	// upcoming rows instead of rendering them as empty, aired-looking playlists.
+	IsUpcoming bool      `json:"is_upcoming"`
+	PlayCount  int       `json:"play_count"`
+	CreatedAt  time.Time `json:"created_at"`
 	// ArtistPreview holds the first few distinct artists from the episode's
 	// playlist, in play order (PSY-1048).
 	ArtistPreview []RadioEpisodePreviewArtist `json:"artist_preview"`
@@ -296,6 +302,9 @@ type RadioEpisodeDetailResponse struct {
 	Title           *string             `json:"title"`
 	AirDate         string              `json:"air_date"`
 	AirTime         *string             `json:"air_time"`
+	// IsUpcoming marks a not-yet-aired episode (air_date > station-local today),
+	// PSY-1205 — the detail page labels it "upcoming" instead of "aired {date}".
+	IsUpcoming      bool                `json:"is_upcoming"`
 	DurationMinutes *int                `json:"duration_minutes"`
 	Description     *string             `json:"description"`
 	ArchiveURL      *string             `json:"archive_url"`

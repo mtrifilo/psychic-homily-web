@@ -185,6 +185,13 @@ export interface RadioEpisodeListItem {
    * clock — a shipped status='live' is a server-time snapshot that goes stale.
    */
   status: 'scheduled' | 'live' | 'aired' | 'archived'
+  /**
+   * True when air_date is still in the future in the station's local timezone — a
+   * not-yet-aired broadcast (PSY-1205). Windowless providers (WFMU) can't express
+   * this via `status` (a null window settles to "aired"), so the archive uses this
+   * to label upcoming rows instead of showing an empty, aired-looking playlist.
+   */
+  is_upcoming: boolean
   play_count: number
   created_at: string
 }
@@ -199,6 +206,9 @@ export interface RadioEpisodeDetail {
   title: string | null
   air_date: string
   air_time: string | null
+  /** Not-yet-aired (air_date > station-local today), PSY-1205 — the detail page
+   *  labels it "upcoming" instead of "aired {date}". */
+  is_upcoming: boolean
   duration_minutes: number | null
   description: string | null
   archive_url: string | null

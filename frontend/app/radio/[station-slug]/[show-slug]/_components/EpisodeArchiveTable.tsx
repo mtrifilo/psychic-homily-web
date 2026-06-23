@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { DenseTable } from '@/components/shared/DenseTable'
 import {
@@ -43,28 +44,34 @@ export function EpisodeArchiveTable({
       </thead>
       <tbody>
         {episodes.map(episode => {
-          const episodeUrl = `/radio/${stationSlug}/${showSlug}/${episode.air_date}`
+          // Upcoming rows aren't linkable — there's no playlist yet, so a link
+          // would lead to an empty, not-yet-aired page (PSY-1205).
+          const episodeUrl = episode.is_upcoming
+            ? undefined
+            : `/radio/${stationSlug}/${showSlug}/${episode.air_date}`
           const isLive = isLiveNow(episode.starts_at, episode.ends_at)
           const hops = previewToHops(episode.artist_preview)
 
           return (
             <tr key={episode.id} className="group">
               <td className="whitespace-nowrap">
-                <Link
+                <MaybeLink
                   href={episodeUrl}
-                  className="font-mono text-xs uppercase text-primary hover:text-primary/80 transition-colors"
+                  linkedClassName="font-mono text-xs uppercase text-primary hover:text-primary/80 transition-colors"
+                  plainClassName="font-mono text-xs uppercase text-muted-foreground"
                 >
                   {formatArchiveDate(episode.air_date)}
-                </Link>
+                </MaybeLink>
               </td>
               <td>
                 {episode.title ? (
-                  <Link
+                  <MaybeLink
                     href={episodeUrl}
-                    className="text-primary hover:text-primary/80 transition-colors"
+                    linkedClassName="text-primary hover:text-primary/80 transition-colors"
+                    plainClassName="text-muted-foreground"
                   >
                     {episode.title}
-                  </Link>
+                  </MaybeLink>
                 ) : (
                   <span className="text-muted-foreground/50" aria-hidden="true">
                     —
@@ -87,7 +94,11 @@ export function EpisodeArchiveTable({
                 {episode.play_count}
               </td>
               <td className="text-right whitespace-nowrap font-mono text-xs">
-                {isLive ? (
+                {episode.is_upcoming ? (
+                  // Not yet aired (PSY-1205): label it rather than linking to an
+                  // empty, aired-looking [mp3] archive page.
+                  <span className="text-muted-foreground">upcoming</span>
+                ) : isLive ? (
                   <span className="text-primary">
                     <span aria-hidden="true">●</span> live
                   </span>
@@ -108,5 +119,30 @@ export function EpisodeArchiveTable({
         })}
       </tbody>
     </DenseTable>
+  )
+}
+
+/**
+ * Renders children inside a Link when `href` is set, else as a plain span. Lets
+ * the archive show an upcoming (non-linkable) row's date/title as text — one
+ * boolean (`linkable`) instead of a duplicated link-vs-text branch per cell.
+ */
+function MaybeLink({
+  href,
+  linkedClassName,
+  plainClassName,
+  children,
+}: {
+  href: string | undefined
+  linkedClassName: string
+  plainClassName: string
+  children: ReactNode
+}) {
+  return href ? (
+    <Link href={href} className={linkedClassName}>
+      {children}
+    </Link>
+  ) : (
+    <span className={plainClassName}>{children}</span>
   )
 }

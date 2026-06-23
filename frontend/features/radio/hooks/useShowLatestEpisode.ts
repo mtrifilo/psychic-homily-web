@@ -17,9 +17,14 @@ import type { RadioEpisodeDetail } from '../types'
 export function useShowLatestEpisode(showSlug: string | undefined) {
   const slug = showSlug ?? ''
 
+  // Fetch a few rows, not just the newest: the list is air_date DESC and may be
+  // led by upcoming (not-yet-aired) placeholders (PSY-1205). We want the latest
+  // AIRED episode for the deep-link, so we skip leading is_upcoming rows. A
+  // single show has at most a handful of upcoming pages; 8 sits comfortably
+  // above that (if all 8 are upcoming there's no aired playlist to link to yet).
   const episodesQuery = useRadioEpisodes({
     showSlug: slug,
-    limit: 1,
+    limit: 8,
     enabled: slug.length > 0,
   })
 
@@ -29,7 +34,12 @@ export function useShowLatestEpisode(showSlug: string | undefined) {
   // by-date query and fire a wasted (usually 404) request for the wrong show.
   const episodesData = episodesQuery.isPlaceholderData ? undefined : episodesQuery.data
 
-  const latestDate = episodesData?.episodes[0]?.air_date ?? ''
+  // The latest AIRED episode (first KNOWN-aired in air_date-DESC order) — never a
+  // future placeholder, which would deep-link to an empty, not-yet-aired page.
+  // `=== false` (not `!is_upcoming`) so a stale pre-deploy cache row missing the
+  // flag is skipped rather than mistaken for aired; a fresh fetch self-heals.
+  const latestDate =
+    episodesData?.episodes.find(ep => ep.is_upcoming === false)?.air_date ?? ''
 
   const episodeQuery = useRadioEpisode(slug, latestDate)
 

@@ -28,6 +28,7 @@ function makeEpisode(
     starts_at: null,
     ends_at: null,
     status: 'aired',
+    is_upcoming: false,
     play_count: 10,
     created_at: '2026-01-01T00:00:00Z',
     artist_preview: [],
@@ -231,6 +232,22 @@ describe('walkEpisodeNeighbors', () => {
 
     expect(result.newer).toBeNull()
     expect(result.older?.air_date).toBe('2026-06-02')
+  })
+
+  it('skips upcoming episodes — the latest aired episode has no newer neighbor (PSY-1205)', async () => {
+    const episodes = [
+      makeEpisode(3, '2026-06-29', { is_upcoming: true }), // future placeholder
+      makeEpisode(2, '2026-06-22'), // latest aired
+      makeEpisode(1, '2026-06-15'),
+    ]
+    const fetchPage = vi.fn().mockResolvedValue(page(episodes, 3))
+
+    const result = await walkEpisodeNeighbors('2026-06-22', fetchPage)
+
+    // the upcoming row is never surfaced as the "newer ▶" neighbor (no link to an
+    // empty, not-yet-aired page)
+    expect(result.newer).toBeNull()
+    expect(result.older?.air_date).toBe('2026-06-15')
   })
 
   it('returns null older at the oldest episode', async () => {

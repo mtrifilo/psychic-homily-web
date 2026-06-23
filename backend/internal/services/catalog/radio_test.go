@@ -1300,6 +1300,74 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.False(byLatest[3].IsActive)
 }
 
+// TestListShows_LatestAirDateExcludesFuture pins the aired-only "latest playlist"
+// badge/sort (PSY-1205): a future-dated placeholder (upcoming WFMU broadcast or a
+// corrupt date) must NOT become a show's latest date and sort it to the top of
+// the "sorted by latest playlist" directory. tz is pinned to UTC for a
+// deterministic day boundary (±2-day margin); see the PSY-1204 future-feed tests.
+func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateExcludesFuture() {
+	station := suite.createStation("KFUT")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
+	now := time.Now().UTC()
+	recent := now.AddDate(0, 0, -1).Format("2006-01-02")
+	stale := now.AddDate(0, 0, -10).Format("2006-01-02")
+	future := now.AddDate(0, 0, 5).Format("2006-01-02")
+
+	// Recent Show: latest aired = recent (yesterday).
+	recentShow := suite.createShow(station.ID, "Recent Show")
+	suite.createEpisode(recentShow.ID, recent)
+	// Stale Plus Future: an OLD aired episode + a far-future placeholder. Its
+	// latest AIRED date is `stale`; the old buggy MAX(air_date) would read
+	// `future` and sort this show ABOVE Recent Show — the precise sort-inversion
+	// this fix prevents.
+	stalePlusFuture := suite.createShow(station.ID, "Stale Plus Future")
+	suite.createEpisode(stalePlusFuture.ID, stale)
+	suite.createEpisode(stalePlusFuture.ID, future)
+	// Future Only: only a future episode → no aired latest date at all.
+	futureOnly := suite.createShow(station.ID, "Future Only")
+	suite.createEpisode(futureOnly.ID, future)
+
+	shows, err := suite.radioService.ListShows(station.ID, RadioShowSortLatest)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 3)
+
+	// SORT: Recent (recent) > Stale Plus Future (stale, NOT future) > Future Only
+	// (NULL latest). The future placeholder must not lift Stale Plus Future above
+	// the genuinely-more-recent Recent Show.
+	suite.Equal("Recent Show", shows[0].Name)
+	suite.Equal("Stale Plus Future", shows[1].Name)
+	suite.Equal("Future Only", shows[2].Name)
+
+	// VALUE: the badge reads the aired date, not the future one; COUNT still
+	// includes the future placeholder (only the latest-date is bounded).
+	suite.Require().NotNil(shows[1].LatestAirDate)
+	suite.Equal(stale, *shows[1].LatestAirDate, "latest playlist is the aired episode, not the future placeholder")
+	suite.Equal(int64(2), shows[1].EpisodeCount, "COUNT still includes the future placeholder; only the latest-date is bounded")
+	suite.Nil(shows[2].LatestAirDate, "a show with only future episodes has no latest playlist")
+}
+
+// TestLatestEpisodeForShow_ExcludesFuture pins the now-playing archive fallback's
+// "latest playlist" selection to aired-only (PSY-1205): the station ON-AIR box
+// derives its "Latest: {date}" / "aired {date}" text + deep-link from this, and a
+// future-dated placeholder would mislabel a not-yet-aired broadcast as aired.
+func (suite *RadioServiceIntegrationTestSuite) TestLatestEpisodeForShow_ExcludesFuture() {
+	station := suite.createStation("KLATE")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
+	show := suite.createShow(station.ID, "Latest Show")
+	now := time.Now().UTC()
+	aired := now.AddDate(0, 0, -1).Format("2006-01-02")
+	future := now.AddDate(0, 0, 3).Format("2006-01-02")
+	suite.createEpisode(show.ID, aired)
+	suite.createEpisode(show.ID, future)
+
+	ep, err := suite.radioService.latestEpisodeForShow(show.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(ep)
+	suite.Equal(aired, normalizeDate(ep.AirDate), "latest is the aired episode, not the future placeholder")
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_ArtistPreview() {
 	station := suite.createStation("KPRV")
 	show := suite.createShow(station.ID, "Preview Show")
@@ -1373,6 +1441,38 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_ComputedStatusFro
 	suite.Equal(catalogm.RadioEpisodeStatusAired, statusByDate["2026-06-02"], "no window → aired, never live")
 	suite.Nil(startsByDate["2026-06-02"], "windowless episode has a nil starts_at")
 	suite.Equal(catalogm.RadioEpisodeStatusAired, statusByDate["2026-06-01"], "past window → aired")
+}
+
+// TestGetEpisodes_FlagsUpcoming verifies the per-show archive (PSY-1205): it
+// still LISTS upcoming episodes (the "label, don't hide" decision), but flags
+// future-dated ones IsUpcoming so the UI can tag them instead of rendering empty
+// aired-looking rows. WFMU episodes have a null air window, so this is derived
+// from air_date vs the station's local today (tz pinned to UTC, ±2-day margin).
+func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_FlagsUpcoming() {
+	station := suite.createStation("KUPC")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
+	show := suite.createShow(station.ID, "Upcoming Show")
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	today := now.Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, today)
+	suite.createEpisode(show.ID, future)
+
+	episodes, total, err := suite.radioService.GetEpisodes(show.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(3), total, "archive still lists upcoming episodes (labeled, not hidden)")
+	suite.Require().Len(episodes, 3)
+
+	upcomingByDate := map[string]bool{}
+	for _, e := range episodes {
+		upcomingByDate[e.AirDate] = e.IsUpcoming
+	}
+	suite.True(upcomingByDate[future], "a future-dated episode is flagged upcoming")
+	suite.False(upcomingByDate[today], "today's episode is not upcoming")
+	suite.False(upcomingByDate[past], "a past episode is not upcoming")
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_StrictPerStation() {

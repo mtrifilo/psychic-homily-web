@@ -483,12 +483,21 @@ func (s *RadioService) mostActiveShow(stationID uint) (*catalogm.RadioShow, erro
 	return &shows[0], nil
 }
 
-// latestEpisodeForShow returns the show's most recent episode (air_date DESC,
-// matching GetEpisodes' ordering; id DESC as a stable same-day tiebreak), or
-// nil when the show has none.
+// latestEpisodeForShow returns the show's most recent AIRED episode (air_date
+// DESC, matching GetEpisodes' ordering; id DESC as a stable same-day tiebreak),
+// or nil when the show has none. Aired-only (PSY-1205): the now-playing archive
+// fallback derives its "Latest playlist" date + deep-link from this, and a
+// future-dated placeholder would render "aired {future date}" and link to an
+// empty page. Bounding to the station's local today also keeps the live-show
+// artist-hop fallback off empty future rows. Live detection is unaffected — it
+// is computed from the provider/air window, never from this selection.
 func (s *RadioService) latestEpisodeForShow(showID uint) (*catalogm.RadioEpisode, error) {
+	today, err := s.stationLocalTodayForShow(showID)
+	if err != nil {
+		return nil, err
+	}
 	var episodes []catalogm.RadioEpisode
-	err := s.db.Where("show_id = ?", showID).
+	err = s.db.Where("show_id = ? AND air_date <= ?", showID, today).
 		Order("air_date DESC, id DESC").
 		Limit(1).
 		Find(&episodes).Error
