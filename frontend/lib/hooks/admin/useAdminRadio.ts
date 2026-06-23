@@ -130,6 +130,11 @@ export interface RadioShowListItem {
   // schedule_locked (PSY-1186/1193): true when the schedule is hand-curated and the
   // weekly WFMU scrape leaves it alone. Surfaced as a badge in the admin list.
   schedule_locked: boolean
+  // lifecycle_state (active | dormant | retired) + latest_air_date (YYYY-MM-DD or null)
+  // are already emitted by the backend list (PSY-1155/1048); surfaced here for the
+  // navigable show list's filter / sort / lifecycle badge / bulk actions (PSY-1122).
+  lifecycle_state: string
+  latest_air_date: string | null
   episode_count: number
 }
 
@@ -455,6 +460,40 @@ export function useUpdateRadioShow() {
         method: 'PUT',
         body: JSON.stringify(input),
       })
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+    },
+  })
+}
+
+/**
+ * Bulk-set lifecycle_state on several shows at once (PSY-1122). There's no bulk backend
+ * endpoint, so this fans out per-show PUTs through the same admin update path the
+ * single-show editor uses (PSY-1172 wired lifecycle_state). Invalidates the station's
+ * shows once on completion.
+ */
+export function useBulkSetShowLifecycle() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      showIds,
+      lifecycleState,
+    }: {
+      showIds: number[]
+      stationId: number
+      lifecycleState: string
+    }) => {
+      await Promise.all(
+        showIds.map((showId) =>
+          apiRequest<RadioShowDetail>(RADIO_ENDPOINTS.ADMIN_UPDATE_SHOW(showId), {
+            method: 'PUT',
+            body: JSON.stringify({ lifecycle_state: lifecycleState }),
+          })
+        )
+      )
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })

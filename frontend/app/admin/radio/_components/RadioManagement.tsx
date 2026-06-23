@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   PLAYLIST_SOURCES,
   PLAYLIST_SOURCE_NONE,
@@ -81,6 +82,7 @@ import {
   useRecentFailedRuns,
   useStationHealth,
   useListStationHealth,
+  useBulkSetShowLifecycle,
   useUnmatchedPlays,
   useBulkLinkPlays,
   type RadioStationListItem,
@@ -1433,6 +1435,275 @@ function ShowImportSection({
 
 
 
+// ============================================================================
+// Station show list (PSY-1122): search / filter / sort / paginate + bulk lifecycle
+// ============================================================================
+
+const SHOW_LIFECYCLE_DISPLAY: Record<string, { label: string; className: string }> = {
+  active: { label: 'Active', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  dormant: { label: 'Dormant', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  retired: { label: 'Retired', className: 'bg-muted text-muted-foreground' },
+}
+
+function ShowLifecycleBadge({ state }: { state: string }) {
+  const d = SHOW_LIFECYCLE_DISPLAY[state] ?? { label: state, className: 'bg-muted text-muted-foreground' }
+  return <Badge className={`text-xs ${d.className}`}>{d.label}</Badge>
+}
+
+type ShowStatusFilter = 'current' | 'all' | 'active' | 'dormant' | 'retired'
+type ShowSort = 'name' | 'episodes' | 'latest'
+const SHOW_PAGE_SIZE = 25
+
+// The navigable per-station show list: client-side search/filter/sort/paginate over the
+// already-loaded shows (counts are small per station; move to server-side if a station
+// ever holds hundreds). Default hides retired (active-first); 0-episode shows are
+// de-emphasised; bulk lifecycle actions use the PSY-1172 write path.
+function StationShowList({
+  shows,
+  stationId,
+  isLoading,
+  expandedShows,
+  onToggleExpand,
+  onAddShow,
+  onEditShow,
+  onDeleteShow,
+}: {
+  shows: RadioShowListItem[]
+  stationId: number
+  isLoading: boolean
+  expandedShows: Set<number>
+  onToggleExpand: (showId: number) => void
+  onAddShow: () => void
+  onEditShow: (show: RadioShowListItem) => void
+  onDeleteShow: (show: RadioShowListItem) => void
+}) {
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<ShowStatusFilter>('current')
+  const [sort, setSort] = useState<ShowSort>('name')
+  const [page, setPage] = useState(0)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const bulkLifecycle = useBulkSetShowLifecycle()
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const list = shows.filter((s) => {
+      if (statusFilter === 'current') {
+        if (s.lifecycle_state === 'retired') return false
+      } else if (statusFilter !== 'all') {
+        if (s.lifecycle_state !== statusFilter) return false
+      }
+      if (q) {
+        return s.name.toLowerCase().includes(q) || (s.host_name ?? '').toLowerCase().includes(q)
+      }
+      return true
+    })
+    return [...list].sort((a, b) => {
+      if (sort === 'episodes') return b.episode_count - a.episode_count
+      if (sort === 'latest') return (b.latest_air_date ?? '').localeCompare(a.latest_air_date ?? '')
+      return a.name.localeCompare(b.name)
+    })
+  }, [shows, search, statusFilter, sort])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / SHOW_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageItems = filtered.slice(safePage * SHOW_PAGE_SIZE, (safePage + 1) * SHOW_PAGE_SIZE)
+
+  // Reset paging + selection whenever the filtered set is re-scoped.
+  const resetView = useCallback(() => {
+    setPage(0)
+    setSelected(new Set())
+  }, [])
+
+  const toggleSelected = useCallback((showId: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(showId)) next.delete(showId)
+      else next.add(showId)
+      return next
+    })
+  }, [])
+
+  const allOnPageSelected = pageItems.length > 0 && pageItems.every((s) => selected.has(s.id))
+  const toggleSelectPage = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      const allSelected = pageItems.length > 0 && pageItems.every((s) => next.has(s.id))
+      for (const s of pageItems) {
+        if (allSelected) next.delete(s.id)
+        else next.add(s.id)
+      }
+      return next
+    })
+  }, [pageItems])
+
+  const applyBulkLifecycle = useCallback(
+    (lifecycleState: string) => {
+      const showIds = Array.from(selected)
+      if (showIds.length === 0) return
+      bulkLifecycle.mutate(
+        { showIds, stationId, lifecycleState },
+        { onSuccess: () => setSelected(new Set()) }
+      )
+    },
+    [selected, stationId, bulkLifecycle]
+  )
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="font-medium">Shows</h4>
+        <Button size="sm" onClick={onAddShow}>
+          <Plus className="mr-1 h-4 w-4" /> Add Show
+        </Button>
+      </div>
+
+      {/* Search / filter / sort */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); resetView() }}
+            placeholder="Search shows by name or host..."
+            className="pl-10"
+            aria-label="Search shows"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as ShowStatusFilter); resetView() }}>
+          <SelectTrigger className="w-[170px]" aria-label="Filter by status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="current">Active &amp; dormant</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="dormant">Dormant</SelectItem>
+            <SelectItem value="retired">Retired</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sort} onValueChange={(v) => setSort(v as ShowSort)}>
+          <SelectTrigger className="w-[150px]" aria-label="Sort shows">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="name">Name (A–Z)</SelectItem>
+            <SelectItem value="episodes">Most episodes</SelectItem>
+            <SelectItem value="latest">Recently aired</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Bulk lifecycle action bar */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2 text-sm">
+          <span className="font-medium">{selected.size} selected</span>
+          <span className="text-muted-foreground">&mdash; set status:</span>
+          {(['active', 'dormant', 'retired'] as const).map((state) => (
+            <Button
+              key={state}
+              size="sm"
+              variant="outline"
+              disabled={bulkLifecycle.isPending}
+              onClick={() => applyBulkLifecycle(state)}
+            >
+              {SHOW_LIFECYCLE_DISPLAY[state].label}
+            </Button>
+          ))}
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+          {bulkLifecycle.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : shows.length === 0 ? (
+        <AdminEmptyState icon={Inbox} message="No shows for this station yet." />
+      ) : filtered.length === 0 ? (
+        <AdminEmptyState icon={Search} message="No shows match your search / filter." />
+      ) : (
+        <>
+          <div className="rounded-lg border divide-y">
+            <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={allOnPageSelected}
+                onCheckedChange={toggleSelectPage}
+                aria-label="Select all shows on this page"
+              />
+              <span>Select page</span>
+            </div>
+            {pageItems.map((show) => (
+              <div key={show.id} className="px-4 py-3 hover:bg-muted/50 transition-colors">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 items-start gap-2">
+                    <Checkbox
+                      checked={selected.has(show.id)}
+                      onCheckedChange={() => toggleSelected(show.id)}
+                      aria-label={`Select ${show.name}`}
+                      className="mt-1"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`font-medium ${show.episode_count === 0 ? 'text-muted-foreground' : ''}`}>
+                          {show.name}
+                        </span>
+                        <ShowLifecycleBadge state={show.lifecycle_state} />
+                        {show.schedule_locked && (
+                          <Badge variant="outline" className="text-xs">
+                            <Lock className="mr-1 h-3 w-3" />
+                            Schedule locked
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot;{' '}
+                        {show.episode_count === 0 ? (
+                          <span className="italic">no episodes</span>
+                        ) : (
+                          <>{show.episode_count} episode(s)</>
+                        )}
+                        {show.latest_air_date && <> &middot; last aired {show.latest_air_date}</>}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" aria-label={`Backfill episodes for ${show.name}`} onClick={() => onToggleExpand(show.id)}>
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" aria-label={`Edit ${show.name}`} onClick={() => onEditShow(show)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive" aria-label={`Delete ${show.name}`} onClick={() => onDeleteShow(show)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                {expandedShows.has(show.id) && <ShowImportSection show={show} stationId={stationId} />}
+              </div>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              {safePage * SHOW_PAGE_SIZE + 1}&ndash;
+              {Math.min((safePage + 1) * SHOW_PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            {pageCount > 1 && (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>Previous</Button>
+                <span>Page {safePage + 1} of {pageCount}</span>
+                <Button size="sm" variant="outline" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>Next</Button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function StationDetailPanel({
   station,
   onBack,
@@ -1601,82 +1872,17 @@ function StationDetailPanel({
       {/* Per-station sync-run feed (PSY-1130) */}
       <StationSyncRunFeed stationId={station.id} />
 
-      {/* Shows */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="font-medium">Shows</h4>
-          <Button size="sm" onClick={() => setDialogMode('create-show')}>
-            <Plus className="mr-1 h-4 w-4" /> Add Show
-          </Button>
-        </div>
-
-        {showsLoading ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : shows.length === 0 ? (
-          <AdminEmptyState
-            icon={Inbox}
-            message="No shows for this station yet."
-          />
-        ) : (
-          <div className="rounded-lg border divide-y">
-            {shows.map((show) => (
-              <div key={show.id} className="px-4 py-3 hover:bg-muted/50 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{show.name}</span>
-                      <Badge variant={show.is_active ? 'default' : 'secondary'} className="text-xs">
-                        {show.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
-                      {show.schedule_locked && (
-                        <Badge variant="outline" className="text-xs">
-                          <Lock className="mr-1 h-3 w-3" />
-                          Schedule locked
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot; {show.episode_count} episode(s)
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Backfill episodes for ${show.name}`}
-                      onClick={() => toggleShowExpanded(show.id)}
-                    >
-                      <Upload className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Edit ${show.name}`}
-                      onClick={() => { setSelectedShow(show); setDialogMode('edit-show') }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      aria-label={`Delete ${show.name}`}
-                      onClick={() => { setSelectedShow(show); setDialogMode('delete-show') }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                {expandedShows.has(show.id) && (
-                  <ShowImportSection show={show} stationId={station.id} />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Shows — navigable list (PSY-1122) */}
+      <StationShowList
+        shows={shows}
+        stationId={station.id}
+        isLoading={showsLoading}
+        expandedShows={expandedShows}
+        onToggleExpand={toggleShowExpanded}
+        onAddShow={() => setDialogMode('create-show')}
+        onEditShow={(show) => { setSelectedShow(show); setDialogMode('edit-show') }}
+        onDeleteShow={(show) => { setSelectedShow(show); setDialogMode('delete-show') }}
+      />
 
       {/* Create Show Dialog */}
       <Dialog open={dialogMode === 'create-show'} onOpenChange={(open) => !open && setDialogMode(null)}>
