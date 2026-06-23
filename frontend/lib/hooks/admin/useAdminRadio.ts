@@ -7,6 +7,7 @@
  * playlist fetch triggering, and radio stats.
  */
 
+import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
@@ -22,6 +23,11 @@ export const radioQueryKeys = {
   shows: (stationId: number) => ['radio', 'shows', stationId] as const,
   stats: ['radio', 'stats'] as const,
   syncRun: (runId: number) => ['radio', 'sync-runs', runId] as const,
+  // Sync-run history feeds (PSY-1130). 'feed' segment keeps these distinct from the
+  // single-run poll key above.
+  syncRunsFeed: (params: string) => ['radio', 'sync-runs', 'feed', params] as const,
+  stationSyncRuns: (stationId: number, params: string) =>
+    ['radio', 'stations', stationId, 'sync-runs', params] as const,
   unmatched: (stationId: number) => ['radio', 'unmatched', stationId] as const,
 }
 
@@ -49,6 +55,10 @@ const RADIO_ENDPOINTS = {
   ADMIN_SHOW_BACKFILL: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/backfill`,
   ADMIN_GET_SYNC_RUN: (runId: number) => `${API_BASE_URL}/admin/radio/sync-runs/${runId}`,
   ADMIN_CANCEL_SYNC_RUN: (runId: number) => `${API_BASE_URL}/admin/radio/sync-runs/${runId}/cancel`,
+  // Sync-run history feeds (PSY-1129 backend / PSY-1130 FE): global + per-station.
+  ADMIN_SYNC_RUNS: `${API_BASE_URL}/admin/radio/sync-runs`,
+  ADMIN_STATION_SYNC_RUNS: (stationId: number) =>
+    `${API_BASE_URL}/admin/radio-stations/${stationId}/sync-runs`,
   // Matching
   ADMIN_UNMATCHED: `${API_BASE_URL}/admin/radio/unmatched`,
   ADMIN_LINK_PLAY: (playId: number) => `${API_BASE_URL}/admin/radio/plays/${playId}/link`,
@@ -548,6 +558,75 @@ export function useSyncRun(runId: number, enabled = true) {
       return query.state.data?.status === 'running' ? 3000 : false
     },
   })
+}
+
+// ============================================================================
+// Sync-run history feeds (PSY-1130) — recent runs over radio_sync_runs.
+// ============================================================================
+
+/** Envelope returned by the sync-run feed endpoints (matches AdminSyncRunListResponse). */
+export interface SyncRunListResult {
+  sync_runs: RadioSyncRun[]
+  total: number
+  count: number
+}
+
+/**
+ * Recent sync runs for one station (newest first), for the per-station feed.
+ */
+export function useStationSyncRuns(stationId: number, limit = 20, enabled = true) {
+  return useQuery({
+    queryKey: radioQueryKeys.stationSyncRuns(stationId, `limit=${limit}`),
+    queryFn: async () => {
+      const url = `${RADIO_ENDPOINTS.ADMIN_STATION_SYNC_RUNS(stationId)}?limit=${limit}`
+      return apiRequest<SyncRunListResult>(url)
+    },
+    enabled: enabled && stationId > 0,
+  })
+}
+
+/**
+ * Recent runs across all stations filtered to a single status (the backend filter is
+ * exact-match). Used to assemble the global recent-failures view.
+ */
+export function useSyncRunsByStatus(status: RadioSyncRunStatus, limit = 10, enabled = true) {
+  return useQuery({
+    queryKey: radioQueryKeys.syncRunsFeed(`status=${status}&limit=${limit}`),
+    queryFn: async () => {
+      const url = `${RADIO_ENDPOINTS.ADMIN_SYNC_RUNS}?status=${status}&limit=${limit}`
+      return apiRequest<SyncRunListResult>(url)
+    },
+    enabled,
+  })
+}
+
+/**
+ * The global recent-failures view: the most recent failed + partial runs across all
+ * stations, merged newest-first. ('partial' carries the volume-anomaly signal —
+ * empty_unexpected, PSY-1156 — so it belongs in the failures view.) Fetching the top
+ * `perStatusLimit` of each status guarantees the true newest-N across both are covered,
+ * since any run in the combined top-N is in the top-N of its own status.
+ */
+export function useRecentFailedRuns(perStatusLimit = 10) {
+  const failed = useSyncRunsByStatus('failed', perStatusLimit)
+  const partial = useSyncRunsByStatus('partial', perStatusLimit)
+
+  const runs = useMemo(() => {
+    const merged = [
+      ...(failed.data?.sync_runs ?? []),
+      ...(partial.data?.sync_runs ?? []),
+    ]
+    merged.sort(
+      (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+    )
+    return merged.slice(0, perStatusLimit)
+  }, [failed.data, partial.data, perStatusLimit])
+
+  return {
+    runs,
+    isLoading: failed.isLoading || partial.isLoading,
+    isError: failed.isError || partial.isError,
+  }
 }
 
 /**
