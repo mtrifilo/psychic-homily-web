@@ -468,11 +468,18 @@ export function useUpdateRadioShow() {
   })
 }
 
+/** The settable operational states for a radio show (PSY-1172/1122). */
+export type RadioLifecycleState = 'active' | 'dormant' | 'retired'
+
 /**
  * Bulk-set lifecycle_state on several shows at once (PSY-1122). There's no bulk backend
  * endpoint, so this fans out per-show PUTs through the same admin update path the
- * single-show editor uses (PSY-1172 wired lifecycle_state). Invalidates the station's
- * shows once on completion.
+ * single-show editor uses (PSY-1172 wired lifecycle_state).
+ *
+ * Uses `Promise.allSettled` so a single failing PUT doesn't abort the rest, and THROWS a
+ * "N of M; X failed" error on any failure so the caller can surface it. Invalidation runs
+ * in `onSettled` (success AND error) so the list reconciles even on a partial failure —
+ * otherwise the operator would see stale state after a mass mutation.
  */
 export function useBulkSetShowLifecycle() {
   const queryClient = useQueryClient()
@@ -484,9 +491,9 @@ export function useBulkSetShowLifecycle() {
     }: {
       showIds: number[]
       stationId: number
-      lifecycleState: string
+      lifecycleState: RadioLifecycleState
     }) => {
-      await Promise.all(
+      const results = await Promise.allSettled(
         showIds.map((showId) =>
           apiRequest<RadioShowDetail>(RADIO_ENDPOINTS.ADMIN_UPDATE_SHOW(showId), {
             method: 'PUT',
@@ -494,8 +501,14 @@ export function useBulkSetShowLifecycle() {
           })
         )
       )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      if (failed > 0) {
+        throw new Error(
+          `Updated ${results.length - failed} of ${results.length} show(s); ${failed} failed.`
+        )
+      }
     },
-    onSuccess: (_data, variables) => {
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
     },

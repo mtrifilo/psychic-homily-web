@@ -90,6 +90,7 @@ import {
   type RadioShowListItem,
   type RadioSyncRun,
   type RadioStationHealth,
+  type RadioLifecycleState,
   type CreateRadioStationInput,
   type UpdateRadioStationInput,
   type CreateRadioShowInput,
@@ -1482,6 +1483,7 @@ function StationShowList({
   const [sort, setSort] = useState<ShowSort>('name')
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [bulkError, setBulkError] = useState<string | null>(null)
   const bulkLifecycle = useBulkSetShowLifecycle()
 
   const filtered = useMemo(() => {
@@ -1537,12 +1539,18 @@ function StationShowList({
   }, [pageItems])
 
   const applyBulkLifecycle = useCallback(
-    (lifecycleState: string) => {
+    (lifecycleState: RadioLifecycleState) => {
       const showIds = Array.from(selected)
       if (showIds.length === 0) return
+      setBulkError(null)
       bulkLifecycle.mutate(
         { showIds, stationId, lifecycleState },
-        { onSuccess: () => setSelected(new Set()) }
+        {
+          // Clear selection only on a clean success; on partial failure keep it (so the
+          // operator can retry) and surface the "N of M; X failed" message.
+          onSuccess: () => setSelected(new Set()),
+          onError: (err) => setBulkError(err.message),
+        }
       )
     },
     [selected, stationId, bulkLifecycle]
@@ -1609,8 +1617,9 @@ function StationShowList({
               {SHOW_LIFECYCLE_DISPLAY[state].label}
             </Button>
           ))}
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setSelected(new Set()); setBulkError(null) }}>Clear</Button>
           {bulkLifecycle.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+          {bulkError && <span className="text-destructive">{bulkError}</span>}
         </div>
       )}
 

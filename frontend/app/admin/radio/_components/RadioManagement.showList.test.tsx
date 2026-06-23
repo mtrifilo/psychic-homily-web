@@ -138,4 +138,17 @@ describe('Navigable show list (PSY-1122)', () => {
     const [payload] = bulkMutate.mock.calls[0]
     expect(payload).toMatchObject({ showIds: [1], stationId: 2, lifecycleState: 'retired' })
   })
+
+  it('surfaces a bulk partial-failure error', () => {
+    // mutate invokes the caller's onError (a partial Promise.allSettled failure).
+    bulkMutate.mockImplementationOnce((_vars, opts) =>
+      opts?.onError?.(new Error('Updated 1 of 2 show(s); 1 failed.'))
+    )
+    openStation()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Morning Drive' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Retired' }))
+    expect(screen.getByText('Updated 1 of 2 show(s); 1 failed.')).toBeInTheDocument()
+    // Selection is kept on failure so the operator can retry.
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
+  })
 })
