@@ -1260,17 +1260,16 @@ func (m *MockDataSyncService) ImportData(req contracts.DataImportRequest) (*cont
 // ============================================================================
 
 type MockDiscordService struct {
-	IsConfiguredFn            func() bool
-	NotifyNewUserFn           func(*authm.User)
-	NotifyNewShowFn           func(*contracts.ShowResponse, string)
-	NotifyShowStatusChangeFn  func(string, uint, string, string, string)
-	NotifyShowApprovedFn      func(*contracts.ShowResponse)
-	NotifyShowRejectedFn      func(*contracts.ShowResponse, string)
-	NotifyShowReportFn        func(*communitym.ShowReport, string)
-	NotifyArtistReportFn      func(*communitym.ArtistReport, string)
-	NotifyNewVenueFn          func(uint, string, string, string, *string, string)
-	NotifyNewRadioShowsFn     func(string, []string)
-	NotifyBackfillCompletedFn func(string, []string, int, int)
+	IsConfiguredFn           func() bool
+	NotifyNewUserFn          func(*authm.User)
+	NotifyNewShowFn          func(*contracts.ShowResponse, string)
+	NotifyShowStatusChangeFn func(string, uint, string, string, string)
+	NotifyShowApprovedFn     func(*contracts.ShowResponse)
+	NotifyShowRejectedFn     func(*contracts.ShowResponse, string)
+	NotifyShowReportFn       func(*communitym.ShowReport, string)
+	NotifyArtistReportFn     func(*communitym.ArtistReport, string)
+	NotifyNewVenueFn         func(uint, string, string, string, *string, string)
+	NotifyNewRadioShowsFn    func(string, []string)
 }
 
 func (m *MockDiscordService) IsConfigured() bool {
@@ -1322,11 +1321,6 @@ func (m *MockDiscordService) NotifyNewVenue(venueID uint, venueName string, city
 func (m *MockDiscordService) NotifyNewRadioShows(stationName string, newShowNames []string) {
 	if m.NotifyNewRadioShowsFn != nil {
 		m.NotifyNewRadioShowsFn(stationName, newShowNames)
-	}
-}
-func (m *MockDiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
-	if m.NotifyBackfillCompletedFn != nil {
-		m.NotifyBackfillCompletedFn(stationName, completedShows, totalEpisodes, totalPlays)
 	}
 }
 
@@ -2423,6 +2417,9 @@ type MockRadioService struct {
 	TriggerShowBackfillFn         func(uint, string, string) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRunFn                  func(uint) (*contracts.RadioSyncRunResponse, error)
 	CancelSyncRunFn               func(uint) error
+	ListSyncRunsFn                func(*uint, string, int, int) ([]*contracts.RadioSyncRunResponse, int64, error)
+	GetStationHealthFn            func(uint) (*contracts.RadioStationHealthResponse, error)
+	ListStationHealthFn           func() ([]*contracts.RadioStationHealthResponse, error)
 }
 
 func (m *MockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -2682,6 +2679,24 @@ func (m *MockRadioService) CancelSyncRun(runID uint) error {
 		return m.CancelSyncRunFn(runID)
 	}
 	return nil
+}
+func (m *MockRadioService) ListSyncRuns(stationID *uint, status string, limit int, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+	if m.ListSyncRunsFn != nil {
+		return m.ListSyncRunsFn(stationID, status, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockRadioService) GetStationHealth(stationID uint) (*contracts.RadioStationHealthResponse, error) {
+	if m.GetStationHealthFn != nil {
+		return m.GetStationHealthFn(stationID)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) ListStationHealth() ([]*contracts.RadioStationHealthResponse, error) {
+	if m.ListStationHealthFn != nil {
+		return m.ListStationHealthFn()
+	}
+	return nil, nil
 }
 
 // ============================================================================
