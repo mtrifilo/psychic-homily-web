@@ -14,9 +14,11 @@ CREATE TABLE venue_source_configs (
     consecutive_failures INT NOT NULL DEFAULT 0,
     strategy_locked BOOLEAN NOT NULL DEFAULT false,
     auto_approve BOOLEAN NOT NULL DEFAULT false,
-    extraction_notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- extraction_notes was added last (migration 000046); keep that ordinal
+    -- position so the recreation matches the real pre-removal column order.
+    extraction_notes TEXT,
     UNIQUE(venue_id)
 );
 CREATE INDEX idx_venue_source_configs_venue_id ON venue_source_configs(venue_id);
