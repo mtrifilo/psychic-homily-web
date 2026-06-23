@@ -402,10 +402,15 @@ func (s *DiscordService) NotifyNewRadioShows(stationName string, newShowNames []
 	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
-// NotifyBackfillCompleted sends one batched notification when the auto-backfill
-// drain finishes for a station — fires AFTER all per-show backfill jobs from a
-// discover cycle have drained, not per-show. Fire-and-forget; silently skipped
-// when Discord isn't configured or no shows actually completed.
+// NotifyBackfillCompleted sends one batched "backfill completed" notification for a
+// station (episode/play totals included). Fire-and-forget; skipped when Discord isn't
+// configured or no shows completed.
+//
+// NOTE (PSY-1153): currently UNCALLED in production — its sole caller was the
+// autoBackfillStation drain, removed when create-on-first moved into the discover run
+// (which notifies via NotifyNewRadioShows). Retained as a Discord capability for a
+// future "backfill completed" surface. Disposition tracked in PSY-1181: wire it into
+// PSY-1154's post-air backfill cycle, or delete it (interface method + mock + tests).
 func (s *DiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
 	if !s.IsConfigured() || len(completedShows) == 0 {
 		return
