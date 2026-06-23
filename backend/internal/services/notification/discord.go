@@ -402,43 +402,6 @@ func (s *DiscordService) NotifyNewRadioShows(stationName string, newShowNames []
 	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
-// NotifyBackfillCompleted sends one batched "backfill completed" notification for a
-// station (episode/play totals included). Fire-and-forget; skipped when Discord isn't
-// configured or no shows completed.
-//
-// NOTE (PSY-1153): currently UNCALLED in production — its sole caller was the
-// autoBackfillStation drain, removed when create-on-first moved into the discover run
-// (which notifies via NotifyNewRadioShows). Retained as a Discord capability for a
-// future "backfill completed" surface. Disposition tracked in PSY-1181: wire it into
-// PSY-1154's post-air backfill cycle, or delete it (interface method + mock + tests).
-func (s *DiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
-	if !s.IsConfigured() || len(completedShows) == 0 {
-		return
-	}
-
-	// Cap the rendered list (Discord embed field limit is 1024 chars; show
-	// names average ~30 chars + line breaks).
-	const maxShown = 25
-	displayed := completedShows
-	tail := ""
-	if len(completedShows) > maxShown {
-		displayed = completedShows[:maxShown]
-		tail = fmt.Sprintf("\n…and %d more", len(completedShows)-maxShown)
-	}
-
-	embed := DiscordEmbed{
-		Title:       fmt.Sprintf("Backfill Complete: %s", stationName),
-		Description: fmt.Sprintf("Backfilled %d show(s) — %d episodes, %d plays matched", len(completedShows), totalEpisodes, totalPlays),
-		Color:       ColorGreen,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Fields: []DiscordEmbedField{
-			{Name: "Shows", Value: strings.Join(displayed, "\n") + tail, Inline: false},
-		},
-	}
-
-	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
-}
-
 // sendWebhook sends an embed to the Discord webhook (fire-and-forget)
 func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 	payload := DiscordWebhookPayload{
