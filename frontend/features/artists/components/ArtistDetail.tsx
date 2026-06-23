@@ -28,9 +28,7 @@ import {
   useUpdateArtistSpotify,
   useClearArtistSpotify,
   useArtistUpdate,
-  type MusicPlatform,
-  type DiscoverMusicResponse,
-  type DiscoveryCandidate,
+  type MusicLinkCandidate,
 } from '@/lib/hooks/admin/useAdminArtists'
 import {
   SocialLinks,
@@ -59,6 +57,7 @@ import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { getReleaseTypeLabel } from '@/features/releases/types'
@@ -429,7 +428,10 @@ function AdminMusicControls({
     type: 'success' | 'error'
     message: string
   } | null>(null)
-  const [candidates, setCandidates] = useState<DiscoverMusicResponse | null>(
+  // The flat candidate list from the discover-music endpoint (PSY-1191). The
+  // backend returns candidates carrying their own `platform`; the UI groups
+  // them for display. null = the picker is closed.
+  const [candidates, setCandidates] = useState<MusicLinkCandidate[] | null>(
     null
   )
   // The in-flight URL (not a bool) so peer candidate cards stay enabled
@@ -443,54 +445,42 @@ function AdminMusicControls({
   const clearBandcamp = useClearArtistBandcamp()
   const updateSpotify = useUpdateArtistSpotify()
   const clearSpotify = useClearArtistSpotify()
+  // Bandcamp candidate accept routes through the artist-update PATCH (sets
+  // social.bandcamp = profile root), which triggers the backend's async
+  // profile→album resolver (PSY-1190) to fill bandcamp_embed_url. The dedicated
+  // /bandcamp endpoint only accepts album/track URLs, so it can't take a
+  // MusicBrainz profile root.
+  const updateArtist = useArtistUpdate()
 
   const isAnyLoading =
     discoverMusic.isPending ||
     updateBandcamp.isPending ||
     clearBandcamp.isPending ||
     updateSpotify.isPending ||
-    clearSpotify.isPending
+    clearSpotify.isPending ||
+    updateArtist.isPending
 
   const handleDiscover = () => {
     setFeedback(null)
     setCandidates(null)
     discoverMusic.mutate(artist.id, {
       onSuccess: data => {
-        setCandidates(data)
+        setCandidates(data.candidates)
         setShowManualInput(null)
       },
       onError: err => {
-        // The route returns user-friendly messages for all its error classes
-        // (PARSE_FAILED, RATE_LIMIT, API_CREDITS_EXHAUSTED, TIMEOUT), as does
-        // the client timeout backstop; pass them through.
+        // The backend + proxy return user-friendly messages (502 upstream
+        // failure, timeout backstop); pass them through.
         const message = err instanceof Error ? err.message : 'Discovery failed'
         setFeedback({ type: 'error', message })
       },
     })
   }
 
-  const handlePickCandidate = (
-    platform: MusicPlatform,
-    candidate: DiscoveryCandidate
-  ) => {
+  const handlePickCandidate = (candidate: MusicLinkCandidate) => {
+    const platform = candidate.platform
     setFeedback(null)
     setSavingCandidateUrl(candidate.url)
-    const onSuccess = () => {
-      // Cache invalidation is owned by the mutation hooks (PSY-1109).
-      setFeedback({
-        type: 'success',
-        message: `${platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'} URL saved`,
-      })
-      // Auto-close the panel once both platforms have been resolved.
-      setCandidates(prev => {
-        if (!prev) return null
-        const next: DiscoverMusicResponse = { ...prev, [platform]: [] }
-        return next.bandcamp.length === 0 && next.spotify.length === 0
-          ? null
-          : next
-      })
-      setSavingCandidateUrl(null)
-    }
     const onError = (err: Error) => {
       setFeedback({
         type: 'error',
@@ -498,15 +488,47 @@ function AdminMusicControls({
       })
       setSavingCandidateUrl(null)
     }
+    // Drop the accepted candidate from the list; auto-close the picker once
+    // none remain. Cache invalidation is owned by the mutation hooks (PSY-1109).
+    const dropAccepted = () => {
+      setCandidates(prev => {
+        if (!prev) return null
+        const next = prev.filter(c => c.url !== candidate.url)
+        return next.length === 0 ? null : next
+      })
+      setSavingCandidateUrl(null)
+    }
+
     if (platform === 'bandcamp') {
-      updateBandcamp.mutate(
-        { artistId: artist.id, bandcampUrl: candidate.url },
-        { onSuccess, onError }
+      // Accepting a Bandcamp candidate sets the social.bandcamp PROFILE root.
+      // The backend's PSY-1190 resolver then fills bandcamp_embed_url ASYNC (a
+      // background fetch), so the embed appears on a subsequent load — NOT
+      // instantly. The success copy says "resolving" rather than falsely
+      // claiming the embed is live.
+      updateArtist.mutate(
+        { artistId: artist.id, data: { bandcamp: candidate.url } },
+        {
+          onSuccess: () => {
+            setFeedback({
+              type: 'success',
+              message:
+                'Bandcamp profile saved — fetching the embed in the background. Refresh in a moment to see the player.',
+            })
+            dropAccepted()
+          },
+          onError,
+        }
       )
     } else {
       updateSpotify.mutate(
         { artistId: artist.id, spotifyUrl: candidate.url },
-        { onSuccess, onError }
+        {
+          onSuccess: () => {
+            setFeedback({ type: 'success', message: 'Spotify URL saved' })
+            dropAccepted()
+          },
+          onError,
+        }
       )
     }
   }
@@ -846,7 +868,7 @@ function AdminMusicControls({
             </Button>
           </div>
 
-          {candidates.bandcamp.length === 0 && candidates.spotify.length === 0 ? (
+          {candidates.length === 0 ? (
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
@@ -856,42 +878,31 @@ function AdminMusicControls({
             </Alert>
           ) : (
             <>
-              {candidates.bandcamp.length > 0 && (
-                <section>
-                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-                    Bandcamp candidates
-                  </h4>
-                  <div className="space-y-2">
-                    {candidates.bandcamp.map(c => (
-                      <DiscoveryCandidateCard
-                        key={c.url}
-                        candidate={c}
-                        saving={savingCandidateUrl === c.url}
-                        disabled={savingCandidateUrl !== null}
-                        onPick={() => handlePickCandidate('bandcamp', c)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-              {candidates.spotify.length > 0 && (
-                <section>
-                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-                    Spotify candidates
-                  </h4>
-                  <div className="space-y-2">
-                    {candidates.spotify.map(c => (
-                      <DiscoveryCandidateCard
-                        key={c.url}
-                        candidate={c}
-                        saving={savingCandidateUrl === c.url}
-                        disabled={savingCandidateUrl !== null}
-                        onPick={() => handlePickCandidate('spotify', c)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
+              {(['bandcamp', 'spotify'] as const).map(platform => {
+                const platformCandidates = candidates.filter(
+                  c => c.platform === platform
+                )
+                if (platformCandidates.length === 0) return null
+                return (
+                  <section key={platform}>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                      {platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'}{' '}
+                      candidates
+                    </h4>
+                    <div className="space-y-2">
+                      {platformCandidates.map(c => (
+                        <DiscoveryCandidateCard
+                          key={c.url}
+                          candidate={c}
+                          saving={savingCandidateUrl === c.url}
+                          disabled={savingCandidateUrl !== null}
+                          onPick={() => handlePickCandidate(c)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+              })}
             </>
           )}
         </div>
@@ -906,35 +917,36 @@ function DiscoveryCandidateCard({
   disabled,
   onPick,
 }: {
-  candidate: DiscoveryCandidate
+  candidate: MusicLinkCandidate
   saving: boolean
   disabled: boolean
   onPick: () => void
 }) {
-  const confidenceClass =
-    candidate.confidence === 'high'
-      ? 'text-success-foreground'
-      : candidate.confidence === 'medium'
-        ? 'text-pending-foreground'
-        : 'text-muted-foreground'
-  const facts = [
-    candidate.location,
-    candidate.genres,
-    candidate.notable_release,
-    candidate.popularity,
-  ].filter((v): v is string => typeof v === 'string' && v.length > 0)
+  // Confidence is the region TIER (PSY-1191): `high` = MB geography aligned with
+  // a PH show region (clear); `review` = region mismatch / non-US / no region —
+  // a possible touring act or namesake the admin should verify before linking.
+  // The `review` tier is NEVER auto-accepted or hidden — the admin still picks
+  // it explicitly; the badge + caveat just flag the lower certainty.
+  const isHigh = candidate.confidence === 'high'
 
   return (
     <div className="p-3 border rounded-md bg-card">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium">
-              {candidate.name_as_listed || 'Unknown name'}
+              {candidate.mb_artist_name || 'Unknown name'}
             </span>
-            <span className={`text-xs ${confidenceClass}`}>
-              [{candidate.confidence} confidence]
-            </span>
+            {isHigh ? (
+              <Badge variant="accent">High confidence</Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="border-pending-foreground/40 text-pending-foreground"
+              >
+                Verify
+              </Badge>
+            )}
           </div>
           <a
             href={candidate.url}
@@ -944,14 +956,31 @@ function DiscoveryCandidateCard({
           >
             {candidate.url}
           </a>
-          {facts.length > 0 && (
-            <div className="text-xs text-muted-foreground">
-              {facts.join(' · ')}
-            </div>
+          {/* Liveness + region-match indicators — small inline status row. */}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span
+              className={`inline-flex items-center gap-1 ${candidate.live ? 'text-success-foreground' : 'text-muted-foreground'}`}
+            >
+              {candidate.live ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <AlertCircle className="h-3 w-3" />
+              )}
+              {candidate.live ? 'Reachable' : 'No response'}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3 w-3" />
+              {candidate.region_match ? 'Region match' : 'Region mismatch'}
+            </span>
+          </div>
+          {!isHigh && (
+            <p className="text-xs italic text-pending-foreground">
+              Verify — possible touring act or namesake.
+            </p>
           )}
-          {candidate.why_might_match && (
+          {candidate.notes && (
             <p className="text-xs italic text-muted-foreground">
-              {candidate.why_might_match}
+              {candidate.notes}
             </p>
           )}
         </div>
