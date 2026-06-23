@@ -857,7 +857,20 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		totalSkipped    int // breaker-open or lock-contended no-ops (no discover happened)
 	)
 
+discoverLoop:
 	for _, station := range stations {
+		// Bail between stations on shutdown. PSY-1153 made each discover heavy (inline
+		// create-on-first import under the per-station lock), so — like runBackfillSweep —
+		// the cycle must stop promptly rather than open a fresh per-station run for every
+		// remaining station; the in-flight station's run is cancelled by its watcher.
+		// (Labeled break: a bare `break` in a select exits only the select.)
+		select {
+		case <-s.stopCh:
+			s.logger.Info("radio discover cycle: abandoned on shutdown", "processed", totalProcessed)
+			break discoverLoop
+		default:
+		}
+
 		// Breaker pre-check removed (PSY-1140) — RunStationSync handles the
 		// persistent breaker and returns Skipped for an open station, same as
 		// runFetchCycle.
@@ -1017,10 +1030,9 @@ func (s *RadioFetchService) runAutoBackfillShow(stationID, showID uint, since, u
 // with aired episodes whose playlist is still incomplete (within the lookback window),
 // then re-fetches each show's playlists through RunStationSync(backfill) — reusing
 // runAutoBackfillShow, so each sweep is traced in radio_sync_runs and honors the
-// per-station lock, persistent breaker, and shutdown cancellation exactly like the
-// discovery auto-backfill. Shows are processed SEQUENTIALLY to respect the per-provider
-// rate limit (same rationale as autoBackfillStation), and the loop bails between shows
-// on shutdown.
+// per-station lock, persistent breaker, and shutdown cancellation. Shows are processed
+// SEQUENTIALLY so a roster burst stays within the per-provider 1-req/sec rate limit, and
+// the loop bails between shows on shutdown.
 func (s *RadioFetchService) runBackfillCycle() {
 	cycleStart := time.Now()
 	lookback := time.Duration(s.backfillLookbackDays) * 24 * time.Hour

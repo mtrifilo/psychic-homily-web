@@ -406,8 +406,9 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 
 		// PSY-1153 create-on-first-episode: only update a show that ALREADY exists;
 		// never create a row here. A roster show with no row yet is returned as a
-		// candidate (NewRosterShows) so the auto-backfill creates it lazily when its
-		// first episode is ingested — an episode-less roster DJ never becomes a row.
+		// candidate (NewRosterShows); the caller's create-on-first step
+		// (createOnFirstForRoster, same discover run) creates it only once its first
+		// episode is ingested — an episode-less roster DJ never becomes a row.
 		_, found, err := s.findAndUpdateExistingShow(stationID, importShow)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("discover show %s: %v", importShow.Name, err))

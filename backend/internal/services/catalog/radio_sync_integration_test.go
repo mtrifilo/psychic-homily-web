@@ -355,9 +355,12 @@ func (s *RadioSyncSuite) TestDiscover_WritesRunAndShows() {
 	s.Require().NotNil(runs[0].FinishedAt)
 
 	// PSY-1153 create-on-first-episode: discovery NO LONGER persists rows. The two
-	// roster shows come back as NewRosterShows (candidates) and zero radio_shows rows
-	// exist until a first episode is ingested (via the auto-backfill).
+	// roster shows come back as NewRosterShows (candidates); create-on-first ran in this
+	// discover run but created zero rows because the mock supplies no episodes (an
+	// episode-less roster show never becomes a row). TestDiscover_CreateOnFirstEpisode
+	// covers the with-episodes path.
 	s.Len(res.Discover.NewRosterShows, 2)
+	s.Empty(res.Discover.CreatedShowNames)
 	var showCount int64
 	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", st.ID).Count(&showCount).Error)
 	s.Equal(int64(0), showCount, "discovery must not persist roster shows")

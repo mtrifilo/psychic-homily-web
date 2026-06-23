@@ -572,8 +572,9 @@ type RadioRunError struct {
 // RadioRosterShow is a provider-roster show that discovery saw but did NOT persist
 // (PSY-1153 create-on-first-episode): a radio_shows row is created only once the
 // show's first episode is successfully ingested, so discovery returns the roster
-// metadata for the auto-backfill to create-on-first. Mirrors the catalog-layer
-// RadioShowImport (kept here so the contracts layer doesn't import the service layer).
+// metadata for the discover run's create-on-first step (createOnFirstForRoster) to
+// materialize. Mirrors the catalog-layer RadioShowImport (kept here so the contracts
+// layer doesn't import the service layer).
 type RadioRosterShow struct {
 	ExternalID  string  `json:"external_id"`
 	Name        string  `json:"name"`
@@ -588,9 +589,10 @@ type RadioRosterShow struct {
 // NewShowNames count the roster shows that did NOT already have a row.
 //
 // PSY-1153: discovery no longer persists rows. NewRosterShows carries the not-yet-
-// persisted new shows (external_id + metadata) so the auto-backfill creates a row
-// only when the show's first episode is ingested. ShowsNew is therefore a count of
-// new-show *candidates*, not rows created — the actual creation happens downstream.
+// persisted new shows (external_id + metadata); the SAME discover run then creates a
+// row (+ imports episodes) for each that aired in the window, via create-on-first
+// (createOnFirstForRoster). ShowsNew is therefore a count of new-show *candidates*, not
+// rows created; CreatedShowNames reports the ones actually materialized.
 type RadioDiscoverResult struct {
 	ShowsDiscovered int               `json:"shows_discovered"`
 	ShowNames       []string          `json:"show_names"`
