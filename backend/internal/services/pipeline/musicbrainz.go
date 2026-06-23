@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +17,11 @@ const (
 	mbUserAgent = "PsychicHomily/1.0 (https://psychichomily.com)"
 	// MusicBrainz rate limit: 1 request per second
 	mbRateLimit = 1100 * time.Millisecond
-	// Minimum score to accept a MusicBrainz match
+	// mbMinScore is the minimum score the LEGACY SearchArtist path accepts.
+	// IMPORTANT: the PSY-1191 discovery path (SearchArtistCandidates) is
+	// deliberately SCORE-FREE — it applies an exact-name gate downstream instead,
+	// because a score filter discards a correct match buried under a higher-scored
+	// famous namesake. Do not extend mbMinScore to the candidate path.
 	mbMinScore = 90
 	// mbCandidateLimit caps the number of search candidates the discovery flow
 	// fetches per artist. The exact-name gate (PSY-1191) keeps only candidates
@@ -107,7 +112,8 @@ func NewMusicBrainzClient() *MusicBrainzClient {
 // SearchArtist searches MusicBrainz for an artist by name.
 // Returns the best match with score >= minScore, or nil if no match found.
 func (c *MusicBrainzClient) SearchArtist(name string) (*MBLookupResult, error) {
-	c.throttle()
+	// Legacy path keeps its un-cancellable behavior via a background context.
+	_ = c.throttle(context.Background())
 
 	encodedName := url.QueryEscape(name)
 	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=5", mbBaseURL, encodedName)
@@ -161,13 +167,15 @@ func (c *MusicBrainzClient) SearchArtist(name string) (*MBLookupResult, error) {
 // filter would discard the correct match when it is buried under a higher-scored
 // famous namesake (e.g. the real "Dylan Day" under a junk top-hit). Identity is
 // decided downstream by name normalization, never by MB score.
-func (c *MusicBrainzClient) SearchArtistCandidates(name string) ([]MBArtistResult, error) {
-	c.throttle()
+func (c *MusicBrainzClient) SearchArtistCandidates(ctx context.Context, name string) ([]MBArtistResult, error) {
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
 
 	encodedName := url.QueryEscape(name)
 	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=%d", mbBaseURL, encodedName, mbCandidateLimit)
 
-	body, err := c.doRequest(searchURL)
+	body, err := c.doRequestCtx(ctx, searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("musicbrainz search failed: %w", err)
 	}
@@ -185,12 +193,14 @@ func (c *MusicBrainzClient) SearchArtistCandidates(name string) ([]MBArtistResul
 // extracts platform links by host-anchoring on each relation's URL.Resource.
 // mbid is a MusicBrainz UUID returned by a prior search; it is URL-path-escaped
 // so a malformed value cannot alter the request target.
-func (c *MusicBrainzClient) LookupArtistURLRelations(mbid string) ([]MBURLRelation, error) {
-	c.throttle()
+func (c *MusicBrainzClient) LookupArtistURLRelations(ctx context.Context, mbid string) ([]MBURLRelation, error) {
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
 
 	lookupURL := fmt.Sprintf("%s/artist/%s?inc=url-rels&fmt=json", mbBaseURL, url.PathEscape(mbid))
 
-	body, err := c.doRequest(lookupURL)
+	body, err := c.doRequestCtx(ctx, lookupURL)
 	if err != nil {
 		return nil, fmt.Errorf("musicbrainz url-rels lookup failed: %w", err)
 	}
@@ -203,21 +213,38 @@ func (c *MusicBrainzClient) LookupArtistURLRelations(mbid string) ([]MBURLRelati
 	return result.Relations, nil
 }
 
-// throttle enforces the rate limit.
-func (c *MusicBrainzClient) throttle() {
+// throttle enforces the rate limit, interruptibly. It blocks until the next
+// request slot is available OR ctx is cancelled (whichever comes first). The
+// legacy SearchArtist path passes context.Background(), preserving its prior
+// behavior; the PSY-1191 discovery path passes the request context so a
+// disconnected admin stops the per-call rate-limit wait instead of holding the
+// lock for the full interval.
+func (c *MusicBrainzClient) throttle(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	elapsed := time.Since(c.lastReq)
-	if elapsed < c.rateLimit {
-		time.Sleep(c.rateLimit - elapsed)
+	if wait := c.rateLimit - elapsed; wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	c.lastReq = time.Now()
+	return nil
 }
 
-// doRequest performs an HTTP GET with proper headers.
+// doRequest performs an HTTP GET with proper headers (legacy, un-cancellable).
 func (c *MusicBrainzClient) doRequest(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	return c.doRequestCtx(context.Background(), url)
+}
+
+// doRequestCtx performs a context-bound HTTP GET with proper headers.
+func (c *MusicBrainzClient) doRequestCtx(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

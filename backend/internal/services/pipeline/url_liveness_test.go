@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"net"
 	"testing"
 )
@@ -29,6 +30,9 @@ func TestIsPublicIP(t *testing.T) {
 		{"100.127.255.255", false},   // CGNAT upper edge
 		{"::ffff:100.64.0.1", false}, // ipv4-mapped CGNAT
 		{"64:ff9b::1.1.1.1", false},  // NAT64 well-known prefix (embeds an IPv4 host)
+		{"::127.0.0.1", false},       // IPv4-compatible (::/96) embedding loopback
+		{"::169.254.169.254", false}, // IPv4-compatible embedding cloud metadata
+		{"::10.0.0.1", false},        // IPv4-compatible embedding RFC1918
 		{"192.0.2.10", false},        // TEST-NET-1 documentation range
 		{"198.51.100.10", false},     // TEST-NET-2
 		{"203.0.113.10", false},      // TEST-NET-3
@@ -72,7 +76,7 @@ func TestSSRFDialControl(t *testing.T) {
 func TestIsLive_RejectsNonHTTPSchemes(t *testing.T) {
 	c := NewSSRFSafeLivenessChecker()
 	for _, u := range []string{"javascript:alert(1)", "file:///etc/passwd", "ftp://host/x", "", "://nohost"} {
-		if c.IsLive(u) {
+		if c.IsLive(context.Background(), u) {
 			t.Errorf("IsLive(%q) = true, want false", u)
 		}
 	}

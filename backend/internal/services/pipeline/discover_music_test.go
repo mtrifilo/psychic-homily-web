@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -17,14 +18,14 @@ type fakeMB struct {
 	searchErr     error
 }
 
-func (f *fakeMB) SearchArtistCandidates(string) ([]MBArtistResult, error) {
+func (f *fakeMB) SearchArtistCandidates(_ context.Context, _ string) ([]MBArtistResult, error) {
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
 	return f.searchResults, nil
 }
 
-func (f *fakeMB) LookupArtistURLRelations(mbid string) ([]MBURLRelation, error) {
+func (f *fakeMB) LookupArtistURLRelations(_ context.Context, mbid string) ([]MBURLRelation, error) {
 	return f.relsByID[mbid], nil
 }
 
@@ -32,7 +33,7 @@ func (f *fakeMB) LookupArtistURLRelations(mbid string) ([]MBURLRelation, error) 
 // deterministic and free of network I/O.
 type stubLiveness struct{ live bool }
 
-func (s stubLiveness) IsLive(string) bool { return s.live }
+func (s stubLiveness) IsLive(context.Context, string) bool { return s.live }
 
 func urlRel(t, resource string) MBURLRelation {
 	r := MBURLRelation{Type: t}
@@ -68,7 +69,7 @@ func TestExactNameGate_RejectsFamousNamesake(t *testing.T) {
 	}
 	svc := newTestService(mb, true, nil)
 
-	res, err := svc.DiscoverMusic(1, "Club XCX")
+	res, err := svc.DiscoverMusic(context.Background(), 1, "Club XCX")
 	if err != nil {
 		t.Fatalf("DiscoverMusic returned error: %v", err)
 	}
@@ -82,8 +83,8 @@ func TestExactNameGate_RejectsFamousNamesake(t *testing.T) {
 	if len(res.Candidates) != 1 {
 		t.Fatalf("expected exactly 1 candidate (the real Club XCX), got %d: %+v", len(res.Candidates), res.Candidates)
 	}
-	if got := res.Candidates[0].URL; got != "https://clubxcx.bandcamp.com/" {
-		t.Fatalf("expected the real Club XCX bandcamp link, got %q", got)
+	if got := res.Candidates[0].URL; got != "https://clubxcx.bandcamp.com" {
+		t.Fatalf("expected the real Club XCX bandcamp link (canonicalized, no trailing slash), got %q", got)
 	}
 }
 
@@ -103,7 +104,7 @@ func TestExactNameGate_SurfacesBuriedCorrectMatchOverJunkTopHit(t *testing.T) {
 	}
 	svc := newTestService(mb, true, nil)
 
-	res, err := svc.DiscoverMusic(1, "Dylan Day")
+	res, err := svc.DiscoverMusic(context.Background(), 1, "Dylan Day")
 	if err != nil {
 		t.Fatalf("DiscoverMusic error: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestExactNameGate_AmpersandAndPunctuation(t *testing.T) {
 	svc := newTestService(mb, true, nil)
 
 	// Query with the "&" form; the "and" candidate must match.
-	res, err := svc.DiscoverMusic(1, "Florence & the Machine")
+	res, err := svc.DiscoverMusic(context.Background(), 1, "Florence & the Machine")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -158,7 +159,7 @@ func TestRegionTier_NeverDropsOnMismatch_PondInMinneapolis(t *testing.T) {
 	// Artist plays in Minneapolis, MN — a region the AU band can't match.
 	svc := newTestService(mb, true, []showRegion{{City: "Minneapolis", State: "MN"}})
 
-	res, err := svc.DiscoverMusic(1, "Pond")
+	res, err := svc.DiscoverMusic(context.Background(), 1, "Pond")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestRegionTier_HighOnStateMatch(t *testing.T) {
 	}
 	svc := newTestService(mb, true, []showRegion{{City: "Minneapolis", State: "MN"}})
 
-	res, err := svc.DiscoverMusic(1, "Localband")
+	res, err := svc.DiscoverMusic(context.Background(), 1, "Localband")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -221,7 +222,7 @@ func TestRegionTier_NoRegionIsReview(t *testing.T) {
 	}
 	svc := newTestService(mb, true, nil) // no regions
 
-	res, _ := svc.DiscoverMusic(1, "Band")
+	res, _ := svc.DiscoverMusic(context.Background(), 1, "Band")
 	if len(res.Candidates) != 1 || res.Candidates[0].Confidence != contracts.MusicConfidenceReview {
 		t.Fatalf("no-region must be review tier, got %+v", res.Candidates)
 	}
@@ -246,7 +247,7 @@ func TestDiscoverMusic_DedupsAndExtractsBothPlatforms(t *testing.T) {
 	}
 	svc := newTestService(mb, true, []showRegion{{City: "Austin", State: "TX"}})
 
-	res, _ := svc.DiscoverMusic(1, "Band")
+	res, _ := svc.DiscoverMusic(context.Background(), 1, "Band")
 	if len(res.Candidates) != 2 {
 		t.Fatalf("expected 2 candidates (bandcamp + 1 deduped spotify), got %d: %+v", len(res.Candidates), res.Candidates)
 	}
@@ -264,7 +265,7 @@ func TestDiscoverMusic_DedupsAndExtractsBothPlatforms(t *testing.T) {
 func TestDiscoverMusic_SearchErrorPropagates(t *testing.T) {
 	mb := &fakeMB{searchErr: errors.New("mb down")}
 	svc := newTestService(mb, true, nil)
-	if _, err := svc.DiscoverMusic(1, "Band"); err == nil {
+	if _, err := svc.DiscoverMusic(context.Background(), 1, "Band"); err == nil {
 		t.Fatalf("expected error when MB search fails")
 	}
 }
@@ -274,7 +275,7 @@ func TestDiscoverMusic_SearchErrorPropagates(t *testing.T) {
 func TestDiscoverMusic_EmptyNameSkips(t *testing.T) {
 	mb := &fakeMB{searchErr: errors.New("should not be called")}
 	svc := newTestService(mb, true, nil)
-	res, err := svc.DiscoverMusic(1, "   ")
+	res, err := svc.DiscoverMusic(context.Background(), 1, "   ")
 	if err != nil {
 		t.Fatalf("empty name should not error, got %v", err)
 	}
@@ -373,5 +374,102 @@ func TestClassifyPlatformURL(t *testing.T) {
 				t.Errorf("classifyPlatformURL(%q) = (%q, %v), want (%q, %v)", c.url, plat, ok, c.wantPlat, c.wantOK)
 			}
 		})
+	}
+}
+
+// TestClassifyPlatformURL_Canonicalizes confirms cosmetic variants of the same
+// link canonicalize to one form (so they dedup) and that userinfo/query/fragment
+// are stripped from the value returned to the admin.
+func TestClassifyPlatformURL_Canonicalizes(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"https://artist.bandcamp.com/", "https://artist.bandcamp.com"},
+		{"http://artist.bandcamp.com", "https://artist.bandcamp.com"},                              // scheme forced to https
+		{"https://ARTIST.Bandcamp.com/", "https://artist.bandcamp.com"},                            // host lowercased
+		{"https://open.spotify.com/artist/abc?si=track123", "https://open.spotify.com/artist/abc"}, // tracking query dropped
+		{"https://open.spotify.com/artist/abc#frag", "https://open.spotify.com/artist/abc"},        // fragment dropped
+		{"https://user:pass@artist.bandcamp.com/album/x", "https://artist.bandcamp.com/album/x"},   // userinfo dropped
+	}
+	for _, c := range cases {
+		_, got, ok := classifyPlatformURL(c.in)
+		if !ok || got != c.want {
+			t.Errorf("classifyPlatformURL(%q) normalized = %q (ok=%v), want %q", c.in, got, ok, c.want)
+		}
+	}
+}
+
+// TestDiscoverMusic_DedupUpgradesToHigherTier is the adversarial-review HIGH fix:
+// when two exact-name MB artists expose the SAME link, the surviving deduped row
+// must carry the BEST available confidence — even when MB returns the review-tier
+// artist first (score order != confidence order).
+func TestDiscoverMusic_DedupUpgradesToHigherTier(t *testing.T) {
+	const sharedLink = "https://shared.bandcamp.com/"
+	mb := &fakeMB{
+		searchResults: []MBArtistResult{
+			// Review-tier artist returned FIRST (foreign, higher score).
+			{ID: "review-id", Name: "Band", Score: 99, Country: "AU", Area: &MBArea{Name: "Australia", Type: "Country"}},
+			// High-tier artist returned SECOND (US, same state as the show).
+			{ID: "high-id", Name: "Band", Score: 80, Country: "US", Area: &MBArea{Name: "Texas", Type: "Subdivision"}},
+		},
+		relsByID: map[string][]MBURLRelation{
+			"review-id": {urlRel("bandcamp", sharedLink)},
+			"high-id":   {urlRel("bandcamp", sharedLink)},
+		},
+	}
+	svc := newTestService(mb, true, []showRegion{{City: "Austin", State: "TX"}})
+
+	res, err := svc.DiscoverMusic(context.Background(), 1, "Band")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if len(res.Candidates) != 1 {
+		t.Fatalf("the shared link must dedup to one candidate, got %d", len(res.Candidates))
+	}
+	c := res.Candidates[0]
+	if c.Confidence != contracts.MusicConfidenceHigh || !c.RegionMatch {
+		t.Fatalf("deduped row must adopt the HIGH tier from the second MB artist, got conf=%q match=%v (mbid=%s)", c.Confidence, c.RegionMatch, c.MBArtistID)
+	}
+	if c.MBArtistID != "high-id" {
+		t.Fatalf("deduped row should adopt the high-tier MB artist, got %s", c.MBArtistID)
+	}
+}
+
+// TestDiscoverMusic_DedupCosmeticVariants confirms trailing-slash / scheme /
+// tracking-query variants of the same link from one artist collapse to one row.
+func TestDiscoverMusic_DedupCosmeticVariants(t *testing.T) {
+	mb := &fakeMB{
+		searchResults: []MBArtistResult{
+			{ID: "id", Name: "Band", Score: 95, Country: "US", Area: &MBArea{Name: "Texas", Type: "Subdivision"}},
+		},
+		relsByID: map[string][]MBURLRelation{
+			"id": {
+				urlRel("free streaming", "https://open.spotify.com/artist/abc"),
+				urlRel("streaming", "https://open.spotify.com/artist/abc?si=xyz"), // tracking variant
+				urlRel("streaming", "http://open.spotify.com/artist/abc/"),        // scheme + slash variant
+			},
+		},
+	}
+	svc := newTestService(mb, true, []showRegion{{City: "Austin", State: "TX"}})
+
+	res, _ := svc.DiscoverMusic(context.Background(), 1, "Band")
+	if len(res.Candidates) != 1 {
+		t.Fatalf("cosmetic spotify variants must dedup to 1 candidate, got %d: %+v", len(res.Candidates), res.Candidates)
+	}
+}
+
+func TestIsAllowedPlatformHost(t *testing.T) {
+	allowed := []string{"bandcamp.com", "artist.bandcamp.com", "ARTIST.BANDCAMP.COM", "open.spotify.com"}
+	denied := []string{"evil.test", "open.spotify.com.evil.test", "bandcamp.com.evil.test", "spotify.com", "accounts.spotify.com", ""}
+	for _, h := range allowed {
+		if !isAllowedPlatformHost(h) {
+			t.Errorf("isAllowedPlatformHost(%q) = false, want true", h)
+		}
+	}
+	for _, h := range denied {
+		if isAllowedPlatformHost(h) {
+			t.Errorf("isAllowedPlatformHost(%q) = true, want false", h)
+		}
 	}
 }

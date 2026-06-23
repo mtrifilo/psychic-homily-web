@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
@@ -27,8 +29,8 @@ const livenessConcurrency = 8
 // without any network I/O (PSY-1191) — the exact-name gate and region tier are
 // the load-bearing logic and must be tested deterministically.
 type mbSearcher interface {
-	SearchArtistCandidates(name string) ([]MBArtistResult, error)
-	LookupArtistURLRelations(mbid string) ([]MBURLRelation, error)
+	SearchArtistCandidates(ctx context.Context, name string) ([]MBArtistResult, error)
+	LookupArtistURLRelations(ctx context.Context, mbid string) ([]MBURLRelation, error)
 }
 
 // DiscoverMusicService discovers candidate Bandcamp/Spotify links for a
@@ -71,8 +73,11 @@ func NewDiscoverMusicService(database *gorm.DB) *DiscoverMusicService {
 
 // DiscoverMusic runs the discovery flow for one artist and returns the candidate
 // list. The artist's name is supplied by the caller (resolved from the ID) so
-// this service stays free of artist-lookup concerns.
-func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (*contracts.DiscoverMusicResult, error) {
+// this service stays free of artist-lookup concerns. ctx bounds the whole
+// operation: if the admin disconnects, the in-flight MB calls and liveness
+// probes are cancelled instead of running to completion (and holding the shared
+// MB rate-limit lock).
+func (s *DiscoverMusicService) DiscoverMusic(ctx context.Context, artistID uint, artistName string) (*contracts.DiscoverMusicResult, error) {
 	result := &contracts.DiscoverMusicResult{
 		ArtistID:   artistID,
 		Candidates: []contracts.MusicLinkCandidate{},
@@ -89,29 +94,46 @@ func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (
 	// shows. Empty is fine — every candidate then resolves to "review" with the
 	// no-region note. A query failure is non-fatal: discovery still works, it
 	// just can't compute the high-confidence tier, so all candidates degrade to
-	// "review".
+	// "review". Logged at WARN so a persistent DB failure (every discovery
+	// silently review-tier) is distinguishable from a genuine no-region artist.
 	regions, err := s.regionsFn(artistID)
 	if err != nil {
+		logger.Default().Warn("discover_music_region_query_failed",
+			"artist_id", artistID,
+			"error", err.Error(),
+		)
 		regions = nil
 	}
 
-	candidates, err := s.mb.SearchArtistCandidates(artistName)
+	candidates, err := s.mb.SearchArtistCandidates(ctx, artistName)
 	if err != nil {
 		return nil, fmt.Errorf("musicbrainz candidate search: %w", err)
 	}
 
-	// dedup keys the candidate list by (platform, url) so the same link surfaced
-	// by multiple MB artists (or multiple relations on one artist) appears once.
-	seen := make(map[string]struct{})
+	// seenAt maps a (platform, canonical-url) dedup key to the index of the
+	// already-appended candidate for that link, so the same link surfaced by
+	// multiple exact-name MB artists (or multiple relations on one artist)
+	// appears once. On a collision the STRONGER candidate wins: MB returns
+	// artists in score order, not confidence order, so a later high-tier
+	// duplicate must be able to upgrade an earlier review-tier row — otherwise
+	// the surviving row would carry whichever MB artist happened to come first,
+	// not the best available confidence/region match.
+	seenAt := make(map[string]int)
 
 	for _, cand := range candidates {
+		// Stop early if the request was cancelled — each kept candidate costs a
+		// rate-limited (~1s) MB lookup, so there's no point starting another.
+		if ctx.Err() != nil {
+			break
+		}
+
 		// EXACT-NAME GATE (hard requirement). NEVER take the top match or use
 		// score for identity.
 		if normalizeArtistName(cand.Name) != normName {
 			continue
 		}
 
-		rels, relErr := s.mb.LookupArtistURLRelations(cand.ID)
+		rels, relErr := s.mb.LookupArtistURLRelations(ctx, cand.ID)
 		if relErr != nil {
 			// One artist's lookup failing shouldn't sink the whole request —
 			// skip it and keep going.
@@ -127,10 +149,21 @@ func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (
 				continue
 			}
 			dedupKey := platform + "|" + normalizedURL
-			if _, dup := seen[dedupKey]; dup {
+			if idx, dup := seenAt[dedupKey]; dup {
+				// Same link from another MB artist — upgrade the stored row if
+				// this candidate is strictly stronger (high beats review). The
+				// upgrade adopts this candidate's MB artist, region match, and
+				// notes so the surviving row is internally consistent.
+				if confidence == contracts.MusicConfidenceHigh &&
+					result.Candidates[idx].Confidence != contracts.MusicConfidenceHigh {
+					result.Candidates[idx].Confidence = confidence
+					result.Candidates[idx].RegionMatch = regionMatch
+					result.Candidates[idx].MBArtistID = cand.ID
+					result.Candidates[idx].MBArtistName = cand.Name
+					result.Candidates[idx].Notes = notes
+				}
 				continue
 			}
-			seen[dedupKey] = struct{}{}
 
 			result.Candidates = append(result.Candidates, contracts.MusicLinkCandidate{
 				Platform:     platform,
@@ -140,16 +173,16 @@ func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (
 				MBArtistName: cand.Name,
 				Confidence:   confidence,
 				RegionMatch:  regionMatch,
-				// Live is filled in concurrently below — each probe has its own
-				// timeout and an artist with several exact-name MB matches could
-				// otherwise serialize N×timeout and trip the frontend's request
-				// bound.
-				Notes: notes,
+				Notes:        notes,
+				// Live is left at its zero value here and filled in concurrently
+				// by fillLiveness below (see that method for why probing inline
+				// would serialize per-candidate timeouts).
 			})
+			seenAt[dedupKey] = len(result.Candidates) - 1
 		}
 	}
 
-	s.fillLiveness(result.Candidates)
+	s.fillLiveness(ctx, result.Candidates)
 
 	// Stable order: high-confidence first, then platform, then URL — so the
 	// admin sees the best matches at the top regardless of MB's relation order.
@@ -171,7 +204,7 @@ func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (
 // livenessConcurrency) and writes the result back into candidates[i].Live. Each
 // goroutine writes a DISJOINT index, so no lock is needed on the slice; the
 // WaitGroup is the only synchronization. Probes are independent and read-only.
-func (s *DiscoverMusicService) fillLiveness(candidates []contracts.MusicLinkCandidate) {
+func (s *DiscoverMusicService) fillLiveness(ctx context.Context, candidates []contracts.MusicLinkCandidate) {
 	if len(candidates) == 0 {
 		return
 	}
@@ -183,7 +216,7 @@ func (s *DiscoverMusicService) fillLiveness(candidates []contracts.MusicLinkCand
 		go func(idx int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			candidates[idx].Live = s.liveness.IsLive(candidates[idx].URL)
+			candidates[idx].Live = s.liveness.IsLive(ctx, candidates[idx].URL)
 		}(i)
 	}
 	wg.Wait()
@@ -342,9 +375,11 @@ func candidateCityNames(cand MBArtistResult) map[string]struct{} {
 	return out
 }
 
-// candidateNotes builds the human-readable note shown next to a candidate.
-// Collaboration/partial-name disambiguations carry through MB's own
-// disambiguation comment; a region mismatch gets the touring-act caveat.
+// candidateNotes builds the human-readable note shown next to a candidate: MB's
+// own disambiguation string verbatim when present (it often reads "rock band
+// from Perth, Australia" / "instrumental hip-hop artist", which helps the admin
+// tell same-name acts apart), plus a touring-act/namesake caveat when the region
+// didn't match.
 func candidateNotes(cand MBArtistResult, regionMatch bool) string {
 	var parts []string
 	if d := strings.TrimSpace(cand.Disambiguation); d != "" {
@@ -357,11 +392,18 @@ func candidateNotes(cand MBArtistResult, regionMatch bool) string {
 }
 
 // classifyPlatformURL host-anchors a MusicBrainz relation URL and, if it is a
-// Bandcamp artist subdomain or an open.spotify.com artist page, returns the
-// platform tag and the normalized URL. The host check is the identity signal —
+// Bandcamp artist subdomain/apex or an open.spotify.com artist page, returns the
+// platform tag and a CANONICALIZED URL. The host check is the identity signal —
 // NOT the MB relation `type` string, which varies ("free streaming",
 // "streaming", "bandcamp"). A substring check would be bypassable; this parses
-// and anchors on the resolved host (pattern: ssrf host anchor).
+// and anchors on the parsed host (pattern: ssrf host anchor) via the shared
+// isAllowedPlatformHost allowlist.
+//
+// Canonicalization makes the returned URL a stable dedup key (MB stores the same
+// link under cosmetic variants — trailing slash, scheme, tracking query, host
+// case): lowercase the host, force https, drop userinfo/fragment/query, and trim
+// a trailing slash. Userinfo is dropped both as URL hygiene (it would otherwise
+// be shown to the admin and persisted) and so credentials can't ride along.
 func classifyPlatformURL(rawURL string) (platform, normalized string, ok bool) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
@@ -371,17 +413,33 @@ func classifyPlatformURL(rawURL string) (platform, normalized string, ok bool) {
 		return "", "", false
 	}
 	host := strings.ToLower(u.Hostname())
-	switch {
-	case host == "bandcamp.com" || strings.HasSuffix(host, ".bandcamp.com"):
-		return contracts.MusicPlatformBandcamp, u.String(), true
-	case host == "open.spotify.com":
-		// Only artist pages are useful links; album/track/playlist URLs are not
-		// what the artist's spotify field stores.
-		if strings.Contains(u.Path, "/artist/") {
-			return contracts.MusicPlatformSpotify, u.String(), true
-		}
-		return "", "", false
-	default:
+	if !isAllowedPlatformHost(host) {
 		return "", "", false
 	}
+
+	// isAllowedPlatformHost has already confirmed host is open.spotify.com or a
+	// bandcamp host; the only remaining discrimination is spotify (which also
+	// requires an /artist/ path) vs bandcamp.
+	if host == "open.spotify.com" {
+		// Only artist pages are useful links; album/track/playlist URLs are not
+		// what the artist's spotify field stores.
+		if !strings.Contains(u.Path, "/artist/") {
+			return "", "", false
+		}
+		return contracts.MusicPlatformSpotify, canonicalPlatformURL(host, u.Path), true
+	}
+	// bandcamp.com / *.bandcamp.com
+	return contracts.MusicPlatformBandcamp, canonicalPlatformURL(host, u.Path), true
+}
+
+// canonicalPlatformURL builds the stable, hygienic form used for both the dedup
+// key and the value returned to the admin: always https, lowercased host (passed
+// in already-lowercased), the path with a single trailing slash trimmed, and NO
+// userinfo, query, or fragment. The host is a verified bandcamp/spotify host, so
+// forcing https is safe (both serve https) and removes the http/https dedup
+// split. The bare apex/profile ("https://artist.bandcamp.com") and a trailing-
+// slash variant collapse to one key.
+func canonicalPlatformURL(host, path string) string {
+	p := strings.TrimRight(path, "/")
+	return "https://" + host + p
 }

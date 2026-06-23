@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,10 +14,11 @@ import (
 
 // LivenessChecker reports whether a candidate URL is reachable. It is an
 // interface so the discovery flow can be unit-tested without real network I/O
-// (PSY-1191): the production implementation is SSRFSafeLivenessChecker.
+// (PSY-1191): the production implementation is SSRFSafeLivenessChecker. The
+// context lets the caller's request deadline cancel an in-flight probe.
 type LivenessChecker interface {
 	// IsLive returns true if rawURL responds with a non-server-error status.
-	IsLive(rawURL string) bool
+	IsLive(ctx context.Context, rawURL string) bool
 }
 
 const (
@@ -68,9 +70,18 @@ func NewSSRFSafeLivenessChecker() *SSRFSafeLivenessChecker {
 	client := &http.Client{
 		Timeout:   livenessTimeout,
 		Transport: transport,
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= livenessMaxRedirects {
 				return fmt.Errorf("stopped after %d redirects", livenessMaxRedirects)
+			}
+			// Re-anchor every redirect HOP to an allowed platform host. The
+			// dial-time IP guard already refuses non-public targets, but
+			// host-anchoring the redirect chain is defense-in-depth: it keeps the
+			// probe from being laundered through an open redirect on bandcamp/
+			// spotify to an arbitrary public third party (request forgery from the
+			// server's IP), and it means the IP guard isn't the SOLE control.
+			if !isAllowedPlatformHost(req.URL.Hostname()) {
+				return fmt.Errorf("refusing redirect to non-platform host %q", req.URL.Hostname())
 			}
 			return nil
 		},
@@ -87,16 +98,16 @@ func NewSSRFSafeLivenessChecker() *SSRFSafeLivenessChecker {
 // 2xx/3xx/4xx response counts as "live" (the resource exists / the host
 // answered); a transport error or 5xx counts as not live. A dial-guard refusal
 // surfaces as a transport error → not live, which is the safe default.
-func (c *SSRFSafeLivenessChecker) IsLive(rawURL string) bool {
+func (c *SSRFSafeLivenessChecker) IsLive(ctx context.Context, rawURL string) bool {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return false
 	}
 
-	if status, ok := c.probe(http.MethodHead, rawURL); ok {
+	if status, ok := c.probe(ctx, http.MethodHead, rawURL); ok {
 		if status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented {
 			// Host doesn't allow HEAD — fall through to GET.
-			if getStatus, getOK := c.probe(http.MethodGet, rawURL); getOK {
+			if getStatus, getOK := c.probe(ctx, http.MethodGet, rawURL); getOK {
 				return statusIsLive(getStatus)
 			}
 			return false
@@ -106,10 +117,24 @@ func (c *SSRFSafeLivenessChecker) IsLive(rawURL string) bool {
 	return false
 }
 
+// isAllowedPlatformHost reports whether host is bandcamp.com (or a bandcamp
+// artist subdomain) or open.spotify.com. It is the single host allowlist for the
+// discover-music flow: classifyPlatformURL gates candidate URLs on it, and the
+// liveness client's CheckRedirect re-anchors every redirect hop on it. Host is
+// compared case-insensitively; callers pass url.Hostname() (no port, no
+// brackets).
+func isAllowedPlatformHost(host string) bool {
+	h := strings.ToLower(host)
+	return h == "bandcamp.com" || strings.HasSuffix(h, ".bandcamp.com") || h == "open.spotify.com"
+}
+
 // probe issues a single request and returns the response status. ok is false on
-// any transport-level failure (including an SSRF dial refusal).
-func (c *SSRFSafeLivenessChecker) probe(method, rawURL string) (status int, ok bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), livenessTimeout)
+// any transport-level failure (including an SSRF dial refusal). The probe is
+// bounded by the smaller of livenessTimeout and the caller's ctx deadline, so a
+// disconnected admin request cancels in-flight probes instead of running to
+// completion.
+func (c *SSRFSafeLivenessChecker) probe(ctx context.Context, method, rawURL string) (status int, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, livenessTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
@@ -126,6 +151,10 @@ func (c *SSRFSafeLivenessChecker) probe(method, rawURL string) (status int, ok b
 	if err != nil {
 		return 0, false
 	}
+	// Drain a bounded prefix before close so the connection can be reused/torn
+	// down cleanly even on the GET fallback (a non-Range-honoring host returns a
+	// full body); the dial guard + DisableKeepAlives already cap exposure.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 	return resp.StatusCode, true
 }
@@ -160,61 +189,62 @@ func ssrfDialControl(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// cgnatNet is the RFC 6598 shared-address (carrier-grade NAT) range
-// 100.64.0.0/10. Go's net.IP.IsPrivate() does NOT cover it, yet some cloud
-// providers route internal services through CGNAT space — so a server-side
-// fetch must refuse it too.
-var cgnatNet = mustCIDR("100.64.0.0/10")
+// blockedNets enumerates the non-public ranges Go's stdlib IP predicates
+// (IsLoopback/IsPrivate/IsLinkLocal*/IsMulticast/IsUnspecified) DON'T cover but
+// a server-side SSRF guard must still refuse. The stdlib predicates are applied
+// separately in isPublicIP; this list closes their gaps. Every entry is checked
+// against BOTH the original IP and the To4()-normalized form, so an IPv4-mapped
+// IPv6 wrapper (::ffff:a.b.c.d) of any IPv4 range here is also caught.
+var blockedNets = mustCIDRs(
+	// IPv4 ranges stdlib misses:
+	"0.0.0.0/8",       // "this host on this network" (RFC 1122) — 0.x dials localhost on Linux
+	"100.64.0.0/10",   // CGNAT shared address space (RFC 6598)
+	"192.0.0.0/24",    // IETF protocol assignments (incl. 192.0.0.x service hosts)
+	"192.0.2.0/24",    // TEST-NET-1 (RFC 5737 documentation)
+	"198.18.0.0/15",   // benchmarking (RFC 2544)
+	"198.51.100.0/24", // TEST-NET-2
+	"203.0.113.0/24",  // TEST-NET-3
+	"240.0.0.0/4",     // reserved class E (incl. 255.255.255.255 broadcast)
+	// IPv6 ranges that embed/relay to arbitrary (incl. internal) IPv4 targets.
+	// To4() normalizes only the IPv4-MAPPED form (::ffff:a.b.c.d), so these
+	// embedding prefixes must be blocked explicitly on the original IPv6 shape:
+	"::/96",        // IPv4-COMPATIBLE (deprecated) — ::a.b.c.d embeds an IPv4 host (::7f00:1 = 127.0.0.1). Does NOT match ::ffff:a.b.c.d (those normalize via To4).
+	"64:ff9b::/96", // NAT64 well-known prefix — low 32 bits are an IPv4 host
+	"2002::/16",    // 6to4 — bits 16..48 are an embedded IPv4 host (2002:7f00::/24 = 127.0.0.0/8)
+	"2001::/32",    // Teredo — relays to arbitrary IPv4
+)
 
-// extraBlockedNets are additional non-public ranges that Go's stdlib predicates
-// miss but a defense-in-depth SSRF guard should still refuse: the documentation
-// ranges (often used for internal placeholders) and the benchmarking range.
-var extraBlockedNets = []*net.IPNet{
-	mustCIDR("192.0.2.0/24"),    // TEST-NET-1 (RFC 5737)
-	mustCIDR("198.51.100.0/24"), // TEST-NET-2
-	mustCIDR("203.0.113.0/24"),  // TEST-NET-3
-	mustCIDR("198.18.0.0/15"),   // benchmarking (RFC 2544)
-	mustCIDR("nat64"),           // placeholder replaced below
+func mustCIDRs(cidrs ...string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			panic("invalid SSRF CIDR " + c + ": " + err.Error())
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
-func mustCIDR(s string) *net.IPNet {
-	if s == "nat64" {
-		// 64:ff9b::/96 — well-known NAT64 prefix. A NAT64 address embeds an
-		// IPv4 host in its low 32 bits, so it can be used to reach an internal
-		// IPv4 target; refuse the whole prefix.
-		_, n, _ := net.ParseCIDR("64:ff9b::/96")
-		return n
-	}
-	_, n, err := net.ParseCIDR(s)
-	if err != nil {
-		panic("invalid SSRF CIDR " + s + ": " + err.Error())
-	}
-	return n
-}
-
-// isPublicIP reports whether ip is a globally-routable public address — i.e. NOT
-// loopback, private (RFC1918 / RFC4193 fc00::/7), link-local (incl.
-// 169.254.169.254 cloud metadata), multicast, unspecified (0.0.0.0 / ::), CGNAT
-// (100.64.0.0/10), NAT64 (64:ff9b::/96), a documentation/benchmark range, or an
-// IPv4-in-IPv6-mapped form of any of those. This is the allowlist-by-exclusion
-// at the heart of the SSRF guard.
-//
-// Go's stdlib predicates (IsPrivate etc.) miss CGNAT and NAT64, both of which can
-// reach internal hosts; those are covered by the explicit CIDR checks below
-// BEFORE the IPv4-mapped normalization, so a NAT64 address is caught as IPv6.
+// isPublicIP reports whether ip is a globally-routable public address. It is the
+// allowlist-by-exclusion at the heart of the SSRF guard: an address is public
+// ONLY if it survives every block below. The blocked set is the union of (a) the
+// stdlib predicates — loopback, private (RFC1918 / RFC4193 fc00::/7), link-local
+// (incl. 169.254.169.254 cloud metadata), multicast, unspecified — and (b) the
+// blockedNets CIDR list, which closes the ranges those predicates miss
+// (0.0.0.0/8, CGNAT, class-E/broadcast, documentation/benchmark, NAT64, 6to4,
+// Teredo). Each blockedNets entry is checked against both the original form and
+// the IPv4-mapped-normalized form, so a mapped wrapper of any blocked IPv4 range
+// is also refused.
 func isPublicIP(ip net.IP) bool {
-	// Explicit-CIDR checks run first, on the ORIGINAL form, so the NAT64 IPv6
-	// prefix is matched before To4() would rewrite a mapped address.
-	if cgnatNet.Contains(ip) {
+	// Check blockedNets against the ORIGINAL form first, so an IPv6-shaped
+	// embedding prefix (NAT64 / 6to4 / Teredo) is matched before To4() could
+	// rewrite a mapped address into a bare IPv4.
+	if inAnyNet(ip, blockedNets) {
 		return false
 	}
-	for _, n := range extraBlockedNets {
-		if n.Contains(ip) {
-			return false
-		}
-	}
 	// Normalize an IPv4-mapped IPv6 address (::ffff:127.0.0.1) to its IPv4 form
-	// so the stdlib IPv4 checks below apply.
+	// so the stdlib IPv4 predicates and the IPv4 entries in blockedNets apply.
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
 	}
@@ -226,11 +256,24 @@ func isPublicIP(ip net.IP) bool {
 		ip.IsUnspecified() {
 		return false
 	}
-	// Re-run CGNAT against the normalized IPv4 form too (a ::ffff:100.64.x.x
-	// mapped address would have passed the pre-normalization check on its IPv6
-	// shape).
-	if cgnatNet.Contains(ip) {
+	// Re-check blockedNets against the normalized IPv4 form (a ::ffff:100.64.x.x
+	// mapped CGNAT address passes the pre-normalization check on its IPv6 shape).
+	if inAnyNet(ip, blockedNets) {
 		return false
 	}
-	return true
+	// Final floor: only addresses the stdlib considers global-unicast are public.
+	// This catches any remaining non-routable IPv6 shape (e.g. a future reserved
+	// block) without an explicit CIDR. For a normalized IPv4, To4() addresses are
+	// global-unicast unless caught above.
+	return ip.IsGlobalUnicast()
+}
+
+// inAnyNet reports whether ip falls within any of the given networks.
+func inAnyNet(ip net.IP, nets []*net.IPNet) bool {
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }

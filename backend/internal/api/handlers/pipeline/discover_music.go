@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -12,6 +13,13 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// discoverMusicTimeout hard-bounds a single discovery server-side. MB lookups
+// are rate-limited (~1.1s each, up to mbCandidateLimit) and liveness probes run
+// concurrently; this ceiling keeps the request under the frontend's 70s abort
+// even on a worst-case multi-match artist, and prevents a disconnected client
+// from holding the shared MB rate-limit lock indefinitely.
+const discoverMusicTimeout = 55 * time.Second
 
 // DiscoverMusicHandler owns the admin discover-music surface: given an artist,
 // it returns candidate Bandcamp/Spotify links discovered via MusicBrainz for the
@@ -81,7 +89,13 @@ func (h *DiscoverMusicHandler) DiscoverMusicHandler(ctx context.Context, req *Di
 		"request_id", requestID,
 	)
 
-	result, err := h.discoverService.DiscoverMusic(uint(artistID), artist.Name)
+	// Hard server-side deadline so a single discovery is bounded regardless of
+	// client behavior, and a disconnected admin can't keep the shared MB
+	// rate-limit lock busy.
+	ctx, cancel := context.WithTimeout(ctx, discoverMusicTimeout)
+	defer cancel()
+
+	result, err := h.discoverService.DiscoverMusic(ctx, uint(artistID), artist.Name)
 	if err != nil {
 		logger.FromContext(ctx).Error("discover_music_failed",
 			"artist_id", artistID,

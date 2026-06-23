@@ -318,9 +318,10 @@ type DiscoverMusicResult struct {
 
 // DiscoverMusicServiceInterface defines the contract for MusicBrainz-backed
 // link discovery. artistName is supplied by the handler after resolving the ID,
-// so the service stays free of artist-lookup concerns.
+// so the service stays free of artist-lookup concerns. ctx bounds the network
+// work (MB lookups + liveness probes) so a disconnected request is cancelled.
 type DiscoverMusicServiceInterface interface {
-	DiscoverMusic(artistID uint, artistName string) (*DiscoverMusicResult, error)
+	DiscoverMusic(ctx context.Context, artistID uint, artistName string) (*DiscoverMusicResult, error)
 }
 
 // ──────────────────────────────────────────────
