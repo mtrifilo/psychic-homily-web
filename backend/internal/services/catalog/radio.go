@@ -631,6 +631,16 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 	if req.IsActive != nil {
 		updates["is_active"] = *req.IsActive
 	}
+	// Schedule provenance (PSY-1186): an explicit schedule_locked wins; otherwise a manual
+	// schedule edit auto-locks it (the admin curated it by hand, so the weekly WFMU scrape
+	// must not clobber it). To edit the schedule but KEEP it scrape-managed, send the schedule
+	// together with schedule_locked=false (the explicit value wins over the auto-lock).
+	switch {
+	case req.ScheduleLocked != nil:
+		updates["schedule_locked"] = *req.ScheduleLocked
+	case req.Schedule != nil:
+		updates["schedule_locked"] = true
+	}
 
 	if len(updates) > 0 {
 		if err := s.db.Model(&show).Updates(updates).Error; err != nil {
@@ -1494,6 +1504,7 @@ func (s *RadioService) buildShowDetailResponse(show *catalogm.RadioShow) (*contr
 		Description:     show.Description,
 		ScheduleDisplay: show.ScheduleDisplay,
 		Schedule:        show.Schedule,
+		ScheduleLocked:  show.ScheduleLocked,
 		GenreTags:       show.GenreTags,
 		ArchiveURL:      show.ArchiveURL,
 		ImageURL:        show.ImageURL,
