@@ -40,6 +40,18 @@ type PendingEditService struct {
 	backendURL string
 	jwtSecret  string
 	md         *utils.MarkdownRenderer
+	// bandcampFiller resolves a newly-applied artist Bandcamp PROFILE root → an
+	// embed (PSY-1190 fill-when-empty). Optional/nil-safe — when unset (older
+	// tests), the approval applies the bandcamp change but skips embed resolution.
+	// Wired in the service container (SetBandcampFiller).
+	bandcampFiller contracts.BandcampProfileFillerInterface
+}
+
+// SetBandcampFiller wires the PSY-1190 profile→embed resolver used after a
+// pending edit that sets an artist's social.bandcamp is approved. Optional — the
+// approval flow is a no-op for embed resolution when this is nil.
+func (s *PendingEditService) SetBandcampFiller(f contracts.BandcampProfileFillerInterface) {
+	s.bandcampFiller = f
 }
 
 // NewPendingEditService creates a new PendingEditService.
@@ -395,6 +407,21 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// PSY-1190: an artist edit that sets social.bandcamp lands here via a direct
+	// UPDATE (community suggestion OR trusted-tier inline edit auto-applied through
+	// canEditDirectly), bypassing ArtistService.UpdateArtist and its profile→embed
+	// resolver. Mirror that resolver here so a profile root set this way still
+	// fills bandcamp_embed_url (profile_resolved, fill-when-empty; a manual value
+	// is left untouched by the resolver's IS NULL guard). Runs after the approval
+	// commits; the filler itself dispatches the network fetch off-thread.
+	if s.bandcampFiller != nil && edit.EntityType == "artist" {
+		if v, ok := updates["bandcamp"]; ok {
+			if bc, ok := v.(string); ok && bc != "" {
+				s.bandcampFiller.FillProfileResolvedEmbedFromBandcamp(edit.EntityID, bc)
+			}
+		}
 	}
 
 	// Record revision (fire-and-forget — don't fail the approval if this errors)

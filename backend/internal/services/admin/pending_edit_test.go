@@ -531,6 +531,75 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueLoc
 	s.Require().NotNil(updated.Longitude)
 }
 
+// mockBandcampFiller records FillProfileResolvedEmbedFromBandcamp calls so a test
+// can assert the pending-edit approval flow invokes the PSY-1190 resolver on a
+// `bandcamp` edit (and only then). It implements
+// contracts.BandcampProfileFillerInterface.
+type mockBandcampFiller struct {
+	calls []struct {
+		artistID   uint
+		profileURL string
+	}
+}
+
+func (m *mockBandcampFiller) FillProfileResolvedEmbedFromBandcamp(artistID uint, profileURL string) {
+	m.calls = append(m.calls, struct {
+		artistID   uint
+		profileURL string
+	}{artistID, profileURL})
+}
+
+// PSY-1190: a trusted/community pending edit that sets an artist's social.bandcamp
+// to a profile root applies via a direct UPDATE here, bypassing
+// ArtistService.UpdateArtist's resolver. The approval flow must invoke the filler
+// so the embed still gets resolved (fill-when-empty).
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_BandcampProfileTriggersFill() {
+	filler := &mockBandcampFiller{}
+	s.svc.SetBandcampFiller(filler)
+	defer s.svc.SetBandcampFiller(nil) // don't leak into other tests in the suite
+
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Bandcamp Artist")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("bandcamp", "", "https://bandcampartist.bandcamp.com"),
+		Summary: "add bandcamp profile",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	s.Require().Len(filler.calls, 1, "approving a bandcamp edit must invoke the resolver")
+	s.Equal(artist.ID, filler.calls[0].artistID)
+	s.Equal("https://bandcampartist.bandcamp.com", filler.calls[0].profileURL)
+}
+
+// A non-bandcamp artist edit (or any non-artist edit) must NOT invoke the filler.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_NonBandcampEditNoFill() {
+	filler := &mockBandcampFiller{}
+	s.svc.SetBandcampFiller(filler)
+	defer s.svc.SetBandcampFiller(nil)
+
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Name Edit Artist")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("name", "Name Edit Artist", "Renamed Artist"),
+		Summary: "rename",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	s.Empty(filler.calls, "a non-bandcamp edit must not invoke the resolver")
+}
+
 // =============================================================================
 // GetUserPendingEdits tests
 // =============================================================================
