@@ -203,7 +203,7 @@ func classifyError(err error) errorKind {
 //  3. Re-matches unmatched plays against newly added artists (weekly)
 //  4. Discovers newly-added shows on every active station (daily)
 //
-// It follows the same Start/Stop pattern as SchedulerService and other background services.
+// It follows the same Start/Stop pattern as the other background ticker services.
 type RadioFetchService struct {
 	radioService   *RadioService
 	discordService contracts.DiscordServiceInterface

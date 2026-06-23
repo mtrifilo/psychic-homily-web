@@ -179,7 +179,6 @@ func main() {
 	var (
 		cleanupCancel          context.CancelFunc
 		reminderCancel         context.CancelFunc
-		schedulerCancel        context.CancelFunc
 		enrichmentCancel       context.CancelFunc
 		autoPromotionCancel    context.CancelFunc
 		radioFetchCancel       context.CancelFunc
@@ -203,19 +202,6 @@ func main() {
 		sc.Reminder.Start(reminderCtx)
 	} else {
 		log.Printf("DISABLE_REMINDERS=1: skipping reminder service startup")
-	}
-
-	// Legacy venue AI-extraction scheduler — RETIRED (PSY-1158). Superseded by the
-	// /ingest skill; default-OFF now (was default-on, gated by DISABLE_SCHEDULER).
-	// Set ENABLE_SCHEDULER=1 to opt back in. Deep removal of the pipeline service
-	// is a tracked follow-up.
-	if os.Getenv("ENABLE_SCHEDULER") == "1" {
-		var schedulerCtx context.Context
-		schedulerCtx, schedulerCancel = context.WithCancel(context.Background())
-		sc.Scheduler.Start(schedulerCtx)
-		log.Printf("ENABLE_SCHEDULER=1: starting legacy extraction scheduler")
-	} else {
-		log.Printf("extraction scheduler disabled (retired, PSY-1158; set ENABLE_SCHEDULER=1 to opt in)")
 	}
 
 	// Start enrichment worker (background job for post-import enrichment)
@@ -299,10 +285,6 @@ func main() {
 		reminderCancel()
 		sc.Reminder.Stop()
 	}
-	if schedulerCancel != nil {
-		schedulerCancel()
-		sc.Scheduler.Stop()
-	}
 	if enrichmentCancel != nil {
 		enrichmentCancel()
 		sc.EnrichmentWorker.Stop()
@@ -323,9 +305,6 @@ func main() {
 		collectionDigestCancel()
 		sc.CollectionDigest.Stop()
 	}
-
-	// Shut down chromedp browser pool
-	sc.Fetcher.ShutdownChromedp()
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
