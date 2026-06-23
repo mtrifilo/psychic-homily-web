@@ -25,7 +25,7 @@ func loadFixture(t *testing.T, name string) string {
 }
 
 // =============================================================================
-// extractFeaturedReleasePath — extraction from recorded HTML fixtures
+// extractFeaturedRelease — extraction from recorded HTML fixtures
 // =============================================================================
 
 func TestExtractFeaturedReleasePath(t *testing.T) {
@@ -84,12 +84,39 @@ func TestExtractFeaturedReleasePath(t *testing.T) {
 			fixture: "bandcamp_profile_empty.html",
 			wantOK:  false,
 		},
+		{
+			// Layer (b): the inline grid renders NO <a> anchors (lazy/partial), but
+			// the grid tag's data-client-items JSON carries the discography. The JSON's
+			// first /album entry wins; the decoy /album nav link before the grid does
+			// NOT (the JSON is scoped to the grid's own opening tag).
+			name:     "client-items JSON fallback when inline anchors are empty",
+			fixture:  "bandcamp_profile_client_items_only.html",
+			wantPath: "/album/from-json-first",
+			wantOK:   true,
+		},
+		{
+			// The real AJJ /music sub-page (the layer-c target). Has BOTH inline
+			// anchors and JSON; layer (a) wins → the first inline album.
+			name:     "music sub-page grid (real AJJ /music)",
+			fixture:  "bandcamp_profile_music_subpage.html",
+			wantPath: "/album/good-luck-everybody-demos",
+			wantOK:   true,
+		},
+		{
+			// The album-LANDING page the AJJ root redirects to: no music-grid, only a
+			// tracklist of /track hrefs. Same-page extraction must yield NOTHING so the
+			// /music fallback fires (the first /track on the page is a tracklist track,
+			// NOT the featured release — picking it would be a silent wrong embed).
+			name:    "album-landing page (no grid) yields no path → forces /music fallback",
+			fixture: "bandcamp_profile_album_landing.html",
+			wantOK:  false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			html := loadFixture(t, tt.fixture)
-			got, ok := extractFeaturedReleasePath(html)
+			got, ok := extractFeaturedRelease(html)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (path=%q)", ok, tt.wantOK, got)
 			}
@@ -121,8 +148,18 @@ func TestResolveProfileEmbed_PercentEncodedSlugRoundTrips(t *testing.T) {
 
 // Defensive: a malformed/garbage body must not panic and must report no match.
 func TestExtractFeaturedReleasePath_NoPanicOnGarbage(t *testing.T) {
-	for _, body := range []string{"", "<<<<", "<html", strings.Repeat("<a href=", 1000)} {
-		if _, ok := extractFeaturedReleasePath(body); ok {
+	bodies := []string{
+		"", "<<<<", "<html", strings.Repeat("<a href=", 1000),
+		// Layer (b) edge cases: a music-grid tag with a malformed / empty / non-array
+		// / non-release data-client-items attribute must not panic and must not match.
+		`<ol id="music-grid" data-client-items="not json">`,
+		`<ol id="music-grid" data-client-items="">`,
+		`<ol id="music-grid" data-client-items="[{&quot;page_url&quot;:&quot;/notrelease/x&quot;}]">`,
+		`<ol id="music-grid" data-client-items="{&quot;page_url&quot;:&quot;/album/x&quot;}">`, // object not array
+		`<ol id="music-grid" data-client-items="[]">`,                                          // empty array
+	}
+	for _, body := range bodies {
+		if _, ok := extractFeaturedRelease(body); ok {
 			t.Fatalf("garbage %q unexpectedly extracted a path", body)
 		}
 	}
@@ -311,6 +348,132 @@ func TestResolveProfileEmbed_ApexFinalHostFailsStrictEmbedGate(t *testing.T) {
 	// resolveProfileEmbedForArtist logs WARN + skips, so no apex URL is stored.
 	if utils.IsValidBandcampEmbedURL(embed) {
 		t.Fatal("apex-hosted embed must FAIL the strict embed gate so the fill skips it")
+	}
+}
+
+// pathCannedRoundTripper answers each request from a per-host+path table WITHOUT a
+// real network, so a test can drive the resolver through the /music fallback (the
+// root and /music are the SAME host but different paths) and observe production
+// CheckRedirect + resp.Request behavior faithfully. The lookup key is
+// "host" + path. A request to an unmapped key returns a 404 with no body (the
+// resolver treats it as "nothing to fill"), so a leak to an unexpected URL is
+// visible as a miss rather than a silent success.
+type pathCannedRoundTripper struct {
+	byKey map[string]cannedResponse // "<host><path>" → response
+	hits  map[string]int            // "<host><path>" → times fetched
+}
+
+func (c *pathCannedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	key := req.URL.Hostname() + req.URL.Path
+	if c.hits == nil {
+		c.hits = map[string]int{}
+	}
+	c.hits[key]++
+	cr, ok := c.byKey[key]
+	if !ok {
+		cr = cannedResponse{status: http.StatusNotFound}
+	}
+	h := http.Header{}
+	if cr.location != "" {
+		h.Set("Location", cr.location)
+	}
+	return &http.Response{
+		StatusCode: cr.status,
+		Header:     h,
+		Body:       io.NopCloser(strings.NewReader(cr.body)),
+		Request:    req,
+	}, nil
+}
+
+func newPathCannedResolver(rt *pathCannedRoundTripper) *BandcampProfileResolver {
+	client := &http.Client{
+		Transport: rt,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errStr("too many redirects")
+			}
+			if !isAllowedBandcampFetchURL(req.URL) {
+				return errStr("redirect to disallowed host: " + req.URL.Hostname())
+			}
+			return nil
+		},
+	}
+	return NewBandcampProfileResolverWithClient(client)
+}
+
+// PSY-1202 root cause: the real AJJ root (ajjtheband.bandcamp.com) 303-redirects to
+// a single album LANDING page with NO discography grid. Same-page extraction yields
+// nothing; the resolver must then fetch the artist's /music sub-page (which has the
+// full grid) and resolve the FEATURED release from there — NOT pick an arbitrary
+// tracklist track off the landing page.
+func TestResolveProfileEmbed_MusicSubpageFallbackOnAlbumRedirect(t *testing.T) {
+	landing := loadFixture(t, "bandcamp_profile_album_landing.html")
+	music := loadFixture(t, "bandcamp_profile_music_subpage.html")
+	rt := &pathCannedRoundTripper{byKey: map[string]cannedResponse{
+		// Root 303s to a single album landing page (same host).
+		"ajjtheband.bandcamp.com/": {status: http.StatusSeeOther, location: "https://ajjtheband.bandcamp.com/album/good-luck-everybody-demos"},
+		// The album landing page: no music-grid, only a tracklist.
+		"ajjtheband.bandcamp.com/album/good-luck-everybody-demos": {status: http.StatusOK, body: landing},
+		// The /music sub-page: the real discography grid.
+		"ajjtheband.bandcamp.com/music": {status: http.StatusOK, body: music},
+	}}
+	resolver := newPathCannedResolver(rt)
+
+	embed, ok := resolver.ResolveProfileEmbed(context.Background(), "https://ajjtheband.bandcamp.com")
+	if !ok {
+		t.Fatal("expected /music fallback to resolve the featured release")
+	}
+	want := "https://ajjtheband.bandcamp.com/album/good-luck-everybody-demos"
+	if embed != want {
+		t.Fatalf("embed = %q, want %q (must be the /music grid's featured album, not a tracklist track)", embed, want)
+	}
+	if rt.hits["ajjtheband.bandcamp.com/music"] == 0 {
+		t.Fatal("the /music sub-page was never fetched — the fallback did not fire")
+	}
+}
+
+// When NEITHER the root page NOR /music has a discography grid (a genuinely empty
+// artist), the resolver fills NOTHING — it must never invent a release.
+func TestResolveProfileEmbed_NoGridAnywhereYieldsNothing(t *testing.T) {
+	empty := loadFixture(t, "bandcamp_profile_empty.html")
+	rt := &pathCannedRoundTripper{byKey: map[string]cannedResponse{
+		"empty.bandcamp.com/":      {status: http.StatusOK, body: empty},
+		"empty.bandcamp.com/music": {status: http.StatusOK, body: empty},
+	}}
+	resolver := newPathCannedResolver(rt)
+
+	if embed, ok := resolver.ResolveProfileEmbed(context.Background(), "https://empty.bandcamp.com"); ok {
+		t.Fatalf("expected no embed when no grid exists anywhere, got %q", embed)
+	}
+	if rt.hits["empty.bandcamp.com/music"] == 0 {
+		t.Fatal("the /music fallback should have been attempted")
+	}
+}
+
+// SSRF on the /music fallback: when the ROOT yields nothing, the /music fetch must
+// be host-anchored to the SAME *.bandcamp.com input subdomain. A root that 303s to
+// an album landing page does NOT widen the fallback's target — /music is always
+// built on the validated input origin, never on an attacker-influenced value.
+func TestResolveProfileEmbed_MusicFallbackStaysOnInputHost(t *testing.T) {
+	landing := `<html><body><a href="/track/a-tracklist-track">t</a></body></html>`
+	rt := &pathCannedRoundTripper{byKey: map[string]cannedResponse{
+		"artist.bandcamp.com/":      {status: http.StatusOK, body: landing},
+		"artist.bandcamp.com/music": {status: http.StatusOK, body: `<ol id="music-grid"><li class="music-grid-item"><a href="/album/real-featured">x</a></li></ol>`},
+	}}
+	resolver := newPathCannedResolver(rt)
+
+	embed, ok := resolver.ResolveProfileEmbed(context.Background(), "https://artist.bandcamp.com")
+	if !ok {
+		t.Fatal("expected /music fallback to resolve")
+	}
+	if embed != "https://artist.bandcamp.com/album/real-featured" {
+		t.Fatalf("embed = %q, want the /music featured album on the input host", embed)
+	}
+	// Only the input host's root + /music may have been fetched.
+	for key := range rt.hits {
+		if !strings.HasPrefix(key, "artist.bandcamp.com") {
+			t.Fatalf("SSRF: fallback fetched an off-host URL %q", key)
+		}
 	}
 }
 

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!--
+Trimmed real-page fixture: the /music sub-page of ajjtheband.bandcamp.com (the real
+AJJ — PSY-1198/PSY-1202 repro). The bare ROOT 303-redirects to a single album page
+with NO discography grid; the full discography grid lives here at /music. The grid
+is pretty-printed (newlines between the <ol> tag's attributes) exactly as Bandcamp
+serves it, and carries BOTH inline <li> anchors AND a data-client-items JSON
+attribute. Layer (a) (inline anchors) wins; the first item is the featured release.
+-->
+<html><head><title>Music | AJJ</title></head><body>
+<nav><a href="/">home</a> <a href="/music">music</a> <a href="/merch">merch</a></nav>
+<ol id="music-grid"
+    data-edit-callback="/music_reorder"
+    data-client-items="[{&quot;art_id&quot;:1,&quot;band_id&quot;:2,&quot;id&quot;:10,&quot;page_url&quot;:&quot;/album/good-luck-everybody-demos&quot;,&quot;title&quot;:&quot;Good Luck Everybody Demos&quot;,&quot;type&quot;:&quot;album&quot;},{&quot;art_id&quot;:3,&quot;band_id&quot;:2,&quot;id&quot;:11,&quot;page_url&quot;:&quot;/album/disposable-everything&quot;,&quot;title&quot;:&quot;Disposable Everything&quot;,&quot;type&quot;:&quot;album&quot;}]"
+    class="
+        editable-grid music-grid columns-3
+        public
+    "
+>
+    <li data-item-id="album-10"
+    data-band-id="2"
+    class="music-grid-item square first-four"
+    data-bind="css: {'featured': featured()}"
+>
+    <a href="/album/good-luck-everybody-demos">
+        <div class="art"><img src="https://f4.bcbits.com/img/a1_2.jpg" alt="" /></div>
+        <p class="title">Good Luck Everybody Demos</p>
+    </a>
+</li>
+    <li data-item-id="album-11"
+    data-band-id="2"
+    class="music-grid-item square first-four"
+    data-bind="css: {'featured': featured()}"
+>
+    <a href="/album/disposable-everything">
+        <div class="art"><img src="https://f4.bcbits.com/img/a2_2.jpg" alt="" /></div>
+        <p class="title">Disposable Everything</p>
+    </a>
+</li>
+</ol>
+</body></html>

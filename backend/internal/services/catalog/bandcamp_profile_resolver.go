@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,6 +48,19 @@ const bandcampResolverMaxBytes = 2 << 20 // 2 MiB
 // being mistaken for the discography order. (?s) lets . span newlines; the lazy
 // .*? stops at the first </ol>.
 var musicGridBlockRe = regexp.MustCompile(`(?s)<ol[^>]*id="music-grid"[^>]*>.*?</ol>`)
+
+// musicGridOpenTagRe isolates JUST the <ol id="music-grid" …> OPENING tag, where
+// the data-client-items JSON discography attribute lives. (?s) lets the attribute
+// list span newlines (Bandcamp pretty-prints the tag); [^>]* stops at the tag's
+// closing '>'. Used to scope the JSON extraction to the grid's own tag — not some
+// other data-client-items attribute elsewhere on the page.
+var musicGridOpenTagRe = regexp.MustCompile(`(?s)<ol[^>]*id="music-grid"[^>]*>`)
+
+// clientItemsAttrRe pulls the (HTML-entity-escaped) JSON array out of the grid
+// tag's data-client-items attribute. Bandcamp emits the full discography here even
+// when the inline <li> children are lazily/partially rendered, so it is the
+// resilient same-page fallback when the inline anchors yield nothing.
+var clientItemsAttrRe = regexp.MustCompile(`data-client-items="([^"]*)"`)
 
 // gridItemHrefRe pulls the first /album/<slug> or /track/<slug> path from an
 // anchor href. The path is taken up to the first #, ?, or closing quote so a
@@ -122,10 +137,35 @@ func isAllowedBandcampFetchURL(u *url.URL) bool {
 // returns the featured/latest /album|/track URL to embed, or "" with ok=false
 // when the root can't be fetched or carries no embeddable release.
 //
-// SSRF: the URL is host-anchored here AND every redirect hop is re-anchored by
-// the client's CheckRedirect, so neither the input nor a redirect can target a
-// non-bandcamp host. An empty/odd profile (no discography grid, no album/track
-// link) returns ("", false) — never an error or a panic — so a caller fills
+// Modern Bandcamp roots render the discography several ways, so extraction is
+// LAYERED with deterministic, first-match-wins fallbacks:
+//
+//	(a) inline <ol id="music-grid"> <a href="/album|/track"> children — the common
+//	    layout (boris, nope, maletears);
+//	(b) the grid tag's data-client-items JSON — same featured-first order, present
+//	    even when (a)'s inline anchors are lazily/partially rendered;
+//	(c) the artist's /music sub-page — when the ROOT 30x's to a single album page
+//	    (PSY-1198 AJJ repro: ajjtheband.bandcamp.com → /album/… with no grid), the
+//	    full discography grid still lives at /music; (a)/(b) then run on /music.
+//
+// Layers (a) and (b) run on the already-fetched page (extractFeaturedRelease); only
+// (c) costs a second fetch, and only when the first page yields nothing — so the
+// common path is still a single request.
+//
+// NOTE on the rejected "last-resort whole-page /album scan": the ticket proposed a
+// 4th fallback — the first same-origin /album|/track href ANYWHERE on the page. It
+// is deliberately NOT implemented: on the real AJJ album-landing page that very scan
+// picks a TRACKLIST track (/track/body-terror-song-demo), not the featured release —
+// the exact "wrong embed is a silent defect" the grid-anchoring was built to avoid.
+// /music (layer c) already resolves every observed redirect-to-album case with the
+// correct featured release. When neither the page nor /music has a grid, the artist
+// has no resolvable discography and the resolver correctly fills NOTHING (the
+// documented fill-when-empty invariant; the no_grid fixture pins it).
+//
+// SSRF: the input URL AND the /music URL are host-anchored here, and every redirect
+// hop is re-anchored by the client's CheckRedirect, so neither input, redirect, nor
+// the /music fetch can target a non-bandcamp host. An empty/odd profile (no grid,
+// no JSON) returns ("", false) — never an error or a panic — so a caller fills
 // nothing rather than failing the triggering write.
 func (r *BandcampProfileResolver) ResolveProfileEmbed(ctx context.Context, profileURL string) (string, bool) {
 	trimmed := strings.TrimSpace(profileURL)
@@ -134,12 +174,41 @@ func (r *BandcampProfileResolver) ResolveProfileEmbed(ctx context.Context, profi
 		return "", false
 	}
 
-	html, finalURL, ok := r.fetch(ctx, u.String())
+	// Layers (a)/(b): fetch the root (which may 30x to /music or to an album page)
+	// and extract from whatever page we land on.
+	body, finalURL, ok := r.fetch(ctx, u.String())
+	if ok {
+		if embed, ok := buildEmbed(body, finalURL); ok {
+			return embed, true
+		}
+	}
+
+	// Layer (c): the root yielded nothing (e.g. it 30x'd to a single album page with
+	// no discography grid). The full discography grid still lives at the artist's
+	// /music sub-page. Build /music on the INPUT origin (an artist subdomain we
+	// already host-anchored) and fetch it through the SAME SSRF-guarded client; the
+	// extraction then anchors on /music's own final URL (re-anchored in buildEmbed).
+	musicURL := *u
+	musicURL.Path = "/music"
+	musicURL.RawQuery = ""
+	musicURL.Fragment = ""
+	if !isAllowedBandcampFetchURL(&musicURL) {
+		return "", false
+	}
+	musicBody, musicFinalURL, ok := r.fetch(ctx, musicURL.String())
 	if !ok {
 		return "", false
 	}
+	return buildEmbed(musicBody, musicFinalURL)
+}
 
-	path, ok := extractFeaturedReleasePath(html)
+// buildEmbed extracts a featured /album|/track path from one fetched page's body
+// and resolves it into an absolute embed URL anchored on that page's FINAL host.
+// Returns ("", false) when the page carries no embeddable release or the final host
+// fails the SSRF re-anchor (defense in depth — the host is only trusted after this
+// check).
+func buildEmbed(body string, finalURL *url.URL) (string, bool) {
+	path, ok := extractFeaturedRelease(body)
 	if !ok {
 		return "", false
 	}
@@ -204,28 +273,88 @@ func (r *BandcampProfileResolver) fetch(ctx context.Context, fetchURL string) (s
 	return string(body), resp.Request.URL, true
 }
 
-// extractFeaturedReleasePath returns the site-relative /album|/track path of the
-// profile's featured/latest release, or ok=false when none is present.
+// extractFeaturedRelease returns the site-relative /album|/track path of a page's
+// featured/latest release, trying deterministic SAME-PAGE fallbacks in order (first
+// match wins) so the resolver handles every observed grid layout:
 //
-// Signal: the FIRST anchor inside the <ol id="music-grid"> discography grid.
-// Bandcamp orders that grid featured/newest-first, so its first item is the
-// release to embed. Anchoring on the grid is deliberate and the ONLY signal used:
-// a nav-bar / "featured-grid" link elsewhere on the page also points at
+//	(a) extractFromMusicGridAnchors — the FIRST inline anchor in the
+//	    <ol id="music-grid"> discography grid. The canonical, highest-confidence
+//	    signal: Bandcamp orders the grid featured/newest-first.
+//	(b) extractFromClientItemsJSON — the grid tag's data-client-items JSON, in the
+//	    same featured-first order. Present even when the inline anchors are lazily
+//	    or partially rendered, so it backstops (a) on the SAME page.
+//
+// (Layer (c), the /music sub-page, is a second FETCH handled by ResolveProfileEmbed,
+// not a same-page extraction layer; it re-runs (a)/(b) on /music.) When NO layer
+// yields a release the resolver fills NOTHING rather than risk storing the wrong
+// release — fill-when-empty makes a miss harmless and human-correctable, whereas a
+// wrong embed is a silent defect. Both layers anchor on the music-grid: a nav-bar /
+// "featured-grid" decoy link elsewhere on the page is never picked.
+func extractFeaturedRelease(html string) (string, bool) {
+	if path, ok := extractFromMusicGridAnchors(html); ok {
+		return path, true
+	}
+	return extractFromClientItemsJSON(html)
+}
+
+// extractFromMusicGridAnchors returns the first /album|/track href among the inline
+// <a> children of the discography grid (layer a). Anchoring on the grid is
+// deliberate: a nav-bar / "featured-grid" link elsewhere on the page also points at
 // /album|/track, so a whole-page scan would mistake that decoy for the
-// discography's first item. When no grid yields a release (an unrecognized layout
-// we can't reason about, or an empty discography), the resolver fills NOTHING
-// rather than risk storing the wrong release — fill-when-empty makes a miss
-// harmless and human-correctable, whereas a wrong embed is a silent defect.
+// discography's first item.
 //
-// Iterate ALL music-grid blocks, not just the first: a layout/AB-test that emits
-// a leading EMPTY <ol id="music-grid"> (e.g. a "featured" placeholder) before the
+// Iterate ALL music-grid blocks, not just the first: a layout/AB-test that emits a
+// leading EMPTY <ol id="music-grid"> (e.g. a "featured" placeholder) before the
 // populated one would otherwise make the resolver a silent no-op for that cohort.
 // The first grid that actually contains an /album|/track anchor wins.
-func extractFeaturedReleasePath(html string) (string, bool) {
+func extractFromMusicGridAnchors(html string) (string, bool) {
 	for _, grid := range musicGridBlockRe.FindAllString(html, -1) {
 		if m := gridItemHrefRe.FindStringSubmatch(grid); m != nil {
 			return m[1], true
 		}
 	}
 	return "", false
+}
+
+// clientItem is one entry of the music-grid data-client-items JSON discography.
+// Only page_url is needed; the array is already featured/newest-first, so the first
+// album|track entry is the release to embed.
+type clientItem struct {
+	PageURL string `json:"page_url"`
+	Type    string `json:"type"`
+}
+
+// extractFromClientItemsJSON returns the first /album|/track page_url from the grid
+// tag's data-client-items JSON attribute (layer b). Bandcamp emits the full
+// discography here even when the inline <li> anchors are lazily/partially rendered,
+// so it is the resilient same-page backstop for layer (a).
+//
+// Scoped to the music-grid's OWN opening tag (musicGridOpenTagRe) so an unrelated
+// data-client-items attribute elsewhere on the page can't feed it. The attribute is
+// HTML-entity-escaped in the markup (&quot;, &#39;, …); it is unescaped before JSON
+// parsing. A malformed/empty attribute returns ok=false (no panic).
+func extractFromClientItemsJSON(htmlBody string) (string, bool) {
+	for _, tag := range musicGridOpenTagRe.FindAllString(htmlBody, -1) {
+		m := clientItemsAttrRe.FindStringSubmatch(tag)
+		if m == nil {
+			continue
+		}
+		var items []clientItem
+		if err := json.Unmarshal([]byte(html.UnescapeString(m[1])), &items); err != nil {
+			continue
+		}
+		for _, it := range items {
+			if isReleasePath(it.PageURL) {
+				return it.PageURL, true
+			}
+		}
+	}
+	return "", false
+}
+
+// isReleasePath reports whether a (site-relative) page_url is an /album or /track
+// release path — used to skip non-release client-items entries (defensive; observed
+// data is album-only).
+func isReleasePath(p string) bool {
+	return strings.HasPrefix(p, "/album/") || strings.HasPrefix(p, "/track/")
 }
