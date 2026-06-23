@@ -36,6 +36,7 @@ const show: RadioShowListItem = {
   genre_tags: null,
   image_url: null,
   is_active: true,
+  schedule_locked: false,
   episode_count: 3,
 }
 

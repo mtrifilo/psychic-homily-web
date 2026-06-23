@@ -936,6 +936,33 @@ func TestAdminUpdateRadioShow_LifecycleInvalid_Returns422(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// PSY-1193: the admin handler forwards schedule_locked to the service so the admin UI
+// can lock/unlock a show's schedule (the field the form previously could not reach).
+func TestAdminUpdateRadioShow_PassesScheduleLockedToService(t *testing.T) {
+	var gotLocked *bool
+	mock := &testhelpers.MockRadioService{
+		UpdateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+			gotLocked = req.ScheduleLocked
+			return &contracts.RadioShowDetailResponse{ID: showID, ScheduleLocked: req.ScheduleLocked != nil && *req.ScheduleLocked}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	locked := true
+	req := &AdminUpdateRadioShowRequest{ShowID: 1}
+	req.Body.ScheduleLocked = &locked
+
+	resp, err := h.AdminUpdateRadioShowHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotLocked == nil || *gotLocked != true {
+		t.Errorf("expected service to receive schedule_locked=true, got %v", gotLocked)
+	}
+	if !resp.Body.ScheduleLocked {
+		t.Errorf("expected response schedule_locked=true, got %v", resp.Body.ScheduleLocked)
+	}
+}
+
 // ============================================================================
 // AdminDeleteRadioShowHandler Tests
 // ============================================================================

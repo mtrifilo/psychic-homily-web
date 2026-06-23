@@ -547,6 +547,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 			ImageURL:        sh.ImageURL,
 			IsActive:        sh.IsActive,
 			LifecycleState:  sh.LifecycleState,
+			ScheduleLocked:  sh.ScheduleLocked,
 			EpisodeCount:    episodeCounts[sh.ID],
 			LatestAirDate:   latest,
 		}

@@ -478,6 +478,28 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_WithEpisodeCounts()
 	suite.Equal(int64(2), resp[1].EpisodeCount)
 }
 
+// PSY-1193: schedule_locked is emitted in list rows so the admin UI can badge pinned
+// (hand-curated) shows vs scrape-managed ones at a glance. Defaults false; flips to true
+// when an admin locks the schedule via UpdateShow.
+func (suite *RadioServiceIntegrationTestSuite) TestListShows_SurfacesScheduleLocked() {
+	station := suite.createStation("WFMU")
+	locked := suite.createShow(station.ID, "Locked Show")
+	suite.createShow(station.ID, "Auto Show")
+
+	lockedFlag := true
+	_, err := suite.radioService.UpdateShow(locked.ID, &contracts.UpdateRadioShowRequest{ScheduleLocked: &lockedFlag})
+	suite.Require().NoError(err)
+
+	resp, err := suite.radioService.ListShows(station.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	// Ordered by name ASC: "Auto Show" then "Locked Show".
+	suite.Equal("Auto Show", resp[0].Name)
+	suite.False(resp[0].ScheduleLocked, "unlocked show defaults to false in list rows")
+	suite.Equal("Locked Show", resp[1].Name)
+	suite.True(resp[1].ScheduleLocked, "locked show surfaces schedule_locked=true in list rows")
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestUpdateShow_Success() {
 	station := suite.createStation("KEXP")
 	show := suite.createShow(station.ID, "Morning Show")

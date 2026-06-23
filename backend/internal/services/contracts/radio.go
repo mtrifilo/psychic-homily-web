@@ -222,6 +222,10 @@ type RadioShowListResponse struct {
 	// Surfaced in list rows so the station page can split active vs historical shows.
 	LifecycleState string `json:"lifecycle_state"`
 	EpisodeCount   int64  `json:"episode_count"`
+	// ScheduleLocked (PSY-1186) — true when the schedule is hand-curated and the weekly
+	// WFMU scrape leaves it alone. Surfaced in admin list rows so an admin can see at a
+	// glance which shows are pinned vs scrape-managed (PSY-1193).
+	ScheduleLocked bool `json:"schedule_locked"`
 	// LatestAirDate is the air date (YYYY-MM-DD) of the show's most recent
 	// episode, nil when the show has no episodes (PSY-1048).
 	LatestAirDate *string `json:"latest_air_date"`
