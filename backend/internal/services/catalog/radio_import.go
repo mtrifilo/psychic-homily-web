@@ -401,21 +401,149 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 	}
 
 	for _, importShow := range importedShows {
-		showID, created, err := s.upsertRadioShow(stationID, importShow)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
-			continue
-		}
 		result.ShowsDiscovered++
 		result.ShowNames = append(result.ShowNames, importShow.Name)
-		if created {
+
+		// PSY-1153 create-on-first-episode: only update a show that ALREADY exists;
+		// never create a row here. A roster show with no row yet is returned as a
+		// candidate (NewRosterShows); the caller's create-on-first step
+		// (createOnFirstForRoster, same discover run) creates it only once its first
+		// episode is ingested — an episode-less roster DJ never becomes a row.
+		_, found, err := s.findAndUpdateExistingShow(stationID, importShow)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("discover show %s: %v", importShow.Name, err))
+			continue
+		}
+		if !found {
 			result.ShowsNew++
 			result.NewShowNames = append(result.NewShowNames, importShow.Name)
-			result.NewShowIDs = append(result.NewShowIDs, showID)
+			result.NewRosterShows = append(result.NewRosterShows, contracts.RadioRosterShow{
+				ExternalID:  importShow.ExternalID,
+				Name:        importShow.Name,
+				HostName:    importShow.HostName,
+				Description: importShow.Description,
+				ImageURL:    importShow.ImageURL,
+				ArchiveURL:  importShow.ArchiveURL,
+			})
 		}
 	}
 
 	return result, nil
+}
+
+// createOnFirstForRoster implements PSY-1153 create-on-first-episode for the
+// newly-discovered roster shows of a discover run. For each roster show it fetches the
+// show's episodes and — only if ≥1 aired in [since, until] — creates the radio_shows
+// row AND imports those episodes, so a row never exists empty and an episode-less
+// roster DJ never becomes a row (§9 decision 1). It runs INSIDE the calling discover
+// run (executeSyncMode), i.e. under that run's per-station advisory lock + breaker gate,
+// so both the scheduled discover cycle and the manual admin "discover" trigger
+// materialize aired shows through the same path. The loop is cancel-aware
+// (isSyncRunCancelled) so a shutdown/cancel unwinds within ~one show.
+//
+// Returns the merged import result and the names of shows actually CREATED (for the
+// discover cycle's notification). One provider instance is opened for the whole loop.
+func (s *RadioService) createOnFirstForRoster(stationID, runID uint, roster []contracts.RadioRosterShow, since, until time.Time) (*contracts.RadioImportResult, []string) {
+	result := &contracts.RadioImportResult{}
+	var createdNames []string
+	if len(roster) == 0 {
+		return result, createdNames
+	}
+
+	var station catalogm.RadioStation
+	if err := s.db.First(&station, stationID).Error; err != nil {
+		recordImportError(result, catalogm.RadioSyncRunErrorValidationDrop, fmt.Sprintf("load station %d: %v", stationID, err), nil)
+		return result, createdNames
+	}
+	if station.PlaylistSource == nil || *station.PlaylistSource == "" {
+		return result, createdNames // nothing to fetch; not an error
+	}
+	provider, err := s.getProvider(*station.PlaylistSource)
+	if err != nil {
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("get provider: %v", err), nil)
+		return result, createdNames
+	}
+	defer closeProvider(provider)
+
+	for _, rs := range roster {
+		// Stop within ~one show on a mid-run cancel / shutdown (the discover cycle's
+		// watcher flips the run to cancelled on stopCh — same mechanism as backfill).
+		if s.isSyncRunCancelled(runID) {
+			break
+		}
+		if s.importRosterShowEpisodes(stationID, rs, since, until, provider, result) {
+			createdNames = append(createdNames, rs.Name)
+		}
+	}
+	return result, createdNames
+}
+
+// importRosterShowEpisodes fetches one roster show's episodes once, and if ≥1 aired in
+// [since, until], creates the row (create-on-first) and imports those episodes,
+// accumulating per-episode outcomes into result. Returns true iff a row was created.
+// A single fetch serves both the create decision and the import (no double fetch).
+func (s *RadioService) importRosterShowEpisodes(stationID uint, roster contracts.RadioRosterShow, since, until time.Time, provider RadioPlaylistProvider, result *contracts.RadioImportResult) (created bool) {
+	episodes, err := provider.FetchNewEpisodes(roster.ExternalID, since, until)
+	if err != nil {
+		ref := roster.ExternalID
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("fetch episodes for roster show %s: %v", roster.ExternalID, err), &ref)
+		return false
+	}
+
+	var filtered []RadioEpisodeImport
+	for _, ep := range episodes {
+		if episodeInWindow(ep, since, until) {
+			filtered = append(filtered, ep)
+		}
+	}
+	if len(filtered) == 0 {
+		return false // no episode in window → do not create a row (§9 dec 1)
+	}
+
+	showID, wasCreated, err := s.upsertRadioShow(stationID, rosterToImport(roster))
+	if err != nil {
+		ref := roster.ExternalID
+		recordImportError(result, categorizeRunError(err), fmt.Sprintf("create roster show %s: %v", roster.ExternalID, err), &ref)
+		return false
+	}
+
+	for _, ep := range filtered {
+		epResult, impErr := s.importEpisode(showID, ep, provider)
+		if impErr != nil {
+			ref := ep.ExternalID
+			recordImportError(result, categorizeRunError(impErr), fmt.Sprintf("import episode %s: %v", ep.ExternalID, impErr), &ref)
+			continue
+		}
+		accumulateEpisodeResult(result, ep.ExternalID, epResult)
+	}
+	// Return wasCreated (not a bare true): on a TOCTOU race where the row appeared
+	// between discovery's findAndUpdateExistingShow miss and this upsert, episodes
+	// still import but the show is NOT re-reported as created (createdNames stays correct).
+	return wasCreated
+}
+
+// episodeInWindow reports whether a provider episode's air_date falls within the
+// inclusive [since, until] bound. Shared by the create-on-first path and
+// importShowEpisodesWithProgress so the two never diverge on the boundary semantics
+// (providers filter coarsely; this is the precise bound).
+func episodeInWindow(ep RadioEpisodeImport, since, until time.Time) bool {
+	epDate, err := time.Parse("2006-01-02", ep.AirDate)
+	if err != nil {
+		return false
+	}
+	return !epDate.Before(since) && !epDate.After(until)
+}
+
+// rosterToImport maps the contracts-layer roster carrier back to the catalog import shape.
+func rosterToImport(r contracts.RadioRosterShow) RadioShowImport {
+	return RadioShowImport{
+		ExternalID:  r.ExternalID,
+		Name:        r.Name,
+		HostName:    r.HostName,
+		Description: r.Description,
+		ImageURL:    r.ImageURL,
+		ArchiveURL:  r.ArchiveURL,
+	}
 }
 
 // importProgressCallback is called periodically during episode import to report
@@ -472,15 +600,11 @@ func (s *RadioService) importShowEpisodesWithProgress(
 		return nil, fmt.Errorf("fetching episodes: %w", err)
 	}
 
-	// Filter episodes by air_date within [since, until] (inclusive both ends)
-	// Providers apply coarse date filtering, but we still apply precise bounds here.
+	// Filter episodes by air_date within [since, until] (inclusive both ends).
+	// Providers filter coarsely; episodeInWindow is the shared precise bound.
 	var filtered []RadioEpisodeImport
 	for _, ep := range episodes {
-		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)
-		if parseErr != nil {
-			continue
-		}
-		if !epDate.Before(sinceTime) && !epDate.After(untilTime) {
+		if episodeInWindow(ep, sinceTime, untilTime) {
 			filtered = append(filtered, ep)
 		}
 	}
@@ -623,42 +747,14 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 // row. Callers use the bool to distinguish "new arrival" from "idempotent
 // re-run" — e.g. to fire a notification only on actually-new shows.
 func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImport) (uint, bool, error) {
-	// Try matching by external_id first (canonical path)
-	var existing catalogm.RadioShow
-	err := s.db.Where("station_id = ? AND external_id = ?", stationID, importShow.ExternalID).First(&existing).Error
-	if err == nil {
-		// Only fill in fields that are currently empty — never overwrite curated data.
-		updates := s.buildNullSafeShowUpdates(&existing, importShow)
-		if len(updates) > 0 {
-			s.db.Model(&existing).Updates(updates)
-		}
-		return existing.ID, false, nil
-	}
-
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, false, fmt.Errorf("checking existing show by external_id: %w", err)
-	}
-
-	// Fallback: match by slug within the same station.
-	// This handles seeded shows that had incorrect external_ids — the slug
-	// derived from the name will still match, so we adopt the API's
-	// external_id instead of creating a duplicate.
-	baseSlug := utils.GenerateArtistSlug(importShow.Name)
-	err = s.db.Where("station_id = ? AND slug = ?", stationID, baseSlug).First(&existing).Error
-	if err == nil {
-		// Found by slug — update external_id to the correct API value and
-		// fill in any empty fields.
-		updates := s.buildNullSafeShowUpdates(&existing, importShow)
-		updates["external_id"] = importShow.ExternalID
-		s.db.Model(&existing).Updates(updates)
-		return existing.ID, false, nil
-	}
-
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, false, fmt.Errorf("checking existing show by slug: %w", err)
+	if id, found, err := s.findAndUpdateExistingShow(stationID, importShow); err != nil {
+		return 0, false, err
+	} else if found {
+		return id, false, nil
 	}
 
 	// Create new show
+	baseSlug := utils.GenerateArtistSlug(importShow.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
 		s.db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
@@ -674,6 +770,8 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		ImageURL:    importShow.ImageURL,
 		ArchiveURL:  importShow.ArchiveURL,
 		ExternalID:  &importShow.ExternalID,
+		// lifecycle_state defaults to 'active' (model/DB default): a show row exists
+		// only because its first episode is being ingested (PSY-1153), so it IS active.
 	}
 
 	if err := s.db.Create(show).Error; err != nil {
@@ -681,6 +779,45 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 	}
 
 	return show.ID, true, nil
+}
+
+// findAndUpdateExistingShow looks up a roster show by (station_id, external_id) then
+// (station_id, slug), filling null-safe fields if found. Returns (showID, found, err).
+// It NEVER creates a row — discovery uses it so an episode-less roster show is not
+// persisted (PSY-1153 create-on-first-episode); upsertRadioShow uses it as the
+// find-half before creating.
+func (s *RadioService) findAndUpdateExistingShow(stationID uint, importShow RadioShowImport) (uint, bool, error) {
+	// Try matching by external_id first (canonical path).
+	var existing catalogm.RadioShow
+	err := s.db.Where("station_id = ? AND external_id = ?", stationID, importShow.ExternalID).First(&existing).Error
+	if err == nil {
+		// Only fill in fields that are currently empty — never overwrite curated data.
+		updates := s.buildNullSafeShowUpdates(&existing, importShow)
+		if len(updates) > 0 {
+			s.db.Model(&existing).Updates(updates)
+		}
+		return existing.ID, true, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, fmt.Errorf("checking existing show by external_id: %w", err)
+	}
+
+	// Fallback: match by slug within the same station. This handles seeded shows that
+	// had incorrect external_ids — the slug derived from the name still matches, so we
+	// adopt the API's external_id instead of creating a duplicate.
+	baseSlug := utils.GenerateArtistSlug(importShow.Name)
+	err = s.db.Where("station_id = ? AND slug = ?", stationID, baseSlug).First(&existing).Error
+	if err == nil {
+		updates := s.buildNullSafeShowUpdates(&existing, importShow)
+		updates["external_id"] = importShow.ExternalID
+		s.db.Model(&existing).Updates(updates)
+		return existing.ID, true, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, fmt.Errorf("checking existing show by slug: %w", err)
+	}
+
+	return 0, false, nil
 }
 
 // buildNullSafeShowUpdates returns a map of fields to update, only including
@@ -758,7 +895,30 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return nil, fmt.Errorf("creating episode: %w", err)
 	}
 
+	// PSY-1153 real-time reactivation: a new episode for a known-but-dormant show
+	// (a DJ returning from a leave of absence) flips it back to 'active' immediately,
+	// rather than waiting for the nightly janitor (PSY-1155). The scheduled fetch keeps
+	// polling dormant shows (is_active is left true), so this is the path that catches
+	// a return between janitor runs. No-op if the show is already active (or retired —
+	// retired is manual-only and intentionally NOT auto-reactivated).
+	s.reactivateShowIfDormant(showID, now)
+
 	return s.fetchImportAndRecordPlaylist(episode, ep.ExternalID, provider, now)
+}
+
+// reactivateShowIfDormant flips a show 'dormant' → 'active' when a new episode lands
+// (PSY-1153). The WHERE guard makes it a no-op for active shows (and never touches
+// 'retired', the manual-only state). Best-effort: a failure here doesn't fail the
+// import (the janitor reconcile, PSY-1155, will correct lifecycle_state on its next run).
+func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
+	if err := s.db.Model(&catalogm.RadioShow{}).
+		Where("id = ? AND lifecycle_state = ?", showID, catalogm.RadioLifecycleDormant).
+		Updates(map[string]any{
+			"lifecycle_state": catalogm.RadioLifecycleActive,
+			"updated_at":      now,
+		}).Error; err != nil {
+		slog.Warn("radio import: reactivating dormant show failed", "show_id", showID, "error", err)
+	}
 }
 
 // reimportExistingEpisode handles importEpisode's already-exists path. It first

@@ -15,6 +15,39 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+// TestDiscoverOutcome covers the PSY-1153 merge of a discover result with the
+// create-on-first import result: counts come from the import, and any import error (or
+// discovery error) flips the run to 'partial'.
+func TestDiscoverOutcome(t *testing.T) {
+	disc := &contracts.RadioDiscoverResult{ShowsDiscovered: 3, ShowsNew: 1, CreatedShowNames: []string{"New Show"}}
+
+	t.Run("clean import → success with merged counts", func(t *testing.T) {
+		imp := &contracts.RadioImportResult{EpisodesImported: 5, PlaysImported: 40, PlaysMatched: 30}
+		out := discoverOutcome(disc, imp)
+		assert.Equal(t, catalogm.RadioSyncRunStatusSuccess, out.status)
+		assert.Equal(t, 5, out.episodesImported)
+		assert.Equal(t, 40, out.playsImported)
+		assert.Equal(t, 30, out.playsMatched)
+		assert.Equal(t, 10, out.playsUnmatched) // 40-30
+		assert.Same(t, disc, out.discoverResult)
+	})
+
+	t.Run("import error → partial", func(t *testing.T) {
+		imp := &contracts.RadioImportResult{
+			EpisodesImported:  2,
+			CategorizedErrors: []contracts.RadioRunError{{Category: catalogm.RadioSyncRunErrorProviderUnreachable, Detail: "boom"}},
+		}
+		out := discoverOutcome(disc, imp)
+		assert.Equal(t, catalogm.RadioSyncRunStatusPartial, out.status)
+	})
+
+	t.Run("discovery error → partial", func(t *testing.T) {
+		discErr := &contracts.RadioDiscoverResult{Errors: []string{"discover failed"}}
+		out := discoverOutcome(discErr, &contracts.RadioImportResult{})
+		assert.Equal(t, catalogm.RadioSyncRunStatusPartial, out.status)
+	})
+}
+
 // =============================================================================
 // RunStationSync — validation (no DB; all checks return before the lock)
 // =============================================================================
