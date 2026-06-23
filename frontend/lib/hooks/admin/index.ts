@@ -6,7 +6,8 @@ export {
 
 export {
   type MusicPlatform,
-  type DiscoveryCandidate,
+  type MusicConfidence,
+  type MusicLinkCandidate,
   type DiscoverMusicResponse,
   type UpdateBandcampResponse,
   type UpdateSpotifyResponse,

@@ -18,26 +18,42 @@ import type { Artist, ArtistEditRequest, ArtistAliasesResponse, ArtistAlias, Mer
 export type MusicPlatform = 'bandcamp' | 'spotify'
 
 /**
- * One candidate streaming-link result for a single platform.
+ * Region confidence tier returned by the discover-music endpoint (PSY-1191).
+ * `high` = the MusicBrainz candidate's geography aligned with a PH show region;
+ * `review` = region mismatch, non-US, or no PH region to compare — a touring act
+ * or namesake the admin should verify before linking. `review` is NEVER a gate:
+ * the candidate is still returned and the admin can still accept it.
  */
-export interface DiscoveryCandidate {
+export type MusicConfidence = 'high' | 'review'
+
+/**
+ * One discovered streaming-link candidate. Mirrors the LOCKED backend wire
+ * contract `contracts.MusicLinkCandidate` (PSY-1191). Discovery is review-only:
+ * the admin picks a candidate and saves it via the existing bandcamp/spotify
+ * paths — nothing here is persisted by the discover call.
+ */
+export interface MusicLinkCandidate {
+  platform: MusicPlatform
   url: string
-  name_as_listed: string | null
-  location: string | null
-  notable_release: string | null
-  genres: string | null
-  popularity: string | null
-  confidence: 'high' | 'medium' | 'low'
-  why_might_match: string | null
+  source: string
+  mb_artist_id: string
+  mb_artist_name: string
+  confidence: MusicConfidence
+  region_match: boolean
+  live: boolean
+  /** Optional reviewer note (touring-act / namesake caveat, MB disambiguation). */
+  notes?: string
 }
 
 /**
- * Response from music discovery endpoint. Discovery returns CANDIDATES only;
- * the admin reviews and picks before any save happens.
+ * Response from the discover-music endpoint (PSY-1191). Discovery returns
+ * CANDIDATES only; the admin reviews and picks before any save happens. The
+ * candidates carry their own `platform` field — they are NOT pre-grouped by the
+ * backend, so the UI groups them.
  */
 export interface DiscoverMusicResponse {
-  bandcamp: DiscoveryCandidate[]
-  spotify: DiscoveryCandidate[]
+  artist_id: number
+  candidates: MusicLinkCandidate[]
 }
 
 /**
@@ -59,10 +75,16 @@ export interface UpdateSpotifyResponse {
 }
 
 /**
- * Hook for AI-powered music discovery (admin only). Returns candidate
- * Bandcamp + Spotify links for the admin to review and pick from; nothing
- * is saved by this call. Save happens via useUpdateArtistBandcamp /
- * useUpdateArtistSpotify after the admin picks a candidate.
+ * Hook for MusicBrainz-backed music discovery (admin only, PSY-1191). Returns
+ * candidate Bandcamp + Spotify links for the admin to review and pick from;
+ * nothing is saved by this call. Save happens via the bandcamp/spotify accept
+ * paths in AdminMusicControls after the admin picks a candidate.
+ *
+ * The POST flows through the catch-all API proxy (frontend/app/api/[...path])
+ * to the admin-gated backend endpoint, which does the MusicBrainz lookups and
+ * SSRF-guarded liveness probes (server-side ~55s bound). Errors are surfaced as
+ * Huma `detail` strings (the backend error shape); the client backstop timeout
+ * maps to friendly copy.
  */
 export function useDiscoverMusic() {
   return useMutation({
@@ -74,7 +96,7 @@ export function useDiscoverMusic() {
           {
             method: 'POST',
             credentials: 'include',
-            // Backstop the route's own 60s bound so the spinner can't hang
+            // Backstop the backend's own ~55s bound so the spinner can't hang
             // indefinitely if the server itself becomes unreachable.
             signal: AbortSignal.timeout(70_000),
           }
@@ -86,13 +108,23 @@ export function useDiscoverMusic() {
         throw err
       }
 
-      const data = await response.json()
+      // The body may not be JSON on an upstream-gateway failure: the catch-all
+      // proxy re-emits the backend response verbatim, so a 502/504 can carry an
+      // HTML or empty body. Parse defensively so a non-ok status surfaces as a
+      // status-based message instead of a masking "Unexpected token" parse error.
+      const data = await response.json().catch(() => null)
 
       if (!response.ok) {
-        throw new Error(data.message || data.error || 'Discovery failed')
+        // Huma errors carry `detail`; the proxy 502 carries `error`.
+        throw new Error(
+          data?.detail ||
+            data?.message ||
+            data?.error ||
+            `Discovery failed (HTTP ${response.status})`
+        )
       }
 
-      return data
+      return data as DiscoverMusicResponse
     },
   })
 }

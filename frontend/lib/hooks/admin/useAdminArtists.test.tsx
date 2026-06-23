@@ -82,32 +82,33 @@ describe('useAdminArtists', () => {
   })
 
   describe('useDiscoverMusic', () => {
-    it('POSTs to discover-music and returns candidates per platform', async () => {
-      // Response is { bandcamp: [...], spotify: [...] } with disambiguation
-      // metadata per candidate; nothing is saved by this call.
+    it('POSTs to discover-music and returns the candidate list (PSY-1191 contract)', async () => {
+      // Response is { artist_id, candidates: [...] } where each candidate
+      // carries its own platform + region confidence tier; nothing is saved by
+      // this call.
       const mockResponse: DiscoverMusicResponse = {
-        bandcamp: [
+        artist_id: 123,
+        candidates: [
           {
-            url: 'https://wednesdayband.bandcamp.com/album/bleeds',
-            name_as_listed: 'Wednesday',
-            location: 'Asheville, NC',
-            notable_release: 'Bleeds (2025)',
-            genres: 'shoegaze, indie',
-            popularity: null,
+            platform: 'bandcamp',
+            url: 'https://wednesdayband.bandcamp.com',
+            source: 'musicbrainz',
+            mb_artist_id: 'abc-123',
+            mb_artist_name: 'Wednesday',
             confidence: 'high',
-            why_might_match: 'Primary Asheville band.',
+            region_match: true,
+            live: true,
           },
-        ],
-        spotify: [
           {
+            platform: 'spotify',
             url: 'https://open.spotify.com/artist/5IjZr8fAPiOAr7NQj5wZaQ',
-            name_as_listed: 'Wednesday',
-            location: 'Asheville, NC',
-            notable_release: null,
-            genres: null,
-            popularity: '3K monthly listeners',
-            confidence: 'high',
-            why_might_match: null,
+            source: 'musicbrainz',
+            mb_artist_id: 'abc-123',
+            mb_artist_name: 'Wednesday',
+            confidence: 'review',
+            region_match: false,
+            live: true,
+            notes: 'possible touring act or namesake — verify before linking',
           },
         ],
       }
@@ -130,8 +131,35 @@ describe('useAdminArtists', () => {
           credentials: 'include',
         })
       )
-      expect(result.current.data?.bandcamp).toHaveLength(1)
-      expect(result.current.data?.spotify).toHaveLength(1)
+      expect(result.current.data?.candidates).toHaveLength(2)
+      expect(result.current.data?.candidates[0].platform).toBe('bandcamp')
+      expect(result.current.data?.candidates[1].confidence).toBe('review')
+    })
+
+    it('surfaces the Huma `detail` error string on failure', async () => {
+      // The backend (via the catch-all proxy) returns Huma errors as `detail`.
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        headers: new Headers(),
+        json: async () => ({
+          detail: 'Music discovery is temporarily unavailable (request_id: r1)',
+        }),
+      })
+
+      const { result } = renderHook(() => useDiscoverMusic(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate(999)
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      expect((result.current.error as Error).message).toBe(
+        'Music discovery is temporarily unavailable (request_id: r1)'
+      )
     })
 
     it('handles discovery failure', async () => {

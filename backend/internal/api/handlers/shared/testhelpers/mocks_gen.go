@@ -1339,6 +1339,21 @@ func (m *MockDiscordService) NotifyNewRadioShows(stationName string, newShowName
 }
 
 // ============================================================================
+// Mock: DiscoverMusicServiceInterface
+// ============================================================================
+
+type MockDiscoverMusicService struct {
+	DiscoverMusicFn func(context.Context, uint, string) (*contracts.DiscoverMusicResult, error)
+}
+
+func (m *MockDiscoverMusicService) DiscoverMusic(ctx context.Context, artistID uint, artistName string) (*contracts.DiscoverMusicResult, error) {
+	if m.DiscoverMusicFn != nil {
+		return m.DiscoverMusicFn(ctx, artistID, artistName)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: DiscoveryServiceInterface
 // ============================================================================
 
@@ -4178,6 +4193,7 @@ var _ contracts.ContributorProfileServiceInterface = (*MockContributorProfileSer
 var _ contracts.DataQualityServiceInterface = (*MockDataQualityService)(nil)
 var _ contracts.DataSyncServiceInterface = (*MockDataSyncService)(nil)
 var _ contracts.DiscordServiceInterface = (*MockDiscordService)(nil)
+var _ contracts.DiscoverMusicServiceInterface = (*MockDiscoverMusicService)(nil)
 var _ contracts.DiscoveryServiceInterface = (*MockDiscoveryService)(nil)
 var _ contracts.EmailServiceInterface = (*MockEmailService)(nil)
 var _ contracts.EnrichmentServiceInterface = (*MockEnrichmentService)(nil)

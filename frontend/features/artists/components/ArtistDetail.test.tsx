@@ -57,13 +57,17 @@ vi.mock('@/features/releases/hooks/useReleases', () => ({
 const mockDiscoverMusicMutate = vi.fn()
 const mockUpdateBandcampMutate = vi.fn()
 const mockUpdateSpotifyMutate = vi.fn()
+// Bandcamp candidate accept routes through useArtistUpdate (sets social.bandcamp
+// = profile root → backend async embed resolver, PSY-1190/1198), so this mutate
+// must be inspectable in the picker tests.
+const mockArtistUpdateMutate = vi.fn()
 vi.mock('@/lib/hooks/admin/useAdminArtists', () => ({
   useDiscoverMusic: () => ({ mutate: mockDiscoverMusicMutate, isPending: false }),
   useUpdateArtistBandcamp: () => ({ mutate: mockUpdateBandcampMutate, isPending: false }),
   useClearArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateArtistSpotify: () => ({ mutate: mockUpdateSpotifyMutate, isPending: false }),
   useClearArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
-  useArtistUpdate: () => ({ mutate: vi.fn(), isPending: false }),
+  useArtistUpdate: () => ({ mutate: mockArtistUpdateMutate, isPending: false }),
   useArtistAliases: () => ({ data: { aliases: [] as ArtistAlias[] }, isLoading: false }),
 }))
 
@@ -811,23 +815,26 @@ describe('ArtistDetail', () => {
   // PSY-1110: the candidate-pick UI was previously untested because
   // useDiscoverMusic was mocked to a no-op so candidates never rendered. These
   // drive the mutation onSuccess/onError callbacks directly.
-  describe('admin music discovery candidate picker (PSY-1110)', () => {
-    const BC = 'https://soroche.bandcamp.com/album/whispers'
+  describe('admin music discovery candidate picker (PSY-1110, PSY-1198)', () => {
+    const BC = 'https://soroche.bandcamp.com'
     const SP = 'https://open.spotify.com/artist/0OdUWJ0sBjDrqHygGUXeCF'
 
+    // PSY-1198 contract: flat candidate list, each carrying its own platform +
+    // region confidence tier (`high` | `review`).
     function makeCandidate(
       url: string,
+      platform: 'bandcamp' | 'spotify',
       overrides: Record<string, unknown> = {}
     ) {
       return {
+        platform,
         url,
-        name_as_listed: 'Soroche',
-        location: null,
-        notable_release: null,
-        genres: null,
-        popularity: null,
+        source: 'musicbrainz',
+        mb_artist_id: 'mbid-soroche',
+        mb_artist_name: 'Soroche',
         confidence: 'high',
-        why_might_match: null,
+        region_match: true,
+        live: true,
         ...overrides,
       }
     }
@@ -852,15 +859,23 @@ describe('ArtistDetail', () => {
       mockDiscoverMusicMutate.mockReset()
       mockUpdateBandcampMutate.mockReset()
       mockUpdateSpotifyMutate.mockReset()
+      mockArtistUpdateMutate.mockReset()
     })
 
-    it('renders bandcamp + spotify candidate cards after discovery succeeds', async () => {
+    it('renders bandcamp + spotify candidate cards grouped by platform', async () => {
       const user = userEvent.setup()
       mockDiscoverMusicMutate.mockImplementation(
         (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
           opts.onSuccess({
-            bandcamp: [makeCandidate(BC)],
-            spotify: [makeCandidate(SP, { confidence: 'medium' })],
+            artist_id: 42,
+            candidates: [
+              makeCandidate(BC, 'bandcamp'),
+              makeCandidate(SP, 'spotify', {
+                confidence: 'review',
+                region_match: false,
+                notes: 'possible touring act or namesake — verify before linking',
+              }),
+            ],
           })
       )
 
@@ -877,15 +892,48 @@ describe('ArtistDetail', () => {
       expect(screen.getAllByRole('button', { name: 'Use this' })).toHaveLength(2)
     })
 
-    it('shows a success banner and closes the picker when a pick saves', async () => {
+    it('renders the confidence tier and verify caveat for a review candidate', async () => {
       const user = userEvent.setup()
-      // Bandcamp-only result: saving the one card empties both lists, so the
-      // picker auto-closes.
       mockDiscoverMusicMutate.mockImplementation(
         (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
-          opts.onSuccess({ bandcamp: [makeCandidate(BC)], spotify: [] })
+          opts.onSuccess({
+            artist_id: 42,
+            candidates: [
+              makeCandidate(BC, 'bandcamp'), // high
+              makeCandidate(SP, 'spotify', {
+                confidence: 'review',
+                region_match: false,
+                notes: 'instrumental act from Perth, Australia',
+              }),
+            ],
+          })
       )
-      mockUpdateBandcampMutate.mockImplementation(
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      await user.click(screen.getByRole('button', { name: /Discover Music/ }))
+
+      // High candidate → clear tier badge; review candidate → "Verify" + caveat.
+      expect(screen.getByText('High confidence')).toBeInTheDocument()
+      expect(screen.getByText('Verify')).toBeInTheDocument()
+      expect(
+        screen.getByText(/possible touring act or namesake/i)
+      ).toBeInTheDocument()
+      // MB disambiguation note is surfaced verbatim.
+      expect(
+        screen.getByText('instrumental act from Perth, Australia')
+      ).toBeInTheDocument()
+    })
+
+    it('accepts a Spotify candidate via the spotify update path and closes the picker', async () => {
+      const user = userEvent.setup()
+      mockDiscoverMusicMutate.mockImplementation(
+        (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
+          opts.onSuccess({
+            artist_id: 42,
+            candidates: [makeCandidate(SP, 'spotify')],
+          })
+      )
+      mockUpdateSpotifyMutate.mockImplementation(
         (_args: unknown, opts: { onSuccess: () => void }) => opts.onSuccess()
       )
 
@@ -893,11 +941,42 @@ describe('ArtistDetail', () => {
       await user.click(screen.getByRole('button', { name: /Discover Music/ }))
       await user.click(screen.getByRole('button', { name: 'Use this' }))
 
-      expect(mockUpdateBandcampMutate).toHaveBeenCalledWith(
-        { artistId: 42, bandcampUrl: BC },
+      expect(mockUpdateSpotifyMutate).toHaveBeenCalledWith(
+        { artistId: 42, spotifyUrl: SP },
         expect.anything()
       )
-      expect(screen.getByText('Bandcamp URL saved')).toBeInTheDocument()
+      expect(screen.getByText('Spotify URL saved')).toBeInTheDocument()
+      expect(
+        screen.queryByText('Pick streaming links for this artist')
+      ).not.toBeInTheDocument()
+    })
+
+    it('accepts a Bandcamp candidate via the artist-update path (async embed resolve)', async () => {
+      const user = userEvent.setup()
+      mockDiscoverMusicMutate.mockImplementation(
+        (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
+          opts.onSuccess({
+            artist_id: 42,
+            candidates: [makeCandidate(BC, 'bandcamp')],
+          })
+      )
+      mockArtistUpdateMutate.mockImplementation(
+        (_args: unknown, opts: { onSuccess: () => void }) => opts.onSuccess()
+      )
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      await user.click(screen.getByRole('button', { name: /Discover Music/ }))
+      await user.click(screen.getByRole('button', { name: 'Use this' }))
+
+      // Bandcamp accept sets social.bandcamp = profile root via the artist PATCH;
+      // it does NOT go through the album/track-only bandcamp endpoint.
+      expect(mockArtistUpdateMutate).toHaveBeenCalledWith(
+        { artistId: 42, data: { bandcamp: BC } },
+        expect.anything()
+      )
+      expect(mockUpdateBandcampMutate).not.toHaveBeenCalled()
+      // The copy must NOT falsely claim the embed is live — it says "background".
+      expect(screen.getByText(/fetching the embed in the background/i)).toBeInTheDocument()
       expect(
         screen.queryByText('Pick streaming links for this artist')
       ).not.toBeInTheDocument()
@@ -907,9 +986,12 @@ describe('ArtistDetail', () => {
       const user = userEvent.setup()
       mockDiscoverMusicMutate.mockImplementation(
         (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
-          opts.onSuccess({ bandcamp: [makeCandidate(BC)], spotify: [] })
+          opts.onSuccess({
+            artist_id: 42,
+            candidates: [makeCandidate(BC, 'bandcamp')],
+          })
       )
-      mockUpdateBandcampMutate.mockImplementation(
+      mockArtistUpdateMutate.mockImplementation(
         (_args: unknown, opts: { onError: (e: Error) => void }) =>
           opts.onError(new Error('Invalid Bandcamp URL'))
       )
@@ -929,11 +1011,11 @@ describe('ArtistDetail', () => {
       ).toBeInTheDocument()
     })
 
-    it('shows a "no candidates" alert when discovery returns empty lists', async () => {
+    it('shows a "no candidates" alert when discovery returns an empty list', async () => {
       const user = userEvent.setup()
       mockDiscoverMusicMutate.mockImplementation(
         (_id: number, opts: { onSuccess: (d: unknown) => void }) =>
-          opts.onSuccess({ bandcamp: [], spotify: [] })
+          opts.onSuccess({ artist_id: 42, candidates: [] })
       )
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
