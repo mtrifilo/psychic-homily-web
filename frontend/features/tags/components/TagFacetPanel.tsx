@@ -1,17 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { X, Tag as TagIcon, Info } from 'lucide-react'
+import { X, Tag as TagIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { InfoTooltip } from '@/components/shared/InfoTooltip'
 import type { CityState } from '@/components/filters'
 import { useTags } from '../hooks'
 import {
@@ -395,27 +390,16 @@ function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
  * Small info icon next to the facet heading that reveals the transitive
  * semantics of the filter (PSY-499). Only rendered for `show` / `festival`
  * entity types — direct-tag pages (artist, venue, label, release) don't
- * need the explainer. Keyboard- and hover-accessible via Radix Tooltip.
+ * need the explainer. Thin wrapper over the shared `InfoTooltip` primitive
+ * (PSY-969) that pins this surface's accessible label + test hook.
  */
 function TransitiveTagTooltip({ text }: { text: string }) {
   return (
-    <TooltipProvider delayDuration={120}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="How tag filtering works"
-            className="inline-flex items-center rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid="tag-facet-transitive-info"
-          >
-            <Info className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          {text}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <InfoTooltip
+      copy={text}
+      label="How tag filtering works"
+      testId="tag-facet-transitive-info"
+    />
   )
 }
 
