@@ -131,6 +131,75 @@ describe('MusicEmbed', () => {
     })
   })
 
+  // PSY-1195: release pages pass an album/track Spotify URL (not an artist URL).
+  it('renders a spotify album embed when an album URL is provided', async () => {
+    render(
+      <MusicEmbed
+        spotifyUrl="https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      const iframe = screen.getByTitle('Test Artist on Spotify')
+      expect(iframe).toHaveAttribute(
+        'src',
+        expect.stringContaining('embed/album/4Z8W4fKeB5YxbusRsdQVPb')
+      )
+    })
+  })
+
+  it('renders a spotify track embed when a track URL is provided', async () => {
+    render(
+      <MusicEmbed
+        spotifyUrl="https://open.spotify.com/track/0TnOYISbd1XYRBk9myaseg"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      const iframe = screen.getByTitle('Test Artist on Spotify')
+      expect(iframe).toHaveAttribute(
+        'src',
+        expect.stringContaining('embed/track/0TnOYISbd1XYRBk9myaseg')
+      )
+    })
+  })
+
+  it('renders no spotify embed for a non-embeddable Spotify URL (playlist)', async () => {
+    const { container } = render(
+      <MusicEmbed
+        spotifyUrl="https://open.spotify.com/playlist/4Z8W4fKeB5YxbusRsdQVPb"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      // No embeddable URL of any kind → MusicEmbed renders nothing.
+      expect(container.querySelector('section')).not.toBeInTheDocument()
+    })
+  })
+
+  it('prefers a bandcamp album embed over a spotify album URL (PSY-1187 precedence)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ kind: 'album', id: '77777' }),
+    } as Response)
+
+    render(
+      <MusicEmbed
+        bandcampAlbumUrl="https://band.bandcamp.com/album/test"
+        spotifyUrl="https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Test Artist on Bandcamp')).toBeInTheDocument()
+      expect(screen.queryByTitle('Test Artist on Spotify')).not.toBeInTheDocument()
+    })
+  })
+
   it('renders fallback link when bandcamp fetch fails', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: false,

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
-import { parseSpotifyArtistId } from '@/lib/spotify'
+import { parseSpotifyEmbed, type SpotifyEmbedKind } from '@/lib/spotify'
 import { bandcampEmbedSrc, type BandcampEmbedResponse } from '@/lib/bandcamp'
 
 interface MusicEmbedProps {
@@ -17,7 +17,7 @@ interface MusicEmbedProps {
 type EmbedState =
   | { type: 'loading' }
   | { type: 'bandcamp'; embedKind: 'album' | 'track'; embedId: string }
-  | { type: 'spotify'; artistId: string }
+  | { type: 'spotify'; spotifyKind: SpotifyEmbedKind; spotifyId: string }
   | { type: 'fallback'; url: string; label: string }
   | { type: 'none' }
 
@@ -56,11 +56,14 @@ export function MusicEmbed({
         }
       }
 
-      // Priority 2: Spotify artist URL
+      // Priority 2: Spotify artist/album/track URL. Artist pages pass an artist
+      // URL; release pages pass an album/track URL (PSY-1195). parseSpotifyEmbed
+      // host-anchors + id-validates all three, so a bad/look-alike URL falls
+      // through to the fallbacks below rather than producing a broken iframe.
       if (spotifyUrl) {
-        const artistId = parseSpotifyArtistId(spotifyUrl)
-        if (artistId) {
-          return { type: 'spotify', artistId }
+        const parsed = parseSpotifyEmbed(spotifyUrl)
+        if (parsed) {
+          return { type: 'spotify', spotifyKind: parsed.kind, spotifyId: parsed.id }
         }
       }
 
@@ -147,7 +150,7 @@ export function MusicEmbed({
           <iframe
             title={`${artistName} on Spotify`}
             style={{ borderRadius: '12px', width: '100%', height: compact ? '152px' : '352px' }}
-            src={`https://open.spotify.com/embed/artist/${embed.artistId}?utm_source=generator&theme=0`}
+            src={`https://open.spotify.com/embed/${embed.spotifyKind}/${embed.spotifyId}?utm_source=generator&theme=0`}
             frameBorder="0"
             allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
             loading="lazy"

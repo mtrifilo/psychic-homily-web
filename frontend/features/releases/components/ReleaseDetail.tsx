@@ -83,6 +83,24 @@ function findBandcampEmbedUrl(
   return link?.url ?? null
 }
 
+/**
+ * Pick the first Spotify external link to feed the embed (PSY-1195).
+ *
+ * Returns the URL of any `spotify`-platform link (case-insensitive). MusicEmbed
+ * runs `parseSpotifyEmbed` on it, which host-anchors + id-validates and accepts
+ * only album/track/artist URLs — so a non-embeddable Spotify URL (e.g. a search
+ * or playlist link) is left to the plain "Listen / Buy" card and MusicEmbed
+ * renders no Spotify player for it. When a release also has a Bandcamp
+ * album/track link, MusicEmbed's internal priority renders the Bandcamp embed
+ * first, so passing both is safe (PSY-1187 precedence preserved).
+ */
+function findSpotifyEmbedUrl(
+  links: ReleaseExternalLink[]
+): string | null {
+  const link = links.find(l => l.platform.toLowerCase() === 'spotify')
+  return link?.url ?? null
+}
+
 interface ReleaseDetailProps {
   idOrSlug: string | number
 }
@@ -167,6 +185,12 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   // a link if it can't), so the clickable "Listen / Buy" cards below stay as-is.
   const bandcampEmbedUrl = release.external_links
     ? findBandcampEmbedUrl(release.external_links)
+    : null
+  // PSY-1195: also feed a Spotify link to MusicEmbed. Its internal priority
+  // prefers Bandcamp, so a release with both still shows the Bandcamp embed;
+  // a Spotify-only release gets a playable Spotify player instead of just a card.
+  const spotifyEmbedUrl = release.external_links
+    ? findSpotifyEmbedUrl(release.external_links)
     : null
   // Fallback link text uses the primary (main) artist's name, then the first
   // artist, then the release title.
@@ -411,13 +435,16 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           {hasExternalLinks && (
             <div>
               <h2 className="text-lg font-semibold mb-3">Listen / Buy</h2>
-              {/* PSY-1187: playable Bandcamp player above the link cards. Renders
-                  only when a Bandcamp album/track link resolves; otherwise the
-                  embed returns null and only the cards below show. */}
-              {bandcampEmbedUrl && (
+              {/* Playable player above the link cards. PSY-1187 wired Bandcamp;
+                  PSY-1195 adds Spotify. MusicEmbed prefers Bandcamp when both
+                  are present, falls back to a link if a chosen URL can't resolve,
+                  and renders nothing if neither URL is embeddable — so the link
+                  cards below always remain. */}
+              {(bandcampEmbedUrl || spotifyEmbedUrl) && (
                 <div className="mb-4">
                   <MusicEmbed
                     bandcampAlbumUrl={bandcampEmbedUrl}
+                    spotifyUrl={spotifyEmbedUrl}
                     artistName={primaryArtistName}
                     compact
                   />

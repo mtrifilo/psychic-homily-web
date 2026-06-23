@@ -103,16 +103,23 @@ vi.mock('@/components/shared', () => ({
       {label}
     </button>
   ),
-  // PSY-1187: the Bandcamp player. Echo the album URL so the wire-up
-  // (which link gets fed to the embed) is assertable without the resolver fetch.
+  // PSY-1187/1195: the music player. Echo the Bandcamp + Spotify URLs so the
+  // wire-up (which links get fed to the embed) is assertable without the
+  // resolver fetch.
   MusicEmbed: ({
     bandcampAlbumUrl,
+    spotifyUrl,
     artistName,
   }: {
     bandcampAlbumUrl?: string | null
+    spotifyUrl?: string | null
     artistName: string
   }) => (
-    <div data-testid="music-embed" data-url={bandcampAlbumUrl ?? ''}>
+    <div
+      data-testid="music-embed"
+      data-url={bandcampAlbumUrl ?? ''}
+      data-spotify-url={spotifyUrl ?? ''}
+    >
       Music embed for {artistName}
     </div>
   ),
@@ -621,14 +628,18 @@ describe('ReleaseDetail', () => {
       )
     })
 
-    it('does not render the embed for a bare Bandcamp profile link', () => {
+    it('feeds no Bandcamp URL for a bare Bandcamp profile link', () => {
       mockUseRelease.mockReturnValue({
-        // makeRelease default has a bare profile root for Bandcamp.
-        data: makeRelease(),
+        data: makeRelease({
+          external_links: [
+            { id: 1, platform: 'bandcamp', url: 'https://radiohead.bandcamp.com' },
+          ],
+        }),
         isLoading: false,
         error: null,
       })
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      // No album/track Bandcamp link and no Spotify link → no embed at all.
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
       // The link card is still shown.
       expect(screen.getByText('Bandcamp').closest('a')).toHaveAttribute(
@@ -687,6 +698,134 @@ describe('ReleaseDetail', () => {
       expect(
         screen.getByText('Music embed for Headliner')
       ).toBeInTheDocument()
+    })
+  })
+
+  // PSY-1195: a Spotify link is also fed to MusicEmbed (alongside any Bandcamp
+  // album/track URL). A Spotify-only release renders a playable Spotify embed;
+  // a release with both keeps the Bandcamp precedence from PSY-1187.
+  describe('spotify embed', () => {
+    it('feeds the Spotify URL to the embed when there is no Bandcamp album/track link', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      const embed = screen.getByTestId('music-embed')
+      expect(embed).toHaveAttribute(
+        'data-spotify-url',
+        'https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb'
+      )
+      // No Bandcamp album/track URL is fed in this case.
+      expect(embed).toHaveAttribute('data-url', '')
+    })
+
+    it('feeds a Spotify-only release alongside a bare Bandcamp profile link', () => {
+      // The bare profile link is not embeddable, but the Spotify link is — so
+      // the embed still renders, fed only the Spotify URL.
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            { id: 1, platform: 'bandcamp', url: 'https://radiohead.bandcamp.com' },
+            {
+              id: 2,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      const embed = screen.getByTestId('music-embed')
+      expect(embed).toHaveAttribute('data-url', '')
+      expect(embed).toHaveAttribute(
+        'data-spotify-url',
+        'https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb'
+      )
+    })
+
+    it('feeds BOTH URLs when a release has a Bandcamp album AND a Spotify link', () => {
+      // MusicEmbed's internal priority renders Bandcamp first; the wire-up just
+      // hands it both, so the data flows through unchanged.
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://radiohead.bandcamp.com/album/in-rainbows',
+            },
+            {
+              id: 2,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      const embed = screen.getByTestId('music-embed')
+      expect(embed).toHaveAttribute(
+        'data-url',
+        'https://radiohead.bandcamp.com/album/in-rainbows'
+      )
+      expect(embed).toHaveAttribute(
+        'data-spotify-url',
+        'https://open.spotify.com/album/4Z8W4fKeB5YxbusRsdQVPb'
+      )
+    })
+
+    it('picks the first Spotify link (case-insensitive platform) when several exist', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'Spotify',
+              url: 'https://open.spotify.com/album/first',
+            },
+            {
+              id: 2,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/second',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.getByTestId('music-embed')).toHaveAttribute(
+        'data-spotify-url',
+        'https://open.spotify.com/album/first'
+      )
+    })
+
+    it('renders no embed when a release has only non-embeddable links', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            { id: 1, platform: 'discogs', url: 'https://www.discogs.com/release/1' },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
   })
 
