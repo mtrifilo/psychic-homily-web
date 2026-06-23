@@ -732,10 +732,113 @@ func (s *RadioService) updateStationHealth(stationID uint, status, trigger strin
 		health.LastSuccessAt = &now
 		assignments["last_success_at"] = now
 	}
+
+	// Recompute the observability rates over the trailing window (PSY-1201). On-write:
+	// the run row was already closed (status + play counts committed) above, so this
+	// includes the current run. Best-effort — on a query error we leave the rate columns
+	// untouched (omit from both paths) rather than clobber a prior value or fail the
+	// health write.
+	if successRate, playMatchRate, zeroPlayRate, ok := s.computeStationRates(stationID, now); ok {
+		health.RecentSuccessRate = successRate
+		health.PlayMatchRate = playMatchRate
+		health.ZeroPlayEpisodeRate = zeroPlayRate
+		setNullableFloatAssignment(assignments, "recent_success_rate", successRate)
+		setNullableFloatAssignment(assignments, "play_match_rate", playMatchRate)
+		setNullableFloatAssignment(assignments, "zero_play_episode_rate", zeroPlayRate)
+	}
+
 	_ = s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "station_id"}},
 		DoUpdates: clause.Assignments(assignments),
 	}).Create(&health).Error
+}
+
+// stationHealthRateWindow is the trailing window over which the observability rates are
+// computed (PSY-1201). 30 days balances "recent enough to flag a regression" against
+// "enough runs to be meaningful" at the current scheduled cadence.
+const stationHealthRateWindow = 30 * 24 * time.Hour
+
+// setNullableFloatAssignment writes a *float64 into a GORM assignments map as a value or
+// an explicit NULL (mirrors the breaker_tripped_at handling), so a nil rate clears the
+// column rather than being silently skipped.
+func setNullableFloatAssignment(m map[string]any, col string, v *float64) {
+	if v != nil {
+		m[col] = *v
+	} else {
+		m[col] = gorm.Expr("NULL")
+	}
+}
+
+// computeStationRates derives the three radio_station_health rates over the trailing
+// window for a station (PSY-1201): recent_success_rate (success / terminal runs),
+// play_match_rate (matched / imported plays), and zero_play_episode_rate (zero-play /
+// total aired episodes). Each is nil when its denominator is zero (no data → "never
+// computed", distinct from 0.0). ok=false on a query error so the caller leaves the
+// existing values untouched. Best-effort: errors are logged, never surfaced.
+func (s *RadioService) computeStationRates(stationID uint, now time.Time) (successRate, playMatchRate, zeroPlayRate *float64, ok bool) {
+	windowStart := now.Add(-stationHealthRateWindow)
+
+	// Runs: success rate + play-match rate in one pass over the window's ATTEMPTED runs.
+	// We exclude running (incomplete), cancelled (operator action), and skipped (breaker
+	// no-op — the run never attempted a sync); none is a health signal, and counting
+	// skipped would make a breaker-protected station's success rate decay toward 0 while
+	// the breaker is protecting it. So terminal = COUNT(*) of attempts, and the play SUMs
+	// likewise ignore cancelled partial mid-flight plays. The just-closed current run is
+	// committed and (unless skipped/cancelled) counts.
+	var runAgg struct {
+		Success  int64
+		Terminal int64
+		Matched  int64
+		Imported int64
+	}
+	if err := s.db.Raw(`
+		SELECT
+			COUNT(*) FILTER (WHERE status = ?) AS success,
+			COUNT(*) AS terminal,
+			COALESCE(SUM(plays_matched), 0) AS matched,
+			COALESCE(SUM(plays_imported), 0) AS imported
+		FROM radio_sync_runs
+		WHERE station_id = ? AND started_at >= ?
+			AND status NOT IN (?, ?, ?)
+	`, catalogm.RadioSyncRunStatusSuccess,
+		stationID, windowStart,
+		catalogm.RadioSyncRunStatusRunning, catalogm.RadioSyncRunStatusCancelled, catalogm.RadioSyncRunStatusSkipped).Scan(&runAgg).Error; err != nil {
+		slog.Warn("radio: computing station run-rates failed", "station_id", stationID, "error", err)
+		return nil, nil, nil, false
+	}
+
+	// Episodes aired in the window for this station's shows: zero-play rate. air_date is
+	// a DATE column; the YYYY-MM-DD cutoff compares correctly.
+	var epAgg struct {
+		Zero  int64
+		Total int64
+	}
+	if err := s.db.Raw(`
+		SELECT
+			COUNT(*) FILTER (WHERE e.play_count = 0) AS zero,
+			COUNT(*) AS total
+		FROM radio_episodes e
+		JOIN radio_shows sh ON sh.id = e.show_id
+		WHERE sh.station_id = ? AND e.air_date >= ?
+	`, stationID, windowStart.Format("2006-01-02")).Scan(&epAgg).Error; err != nil {
+		slog.Warn("radio: computing station episode-rate failed", "station_id", stationID, "error", err)
+		return nil, nil, nil, false
+	}
+
+	return ratio(runAgg.Success, runAgg.Terminal),
+		ratio(runAgg.Matched, runAgg.Imported),
+		ratio(epAgg.Zero, epAgg.Total),
+		true
+}
+
+// ratio returns numerator/denominator as a *float64, or nil when denominator is zero
+// (no data to measure — distinct from a genuine 0.0).
+func ratio(numerator, denominator int64) *float64 {
+	if denominator == 0 {
+		return nil
+	}
+	r := float64(numerator) / float64(denominator)
+	return &r
 }
 
 // isSyncRunCancelled reports whether the run has been flipped to 'cancelled'
