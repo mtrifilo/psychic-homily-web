@@ -28,6 +28,9 @@ export const radioQueryKeys = {
   syncRunsFeed: (params: string) => ['radio', 'sync-runs', 'feed', params] as const,
   stationSyncRuns: (stationId: number, params: string) =>
     ['radio', 'stations', stationId, 'sync-runs', params] as const,
+  // Station-health rollups (PSY-1200): the bulk dashboard list + a single station.
+  stationHealthAll: ['radio', 'station-health'] as const,
+  stationHealth: (stationId: number) => ['radio', 'stations', stationId, 'health'] as const,
   unmatched: (stationId: number) => ['radio', 'unmatched', stationId] as const,
 }
 
@@ -59,6 +62,10 @@ const RADIO_ENDPOINTS = {
   ADMIN_SYNC_RUNS: `${API_BASE_URL}/admin/radio/sync-runs`,
   ADMIN_STATION_SYNC_RUNS: (stationId: number) =>
     `${API_BASE_URL}/admin/radio-stations/${stationId}/sync-runs`,
+  // Station-health rollups (PSY-1129 backend / PSY-1200 FE): bulk + single.
+  ADMIN_STATION_HEALTH: `${API_BASE_URL}/admin/radio/station-health`,
+  ADMIN_STATION_HEALTH_ONE: (stationId: number) =>
+    `${API_BASE_URL}/admin/radio-stations/${stationId}/health`,
   // Matching
   ADMIN_UNMATCHED: `${API_BASE_URL}/admin/radio/unmatched`,
   ADMIN_LINK_PLAY: (playId: number) => `${API_BASE_URL}/admin/radio/plays/${playId}/link`,
@@ -627,6 +634,61 @@ export function useRecentFailedRuns(perStatusLimit = 10) {
     isLoading: failed.isLoading || partial.isLoading,
     isError: failed.isError || partial.isError,
   }
+}
+
+// ============================================================================
+// Station health (PSY-1200) — the radio_station_health rollup.
+// ============================================================================
+
+/**
+ * A station's operational health rollup (matches RadioStationHealthResponse). Rate
+ * fields are null when never computed (distinct from 0.0). Note: as of PSY-1129/1201 the
+ * rates are populated on each run; a station that has never run reads them as null and
+ * has a null last_run_at ("never run").
+ */
+export interface RadioStationHealth {
+  station_id: number
+  station_name: string
+  station_slug: string
+  consecutive_failures: number
+  breaker_state: string
+  // These map to backend pointer fields with `,omitempty`, so they are OMITTED from the
+  // JSON (i.e. `undefined`, not `null`) when nil — optional here so the type matches the
+  // wire and a strict `=== null` / unguarded use can't silently break never-run stations.
+  last_success_at?: string | null
+  last_run_at?: string | null
+  breaker_tripped_at?: string | null
+  recent_success_rate?: number | null
+  play_match_rate?: number | null
+  zero_play_episode_rate?: number | null
+  updated_at?: string | null
+}
+
+/** Bulk station-health envelope (one card per station). */
+export interface StationHealthListResult {
+  stations: RadioStationHealth[]
+  count: number
+}
+
+/** One station's health rollup (for the detail-panel health card). */
+export function useStationHealth(stationId: number, enabled = true) {
+  return useQuery({
+    queryKey: radioQueryKeys.stationHealth(stationId),
+    queryFn: async () => {
+      return apiRequest<RadioStationHealth>(RADIO_ENDPOINTS.ADMIN_STATION_HEALTH_ONE(stationId))
+    },
+    enabled: enabled && stationId > 0,
+  })
+}
+
+/** Health for every station (one card each) for the dashboard / list overview. */
+export function useListStationHealth() {
+  return useQuery({
+    queryKey: radioQueryKeys.stationHealthAll,
+    queryFn: async () => {
+      return apiRequest<StationHealthListResult>(RADIO_ENDPOINTS.ADMIN_STATION_HEALTH)
+    },
+  })
 }
 
 /**

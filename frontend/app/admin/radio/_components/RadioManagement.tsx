@@ -79,12 +79,15 @@ import {
   useCancelSyncRun,
   useStationSyncRuns,
   useRecentFailedRuns,
+  useStationHealth,
+  useListStationHealth,
   useUnmatchedPlays,
   useBulkLinkPlays,
   type RadioStationListItem,
   type RadioStationDetail,
   type RadioShowListItem,
   type RadioSyncRun,
+  type RadioStationHealth,
   type CreateRadioStationInput,
   type UpdateRadioStationInput,
   type CreateRadioShowInput,
@@ -1177,6 +1180,144 @@ function RecentFailuresPanel({
 }
 
 // ============================================================================
+// Station health (PSY-1200): traffic-light rollup + metric card
+// ============================================================================
+
+export type StationHealthLevel = 'healthy' | 'warning' | 'breach' | 'unknown'
+
+// deriveStationHealthLevel maps a health rollup to a traffic-light level. Thresholds are
+// tunable; the signals follow the ticket — consecutive_failures, a low success rate, and
+// a chronically-empty (high zero-play-episode) signal: the KEXP day-one case where syncs
+// "succeed" but return nothing. nil rates ("never computed") never trigger a level on
+// their own. A station that has never run is 'unknown'.
+export function deriveStationHealthLevel(h: RadioStationHealth): StationHealthLevel {
+  if (!h.last_run_at) return 'unknown'
+  if (
+    h.breaker_state === 'open' ||
+    h.consecutive_failures >= 3 ||
+    (h.recent_success_rate != null && h.recent_success_rate < 0.5) ||
+    (h.zero_play_episode_rate != null && h.zero_play_episode_rate >= 0.8)
+  ) {
+    return 'breach'
+  }
+  if (
+    h.consecutive_failures >= 1 ||
+    (h.play_match_rate != null && h.play_match_rate < 0.3) ||
+    (h.zero_play_episode_rate != null && h.zero_play_episode_rate >= 0.5)
+  ) {
+    return 'warning'
+  }
+  return 'healthy'
+}
+
+const STATION_HEALTH_LEVEL: Record<
+  StationHealthLevel,
+  { label: string; badge: string; dot: string }
+> = {
+  healthy: {
+    label: 'Healthy',
+    badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    dot: 'bg-green-500',
+  },
+  warning: {
+    label: 'Warning',
+    badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    dot: 'bg-amber-500',
+  },
+  breach: {
+    label: 'Needs attention',
+    badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    dot: 'bg-red-500',
+  },
+  unknown: {
+    label: 'Never run',
+    badge: 'bg-muted text-muted-foreground',
+    dot: 'bg-muted-foreground/40',
+  },
+}
+
+// Render a rate (0..1) as a whole percent, or an em-dash when not yet computed (null or
+// omitted/undefined on the wire). The loose `== null` catches both.
+function formatHealthRate(rate: number | null | undefined): string {
+  if (rate == null) return '—'
+  return `${Math.round(rate * 100)}%`
+}
+
+// Compact traffic-light badge for the stations table Health column.
+function StationHealthBadge({ health }: { health: RadioStationHealth | undefined }) {
+  if (!health) {
+    return <span className="text-xs text-muted-foreground">&mdash;</span>
+  }
+  const display = STATION_HEALTH_LEVEL[deriveStationHealthLevel(health)]
+  return (
+    <Badge className={display.badge}>
+      <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${display.dot}`} />
+      {display.label}
+    </Badge>
+  )
+}
+
+function HealthMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-medium">{value}</div>
+    </div>
+  )
+}
+
+// Full station-health card for the detail panel: the traffic-light level + the metric
+// grid (PSY-1200). A breach is visually emphasised (destructive border/tint).
+function StationHealthCard({ stationId }: { stationId: number }) {
+  const { data: health, isLoading, isError } = useStationHealth(stationId)
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+  if (isError) {
+    return (
+      <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        Couldn&apos;t load station health. Reload to try again.
+      </div>
+    )
+  }
+  if (!health) return null
+
+  const level = deriveStationHealthLevel(health)
+  const display = STATION_HEALTH_LEVEL[level]
+  return (
+    <div
+      className={`rounded-lg border p-4 ${
+        level === 'breach' ? 'border-destructive/50 bg-destructive/5' : ''
+      }`}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="font-medium">Station health</h4>
+        <Badge className={display.badge}>
+          <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${display.dot}`} />
+          {display.label}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+        <HealthMetric label="Success rate" value={formatHealthRate(health.recent_success_rate)} />
+        <HealthMetric label="Play-match rate" value={formatHealthRate(health.play_match_rate)} />
+        <HealthMetric label="0-play episodes" value={formatHealthRate(health.zero_play_episode_rate)} />
+        <HealthMetric label="Consecutive failures" value={String(health.consecutive_failures)} />
+        <HealthMetric label="Breaker" value={health.breaker_state} />
+        <HealthMetric
+          label="Last success"
+          value={health.last_success_at ? new Date(health.last_success_at).toLocaleString() : 'Never'}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
 // Show Import Section (per-show historic backfill + live run tracking)
 // ============================================================================
 
@@ -1425,6 +1566,9 @@ function StationDetailPanel({
           )}
         </div>
       )}
+
+      {/* Station health card (PSY-1200) */}
+      <StationHealthCard stationId={station.id} />
 
       {/* Discover Shows (async — poll the run, shows appear in the list below on
           completion) */}
@@ -1930,6 +2074,15 @@ export function RadioManagement() {
   const [detailStation, setDetailStation] = useState<RadioStationListItem | null>(null)
 
   const stations = useMemo(() => stationsData?.stations ?? [], [stationsData])
+
+  // Bulk station health for the at-a-glance Health column (PSY-1200), keyed by id.
+  const { data: healthData } = useListStationHealth()
+  const healthByStation = useMemo(() => {
+    const map = new Map<number, RadioStationHealth>()
+    for (const h of healthData?.stations ?? []) map.set(h.station_id, h)
+    return map
+  }, [healthData])
+
   const filteredStations = stations.filter((s) =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (s.city ?? '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -1998,6 +2151,11 @@ export function RadioManagement() {
           {s.is_active ? 'Active' : 'Inactive'}
         </Badge>
       ),
+    },
+    {
+      key: 'health',
+      header: 'Health',
+      render: (s) => <StationHealthBadge health={healthByStation.get(s.id)} />,
     },
   ]
 
