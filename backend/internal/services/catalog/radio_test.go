@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -1246,44 +1245,6 @@ func TestRadioService_NilDB_Feeds(t *testing.T) {
 	assertNilDBError(t, func() error { _, err := svc.GetTopLabelsForStation(1, 90, 10); return err })
 }
 
-// TestNormalizeStationTimezone covers the write-boundary validator that keeps a
-// bad timezone out of the column (PSY-1204, adversarial-review CRITICAL): nil
-// passes through, blank/whitespace normalizes to "" (feed falls back to UTC), a
-// valid zone is trimmed, and a non-loadable zone is rejected.
-func TestNormalizeStationTimezone(t *testing.T) {
-	ptr := func(s string) *string { return &s }
-
-	t.Run("nil stays nil", func(t *testing.T) {
-		got, err := normalizeStationTimezone(nil)
-		require.NoError(t, err)
-		require.Nil(t, got)
-	})
-
-	for _, tc := range []struct {
-		name, in, want string
-	}{
-		{"empty", "", ""},
-		{"whitespace only", "  ", ""},
-		{"valid zone trimmed", "  America/New_York ", "America/New_York"},
-		{"utc", "UTC", "UTC"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := normalizeStationTimezone(ptr(tc.in))
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			require.Equal(t, tc.want, *got)
-		})
-	}
-
-	for _, bad := range []string{"Mars/Olympus", "Amrica/Los_Angeles", "not a zone"} {
-		t.Run("rejects "+bad, func(t *testing.T) {
-			got, err := normalizeStationTimezone(ptr(bad))
-			require.Error(t, err)
-			require.Nil(t, got)
-		})
-	}
-}
-
 // createNetworkFamily seeds a network with a flagship + one sibling channel,
 // plus one standalone station outside the network. Returns (flagship,
 // sibling, standalone).
@@ -1542,10 +1503,10 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStati
 // (shows aired earlier today included) but drops future-dated rows. WFMU
 // publishes 0-track placeholder pages for upcoming broadcasts ahead of airtime;
 // those were sorting to the top of the feed. The bound is day-granular in the
-// station's local zone. Determinism: both the seeded dates and the query's "now"
-// read the SAME process clock (the service pins time.Now().UTC()), and the ±2-day
-// margin absorbs the sub-microsecond gap between them — so there is no DB-vs-host
-// clock skew and no midnight-rollover flake. Do not narrow the margin to ±1.
+// station's local zone. Determinism: the seeded dates and the service's pinned
+// bound are two separate reads of the host process clock (no DB-vs-host skew),
+// and the ±2-day margin absorbs both the few-ms gap between those reads and any
+// UTC-midnight straddle. Do not narrow the margin to ±1.
 func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ExcludesFutureEpisodes() {
 	station := suite.createStation("Aired FM")
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
@@ -1620,6 +1581,39 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ToleratesB
 	suite.Equal(int64(1), total)
 	suite.Require().Len(rows, 1)
 	suite.Equal(past, rows[0].AirDate, "unknown zone falls back to UTC; future still excluded")
+}
+
+// TestNormalizeStationTimezone covers the write-boundary validator (PSY-1204):
+// it validates against the SAME catalog the feed resolves through
+// (pg_timezone_names), so an accepted value can never silently degrade to UTC in
+// the feed. nil/blank → nil (NULL → UTC), canonical IANA is accepted and its
+// casing normalized, and values Go's time.LoadLocation would accept but Postgres'
+// catalog lacks (abbreviations like "EST", the alias "Local") are rejected.
+func (suite *RadioServiceIntegrationTestSuite) TestNormalizeStationTimezone() {
+	tz := func(s string) *string { return &s }
+
+	for _, in := range []*string{nil, tz(""), tz("   ")} {
+		got, err := suite.radioService.normalizeStationTimezone(in)
+		suite.Require().NoError(err)
+		suite.Nil(got, "nil/blank normalizes to NULL")
+	}
+
+	for _, tc := range []struct{ in, want string }{
+		{"America/New_York", "America/New_York"},
+		{"  america/new_york ", "America/New_York"}, // trimmed + canonical casing
+		{"UTC", "UTC"},
+	} {
+		got, err := suite.radioService.normalizeStationTimezone(tz(tc.in))
+		suite.Require().NoError(err)
+		suite.Require().NotNil(got)
+		suite.Equal(tc.want, *got)
+	}
+
+	for _, bad := range []string{"EST", "Local", "Mars/Olympus", "not a zone"} {
+		got, err := suite.radioService.normalizeStationTimezone(tz(bad))
+		suite.Require().Error(err, "should reject %q (not a pg_timezone_names entry)", bad)
+		suite.Nil(got)
+	}
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_StrictPerStation() {
