@@ -20,7 +20,6 @@ const station: RadioStationListItem = {
   frequency_mhz: 91.1,
   logo_url: null,
   is_active: true,
-  schedule_locked: false,
   show_count: 0,
 }
 
