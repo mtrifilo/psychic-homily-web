@@ -1152,7 +1152,9 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 			// unrecognized value leaves tzn.name NULL and falls back to UTC rather
 			// than erroring out of AT TIME ZONE and 500-ing this public,
 			// all-stations feed.
-			Joins("LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone))").
+			// btrim strips space/tab/newline/CR to match the write side's
+			// strings.TrimSpace, so a legacy whitespace-padded value still resolves.
+			Joins(`LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone, E' \t\n\r'))`).
 			// Aired-only: WFMU (and other providers) publish playlist pages for
 			// UPCOMING broadcasts ahead of airtime, which the importer ingests as
 			// future-dated, 0-track placeholder episodes (PSY-1204). The "Latest
