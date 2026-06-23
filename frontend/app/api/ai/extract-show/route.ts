@@ -12,6 +12,7 @@ import type {
   VenueMatchSuggestion,
 } from '@/lib/types/extraction'
 import { getAuthenticatedUser } from '@/lib/auth-profile'
+import { enforceThrottle } from '@/lib/ai-extraction-throttle'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -249,6 +250,14 @@ export async function POST(request: NextRequest) {
       { success: false, error: 'Authentication required' },
       { status: 401 }
     )
+  }
+
+  // PSY-855: enforce the per-user rate limit BEFORE any (paid) Anthropic work.
+  // The backend counts the attempt + bypasses admins; on a limit hit this
+  // returns the 429 envelope (Retry-After header + JSON body) and we stop here.
+  const throttle = await enforceThrottle(authCookie.value, 'extract-show')
+  if (!throttle.ok) {
+    return throttle.response
   }
 
   // Check if Anthropic API key is configured

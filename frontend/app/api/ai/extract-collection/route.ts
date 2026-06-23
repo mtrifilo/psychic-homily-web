@@ -28,6 +28,7 @@ import type {
   MatchSuggestion,
 } from '@/lib/types/extraction'
 import { getAuthenticatedUser } from '@/lib/auth-profile'
+import { enforceThrottle } from '@/lib/ai-extraction-throttle'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -183,6 +184,15 @@ export async function POST(request: NextRequest) {
       { success: false, error: 'Authentication required' },
       { status: 401 }
     )
+  }
+
+  // PSY-855: enforce the per-user rate limit BEFORE any (paid) Anthropic work.
+  // Shares one counter with extract-show so a user gets 10 extractions/hr
+  // total, not 10 of each. The backend counts the attempt + bypasses admins;
+  // on a limit hit this returns the 429 envelope and we stop here.
+  const throttle = await enforceThrottle(authCookie.value, 'extract-collection')
+  if (!throttle.ok) {
+    return throttle.response
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY

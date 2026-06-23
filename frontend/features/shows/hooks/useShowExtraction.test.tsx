@@ -184,6 +184,37 @@ describe('useShowExtraction', () => {
     expect((result.current.error as Error).message).toBe('Internal server error')
   })
 
+  // PSY-855: a 429 rate-limit response carries a human-readable retry hint in
+  // `error` ("Rate limit exceeded. Try again in N minutes."). The hook must
+  // surface that exact message so the AIFormFiller error banner shows it.
+  it('surfaces the 429 rate-limit hint as the error message', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        {
+          success: false,
+          error: 'Rate limit exceeded. Try again in 42 minutes.',
+          retry_after: 2520,
+        },
+        false,
+        429
+      )
+    )
+
+    const { result } = renderHook(() => useShowExtraction(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ type: 'text', text: 'too many' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect((result.current.error as Error).message).toBe(
+      'Rate limit exceeded. Try again in 42 minutes.'
+    )
+  })
+
   it('allows retrying after a failure and succeeds on the second attempt', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(

@@ -105,6 +105,13 @@ export interface ExtractShowResponse {
   error?: string
   /** Warnings about partial extraction or uncertain matches */
   warnings?: string[]
+  /**
+   * Seconds until the user may retry, present only on a 429 rate-limit
+   * response (PSY-855). The human-readable hint is already baked into `error`
+   * ("Rate limit exceeded. Try again in N minutes."); this is the
+   * machine-readable mirror, also echoed in the `Retry-After` header.
+   */
+  retry_after?: number
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -174,4 +181,11 @@ export interface ExtractCollectionResponse {
   data?: ExtractedCollectionData
   error?: string
   warnings?: string[]
+  /**
+   * Seconds until the user may retry, present only on a 429 rate-limit
+   * response (PSY-855). The human-readable hint is already baked into `error`;
+   * this is the machine-readable mirror, also echoed in the `Retry-After`
+   * header.
+   */
+  retry_after?: number
 }

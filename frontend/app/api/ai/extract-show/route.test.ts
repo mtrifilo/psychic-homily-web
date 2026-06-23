@@ -65,11 +65,13 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 // --- Sentry mock ----------------------------------------------------------
-const { mockCaptureException } = vi.hoisted(() => ({
+const { mockCaptureException, mockCaptureMessage } = vi.hoisted(() => ({
   mockCaptureException: vi.fn(),
+  mockCaptureMessage: vi.fn(),
 }))
 vi.mock('@sentry/nextjs', () => ({
   captureException: mockCaptureException,
+  captureMessage: mockCaptureMessage,
 }))
 
 // --- next/headers cookies mock --------------------------------------------
@@ -97,6 +99,10 @@ import type {
 interface FetchConfig {
   profileOk: boolean
   profileBody: unknown
+  // PSY-855: throttle gate. Defaults to allowed=true so existing tests pass
+  // unchanged; the rate-limit tests flip these to exercise the 429 path.
+  throttleOk: boolean
+  throttleBody: unknown
   artistResults: Record<string, unknown>
   venueResults: Record<string, unknown>
 }
@@ -106,6 +112,7 @@ let fetchConfig: FetchConfig
 function makeResponse(ok: boolean, body: unknown): Response {
   return {
     ok,
+    status: ok ? 200 : 400,
     json: async () => body,
   } as unknown as Response
 }
@@ -114,6 +121,9 @@ function installFetch() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString()
 
+    if (url.includes('/ai-extraction/throttle')) {
+      return makeResponse(fetchConfig.throttleOk, fetchConfig.throttleBody)
+    }
     if (url.includes('/auth/profile')) {
       return makeResponse(fetchConfig.profileOk, fetchConfig.profileBody)
     }
@@ -157,6 +167,13 @@ beforeEach(() => {
   fetchConfig = {
     profileOk: true,
     profileBody: { success: true, user: { id: 'u1' } },
+    throttleOk: true,
+    throttleBody: {
+      allowed: true,
+      retry_after_seconds: 0,
+      limit: 10,
+      window_seconds: 3600,
+    },
     artistResults: {},
     venueResults: {},
   }
@@ -210,6 +227,58 @@ describe('POST /api/ai/extract-show', () => {
 
       expect(res.status).toBe(401)
       expect(mockCreate).not.toHaveBeenCalled()
+    })
+  })
+
+  // PSY-855: the route must gate on the backend throttle BEFORE calling
+  // Anthropic. A limit hit returns 429 + Retry-After + the decided body and
+  // mockCreate (the Anthropic SDK) is never invoked.
+  describe('rate limiting', () => {
+    it('returns 429 with Retry-After + retry_after body when throttled', async () => {
+      fetchConfig.throttleOk = true
+      fetchConfig.throttleBody = {
+        allowed: false,
+        retry_after_seconds: 2520, // 42 minutes
+        limit: 10,
+        window_seconds: 3600,
+      }
+
+      const res = await POST(makeRequest({ type: 'text', text: 'show flyer' }))
+      const body = await readJson(res)
+
+      expect(res.status).toBe(429)
+      expect(res.headers.get('Retry-After')).toBe('2520')
+      expect(body.success).toBe(false)
+      expect(body.error).toBe('Rate limit exceeded. Try again in 42 minutes.')
+      expect((body as { retry_after?: number }).retry_after).toBe(2520)
+      expect(mockCreate).not.toHaveBeenCalled()
+    })
+
+    it('fails closed with 503 when the throttle gate is unavailable', async () => {
+      fetchConfig.throttleOk = false
+      fetchConfig.throttleBody = { detail: 'down' }
+
+      const res = await POST(makeRequest({ type: 'text', text: 'show flyer' }))
+
+      expect(res.status).toBe(503)
+      expect(mockCreate).not.toHaveBeenCalled()
+    })
+
+    it('proceeds to extraction when the throttle allows the attempt', async () => {
+      // Default config is allowed=true. A successful extraction must still call
+      // Anthropic — i.e. the gate doesn't block the happy path.
+      mockCreate.mockResolvedValueOnce(
+        claudeTextResponse({
+          artists: [{ name: 'Sleep', is_headliner: true }],
+          venue: { name: 'The Rebel Lounge', city: 'Phoenix', state: 'AZ' },
+          date: '2026-07-01',
+        })
+      )
+
+      const res = await POST(makeRequest({ type: 'text', text: 'Sleep show' }))
+
+      expect(res.status).toBe(200)
+      expect(mockCreate).toHaveBeenCalledTimes(1)
     })
   })
 

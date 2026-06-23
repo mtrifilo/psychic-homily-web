@@ -15,6 +15,7 @@ import (
 	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/services/ratelimit"
 	"psychic-homily-backend/internal/services/sourceregistry"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/utils"
@@ -68,6 +69,7 @@ type ServiceContainer struct {
 	RelationshipDerivation *catalog.RelationshipDerivationService
 	Venue                  *catalog.VenueService
 	SourceConfig           *sourceregistry.SourceConfigService
+	AIExtractionThrottle   *ratelimit.AIExtractionThrottleService
 	StreamingWorklist      *pipeline.StreamingWorklistService
 	DiscoverMusic          *pipeline.DiscoverMusicService
 
@@ -218,6 +220,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		RelationshipDerivation: catalog.NewRelationshipDerivationService(artistRelSvc),
 		Venue:                  venue,
 		SourceConfig:           sourceConfig,
+		AIExtractionThrottle:   ratelimit.NewAIExtractionThrottleService(database),
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
 		DiscoverMusic:          pipeline.NewDiscoverMusicService(database),
 
