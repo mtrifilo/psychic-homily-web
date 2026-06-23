@@ -12,19 +12,27 @@ func TestIsPublicIP(t *testing.T) {
 		want bool
 	}{
 		// Blocked — the SSRF attack surface.
-		{"127.0.0.1", false},        // loopback
-		{"::1", false},              // ipv6 loopback
-		{"169.254.169.254", false},  // cloud metadata (link-local)
-		{"10.0.0.5", false},         // RFC1918 private
-		{"192.168.1.1", false},      // RFC1918 private
-		{"172.16.0.1", false},       // RFC1918 private
-		{"0.0.0.0", false},          // unspecified
-		{"::", false},               // ipv6 unspecified
-		{"fc00::1", false},          // ipv6 unique-local (private)
-		{"fe80::1", false},          // ipv6 link-local
-		{"224.0.0.1", false},        // multicast
-		{"::ffff:127.0.0.1", false}, // ipv4-mapped loopback (normalization)
-		{"::ffff:10.0.0.1", false},  // ipv4-mapped private
+		{"127.0.0.1", false},         // loopback
+		{"::1", false},               // ipv6 loopback
+		{"169.254.169.254", false},   // cloud metadata (link-local)
+		{"10.0.0.5", false},          // RFC1918 private
+		{"192.168.1.1", false},       // RFC1918 private
+		{"172.16.0.1", false},        // RFC1918 private
+		{"0.0.0.0", false},           // unspecified
+		{"::", false},                // ipv6 unspecified
+		{"fc00::1", false},           // ipv6 unique-local (private)
+		{"fe80::1", false},           // ipv6 link-local
+		{"224.0.0.1", false},         // multicast
+		{"::ffff:127.0.0.1", false},  // ipv4-mapped loopback (normalization)
+		{"::ffff:10.0.0.1", false},   // ipv4-mapped private
+		{"100.64.0.1", false},        // CGNAT (RFC 6598) — stdlib IsPrivate misses this
+		{"100.127.255.255", false},   // CGNAT upper edge
+		{"::ffff:100.64.0.1", false}, // ipv4-mapped CGNAT
+		{"64:ff9b::1.1.1.1", false},  // NAT64 well-known prefix (embeds an IPv4 host)
+		{"192.0.2.10", false},        // TEST-NET-1 documentation range
+		{"198.51.100.10", false},     // TEST-NET-2
+		{"203.0.113.10", false},      // TEST-NET-3
+		{"198.18.0.10", false},       // benchmarking range
 		// Allowed — real public hosts.
 		{"1.1.1.1", true},
 		{"8.8.8.8", true},

@@ -131,10 +131,11 @@ func (c *SSRFSafeLivenessChecker) probe(method, rawURL string) (status int, ok b
 }
 
 // statusIsLive treats any non-5xx status as "the host answered for this URL".
-// 2xx/3xx are clearly live; 4xx (other than the HEAD-not-allowed codes handled
-// upstream) still means the host is reachable and answered — a 404 link is
-// surfaced to the admin as not-live via the candidate's own host-anchor gate
-// elsewhere, but a transient 403/429 shouldn't drop an otherwise-valid match.
+// 2xx/3xx are clearly live; a 4xx still means the host is reachable and
+// answered, so a transient 403/429 doesn't drop an otherwise-valid match. Only a
+// transport error or a 5xx counts as not-live. (A genuine 404 artist page is
+// rare for a host-anchored bandcamp/spotify link and the admin reviews the
+// candidate regardless, so erring toward "answered" is the safer default.)
 func statusIsLive(status int) bool {
 	return status < 500
 }
@@ -159,14 +160,61 @@ func ssrfDialControl(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
+// cgnatNet is the RFC 6598 shared-address (carrier-grade NAT) range
+// 100.64.0.0/10. Go's net.IP.IsPrivate() does NOT cover it, yet some cloud
+// providers route internal services through CGNAT space — so a server-side
+// fetch must refuse it too.
+var cgnatNet = mustCIDR("100.64.0.0/10")
+
+// extraBlockedNets are additional non-public ranges that Go's stdlib predicates
+// miss but a defense-in-depth SSRF guard should still refuse: the documentation
+// ranges (often used for internal placeholders) and the benchmarking range.
+var extraBlockedNets = []*net.IPNet{
+	mustCIDR("192.0.2.0/24"),    // TEST-NET-1 (RFC 5737)
+	mustCIDR("198.51.100.0/24"), // TEST-NET-2
+	mustCIDR("203.0.113.0/24"),  // TEST-NET-3
+	mustCIDR("198.18.0.0/15"),   // benchmarking (RFC 2544)
+	mustCIDR("nat64"),           // placeholder replaced below
+}
+
+func mustCIDR(s string) *net.IPNet {
+	if s == "nat64" {
+		// 64:ff9b::/96 — well-known NAT64 prefix. A NAT64 address embeds an
+		// IPv4 host in its low 32 bits, so it can be used to reach an internal
+		// IPv4 target; refuse the whole prefix.
+		_, n, _ := net.ParseCIDR("64:ff9b::/96")
+		return n
+	}
+	_, n, err := net.ParseCIDR(s)
+	if err != nil {
+		panic("invalid SSRF CIDR " + s + ": " + err.Error())
+	}
+	return n
+}
+
 // isPublicIP reports whether ip is a globally-routable public address — i.e. NOT
-// loopback, private (RFC1918 / RFC4193), link-local (incl. 169.254.169.254
-// cloud metadata), multicast, unspecified (0.0.0.0 / ::), or an
+// loopback, private (RFC1918 / RFC4193 fc00::/7), link-local (incl.
+// 169.254.169.254 cloud metadata), multicast, unspecified (0.0.0.0 / ::), CGNAT
+// (100.64.0.0/10), NAT64 (64:ff9b::/96), a documentation/benchmark range, or an
 // IPv4-in-IPv6-mapped form of any of those. This is the allowlist-by-exclusion
 // at the heart of the SSRF guard.
+//
+// Go's stdlib predicates (IsPrivate etc.) miss CGNAT and NAT64, both of which can
+// reach internal hosts; those are covered by the explicit CIDR checks below
+// BEFORE the IPv4-mapped normalization, so a NAT64 address is caught as IPv6.
 func isPublicIP(ip net.IP) bool {
+	// Explicit-CIDR checks run first, on the ORIGINAL form, so the NAT64 IPv6
+	// prefix is matched before To4() would rewrite a mapped address.
+	if cgnatNet.Contains(ip) {
+		return false
+	}
+	for _, n := range extraBlockedNets {
+		if n.Contains(ip) {
+			return false
+		}
+	}
 	// Normalize an IPv4-mapped IPv6 address (::ffff:127.0.0.1) to its IPv4 form
-	// so the IPv4 checks below apply.
+	// so the stdlib IPv4 checks below apply.
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
 	}
@@ -178,8 +226,11 @@ func isPublicIP(ip net.IP) bool {
 		ip.IsUnspecified() {
 		return false
 	}
-	// Block the IPv6 unique-local range fc00::/7 (covered by IsPrivate in Go
-	// 1.17+, but assert explicitly for clarity) and the documentation/test
-	// ranges are not relevant here.
+	// Re-run CGNAT against the normalized IPv4 form too (a ::ffff:100.64.x.x
+	// mapped address would have passed the pre-normalization check on its IPv6
+	// shape).
+	if cgnatNet.Contains(ip) {
+		return false
+	}
 	return true
 }

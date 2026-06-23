@@ -283,6 +283,55 @@ func TestDiscoverMusic_EmptyNameSkips(t *testing.T) {
 	}
 }
 
+// TestRegionTier_CrossStateCityIsReview guards the city-match accuracy fix: a
+// bare MB city name ("London", no US-state anchor) must NOT false-match a
+// same-named US city in a different state ("London, KY") as high confidence.
+func TestRegionTier_CrossStateCityIsReview(t *testing.T) {
+	cand := MBArtistResult{
+		Name:    "Some Band",
+		Country: "GB",
+		Area:    &MBArea{Name: "United Kingdom", Type: "Country"},
+		// MB City begin-area with no US state context.
+		BeginArea: &MBArea{Name: "London", Type: "City"},
+	}
+	conf, match := regionTier(cand, []showRegion{{City: "London", State: "KY"}})
+	if conf != contracts.MusicConfidenceReview || match {
+		t.Fatalf("bare foreign city must not high-match a same-named US city; got conf=%q match=%v", conf, match)
+	}
+}
+
+// TestRegionTier_EmptyCountryForeignAreaIsReview guards the non-US fix: MB often
+// leaves the top-level country empty while tagging a foreign Country area — that
+// must still resolve to review, not slip through as US.
+func TestRegionTier_EmptyCountryForeignAreaIsReview(t *testing.T) {
+	cand := MBArtistResult{
+		Name:    "Some Band",
+		Country: "", // empty — the old guard skipped on this
+		Area:    &MBArea{Name: "United Kingdom", Type: "Country"},
+	}
+	conf, match := regionTier(cand, []showRegion{{City: "London", State: "KY"}})
+	if conf != contracts.MusicConfidenceReview || match {
+		t.Fatalf("empty-country + foreign area must be review; got conf=%q match=%v", conf, match)
+	}
+}
+
+// TestRegionTier_USCityWithStateAnchorIsHigh confirms a US band whose City
+// begin-area is anchored by a US-state area still earns high on a city match.
+func TestRegionTier_USCityWithStateAnchorIsHigh(t *testing.T) {
+	cand := MBArtistResult{
+		Name:      "Localband",
+		Country:   "US",
+		Area:      &MBArea{Name: "Minnesota", Type: "Subdivision"}, // US state anchor
+		BeginArea: &MBArea{Name: "Minneapolis", Type: "City"},
+	}
+	// Region carries a city the show DB might store without a matching state row;
+	// the state anchor makes the city match trustworthy.
+	conf, match := regionTier(cand, []showRegion{{City: "Minneapolis", State: "MN"}})
+	if conf != contracts.MusicConfidenceHigh || !match {
+		t.Fatalf("US band with state anchor should be high on city/state match; got conf=%q match=%v", conf, match)
+	}
+}
+
 func TestNormalizeArtistName(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Club XCX", "clubxcx"},

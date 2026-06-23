@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 
 	"gorm.io/gorm"
 
@@ -13,6 +14,13 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
+
+// livenessConcurrency bounds the number of in-flight liveness probes. The
+// probes are independent, SSRF-guarded, read-only HEAD/GET requests; running
+// them concurrently collapses N sequential per-probe timeouts into ~one timeout
+// of wall-clock, keeping the whole request comfortably inside the frontend's
+// bound even when an artist has many exact-name MB matches.
+const livenessConcurrency = 8
 
 // mbSearcher is the slice of the MusicBrainz client the discovery flow needs.
 // Declaring it as an interface lets the unit tests inject a fake MB client
@@ -132,11 +140,16 @@ func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (
 				MBArtistName: cand.Name,
 				Confidence:   confidence,
 				RegionMatch:  regionMatch,
-				Live:         s.liveness.IsLive(normalizedURL),
-				Notes:        notes,
+				// Live is filled in concurrently below — each probe has its own
+				// timeout and an artist with several exact-name MB matches could
+				// otherwise serialize N×timeout and trip the frontend's request
+				// bound.
+				Notes: notes,
 			})
 		}
 	}
+
+	s.fillLiveness(result.Candidates)
 
 	// Stable order: high-confidence first, then platform, then URL — so the
 	// admin sees the best matches at the top regardless of MB's relation order.
@@ -152,6 +165,28 @@ func (s *DiscoverMusicService) DiscoverMusic(artistID uint, artistName string) (
 	})
 
 	return result, nil
+}
+
+// fillLiveness probes each candidate's URL concurrently (bounded by
+// livenessConcurrency) and writes the result back into candidates[i].Live. Each
+// goroutine writes a DISJOINT index, so no lock is needed on the slice; the
+// WaitGroup is the only synchronization. Probes are independent and read-only.
+func (s *DiscoverMusicService) fillLiveness(candidates []contracts.MusicLinkCandidate) {
+	if len(candidates) == 0 {
+		return
+	}
+	sem := make(chan struct{}, livenessConcurrency)
+	var wg sync.WaitGroup
+	for i := range candidates {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			candidates[idx].Live = s.liveness.IsLive(candidates[idx].URL)
+		}(i)
+	}
+	wg.Wait()
 }
 
 // normalizeArtistName lowercases, expands "&" to "and", and strips every
@@ -214,8 +249,12 @@ func regionTier(cand MBArtistResult, regions []showRegion) (confidence string, r
 	if len(regions) == 0 {
 		return contracts.MusicConfidenceReview, false
 	}
-	// Non-US MB country → can't align with a US show region; review tier.
-	if cand.Country != "" && strings.ToUpper(cand.Country) != "US" {
+	// Non-US MB origin → can't align with a US show region; review tier. Check
+	// BOTH the top-level country code AND the area/begin-area, because MB
+	// frequently leaves `country` empty while still tagging a foreign `area`
+	// (e.g. country:"" + area:"United Kingdom"). A bare empty country must NOT be
+	// treated as US.
+	if candidateIsNonUS(cand) {
 		return contracts.MusicConfidenceReview, false
 	}
 
@@ -230,13 +269,45 @@ func regionTier(cand MBArtistResult, regions []showRegion) (confidence string, r
 				return contracts.MusicConfidenceHigh, true
 			}
 		}
-		if city != "" {
+		// A city match is only trustworthy when the candidate is also anchored
+		// to a US state (mbStates non-empty) — a bare MB city name ("London")
+		// carries no state, so without that anchor it would false-match a
+		// same-named US city in a different state ("London, KY"). With no US
+		// state signal at all, the city match stays at review tier.
+		if city != "" && len(mbStates) > 0 {
 			if _, ok := mbCities[city]; ok {
 				return contracts.MusicConfidenceHigh, true
 			}
 		}
 	}
 	return contracts.MusicConfidenceReview, false
+}
+
+// candidateIsNonUS reports whether the MB candidate's geography indicates a
+// non-US origin. True when the top-level country is a non-empty non-US code, OR
+// when an area/begin-area resolves to a recognizable non-US country. An empty
+// country with only a US-state ("Subdivision") or US "City" area is treated as
+// US (the common US-band shape). An area that is neither a known US state nor a
+// known US-aligned form, but IS a country-type area whose name isn't "United
+// States", marks the candidate non-US.
+func candidateIsNonUS(cand MBArtistResult) bool {
+	if cand.Country != "" && strings.ToUpper(cand.Country) != "US" {
+		return true
+	}
+	for _, a := range []*MBArea{cand.Area, cand.BeginArea} {
+		if a == nil || a.Name == "" {
+			continue
+		}
+		// A US state name resolves via the abbrev map → US-aligned, not foreign.
+		if _, ok := utils.StateNameToAbbrev(a.Name); ok {
+			continue
+		}
+		// A country-type area that isn't the United States is a foreign signal.
+		if strings.EqualFold(a.Type, "Country") && !strings.EqualFold(a.Name, "United States") {
+			return true
+		}
+	}
+	return false
 }
 
 // candidateStateAbbrevs returns the set of US state abbreviations implied by the
