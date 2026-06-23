@@ -1,9 +1,11 @@
 package catalog
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +22,18 @@ import (
 // ArtistService handles artist-related business logic
 type ArtistService struct {
 	db *gorm.DB
+	// bandcampResolver resolves a *.bandcamp.com profile root → a featured
+	// /album|/track embed URL (PSY-1190). Injectable so tests can point it at an
+	// httptest server (SetBandcampResolver); nil disables profile resolution
+	// (the fill is a no-op), so a service built without one simply never resolves.
+	bandcampResolver *BandcampProfileResolver
+	// dispatchAsync runs fire-and-forget post-write work (the Bandcamp profile
+	// fetch) OFF the request goroutine, so a CreateArtist/UpdateArtist HTTP request
+	// returns immediately instead of blocking up to bandcampFetchTimeout on a slow
+	// Bandcamp page. Production uses shared.GoSafe (a panic-recovering goroutine);
+	// tests override it (SetSyncDispatch) to run the work inline so they can assert
+	// the embed was filled without racing the goroutine.
+	dispatchAsync func(name string, work func())
 }
 
 // NewArtistService creates a new artist service
@@ -28,8 +42,65 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 		database = db.GetDB()
 	}
 	return &ArtistService{
-		db: database,
+		db:               database,
+		bandcampResolver: NewBandcampProfileResolver(),
+		dispatchAsync: func(name string, work func()) {
+			shared.GoSafe(context.Background(), name, work)
+		},
 	}
+}
+
+// SetBandcampResolver overrides the profile→album resolver (tests inject one
+// pointed at an httptest server). Passing nil disables profile resolution.
+func (s *ArtistService) SetBandcampResolver(r *BandcampProfileResolver) {
+	s.bandcampResolver = r
+}
+
+// SetSyncDispatch makes post-write resolution run inline on the calling
+// goroutine instead of in a fire-and-forget goroutine. Tests use this so they can
+// assert the resolved embed landed without waiting on a goroutine.
+func (s *ArtistService) SetSyncDispatch() {
+	s.dispatchAsync = func(_ string, work func()) { work() }
+}
+
+// FillProfileResolvedEmbedFromBandcamp resolves a Bandcamp PROFILE root → a
+// featured embed and fills artistID's bandcamp_embed_url (profile_resolved,
+// fill-when-empty) — the SAME dispatch the artist Create/Update paths use. It is
+// the exported entry point for OTHER write paths that set social.bandcamp WITHOUT
+// going through ArtistService.UpdateArtist — specifically the pending-edit
+// approval flow (community + trusted-tier inline edits apply a `bandcamp` change
+// via a direct UPDATE), which would otherwise leave the embed unresolved on a
+// common "set a Bandcamp profile" path. A non-profile/empty value is a no-op.
+func (s *ArtistService) FillProfileResolvedEmbedFromBandcamp(artistID uint, profileURL string) {
+	s.runProfileResolve(artistID, profileURL)
+}
+
+// runProfileResolve dispatches the profile→embed fill for artistID through
+// dispatchAsync (a GoSafe goroutine in prod; inline when a test opted in via
+// SetSyncDispatch). A nil dispatcher — a service built via &ArtistService{}
+// without the constructor — defaults to the PRODUCTION goroutine behavior, NOT
+// inline: that way a test that wires a resolver (SetBandcampResolver) but forgets
+// SetSyncDispatch gets the same async path production does (and must opt into sync
+// to assert the fill), rather than a silent inline path that diverges from prod.
+// The goroutine is panic-recovered (GoSafe) and no-ops when the resolver is nil
+// (the legacy direct-construction suites) before touching the DB, so a forgotten
+// dispatcher never spawns a DB-touching goroutine.
+func (s *ArtistService) runProfileResolve(artistID uint, profileURL string) {
+	// Gate on the cheap, pure profile-root classifier BEFORE spawning a goroutine,
+	// so a non-profile value (an /album|/track link, a cleared/empty value, a
+	// non-Bandcamp URL — the common case on a whole-form artist update) never
+	// dispatches one. Also skip when no resolver is configured (legacy suites).
+	if s.bandcampResolver == nil || !isBandcampProfileRoot(profileURL) {
+		return
+	}
+	work := func() {
+		s.resolveProfileEmbedForArtist(context.Background(), artistID, profileURL)
+	}
+	dispatch := s.dispatchAsync
+	if dispatch == nil {
+		dispatch = func(name string, w func()) { shared.GoSafe(context.Background(), name, w) }
+	}
+	dispatch("bandcamp_profile_resolve", work)
 }
 
 // CreateArtist creates a new artist
@@ -84,6 +155,16 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 
 	if err := s.db.Create(artist).Error; err != nil {
 		return nil, fmt.Errorf("failed to create artist: %w", err)
+	}
+
+	// PSY-1190: when this create set a Bandcamp PROFILE root (not an embeddable
+	// album/track URL) and supplied no embed, resolve the profile → a featured
+	// album URL and fill bandcamp_embed_url (profile_resolved, fill-when-empty).
+	// Dispatched off the request goroutine (a network fetch); a no-op when no
+	// profile was set or the embed was supplied above (the resolver's IS NULL
+	// guard skips the manually-stamped row anyway).
+	if req.Bandcamp != nil {
+		s.runProfileResolve(artist.ID, *req.Bandcamp)
 	}
 
 	return s.buildArtistResponse(artist), nil
@@ -291,6 +372,16 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 		if err != nil {
 			return nil, fmt.Errorf("failed to update artist: %w", err)
 		}
+	}
+
+	// PSY-1190: when this update set the Bandcamp social link to a PROFILE root
+	// (band.bandcamp.com, not an /album|/track URL) and the artist's embed is
+	// still NULL, resolve the profile → a featured album URL and fill
+	// bandcamp_embed_url (profile_resolved, fill-when-empty; a manual value is
+	// left untouched by the resolver's IS NULL guard). Dispatched off the request
+	// goroutine (a network fetch), after the write commits.
+	if req.Bandcamp != nil {
+		s.runProfileResolve(artistID, *req.Bandcamp)
 	}
 
 	return s.GetArtist(artistID)
@@ -1125,6 +1216,100 @@ func manualEmbedSourceIfSet(embed *string) *string {
 	}
 	src := catalogm.BandcampEmbedSourceManual
 	return &src
+}
+
+// ──────────────────────────────────────────────
+// Profile→album embed resolution (PSY-1190)
+//
+// Discovered Bandcamp links and many existing social.bandcamp values are PROFILE
+// roots (band.bandcamp.com), not the /album|/track URLs the artist-page player
+// needs in bandcamp_embed_url. When such a profile is set/accepted for an artist
+// whose embed is still NULL, fetch the root and resolve its featured/latest album
+// URL, stamping profile_resolved.
+//
+// Mirrors the PSY-1188/1189 invariants exactly:
+//   - FILL-WHEN-EMPTY: only writes when bandcamp_embed_url IS NULL (the UPDATE
+//     re-asserts the guard so a concurrent manual write is never clobbered).
+//   - PROVENANCE: stamps profile_resolved (an auto-derived source). A manual value
+//     is immutable — the IS NULL gate skips any already-set row.
+//
+// The network fetch runs OUTSIDE any DB transaction (it is a slow external call;
+// coupling it to a GORM write would tie a DB write to an 8s fetch). A failed
+// resolve is a no-op, never an error on the triggering write.
+// ──────────────────────────────────────────────
+
+// isBandcampProfileRoot reports whether rawURL is a *.bandcamp.com profile root
+// (an artist subdomain with no /album or /track path) — the only shape the
+// resolver acts on. An album/track URL is already embeddable (handled by the
+// manual write path) and the bare apex (bandcamp.com) is not an artist profile,
+// so both are excluded here.
+func isBandcampProfileRoot(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	// Must be an artist subdomain (the shared host-anchor also excludes the bare
+	// apex, which is the storefront, not a profile).
+	if !utils.IsBandcampArtistHost(u.Hostname()) {
+		return false
+	}
+	// Already an embeddable release URL → not a profile root to resolve.
+	if strings.HasPrefix(u.Path, "/album/") || strings.HasPrefix(u.Path, "/track/") {
+		return false
+	}
+	return true
+}
+
+// resolveProfileEmbedForArtist resolves a Bandcamp PROFILE root → a featured
+// /album|/track URL and, if one is found, writes it stamped profile_resolved —
+// but only when the artist's embed is still NULL. It is invoked AFTER a write that
+// set the artist's social.bandcamp to a profile root; the resolver does a network
+// fetch, so this runs outside the triggering write's transaction (s.db, not tx).
+//
+// Skips silently (no error) when: no resolver is configured, the value isn't a
+// profile root, the row already has an embed (manual or auto-derived), or the
+// resolve yields nothing/an unembeddable URL. The fetch is host-anchored and
+// redirect-re-anchored to *.bandcamp.com inside the resolver (SSRF), and the
+// resolved URL is re-validated by utils.IsValidBandcampEmbedURL before it is
+// stored, so a malformed extraction never lands in the column.
+func (s *ArtistService) resolveProfileEmbedForArtist(ctx context.Context, artistID uint, profileURL string) {
+	if s.bandcampResolver == nil || !isBandcampProfileRoot(profileURL) {
+		return
+	}
+
+	// Cheap pre-check: skip the network fetch entirely when the embed is already
+	// set. The UPDATE below re-asserts IS NULL, so this is an optimization, not the
+	// correctness guard.
+	var current catalogm.Artist
+	if err := s.db.Select("id", "bandcamp_embed_url").First(&current, artistID).Error; err != nil {
+		return // artist gone or unreadable — nothing to fill.
+	}
+	if current.BandcampEmbedURL != nil {
+		return // manual or previously-derived value present — never overwrite.
+	}
+
+	embed, ok := s.bandcampResolver.ResolveProfileEmbed(ctx, profileURL)
+	if !ok {
+		return // unfetchable profile or no featured release — leave the column NULL.
+	}
+	// Defense in depth: the resolved URL must pass the SAME strict gate every
+	// other write path enforces before it reaches the iframe-rendered column.
+	if !utils.IsValidBandcampEmbedURL(embed) {
+		log.Printf("WARN resolveProfileEmbedForArtist: resolver returned non-embeddable URL %q for artist %d", embed, artistID)
+		return
+	}
+
+	if err := s.db.Model(&catalogm.Artist{}).
+		Where("id = ? AND bandcamp_embed_url IS NULL", artistID).
+		Updates(map[string]interface{}{
+			"bandcamp_embed_url":    embed,
+			"bandcamp_embed_source": catalogm.BandcampEmbedSourceProfileResolved,
+		}).Error; err != nil {
+		log.Printf("WARN resolveProfileEmbedForArtist: failed to fill profile-resolved embed for artist %d: %v", artistID, err)
+	}
 }
 
 // embedCandidate is one embeddable Bandcamp link found on a release, carrying

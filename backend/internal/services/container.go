@@ -69,6 +69,7 @@ type ServiceContainer struct {
 	Venue                  *catalog.VenueService
 	SourceConfig           *sourceregistry.SourceConfigService
 	StreamingWorklist      *pipeline.StreamingWorklistService
+	DiscoverMusic          *pipeline.DiscoverMusicService
 
 	// Config-only services
 	Discord            *notification.DiscordService
@@ -163,6 +164,14 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	featuredSlotSvc := adminsvc.NewFeaturedSlotService(database)
 	exploreService := exploresvc.NewExploreService(database, featuredSlotSvc)
 
+	// PSY-1190: a trusted/community pending edit that sets an artist's
+	// social.bandcamp applies via a direct UPDATE in ApprovePendingEdit, bypassing
+	// ArtistService.UpdateArtist's profile→embed resolver. Inject the artist
+	// service so the approval flow can resolve a newly-set profile root into the
+	// bandcamp_embed_url (fill-when-empty).
+	pendingEditSvc := adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey)
+	pendingEditSvc.SetBandcampFiller(artist)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:             adminsvc.NewAdminStatsService(database),
@@ -170,7 +179,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		APIToken:               adminsvc.NewAPITokenService(database),
 		DataQuality:            adminsvc.NewDataQualityService(database),
 		Revision:               revisionSvc,
-		PendingEdit:            adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
+		PendingEdit:            pendingEditSvc,
 		Charts:                 catalog.NewChartsService(database),
 		Artist:                 artist,
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
@@ -210,6 +219,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Venue:                  venue,
 		SourceConfig:           sourceConfig,
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
+		DiscoverMusic:          pipeline.NewDiscoverMusicService(database),
 
 		// Config-only services
 		Discord:            discord,

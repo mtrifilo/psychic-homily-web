@@ -46,6 +46,22 @@ func ValidateHTTPURL(s, fieldName string) error {
 	return nil
 }
 
+// IsBandcampArtistHost reports whether host is an artist subdomain of
+// bandcamp.com (<artist>.bandcamp.com) — NOT the bare apex. This is the single
+// host-anchor every Bandcamp URL check shares: a parsed-host suffix match, never
+// a substring of the whole URL, so hostile values like "169.254.169.254" (raw IP),
+// "bandcamp.com.evil.test", or "evilbandcamp.com" are rejected. Real album/track
+// pages and artist profiles always live on a subdomain; the apex (bandcamp.com)
+// is the storefront, not an artist, so it is intentionally excluded.
+//
+// Callers pass u.Hostname() (already free of port/userinfo). PSY-1190 lifted this
+// out of the three inline copies (the embed validator, the profile-root
+// classifier, the resolver's SSRF fetch-anchor) so the volatile "what counts as a
+// Bandcamp artist host" rule lives in one place.
+func IsBandcampArtistHost(host string) bool {
+	return strings.HasSuffix(strings.ToLower(host), ".bandcamp.com")
+}
+
 // IsValidBandcampEmbedURL reports whether rawURL is a strict Bandcamp
 // album/track embed URL: an http/https URL whose host is an artist subdomain
 // (<artist>.bandcamp.com) and whose path is /album/… or /track/….
@@ -73,7 +89,7 @@ func IsValidBandcampEmbedURL(rawURL string) bool {
 	}
 	// Real album/track pages always live on an artist subdomain
 	// (<artist>.bandcamp.com); the bare apex is not a release URL.
-	if !strings.HasSuffix(strings.ToLower(u.Hostname()), ".bandcamp.com") {
+	if !IsBandcampArtistHost(u.Hostname()) {
 		return false
 	}
 	// Album or track page, not a bare profile.

@@ -25,6 +25,7 @@ func setupAdminRoutes(rc RouteContext) {
 	dataHandler := adminh.NewAdminDataHandler(rc.SC.DataSync)
 	discoveryHandler := pipelineh.NewAdminDiscoveryHandler(rc.SC.Discovery)
 	streamingWorklistHandler := pipelineh.NewStreamingWorklistHandler(rc.SC.StreamingWorklist, rc.SC.AuditLog)
+	discoverMusicHandler := pipelineh.NewDiscoverMusicHandler(rc.SC.DiscoverMusic, rc.SC.Artist)
 
 	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision, rc.Cfg)
 	auditLogHandler := adminh.NewAuditLogHandler(rc.SC.AuditLog)
@@ -64,6 +65,12 @@ func setupAdminRoutes(rc RouteContext) {
 	huma.Patch(rc.Protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)
 	// conditional admin — see PSY-423 audit
 	huma.Patch(rc.Protected, "/admin/artists/{artist_id}/spotify", artistHandler.UpdateArtistSpotifyHandler)
+
+	// Admin discover-music endpoint (PSY-1191): returns candidate Bandcamp/
+	// Spotify links discovered via MusicBrainz for the admin to review. Pure
+	// admin (rc.Admin) + discovery-only — it persists nothing; the admin picks a
+	// candidate and saves it via the bandcamp/spotify PATCH endpoints above.
+	huma.Post(rc.Admin, "/admin/artists/{artist_id}/discover-music", discoverMusicHandler.DiscoverMusicHandler)
 
 	// Admin discovery endpoints (for local discovery app)
 	huma.Post(rc.Admin, "/admin/discovery/import", discoveryHandler.DiscoveryImportHandler)

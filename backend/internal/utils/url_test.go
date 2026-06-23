@@ -350,3 +350,25 @@ func TestIsBandcampAlbumURL(t *testing.T) {
 		})
 	}
 }
+
+func TestIsBandcampArtistHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want bool
+	}{
+		{"artist subdomain", "boris.bandcamp.com", true},
+		{"deep subdomain", "a.b.bandcamp.com", true},
+		{"mixed case", "Boris.BandCamp.Com", true},
+		{"bare apex excluded", "bandcamp.com", false},
+		{"substring suffix attack", "bandcamp.com.evil.test", false},
+		{"substring prefix attack", "evilbandcamp.com", false},
+		{"not-bandcamp", "notbandcamp.com", false},
+		{"empty", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsBandcampArtistHost(tc.host))
+		})
+	}
+}

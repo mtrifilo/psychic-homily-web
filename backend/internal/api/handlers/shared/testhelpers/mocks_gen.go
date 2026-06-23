@@ -604,6 +604,20 @@ func (m *MockAutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEva
 }
 
 // ============================================================================
+// Mock: BandcampProfileFillerInterface
+// ============================================================================
+
+type MockBandcampProfileFiller struct {
+	FillProfileResolvedEmbedFromBandcampFn func(uint, string)
+}
+
+func (m *MockBandcampProfileFiller) FillProfileResolvedEmbedFromBandcamp(artistID uint, profileURL string) {
+	if m.FillProfileResolvedEmbedFromBandcampFn != nil {
+		m.FillProfileResolvedEmbedFromBandcampFn(artistID, profileURL)
+	}
+}
+
+// ============================================================================
 // Mock: CalendarServiceInterface
 // ============================================================================
 
@@ -4152,6 +4166,7 @@ var _ contracts.AttendanceServiceInterface = (*MockAttendanceService)(nil)
 var _ contracts.AuditLogServiceInterface = (*MockAuditLogService)(nil)
 var _ contracts.AuthServiceInterface = (*MockAuthService)(nil)
 var _ contracts.AutoPromotionServiceInterface = (*MockAutoPromotionService)(nil)
+var _ contracts.BandcampProfileFillerInterface = (*MockBandcampProfileFiller)(nil)
 var _ contracts.CalendarServiceInterface = (*MockCalendarService)(nil)
 var _ contracts.ChartsServiceInterface = (*MockChartsService)(nil)
 var _ contracts.CollectionServiceInterface = (*MockCollectionService)(nil)
