@@ -97,6 +97,20 @@ func (s *RadioSyncSuite) TestUpdateShow_ManualRetire_SurvivesJanitor() {
 	s.Equal(catalogm.RadioLifecycleRetired, s.reloadShow(show.ID).LifecycleState, "janitor leaves a manually-set retired untouched (not demoted to dormant)")
 }
 
+// PSY-1172 + PSY-1153: the OTHER auto-reconcile path — real-time reactivation on episode
+// import — must also leave a manually-retired show alone. reactivateShowIfDormant only
+// flips 'dormant' → 'active', so a new episode landing on a retired show never resurrects
+// it (the WHERE guard scopes to 'dormant').
+func (s *RadioSyncSuite) TestReactivateShowIfDormant_LeavesRetiredAlone() {
+	now := time.Now()
+	st := s.seedBackfillStation()
+	show := s.seedShowWithState(st.ID, "Retired On Import", "retired-on-import", "ext-roi", catalogm.RadioLifecycleRetired)
+
+	s.svc.reactivateShowIfDormant(show.ID, now)
+
+	s.Equal(catalogm.RadioLifecycleRetired, s.reloadShow(show.ID).LifecycleState, "import reactivation must not resurrect a retired show")
+}
+
 // ReconcilePlayCounts corrects drifted denormalized counts (over- and under-count)
 // against the real radio_plays row count, and leaves already-correct rows untouched.
 func (s *RadioSyncSuite) TestReconcilePlayCounts_CorrectsDrift() {

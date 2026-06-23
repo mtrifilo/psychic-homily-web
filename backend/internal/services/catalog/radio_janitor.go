@@ -29,9 +29,10 @@ import (
 //
 // 'retired' is left untouched: the janitor never auto-retires (the provider can't
 // distinguish a leave of absence from an ending — owner decision, 2026-06-21).
-// 'retired' is reserved for a future explicit signal; NOTE there is no write path to
-// set it yet (UpdateRadioShowRequest exposes only is_active), so it is currently
-// unreachable — an admin "set lifecycle_state" capability is a follow-up. The
+// 'retired' is set manually via UpdateShow (PSY-1172) and is never auto-set or cleared
+// here — the active↔dormant queries below scope WHERE lifecycle_state = 'active'/'dormant',
+// so a retired show is excluded by construction. (reactivateShowIfDormant on import
+// likewise only touches 'dormant', so a new episode never resurrects a retired show.) The
 // 'active schedule changed → dormant' signal is likewise deferred to PSY-1159 (it
 // needs the scraped wfmu.org/table schedule).
 //
