@@ -87,7 +87,7 @@ Posts and roster / venue pages expose social links for artists, venues, and labe
 
 - `@la_witch` → `"instagram": "https://instagram.com/la_witch"`
 - `@sidthecatauditorium` → `"instagram": "https://instagram.com/sidthecatauditorium"`
-- a Twitter/X `@handle` → `"twitter": "https://twitter.com/handle"`
+- a Twitter/X `@handle` → `"twitter": "https://twitter.com/handle"` (an `x.com` link is also valid on the `twitter` field)
 - Facebook / YouTube / Spotify / SoundCloud / Bandcamp links → capture the full URL on the field whose host matches: `facebook` (`facebook.com`), `youtube` (`youtube.com`/`youtu.be`), `spotify` (`open.spotify.com`), `soundcloud` (`soundcloud.com`), `bandcamp` (`*.bandcamp.com`); any other off-platform link → `website`.
 
 Set the matching social field on artist / venue / label batch items when a link is identified. Only include links that clearly correspond to an entity being created. Example:
@@ -322,7 +322,7 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
    ```
    To decide **what to refresh next**, list the stalest sources first: `ph sources stale --limit 20` (never-refreshed sort first). Venues use `sources register venue <venue_id> "<calendar_url>"` the same way.
 
-> **Re-ingest now enriches an existing artist's (and venue's) social links — fixed in PSY-1171 (PR #1202).** The old limitation (two field-name mismatches in `cli/src/lib/duplicates.ts`: `ARTIST_FIELDS` read `bandcamp_url`/`spotify_url`/`instagram_url`, and `searchArtists()` read a non-existent top-level `bandcamp_url` instead of the nested `social.bandcamp`) is resolved: `ARTIST_FIELDS` now uses the canonical bare names and `searchArtists`/`searchVenues` flatten the link fields from the response's nested `social`. So an existing artist re-ingested with a `bandcamp`/`spotify`/`instagram`/etc. now gets it filled — no manual `PATCH` required. **Still deferred (PSY-1179):** label socials beyond `website`/`bandcamp`, and venue `address`/`zipcode`/`capacity`, are not yet enriched on re-ingest (the label list response + venue redaction/columns need backend work first).
+> **Re-ingest now enriches an existing artist's (and venue's) social links — fixed in PSY-1171 (PR #1202).** The old limitation (two field-name mismatches in `cli/src/lib/duplicates.ts`: `ARTIST_FIELDS` read `bandcamp_url`/`spotify_url`/`instagram_url`, and `searchArtists()` read a non-existent top-level `bandcamp_url` instead of the nested `social.bandcamp`) is resolved: `ARTIST_FIELDS` now uses the canonical bare names and `searchArtists`/`searchVenues` flatten the link fields from the response's nested `social`. So an existing artist re-ingested with a `bandcamp`/`spotify`/`instagram`/etc. now gets it filled — no manual `PATCH` required. **Still deferred (PSY-1179):** label socials beyond `website`/`bandcamp`, and venue `address`/`zipcode`/`capacity`, are not yet enriched on re-ingest (the label list response needs widening, venue `address`/`zipcode` need verified-gating since the API redacts them for unverified venues, and `capacity` has no backend column yet).
 
 ### Label registry
 
