@@ -261,20 +261,24 @@ func (h *VenueHandler) GetVenueCitiesHandler(ctx context.Context, req *GetVenueC
 // AdminCreateVenueRequest represents the request for creating a venue directly
 type AdminCreateVenueRequest struct {
 	Body struct {
-		Name       string  `json:"name" required:"true" doc:"Venue name" maxLength:"255"`
-		City       string  `json:"city" required:"true" doc:"Venue city" maxLength:"100"`
-		State      string  `json:"state" required:"true" doc:"Venue state" maxLength:"100"`
-		Address    *string `json:"address" required:"false" doc:"Street address" maxLength:"500"`
-		Zipcode    *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
-		Instagram  *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
-		Facebook   *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
-		Twitter    *string `json:"twitter" required:"false" doc:"Twitter URL" maxLength:"255"`
-		YouTube    *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
-		Spotify    *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
-		SoundCloud *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
-		Bandcamp   *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
-		Website    *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
-		Country    *string `json:"country,omitempty" required:"false" doc:"Venue country" maxLength:"100"`
+		Name    string  `json:"name" required:"true" doc:"Venue name" maxLength:"255"`
+		City    string  `json:"city" required:"true" doc:"Venue city" maxLength:"100"`
+		State   string  `json:"state" required:"true" doc:"Venue state" maxLength:"100"`
+		Address *string `json:"address" required:"false" doc:"Street address" maxLength:"500"`
+		Zipcode *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
+		// PSY-1179: capacity + description were silently dropped on create — the
+		// service contract + CLI sent them but this HTTP body omitted them.
+		Capacity    *int    `json:"capacity" required:"false" doc:"Venue capacity"`
+		Description *string `json:"description" required:"false" doc:"Markdown description (max 5000 chars)" maxLength:"5000"`
+		Instagram   *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
+		Facebook    *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
+		Twitter     *string `json:"twitter" required:"false" doc:"Twitter URL" maxLength:"255"`
+		YouTube     *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
+		Spotify     *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
+		SoundCloud  *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
+		Bandcamp    *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
+		Website     *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country" maxLength:"100"`
 	}
 }
 
@@ -303,6 +307,8 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 		Country:     req.Body.Country,
 		Address:     req.Body.Address,
 		Zipcode:     req.Body.Zipcode,
+		Capacity:    req.Body.Capacity,
+		Description: req.Body.Description,
 		Instagram:   req.Body.Instagram,
 		Facebook:    req.Body.Facebook,
 		Twitter:     req.Body.Twitter,
@@ -362,6 +368,7 @@ type UpdateVenueRequest struct {
 		State       *string `json:"state,omitempty" required:"false" doc:"Venue state"`
 		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
+		Capacity    *int    `json:"capacity,omitempty" required:"false" doc:"Venue capacity"` // PSY-1179
 		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
 		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
@@ -443,6 +450,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		State:       req.Body.State,
 		Country:     req.Body.Country,
 		Zipcode:     req.Body.Zipcode,
+		Capacity:    req.Body.Capacity,
 		Description: req.Body.Description,
 		ImageURL:    req.Body.ImageURL,
 		Instagram:   req.Body.Instagram,

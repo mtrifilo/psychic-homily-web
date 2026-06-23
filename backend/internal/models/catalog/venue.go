@@ -15,6 +15,10 @@ type Venue struct {
 	State   string  `gorm:"not null"` // Required
 	Country *string `gorm:"column:country;size:100"`
 	Zipcode *string
+	// Capacity (PSY-1179): venue capacity captured during ingest. Nullable —
+	// unknown for most rows. Not sensitive, so unlike Address/Zipcode it is not
+	// redacted for unverified venues.
+	Capacity *int `gorm:"column:capacity"`
 	// Geocoding (PSY-985): resolved offline from city/state/country at create/update.
 	// Timezone is the IANA zone used to anchor show times to the venue's locale.
 	// Nullable — a geocode miss falls back to the legacy state->tz map.

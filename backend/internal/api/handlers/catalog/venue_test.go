@@ -93,6 +93,30 @@ func TestUpdateVenueHandler_ZeroID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
+func TestUpdateVenueHandler_CarriesCapacity(t *testing.T) {
+	// Regression (PSY-1179): capacity was dropped on update — the HTTP body
+	// struct + handler->service mapping omitted it. Assert it's forwarded.
+	capacity := 600
+	var gotReq *contracts.UpdateVenueRequest
+	mock := &testhelpers.MockVenueService{
+		UpdateVenueFn: func(_ uint, req *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
+			gotReq = req
+			return &contracts.VenueDetailResponse{ID: 42}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil) // nil revisionService -> no GetVenue snapshot call
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &UpdateVenueRequest{VenueID: "42"}
+	req.Body.Capacity = &capacity
+
+	if _, err := h.UpdateVenueHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotReq == nil || gotReq.Capacity == nil || *gotReq.Capacity != 600 {
+		t.Errorf("capacity not forwarded to service: %+v", gotReq)
+	}
+}
+
 func TestDeleteVenueHandler_ZeroID(t *testing.T) {
 	mock := &testhelpers.MockVenueService{
 		GetVenueModelFn: func(venueID uint) (*catalogm.Venue, error) {
@@ -258,6 +282,40 @@ func TestAdminCreateVenue_Success(t *testing.T) {
 	}
 	if resp.Body.Name != "Valley Bar" {
 		t.Errorf("expected name='Valley Bar', got %q", resp.Body.Name)
+	}
+}
+
+func TestAdminCreateVenue_CarriesCapacityAndDescription(t *testing.T) {
+	// Regression (PSY-1179): capacity + description were silently DROPPED on
+	// create because the HTTP body struct + handler->service mapping omitted them,
+	// even though the service contract + CLI sent them. Assert the handler now
+	// forwards both to the service.
+	capacity := 550
+	desc := "All-ages rock club."
+	var gotReq *contracts.CreateVenueRequest
+	mock := &testhelpers.MockVenueService{
+		CreateVenueFn: func(req *contracts.CreateVenueRequest, _ bool) (*contracts.VenueDetailResponse, error) {
+			gotReq = req
+			return &contracts.VenueDetailResponse{ID: 1, Name: req.Name}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateVenueRequest{}
+	req.Body.Name = "Valley Bar"
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Capacity = &capacity
+	req.Body.Description = &desc
+
+	if _, err := h.AdminCreateVenueHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotReq == nil || gotReq.Capacity == nil || *gotReq.Capacity != 550 {
+		t.Errorf("capacity not forwarded to service: %+v", gotReq)
+	}
+	if gotReq.Description == nil || *gotReq.Description != "All-ages rock club." {
+		t.Errorf("description not forwarded to service: %+v", gotReq)
 	}
 }
 

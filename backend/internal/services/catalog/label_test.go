@@ -282,6 +282,33 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_IncludesDedupField
 	suite.Equal(desc, *resp[0].Description)
 }
 
+func (suite *LabelServiceIntegrationTestSuite) TestListLabels_IncludesWidenedSocials() {
+	// PSY-1179: the list response must carry the FULL social set + founded_year
+	// (previously only website/bandcamp) so the CLI dedup compares them against
+	// real existing values instead of reading always-empty (which forced a
+	// spurious UPDATE on every re-ingest). Guards the shared buildLabelListResponse
+	// mapping for both ListLabels and SearchLabels.
+	insta := "https://instagram.com/subpop"
+	spotify := "https://open.spotify.com/subpop"
+	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{
+		Name:        "Sub Pop",
+		FoundedYear: intPtr(1986),
+		Instagram:   &insta,
+		Spotify:     &spotify,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.labelService.ListLabels(map[string]interface{}{})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().NotNil(resp[0].FoundedYear)
+	suite.Equal(1986, *resp[0].FoundedYear)
+	suite.Require().NotNil(resp[0].Instagram)
+	suite.Equal(insta, *resp[0].Instagram)
+	suite.Require().NotNil(resp[0].Spotify)
+	suite.Equal(spotify, *resp[0].Spotify)
+}
+
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByStatus() {
 	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
 	suite.Require().NoError(err)

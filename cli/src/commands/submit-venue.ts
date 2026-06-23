@@ -12,7 +12,6 @@ interface VenueInput {
   state: string;
   country?: string;
   address?: string;
-  zip_code?: string;
   zipcode?: string;
   website?: string;
   capacity?: number;
@@ -225,12 +224,15 @@ export async function submitVenues(
 
     try {
       if (dupResult.action === "create") {
-        // Build POST payload with only API-accepted fields.
-        // Strip tags (applied separately), entity_type (batch routing only),
-        // label/label_name (not part of venue API).
+        // Build POST payload with only fields the venue create API
+        // (CreateVenueRequest) accepts. Strip tags (applied separately),
+        // entity_type (batch routing only), label/label_name (not part of the
+        // venue API). PSY-1179: dropped `zip_code` — the backend key is
+        // `zipcode`, so `zip_code` was silently discarded on create; `capacity`
+        // is now a real column, so it persists (was also silently dropped before).
         const venueApiFields = [
-          "name", "city", "state", "country", "address", "zip_code",
-          "zipcode", "website", "capacity", "description",
+          "name", "city", "state", "country", "address",
+          "zipcode", "capacity", "description", "website",
           "instagram", "facebook", "twitter", "youtube",
           "spotify", "soundcloud", "bandcamp",
         ];

@@ -67,10 +67,16 @@ type LabelDetailResponse struct {
 
 // LabelListResponse represents a label in list views.
 //
-// Carries the dedup-relevant identity fields (country, website, bandcamp,
-// description) so the `ph` CLI can compare them against proposed values and
-// avoid spurious UPDATEs on re-ingest (PSY-1157). website/bandcamp live under
-// the model's embedded Social struct; they're flattened here.
+// Carries the dedup-relevant identity fields so the `ph` CLI can compare them
+// against proposed values and avoid spurious UPDATEs on re-ingest (PSY-1157).
+// PSY-1179 widened this to the FULL social set + founded_year so label-social
+// enrichment round-trips on re-ingest (previously only website/bandcamp were
+// carried, so the other socials + founded_year read empty and forced a spurious
+// update every run). The primary consumer of these flat list socials is the
+// `ph` CLI dedup (searchLabels). The social fields live under the model's
+// embedded Social struct; they're flattened here to match this response's
+// existing flat convention (PSY-1157) rather than nesting a `social` object like
+// LabelDetailResponse — an additive, non-breaking change for existing consumers.
 type LabelListResponse struct {
 	ID           uint    `json:"id"`
 	Name         string  `json:"name"`
@@ -78,8 +84,15 @@ type LabelListResponse struct {
 	City         *string `json:"city"`
 	State        *string `json:"state"`
 	Country      *string `json:"country"`
+	FoundedYear  *int    `json:"founded_year"`
 	Website      *string `json:"website"`
 	Bandcamp     *string `json:"bandcamp"`
+	Instagram    *string `json:"instagram"`
+	Facebook     *string `json:"facebook"`
+	Twitter      *string `json:"twitter"`
+	YouTube      *string `json:"youtube"`
+	Spotify      *string `json:"spotify"`
+	SoundCloud   *string `json:"soundcloud"`
 	Description  *string `json:"description"`
 	Status       string  `json:"status"`
 	ArtistCount  int     `json:"artist_count"`

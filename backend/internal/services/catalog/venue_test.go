@@ -159,6 +159,39 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesDescriptio
 	suite.Equal("https://example.com/rebel.jpg", *resp.ImageURL)
 }
 
+func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesCapacity() {
+	// PSY-1179: capacity round-trips through create.
+	req := &contracts.CreateVenueRequest{
+		Name:     "Capacity Club",
+		City:     "Phoenix",
+		State:    "AZ",
+		Capacity: intPtr(550),
+	}
+
+	resp, err := suite.venueService.CreateVenue(req, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Capacity)
+	suite.Equal(550, *resp.Capacity)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SetsCapacity() {
+	// PSY-1179: capacity can be set via update (the dedup-enrichment path).
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Enrich Me", City: "Tempe", State: "AZ",
+	}, true)
+	suite.Require().NoError(err)
+	suite.Require().Nil(created.Capacity)
+
+	updated, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		Capacity: intPtr(800),
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updated.Capacity)
+	suite.Equal(800, *updated.Capacity)
+}
+
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_AdminAutoVerified() {
 	req := &contracts.CreateVenueRequest{
 		Name:  "Admin Venue",
@@ -868,16 +901,22 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_OnlyVerified()
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_UnverifiedHidesAddress() {
 	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
-		Name:    "Hidden Address",
-		City:    "Phoenix",
-		State:   "AZ",
-		Address: stringPtr("Secret St"),
-		Zipcode: stringPtr("85001"),
+		Name:     "Hidden Address",
+		City:     "Phoenix",
+		State:    "AZ",
+		Address:  stringPtr("Secret St"),
+		Zipcode:  stringPtr("85001"),
+		Capacity: intPtr(300),
 	}, false) // non-admin = unverified
 
 	suite.Require().NoError(err)
 	suite.Nil(resp.Address, "address should be hidden for unverified venues")
 	suite.Nil(resp.Zipcode, "zipcode should be hidden for unverified venues")
+	// PSY-1179: capacity is NOT sensitive, so it is NOT redacted for unverified
+	// venues — the CLI dedup gating depends on this (it gates address/zipcode but
+	// always compares capacity).
+	suite.Require().NotNil(resp.Capacity, "capacity should NOT be hidden for unverified venues")
+	suite.Equal(300, *resp.Capacity)
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_VerifiedShowsAddress() {

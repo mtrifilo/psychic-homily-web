@@ -117,6 +117,39 @@ func (s *LabelService) GetLabelBySlug(slug string) (*contracts.LabelDetailRespon
 }
 
 // ListLabels retrieves labels with optional filtering
+// buildLabelListResponse maps a label model to the list/search response shape.
+// Shared by ListLabels and SearchLabels so the widened dedup field set
+// (PSY-1179: the full social set + founded_year) stays in sync across both
+// builders. The social fields are flattened from the embedded Social struct,
+// matching the existing flat list-response convention.
+func buildLabelListResponse(label *catalogm.Label, artistCount, releaseCount int) *contracts.LabelListResponse {
+	slug := ""
+	if label.Slug != nil {
+		slug = *label.Slug
+	}
+	return &contracts.LabelListResponse{
+		ID:           label.ID,
+		Name:         label.Name,
+		Slug:         slug,
+		City:         label.City,
+		State:        label.State,
+		Country:      label.Country,
+		FoundedYear:  label.FoundedYear,
+		Website:      label.Social.Website,
+		Bandcamp:     label.Social.Bandcamp,
+		Instagram:    label.Social.Instagram,
+		Facebook:     label.Social.Facebook,
+		Twitter:      label.Social.Twitter,
+		YouTube:      label.Social.YouTube,
+		Spotify:      label.Social.Spotify,
+		SoundCloud:   label.Social.SoundCloud,
+		Description:  label.Description,
+		Status:       string(label.Status),
+		ArtistCount:  artistCount,
+		ReleaseCount: releaseCount,
+	}
+}
+
 func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.LabelListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -187,25 +220,8 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.
 
 	// Build responses
 	responses := make([]*contracts.LabelListResponse, len(labels))
-	for i, label := range labels {
-		slug := ""
-		if label.Slug != nil {
-			slug = *label.Slug
-		}
-		responses[i] = &contracts.LabelListResponse{
-			ID:           label.ID,
-			Name:         label.Name,
-			Slug:         slug,
-			City:         label.City,
-			State:        label.State,
-			Country:      label.Country,
-			Website:      label.Social.Website,
-			Bandcamp:     label.Social.Bandcamp,
-			Description:  label.Description,
-			Status:       string(label.Status),
-			ArtistCount:  artistCounts[label.ID],
-			ReleaseCount: releaseCounts[label.ID],
-		}
+	for i := range labels {
+		responses[i] = buildLabelListResponse(&labels[i], artistCounts[labels[i].ID], releaseCounts[labels[i].ID])
 	}
 
 	return responses, nil
@@ -285,25 +301,8 @@ func (s *LabelService) SearchLabels(query string) ([]*contracts.LabelListRespons
 
 	// Build responses
 	responses := make([]*contracts.LabelListResponse, len(labels))
-	for i, label := range labels {
-		slug := ""
-		if label.Slug != nil {
-			slug = *label.Slug
-		}
-		responses[i] = &contracts.LabelListResponse{
-			ID:           label.ID,
-			Name:         label.Name,
-			Slug:         slug,
-			City:         label.City,
-			State:        label.State,
-			Country:      label.Country,
-			Website:      label.Social.Website,
-			Bandcamp:     label.Social.Bandcamp,
-			Description:  label.Description,
-			Status:       string(label.Status),
-			ArtistCount:  artistCounts[label.ID],
-			ReleaseCount: releaseCounts[label.ID],
-		}
+	for i := range labels {
+		responses[i] = buildLabelListResponse(&labels[i], artistCounts[labels[i].ID], releaseCounts[labels[i].ID])
 	}
 
 	return responses, nil
