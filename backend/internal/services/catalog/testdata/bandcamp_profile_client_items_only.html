@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!--
+Layer (b) fixture: a profile whose inline discography grid renders NO anchor
+children (lazy/partial render -- the items are hydrated client-side from JSON), but
+whose grid tag still carries the full discography in its data-client-items attribute
+(featured/newest-first, HTML-entity-escaped, exactly as Bandcamp emits it). The
+inline-anchor layer finds nothing; the JSON layer parses the attribute and returns
+the first album entry. A decoy album nav link before the grid must NOT win.
+-->
+<html><head><title>Lazy Grid Artist</title></head><body>
+<nav><a href="/album/decoy-featured-link">featured</a> <a href="/music">music</a></nav>
+<ol id="music-grid"
+    data-edit-callback="/music_reorder"
+    data-client-items="[{&quot;art_id&quot;:91,&quot;band_id&quot;:7,&quot;id&quot;:500,&quot;page_url&quot;:&quot;/album/from-json-first&quot;,&quot;title&quot;:&quot;From JSON First&quot;,&quot;type&quot;:&quot;album&quot;},{&quot;art_id&quot;:92,&quot;band_id&quot;:7,&quot;id&quot;:501,&quot;page_url&quot;:&quot;/album/from-json-second&quot;,&quot;title&quot;:&quot;From JSON Second&quot;,&quot;type&quot;:&quot;album&quot;}]"
+    class="editable-grid music-grid columns-3 public"
+>
+</ol>
+</body></html>

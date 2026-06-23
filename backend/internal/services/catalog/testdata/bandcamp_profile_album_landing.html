@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!--
+Trimmed real-page fixture: the ALBUM LANDING page that ajjtheband.bandcamp.com's
+bare root 303-redirects to (PSY-1198/PSY-1202 AJJ repro). There is NO discography
+grid here -- only the album's own tracklist (a list of /track/ hrefs) plus a nav-bar
+link back to /music. The first relative /track href on the page
+(/track/body-terror-song-demo) is a TRACKLIST track, NOT the featured release -- a
+naive whole-page scan would pick it. The resolver instead falls back to the /music
+sub-page (layer c), which carries the real discography grid. This page must yield
+NOTHING from same-page extraction so the /music fallback fires.
+-->
+<html><head><title>Good Luck Everybody Demos | AJJ</title></head><body>
+<nav><a href="/">home</a> <a href="/music">music</a> <a href="/merch">merch</a></nav>
+<div id="name-section"><h2 class="trackTitle">Good Luck Everybody Demos</h2></div>
+<table id="track_table">
+  <tr class="track_row_view"><td><a href="/track/body-terror-song-demo">Body Terror Song (demo)</a></td></tr>
+  <tr class="track_row_view"><td><a href="/track/normalization-blues-demo">Normalization Blues (demo)</a></td></tr>
+</table>
+</body></html>
