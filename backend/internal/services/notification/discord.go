@@ -409,8 +409,8 @@ func (s *DiscordService) NotifyNewRadioShows(stationName string, newShowNames []
 // NOTE (PSY-1153): currently UNCALLED in production — its sole caller was the
 // autoBackfillStation drain, removed when create-on-first moved into the discover run
 // (which notifies via NotifyNewRadioShows). Retained as a Discord capability for a
-// future "backfill completed" surface; delete it (interface method + mock + tests) if
-// none is planned.
+// future "backfill completed" surface. Disposition tracked in PSY-1181: wire it into
+// PSY-1154's post-air backfill cycle, or delete it (interface method + mock + tests).
 func (s *DiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
 	if !s.IsConfigured() || len(completedShows) == 0 {
 		return

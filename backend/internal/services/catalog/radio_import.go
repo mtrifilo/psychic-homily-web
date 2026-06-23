@@ -516,6 +516,9 @@ func (s *RadioService) importRosterShowEpisodes(stationID uint, roster contracts
 		}
 		accumulateEpisodeResult(result, ep.ExternalID, epResult)
 	}
+	// Return wasCreated (not a bare true): on a TOCTOU race where the row appeared
+	// between discovery's findAndUpdateExistingShow miss and this upsert, episodes
+	// still import but the show is NOT re-reported as created (createdNames stays correct).
 	return wasCreated
 }
 

@@ -313,6 +313,11 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		// inside this discover run (under its per-station lock + breaker gate). Both the
 		// scheduled discover cycle and the manual admin "discover" trigger flow through
 		// here, so both create aired shows; an episode-less roster DJ never becomes a row.
+		// NOTE: the per-station advisory lock (RunStationSync) is now held across this
+		// whole import, so on a greenfield first run it can span the full sequential
+		// roster (paced by the per-provider limiter, shutdown-cancellable). This is safe
+		// only because the lock is pg_try_advisory_lock (non-blocking — contenders skip,
+		// they don't queue); do NOT switch to a blocking acquire here or elsewhere.
 		since, until := discoverCreateWindow(opts)
 		imp, createdNames := s.createOnFirstForRoster(stationID, runID, res.NewRosterShows, since, until)
 		res.CreatedShowNames = createdNames
