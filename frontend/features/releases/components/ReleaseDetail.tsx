@@ -21,6 +21,7 @@ import {
   RevisionHistory,
   AddToCollectionButton,
   BracketLink,
+  ImageAttribution,
 } from '@/components/shared'
 import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
@@ -142,17 +143,31 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const sidebar = (
     <div className="space-y-6">
       {/* Cover Art */}
-      <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
-        {release.cover_art_url ? (
-          <img
-            src={release.cover_art_url}
-            alt={`${release.title} cover art`}
-            className="w-full aspect-square object-cover"
+      <div>
+        <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
+          {release.cover_art_url ? (
+            // Hotlinked provider art (PSY-1175 D2): raw <img> avoids next/image
+            // per-host remotePatterns churn; CSP already allows img-src https:.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={release.cover_art_url}
+              alt={`${release.title} cover art`}
+              loading="lazy"
+              className="w-full aspect-square object-cover"
+            />
+          ) : (
+            <div className="w-full aspect-square bg-muted/30 flex items-center justify-center">
+              <Disc3 className="h-16 w-16 text-muted-foreground/30" />
+            </div>
+          )}
+        </div>
+        {release.cover_art_url && (
+          <ImageAttribution
+            source={release.cover_art_source}
+            sourceUrl={release.cover_art_source_url}
+            kind="cover"
+            className="mt-1.5 px-0.5"
           />
-        ) : (
-          <div className="w-full aspect-square bg-muted/30 flex items-center justify-center">
-            <Disc3 className="h-16 w-16 text-muted-foreground/30" />
-          </div>
         )}
       </div>
 

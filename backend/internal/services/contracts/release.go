@@ -42,19 +42,21 @@ type UpdateReleaseRequest struct {
 
 // ReleaseDetailResponse represents the release data returned to clients
 type ReleaseDetailResponse struct {
-	ID            uint                          `json:"id"`
-	Title         string                        `json:"title"`
-	Slug          string                        `json:"slug"`
-	ReleaseType   string                        `json:"release_type"`
-	ReleaseYear   *int                          `json:"release_year"`
-	ReleaseDate   *string                       `json:"release_date"`
-	CoverArtURL   *string                       `json:"cover_art_url"`
-	Description   *string                       `json:"description"`
-	Artists       []ReleaseArtistResponse       `json:"artists"`
-	Labels        []ReleaseLabelResponse        `json:"labels"`
-	ExternalLinks []ReleaseExternalLinkResponse `json:"external_links"`
-	CreatedAt     time.Time                     `json:"created_at"`
-	UpdatedAt     time.Time                     `json:"updated_at"`
+	ID                uint                          `json:"id"`
+	Title             string                        `json:"title"`
+	Slug              string                        `json:"slug"`
+	ReleaseType       string                        `json:"release_type"`
+	ReleaseYear       *int                          `json:"release_year"`
+	ReleaseDate       *string                       `json:"release_date"`
+	CoverArtURL       *string                       `json:"cover_art_url"`
+	CoverArtSource    *string                       `json:"cover_art_source"`
+	CoverArtSourceURL *string                       `json:"cover_art_source_url"`
+	Description       *string                       `json:"description"`
+	Artists           []ReleaseArtistResponse       `json:"artists"`
+	Labels            []ReleaseLabelResponse        `json:"labels"`
+	ExternalLinks     []ReleaseExternalLinkResponse `json:"external_links"`
+	CreatedAt         time.Time                     `json:"created_at"`
+	UpdatedAt         time.Time                     `json:"updated_at"`
 }
 
 // ReleaseArtistResponse represents an artist on a release

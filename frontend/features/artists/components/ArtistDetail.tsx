@@ -46,6 +46,7 @@ import {
   StatsList,
   DenseTable,
   DenseTableGroupHeader,
+  ImageAttribution,
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
@@ -308,12 +309,21 @@ function ArtistSidebar({
 
       {/* Photo */}
       {artist.image_url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={artist.image_url}
-          alt={artist.name}
-          className="w-full rounded-md border border-border/50"
-        />
+        <div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={artist.image_url}
+            alt={artist.name}
+            loading="lazy"
+            className="w-full rounded-md border border-border/50"
+          />
+          <ImageAttribution
+            source={artist.image_source}
+            sourceUrl={artist.image_source_url}
+            kind="photo"
+            className="mt-1.5 px-0.5"
+          />
+        </div>
       )}
 
       {/* Statistics */}

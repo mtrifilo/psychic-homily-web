@@ -520,7 +520,9 @@ type ArtistDetailResponse struct {
 	Country          *string        `json:"country,omitempty"` // PSY-558: optional country (Australia, UK, etc.)
 	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
 	Description      *string        `json:"description,omitempty"`
-	ImageURL         *string        `json:"image_url"` // Optional artist photo (PSY-521)
+	ImageURL         *string        `json:"image_url"`        // Optional artist photo (PSY-521)
+	ImageSource      *string        `json:"image_source"`     // Image provider for attribution (PSY-1175)
+	ImageSourceURL   *string        `json:"image_source_url"` // Deep linkback for attribution (PSY-1175)
 	Social           SocialResponse `json:"social"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
