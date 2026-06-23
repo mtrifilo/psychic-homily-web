@@ -67,7 +67,6 @@ type ServiceContainer struct {
 	RadioFetch             *catalog.RadioFetchService
 	RelationshipDerivation *catalog.RelationshipDerivationService
 	Venue                  *catalog.VenueService
-	VenueSourceConfig      *pipeline.VenueSourceConfigService
 	SourceConfig           *sourceregistry.SourceConfigService
 	StreamingWorklist      *pipeline.StreamingWorklistService
 
@@ -77,7 +76,6 @@ type ServiceContainer struct {
 	NotificationFilter *notification.NotificationFilterService
 
 	// No-param services
-	Fetcher           *pipeline.FetcherService
 	PasswordValidator *auth.PasswordValidator
 
 	// DB + Config composite services
@@ -89,21 +87,12 @@ type ServiceContainer struct {
 	Cleanup          *adminsvc.CleanupService
 	DataSync         *adminsvc.DataSyncService
 	Discovery        *pipeline.DiscoveryService
-	Pipeline         *pipeline.PipelineService
 	Reminder         *engagement.ReminderService
-	Scheduler        *pipeline.SchedulerService
 	Enrichment       *pipeline.EnrichmentService
 	EnrichmentWorker *pipeline.EnrichmentWorker
 	AutoPromotion    *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
-}
-
-// newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
-func newFetcherWithChromedp() *pipeline.FetcherService {
-	f := pipeline.NewFetcherService()
-	f.InitChromedp(3)
-	return f
 }
 
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
@@ -119,21 +108,18 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	email := notification.NewEmailService(cfg)
 	userService := usersvc.NewUserService(database)
 
-	// Services needed by PipelineService — created first so we can inject them.
+	// Shared catalog services. extraction backs the ShowHandler AI
+	// show-from-text path; discovery powers the external discovery-app import.
 	artist := catalog.NewArtistService(database)
 	venue := catalog.NewVenueService(database)
-	fetcher := newFetcherWithChromedp()
 	extraction := pipeline.NewExtractionService(database, cfg, artist, venue)
 	discovery := pipeline.NewDiscoveryService(database, venue)
-	venueSourceConfig := pipeline.NewVenueSourceConfigService(database)
 	sourceConfig := sourceregistry.NewSourceConfigService(database)
 
 	// Auth services — created first so we can share the JWT service with AppleAuth.
 	jwtService := auth.NewJWTService(database, cfg, userService)
 
-	// Services needed by SchedulerService — created before the container.
 	discord := notification.NewDiscordService(cfg)
-	pipelineSvc := pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue)
 
 	// Enrichment service — SeatGeek client ID is optional
 	seatgeekClientID := os.Getenv("SEATGEEK_CLIENT_ID")
@@ -222,7 +208,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		RadioFetch:             catalog.NewRadioFetchService(radioSvc, discord),
 		RelationshipDerivation: catalog.NewRelationshipDerivationService(artistRelSvc),
 		Venue:                  venue,
-		VenueSourceConfig:      venueSourceConfig,
 		SourceConfig:           sourceConfig,
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
 
@@ -232,7 +217,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		NotificationFilter: notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL),
 
 		// No-param services
-		Fetcher:           fetcher,
 		PasswordValidator: auth.NewPasswordValidator(),
 
 		// DB + Config composite services
@@ -244,9 +228,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Cleanup:          adminsvc.NewCleanupService(database, userService),
 		DataSync:         adminsvc.NewDataSyncService(database),
 		Discovery:        discovery,
-		Pipeline:         pipelineSvc,
 		Reminder:         engagement.NewReminderService(database, email, cfg),
-		Scheduler:        pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
 		Enrichment:       enrichmentSvc,
 		EnrichmentWorker: enrichmentWorker,
 		AutoPromotion:    adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),

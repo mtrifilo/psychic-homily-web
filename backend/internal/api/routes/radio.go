@@ -57,6 +57,13 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.Admin, "/admin/radio/sync-runs/{id}", radioHandler.AdminGetSyncRunHandler)
 	huma.Post(rc.Admin, "/admin/radio/sync-runs/{id}/cancel", radioHandler.AdminCancelSyncRunHandler)
 
+	// Admin observability feeds (PSY-1129/P5): recent sync-run history (global +
+	// per-station) and the station-health rollup for the admin dashboard.
+	huma.Get(rc.Admin, "/admin/radio/sync-runs", radioHandler.AdminListSyncRunsHandler)
+	huma.Get(rc.Admin, "/admin/radio-stations/{id}/sync-runs", radioHandler.AdminListStationSyncRunsHandler)
+	huma.Get(rc.Admin, "/admin/radio/station-health", radioHandler.AdminListStationHealthHandler)
+	huma.Get(rc.Admin, "/admin/radio-stations/{id}/health", radioHandler.AdminGetStationHealthHandler)
+
 	// Admin unmatched play management endpoints
 	huma.Get(rc.Admin, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
 	huma.Post(rc.Admin, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)

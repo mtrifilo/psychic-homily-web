@@ -668,7 +668,7 @@ no nondeterministic DB state changes from ambient background jobs.
 | `DISABLE_RADIO_FETCH`             | Radio playlist ingestion, affinity computation, re-matching     |
 | `DISABLE_AUTO_PROMOTION`          | Daily user trust-tier evaluation / auto-promotion               |
 | `DISABLE_ENRICHMENT_WORKER`       | Post-import enrichment worker (processes enrichment queue)      |
-| `DISABLE_SCHEDULER`               | Extraction scheduler (automated venue extraction runs)          |
+| `DISABLE_COLLECTION_DIGEST`       | Weekly collection-subscription digest emails (PSY-350)          |
 | `DISABLE_CLEANUP`                 | Account cleanup service (permanent deletion of soft-deleted)    |
 | `DISABLE_REMINDERS`               | Show reminder service (24h-before email reminders)              |
 | `DISABLE_RELATIONSHIP_DERIVATION` | Derived artist relationships (shared_bills + shared_label)      |

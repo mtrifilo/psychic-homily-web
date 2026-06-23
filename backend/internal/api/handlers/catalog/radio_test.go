@@ -1339,3 +1339,105 @@ func TestAdminBulkLinkPlays_ServiceError(t *testing.T) {
 	_, err := h.AdminBulkLinkPlaysHandler(radioAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// ============================================================================
+// Admin observability feeds (PSY-1129/P5)
+// ============================================================================
+
+func TestAdminListSyncRuns_GlobalForwardsArgsAndEnvelope(t *testing.T) {
+	var gotStation *uint
+	var gotStatus string
+	var gotLimit, gotOffset int
+	mock := &testhelpers.MockRadioService{
+		ListSyncRunsFn: func(stationID *uint, status string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+			gotStation, gotStatus, gotLimit, gotOffset = stationID, status, limit, offset
+			return []*contracts.RadioSyncRunResponse{{ID: 1}, {ID: 2}}, 7, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminListSyncRunsHandler(radioAdminCtx(), &AdminListSyncRunsRequest{Status: "failed", Limit: 2, Offset: 4})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotStation != nil {
+		t.Errorf("global feed must pass nil stationID, got %v", gotStation)
+	}
+	if gotStatus != "failed" || gotLimit != 2 || gotOffset != 4 {
+		t.Errorf("args not forwarded: status=%q limit=%d offset=%d", gotStatus, gotLimit, gotOffset)
+	}
+	if resp.Body.Total != 7 || resp.Body.Count != 2 {
+		t.Errorf("envelope wrong: total=%d count=%d", resp.Body.Total, resp.Body.Count)
+	}
+}
+
+func TestAdminListStationSyncRuns_ScopesToStation(t *testing.T) {
+	var gotStation *uint
+	mock := &testhelpers.MockRadioService{
+		ListSyncRunsFn: func(stationID *uint, _ string, _, _ int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+			gotStation = stationID
+			return []*contracts.RadioSyncRunResponse{{ID: 1}}, 1, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminListStationSyncRunsHandler(radioAdminCtx(), &AdminListStationSyncRunsRequest{StationID: 5, Limit: 50})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotStation == nil || *gotStation != 5 {
+		t.Errorf("per-station feed must scope to station 5, got %v", gotStation)
+	}
+}
+
+func TestAdminListStationSyncRuns_StationNotFound404(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		ListSyncRunsFn: func(_ *uint, _ string, _, _ int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+			return nil, 0, apperrors.ErrRadioStationNotFound(999)
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminListStationSyncRunsHandler(radioAdminCtx(), &AdminListStationSyncRunsRequest{StationID: 999})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestAdminGetStationHealth_Success(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		GetStationHealthFn: func(stationID uint) (*contracts.RadioStationHealthResponse, error) {
+			return &contracts.RadioStationHealthResponse{StationID: stationID, BreakerState: "closed"}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminGetStationHealthHandler(radioAdminCtx(), &AdminGetStationHealthRequest{StationID: 3})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body == nil || resp.Body.StationID != 3 {
+		t.Errorf("expected station 3 health, got %+v", resp.Body)
+	}
+}
+
+func TestAdminGetStationHealth_NotFound404(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		GetStationHealthFn: func(_ uint) (*contracts.RadioStationHealthResponse, error) {
+			return nil, apperrors.ErrRadioStationNotFound(999)
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminGetStationHealthHandler(radioAdminCtx(), &AdminGetStationHealthRequest{StationID: 999})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestAdminListStationHealth_Envelope(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		ListStationHealthFn: func() ([]*contracts.RadioStationHealthResponse, error) {
+			return []*contracts.RadioStationHealthResponse{{StationID: 1}, {StationID: 2}, {StationID: 3}}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminListStationHealthHandler(radioAdminCtx(), &AdminListStationHealthRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 3 || len(resp.Body.Stations) != 3 {
+		t.Errorf("envelope wrong: count=%d len=%d", resp.Body.Count, len(resp.Body.Stations))
+	}
+}
