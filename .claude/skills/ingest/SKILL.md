@@ -330,6 +330,74 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
 | **Feel It Records** | `https://www.feelitrecordshop.com/pages/artists` | **Server-rendered (Shopify)** — plain `curl -A "Mozilla/5.0"` returns the whole roster (no browser MCP). Roster is a single `<div class="artist_wrapper">` of `.artist_container` cards; per card the name is the text after `<br>` (also in `<a alt>`/`<img alt>` — cross-check, they agreed 86/86) and the `href` is a Bandcamp **album** link whose **subdomain is the artist's Bandcamp root** (`https://<slug>.bandcamp.com`). | **86 kept (single section, all music)**; no Alumni/Books/visual-artist section to exclude. | First run 2026-06-21 → **stage**: label id 2 (Cincinnati, OH — verify location from `/pages/hours-and-location`, the label relocated from Richmond, VA) + 86 linked, **each artist carrying its Bandcamp root** so the playable Bandcamp section renders. Pre-created Fan Club / It Thing / Spllit / Vacation (with bandcamp) to beat 0.6 fuzzy false-matches to Yot Club / Nothing / Split / Medication, and PATCHed bandcamp onto real dups Artificial Go (481) / Man-Eaters (1105) / Sweeping Promises (351) — the batch can't enrich existing artists' social links (*Known CLI limitation*, PSY-1170). Keep `and`/`/` names whole (Fashion Pimps and the Glamazons, Green/Blue); "The Cowboy" (Cleveland, thecowboycle) ≠ "The Cowboys" (thecowboysnow) — distinct, the Bandcamp subdomain disambiguates. **Verify Bandcamp via `GET /artists/{id}` detail, NOT `GET /labels/{id}/artists`** — the roster *list projection* omits `social`/`bandcamp` (reads 0/86 falsely); detail confirmed 86/86. |
 | **12XU** | `https://12xurecs.bandcamp.com/` (the label's **Bandcamp hub** — its root IS the "Artists \| 12XU" grid; the label's own site `12xu.net` is a WordPress blog, not a clean roster) | **Server-rendered (Bandcamp)** — plain `curl -A "Mozilla/5.0"`. **NEW source type: a Bandcamp *label* hub.** The `data-blob` only carries `{label_name, artist_grid:bool}` (no list) → parse the DOM grid: each `<li class='artists-grid-item'>` has `<a href='https://<sub>.bandcamp.com?…'>` (→ artist Bandcamp root, strip the `?` query), `<div class="artists-grid-name">` (name), `<div class="artists-grid-location secondaryText">` (City, State/Country). | **59 kept (single grid, all music)**; no non-music section. | First run 2026-06-21 → **stage**: label id 3 (Austin, TX — *inferred*: owner Gerard Cosloy's BC location + roster plurality; 12xu.net doesn't state it) + 59 linked, each with its `<x>12xu.bandcamp.com` root. **Captured per-artist city/state from the grid location** (US → 2-letter state via a full-name map; international → city only, no state, no locale tag; bare-country → neither). **Multi-label win:** Uniform (1717, already on Sacred Bones) also linked to 12XU — the cross-label graph enrichment. Pre-created chimers / Love Child / Rocket 808 (with bandcamp + location) to beat 0.6 fuzzy false-matches to Chambers / Wild Child / Rocket; PATCHed bandcamp onto existing exact-dups Uniform (1717) / The Sleeves (1492) — PSY-1170 blocks batch enrichment. Keep `&`/`/` names whole (Ed Kuepper & Jim White, Blank Hellscape / Wolf Eyes, USA/Mexico, John Schooley & Walter Daniels). **No tags this run** — tag endpoints are rate-limited and PSY-1173 (the phk_ bypass) wasn't confirmed deployed to stage yet. |
 
+## Label release-pass (Bandcamp discography → releases)
+
+After a label roster is ingested (artists + Bandcamp links), the **release pass** pulls each artist's Bandcamp discography into `release` entities — title, year, type, a playable Bandcamp `external_link`, and genre/locale tags. Proven on **12XU (133 releases, 2026-06-21)** and **Feel It (407, 2026-06-22)** → stage. The artists must already exist (releases resolve by name), so run this *after* the roster ingest.
+
+**Gate — tags hit rate-limited endpoints.** Tag create/apply is limited (20/hour create, 30/min vote). Bulk tagging needs **PSY-1173** (the `phk_` admin-token rate-limit bypass) live on the **target env**. Confirm it's deployed there first (35 rapid tag-adds with no 429); without it, the run applies releases fine but every tag 429s. Newly-created artists' release data (title/year/type/links) is unaffected — only tags need the bypass.
+
+### Per-artist extraction (the parser that matters)
+
+1. **Discography = the `#music-grid` ONLY, not raw hrefs.** Fetch `<artist-bandcamp>/music` (follow redirects). Parse the `<ol id="music-grid">` `<li>` items' `/album/` + `/track/` hrefs — those are the real releases. **Do NOT regex `/album|/track` over the whole page** — a single-release `*12xu`-style page *redirects* `/music` to the album, whose **tracklist** then explodes into N bogus "singles" (Mope Grooves → 27 fake tracks). When there's **no** `#music-grid`, `/music` redirected to one album → take that single URL (`response.geturl()` / `og:url`).
+2. **Release fields from JSON-LD.** Each release page's `<script type="application/ld+json">` `MusicAlbum`/`MusicRecording`: `name`→title, `datePublished`→year (regex a 4-digit year), `numTracks`, `keywords`→tags.
+3. **`release_type` heuristic** (track-count, documented & accepted as a heuristic): a `/track/` URL or ≤2 tracks → `single`, 3–6 → `ep`, 7+ → `lp`.
+4. **Artist name must match the stage entity exactly** — releases link by name. Roster display names that got deduped/normalized on ingest will MISS (Feel It "Man Eaters" vs stage "Man-Eaters"). Dry-run, grep `Unresolved artists:`, patch those names to the exact stage form, re-dry-run to 0 unresolved.
+
+### Multi-label is NOT extractable from Bandcamp
+
+Release pages expose only the Bandcamp **account name** (e.g. "Mope Grooves"), never the record label — so per-release label detection doesn't work; don't try. Cross-label graph enrichment happens at the **artist level via roster ingests**: ingesting a second label's roster auto-cross-links a shared artist (Uniform → Sacred Bones + 12XU). That's the mechanism.
+
+### Tags: allowlist-clean + emergent-tag promotion loop
+
+Map each keyword: normalize variants first, then `genre` (allowlist) / `locale` (city/country map), else **drop but COUNT**. The drop-counter is the feature — it surfaces high-value keywords to promote so the allowlist grows over time:
+
+1. **Cache the raw keywords** per release (`/tmp/releases-raw.json`) so re-cleaning needs no re-fetch.
+2. **Report** the top non-allowlist keywords by frequency.
+3. **Promote** the high-value ones (ask the user): clear genres → the genre set; cities → the locale map. Drop noise (lyric words, band in-jokes, regions/states/countries already covered by a city).
+4. **Rebuild from cache** with the expanded allowlist (instant). Feel It: 405→**407/407 tagged**, most releases 4–6 tags, after promoting 8 genres + 14 cities.
+
+**The durable allowlist** (extend it as keywords emerge — this is the persisted source of truth):
+
+```python
+# normalize variants -> canonical BEFORE matching (hyphen/space/apostrophe drift)
+NORM = {"post punk":"post-punk","powerpop":"power pop","power-pop":"power pop",
+ "rock n roll":"rock'n'roll","rock and roll":"rock'n'roll","rock n' roll":"rock'n'roll",
+ "lofi":"lo-fi","altpop":"alt-pop","hip hop":"hip-hop","synthpop":"synth pop",
+ "art-punk":"art punk","proto punk":"proto-punk","garage-rock":"garage rock"}
+GENRES = {  # genre tags (default category)
+ "punk","post-punk","hardcore punk","garage punk","hardcore","garage","garage rock",
+ "coldwave","new wave","no wave","synthwave","synthpop","synth pop","synth-punk","egg punk",
+ "art punk","power pop","proto-punk","oi","street punk","d-beat","crust","post-hardcore",
+ "goth","gothic","darkwave","minimal synth","ebm","industrial","noise rock","noise","drone",
+ "psychedelic","psych","psych rock","psychedelic rock","electronic","experimental","ambient",
+ "folk","gospel","funk","disco","avant-garde","hip-hop","jazz","metal","alternative","rock",
+ "rock & roll","rock'n'roll","pop","surf","dub","krautrock","shoegaze","dream pop","country",
+ "soul","blues","indie","indie rock","lo-fi","dance","techno","house","improv","free jazz",
+ # promoted 2026-06-22 (Feel It report): broad-but-genre here given the punk/garage rosters
+ "synth","glam","britpop","punk rock","art rock","skate punk","alt-pop","alt-psych"}
+LOCALES = {  # keyword -> locale-tag (category=locale)
+ "australia":"Australian","netherlands":"Dutch","finland":"Finnish","uk":"British",
+ "england":"British","canada":"Canadian","germany":"German","france":"French","italy":"Italian",
+ "spain":"Spanish","japan":"Japanese","ireland":"Irish",
+ # cities promoted 2026-06-22 (origin/scene): high-value for browsing
+ "cincinnati":"Cincinnati","richmond":"Richmond","detroit":"Detroit","cleveland":"Cleveland",
+ "melbourne":"Melbourne","minneapolis":"Minneapolis","seattle":"Seattle","las vegas":"Las Vegas",
+ "bloomington":"Bloomington","chicago":"Chicago","kansas city":"Kansas City","memphis":"Memphis",
+ "kyiv":"Kyiv","baltimore":"Baltimore"}
+# Next-tier candidates seen but NOT yet promoted (low-freq tail): kiwi pop, grungepop, cello-rock,
+# noise-pop, indie pop, kbd; cities London/Brooklyn/Olympia/Charlottesville/Leipzig. Promote on demand.
+```
+
+### Workflow
+
+1. **Re-derive the roster's Bandcamp roots** (the `/labels/{id}/artists` list projection omits `bandcamp`) — re-parse the label's roster/hub page (or read each artist's detail).
+2. **Sample-validate the parser on 3–5 artists FIRST** (mix a single-release `*label` page + an own-domain page) before the full run — this caught the track-explosion bug. Confirm no 0-release artists, no absurd counts.
+3. **Extract all** → cache raw + write the batch + print the dropped-keyword report.
+4. **Promote tags** (the loop above), rebuild from cache.
+5. **Dry-run on the env** — fix `Unresolved artists:` name mismatches → 0 unresolved.
+6. **Confirm** (PSY-1173 must be live for tags). Big runs background; verify counts = 0 rate-limit / 0 tag-failures.
+7. **Verify** via `GET /artists/{id}/releases` + `GET /entities/release/{id}/tags` (the `/releases` list endpoint is first-page-only; the release-detail `tags` field is a filtered projection — use the entity-tags endpoint).
+
 ## Stale-first global refresh (Catalog Refresh)
 
 Once sources are registered in the source-config registry (PSY-1149), refresh the **stalest first** instead of by hand. The registry tracks one source per catalog entity (a venue's calendar page or a label's roster page) plus `last_refreshed_at`; the loop below is the operator/agent workflow that ties the per-source ingest workflows together.
