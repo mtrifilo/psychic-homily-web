@@ -9,6 +9,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -890,6 +891,49 @@ func TestAdminUpdateRadioShow_NotFound(t *testing.T) {
 
 	_, err := h.AdminUpdateRadioShowHandler(radioAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 404)
+}
+
+// PSY-1172: the admin handler forwards lifecycle_state to the service (the field the
+// admin form previously could not reach).
+func TestAdminUpdateRadioShow_PassesLifecycleStateToService(t *testing.T) {
+	var gotState *string
+	mock := &testhelpers.MockRadioService{
+		UpdateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+			gotState = req.LifecycleState
+			return &contracts.RadioShowDetailResponse{ID: showID, LifecycleState: *req.LifecycleState}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	retired := catalogm.RadioLifecycleRetired
+	req := &AdminUpdateRadioShowRequest{ShowID: 1}
+	req.Body.LifecycleState = &retired
+
+	resp, err := h.AdminUpdateRadioShowHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotState == nil || *gotState != catalogm.RadioLifecycleRetired {
+		t.Errorf("expected service to receive lifecycle_state=retired, got %v", gotState)
+	}
+	if resp.Body.LifecycleState != catalogm.RadioLifecycleRetired {
+		t.Errorf("expected response lifecycle_state=retired, got %s", resp.Body.LifecycleState)
+	}
+}
+
+// PSY-1172: a service-level invalid-lifecycle error maps to HTTP 422.
+func TestAdminUpdateRadioShow_LifecycleInvalid_Returns422(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		UpdateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+			return nil, apperrors.ErrRadioLifecycleInvalid("archived")
+		},
+	}
+	h := testRadioHandler(mock)
+	bogus := "archived"
+	req := &AdminUpdateRadioShowRequest{ShowID: 1}
+	req.Body.LifecycleState = &bogus
+
+	_, err := h.AdminUpdateRadioShowHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================

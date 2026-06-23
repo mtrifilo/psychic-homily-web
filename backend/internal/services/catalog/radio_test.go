@@ -501,6 +501,61 @@ func (suite *RadioServiceIntegrationTestSuite) TestUpdateShow_NotFound() {
 	suite.Error(err)
 }
 
+// PSY-1172: lifecycle_state is now writable via UpdateShow (the only write path for it).
+// 'retired' is the manual-only "ended forever" signal the nightly janitor never sets.
+func (suite *RadioServiceIntegrationTestSuite) TestUpdateShow_SetLifecycleState_Retired() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	suite.Equal(catalogm.RadioLifecycleActive, show.LifecycleState, "new shows default to active")
+
+	retired := catalogm.RadioLifecycleRetired
+	resp, err := suite.radioService.UpdateShow(show.ID, &contracts.UpdateRadioShowRequest{
+		LifecycleState: &retired,
+	})
+
+	suite.Require().NoError(err)
+	suite.Equal(catalogm.RadioLifecycleRetired, resp.LifecycleState)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestUpdateShow_SetLifecycleState_Dormant() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+
+	dormant := catalogm.RadioLifecycleDormant
+	resp, err := suite.radioService.UpdateShow(show.ID, &contracts.UpdateRadioShowRequest{
+		LifecycleState: &dormant,
+	})
+
+	suite.Require().NoError(err)
+	suite.Equal(catalogm.RadioLifecycleDormant, resp.LifecycleState)
+}
+
+// An invalid lifecycle_state is rejected with a typed validation error and writes
+// nothing — even other fields in the same request must not be persisted (the guard
+// runs before the DB write).
+func (suite *RadioServiceIntegrationTestSuite) TestUpdateShow_LifecycleStateInvalid_NoWrite() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+
+	bogus := "archived"
+	newName := "Renamed Show"
+	_, err := suite.radioService.UpdateShow(show.ID, &contracts.UpdateRadioShowRequest{
+		Name:           &newName,
+		LifecycleState: &bogus,
+	})
+
+	suite.Require().Error(err)
+	var radioErr *apperrors.RadioError
+	suite.ErrorAs(err, &radioErr)
+	suite.Equal(apperrors.CodeRadioLifecycleInvalid, radioErr.Code)
+
+	// No partial write: name and lifecycle_state are unchanged.
+	reloaded, getErr := suite.radioService.GetShow(show.ID)
+	suite.Require().NoError(getErr)
+	suite.Equal("Morning Show", reloaded.Name, "name must not be persisted when validation fails")
+	suite.Equal(catalogm.RadioLifecycleActive, reloaded.LifecycleState)
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestDeleteShow_Success() {
 	station := suite.createStation("KEXP")
 	show := suite.createShow(station.ID, "Morning Show")

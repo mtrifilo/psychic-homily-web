@@ -1184,6 +1184,7 @@ type AdminUpdateRadioShowRequest struct {
 		ArchiveURL      *string          `json:"archive_url,omitempty" required:"false" doc:"Archive URL"`
 		ImageURL        *string          `json:"image_url,omitempty" required:"false" doc:"Show image URL"`
 		IsActive        *bool            `json:"is_active,omitempty" required:"false" doc:"Whether show is active"`
+		LifecycleState  *string          `json:"lifecycle_state,omitempty" required:"false" enum:"active,dormant,retired" doc:"Operational state: active|dormant|retired. 'retired' is the manual-only 'ended forever' signal the janitor never sets/clobbers; active|dormant are advisory and may be re-reconciled nightly."`
 	}
 }
 
@@ -1208,6 +1209,7 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 		ArchiveURL:      req.Body.ArchiveURL,
 		ImageURL:        req.Body.ImageURL,
 		IsActive:        req.Body.IsActive,
+		LifecycleState:  req.Body.LifecycleState,
 	}
 
 	show, err := h.showWriter.UpdateShow(req.ShowID, serviceReq)
@@ -1217,7 +1219,7 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 			switch radioErr.Code {
 			case apperrors.CodeRadioShowNotFound:
 				return nil, huma.Error404NotFound("Radio show not found")
-			case apperrors.CodeRadioScheduleInvalid:
+			case apperrors.CodeRadioScheduleInvalid, apperrors.CodeRadioLifecycleInvalid:
 				return nil, huma.Error422UnprocessableEntity(radioErr.Message)
 			}
 		}

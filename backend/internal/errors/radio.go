@@ -11,6 +11,9 @@ const (
 	CodeRadioEpisodeNotFound     = "RADIO_EPISODE_NOT_FOUND"
 	CodeRadioStationNameConflict = "RADIO_STATION_NAME_CONFLICT"
 	CodeRadioScheduleInvalid     = "RADIO_SCHEDULE_INVALID"
+	// CodeRadioLifecycleInvalid is returned when an admin lifecycle_state update is not
+	// one of active|dormant|retired (PSY-1172). Mapped to HTTP 422.
+	CodeRadioLifecycleInvalid = "RADIO_LIFECYCLE_INVALID"
 	// CodeRadioSyncAlreadyRunning is returned when a manual sync trigger loses the
 	// per-station advisory lock to an in-flight run (PSY-1135). Mapped to HTTP 409.
 	CodeRadioSyncAlreadyRunning = "RADIO_SYNC_ALREADY_RUNNING"
@@ -83,6 +86,16 @@ func ErrRadioScheduleInvalid(detail string) *RadioError {
 	return &RadioError{
 		Code:    CodeRadioScheduleInvalid,
 		Message: fmt.Sprintf("Invalid schedule: %s", detail),
+	}
+}
+
+// ErrRadioLifecycleInvalid creates a validation error for an admin-supplied
+// lifecycle_state that is not one of active|dormant|retired (PSY-1172). Mapped to
+// HTTP 422 by the admin show handler.
+func ErrRadioLifecycleInvalid(value string) *RadioError {
+	return &RadioError{
+		Code:    CodeRadioLifecycleInvalid,
+		Message: fmt.Sprintf("Invalid lifecycle_state %q (expected active, dormant, or retired)", value),
 	}
 }
 

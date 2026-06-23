@@ -162,6 +162,13 @@ type UpdateRadioShowRequest struct {
 	// schedule from the weekly WFMU scrape; false resumes auto-scrape. When omitted, a
 	// schedule edit (Schedule != nil) auto-locks (an explicit hand-curation).
 	ScheduleLocked *bool `json:"schedule_locked"`
+	// LifecycleState, when set, explicitly sets the show's operational state — the only
+	// write path for it (PSY-1172). Valid values: active | dormant | retired. 'retired'
+	// is the manual-only "ended forever" signal the nightly janitor never sets and never
+	// clobbers (it reconciles only active↔dormant by episode recency); a manual
+	// active/dormant is advisory and may be re-reconciled on the next janitor run. An
+	// invalid value is rejected (no DB write).
+	LifecycleState *string `json:"lifecycle_state"`
 }
 
 // RadioShowDetailResponse represents the full radio show data returned to clients
