@@ -291,11 +291,11 @@ func (r *BandcampProfileResolver) fetch(ctx context.Context, fetchURL string) (s
 // release — fill-when-empty makes a miss harmless and human-correctable, whereas a
 // wrong embed is a silent defect. Both layers anchor on the music-grid: a nav-bar /
 // "featured-grid" decoy link elsewhere on the page is never picked.
-func extractFeaturedRelease(html string) (string, bool) {
-	if path, ok := extractFromMusicGridAnchors(html); ok {
+func extractFeaturedRelease(htmlBody string) (string, bool) {
+	if path, ok := extractFromMusicGridAnchors(htmlBody); ok {
 		return path, true
 	}
-	return extractFromClientItemsJSON(html)
+	return extractFromClientItemsJSON(htmlBody)
 }
 
 // extractFromMusicGridAnchors returns the first /album|/track href among the inline
@@ -308,8 +308,8 @@ func extractFeaturedRelease(html string) (string, bool) {
 // leading EMPTY <ol id="music-grid"> (e.g. a "featured" placeholder) before the
 // populated one would otherwise make the resolver a silent no-op for that cohort.
 // The first grid that actually contains an /album|/track anchor wins.
-func extractFromMusicGridAnchors(html string) (string, bool) {
-	for _, grid := range musicGridBlockRe.FindAllString(html, -1) {
+func extractFromMusicGridAnchors(htmlBody string) (string, bool) {
+	for _, grid := range musicGridBlockRe.FindAllString(htmlBody, -1) {
 		if m := gridItemHrefRe.FindStringSubmatch(grid); m != nil {
 			return m[1], true
 		}
