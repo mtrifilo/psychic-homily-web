@@ -54,17 +54,26 @@ export async function linkArtistToLabel(
 /**
  * Link a release to a label via the admin API.
  * Idempotent — succeeds silently if the link already exists.
+ *
+ * `catalog_number` is write-once on the backend: by default an existing link's
+ * number is preserved. Pass `overwrite=true` to correct an already-stored
+ * number (PSY-1194). Overwrite only makes sense alongside a catalogNumber, so
+ * the flag is sent only when a number is also present.
  */
 export async function linkReleaseToLabel(
   client: APIClient,
   labelId: number,
   releaseId: number,
   catalogNumber?: string,
+  overwrite?: boolean,
 ): Promise<boolean> {
   try {
     const body: Record<string, unknown> = { release_id: releaseId };
     if (catalogNumber) {
       body.catalog_number = catalogNumber;
+      if (overwrite) {
+        body.overwrite_catalog_number = true;
+      }
     }
     await client.post(`/admin/labels/${labelId}/releases`, body);
     return true;
@@ -85,6 +94,7 @@ export async function resolveAndLinkReleaseLabel(
   releaseId: number,
   artistIds?: number[],
   catalogNumber?: string,
+  overwrite?: boolean,
 ): Promise<number | null> {
   const label = await resolveLabelByName(client, labelName);
   if (!label) {
@@ -92,7 +102,7 @@ export async function resolveAndLinkReleaseLabel(
     return null;
   }
 
-  const linked = await linkReleaseToLabel(client, label.id, releaseId, catalogNumber);
+  const linked = await linkReleaseToLabel(client, label.id, releaseId, catalogNumber, overwrite);
   if (linked) {
     display.info(`  Linked release ${releaseId} to label "${label.name}" (ID: ${label.id})`);
   }

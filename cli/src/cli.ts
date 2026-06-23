@@ -82,7 +82,8 @@ program
   .description("Submit entities for creation/update (artist, venue, show, release, label, festival)")
   .option("--confirm", "Actually submit (default is dry-run)")
   .option("--force", "Skip duplicate checking (force create)")
-  .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean; force?: boolean }) => {
+  .option("--overwrite-catalog", "Overwrite existing release↔label catalog numbers (release only; default is write-once)")
+  .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean; force?: boolean; overwriteCatalog?: boolean }) => {
     if (!SUBMIT_TYPES.includes(entityType)) {
       display.error(
         `Invalid entity type "${entityType}". Must be one of: ${SUBMIT_TYPES.join(", ")}`,
@@ -103,7 +104,7 @@ program
         await runSubmitShow(json, env, !!opts.confirm);
         break;
       case "release":
-        await submitReleases(json ?? "", env, !!opts.confirm);
+        await submitReleases(json ?? "", env, !!opts.confirm, !!opts.overwriteCatalog);
         break;
       case "label":
         await runSubmitLabel(json, opts, env);

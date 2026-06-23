@@ -469,6 +469,158 @@ describe("submitReleases", () => {
     }
   });
 
+  test("batch --overwrite-catalog sends overwrite_catalog_number on the skip-path link POST", async () => {
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+
+    const calls: Array<{ method: string; url: string; body: unknown }> = [];
+    const json = (data: unknown) =>
+      new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr =
+        typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      const method = (init?.method || "GET").toUpperCase();
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      calls.push({ method, url: urlStr, body });
+
+      if (urlStr.includes("/artists/search")) {
+        return json({ artists: [{ id: 42, name: "Radiohead", slug: "radiohead" }] });
+      }
+      if (urlStr.includes("/labels/search")) {
+        return json({ labels: [{ id: 4, name: "Creation Records", slug: "creation-records" }] });
+      }
+      if (urlStr.includes("/admin/labels/")) {
+        return json({ success: true });
+      }
+      if (urlStr.includes("/releases")) {
+        return json({
+          releases: [
+            {
+              id: 10,
+              title: "OK Computer",
+              slug: "ok-computer",
+              release_type: "lp",
+              release_year: 1997,
+              release_date: "1997-05-21",
+            },
+          ],
+        });
+      }
+      return json({});
+    }) as typeof globalThis.fetch;
+
+    try {
+      const result = await submitReleases(
+        JSON.stringify({
+          title: "OK Computer",
+          release_type: "lp",
+          release_year: 1997,
+          release_date: "1997-05-21",
+          artists: [{ name: "Radiohead" }],
+          labels: ["Creation Records"],
+          catalog_number: "CRE042",
+        }),
+        { url: "http://test.local", token: "phk_test" },
+        true, // confirm
+        true, // overwriteCatalog (batch-wide flag)
+      );
+
+      expect(result.skipped).toBe(1);
+      const link = calls.find(
+        (c) => c.method === "POST" && /\/admin\/labels\/4\/releases$/.test(c.url),
+      );
+      expect(link).toBeDefined();
+      expect(link!.body).toMatchObject({
+        release_id: 10,
+        catalog_number: "CRE042",
+        overwrite_catalog_number: true,
+      });
+    } finally {
+      process.stderr.write = origWrite;
+      restoreFetch();
+    }
+  });
+
+  test("per-item overwrite_catalog_number field sets overwrite without the batch flag", async () => {
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+
+    const calls: Array<{ method: string; url: string; body: unknown }> = [];
+    const json = (data: unknown) =>
+      new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr =
+        typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      const method = (init?.method || "GET").toUpperCase();
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      calls.push({ method, url: urlStr, body });
+
+      if (urlStr.includes("/artists/search")) {
+        return json({ artists: [{ id: 42, name: "Radiohead", slug: "radiohead" }] });
+      }
+      if (urlStr.includes("/labels/search")) {
+        return json({ labels: [{ id: 4, name: "Creation Records", slug: "creation-records" }] });
+      }
+      if (urlStr.includes("/admin/labels/")) {
+        return json({ success: true });
+      }
+      if (urlStr.includes("/releases")) {
+        return json({
+          releases: [
+            {
+              id: 10,
+              title: "OK Computer",
+              slug: "ok-computer",
+              release_type: "lp",
+              release_year: 1997,
+              release_date: "1997-05-21",
+            },
+          ],
+        });
+      }
+      return json({});
+    }) as typeof globalThis.fetch;
+
+    try {
+      const result = await submitReleases(
+        JSON.stringify({
+          title: "OK Computer",
+          release_type: "lp",
+          release_year: 1997,
+          release_date: "1997-05-21",
+          artists: [{ name: "Radiohead" }],
+          labels: ["Creation Records"],
+          catalog_number: "CRE042",
+          overwrite_catalog_number: true,
+        }),
+        { url: "http://test.local", token: "phk_test" },
+        true, // confirm; NO batch flag — per-item field alone opts in
+      );
+
+      expect(result.skipped).toBe(1);
+      const link = calls.find(
+        (c) => c.method === "POST" && /\/admin\/labels\/4\/releases$/.test(c.url),
+      );
+      expect(link).toBeDefined();
+      expect(link!.body).toMatchObject({
+        release_id: 10,
+        catalog_number: "CRE042",
+        overwrite_catalog_number: true,
+      });
+    } finally {
+      process.stderr.write = origWrite;
+      restoreFetch();
+    }
+  });
+
   test("returns error count for invalid JSON", async () => {
     const origWrite = process.stderr.write;
     process.stderr.write = (() => true) as typeof process.stderr.write;
@@ -750,6 +902,35 @@ describe("linkReleaseLabels", () => {
     for (const link of links) {
       expect((link.body as Record<string, unknown>).catalog_number).toBeUndefined();
     }
+  });
+
+  test("threads overwrite through to the link POST", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Creation Records"], [], "CRE001", true),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect(links[0].body).toMatchObject({
+      release_id: 500,
+      catalog_number: "CRE001",
+      overwrite_catalog_number: true,
+    });
+  });
+
+  test("does not set overwrite_catalog_number when overwrite is omitted", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Creation Records"], [], "CRE001"),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect((links[0].body as Record<string, unknown>).overwrite_catalog_number).toBeUndefined();
   });
 
   test("warns (does not silently drop) when a multi-label number is dropped", async () => {
