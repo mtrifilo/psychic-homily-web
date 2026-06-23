@@ -18,6 +18,12 @@ const (
 	mbRateLimit = 1100 * time.Millisecond
 	// Minimum score to accept a MusicBrainz match
 	mbMinScore = 90
+	// mbCandidateLimit caps the number of search candidates the discovery flow
+	// fetches per artist. The exact-name gate (PSY-1191) keeps only candidates
+	// whose name normalizes-equals the query, so a generous list improves recall
+	// of the correct match buried under junk top-hits without inflating cost —
+	// each kept candidate triggers exactly one rate-limited url-rels lookup.
+	mbCandidateLimit = 15
 )
 
 // MBArtistSearchResponse is the response from the MusicBrainz artist search endpoint.
@@ -35,13 +41,37 @@ type MBArtistResult struct {
 	Type           string  `json:"type"`
 	Country        string  `json:"country"`
 	Area           *MBArea `json:"area"`
+	// BeginArea is the artist's origin/founding location (a City for bands).
+	// MusicBrainz tags `area` as the broad area (often a Country) and
+	// `begin-area` as the specific origin city — both are useful signals for
+	// the region-confidence tier (PSY-1191).
+	BeginArea *MBArea `json:"begin-area"`
 }
 
-// MBArea represents a geographic area from MusicBrainz.
+// MBArea represents a geographic area from MusicBrainz. Type is one of
+// "Country", "Subdivision" (US state), "City", etc.
 type MBArea struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+// MBArtistURLRelations is the response from the MusicBrainz artist lookup
+// endpoint with `inc=url-rels`. Only the relations array is decoded.
+type MBArtistURLRelations struct {
+	Relations []MBURLRelation `json:"relations"`
+}
+
+// MBURLRelation is a single URL relationship on a MusicBrainz artist. The
+// caller anchors on the parsed host of URL.Resource (NOT the Type string),
+// because Spotify links arrive under several type labels ("free streaming",
+// "streaming") and Bandcamp under "bandcamp" — host-anchoring is the robust,
+// label-independent identity check.
+type MBURLRelation struct {
+	Type string `json:"type"`
+	URL  struct {
+		Resource string `json:"resource"`
+	} `json:"url"`
 }
 
 // MBLookupResult holds the result of a MusicBrainz artist lookup.
@@ -122,6 +152,55 @@ func (c *MusicBrainzClient) SearchArtist(name string) (*MBLookupResult, error) {
 		Country:        bestMatch.Country,
 		Type:           bestMatch.Type,
 	}, nil
+}
+
+// SearchArtistCandidates returns the raw MusicBrainz search results for a name,
+// up to mbCandidateLimit, WITHOUT applying the score or name filters that
+// SearchArtist uses. The discovery flow (PSY-1191) deliberately needs the full
+// candidate list so it can apply its own exact-name gate — a top-match/score
+// filter would discard the correct match when it is buried under a higher-scored
+// famous namesake (e.g. the real "Dylan Day" under a junk top-hit). Identity is
+// decided downstream by name normalization, never by MB score.
+func (c *MusicBrainzClient) SearchArtistCandidates(name string) ([]MBArtistResult, error) {
+	c.throttle()
+
+	encodedName := url.QueryEscape(name)
+	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=%d", mbBaseURL, encodedName, mbCandidateLimit)
+
+	body, err := c.doRequest(searchURL)
+	if err != nil {
+		return nil, fmt.Errorf("musicbrainz search failed: %w", err)
+	}
+
+	var result MBArtistSearchResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse musicbrainz response: %w", err)
+	}
+
+	return result.Artists, nil
+}
+
+// LookupArtistURLRelations fetches an artist's URL relationships from
+// MusicBrainz (`inc=url-rels`) and returns the relation list. The caller
+// extracts platform links by host-anchoring on each relation's URL.Resource.
+// mbid is a MusicBrainz UUID returned by a prior search; it is URL-path-escaped
+// so a malformed value cannot alter the request target.
+func (c *MusicBrainzClient) LookupArtistURLRelations(mbid string) ([]MBURLRelation, error) {
+	c.throttle()
+
+	lookupURL := fmt.Sprintf("%s/artist/%s?inc=url-rels&fmt=json", mbBaseURL, url.PathEscape(mbid))
+
+	body, err := c.doRequest(lookupURL)
+	if err != nil {
+		return nil, fmt.Errorf("musicbrainz url-rels lookup failed: %w", err)
+	}
+
+	var result MBArtistURLRelations
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse musicbrainz url-rels response: %w", err)
+	}
+
+	return result.Relations, nil
 }
 
 // throttle enforces the rate limit.
