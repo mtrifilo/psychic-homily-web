@@ -287,15 +287,16 @@ const ARTIST_FIELDS = [
   "facebook", "twitter", "youtube", "soundcloud",
 ];
 
-// Mirrors ARTIST_FIELDS: only fields searchVenues can populate from the
-// /venues/search response are compared. address/zipcode/capacity are
-// deliberately excluded — capacity has no backend column at all, the response
-// key is `zipcode` (never `zip_code`), and address/zipcode are hidden for
-// unverified venues — so comparing any of them reads empty and forces a
-// spurious UPDATE on every re-ingest. Restoring them correctly (verified-gated,
-// plus a capacity column) is tracked in PSY-1179. PSY-1171.
+// Compared fields for venue dedup. address/zipcode/capacity were restored in
+// PSY-1179: capacity now has a backend column, and all three are mapped from the
+// /venues/search VenueDetailResponse (the response key is `zipcode`, never
+// `zip_code`). address/zipcode are REDACTED by the API for UNVERIFIED venues, so
+// checkDuplicate drops them from the comparison when the matched venue is
+// unverified — otherwise they'd read empty and force a spurious UPDATE on every
+// re-ingest. capacity is not redacted, so it's always compared. PSY-1171/1179.
 const VENUE_FIELDS = [
   "name", "city", "state", "country", "description",
+  "address", "zipcode", "capacity",
   "website", "bandcamp", "spotify", "instagram",
   "facebook", "twitter", "youtube", "soundcloud",
 ];
@@ -305,14 +306,17 @@ const RELEASE_FIELDS = [
   "bandcamp_url", "spotify_url", "description",
 ];
 
-// Only fields searchLabels maps from the /labels list response are compared.
-// founded_year/status and the non-website/bandcamp socials are excluded: the
-// LabelListResponse (PSY-1157) carries only website + bandcamp, so comparing the
-// others reads empty and forces a spurious UPDATE every re-ingest. Enriching
-// label socials needs the list response widened first — tracked in PSY-1179,
-// matching the venue treatment above. PSY-1171.
+// Compared fields for label dedup. PSY-1179 widened LabelListResponse to carry
+// the full social set + founded_year (previously only website/bandcamp), so
+// these now compare against real existing values instead of always reading empty
+// (which forced a spurious UPDATE every re-ingest). `status` is net-new to
+// LABEL_FIELDS here but is effectively defensive: the column is NOT NULL default
+// 'active' (existing value never empty) and the ingest doesn't carry status, so
+// it resolves to already_set/unchanged and won't fire new_info. PSY-1157/1171/1179.
 const LABEL_FIELDS = [
-  "name", "city", "state", "country", "website", "bandcamp", "description",
+  "name", "city", "state", "country", "founded_year", "status", "description",
+  "website", "bandcamp", "spotify", "instagram",
+  "facebook", "twitter", "youtube", "soundcloud",
 ];
 
 const FESTIVAL_FIELDS = [
@@ -403,8 +407,10 @@ async function searchVenues(
   // top-level names the create/update path uses so dedup compares real existing
   // values instead of always reading empty (which suppressed link enrichment on
   // re-ingest). Mirrors the artist fix above. PSY-1171.
-  // Only the fields in VENUE_FIELDS are mapped; address/zipcode/capacity are
-  // deliberately omitted (see VENUE_FIELDS for why).
+  // PSY-1179: also map address/zipcode/capacity (top-level on the response) and
+  // `verified` — checkDuplicate uses `verified` to gate address/zipcode, which
+  // the API redacts for unverified venues. capacity is a number; stringify it
+  // for the (string) comparison, mirroring release_year.
   const result = await client.get<{
     venues: Array<{
       id: number;
@@ -413,6 +419,10 @@ async function searchVenues(
       city: string;
       state: string;
       country?: string;
+      address?: string;
+      zipcode?: string;
+      capacity?: number;
+      verified?: boolean;
       description?: string;
       social?: {
         website?: string;
@@ -434,6 +444,10 @@ async function searchVenues(
     city: v.city,
     state: v.state,
     country: v.country || "",
+    address: v.address || "",
+    zipcode: v.zipcode || "",
+    capacity: v.capacity != null ? String(v.capacity) : "",
+    verified: v.verified ?? false,
     description: v.description || "",
     website: v.social?.website || "",
     bandcamp: v.social?.bandcamp || "",
@@ -488,10 +502,11 @@ async function searchLabels(
   client: APIClient,
   name: string,
 ): Promise<EntitySearchResult[]> {
-  // Client-side filter until backend search endpoint exists.
-  // The list/search response carries the dedup fields (country/website/bandcamp/
-  // description) as of PSY-1157, so existing values compare correctly instead of
-  // always reading empty (which forced spurious UPDATEs on re-ingest).
+  // Client-side filter over the /labels list. The list response carries the
+  // dedup fields flat (PSY-1157 added country/website/bandcamp/description;
+  // PSY-1179 widened it to the FULL social set + founded_year), so existing
+  // values compare correctly instead of always reading empty (which forced
+  // spurious UPDATEs on re-ingest). founded_year is a number; stringify it.
   const result = await client.get<{
     labels: Array<{
       id: number;
@@ -500,8 +515,16 @@ async function searchLabels(
       city?: string;
       state?: string;
       country?: string;
+      founded_year?: number;
+      status?: string;
       website?: string;
       bandcamp?: string;
+      instagram?: string;
+      facebook?: string;
+      twitter?: string;
+      youtube?: string;
+      spotify?: string;
+      soundcloud?: string;
       description?: string;
     }>;
   }>("/labels", {});
@@ -517,8 +540,16 @@ async function searchLabels(
       city: l.city || "",
       state: l.state || "",
       country: l.country || "",
+      founded_year: l.founded_year != null ? String(l.founded_year) : "",
+      status: l.status || "",
       website: l.website || "",
       bandcamp: l.bandcamp || "",
+      instagram: l.instagram || "",
+      facebook: l.facebook || "",
+      twitter: l.twitter || "",
+      youtube: l.youtube || "",
+      spotify: l.spotify || "",
+      soundcloud: l.soundcloud || "",
       description: l.description || "",
     }));
 }
@@ -669,10 +700,22 @@ export async function checkDuplicate(
   const best = findBestMatch(entityType, proposed, results);
   if (!best) return noMatch;
 
+  let fieldsToCompare = getFieldsForType(entityType);
+  // The API redacts address/zipcode for UNVERIFIED venues (buildVenueResponse),
+  // so the search response reads empty for them — comparing would falsely flag an
+  // ingested address/zipcode as new_info and force a spurious UPDATE on every
+  // re-ingest. Drop them from the comparison for unverified venues; capacity is
+  // not redacted, so it stays compared. PSY-1179.
+  if (entityType === "venue" && !best.entity.verified) {
+    fieldsToCompare = fieldsToCompare.filter(
+      (f) => f !== "address" && f !== "zipcode",
+    );
+  }
+
   const fields = compareFields(
     best.entity as unknown as Record<string, unknown>,
     proposed,
-    getFieldsForType(entityType),
+    fieldsToCompare,
   );
 
   const action = classifyAction(best.confidence, fields);

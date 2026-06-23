@@ -128,6 +128,43 @@ describe("submitVenues", () => {
     });
   });
 
+  test("create with --confirm forwards capacity/zipcode/description and strips the dead zip_code key (PSY-1179)", async () => {
+    const postMock = mock(() =>
+      Promise.resolve({ id: 7, name: "Cap Venue", slug: "cap-venue" }),
+    );
+    const client = createMockClient({
+      get: mock(() => Promise.resolve({ venues: [] })),
+      post: postMock,
+    });
+
+    const venues = [
+      {
+        name: "Cap Venue",
+        city: "Phoenix",
+        state: "AZ",
+        zipcode: "85003",
+        zip_code: "85003", // legacy key — backend rejects it, so it must NOT be forwarded
+        capacity: 550,
+        description: "All-ages.",
+      },
+    ];
+
+    const result = await submitVenues(client, venues, true);
+    restoreStderr();
+
+    expect(result.creates).toBe(1);
+    expect(postMock).toHaveBeenCalledTimes(1);
+    // capacity/zipcode/description forwarded; zip_code stripped.
+    expect(postMock).toHaveBeenCalledWith("/admin/venues", {
+      name: "Cap Venue",
+      city: "Phoenix",
+      state: "AZ",
+      zipcode: "85003",
+      capacity: 550,
+      description: "All-ages.",
+    });
+  });
+
   test("single venue update — existing match with a new website link", async () => {
     const client = createMockClient({
       get: mock(() =>
@@ -228,8 +265,9 @@ describe("submitVenues", () => {
               state: "AZ",
               country: "US",
               address: "",
-              zip_code: "",
-              capacity: "",
+              zipcode: "",
+              capacity: null,
+              verified: true,
               description: "",
               social: {},
             },

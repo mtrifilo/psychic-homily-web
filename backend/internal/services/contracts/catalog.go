@@ -344,6 +344,7 @@ type CreateVenueRequest struct {
 	State       string  `json:"state" validate:"required"`
 	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
+	Capacity    *int    `json:"capacity"`
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
 	Twitter     *string `json:"twitter"`
@@ -372,6 +373,7 @@ type UpdateVenueRequest struct {
 	State       *string `json:"state"`
 	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
+	Capacity    *int    `json:"capacity"`
 	Description *string `json:"description"`
 	ImageURL    *string `json:"image_url"`
 	Instagram   *string `json:"instagram"`
@@ -397,6 +399,7 @@ type VenueDetailResponse struct {
 	Longitude   *float64       `json:"longitude,omitempty"` // Geocoded city centroid (PSY-985)
 	Timezone    *string        `json:"timezone"`            // IANA zone resolved from location (PSY-985)
 	Zipcode     *string        `json:"zipcode"`
+	Capacity    *int           `json:"capacity"` // Venue capacity (PSY-1179); not redacted for unverified venues
 	Description *string        `json:"description,omitempty"`
 	ImageURL    *string        `json:"image_url"`    // Optional venue photo (PSY-521)
 	Verified    bool           `json:"verified"`     // Admin-verified as legitimate venue

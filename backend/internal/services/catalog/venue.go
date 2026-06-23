@@ -80,6 +80,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		State:       req.State,
 		Country:     req.Country,
 		Zipcode:     req.Zipcode,
+		Capacity:    req.Capacity,
 		Description: req.Description,
 		ImageURL:    req.ImageURL,
 		Verified:    isAdmin, // Admins create verified venues, non-admins require approval
@@ -242,6 +243,9 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	}
 	if req.Zipcode != nil {
 		updates["zipcode"] = *req.Zipcode
+	}
+	if req.Capacity != nil {
+		updates["capacity"] = *req.Capacity
 	}
 	if req.Instagram != nil {
 		updates["instagram"] = *req.Instagram
@@ -535,6 +539,7 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		Longitude:   venue.Longitude,
 		Timezone:    venue.Timezone,
 		Zipcode:     zipcode,
+		Capacity:    venue.Capacity, // not redacted — capacity is not sensitive
 		Description: venue.Description,
 		ImageURL:    venue.ImageURL,
 		Verified:    venue.Verified,

@@ -55,6 +55,7 @@ var (
 		{Name: "city", Path: "City"},
 		{Name: "state", Path: "State"},
 		{Name: "zipcode", Path: "Zipcode"},
+		{Name: "capacity", Path: "Capacity"},
 		{Name: "instagram", Path: "Social.Instagram"},
 		{Name: "facebook", Path: "Social.Facebook"},
 		{Name: "twitter", Path: "Social.Twitter"},

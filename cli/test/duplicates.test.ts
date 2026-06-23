@@ -543,6 +543,196 @@ describe("checkDuplicate — link enrichment (PSY-1171)", () => {
   });
 });
 
+// -- PSY-1179: venue address/zipcode/capacity + label socials dedup-enrichment
+
+describe("checkDuplicate — venue address/zipcode/capacity (PSY-1179)", () => {
+  test("verified venue: a new capacity enriches; matching address/zipcode stay unchanged", async () => {
+    const client = mockSearchClient("/venues/search", {
+      venues: [
+        {
+          id: 42,
+          name: "Crescent Ballroom",
+          slug: "crescent-ballroom",
+          city: "Phoenix",
+          state: "AZ",
+          verified: true,
+          address: "308 N 2nd Ave",
+          zipcode: "85003",
+          capacity: null, // not yet known
+          social: {},
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "venue", {
+      name: "Crescent Ballroom",
+      city: "Phoenix",
+      state: "AZ",
+      address: "308 N 2nd Ave",
+      zipcode: "85003",
+      capacity: 550,
+    });
+
+    expect(result.action).toBe("update");
+    expect(result.fields.find((f) => f.field === "capacity")?.status).toBe("new_info");
+    expect(result.fields.find((f) => f.field === "capacity")?.proposed).toBe("550");
+    expect(result.fields.find((f) => f.field === "address")?.status).toBe("unchanged");
+    expect(result.fields.find((f) => f.field === "zipcode")?.status).toBe("unchanged");
+  });
+
+  test("verified venue: re-ingesting identical address/zipcode/capacity is a pure skip", async () => {
+    const client = mockSearchClient("/venues/search", {
+      venues: [
+        {
+          id: 42,
+          name: "Crescent Ballroom",
+          slug: "crescent-ballroom",
+          city: "Phoenix",
+          state: "AZ",
+          verified: true,
+          address: "308 N 2nd Ave",
+          zipcode: "85003",
+          capacity: 550,
+          social: {},
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "venue", {
+      name: "Crescent Ballroom",
+      city: "Phoenix",
+      state: "AZ",
+      address: "308 N 2nd Ave",
+      zipcode: "85003",
+      capacity: 550,
+    });
+
+    expect(result.action).toBe("skip");
+    expect(result.fields.filter((f) => f.status === "new_info")).toEqual([]);
+  });
+
+  test("UNVERIFIED venue: API-redacted address/zipcode are NOT falsely flagged new_info", async () => {
+    // The backend redacts address/zipcode for unverified venues, so the search
+    // response returns them empty even though the venue has them. The proposed
+    // ingest carries an address/zipcode — without gating they'd look like new_info
+    // and force a spurious UPDATE every re-ingest. They must be dropped instead.
+    const client = mockSearchClient("/venues/search", {
+      venues: [
+        {
+          id: 99,
+          name: "DIY Space",
+          slug: "diy-space",
+          city: "Tucson",
+          state: "AZ",
+          verified: false,
+          address: "", // redacted by the API
+          zipcode: "", // redacted by the API
+          capacity: 120,
+          social: {},
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "venue", {
+      name: "DIY Space",
+      city: "Tucson",
+      state: "AZ",
+      address: "123 Underground St",
+      zipcode: "85701",
+      capacity: 120,
+    });
+
+    expect(result.action).toBe("skip");
+    expect(result.fields.find((f) => f.field === "address")).toBeUndefined();
+    expect(result.fields.find((f) => f.field === "zipcode")).toBeUndefined();
+    // capacity is NOT redacted, so it is still compared (and here it matches).
+    expect(result.fields.find((f) => f.field === "capacity")?.status).toBe("unchanged");
+  });
+
+  test("UNVERIFIED venue: a genuinely new capacity still enriches (capacity is not gated)", async () => {
+    const client = mockSearchClient("/venues/search", {
+      venues: [
+        {
+          id: 99,
+          name: "DIY Space",
+          slug: "diy-space",
+          city: "Tucson",
+          state: "AZ",
+          verified: false,
+          address: "",
+          zipcode: "",
+          capacity: null,
+          social: {},
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "venue", {
+      name: "DIY Space",
+      city: "Tucson",
+      state: "AZ",
+      capacity: 120,
+    });
+
+    expect(result.action).toBe("update");
+    expect(result.fields.find((f) => f.field === "capacity")?.status).toBe("new_info");
+  });
+});
+
+describe("checkDuplicate — label socials + founded_year enrichment (PSY-1179)", () => {
+  test("a new spotify on an existing label surfaces as new_info from the widened list response", async () => {
+    const client = mockSearchClient("/labels", {
+      labels: [
+        {
+          id: 7,
+          name: "Sub Pop",
+          slug: "sub-pop",
+          city: "Seattle",
+          state: "WA",
+          website: "https://subpop.com",
+          spotify: "", // not yet set in the widened list response
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "label", {
+      name: "Sub Pop",
+      spotify: "https://open.spotify.com/...subpop",
+    });
+
+    expect(result.action).toBe("update");
+    expect(result.fields.find((f) => f.field === "spotify")?.status).toBe("new_info");
+  });
+
+  test("re-ingesting an identical founded_year + socials is a pure skip", async () => {
+    const client = mockSearchClient("/labels", {
+      labels: [
+        {
+          id: 7,
+          name: "Sub Pop",
+          slug: "sub-pop",
+          city: "Seattle",
+          state: "WA",
+          founded_year: 1986,
+          website: "https://subpop.com",
+          instagram: "@subpop",
+        },
+      ],
+    });
+
+    const result = await checkDuplicate(client, "label", {
+      name: "Sub Pop",
+      founded_year: 1986,
+      website: "https://subpop.com",
+      instagram: "@subpop",
+    });
+
+    expect(result.action).toBe("skip");
+    expect(result.fields.find((f) => f.field === "founded_year")?.status).toBe("unchanged");
+    expect(result.fields.find((f) => f.field === "instagram")?.status).toBe("unchanged");
+  });
+});
+
 // -- Symmetry guard: every compared field must be populated by the search mapper
 //
 // The whole bug class PSY-1171 addresses is a field that's in the comparison
@@ -587,6 +777,11 @@ describe("checkDuplicate — fully-populated re-ingest is a pure skip (field-lis
         social[f] = valueFor(f);
       }
       existing.social = social;
+      // A verified venue so address/zipcode — which the API redacts (and the
+      // dedup gates out) for unverified venues — are actually compared here;
+      // otherwise this guard wouldn't catch a missing address/zipcode mapping.
+      // Harmless for non-venue types (their mappers don't read `verified`). PSY-1179.
+      existing.verified = true;
 
       // Proposed entity carries the identical values, derived from the same list.
       const proposed: Record<string, unknown> = {};
