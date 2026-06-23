@@ -5,6 +5,7 @@ import (
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // PSY-1155 janitor: lifecycle reconcile (active↔dormant), play_count reconcile, and
@@ -69,6 +70,31 @@ func (s *RadioSyncSuite) TestReconcileShowLifecycle_PromotesAndDemotes() {
 	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(dormantReturning.ID).LifecycleState)
 	s.Equal(catalogm.RadioLifecycleDormant, s.reloadShow(dormantStale.ID).LifecycleState)
 	s.Equal(catalogm.RadioLifecycleRetired, s.reloadShow(retired.ID).LifecycleState, "janitor never auto-touches retired")
+}
+
+// PSY-1172: setting 'retired' through the admin UpdateShow write path is sticky across a
+// janitor run. The show is seeded active with only a stale episode — exactly the shape
+// the janitor would demote to dormant — so a passing run proves the manual retire holds
+// end-to-end (write path + janitor exclusion), not just for a directly-seeded retired row.
+func (s *RadioSyncSuite) TestUpdateShow_ManualRetire_SurvivesJanitor() {
+	now := time.Now()
+	stale := now.AddDate(0, 0, -45).Format("2006-01-02") // beyond the 30d window
+	st := s.seedBackfillStation()
+
+	show := s.seedShowFor(st.ID, "Ended Forever", "ended-forever", "ext-ef") // defaults active
+	s.seedEpisodeAt(show.ID, "ef-1", stale)                                  // stale → janitor would demote to dormant
+
+	retired := catalogm.RadioLifecycleRetired
+	resp, err := s.svc.UpdateShow(show.ID, &contracts.UpdateRadioShowRequest{LifecycleState: &retired})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioLifecycleRetired, resp.LifecycleState, "UpdateShow sets retired")
+
+	// Assert only on this show's state, not the global promoted/demoted counts — those
+	// are run-wide side effects sensitive to seeded/leftover rows (the suite wipes in
+	// TearDownTest, not before each test).
+	_, _, err = s.svc.ReconcileShowLifecycle(30*24*time.Hour, now)
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioLifecycleRetired, s.reloadShow(show.ID).LifecycleState, "janitor leaves a manually-set retired untouched (not demoted to dormant)")
 }
 
 // ReconcilePlayCounts corrects drifted denormalized counts (over- and under-count)

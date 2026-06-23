@@ -631,6 +631,16 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 	if req.IsActive != nil {
 		updates["is_active"] = *req.IsActive
 	}
+	// LifecycleState (PSY-1172): the only write path for the operational state. Validate
+	// against the enum before writing — an invalid value must not reach the DB. Setting
+	// 'retired' is sticky (the janitor excludes it from reconcile); active/dormant are
+	// advisory (the next janitor run may re-reconcile them by episode recency).
+	if req.LifecycleState != nil {
+		if !catalogm.IsValidRadioLifecycleState(*req.LifecycleState) {
+			return nil, apperrors.ErrRadioLifecycleInvalid(*req.LifecycleState)
+		}
+		updates["lifecycle_state"] = *req.LifecycleState
+	}
 	// Schedule provenance (PSY-1186): an explicit schedule_locked wins; otherwise a manual
 	// schedule edit auto-locks it (the admin curated it by hand, so the weekly WFMU scrape
 	// must not clobber it). To edit the schedule but KEEP it scrape-managed, send the schedule
