@@ -77,6 +77,10 @@ const (
 
 	// Anthropic AI
 	EnvAnthropicAPIKey = "ANTHROPIC_API_KEY"
+
+	// Spotify (image enrichment — client-credentials flow; PSY-1185)
+	EnvSpotifyClientID     = "SPOTIFY_CLIENT_ID"
+	EnvSpotifyClientSecret = "SPOTIFY_CLIENT_SECRET"
 )
 
 // Config holds all configuration for the application
@@ -93,6 +97,7 @@ type Config struct {
 	WebAuthn       WebAuthnConfig
 	Apple          AppleConfig
 	Anthropic      AnthropicConfig
+	Spotify        SpotifyConfig
 }
 
 // AppleConfig holds Sign in with Apple configuration
@@ -103,6 +108,17 @@ type AppleConfig struct {
 // AnthropicConfig holds Anthropic API configuration
 type AnthropicConfig struct {
 	APIKey string
+}
+
+// SpotifyConfig holds Spotify Web API credentials for the client-credentials
+// (app-only) flow used by the image-enrichment backfill (PSY-1185). Empty in
+// local dev / CI; the backfill cmd fails fast at runtime when they're unset.
+// The server itself does not call Spotify, so Validate() deliberately does NOT
+// enforce these — adding them as a server-startup requirement would couple every
+// deploy to a credential the running service never uses.
+type SpotifyConfig struct {
+	ClientID     string
+	ClientSecret string
 }
 
 // DiscordConfig holds Discord webhook configuration for admin notifications
@@ -288,6 +304,10 @@ func Load() (*Config, error) {
 		},
 		Anthropic: AnthropicConfig{
 			APIKey: GetEnv(EnvAnthropicAPIKey, ""),
+		},
+		Spotify: SpotifyConfig{
+			ClientID:     GetEnv(EnvSpotifyClientID, ""),
+			ClientSecret: GetEnv(EnvSpotifyClientSecret, ""),
 		},
 	}
 
