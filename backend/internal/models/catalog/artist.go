@@ -30,6 +30,11 @@ const (
 	// path (the direct admin endpoint, CreateArtist/UpdateArtist, the community
 	// entity-request fulfiller).
 	BandcampEmbedSourceManual = "manual"
+	// BandcampEmbedSourceProfileResolved marks an embed that the profile→album
+	// resolver (PSY-1190) derived by fetching a *.bandcamp.com profile root and
+	// extracting its featured/latest /album|/track URL. Like release_derived it is
+	// auto-derived (fill-when-empty; never overwrites a manual value).
+	BandcampEmbedSourceProfileResolved = "profile_resolved"
 )
 
 type Artist struct {
