@@ -1636,12 +1636,14 @@ func (m *MockEntityRequestFulfiller) CreateShow(req *contracts.CreateShowRequest
 // ============================================================================
 
 type MockEntityRequestService struct {
-	CreateRequestFn     func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, error)
-	RecordFulfillmentFn func(uint, uint) error
-	GetRequestFn        func(uint) (*communitym.EntityRequest, error)
-	ListPendingFn       func(string, int, int) ([]communitym.EntityRequest, int64, error)
-	ListRequestsFn      func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
-	DecideFn            func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error)
+	CreateRequestFn           func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, error)
+	RecordFulfillmentFn       func(uint, uint) error
+	GetRequestFn              func(uint) (*communitym.EntityRequest, error)
+	ListPendingFn             func(string, int, int) ([]communitym.EntityRequest, int64, error)
+	ListRequestsFn            func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
+	DecideFn                  func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error)
+	ClaimRescueFulfillmentFn  func(uint, uint) (bool, error)
+	VoidApprovedUnfulfilledFn func(uint, uint, *string) (bool, error)
 }
 
 func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
@@ -1679,6 +1681,18 @@ func (m *MockEntityRequestService) Decide(requestID uint, adminID uint, newState
 		return m.DecideFn(requestID, adminID, newState, note)
 	}
 	return nil, nil
+}
+func (m *MockEntityRequestService) ClaimRescueFulfillment(requestID uint, createdEntityID uint) (bool, error) {
+	if m.ClaimRescueFulfillmentFn != nil {
+		return m.ClaimRescueFulfillmentFn(requestID, createdEntityID)
+	}
+	return false, nil
+}
+func (m *MockEntityRequestService) VoidApprovedUnfulfilled(requestID uint, adminID uint, note *string) (bool, error) {
+	if m.VoidApprovedUnfulfilledFn != nil {
+		return m.VoidApprovedUnfulfilledFn(requestID, adminID, note)
+	}
+	return false, nil
 }
 
 // ============================================================================

@@ -41,6 +41,13 @@ func (s *EntityRequestService) ListRequests(filters *contracts.EntityRequestFilt
 	if filters.SourceContext != "" {
 		query = query.Where("source_context = ?", filters.SourceContext)
 	}
+	// PSY-1088: the rescue queue narrows to approved-but-unfulfilled rows
+	// (no catalog entity was ever created). Orthogonal to State, but only
+	// meaningful with State='approved' (pending/rejected rows are always
+	// created_entity_id IS NULL); the handler pairs the two.
+	if filters.Unfulfilled {
+		query = query.Where("created_entity_id IS NULL")
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

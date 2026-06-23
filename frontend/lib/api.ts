@@ -223,6 +223,10 @@ export const API_ENDPOINTS = {
       LIST: `${API_BASE_URL}/admin/entity-requests`,
       DECIDE: (requestId: string | number) =>
         `${API_BASE_URL}/admin/entity-requests/${requestId}/decide`,
+      // PSY-1088: rescue an approved-but-unfulfilled request — fulfill
+      // (re-run the catalog create) or void it.
+      FULFILL: (requestId: string | number) =>
+        `${API_BASE_URL}/admin/entity-requests/${requestId}/fulfill`,
     },
   },
 

@@ -220,8 +220,13 @@ type AdminListEntityRequestsRequest struct {
 	State         string `query:"state" required:"false" doc:"Filter by decision state (pending, approved, rejected); defaults to pending"`
 	EntityType    string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, venue, label, release, show, festival)"`
 	SourceContext string `query:"source_context" required:"false" doc:"Filter by source context (ai_extraction, paste_mode, manual)"`
-	Limit         int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
-	Offset        int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
+	// Unfulfilled (PSY-1088), when true, narrows to approved-but-unfulfilled
+	// rows (created_entity_id IS NULL) — the rescue "needs attention" queue.
+	// Pair with state=approved. A bare bool query param (not a pointer — Huma
+	// panics on pointer params); false / omitted = no narrowing.
+	Unfulfilled bool `query:"unfulfilled" required:"false" doc:"Narrow to approved-but-unfulfilled rows (pair with state=approved)"`
+	Limit       int  `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
+	Offset      int  `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // AdminEntityRequestView is the admin-queue projection of an EntityRequest with
@@ -292,6 +297,7 @@ func (h *EntityRequestHandler) AdminListEntityRequestsHandler(ctx context.Contex
 		EntityType:    req.EntityType,
 		State:         req.State,
 		SourceContext: req.SourceContext,
+		Unfulfilled:   req.Unfulfilled,
 		Limit:         req.Limit,
 		Offset:        req.Offset,
 	})

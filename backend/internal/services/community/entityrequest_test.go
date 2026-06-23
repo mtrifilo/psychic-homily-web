@@ -537,6 +537,147 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestRecordFulfillment_Not
 	suite.Require().Error(err)
 }
 
+// --- PSY-1088: rescue path for approved-but-unfulfilled rows -----------------
+
+// newApprovedUnfulfilled seeds a row in the orphan state: decision_state =
+// 'approved', created_entity_id IS NULL. An admin's CreateRequest auto-approves
+// without fulfilling (the SERVICE never fulfills — only the handler does), so
+// the row lands exactly in the rescue-target state.
+func (suite *EntityRequestServiceIntegrationTestSuite) newApprovedUnfulfilled(name string) *communitym.EntityRequest {
+	admin := suite.createUser("rescue-admin-"+name, tierNewUser, true)
+	req, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+		suite.marshalArtist(name), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().Equal(communitym.EntityRequestStateApproved, req.DecisionState)
+	suite.Require().Nil(req.CreatedEntityID, "fixture must be unfulfilled")
+	return req
+}
+
+// The Unfulfilled filter narrows state=approved to created_entity_id IS NULL —
+// the "needs attention" rescue queue. A fulfilled approved row is excluded.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_UnfulfilledFilter() {
+	orphan := suite.newApprovedUnfulfilled("Orphan Band")
+	fulfilled := suite.newApprovedUnfulfilled("Fulfilled Band")
+	// Mark the second one fulfilled so it drops out of the rescue queue.
+	suite.Require().NoError(suite.service.RecordFulfillment(fulfilled.ID, 999))
+
+	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
+		State:       string(communitym.EntityRequestStateApproved),
+		Unfulfilled: true,
+	})
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total, "only the unfulfilled approved row is in the rescue queue")
+	suite.Require().Len(rows, 1)
+	suite.Assert().Equal(orphan.ID, rows[0].ID)
+	suite.Assert().Nil(rows[0].CreatedEntityID)
+}
+
+// ClaimRescueFulfillment stamps created_entity_id on an approved-but-unfulfilled
+// row and reports claimed=true.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestClaimRescueFulfillment_Claims() {
+	orphan := suite.newApprovedUnfulfilled("Claim Me")
+
+	claimed, err := suite.service.ClaimRescueFulfillment(orphan.ID, 321)
+	suite.Require().NoError(err)
+	suite.Assert().True(claimed)
+
+	fetched, err := suite.service.GetRequest(orphan.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.CreatedEntityID)
+	suite.Assert().Equal(uint(321), *fetched.CreatedEntityID)
+}
+
+// A second claim on an already-fulfilled row loses: claimed=false and the
+// original created_entity_id is NOT overwritten. This is the sequential proxy
+// for the concurrent double-fulfill race the conditional update guards against.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestClaimRescueFulfillment_SecondClaimLoses() {
+	orphan := suite.newApprovedUnfulfilled("Contested Claim")
+
+	first, err := suite.service.ClaimRescueFulfillment(orphan.ID, 100)
+	suite.Require().NoError(err)
+	suite.Require().True(first)
+
+	second, err := suite.service.ClaimRescueFulfillment(orphan.ID, 200)
+	suite.Require().NoError(err)
+	suite.Assert().False(second, "a row that already has created_entity_id is not re-claimable")
+
+	fetched, err := suite.service.GetRequest(orphan.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.CreatedEntityID)
+	suite.Assert().Equal(uint(100), *fetched.CreatedEntityID, "first claim's id must survive")
+}
+
+// Claiming a PENDING row fails (claimed=false): only approved rows are
+// rescuable, so a pending row is left untouched.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestClaimRescueFulfillment_PendingNotClaimable() {
+	newbie := suite.createUser("claim-pending", tierNewUser, false)
+	pending, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+		suite.marshalArtist("Still Pending"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	claimed, err := suite.service.ClaimRescueFulfillment(pending.ID, 5)
+	suite.Require().NoError(err)
+	suite.Assert().False(claimed)
+
+	fetched, err := suite.service.GetRequest(pending.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Nil(fetched.CreatedEntityID)
+}
+
+// VoidApprovedUnfulfilled rejects an orphan and re-stamps the decider + note.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfilled_Rejects() {
+	orphan := suite.newApprovedUnfulfilled("Void Me")
+	admin := suite.createUser("voider", tierNewUser, true)
+
+	note := "should not have been approved"
+	voided, err := suite.service.VoidApprovedUnfulfilled(orphan.ID, admin.ID, &note)
+	suite.Require().NoError(err)
+	suite.Assert().True(voided)
+
+	fetched, err := suite.service.GetRequest(orphan.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStateRejected, fetched.DecisionState)
+	suite.Require().NotNil(fetched.DecidedBy)
+	suite.Assert().Equal(admin.ID, *fetched.DecidedBy)
+	suite.Require().NotNil(fetched.DecisionNote)
+	suite.Assert().Equal(note, *fetched.DecisionNote)
+}
+
+// A FULFILLED approved row can NOT be voided — voiding it would strand the
+// already-created entity behind a rejected request.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfilled_FulfilledNotVoidable() {
+	orphan := suite.newApprovedUnfulfilled("Already Fulfilled")
+	suite.Require().NoError(suite.service.RecordFulfillment(orphan.ID, 555))
+	admin := suite.createUser("voider2", tierNewUser, true)
+
+	voided, err := suite.service.VoidApprovedUnfulfilled(orphan.ID, admin.ID, nil)
+	suite.Require().NoError(err)
+	suite.Assert().False(voided, "a fulfilled row is not voidable")
+
+	fetched, err := suite.service.GetRequest(orphan.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, fetched.DecisionState,
+		"fulfilled row must stay approved")
+	suite.Require().NotNil(fetched.CreatedEntityID)
+}
+
+// Voiding a PENDING row fails (only approved-but-unfulfilled rows are voidable
+// via the rescue path; pending rows go through Decide).
+func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfilled_PendingNotVoidable() {
+	newbie := suite.createUser("void-pending", tierNewUser, false)
+	pending, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+		suite.marshalArtist("Pending Void"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	voided, err := suite.service.VoidApprovedUnfulfilled(pending.ID, 7, nil)
+	suite.Require().NoError(err)
+	suite.Assert().False(voided)
+
+	fetched, err := suite.service.GetRequest(pending.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStatePending, fetched.DecisionState)
+}
+
 // strptr is a local pointer helper for the entity-request payload fixtures.
 // (collection_test.go has strPtrCollection but it's collection-scoped; keep
 // this one named for its own use site.)

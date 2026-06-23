@@ -1434,3 +1434,332 @@ func TestAdminDecide_ServiceError(t *testing.T) {
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// ============================================================================
+// Tests: Admin rescue — POST /admin/entity-requests/{id}/fulfill (PSY-1088)
+// ============================================================================
+
+// approvedUnfulfilledRequest is the rescue-target shape: approved, no
+// created_entity_id, owned by requester 7 (so attribution can be asserted).
+func approvedUnfulfilledRequest(id uint, entityType string) *communitym.EntityRequest {
+	r := approvedRequest(id, entityType)
+	r.RequesterID = 7
+	r.CreatedEntityID = nil
+	return r
+}
+
+// Fulfilling a non-show approved-but-unfulfilled artist row creates the entity
+// and atomically claims the link.
+func TestAdminFulfill_Artist_CreatesAndClaims(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(10, "artist")
+	createCalled := false
+	var claimedID uint
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) {
+				if requestID != 10 {
+					t.Errorf("unexpected request id %d", requestID)
+				}
+				return orphan, nil
+			},
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				claimedID = createdEntityID
+				return true, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 55}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "10"}
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !createCalled {
+		t.Error("expected CreateArtist to be called")
+	}
+	if claimedID != 55 {
+		t.Errorf("expected claim of id 55, got %d", claimedID)
+	}
+	if resp.Body.CreatedEntityID == nil || *resp.Body.CreatedEntityID != 55 {
+		t.Errorf("expected created_entity_id 55, got %v", resp.Body.CreatedEntityID)
+	}
+	if resp.Body.CreatedEntityType == nil || *resp.Body.CreatedEntityType != "artist" {
+		t.Errorf("expected type artist, got %v", resp.Body.CreatedEntityType)
+	}
+}
+
+// Fulfilling a SHOW with admin-supplied associations creates the show; the
+// requester keeps attribution.
+func TestAdminFulfill_Show_WithAssociations_CreatesShow(t *testing.T) {
+	city := "Phoenix"
+	state := "AZ"
+	payload, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title:     "Deferred Show",
+		EventDate: "2026-08-01T21:00:00-07:00",
+		City:      &city,
+		State:     &state,
+	})
+	if err != nil {
+		t.Fatalf("marshal show payload: %v", err)
+	}
+	orphan := approvedUnfulfilledRequest(11, "show")
+	orphan.Payload = &payload
+
+	var got *contracts.CreateShowRequest
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				return true, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				got = req
+				return &contracts.ShowResponse{ID: 200}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "11"}
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected CreateShow to be called")
+	}
+	if len(got.Venues) != 1 || got.Venues[0].Name != "Valley Bar" {
+		t.Errorf("venues: got %+v", got.Venues)
+	}
+	if len(got.Artists) != 1 || got.Artists[0].Name != "Boris" {
+		t.Errorf("artists: got %+v", got.Artists)
+	}
+	if got.SubmittedByUserID == nil || *got.SubmittedByUserID != 7 {
+		t.Errorf("expected requester attribution (7), got %v", got.SubmittedByUserID)
+	}
+	if resp.Body.CreatedEntityID == nil || *resp.Body.CreatedEntityID != 200 {
+		t.Errorf("expected created_entity_id 200, got %v", resp.Body.CreatedEntityID)
+	}
+}
+
+// Fulfilling a SHOW WITHOUT associations is a clean 422 (the payload alone can't
+// be fulfilled), and no catalog create or claim is attempted.
+func TestAdminFulfill_Show_MissingAssociations_422(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(12, "show")
+	createCalled := false
+	claimCalled := false
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				claimCalled = true
+				return true, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				createCalled = true
+				return &contracts.ShowResponse{ID: 1}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "12"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+	if createCalled || claimCalled {
+		t.Error("no create or claim should happen when show associations are missing")
+	}
+}
+
+// Fulfilling a row that is NOT approved-but-unfulfilled (already fulfilled) →
+// 409, no catalog create.
+func TestAdminFulfill_AlreadyFulfilled_409(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(13, "artist")
+	already := uint(99)
+	orphan.CreatedEntityID = &already
+	createCalled := false
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 1}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "13"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+	if createCalled {
+		t.Error("CreateArtist must NOT be called for an already-fulfilled row")
+	}
+}
+
+// Fulfilling a PENDING row → 409 (only approved-but-unfulfilled rows rescuable).
+func TestAdminFulfill_Pending_409(t *testing.T) {
+	pending := pendingRequest(14, "artist")
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
+		},
+		&testhelpers.MockEntityRequestFulfiller{},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "14"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+// Fulfilling a missing row → 404.
+func TestAdminFulfill_NotFound_404(t *testing.T) {
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return nil, nil },
+		},
+		&testhelpers.MockEntityRequestFulfiller{},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "999"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+// Losing the atomic claim race (entity created, but a concurrent rescue already
+// won) → 409 so the admin reconciles the stray, not a silent 200.
+func TestAdminFulfill_ClaimRace_409(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(15, "artist")
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				return false, nil // lost the race
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return &contracts.ArtistDetailResponse{ID: 70}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "15"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+// A benign catalog conflict on fulfill (e.g. ArtistExists) maps to 409, not 500.
+func TestAdminFulfill_CatalogConflict_409(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(16, "artist")
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return nil, apperrors.ErrArtistExists("Test")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "16"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+// Void on an approved-but-unfulfilled row rejects it (no catalog create).
+func TestAdminFulfill_Void_Rejects(t *testing.T) {
+	rejected := approvedUnfulfilledRequest(17, "artist")
+	rejected.DecisionState = communitym.EntityRequestStateRejected
+	voidCalled := false
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			VoidApprovedUnfulfilledFn: func(requestID, adminID uint, note *string) (bool, error) {
+				voidCalled = true
+				if requestID != 17 || adminID != 1 {
+					t.Errorf("unexpected void params req=%d admin=%d", requestID, adminID)
+				}
+				if note == nil || *note != "bad data" {
+					t.Errorf("expected note 'bad data', got %v", note)
+				}
+				return true, nil
+			},
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return rejected, nil },
+		},
+		&testhelpers.MockEntityRequestFulfiller{},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "17"}
+	req.Body.Action = "void"
+	note := "bad data"
+	req.Body.Note = &note
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !voidCalled {
+		t.Error("expected VoidApprovedUnfulfilled to be called")
+	}
+	if resp.Body.Request == nil || resp.Body.Request.DecisionState != communitym.EntityRequestStateRejected {
+		t.Errorf("expected rejected row, got %+v", resp.Body.Request)
+	}
+	if resp.Body.CreatedEntityID != nil {
+		t.Errorf("void must not create an entity, got id %v", resp.Body.CreatedEntityID)
+	}
+}
+
+// Void on a row that no longer qualifies (fulfilled/pending/missing) → 409.
+func TestAdminFulfill_Void_NotRescuable_409(t *testing.T) {
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			VoidApprovedUnfulfilledFn: func(requestID, adminID uint, note *string) (bool, error) {
+				return false, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "18"}
+	req.Body.Action = "void"
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+// An unrecognized action → 422.
+func TestAdminFulfill_InvalidAction_422(t *testing.T) {
+	h := NewEntityRequestHandler(&testhelpers.MockEntityRequestService{}, &testhelpers.MockEntityRequestFulfiller{}, nil)
+	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.Action = "explode"
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// Non-numeric id → 400.
+func TestAdminFulfill_InvalidID_400(t *testing.T) {
+	h := NewEntityRequestHandler(&testhelpers.MockEntityRequestService{}, &testhelpers.MockEntityRequestFulfiller{}, nil)
+	req := &AdminFulfillEntityRequestRequest{ID: "abc"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 400)
+}

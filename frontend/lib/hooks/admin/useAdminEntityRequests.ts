@@ -61,6 +61,11 @@ export interface AdminEntityRequestsFilters {
   state?: string
   entity_type?: string
   source_context?: string
+  /**
+   * PSY-1088: narrow to approved-but-unfulfilled rows (created_entity_id IS
+   * NULL) — the "needs attention" rescue queue. Pair with state='approved'.
+   */
+  unfulfilled?: boolean
   limit?: number
   offset?: number
   /** When false, the query does not fire (e.g. the admin nav badge off-route). Defaults to true. */
@@ -77,6 +82,7 @@ export function useAdminEntityRequests(filters: AdminEntityRequestsFilters = {})
     state = 'pending',
     entity_type,
     source_context,
+    unfulfilled,
     limit = 50,
     offset = 0,
     enabled = true,
@@ -86,6 +92,7 @@ export function useAdminEntityRequests(filters: AdminEntityRequestsFilters = {})
   if (state) params.set('state', state)
   if (entity_type) params.set('entity_type', entity_type)
   if (source_context) params.set('source_context', source_context)
+  if (unfulfilled) params.set('unfulfilled', 'true')
   params.set('limit', limit.toString())
   params.set('offset', offset.toString())
 
@@ -96,6 +103,7 @@ export function useAdminEntityRequests(filters: AdminEntityRequestsFilters = {})
       state,
       entity_type,
       source_context,
+      unfulfilled,
       limit,
       offset,
     }),
@@ -160,6 +168,54 @@ export function useDecideEntityRequest() {
       invalidateQueries.adminEntityRequests()
       // Approve creates a catalog entity, so refresh every entity list a
       // fulfillment can grow (one invalidation per fulfillable request type).
+      invalidateQueries.artists()
+      invalidateQueries.venues()
+      invalidateQueries.labels()
+      invalidateQueries.releases()
+      invalidateQueries.festivals()
+      invalidateQueries.shows()
+    },
+  })
+}
+
+/** PSY-1088: rescue action on an approved-but-unfulfilled request. */
+export interface RescueEntityRequestVars {
+  id: number
+  /** 'fulfill' re-runs the catalog create; 'void' rejects the orphan. */
+  action: 'fulfill' | 'void'
+  /** Recorded as the decision note when voiding. */
+  note?: string
+  /** Required when fulfilling a SHOW request; ignored otherwise. */
+  show_venue?: ShowVenueInput
+  show_artists?: ShowArtistInput[]
+}
+
+/**
+ * Rescue an approved-but-unfulfilled entity request (PSY-1088). 'fulfill'
+ * re-runs the catalog create (supplying show associations for a show) and
+ * stamps created_entity_id; 'void' rejects the orphan. Bypasses the decide
+ * flow (which only re-processes pending rows). Invalidates the request queue +
+ * the entity lists a fulfillment may have grown.
+ */
+export function useRescueEntityRequest() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async ({ id, action, note, show_venue, show_artists }: RescueEntityRequestVars) => {
+      return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.FULFILL(id), {
+        method: 'POST',
+        body: JSON.stringify({
+          action,
+          ...(note ? { note } : {}),
+          ...(show_venue ? { show_venue } : {}),
+          ...(show_artists?.length ? { show_artists } : {}),
+        }),
+      })
+    },
+    onSuccess: () => {
+      invalidateQueries.adminEntityRequests()
+      // Fulfill creates a catalog entity; refresh every list it may have grown.
       invalidateQueries.artists()
       invalidateQueries.venues()
       invalidateQueries.labels()
