@@ -23,6 +23,7 @@ import {
   PlayCircle,
   XCircle,
   CheckCircle2,
+  Lock,
 } from 'lucide-react'
 import { AdminEmptyState } from '@/components/admin'
 import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
@@ -677,6 +678,7 @@ function EditShowForm({
   const [archiveUrl, setArchiveUrl] = useState('')
   const [imageUrl, setImageUrl] = useState(show.image_url ?? '')
   const [isActive, setIsActive] = useState(show.is_active)
+  const [scheduleLocked, setScheduleLocked] = useState(show.schedule_locked)
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = useCallback(
@@ -699,6 +701,7 @@ function EditShowForm({
         archive_url: archiveUrl.trim() || null,
         image_url: imageUrl.trim() || null,
         is_active: isActive,
+        schedule_locked: scheduleLocked,
       }
 
       updateMutation.mutate(input, {
@@ -706,7 +709,7 @@ function EditShowForm({
         onError: (err) => setError(err.message),
       })
     },
-    [name, hostName, description, scheduleDisplay, archiveUrl, imageUrl, isActive, show.id, stationId, updateMutation, onSuccess]
+    [name, hostName, description, scheduleDisplay, archiveUrl, imageUrl, isActive, scheduleLocked, show.id, stationId, updateMutation, onSuccess]
   )
 
   return (
@@ -750,6 +753,16 @@ function EditShowForm({
       <div className="flex items-center gap-2">
         <Switch id="edit-show-active" checked={isActive} onCheckedChange={setIsActive} />
         <Label htmlFor="edit-show-active">Active</Label>
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <Switch id="edit-show-schedule-locked" checked={scheduleLocked} onCheckedChange={setScheduleLocked} />
+          <Label htmlFor="edit-show-schedule-locked">Lock schedule</Label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          When on, this schedule is hand-curated and the weekly WFMU scrape leaves it alone. Turn off to resume auto-scrape.
+        </p>
       </div>
 
       <DialogFooter>
@@ -1349,6 +1362,12 @@ function StationDetailPanel({
                       <Badge variant={show.is_active ? 'default' : 'secondary'} className="text-xs">
                         {show.is_active ? 'Active' : 'Inactive'}
                       </Badge>
+                      {show.schedule_locked && (
+                        <Badge variant="outline" className="text-xs">
+                          <Lock className="mr-1 h-3 w-3" />
+                          Schedule locked
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot; {show.episode_count} episode(s)

@@ -110,6 +110,9 @@ export interface RadioShowListItem {
   genre_tags: string[] | null
   image_url: string | null
   is_active: boolean
+  // schedule_locked (PSY-1186/1193): true when the schedule is hand-curated and the
+  // weekly WFMU scrape leaves it alone. Surfaced as a badge in the admin list.
+  schedule_locked: boolean
   episode_count: number
 }
 
@@ -124,6 +127,7 @@ export interface RadioShowDetail {
   description: string | null
   schedule_display: string | null
   schedule: Record<string, unknown> | null
+  schedule_locked: boolean
   genre_tags: string[] | null
   archive_url: string | null
   image_url: string | null
@@ -199,6 +203,9 @@ export interface UpdateRadioShowInput {
   archive_url?: string | null
   image_url?: string | null
   is_active?: boolean
+  // schedule_locked (PSY-1193): true pins the schedule (protect from the weekly WFMU
+  // scrape), false resumes auto-scrape. Omitted leaves the current provenance untouched.
+  schedule_locked?: boolean
 }
 
 // Status of a radio_sync_runs row (PSY-1135). `partial` = the run imported data
