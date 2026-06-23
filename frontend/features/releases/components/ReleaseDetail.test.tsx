@@ -103,6 +103,19 @@ vi.mock('@/components/shared', () => ({
       {label}
     </button>
   ),
+  // PSY-1187: the Bandcamp player. Echo the album URL so the wire-up
+  // (which link gets fed to the embed) is assertable without the resolver fetch.
+  MusicEmbed: ({
+    bandcampAlbumUrl,
+    artistName,
+  }: {
+    bandcampAlbumUrl?: string | null
+    artistName: string
+  }) => (
+    <div data-testid="music-embed" data-url={bandcampAlbumUrl ?? ''}>
+      Music embed for {artistName}
+    </div>
+  ),
 }))
 
 vi.mock('@/features/contributions', () => ({
@@ -543,6 +556,136 @@ describe('ReleaseDetail', () => {
       fireEvent.click(reportLink)
       expect(
         screen.getByText('Report release In Rainbows')
+      ).toBeInTheDocument()
+    })
+  })
+
+  // PSY-1187: a Bandcamp album/track link renders a playable embed alongside
+  // the "Listen / Buy" cards; a bare profile link does not (the embed can't
+  // resolve a profile root, so only the card shows).
+  describe('bandcamp embed', () => {
+    beforeEach(() => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://artificialgo.bandcamp.com/album/triple-ones',
+            },
+            { id: 2, platform: 'spotify', url: 'https://open.spotify.com/album/x' },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    it('renders the Bandcamp player fed the album URL', () => {
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      const embed = screen.getByTestId('music-embed')
+      expect(embed).toHaveAttribute(
+        'data-url',
+        'https://artificialgo.bandcamp.com/album/triple-ones'
+      )
+    })
+
+    it('keeps the clickable Bandcamp link alongside the embed', () => {
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      // The "Listen / Buy" card link is still present.
+      const bandcamp = screen.getByText('Bandcamp').closest('a')
+      expect(bandcamp).toHaveAttribute(
+        'href',
+        'https://artificialgo.bandcamp.com/album/triple-ones'
+      )
+    })
+
+    it('renders a track URL embed', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://artificialgo.bandcamp.com/track/triple-ones',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.getByTestId('music-embed')).toHaveAttribute(
+        'data-url',
+        'https://artificialgo.bandcamp.com/track/triple-ones'
+      )
+    })
+
+    it('does not render the embed for a bare Bandcamp profile link', () => {
+      mockUseRelease.mockReturnValue({
+        // makeRelease default has a bare profile root for Bandcamp.
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+      // The link card is still shown.
+      expect(screen.getByText('Bandcamp').closest('a')).toHaveAttribute(
+        'href',
+        'https://radiohead.bandcamp.com'
+      )
+    })
+
+    it('picks the first album/track URL when several Bandcamp links exist', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            { id: 1, platform: 'bandcamp', url: 'https://a.bandcamp.com' },
+            {
+              id: 2,
+              platform: 'Bandcamp',
+              url: 'https://a.bandcamp.com/album/first',
+            },
+            {
+              id: 3,
+              platform: 'bandcamp',
+              url: 'https://a.bandcamp.com/track/second',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      // Case-insensitive platform match + first matching album/track wins.
+      expect(screen.getByTestId('music-embed')).toHaveAttribute(
+        'data-url',
+        'https://a.bandcamp.com/album/first'
+      )
+    })
+
+    it('uses the main artist name for the embed', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          artists: [
+            { id: 1, slug: 'opener', name: 'Opener', role: 'featured' },
+            { id: 2, slug: 'headliner', name: 'Headliner', role: 'main' },
+          ],
+          external_links: [
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://x.bandcamp.com/album/y',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(
+        screen.getByText('Music embed for Headliner')
       ).toBeInTheDocument()
     })
   })
