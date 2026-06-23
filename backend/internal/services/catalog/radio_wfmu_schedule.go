@@ -62,10 +62,11 @@ type scheduleDiscoverer interface {
 // rosters; PSY-1127). Schedule writes are scoped to this station's shows.
 const wfmuFlagshipStationSlug = "wfmu"
 
-// wfmuScheduleClearMinEntries is the floor a scrape must clear before clear-on-absence
-// runs (PSY-1186). The normal /table grid has ~60+ shows; a result far below this means a
-// broken parse, and clearing "absent" shows then would wipe nearly every schedule. So
-// clear-on-absence is skipped (logged) when a scrape returns fewer than this many shows.
+// wfmuScheduleClearMinEntries is the floor of RECOGNIZED shows (matched a DB row) a scrape
+// must reach before clear-on-absence runs (PSY-1186). The normal /table grid has ~60+ shows;
+// 20 is a conservative ~third of a healthy grid — low enough not to block a legitimately
+// thinned lineup, high enough that an empty or structurally-shifted parse (few real matches)
+// clears nothing instead of wiping every schedule. Raise it if the grid grows materially.
 const wfmuScheduleClearMinEntries = 20
 
 // ApplyWFMUSchedule writes each parsed entry's slots onto the matching WFMU 91.1 show,
@@ -89,6 +90,7 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 	}
 
 	scrapedCodes := make([]string, 0, len(entries))
+	lockedSkipped := 0
 	for _, e := range entries {
 		scrapedCodes = append(scrapedCodes, e.Code)
 
@@ -106,6 +108,7 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 			continue
 		}
 		if show.ScheduleLocked {
+			lockedSkipped++
 			slog.Info("wfmu schedule: show is schedule_locked, skipped (admin-curated)", "code", e.Code, "show_id", show.ID)
 			continue
 		}
@@ -129,20 +132,28 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 		}
 		matched++
 	}
+	if lockedSkipped > 0 {
+		slog.Info("wfmu schedule: skipped schedule_locked shows", "locked_skipped", lockedSkipped)
+	}
 
-	cleared = s.clearAbsentWFMUSchedules(station.ID, scrapedCodes)
+	// Gate clear-on-absence on RECOGNIZED shows (matched + locked), not on the parsed-code
+	// count: a markup shift that yields ≥floor codes matching NO existing show would
+	// otherwise pass a code-count floor and let `NOT IN <junk>` wipe every real schedule.
+	cleared = s.clearAbsentWFMUSchedules(station.ID, scrapedCodes, matched+lockedSkipped)
 	return matched, unmatched, cleared, nil
 }
 
 // clearAbsentWFMUSchedules nulls the schedule of WFMU 91.1 shows that have one but whose
 // code was NOT in this scrape (they dropped off the grid) — except schedule_locked shows
-// (admin-curated). Guarded: a scrape returning fewer than wfmuScheduleClearMinEntries shows
-// is treated as suspect (broken parse) and clears nothing, so a bad scrape can't wipe the
-// lineup. Returns the number of schedules cleared.
-func (s *RadioService) clearAbsentWFMUSchedules(stationID uint, scrapedCodes []string) int {
-	if len(scrapedCodes) < wfmuScheduleClearMinEntries {
-		slog.Warn("wfmu schedule: clear-on-absence skipped — scrape returned too few shows (suspect parse)",
-			"scraped", len(scrapedCodes), "min", wfmuScheduleClearMinEntries)
+// (admin-curated) and shows with a NULL external_id (no WFMU code → SQL NOT IN never matches
+// them, intentional: they aren't scrape-managed). Guarded: when fewer than
+// wfmuScheduleClearMinEntries shows were RECOGNIZED (matched a DB row), the scrape is treated
+// as suspect (empty or structurally-shifted parse) and clears nothing, so a bad scrape can't
+// wipe the lineup. Returns the number of schedules cleared.
+func (s *RadioService) clearAbsentWFMUSchedules(stationID uint, scrapedCodes []string, recognized int) int {
+	if recognized < wfmuScheduleClearMinEntries {
+		slog.Warn("wfmu schedule: clear-on-absence skipped — too few shows recognized (suspect parse)",
+			"recognized", recognized, "min", wfmuScheduleClearMinEntries)
 		return 0
 	}
 	res := s.db.Model(&catalogm.RadioShow{}).
@@ -570,6 +581,11 @@ func parseWFMUTimeRange(s string) (start, end string, ok bool) {
 // parseWFMUTimeRangeWithDefault parses a stacked-cell inline range ("3 - 3:01") whose tokens
 // carry NO meridiem, anchoring each bare token to the cell's band meridiem (defaultMer, from
 // the row's hour label). A token with its own am/pm keeps it. PSY-1186.
+//
+// The start takes the band meridiem (the slot begins within the band). The end then keeps
+// the range FORWARD (end > start): a slot that crosses noon ("11-1" in an 11am band) must
+// read 11:00-13:00, not 11:00-01:00 — the same forward-range safeguard parseWFMUTimeRange
+// applies, which a naive "anchor both to the band" would lose.
 func parseWFMUTimeRangeWithDefault(s, defaultMer string) (start, end string, ok bool) {
 	parts := strings.SplitN(s, "-", 2)
 	if len(parts) != 2 {
@@ -584,7 +600,14 @@ func parseWFMUTimeRangeWithDefault(s, defaultMer string) (start, end string, ok 
 		lMin = applyMeridiem(lMin, defaultMer)
 	}
 	if rMer == "" {
-		rMin = applyMeridiem(rMin, defaultMer)
+		// Prefer the meridiem that keeps the range forward; fall back to the band's.
+		if cand := applyMeridiem(rMin, defaultMer); cand > lMin {
+			rMin = cand
+		} else if alt := applyMeridiem(rMin, otherMeridiem(defaultMer)); alt > lMin {
+			rMin = alt
+		} else {
+			rMin = cand
+		}
 	}
 	return fmtHHMM(lMin), fmtHHMM(rMin), true
 }

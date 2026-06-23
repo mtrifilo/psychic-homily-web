@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -144,13 +145,13 @@ func (s *RadioSyncSuite) scheduleLockedOf(showID uint) bool {
 	return show.ScheduleLocked
 }
 
-// manyEntries builds n throwaway entries (codes that match no seeded show) so a scrape
-// clears the clear-on-absence floor without matching anything.
-func manyEntries(n int) []WFMUScheduleEntry {
+// unrecognizedEntries builds n entries whose codes match NO seeded show (recognized == 0) —
+// the markup-shift case: a parse that yields plenty of codes but none that map to a real row.
+func unrecognizedEntries(n int) []WFMUScheduleEntry {
 	out := make([]WFMUScheduleEntry, 0, n)
 	for i := 0; i < n; i++ {
 		out = append(out, WFMUScheduleEntry{
-			Code:  "E" + string(rune('A'+i%26)) + string(rune('a'+i/26)),
+			Code:  fmt.Sprintf("Z%03d", i),
 			Name:  "Filler",
 			Slots: []catalogm.RadioScheduleSlot{{DayOfWeek: 1, Start: "06:00", End: "09:00"}},
 		})
@@ -184,32 +185,47 @@ func (s *RadioSyncSuite) TestApplyWFMUSchedule_SkipsLockedShow() {
 }
 
 // Clear-on-absence nulls an unlocked show's schedule when its code drops off the grid, but
-// leaves locked shows alone — and only when the scrape is large enough to be trustworthy.
+// leaves locked shows alone — and only when enough shows were RECOGNIZED (matched a row) for
+// the scrape to be trustworthy.
 func (s *RadioSyncSuite) TestApplyWFMUSchedule_ClearsAbsentUnlockedOnly() {
 	s.wipeRadioTables()
 	flagship := s.seedWFMUStation(wfmuFlagshipStationSlug)
-	gone := s.seedScheduledShow(flagship.ID, "Gone Show", "gone-show", "GONE", false)        // unlocked, absent → cleared
-	keptLock := s.seedScheduledShow(flagship.ID, "Kept Locked", "kept-locked", "KEPT", true) // locked, absent → kept
 
-	matched, _, cleared, err := s.svc.ApplyWFMUSchedule(manyEntries(20)) // ≥ floor, none match GONE/KEPT
+	// Seed ≥ floor shows that ARE in the scrape, so it clears the recognized-shows guard.
+	var entries []WFMUScheduleEntry
+	for i := 0; i < wfmuScheduleClearMinEntries; i++ {
+		code := fmt.Sprintf("R%02d", i)
+		s.seedShowWithExternalID(flagship.ID, "Recognized "+code, "rec-"+code, code)
+		entries = append(entries, WFMUScheduleEntry{
+			Code: code, Name: "Recognized",
+			Slots: []catalogm.RadioScheduleSlot{{DayOfWeek: 1, Start: "06:00", End: "09:00"}},
+		})
+	}
+	// Two shows that dropped off the grid (absent from entries).
+	gone := s.seedScheduledShow(flagship.ID, "Gone Show", "gone-show", "GONE", false)        // unlocked → cleared
+	keptLock := s.seedScheduledShow(flagship.ID, "Kept Locked", "kept-locked", "KEPT", true) // locked → kept
+
+	matched, _, cleared, err := s.svc.ApplyWFMUSchedule(entries)
 	s.Require().NoError(err)
-	s.Equal(0, matched)
+	s.Equal(wfmuScheduleClearMinEntries, matched, "all recognized shows are written")
 	s.Equal(1, cleared, "only the unlocked absent show is cleared")
 	s.Nil(s.scheduleOf(gone.ID), "unlocked absent show's schedule is cleared")
 	s.NotNil(s.scheduleOf(keptLock.ID), "locked absent show's schedule is preserved")
 }
 
-// A scrape returning too few shows (suspect parse) clears nothing — guards against a broken
-// scrape wiping the whole lineup.
-func (s *RadioSyncSuite) TestApplyWFMUSchedule_SmallScrapeClearsNothing() {
+// A scrape that RECOGNIZES too few shows clears nothing — even with many parsed codes. Guards
+// against a markup shift that yields ≥floor junk codes (matching no row) wiping the lineup via
+// NOT IN <junk> (the floor is on recognized shows, not parsed-code count).
+func (s *RadioSyncSuite) TestApplyWFMUSchedule_UnrecognizedScrapeClearsNothing() {
 	s.wipeRadioTables()
 	flagship := s.seedWFMUStation(wfmuFlagshipStationSlug)
 	gone := s.seedScheduledShow(flagship.ID, "Gone Show", "gone-show", "GONE", false)
 
-	_, _, cleared, err := s.svc.ApplyWFMUSchedule(manyEntries(3)) // below the clear floor
+	// 25 codes (> the 20 floor) that match nothing → recognized == 0.
+	_, _, cleared, err := s.svc.ApplyWFMUSchedule(unrecognizedEntries(25))
 	s.Require().NoError(err)
-	s.Equal(0, cleared, "a suspiciously small scrape clears nothing")
-	s.NotNil(s.scheduleOf(gone.ID), "schedule is preserved when the scrape is too small to trust")
+	s.Equal(0, cleared, "junk codes that match no show do not authorize a clear")
+	s.NotNil(s.scheduleOf(gone.ID), "schedule is preserved when too few shows are recognized")
 }
 
 // UpdateShow auto-locks a hand-edited schedule; an explicit schedule_locked=false unlocks it.

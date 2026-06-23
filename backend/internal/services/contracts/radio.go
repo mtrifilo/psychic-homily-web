@@ -176,10 +176,15 @@ type RadioShowDetailResponse struct {
 	Description     *string          `json:"description"`
 	ScheduleDisplay *string          `json:"schedule_display"`
 	Schedule        *json.RawMessage `json:"schedule"`
-	GenreTags       *json.RawMessage `json:"genre_tags"`
-	ArchiveURL      *string          `json:"archive_url"`
-	ImageURL        *string          `json:"image_url"`
-	IsActive        bool             `json:"is_active"`
+	// ScheduleLocked: true means an admin curated this schedule by hand and the weekly
+	// WFMU scrape leaves it alone (PSY-1186). Emitted so an admin UI can show/toggle the
+	// lock; setting it is API-only today (the admin form sends schedule_display, not the
+	// structured schedule that auto-locks) — the FE wiring is a tracked follow-up (PSY-1193).
+	ScheduleLocked bool             `json:"schedule_locked"`
+	GenreTags      *json.RawMessage `json:"genre_tags"`
+	ArchiveURL     *string          `json:"archive_url"`
+	ImageURL       *string          `json:"image_url"`
+	IsActive       bool             `json:"is_active"`
 	// LifecycleState (active | dormant | retired) is the operational signal the
 	// janitor maintains (PSY-1155): 'active' = aired within the dormancy window,
 	// 'dormant' = inactive/historical (still browsable). Additive + emitted now so

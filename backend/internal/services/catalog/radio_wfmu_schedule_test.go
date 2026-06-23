@@ -2,10 +2,95 @@ package catalog
 
 import (
 	"os"
+	"strings"
 	"testing"
+
+	"golang.org/x/net/html"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
+
+// parseCell parses a "<td>…</td>" snippet and returns the <td> node, for unit-testing the
+// cell extractors directly.
+func parseCell(t *testing.T, snippet string) *html.Node {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader("<table><tr>" + snippet + "</tr></table>"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	td := findDescendant(doc, func(n *html.Node) bool { return strings.EqualFold(n.Data, "td") })
+	if td == nil {
+		t.Fatal("no <td> in snippet")
+	}
+	return td
+}
+
+// The stacked-cell inline-time parser anchors bare tokens to the band meridiem AND keeps the
+// range forward — a noon-crossing slot must not reverse (PSY-1186 regression guard).
+func TestParseWFMUTimeRangeWithDefault(t *testing.T) {
+	tests := []struct {
+		in, def    string
+		start, end string
+		ok         bool
+	}{
+		{"3 - 3:01", "pm", "15:00", "15:01", true},
+		{"3:01 - 6", "pm", "15:01", "18:00", true},
+		{"6 - 9", "am", "06:00", "09:00", true},
+		{"11 - 1", "am", "11:00", "13:00", true}, // noon-crossing: NOT 11:00-01:00
+		{"10 - Noon", "am", "10:00", "12:00", true},
+		{"garbage", "pm", "", "", false},
+		{"", "pm", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			start, end, ok := parseWFMUTimeRangeWithDefault(tt.in, tt.def)
+			if ok != tt.ok || start != tt.start || end != tt.end {
+				t.Errorf("parseWFMUTimeRangeWithDefault(%q,%q) = (%q,%q,%v), want (%q,%q,%v)",
+					tt.in, tt.def, start, end, ok, tt.start, tt.end, tt.ok)
+			}
+		})
+	}
+}
+
+func TestExtractCellSlots(t *testing.T) {
+	// Normal cell: one show via program_time.
+	normal := parseCell(t, `<td class="program">
+		<span class="KDBFavIcon KDBprogram" id="KDBprogram-WA"></span>
+		<a href="/playlists/WA" class="show-title-link">Wake</a>
+		<span class="program_time">6-9am</span></td>`)
+	if got := extractCellSlots(normal, "6am"); len(got) != 1 ||
+		got[0] != (parsedSlot{"WA", "Wake", "06:00", "09:00"}) {
+		t.Errorf("normal cell = %+v, want one WA 06:00-09:00 slot", got)
+	}
+
+	// Stacked cell: two shows + inline times, band meridiem from rowHour "3pm".
+	stacked := parseCell(t, `<td class="program">
+		<span class="KDBFavIcon KDBprogram" id="KDBprogram-JP"></span>
+		<a href="/playlists/JP" class="show-title-link">Jim Price</a> (3 - 3:01)
+		<span class="KDBFavIcon KDBprogram" id="KDBprogram-SW"></span>
+		<a href="/playlists/SW" class="show-title-link">Scott Williams</a> (3:01 - 6)</td>`)
+	got := extractCellSlots(stacked, "3pm")
+	if len(got) != 2 ||
+		got[0] != (parsedSlot{"JP", "Jim Price", "15:00", "15:01"}) ||
+		got[1] != (parsedSlot{"SW", "Scott Williams", "15:01", "18:00"}) {
+		t.Errorf("stacked cell = %+v, want JP 15:00-15:01 + SW 15:01-18:00", got)
+	}
+
+	// Stacked cell with no band context (unparseable rowHour) → skipped.
+	if got := extractCellSlots(stacked, ""); got != nil {
+		t.Errorf("stacked cell with empty rowHour should yield nil, got %+v", got)
+	}
+
+	// Mismatched stacked cell (two codes, one inline time) → skipped, not mis-paired.
+	mismatch := parseCell(t, `<td class="program">
+		<span class="KDBFavIcon KDBprogram" id="KDBprogram-AA"></span>
+		<a href="/playlists/AA" class="show-title-link">Show A</a> (3 - 4)
+		<span class="KDBFavIcon KDBprogram" id="KDBprogram-BB"></span>
+		<a href="/playlists/BB" class="show-title-link">Show B</a></td>`)
+	if got := extractCellSlots(mismatch, "3pm"); got != nil {
+		t.Errorf("mismatched stacked cell should yield nil, got %+v", got)
+	}
+}
 
 func loadScheduleFixture(t *testing.T) []WFMUScheduleEntry {
 	t.Helper()
