@@ -778,9 +778,13 @@ func setNullableFloatAssignment(m map[string]any, col string, v *float64) {
 func (s *RadioService) computeStationRates(stationID uint, now time.Time) (successRate, playMatchRate, zeroPlayRate *float64, ok bool) {
 	windowStart := now.Add(-stationHealthRateWindow)
 
-	// Runs: success rate + play-match rate in one pass. terminal excludes cancelled
-	// (operator action, not a health signal) and running (incomplete); the current run
-	// is already terminal here so it counts.
+	// Runs: success rate + play-match rate in one pass over the window's ATTEMPTED runs.
+	// We exclude running (incomplete), cancelled (operator action), and skipped (breaker
+	// no-op — the run never attempted a sync); none is a health signal, and counting
+	// skipped would make a breaker-protected station's success rate decay toward 0 while
+	// the breaker is protecting it. So terminal = COUNT(*) of attempts, and the play SUMs
+	// likewise ignore cancelled partial mid-flight plays. The just-closed current run is
+	// committed and (unless skipped/cancelled) counts.
 	var runAgg struct {
 		Success  int64
 		Terminal int64
@@ -790,13 +794,15 @@ func (s *RadioService) computeStationRates(stationID uint, now time.Time) (succe
 	if err := s.db.Raw(`
 		SELECT
 			COUNT(*) FILTER (WHERE status = ?) AS success,
-			COUNT(*) FILTER (WHERE status <> ?) AS terminal,
+			COUNT(*) AS terminal,
 			COALESCE(SUM(plays_matched), 0) AS matched,
 			COALESCE(SUM(plays_imported), 0) AS imported
 		FROM radio_sync_runs
-		WHERE station_id = ? AND started_at >= ? AND status <> ?
-	`, catalogm.RadioSyncRunStatusSuccess, catalogm.RadioSyncRunStatusCancelled,
-		stationID, windowStart, catalogm.RadioSyncRunStatusRunning).Scan(&runAgg).Error; err != nil {
+		WHERE station_id = ? AND started_at >= ?
+			AND status NOT IN (?, ?, ?)
+	`, catalogm.RadioSyncRunStatusSuccess,
+		stationID, windowStart,
+		catalogm.RadioSyncRunStatusRunning, catalogm.RadioSyncRunStatusCancelled, catalogm.RadioSyncRunStatusSkipped).Scan(&runAgg).Error; err != nil {
 		slog.Warn("radio: computing station run-rates failed", "station_id", stationID, "error", err)
 		return nil, nil, nil, false
 	}

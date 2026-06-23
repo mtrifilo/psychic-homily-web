@@ -71,6 +71,30 @@ func (s *RadioSyncSuite) TestComputeStationRates_Computed() {
 	s.InDelta(0.25, *zeroPlay, 0.0001)
 }
 
+// skipped (breaker no-op) and cancelled (operator) runs are NOT sync attempts: they
+// must be excluded from the success denominator AND the play sums, so a breaker-protected
+// station doesn't read as "failing" and a cancelled run's partial plays don't skew the
+// match rate.
+func (s *RadioSyncSuite) TestComputeStationRates_ExcludesSkippedAndCancelled() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	at := time.Now().Add(-time.Hour)
+
+	s.seedSyncRunWithPlays(st.ID, catalogm.RadioSyncRunStatusSuccess, at, 100, 90)
+	// 3 skipped (breaker open) — must not drag success_rate down.
+	s.seedSyncRunWithPlays(st.ID, catalogm.RadioSyncRunStatusSkipped, at, 0, 0)
+	s.seedSyncRunWithPlays(st.ID, catalogm.RadioSyncRunStatusSkipped, at, 0, 0)
+	s.seedSyncRunWithPlays(st.ID, catalogm.RadioSyncRunStatusSkipped, at, 0, 0)
+	// A cancelled run with partial mid-flight plays — must not skew play_match_rate.
+	s.seedSyncRunWithPlays(st.ID, catalogm.RadioSyncRunStatusCancelled, at, 500, 0)
+
+	success, playMatch, _, ok := s.svc.computeStationRates(st.ID, time.Now())
+	s.Require().True(ok)
+	s.Require().NotNil(success)
+	s.InDelta(1.0, *success, 0.0001, "1 success / 1 attempt — skipped+cancelled excluded")
+	s.Require().NotNil(playMatch)
+	s.InDelta(0.9, *playMatch, 0.0001, "90/100 — cancelled partial plays excluded")
+}
+
 // No data in the window → each rate is nil (denominator zero), not 0.0.
 func (s *RadioSyncSuite) TestComputeStationRates_NilWhenNoData() {
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
