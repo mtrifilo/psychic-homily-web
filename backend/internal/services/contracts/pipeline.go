@@ -274,6 +274,57 @@ var ErrInvalidStreamingStatusTransition = errors.New("invalid streaming-discover
 var ErrStreamingArtistNotFound = errors.New("artist not found")
 
 // ──────────────────────────────────────────────
+// Discover Music (MusicBrainz candidates) — PSY-1191
+// ──────────────────────────────────────────────
+
+// Music platform + confidence string constants. These are the LOCKED wire
+// values the frontend (PSY-1198) builds against — do not rename without
+// updating the consumer.
+const (
+	MusicPlatformBandcamp = "bandcamp"
+	MusicPlatformSpotify  = "spotify"
+
+	MusicConfidenceHigh   = "high"
+	MusicConfidenceReview = "review"
+)
+
+// MusicLinkCandidate is one discovered streaming-link candidate. Discovery is
+// review-only: the admin picks a candidate and saves it via the existing
+// bandcamp/spotify update endpoints — nothing here is persisted.
+//
+// Confidence is the region TIER: "high" when the MB candidate's geography aligns
+// with the artist's PH show region, "review" otherwise (region mismatch, non-US,
+// or no PH region). RegionMatch is never a gate — a "review" candidate is still
+// returned (a touring act plays far from its MB-tagged origin). Live is the
+// SSRF-guarded reachability probe result.
+type MusicLinkCandidate struct {
+	Platform     string `json:"platform" doc:"Streaming platform: 'bandcamp' or 'spotify'"`
+	URL          string `json:"url" doc:"Candidate profile/artist URL"`
+	Source       string `json:"source" doc:"Discovery source (always 'musicbrainz')"`
+	MBArtistID   string `json:"mb_artist_id" doc:"MusicBrainz artist UUID this link came from"`
+	MBArtistName string `json:"mb_artist_name" doc:"MusicBrainz artist name (passed the exact-name gate)"`
+	Confidence   string `json:"confidence" doc:"Region confidence tier: 'high' or 'review'"`
+	RegionMatch  bool   `json:"region_match" doc:"True if the MB region aligned with a PH show region"`
+	Live         bool   `json:"live" doc:"True if the URL responded to an SSRF-guarded liveness probe"`
+	Notes        string `json:"notes,omitempty" doc:"Optional reviewer note (touring-act caveat, MB disambiguation)"`
+}
+
+// DiscoverMusicResult is the discover-music endpoint response. Shape is LOCKED
+// (the frontend ticket PSY-1198 builds against it).
+type DiscoverMusicResult struct {
+	ArtistID   uint                 `json:"artist_id" doc:"The artist the candidates were discovered for"`
+	Candidates []MusicLinkCandidate `json:"candidates" doc:"Discovered link candidates (may be empty)"`
+}
+
+// DiscoverMusicServiceInterface defines the contract for MusicBrainz-backed
+// link discovery. artistName is supplied by the handler after resolving the ID,
+// so the service stays free of artist-lookup concerns. ctx bounds the network
+// work (MB lookups + liveness probes) so a disconnected request is cancelled.
+type DiscoverMusicServiceInterface interface {
+	DiscoverMusic(ctx context.Context, artistID uint, artistName string) (*DiscoverMusicResult, error)
+}
+
+// ──────────────────────────────────────────────
 // Extraction Service Interface
 // ──────────────────────────────────────────────
 

@@ -69,6 +69,7 @@ type ServiceContainer struct {
 	Venue                  *catalog.VenueService
 	SourceConfig           *sourceregistry.SourceConfigService
 	StreamingWorklist      *pipeline.StreamingWorklistService
+	DiscoverMusic          *pipeline.DiscoverMusicService
 
 	// Config-only services
 	Discord            *notification.DiscordService
@@ -218,6 +219,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Venue:                  venue,
 		SourceConfig:           sourceConfig,
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
+		DiscoverMusic:          pipeline.NewDiscoverMusicService(database),
 
 		// Config-only services
 		Discord:            discord,
