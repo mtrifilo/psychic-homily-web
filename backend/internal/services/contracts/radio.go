@@ -761,6 +761,32 @@ type RadioSyncRunErrorResponse struct {
 	EpisodeRef *string `json:"episode_ref,omitempty"`
 }
 
+// RadioStationHealthResponse is the DTO for a radio_station_health rollup (PSY-1132),
+// surfaced to the admin health-card UI (PSY-1129/P5). Rate fields are nullable: nil =
+// never computed (distinct from 0.0 = computed and genuinely zero). A station that has
+// never run has no health row — the read path synthesizes a zero-value response (rates
+// nil, consecutive_failures 0, breaker closed) so every station still renders a card.
+//
+// NOTE (PSY-1129): the three rate fields (RecentSuccessRate, PlayMatchRate,
+// ZeroPlayEpisodeRate) are exposed but NOT yet populated by any writer —
+// updateStationHealth writes only breaker/failure/last-run/last-success — so they read
+// nil in prod until the rate-compute writer lands (tracked: PSY-1201). The read surface
+// is forward-correct; the health-card FE (PSY-1200) should treat nil rates as "—".
+type RadioStationHealthResponse struct {
+	StationID           uint       `json:"station_id"`
+	StationName         string     `json:"station_name"`
+	StationSlug         string     `json:"station_slug"`
+	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
+	LastRunAt           *time.Time `json:"last_run_at,omitempty"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	BreakerState        string     `json:"breaker_state"`
+	BreakerTrippedAt    *time.Time `json:"breaker_tripped_at,omitempty"`
+	RecentSuccessRate   *float64   `json:"recent_success_rate,omitempty"`
+	PlayMatchRate       *float64   `json:"play_match_rate,omitempty"`
+	ZeroPlayEpisodeRate *float64   `json:"zero_play_episode_rate,omitempty"`
+	UpdatedAt           *time.Time `json:"updated_at,omitempty"`
+}
+
 // SyncAffinityResult summarizes the result of syncing radio affinity data
 // to artist relationships.
 type SyncAffinityResult struct {
@@ -846,4 +872,11 @@ type RadioServiceInterface interface {
 	TriggerShowBackfill(showID uint, since, until string) (*RadioSyncRunResponse, error)
 	GetSyncRun(runID uint) (*RadioSyncRunResponse, error)
 	CancelSyncRun(runID uint) error
+	// Observability feeds (PSY-1129/P5). ListSyncRuns returns recent runs newest-first
+	// (stationID nil = global), optionally filtered by exact status, paginated; the
+	// int64 is the unfiltered-by-page total for the matched set. Station-health reads
+	// back the radio_station_health rollup for the health-card UI.
+	ListSyncRuns(stationID *uint, status string, limit, offset int) ([]*RadioSyncRunResponse, int64, error)
+	GetStationHealth(stationID uint) (*RadioStationHealthResponse, error)
+	ListStationHealth() ([]*RadioStationHealthResponse, error)
 }
