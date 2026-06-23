@@ -36,7 +36,11 @@ type Release struct {
 	ReleaseYear *int        `gorm:"column:release_year"`
 	ReleaseDate *string     `gorm:"column:release_date;type:date"` // DATE stored as string (YYYY-MM-DD)
 	CoverArtURL *string     `gorm:"column:cover_art_url"`
-	Description *string     `gorm:"column:description"`
+	// Provider + deep linkback for the cover image, for attribution (PSY-1175).
+	// source ∈ spotify|discogs|cover_art_archive|user|commons|public_domain.
+	CoverArtSource    *string `gorm:"column:cover_art_source;size:32"`
+	CoverArtSourceURL *string `gorm:"column:cover_art_source_url"`
+	Description       *string `gorm:"column:description"`
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

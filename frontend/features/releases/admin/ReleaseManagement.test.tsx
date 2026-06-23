@@ -65,6 +65,8 @@ function makeDetail(overrides: Partial<ReleaseDetail> = {}): ReleaseDetail {
     release_year: 2007,
     release_date: null,
     cover_art_url: null,
+    cover_art_source: null,
+    cover_art_source_url: null,
     description: null,
     artists: [{ id: 1, slug: 'radiohead', name: 'Radiohead', role: 'main' }],
     labels: [],

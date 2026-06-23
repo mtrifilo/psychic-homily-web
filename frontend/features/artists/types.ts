@@ -61,6 +61,9 @@ export interface Artist {
   description?: string | null
   /** Optional artist photo URL (PSY-521). */
   image_url?: string | null
+  /** Image provider + deep linkback for attribution (PSY-1175). */
+  image_source?: string | null
+  image_source_url?: string | null
   social: ArtistSocial
   created_at: string
   updated_at: string

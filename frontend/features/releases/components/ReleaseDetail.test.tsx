@@ -89,6 +89,7 @@ vi.mock('@/components/shared', () => ({
   AddToCollectionButton: () => (
     <button data-testid="add-to-collection">Collect</button>
   ),
+  ImageAttribution: () => null,
   BracketLink: ({
     label,
     onClick,
@@ -218,6 +219,8 @@ function makeRelease(
     release_year: 2007,
     release_date: '2007-10-10',
     cover_art_url: 'https://example.com/in-rainbows.jpg',
+    cover_art_source: null,
+    cover_art_source_url: null,
     description: 'The seventh studio album.',
     artists: [
       { id: 1, slug: 'radiohead', name: 'Radiohead', role: 'main' },

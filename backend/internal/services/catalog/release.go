@@ -692,18 +692,20 @@ func (s *ReleaseService) buildDetailResponse(release *catalogm.Release) (*contra
 	}
 
 	return &contracts.ReleaseDetailResponse{
-		ID:            release.ID,
-		Title:         release.Title,
-		Slug:          slug,
-		ReleaseType:   string(release.ReleaseType),
-		ReleaseYear:   release.ReleaseYear,
-		ReleaseDate:   release.ReleaseDate,
-		CoverArtURL:   release.CoverArtURL,
-		Description:   release.Description,
-		Artists:       artistResponses,
-		Labels:        labelResponses,
-		ExternalLinks: linkResponses,
-		CreatedAt:     release.CreatedAt,
-		UpdatedAt:     release.UpdatedAt,
+		ID:                release.ID,
+		Title:             release.Title,
+		Slug:              slug,
+		ReleaseType:       string(release.ReleaseType),
+		ReleaseYear:       release.ReleaseYear,
+		ReleaseDate:       release.ReleaseDate,
+		CoverArtURL:       release.CoverArtURL,
+		CoverArtSource:    release.CoverArtSource,
+		CoverArtSourceURL: release.CoverArtSourceURL,
+		Description:       release.Description,
+		Artists:           artistResponses,
+		Labels:            labelResponses,
+		ExternalLinks:     linkResponses,
+		CreatedAt:         release.CreatedAt,
+		UpdatedAt:         release.UpdatedAt,
 	}, nil
 }

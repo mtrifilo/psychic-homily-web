@@ -27,7 +27,11 @@ type Artist struct {
 	BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
 	Description      *string `json:"description,omitempty" gorm:"column:description;type:text"`
 	ImageURL         *string `json:"image_url,omitempty" gorm:"column:image_url"`
-	Social           Social  `gorm:"embedded"`
+	// Provider + deep linkback for the artist photo, for attribution (PSY-1175).
+	// source ∈ spotify|discogs|cover_art_archive|user|commons|public_domain.
+	ImageSource    *string `json:"image_source,omitempty" gorm:"column:image_source;size:32"`
+	ImageSourceURL *string `json:"image_source_url,omitempty" gorm:"column:image_source_url"`
+	Social         Social  `gorm:"embedded"`
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

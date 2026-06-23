@@ -596,6 +596,8 @@ func (s *ArtistService) buildArtistResponse(artist *catalogm.Artist) *contracts.
 		BandcampEmbedURL: artist.BandcampEmbedURL,
 		Description:      artist.Description,
 		ImageURL:         artist.ImageURL,
+		ImageSource:      artist.ImageSource,
+		ImageSourceURL:   artist.ImageSourceURL,
 		Social: contracts.SocialResponse{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,

@@ -165,6 +165,7 @@ vi.mock('./RelatedArtists', () => ({
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links">Social Links</div>,
   MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
+  ImageAttribution: () => null,
   EntityDetailLayout: ({
     children,
     sidebar,

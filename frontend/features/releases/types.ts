@@ -81,6 +81,8 @@ export interface ReleaseDetail {
   release_year: number | null
   release_date: string | null
   cover_art_url: string | null
+  cover_art_source: string | null
+  cover_art_source_url: string | null
   description: string | null
   artists: ReleaseArtist[]
   labels: ReleaseLabel[]
