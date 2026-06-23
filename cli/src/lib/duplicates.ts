@@ -309,9 +309,10 @@ const RELEASE_FIELDS = [
 // Compared fields for label dedup. PSY-1179 widened LabelListResponse to carry
 // the full social set + founded_year (previously only website/bandcamp), so
 // these now compare against real existing values instead of always reading empty
-// (which forced a spurious UPDATE every re-ingest). `status` was already on the
-// list response's wire shape, but this is the first time the CLI *compares* it
-// (it's net-new to LABEL_FIELDS here). PSY-1157/1171/1179.
+// (which forced a spurious UPDATE every re-ingest). `status` is net-new to
+// LABEL_FIELDS here but is effectively defensive: the column is NOT NULL default
+// 'active' (existing value never empty) and the ingest doesn't carry status, so
+// it resolves to already_set/unchanged and won't fire new_info. PSY-1157/1171/1179.
 const LABEL_FIELDS = [
   "name", "city", "state", "country", "founded_year", "status", "description",
   "website", "bandcamp", "spotify", "instagram",

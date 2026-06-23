@@ -268,7 +268,7 @@ type AdminCreateVenueRequest struct {
 		Zipcode *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
 		// PSY-1179: capacity + description were silently dropped on create — the
 		// service contract + CLI sent them but this HTTP body omitted them.
-		Capacity    *int    `json:"capacity" required:"false" doc:"Venue capacity"`
+		Capacity    *int    `json:"capacity" required:"false" minimum:"0" doc:"Venue capacity"`
 		Description *string `json:"description" required:"false" doc:"Markdown description (max 5000 chars)" maxLength:"5000"`
 		Instagram   *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
 		Facebook    *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
@@ -368,7 +368,7 @@ type UpdateVenueRequest struct {
 		State       *string `json:"state,omitempty" required:"false" doc:"Venue state"`
 		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
-		Capacity    *int    `json:"capacity,omitempty" required:"false" doc:"Venue capacity"` // PSY-1179
+		Capacity    *int    `json:"capacity,omitempty" required:"false" minimum:"0" doc:"Venue capacity"` // PSY-1179
 		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
 		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
