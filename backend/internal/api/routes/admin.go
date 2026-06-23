@@ -26,6 +26,7 @@ func setupAdminRoutes(rc RouteContext) {
 	discoveryHandler := pipelineh.NewAdminDiscoveryHandler(rc.SC.Discovery)
 	streamingWorklistHandler := pipelineh.NewStreamingWorklistHandler(rc.SC.StreamingWorklist, rc.SC.AuditLog)
 	discoverMusicHandler := pipelineh.NewDiscoverMusicHandler(rc.SC.DiscoverMusic, rc.SC.Artist)
+	linkSuggestionHandler := pipelineh.NewLinkSuggestionHandler(rc.SC.LinkSuggestion, rc.SC.AuditLog)
 
 	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision, rc.Cfg)
 	auditLogHandler := adminh.NewAuditLogHandler(rc.SC.AuditLog)
@@ -75,6 +76,15 @@ func setupAdminRoutes(rc RouteContext) {
 	// Admin discovery endpoints (for local discovery app)
 	huma.Post(rc.Admin, "/admin/discovery/import", discoveryHandler.DiscoveryImportHandler)
 	huma.Post(rc.Admin, "/admin/discovery/check", discoveryHandler.DiscoveryCheckHandler)
+
+	// Admin music-link suggestion review queue (PSY-1199). Pre-computed
+	// MusicBrainz-sourced Bandcamp/Spotify candidates the admin reviews in bulk.
+	// Accept writes the link via the existing artist update path (Spotify →
+	// social.spotify; Bandcamp → social.bandcamp + the PSY-1190 resolver). Pure
+	// admin (rc.Admin) — no internal-secret bypass.
+	huma.Get(rc.Admin, "/admin/link-suggestions", linkSuggestionHandler.ListLinkSuggestionsHandler)
+	huma.Post(rc.Admin, "/admin/link-suggestions/{id}/accept", linkSuggestionHandler.AcceptLinkSuggestionHandler)
+	huma.Post(rc.Admin, "/admin/link-suggestions/{id}/reject", linkSuggestionHandler.RejectLinkSuggestionHandler)
 
 	// Admin streaming-discovery worklist + status mutation (PSY-827).
 	// Surfaces the prioritized triage queue and records admin decisions.
