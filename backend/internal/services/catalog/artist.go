@@ -65,6 +65,11 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		Description:      req.Description,
 		ImageURL:         req.ImageURL,
 		BandcampEmbedURL: req.BandcampEmbedURL,
+		// Stamp provenance whenever this create actually sets an embed (a
+		// human/admin/AI-fulfiller value): "manual" so the PSY-1189 keep-fresh
+		// hook never auto-refreshes a curated embed. Leave nil when no embed is
+		// supplied so the source isn't falsely claimed (PSY-1188).
+		BandcampEmbedSource: manualEmbedSourceIfSet(req.BandcampEmbedURL),
 		Social: catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
@@ -243,7 +248,18 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 		updates["description"] = utils.NilIfEmpty(*req.Description)
 	}
 	if req.BandcampEmbedURL != nil {
-		updates["bandcamp_embed_url"] = utils.NilIfEmpty(*req.BandcampEmbedURL)
+		embed := utils.NilIfEmpty(*req.BandcampEmbedURL)
+		updates["bandcamp_embed_url"] = embed
+		// Keep the provenance column in lockstep with the URL on every write
+		// through this typed path (admin endpoint, AI fulfiller): a non-empty
+		// value is a human/admin/AI edit → "manual"; clearing the embed also
+		// clears the source (PSY-1188). Both are explicit map entries so GORM
+		// writes the NULL on a clear rather than skipping a zero value.
+		if embed != nil {
+			updates["bandcamp_embed_source"] = catalogm.BandcampEmbedSourceManual
+		} else {
+			updates["bandcamp_embed_source"] = nil
+		}
 	}
 	if req.Instagram != nil {
 		updates["instagram"] = utils.NilIfEmpty(*req.Instagram)
@@ -1093,4 +1109,151 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 	}
 
 	return result, nil
+}
+
+// ──────────────────────────────────────────────
+// Bandcamp embed derivation (PSY-1188)
+// ──────────────────────────────────────────────
+
+// manualEmbedSourceIfSet returns a pointer to the "manual" provenance value
+// when embed is a non-nil, non-empty embed URL (a human/admin/AI write actually
+// set it), and nil otherwise. Centralizes the "stamp manual only when an embed
+// is supplied" rule so CreateArtist doesn't claim a source for an absent embed.
+func manualEmbedSourceIfSet(embed *string) *string {
+	if embed == nil || strings.TrimSpace(*embed) == "" {
+		return nil
+	}
+	src := catalogm.BandcampEmbedSourceManual
+	return &src
+}
+
+// embedCandidate is one embeddable Bandcamp link found on a release, carrying
+// the fields the selection rule sorts on.
+type embedCandidate struct {
+	url     string
+	year    *int // release year; nil sorts last (oldest/unknown)
+	isAlbum bool // /album/ (richer embed) vs /track/
+	relID   uint
+	linkID  uint
+}
+
+// selectBandcampEmbedFromReleases picks a representative Bandcamp album/track
+// embed URL from an artist's releases, or returns nil when none of the releases
+// carry an embeddable Bandcamp link.
+//
+// Selection rule (deterministic — the cmd must pick the same URL on re-run):
+//   - Consider only release external links whose URL passes the strict
+//     utils.IsValidBandcampEmbedURL gate (host-anchored *.bandcamp.com +
+//     /album|/track path). The link's `platform` label is intentionally NOT
+//     trusted — the URL itself is the source of truth, so a mislabeled or
+//     unlabeled link is still matched and a non-Bandcamp link labeled
+//     "bandcamp" is still rejected.
+//   - Prefer the most RECENT release by ReleaseYear. A nil year sorts LAST
+//     (treated as oldest/unknown) so dated releases win over undated ones.
+//   - Tie-break, in order: /album over /track (an album page is the richer
+//     embed), then the lowest release ID (stable, insertion-order-ish).
+//   - Within a single release, prefer an /album link over a /track link, then
+//     the lowest external-link ID, for the same determinism.
+//
+// releases MUST have ExternalLinks preloaded. The returned pointer is to a
+// freshly allocated string (safe to store directly).
+func selectBandcampEmbedFromReleases(releases []catalogm.Release) *string {
+	var best *embedCandidate
+	for ri := range releases {
+		rel := &releases[ri]
+		// Pick the best embeddable link WITHIN this release first.
+		var relBest *embedCandidate
+		for li := range rel.ExternalLinks {
+			link := &rel.ExternalLinks[li]
+			if !utils.IsValidBandcampEmbedURL(link.URL) {
+				continue
+			}
+			c := embedCandidate{
+				url:     strings.TrimSpace(link.URL),
+				year:    rel.ReleaseYear,
+				isAlbum: strings.Contains(strings.ToLower(link.URL), "/album/"),
+				relID:   rel.ID,
+				linkID:  link.ID,
+			}
+			if relBest == nil || betterLinkWithinRelease(&c, relBest) {
+				cc := c
+				relBest = &cc
+			}
+		}
+		if relBest == nil {
+			continue
+		}
+		if best == nil || betterCandidate(relBest, best) {
+			best = relBest
+		}
+	}
+
+	if best == nil {
+		return nil
+	}
+	out := best.url
+	return &out
+}
+
+// betterLinkWithinRelease reports whether a is the better embed link than b for
+// the SAME release: album over track, then lowest external-link ID.
+func betterLinkWithinRelease(a, b *embedCandidate) bool {
+	if a.isAlbum != b.isAlbum {
+		return a.isAlbum // album wins
+	}
+	return a.linkID < b.linkID
+}
+
+// betterCandidate reports whether a should beat the current best b ACROSS
+// releases: most recent year first (nil year sorts last), then album over
+// track, then lowest release ID.
+func betterCandidate(a, b *embedCandidate) bool {
+	// Year: a non-nil higher year wins; nil is treated as oldest.
+	switch {
+	case a.year != nil && b.year != nil:
+		if *a.year != *b.year {
+			return *a.year > *b.year
+		}
+	case a.year != nil && b.year == nil:
+		return true // a is dated, b is not → a wins
+	case a.year == nil && b.year != nil:
+		return false // b is dated → b wins
+	}
+	// Equal (or both-nil) year → album over track.
+	if a.isAlbum != b.isAlbum {
+		return a.isAlbum
+	}
+	// Final tie-break: lowest release ID for determinism.
+	return a.relID < b.relID
+}
+
+// DeriveBandcampEmbedForArtist loads the artist's releases (with external links)
+// and returns the representative Bandcamp embed URL per the selection rule, or
+// nil when none of the releases carry an embeddable Bandcamp link. It does NOT
+// write anything — the backfill decides whether to persist it.
+func (s *ArtistService) DeriveBandcampEmbedForArtist(artistID uint) (*string, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Release IDs the artist is credited on (any role).
+	var releaseIDs []uint
+	if err := s.db.Table("artist_releases").
+		Where("artist_id = ?", artistID).
+		Distinct().
+		Pluck("release_id", &releaseIDs).Error; err != nil {
+		return nil, fmt.Errorf("failed to get artist release ids: %w", err)
+	}
+	if len(releaseIDs) == 0 {
+		return nil, nil
+	}
+
+	var releases []catalogm.Release
+	if err := s.db.Preload("ExternalLinks").
+		Where("id IN ?", releaseIDs).
+		Find(&releases).Error; err != nil {
+		return nil, fmt.Errorf("failed to load releases for embed derivation: %w", err)
+	}
+
+	return selectBandcampEmbedFromReleases(releases), nil
 }

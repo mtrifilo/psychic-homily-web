@@ -20,6 +20,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
+	"psychic-homily-backend/internal/utils"
 )
 
 type ArtistHandler struct {
@@ -551,30 +552,13 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 	return &UpdateArtistBandcampResponse{Body: artist}, nil
 }
 
-// isValidBandcampURL validates that the URL is a proper Bandcamp album/track URL.
-// It parses the URL and anchors on the host (not a substring match), so a
-// hostile value like "http://169.254.169.254/album/x?bandcamp.com" — which the
-// old strings.Contains check accepted — is rejected. This handler STORES the
-// value (later rendered in an iframe src); it does not fetch it, so the win here
-// is preventing a hostile/foreign host from being persisted, not SSRF.
-//
-// NOTE: the general social.bandcamp/social.spotify fields are host-anchored to
-// *.bandcamp.com / *.spotify.com by ValidateSocialURLs (PSY-1113). This
-// dedicated validator is the STRICTER gate the embed endpoint needs — it also
-// requires the /album|/track path, since the value drives an iframe embed.
+// isValidBandcampURL validates that the URL is a proper Bandcamp album/track
+// URL. The strict host-anchored + /album|/track rule lives in
+// utils.IsValidBandcampEmbedURL (PSY-1188) so the service-layer release-derived
+// backfill enforces the SAME gate this admin endpoint does; this thin wrapper
+// keeps the existing call site readable.
 func isValidBandcampURL(rawURL string) bool {
-	u, ok := parseHTTPURL(rawURL)
-	if !ok {
-		return false
-	}
-	// Real album/track pages always live on an artist subdomain
-	// (<artist>.bandcamp.com); the bare apex is not a release URL, and the
-	// social-link mirror (above) keys off the ".bandcamp.com" subdomain too.
-	if !strings.HasSuffix(strings.ToLower(u.Hostname()), ".bandcamp.com") {
-		return false
-	}
-	// Album or track page, not a bare profile.
-	return strings.HasPrefix(u.Path, "/album/") || strings.HasPrefix(u.Path, "/track/")
+	return utils.IsValidBandcampEmbedURL(rawURL)
 }
 
 // parseHTTPURL parses rawURL and confirms it has an http/https scheme and a

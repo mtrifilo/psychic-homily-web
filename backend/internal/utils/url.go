@@ -46,6 +46,40 @@ func ValidateHTTPURL(s, fieldName string) error {
 	return nil
 }
 
+// IsValidBandcampEmbedURL reports whether rawURL is a strict Bandcamp
+// album/track embed URL: an http/https URL whose host is an artist subdomain
+// (<artist>.bandcamp.com) and whose path is /album/… or /track/….
+//
+// It parses the URL and anchors on the host (not a substring match), so a
+// hostile value like "http://169.254.169.254/album/x?bandcamp.com" is rejected.
+// This value is later rendered in an iframe src — it is STORED, not fetched —
+// so the win is keeping a hostile/foreign host out of the column, not SSRF.
+//
+// This is the STRICT embed gate (it requires the /album|/track path), distinct
+// from the looser host-anchor that utils.ValidateHTTPURL + the social-link
+// validators apply. PSY-1188 lifted it out of the catalog handler into utils so
+// the service-layer release-derived backfill can reuse the SAME rule that the
+// admin bandcamp endpoint already enforces.
+func IsValidBandcampEmbedURL(rawURL string) bool {
+	trimmed := strings.TrimSpace(rawURL)
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return false
+	}
+	// Accept http and https (matches the codebase's URL convention); the host
+	// anchor below, not the scheme, is what rejects hostile values.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	// Real album/track pages always live on an artist subdomain
+	// (<artist>.bandcamp.com); the bare apex is not a release URL.
+	if !strings.HasSuffix(strings.ToLower(u.Hostname()), ".bandcamp.com") {
+		return false
+	}
+	// Album or track page, not a bare profile.
+	return strings.HasPrefix(u.Path, "/album/") || strings.HasPrefix(u.Path, "/track/")
+}
+
 // instagramHandleRe matches a bare Instagram username: 1–30 characters of
 // letters, digits, periods, and underscores. This mirrors Instagram's own
 // handle grammar and, crucially, contains no ':' or '/', so any URL-shaped or

@@ -17,6 +17,21 @@ const (
 	StreamingDiscoveryStatusSkipped           StreamingDiscoveryStatus = "skipped"
 )
 
+// BandcampEmbedSource records HOW artists.bandcamp_embed_url was set, so a
+// keep-fresh hook (PSY-1189) can safely refresh/clean up the auto-derived
+// embeds without ever clobbering a human-curated value. Keep these in sync with
+// the bandcamp_embed_source VARCHAR(32) column (PSY-1188 migration) — the column
+// is nullable, and a NULL means legacy/unknown (set before the column existed).
+const (
+	// BandcampEmbedSourceReleaseDerived marks an embed auto-derived from one of
+	// the artist's catalogued release Bandcamp links (the backfill stamps this).
+	BandcampEmbedSourceReleaseDerived = "release_derived"
+	// BandcampEmbedSourceManual marks an embed set by a human/admin/AI write
+	// path (the direct admin endpoint, CreateArtist/UpdateArtist, the community
+	// entity-request fulfiller).
+	BandcampEmbedSourceManual = "manual"
+)
+
 type Artist struct {
 	ID               uint    `gorm:"primaryKey"`
 	Name             string  `gorm:"uniqueIndex"`
@@ -25,7 +40,11 @@ type Artist struct {
 	City             *string `gorm:"column:city"`
 	Country          *string `gorm:"column:country;size:100"`
 	BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
-	Description      *string `json:"description,omitempty" gorm:"column:description;type:text"`
+	// BandcampEmbedSource is the provenance of BandcampEmbedURL — one of the
+	// BandcampEmbedSource* constants, or nil for legacy/unknown (PSY-1188).
+	// Internal column: NOT mapped onto any API response.
+	BandcampEmbedSource *string `json:"-" gorm:"column:bandcamp_embed_source;size:32"`
+	Description         *string `json:"description,omitempty" gorm:"column:description;type:text"`
 	ImageURL         *string `json:"image_url,omitempty" gorm:"column:image_url"`
 	// Provider + deep linkback for the artist photo, for attribution (PSY-1175).
 	// source ∈ spotify|discogs|cover_art_archive|user|commons|public_domain.
