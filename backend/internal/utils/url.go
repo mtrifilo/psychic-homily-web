@@ -80,6 +80,19 @@ func IsValidBandcampEmbedURL(rawURL string) bool {
 	return strings.HasPrefix(u.Path, "/album/") || strings.HasPrefix(u.Path, "/track/")
 }
 
+// IsBandcampAlbumURL reports whether rawURL's PATH is a Bandcamp /album/… page
+// (as opposed to a /track/… page). It anchors on the parsed path so a /track/
+// URL with "/album/" elsewhere (e.g. in a query string) is NOT misclassified.
+// Callers should gate on IsValidBandcampEmbedURL first; this is the album-vs-
+// track discriminator used to prefer the richer album embed (PSY-1188).
+func IsBandcampAlbumURL(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(u.Path, "/album/")
+}
+
 // instagramHandleRe matches a bare Instagram username: 1–30 characters of
 // letters, digits, periods, and underscores. This mirrors Instagram's own
 // handle grammar and, crucially, contains no ':' or '/', so any URL-shaped or

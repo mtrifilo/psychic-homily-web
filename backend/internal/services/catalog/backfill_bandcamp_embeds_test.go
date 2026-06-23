@@ -136,6 +136,17 @@ func TestSelectBandcampEmbedFromReleases(t *testing.T) {
 			},
 			want: &trackA,
 		},
+		{
+			// A /track/ URL with "/album/" in its query string must NOT be
+			// classified as an album, so a real /album/ in another release
+			// still wins the album-over-track tie-break.
+			name: "track url with /album/ in query string is not an album",
+			releases: []catalogm.Release{
+				bcRel(1, intPtr(2021), bcLink(10, "bandcamp", "https://artificialgo.bandcamp.com/track/song?from=/album/x")),
+				bcRel(2, intPtr(2021), bcLink(20, "bandcamp", albumB)),
+			},
+			want: &albumB,
+		},
 	}
 
 	for _, tt := range tests {

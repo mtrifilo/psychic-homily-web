@@ -1171,7 +1171,11 @@ func selectBandcampEmbedFromReleases(releases []catalogm.Release) *string {
 			c := embedCandidate{
 				url:     strings.TrimSpace(link.URL),
 				year:    rel.ReleaseYear,
-				isAlbum: strings.Contains(strings.ToLower(link.URL), "/album/"),
+				// Anchor on the parsed PATH, not a substring of the whole URL:
+				// a /track/ link with "/album/" in its query string must not be
+				// mis-classified as an album (the URL already passed the strict
+				// validator, so the path is /album/… or /track/…).
+				isAlbum: utils.IsBandcampAlbumURL(link.URL),
 				relID:   rel.ID,
 				linkID:  link.ID,
 			}

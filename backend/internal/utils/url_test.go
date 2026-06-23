@@ -332,3 +332,21 @@ func TestIsValidBandcampEmbedURL(t *testing.T) {
 		})
 	}
 }
+
+func TestIsBandcampAlbumURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"album path", "https://x.bandcamp.com/album/y", true},
+		{"track path", "https://x.bandcamp.com/track/y", false},
+		{"track with /album/ in query is not an album", "https://x.bandcamp.com/track/y?from=/album/z", false},
+		{"unparseable", "://bad", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsBandcampAlbumURL(tc.input))
+		})
+	}
+}
