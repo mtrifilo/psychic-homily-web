@@ -497,7 +497,7 @@ func (s *RadioFetchService) runScheduleLoop(ctx context.Context) {
 // WFMU 91.1 shows (matched by external_id). WFMU-only: the /table grid is the 91.1
 // schedule. Every failure is logged and returns — never fatal; the ticker loop continues.
 func (s *RadioFetchService) runScheduleCycle() {
-	now := time.Now()
+	start := time.Now()
 	provider, err := s.radioService.getProvider(catalogm.PlaylistSourceWFMU)
 	if err != nil {
 		s.logger.Error("radio schedule: get WFMU provider failed", "error", err)
@@ -510,7 +510,7 @@ func (s *RadioFetchService) runScheduleCycle() {
 		s.logger.Error("radio schedule: WFMU provider does not support schedule discovery")
 		return
 	}
-	entries, err := sd.DiscoverSchedule()
+	entries, skipped, err := sd.DiscoverSchedule()
 	if err != nil {
 		s.logger.Error("radio schedule: scrape failed", "error", err)
 		return
@@ -522,9 +522,10 @@ func (s *RadioFetchService) runScheduleCycle() {
 	}
 	s.logger.Info("radio schedule cycle complete",
 		"shows_parsed", len(entries),
+		"cells_skipped", skipped,
 		"schedules_written", matched,
 		"unmatched_codes", unmatched,
-		"duration", time.Since(now),
+		"duration", time.Since(start),
 	)
 }
 

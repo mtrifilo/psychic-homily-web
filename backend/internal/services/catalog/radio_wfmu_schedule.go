@@ -41,19 +41,20 @@ type WFMUScheduleEntry struct {
 
 // DiscoverSchedule fetches wfmu.org/table and parses the weekly grid into per-show slots.
 // WFMU-specific (not part of RadioPlaylistProvider): only the 91.1 broadcast has this grid.
-func (p *WFMUProvider) DiscoverSchedule() ([]WFMUScheduleEntry, error) {
+func (p *WFMUProvider) DiscoverSchedule() (entries []WFMUScheduleEntry, skipped int, err error) {
 	<-p.rateLimiter.C
 	body, err := p.doGet(fmt.Sprintf("%s/table", p.baseURL))
 	if err != nil {
-		return nil, fmt.Errorf("fetching schedule table: %w", err)
+		return nil, 0, fmt.Errorf("fetching schedule table: %w", err)
 	}
 	return parseWFMUScheduleTable(body)
 }
 
 // scheduleDiscoverer is the WFMU-only capability the schedule cycle needs; kept as a
-// narrow interface so the cycle can be driven by a mock provider in tests.
+// narrow interface so the cycle can be driven by a mock provider in tests. The second
+// return is the count of grid cells skipped during parse (observability).
 type scheduleDiscoverer interface {
-	DiscoverSchedule() ([]WFMUScheduleEntry, error)
+	DiscoverSchedule() ([]WFMUScheduleEntry, int, error)
 }
 
 // wfmuFlagshipStationSlug is the seeded radio_stations.slug for WFMU 91.1 — the only
@@ -65,7 +66,14 @@ const wfmuFlagshipStationSlug = "wfmu"
 // matched by external_id (== program code) — an exact join, no fuzzy name match. Returns
 // matched/unmatched counts. A single show's validate/marshal/update failure is logged and
 // skipped (one bad row never aborts the batch); an unmatched code is deferred (the show may
-// not have a row yet under create-on-first, PSY-1153). Re-runnable: it overwrites schedule.
+// not have a row yet under create-on-first, PSY-1153).
+//
+// SCRAPE-WINS (intentional, per the owner's "re-scrape weekly for seasonal churn"
+// decision): wfmu.org/table is the source of truth for WFMU 91.1 schedules, so this
+// overwrites an existing schedule (that's how churn propagates). The one caveat is that it
+// also overwrites a schedule an admin set by hand via the update handler — so an overwrite
+// of a NON-EMPTY schedule is logged (a trail for that rare case). Admin-override protection
+// (a provenance/locked flag) is a tracked follow-up (PSY-1186); today the scrape is authoritative.
 func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, unmatched int, err error) {
 	if s.db == nil {
 		return 0, 0, fmt.Errorf("database not initialized")
@@ -77,7 +85,7 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 
 	for _, e := range entries {
 		var show catalogm.RadioShow
-		lookupErr := s.db.Select("id").
+		lookupErr := s.db.Select("id", "schedule").
 			Where("station_id = ? AND external_id = ?", station.ID, e.Code).
 			First(&show).Error
 		if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
@@ -100,6 +108,10 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 			slog.Warn("wfmu schedule: marshal failed", "code", e.Code, "error", mErr)
 			continue
 		}
+		if show.Schedule != nil && len(*show.Schedule) > 0 {
+			slog.Info("wfmu schedule: overwriting existing schedule (scrape is authoritative for WFMU 91.1)",
+				"code", e.Code, "show_id", show.ID)
+		}
 		rawMsg := json.RawMessage(raw)
 		if uErr := s.db.Model(&catalogm.RadioShow{}).
 			Where("id = ?", show.ID).
@@ -120,23 +132,27 @@ var dayNameToWeekday = map[string]int{
 }
 
 // parseWFMUScheduleTable reconstructs the grid and returns one entry per program code,
-// with a slot for each (day, time-range) cell. Per-cell parse failures are skipped (a
-// single malformed cell never fails the whole scrape); a code with no parseable slot is
-// dropped. The returned entries are unsorted.
-func parseWFMUScheduleTable(body []byte) ([]WFMUScheduleEntry, error) {
+// with a slot for each (day, time-range) cell, plus the count of program cells that were
+// SKIPPED (no code, no parseable time, or outside the day columns). A single malformed
+// cell never fails the whole scrape — but the skipped count is surfaced + logged so a
+// WFMU markup change that breaks N cells doesn't look identical to a healthy run. Known
+// skip: a stacked two-show cell (e.g. Monday's "Jim Price (3-3:01)" / "Scott Williams
+// (3:01-6)") has two show links + no program_time span; both shows are dropped (tracked
+// follow-up PSY-1186). The returned entries are unsorted.
+func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped int, err error) {
 	doc, err := html.Parse(strings.NewReader(string(body)))
 	if err != nil {
-		return nil, fmt.Errorf("parsing schedule HTML: %w", err)
+		return nil, 0, fmt.Errorf("parsing schedule HTML: %w", err)
 	}
 
 	table := findScheduleTable(doc)
 	if table == nil {
-		return nil, fmt.Errorf("schedule table not found (no <th class=\"day\">)")
+		return nil, 0, fmt.Errorf("schedule table not found (no <th class=\"day\">)")
 	}
 
 	rows := collectRows(table)
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("schedule table has no rows")
+		return nil, 0, fmt.Errorf("schedule table has no rows")
 	}
 
 	// Reconstruct the cell matrix (rowspan/colspan aware) so each cell has a column.
@@ -180,7 +196,7 @@ func parseWFMUScheduleTable(body []byte) ([]WFMUScheduleEntry, error) {
 	}
 
 	if len(colToWeekday) == 0 {
-		return nil, fmt.Errorf("schedule table has no day-column headers")
+		return nil, 0, fmt.Errorf("schedule table has no day-column headers")
 	}
 
 	// Group slots by program code.
@@ -189,14 +205,17 @@ func parseWFMUScheduleTable(body []byte) ([]WFMUScheduleEntry, error) {
 	for _, pc := range programCells {
 		weekday, ok := colToWeekday[pc.col]
 		if !ok {
-			continue // a program cell outside the 7 day columns (defensive)
+			skipped++ // a program cell outside the 7 day columns (defensive)
+			continue
 		}
 		code, name := extractProgramCodeAndName(pc.node)
 		if code == "" {
+			skipped++
 			continue
 		}
 		start, end, ok := parseWFMUTimeRange(programTimeText(pc.node))
 		if !ok {
+			skipped++
 			continue
 		}
 		entry := byCode[code]
@@ -210,11 +229,15 @@ func parseWFMUScheduleTable(body []byte) ([]WFMUScheduleEntry, error) {
 		})
 	}
 
-	entries := make([]WFMUScheduleEntry, 0, len(order))
+	out := make([]WFMUScheduleEntry, 0, len(order))
 	for _, code := range order {
-		entries = append(entries, *byCode[code])
+		out = append(out, *byCode[code])
 	}
-	return entries, nil
+	if skipped > 0 {
+		slog.Warn("wfmu schedule: program cells skipped (no code / unparseable time / out of grid)",
+			"skipped", skipped, "parsed", len(out))
+	}
+	return out, skipped, nil
 }
 
 // --- DOM helpers (x/net/html) ---
@@ -328,21 +351,35 @@ func findDescendant(n *html.Node, pred func(*html.Node) bool) *html.Node {
 	return found
 }
 
-var playlistCodeRe = regexp.MustCompile(`/playlists/([A-Za-z0-9]+)`)
+var (
+	kdbProgramIDRe = regexp.MustCompile(`^KDBprogram-([A-Za-z0-9]+)$`)
+	playlistCodeRe = regexp.MustCompile(`(?i)/playlists/([A-Za-z0-9]+)`)
+)
 
-// extractProgramCodeAndName pulls the WFMU program code (from the show-title link's
-// /playlists/{CODE} href) and the show title text out of a program cell.
+// extractProgramCodeAndName pulls the WFMU program code + the show title from a program
+// cell. The code is read from the favorite-icon span's id="KDBprogram-{CODE}" — the
+// canonical, always-present source. The show-title-link href is NOT reliable for the code:
+// most are relative /playlists/{CODE} but some are absolute archives URLs (e.g. The Glen
+// Jones Radio Programme → https://www.wfmu.org/Playlists/GJ/archives.html), so it is only a
+// case-insensitive fallback. The title text always comes from the show-title-link.
 func extractProgramCodeAndName(cell *html.Node) (code, name string) {
+	if idNode := findDescendant(cell, func(x *html.Node) bool {
+		return kdbProgramIDRe.MatchString(getAttr(x, "id"))
+	}); idNode != nil {
+		code = kdbProgramIDRe.FindStringSubmatch(getAttr(idNode, "id"))[1]
+	}
+
 	link := findDescendant(cell, func(x *html.Node) bool {
 		return strings.EqualFold(x.Data, "a") && hasClass(x, "show-title-link")
 	})
-	if link == nil {
-		return "", ""
+	if link != nil {
+		name = strings.Join(strings.Fields(textContent(link)), " ")
+		if code == "" { // fallback: relative or absolute /playlists/{CODE} href
+			if m := playlistCodeRe.FindStringSubmatch(getAttr(link, "href")); m != nil {
+				code = m[1]
+			}
+		}
 	}
-	if m := playlistCodeRe.FindStringSubmatch(getAttr(link, "href")); m != nil {
-		code = m[1]
-	}
-	name = strings.Join(strings.Fields(textContent(link)), " ")
 	return code, name
 }
 
@@ -378,14 +415,30 @@ func parseWFMUTimeRange(s string) (start, end string, ok bool) {
 	if !lok {
 		return "", "", false
 	}
-	// A bare numeric start with no meridiem of its own inherits the end's.
-	if leftMer == "" && rightMer != "" {
-		leftMin = applyMeridiem(leftMin, rightMer)
-	}
-	if leftMer == "" && rightMer == "" {
-		return "", "", false // ambiguous (neither side anchored) — skip
+	if leftMer == "" {
+		if rightMer == "" {
+			return "", "", false // neither side anchored — ambiguous, skip
+		}
+		// A bare numeric start is a same-day FORWARD range (overnight slots always carry
+		// explicit meridiems, e.g. "9pm-Mid"). Choose the meridiem that keeps start < end:
+		// inheriting the end's works for same-meridiem ranges ("1-3pm" → 13:00, "6-9am" →
+		// 06:00); when that would reverse the range, the start is the earlier meridiem
+		// ("9-3pm" → 09:00 not 21:00; "10-Noon" → 10:00). Inheriting blindly (the prior
+		// bug) silently produced an ~18h reversed wrap on AM→PM crossing ranges.
+		if inherited := applyMeridiem(leftMin, rightMer); inherited < rightMin {
+			leftMin = inherited
+		} else {
+			leftMin = applyMeridiem(leftMin, otherMeridiem(rightMer))
+		}
 	}
 	return fmtHHMM(leftMin), fmtHHMM(rightMin), true
+}
+
+func otherMeridiem(m string) string {
+	if m == "pm" {
+		return "am"
+	}
+	return "pm"
 }
 
 // parseTimeToken returns minutes-since-midnight for a single token. meridiem is "am"/"pm"

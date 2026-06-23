@@ -13,11 +13,36 @@ func loadScheduleFixture(t *testing.T) []WFMUScheduleEntry {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	entries, err := parseWFMUScheduleTable(body)
+	entries, _, err := parseWFMUScheduleTable(body)
 	if err != nil {
 		t.Fatalf("parseWFMUScheduleTable: %v", err)
 	}
 	return entries
+}
+
+// The Summer-2026 fixture contains exactly one stacked two-show cell (Monday 3-6pm:
+// "Jim Price (3-3:01)" / "Scott Williams (3:01-6)") with two show links and no
+// program_time span. The parser drops it and reports it via the skipped count (not
+// silently) — a known limitation tracked as PSY-1186.
+func TestParseWFMUScheduleTable_ReportsSkippedCells(t *testing.T) {
+	body, err := os.ReadFile("testdata/wfmu_table.html")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	entries, skipped, err := parseWFMUScheduleTable(body)
+	if err != nil {
+		t.Fatalf("parseWFMUScheduleTable: %v", err)
+	}
+	if skipped != 1 {
+		t.Errorf("expected exactly 1 skipped cell (the stacked Jim Price/Scott Williams cell), got %d", skipped)
+	}
+	for _, code := range []string{"JP", "SW"} {
+		for _, e := range entries {
+			if e.Code == code {
+				t.Errorf("stacked-cell code %q should have been skipped, but produced an entry", code)
+			}
+		}
+	}
 }
 
 func findEntryByName(entries []WFMUScheduleEntry, name string) *WFMUScheduleEntry {
@@ -86,6 +111,20 @@ func TestParseWFMUScheduleTable_KnownShows(t *testing.T) {
 	if !hasSlot(tz, 1, "00:00", "03:00") {
 		t.Errorf("Travel Zone missing Mon 00:00-03:00; slots=%+v", tz.Slots)
 	}
+
+	// The Glen Jones Radio Programme: Sunday Noon–3pm. Its show-title-link is an ABSOLUTE
+	// archives URL (.../Playlists/GJ/archives.html), so the code must come from the
+	// KDBprogram-GJ id, not the href — regression guard for that fix.
+	gj := findEntryByName(entries, "The Glen Jones Radio Programme")
+	if gj == nil {
+		t.Fatal("The Glen Jones Radio Programme not found (absolute-archives-URL code extraction)")
+	}
+	if gj.Code != "GJ" {
+		t.Errorf("Glen Jones code = %q, want GJ", gj.Code)
+	}
+	if !hasSlot(gj, 0, "12:00", "15:00") {
+		t.Errorf("Glen Jones missing Sun 12:00-15:00; slots=%+v", gj.Slots)
+	}
 }
 
 // Every parsed slot must be a valid RadioSchedule slot (day 0–6, HH:MM), so the assembled
@@ -119,6 +158,12 @@ func TestParseWFMUTimeRange(t *testing.T) {
 		{"9pm-Mid", "21:00", "00:00", true},
 		{"10pm-Mid", "22:00", "00:00", true},
 		{"Mid-3am", "00:00", "03:00", true},
+		// Bare-left meridiem inheritance must not reverse an AM→PM crossing range.
+		{"9-3pm", "09:00", "15:00", true},    // 9am-3pm, NOT 21:00-15:00
+		{"10-Noon", "10:00", "12:00", true},  // 10am-Noon, NOT 22:00-12:00
+		{"11-1pm", "11:00", "13:00", true},   // 11am-1pm
+		{"1-3pm", "13:00", "15:00", true},    // both forward → the later (PM) reading
+		{"11pm-1am", "23:00", "01:00", true}, // true cross-midnight wrap (explicit meridiems)
 		{"garbage", "", "", false},
 		{"", "", "", false},
 	}
