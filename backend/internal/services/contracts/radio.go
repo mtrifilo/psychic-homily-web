@@ -766,6 +766,12 @@ type RadioSyncRunErrorResponse struct {
 // never computed (distinct from 0.0 = computed and genuinely zero). A station that has
 // never run has no health row — the read path synthesizes a zero-value response (rates
 // nil, consecutive_failures 0, breaker closed) so every station still renders a card.
+//
+// NOTE (PSY-1129): the three rate fields (RecentSuccessRate, PlayMatchRate,
+// ZeroPlayEpisodeRate) are exposed but NOT yet populated by any writer —
+// updateStationHealth writes only breaker/failure/last-run/last-success — so they read
+// nil in prod until the rate-compute writer lands (tracked: PSY-1201). The read surface
+// is forward-correct; the health-card FE (PSY-1200) should treat nil rates as "—".
 type RadioStationHealthResponse struct {
 	StationID           uint       `json:"station_id"`
 	StationName         string     `json:"station_name"`

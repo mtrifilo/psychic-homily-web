@@ -31,13 +31,19 @@ func (s *RadioSyncSuite) seedSyncRun(stationID uint, status string, startedAt ti
 func (s *RadioSyncSuite) seedStationHealth(stationID uint, consecutiveFailures int, breaker string, successRate float64) {
 	now := time.Now()
 	rate := successRate
+	playMatch := 0.5
+	zeroPlay := 0.1
+	tripped := now.Add(-time.Hour)
 	h := catalogm.RadioStationHealth{
 		StationID:           stationID,
 		LastSuccessAt:       &now,
 		LastRunAt:           &now,
 		ConsecutiveFailures: consecutiveFailures,
 		BreakerState:        breaker,
+		BreakerTrippedAt:    &tripped,
 		RecentSuccessRate:   &rate,
+		PlayMatchRate:       &playMatch,
+		ZeroPlayEpisodeRate: &zeroPlay,
 	}
 	s.Require().NoError(s.db.Create(&h).Error)
 }
@@ -123,6 +129,15 @@ func (s *RadioSyncSuite) TestGetStationHealth_WithRow() {
 	s.Equal(catalogm.RadioBreakerStateOpen, resp.BreakerState)
 	s.Require().NotNil(resp.RecentSuccessRate)
 	s.InDelta(0.75, *resp.RecentSuccessRate, 0.0001)
+	// Assert the rest of the 1:1 mapping so a field-swap typo in stationHealthToResponse
+	// is caught (e.g. play_match_rate ↔ zero_play_episode_rate).
+	s.Require().NotNil(resp.PlayMatchRate)
+	s.InDelta(0.5, *resp.PlayMatchRate, 0.0001)
+	s.Require().NotNil(resp.ZeroPlayEpisodeRate)
+	s.InDelta(0.1, *resp.ZeroPlayEpisodeRate, 0.0001)
+	s.NotNil(resp.BreakerTrippedAt)
+	s.NotNil(resp.LastSuccessAt)
+	s.NotNil(resp.UpdatedAt)
 }
 
 // A station that has never run has no health row → zero-value ("never run") response.
