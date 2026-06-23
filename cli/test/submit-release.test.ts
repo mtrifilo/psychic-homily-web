@@ -31,7 +31,7 @@ function createMockClient(
     }
     // Release list (fallback used by checkDuplicate)
     if (path === "/releases") {
-      if (responses["releases:list"]) return responses["releases:list"];
+      if (responses["releases:search"]) return responses["releases:search"];
       return { releases: [] };
     }
     return {};
@@ -85,7 +85,7 @@ describe("planReleases", () => {
       "artist:Nina Hagen Band": {
         artists: [{ id: 42, name: "Nina Hagen Band", slug: "nina-hagen-band" }],
       },
-      "releases:list": { releases: [] },
+      "releases:search": { releases: [] },
     });
 
     const actions = await planReleases(client, [
@@ -111,7 +111,7 @@ describe("planReleases", () => {
       "artist:Radiohead": {
         artists: [{ id: 1, name: "Radiohead", slug: "radiohead" }],
       },
-      "releases:list": {
+      "releases:search": {
         releases: [
           {
             id: 10,
@@ -152,7 +152,7 @@ describe("planReleases", () => {
       "artist:Radiohead": {
         artists: [{ id: 1, name: "Radiohead", slug: "radiohead" }],
       },
-      "releases:list": {
+      "releases:search": {
         releases: [
           {
             id: 10,
@@ -210,7 +210,7 @@ describe("planReleases", () => {
       "artist:Atlas Sound": {
         artists: [{ id: 6, name: "Atlas Sound", slug: "atlas-sound" }],
       },
-      "releases:list": { releases: [] },
+      "releases:search": { releases: [] },
     });
 
     const actions = await planReleases(client, [
@@ -235,7 +235,7 @@ describe("planReleases", () => {
 
   test("warns on unresolved artists", async () => {
     const client = createMockClient({
-      "releases:list": { releases: [] },
+      "releases:search": { releases: [] },
     });
 
     const actions = await planReleases(client, [
@@ -256,7 +256,7 @@ describe("planReleases", () => {
       "artist:Sonic Youth": {
         artists: [{ id: 3, name: "Sonic Youth", slug: "sonic-youth" }],
       },
-      "releases:list": { releases: [] },
+      "releases:search": { releases: [] },
     });
 
     const actions = await planReleases(client, [
