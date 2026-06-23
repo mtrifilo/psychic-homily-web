@@ -28,10 +28,12 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 
 ### Entity types and required fields
 
-- **artist**: `name` (required). Optional: `city`, `state`, `instagram`,
-  `bandcamp`, `spotify`, `website`, `tags`.
+- **artist**: `name` (required). Optional: `city`, `state`, `country`,
+  `instagram`, `facebook`, `twitter`, `youtube`, `spotify`, `soundcloud`,
+  `bandcamp`, `website`, `description`, `tags`.
 - **venue**: `name`, `city`, `state` (all required). Optional: `address`,
-  `instagram`, `website`, `tags`.
+  `zipcode`, `country`, `instagram`, `facebook`, `twitter`, `youtube`,
+  `spotify`, `soundcloud`, `bandcamp`, `website`, `description`, `tags`.
 - **show**: `event_date` (`YYYY-MM-DD`), `city`, `state`, `artists`
   (array of `{name, is_headliner?}`, ≥1), `venues`
   (array of `{name, city, state}`, ≥1) — all required. Optional: `title`,
@@ -39,8 +41,9 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 - **release**: `title`, `artists` (≥1) required. Optional: `release_type`
   (`lp`/`ep`/`single`/`compilation`/`live`/`remix`/`demo`), `release_year`,
   `external_links`, `tags`.
-- **label**: `name` (required). Optional: `city`, `state`, `country`, `website`,
-  `bandcamp`, `tags`.
+- **label**: `name` (required). Optional: `city`, `state`, `country`,
+  `founded_year`, `instagram`, `facebook`, `twitter`, `youtube`, `spotify`,
+  `soundcloud`, `bandcamp`, `website`, `description`, `tags`.
 - **festival**: `name`, `series_slug`, `edition_year`, `start_date`, `end_date`
   (all required). Optional: `location_name`, `city`, `state`, `country`,
   `website`, `status`, `venues` (array of `{name, is_primary?}`), `artists`
@@ -72,13 +75,26 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
    array as `{"name": ..., "is_primary": true}`.
 8. **Multi-show posts / tours**: emit one `show` per date, each with its own
    venue, city, state, and the full artist lineup for that date.
-9. **@handles** (Instagram / social): map `@handle` → `https://instagram.com/handle`
-   on the matching artist or venue. Include only when the handle clearly maps to
-   an entity; skip when ambiguous.
+9. **Social links → full on-platform URLs** (the backend rejects bare handles).
+   An `@handle` becomes a profile URL on the platform shown: Instagram `@h` →
+   `https://instagram.com/h`, Twitter/X `@h` → `https://twitter.com/h`. For
+   Facebook, YouTube, Spotify, SoundCloud, and Bandcamp, capture the full URL as
+   linked. Put each on the field whose host matches: `instagram`
+   (`instagram.com`), `facebook` (`facebook.com`), `twitter` (`twitter.com`/
+   `x.com`), `youtube` (`youtube.com`/`youtu.be`), `spotify`
+   (`open.spotify.com`), `soundcloud` (`soundcloud.com`), `bandcamp`
+   (`*.bandcamp.com`); any other off-platform link → `website`. Applies to
+   artist, venue, and label. Include a link only when it clearly maps to the
+   entity; skip when ambiguous.
 10. **Tags**: add `genre` / `locale` tags only when confidently identifiable from
     the source. String tags default to genre; locale/other use
     `{"name": ..., "category": ...}`. Do not guess.
 11. **Skip non-music entries**: DJ interludes, radio commercials, trivia nights,
     "tickets on sale", sponsor logos, and other non-entity text.
+12. **Other metadata — only when explicitly shown, never infer:** `country`
+    (when a country is named, e.g. "Berlin, Germany"); venue `zipcode` (only from
+    a full street address); label `founded_year` (e.g. "est. 1998" → `1998`);
+    `description` (a short bio / about blurb ONLY if one is literally present —
+    do not summarize, paraphrase, or invent).
 
 Return the JSON array now.
