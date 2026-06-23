@@ -561,8 +561,14 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 	return nil
 }
 
-// AddReleaseToLabel creates a release-label association (idempotent — no error if link already exists)
-func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error {
+// AddReleaseToLabel creates a release-label association (idempotent — no error if link already exists).
+//
+// catalog_number is write-once by default: an existing link's number is left
+// untouched on conflict. Pass overwriteCatalogNumber=true to update the number
+// of an existing link to a non-nil catalogNumber (the explicit-correction path,
+// PSY-1194). overwriteCatalogNumber with a nil catalogNumber is a no-op on
+// conflict — it never NULLs out an existing number.
+func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string, overwriteCatalogNumber bool) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -585,17 +591,31 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 		return fmt.Errorf("failed to get release: %w", err)
 	}
 
-	// Idempotent insert. ON CONFLICT DO NOTHING is safe under concurrent calls
-	// where a SELECT-then-INSERT (FirstOrCreate) would let two callers both
-	// miss the row and trip the release_labels(release_id, label_id) primary
-	// key. As with the prior FirstOrCreate, an existing row's catalog_number is
-	// left untouched (the conflict target is the PK, not catalog_number).
+	// Idempotent insert. ON CONFLICT on the release_labels(release_id, label_id)
+	// primary key is safe under concurrent calls where a SELECT-then-INSERT
+	// (FirstOrCreate) would let two callers both miss the row and trip the PK.
+	//
+	// By default the conflict is DO NOTHING, so an existing row's catalog_number
+	// is left untouched (write-once). When the caller explicitly asks to
+	// overwrite AND supplies a number, the conflict instead updates just the
+	// catalog_number column (PSY-1194). A nil number with overwrite stays
+	// DO NOTHING so we never clobber an existing number with NULL.
+	onConflict := clause.OnConflict{DoNothing: true}
+	if overwriteCatalogNumber && catalogNumber != nil {
+		onConflict = clause.OnConflict{
+			Columns: []clause.Column{{Name: "release_id"}, {Name: "label_id"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"catalog_number": *catalogNumber,
+			}),
+		}
+	}
+
 	rl := catalogm.ReleaseLabel{
 		ReleaseID:     releaseID,
 		LabelID:       labelID,
 		CatalogNumber: catalogNumber,
 	}
-	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&rl).Error; err != nil {
+	if err := s.db.Clauses(onConflict).Create(&rl).Error; err != nil {
 		return fmt.Errorf("failed to create release-label link: %w", err)
 	}
 

@@ -588,8 +588,9 @@ func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArti
 type AddReleaseToLabelRequest struct {
 	LabelID string `path:"label_id" doc:"Label ID or slug" example:"sub-pop"`
 	Body    struct {
-		ReleaseID     uint    `json:"release_id" doc:"Release ID to link" example:"42"`
-		CatalogNumber *string `json:"catalog_number,omitempty" required:"false" doc:"Catalog number for this release on this label"`
+		ReleaseID              uint    `json:"release_id" doc:"Release ID to link" example:"42"`
+		CatalogNumber          *string `json:"catalog_number,omitempty" required:"false" doc:"Catalog number for this release on this label"`
+		OverwriteCatalogNumber bool    `json:"overwrite_catalog_number,omitempty" required:"false" doc:"When true, overwrite an existing link's catalog_number with the supplied value (default: write-once, existing number is preserved)"`
 	}
 }
 
@@ -616,7 +617,7 @@ func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddRel
 		return nil, huma.Error422UnprocessableEntity("release_id is required")
 	}
 
-	err = h.labelService.AddReleaseToLabel(labelID, req.Body.ReleaseID, req.Body.CatalogNumber)
+	err = h.labelService.AddReleaseToLabel(labelID, req.Body.ReleaseID, req.Body.CatalogNumber, req.Body.OverwriteCatalogNumber)
 	if err != nil {
 		var labelErr *apperrors.LabelError
 		if errors.As(err, &labelErr) && labelErr.Code == apperrors.CodeLabelNotFound {
@@ -633,10 +634,19 @@ func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddRel
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). Record the overwrite intent + number so an
+	// opt-in overwrite (which mutates an existing value) is distinguishable in
+	// the trail from a first-time link or a no-op idempotent re-link.
 	if h.auditLogService != nil {
+		metadata := map[string]interface{}{
+			"release_id":               req.Body.ReleaseID,
+			"overwrite_catalog_number": req.Body.OverwriteCatalogNumber,
+		}
+		if req.Body.CatalogNumber != nil {
+			metadata["catalog_number"] = *req.Body.CatalogNumber
+		}
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, nil)
+			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, metadata)
 		})
 	}
 

@@ -133,5 +133,5 @@ type LabelServiceInterface interface {
 	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
 	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
 	AddArtistToLabel(labelID, artistID uint) error
-	AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error
+	AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string, overwriteCatalogNumber bool) error
 }

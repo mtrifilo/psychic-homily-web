@@ -431,6 +431,51 @@ func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_WithCatalogNumber()
 	s.Equal("CAT-042", *catalogResp.Body.Releases[0].CatalogNumber)
 }
 
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_OverwriteCatalogNumber() {
+	label := s.createLabelViaService("Overwrite Catalog Label")
+	release := s.createReleaseForLabel("Overwrite Catalog Release")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
+
+	catalogReq := &GetLabelCatalogRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+
+	// First link sets the number (write-once).
+	first := "CAT-A"
+	link := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	link.Body.ReleaseID = release.ID
+	link.Body.CatalogNumber = &first
+	_, err := s.handler.AddReleaseToLabelHandler(ctx, link)
+	s.NoError(err)
+
+	// Re-link with a new number but WITHOUT overwrite → existing preserved.
+	second := "CAT-B"
+	noOverwrite := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	noOverwrite.Body.ReleaseID = release.ID
+	noOverwrite.Body.CatalogNumber = &second
+	_, err = s.handler.AddReleaseToLabelHandler(ctx, noOverwrite)
+	s.NoError(err)
+
+	catalogResp, err := s.handler.GetLabelCatalogHandler(s.deps.Ctx, catalogReq)
+	s.NoError(err)
+	s.Require().Equal(1, catalogResp.Body.Count)
+	s.Require().NotNil(catalogResp.Body.Releases[0].CatalogNumber)
+	s.Equal("CAT-A", *catalogResp.Body.Releases[0].CatalogNumber)
+
+	// Re-link WITH overwrite → the body flag must reach the service and update.
+	overwrite := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	overwrite.Body.ReleaseID = release.ID
+	overwrite.Body.CatalogNumber = &second
+	overwrite.Body.OverwriteCatalogNumber = true
+	_, err = s.handler.AddReleaseToLabelHandler(ctx, overwrite)
+	s.NoError(err)
+
+	catalogResp, err = s.handler.GetLabelCatalogHandler(s.deps.Ctx, catalogReq)
+	s.NoError(err)
+	s.Require().Equal(1, catalogResp.Body.Count)
+	s.Require().NotNil(catalogResp.Body.Releases[0].CatalogNumber)
+	s.Equal("CAT-B", *catalogResp.Body.Releases[0].CatalogNumber)
+}
+
 func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_Idempotent() {
 	label := s.createLabelViaService("Idempotent Release Label")
 	release := s.createReleaseForLabel("Idempotent Release")

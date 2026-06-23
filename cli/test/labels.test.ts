@@ -71,6 +71,40 @@ describe("linkReleaseToLabel", () => {
     expect(postCalls).toHaveLength(1);
     expect(postCalls[0].body).toEqual({ release_id: 100 });
   });
+
+  test("sends overwrite_catalog_number when overwrite is set with a catalog number", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createMockClient({ postCalls });
+
+    await quiet(() => linkReleaseToLabel(client, 4, 100, "CRE001", true));
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0].body).toEqual({
+      release_id: 100,
+      catalog_number: "CRE001",
+      overwrite_catalog_number: true,
+    });
+  });
+
+  test("does not send overwrite_catalog_number without a catalog number (no-op overwrite)", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createMockClient({ postCalls });
+
+    await quiet(() => linkReleaseToLabel(client, 4, 100, undefined, true));
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0].body).toEqual({ release_id: 100 });
+  });
+
+  test("omits overwrite_catalog_number when overwrite is false", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createMockClient({ postCalls });
+
+    await quiet(() => linkReleaseToLabel(client, 4, 100, "CRE001", false));
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0].body).toEqual({ release_id: 100, catalog_number: "CRE001" });
+  });
 });
 
 describe("resolveAndLinkReleaseLabel", () => {
@@ -100,5 +134,24 @@ describe("resolveAndLinkReleaseLabel", () => {
 
     expect(result).toBeNull();
     expect(postCalls).toHaveLength(0);
+  });
+
+  test("threads the overwrite flag through to the link POST", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createMockClient({
+      labels: [{ id: 4, name: "Creation Records", slug: "creation-records" }],
+      postCalls,
+    });
+
+    await quiet(() =>
+      resolveAndLinkReleaseLabel(client, "Creation Records", 100, [], "CRE001", true),
+    );
+
+    const releaseLink = postCalls.find((c) => c.path === "/admin/labels/4/releases");
+    expect(releaseLink?.body).toEqual({
+      release_id: 100,
+      catalog_number: "CRE001",
+      overwrite_catalog_number: true,
+    });
   });
 });

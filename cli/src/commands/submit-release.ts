@@ -39,6 +39,13 @@ interface ReleaseInput {
    * when `labels` names a single label — see {@link linkReleaseLabels}.
    */
   catalog_number?: string;
+  /**
+   * Opt this release into overwriting an already-stored catalog_number with
+   * `catalog_number` above (PSY-1194). Default behavior is write-once: an
+   * existing number is preserved. The batch-wide `--overwrite-catalog` flag
+   * sets this for every item; this per-item field opts a single item in.
+   */
+  overwrite_catalog_number?: boolean;
   external_links?: ReleaseLinkInput[];
   tags?: TagInput[];
 }
@@ -198,8 +205,20 @@ export async function planReleases(
   return actions;
 }
 
+/**
+ * Effective overwrite for one release item: the batch-wide flag OR the item's
+ * own opt-in field. Shared by the dry-run preview and the executor so the
+ * preview can never claim something different from what the write actually does.
+ */
+function shouldOverwriteCatalog(
+  release: ReleaseInput,
+  overwriteAll?: boolean,
+): boolean {
+  return (overwriteAll ?? false) || !!release.overwrite_catalog_number;
+}
+
 /** Display the planned actions as a preview. */
-export function displayPreview(actions: ReleaseAction[], resolvedTags?: ResolvedTag[][]): void {
+export function displayPreview(actions: ReleaseAction[], resolvedTags?: ResolvedTag[][], overwriteAll?: boolean): void {
   let creates = 0;
   let updates = 0;
   let skips = 0;
@@ -281,7 +300,10 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
     // Catalog number applies on every action that links labels (create/update/
     // skip — backfill re-ingests hit the skip path), so show it for all three.
     if (isNonEmptyString(action.release.catalog_number)) {
-      display.kv("Catalog", action.release.catalog_number.trim());
+      const suffix = shouldOverwriteCatalog(action.release, overwriteAll)
+        ? dim(" (overwrite)")
+        : "";
+      display.kv("Catalog", `${action.release.catalog_number.trim()}${suffix}`);
     }
 
     // Show tags if any
@@ -313,6 +335,7 @@ export async function linkReleaseLabels(
   labels: string[] | undefined,
   artistIds: number[],
   catalogNumber?: string,
+  overwrite?: boolean,
 ): Promise<void> {
   if (!labels?.length) return;
 
@@ -350,6 +373,7 @@ export async function linkReleaseLabels(
       releaseId,
       artistIds,
       catalogForLink,
+      overwrite,
     );
   }
 }
@@ -359,6 +383,7 @@ async function executeActions(
   client: APIClient,
   actions: ReleaseAction[],
   tagResolver?: TagResolver,
+  overwriteAll?: boolean,
 ): Promise<SubmitResult> {
   let created = 0;
   let updated = 0;
@@ -375,6 +400,9 @@ async function executeActions(
       ? TagResolver.parseTags(action.release.tags as TagInput[] | undefined)
       : [];
     const artistIds = action.resolvedArtists.map((a) => a.artist_id);
+    // Overwrite an existing catalog_number when the batch-wide flag is set OR
+    // this specific item opted in. Default stays write-once (PSY-1194).
+    const overwriteCatalog = shouldOverwriteCatalog(action.release, overwriteAll);
 
     if (action.action === "skip") {
       // Still apply tags even on skip
@@ -386,7 +414,7 @@ async function executeActions(
       }
       // Still link labels even on skip (idempotent)
       if (action.dupCheck.existingId) {
-        await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number);
+        await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number, overwriteCatalog);
       }
       skipped++;
       continue;
@@ -444,7 +472,7 @@ async function executeActions(
         }
         // Link release and its artists to labels
         if (releaseId) {
-          await linkReleaseLabels(client, releaseId, action.release.labels, artistIds, action.release.catalog_number);
+          await linkReleaseLabels(client, releaseId, action.release.labels, artistIds, action.release.catalog_number, overwriteCatalog);
         }
         created++;
       } catch (err) {
@@ -473,7 +501,7 @@ async function executeActions(
         }
         // Still link labels even when no field updates (idempotent)
         if (action.dupCheck.existingId) {
-          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number);
+          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number, overwriteCatalog);
         }
         skipped++;
         continue;
@@ -506,7 +534,7 @@ async function executeActions(
         }
         // Link release and its artists to labels
         if (action.dupCheck.existingId) {
-          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number);
+          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number, overwriteCatalog);
         }
         updated++;
       } catch (err) {
@@ -528,6 +556,7 @@ export async function submitReleases(
   jsonInput: string,
   env: EnvironmentConfig,
   confirm: boolean,
+  overwriteCatalog?: boolean,
 ): Promise<SubmitResult> {
   // Parse input
   let releases: ReleaseInput[];
@@ -563,7 +592,7 @@ export async function submitReleases(
   }
 
   // Preview
-  displayPreview(actions, resolvedTags);
+  displayPreview(actions, resolvedTags, overwriteCatalog);
 
   if (!confirm) {
     display.info('Dry run complete. Use --confirm to submit.');
@@ -580,5 +609,5 @@ export async function submitReleases(
 
   // Execute
   display.header("Submitting...");
-  return executeActions(client, actions, tagResolver);
+  return executeActions(client, actions, tagResolver, overwriteCatalog);
 }

@@ -732,3 +732,79 @@ func (suite *LabelServiceIntegrationTestSuite) TestGetLabel_WithCounts() {
 	suite.Equal(2, resp.ArtistCount)
 	suite.Equal(1, resp.ReleaseCount)
 }
+
+// =============================================================================
+// Group 9: AddReleaseToLabel — catalog_number write-once + explicit overwrite
+// (PSY-1194)
+// =============================================================================
+
+// storedCatalogNumber reads the persisted catalog_number for a release↔label
+// link straight from the join table (GORM maps a SQL NULL to a nil *string).
+func (suite *LabelServiceIntegrationTestSuite) storedCatalogNumber(releaseID, labelID uint) *string {
+	var rl catalogm.ReleaseLabel
+	suite.Require().NoError(
+		suite.db.Where("release_id = ? AND label_id = ?", releaseID, labelID).First(&rl).Error,
+	)
+	return rl.CatalogNumber
+}
+
+func (suite *LabelServiceIntegrationTestSuite) TestAddReleaseToLabel_SetsCatalogNumberOnFirstLink() {
+	label := suite.createTestLabel("CN First Label")
+	release := suite.createTestReleaseForLabel("CN First Release")
+
+	cat := "CRE001"
+	err := suite.labelService.AddReleaseToLabel(label.ID, release.ID, &cat, false)
+
+	suite.Require().NoError(err)
+	stored := suite.storedCatalogNumber(release.ID, label.ID)
+	suite.Require().NotNil(stored)
+	suite.Equal("CRE001", *stored)
+}
+
+func (suite *LabelServiceIntegrationTestSuite) TestAddReleaseToLabel_WriteOncePreservesExisting() {
+	label := suite.createTestLabel("Write-Once Label")
+	release := suite.createTestReleaseForLabel("Write-Once Release")
+
+	first := "CRE001"
+	suite.Require().NoError(suite.labelService.AddReleaseToLabel(label.ID, release.ID, &first, false))
+
+	// Re-link with a different number but no overwrite → existing is preserved
+	// (the default write-once behavior the discography backfill relies on).
+	second := "CRE999"
+	suite.Require().NoError(suite.labelService.AddReleaseToLabel(label.ID, release.ID, &second, false))
+
+	stored := suite.storedCatalogNumber(release.ID, label.ID)
+	suite.Require().NotNil(stored)
+	suite.Equal("CRE001", *stored)
+}
+
+func (suite *LabelServiceIntegrationTestSuite) TestAddReleaseToLabel_OverwriteUpdatesExisting() {
+	label := suite.createTestLabel("Overwrite Label")
+	release := suite.createTestReleaseForLabel("Overwrite Release")
+
+	first := "CRE001"
+	suite.Require().NoError(suite.labelService.AddReleaseToLabel(label.ID, release.ID, &first, false))
+
+	// Explicit opt-in correction path: overwrite the existing number.
+	corrected := "CRE042"
+	suite.Require().NoError(suite.labelService.AddReleaseToLabel(label.ID, release.ID, &corrected, true))
+
+	stored := suite.storedCatalogNumber(release.ID, label.ID)
+	suite.Require().NotNil(stored)
+	suite.Equal("CRE042", *stored)
+}
+
+func (suite *LabelServiceIntegrationTestSuite) TestAddReleaseToLabel_OverwriteWithNilDoesNotClobber() {
+	label := suite.createTestLabel("Overwrite Nil Label")
+	release := suite.createTestReleaseForLabel("Overwrite Nil Release")
+
+	first := "CRE001"
+	suite.Require().NoError(suite.labelService.AddReleaseToLabel(label.ID, release.ID, &first, false))
+
+	// overwrite=true with a nil number must NOT null out the existing number.
+	suite.Require().NoError(suite.labelService.AddReleaseToLabel(label.ID, release.ID, nil, true))
+
+	stored := suite.storedCatalogNumber(release.ID, label.ID)
+	suite.Require().NotNil(stored)
+	suite.Equal("CRE001", *stored)
+}

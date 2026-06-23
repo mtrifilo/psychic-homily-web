@@ -2099,7 +2099,7 @@ type MockLabelService struct {
 	GetLabelRosterFn    func(uint) ([]*contracts.LabelArtistResponse, error)
 	GetLabelCatalogFn   func(uint) ([]*contracts.LabelReleaseResponse, error)
 	AddArtistToLabelFn  func(uint, uint) error
-	AddReleaseToLabelFn func(uint, uint, *string) error
+	AddReleaseToLabelFn func(uint, uint, *string, bool) error
 }
 
 func (m *MockLabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error) {
@@ -2162,9 +2162,9 @@ func (m *MockLabelService) AddArtistToLabel(labelID uint, artistID uint) error {
 	}
 	return nil
 }
-func (m *MockLabelService) AddReleaseToLabel(labelID uint, releaseID uint, catalogNumber *string) error {
+func (m *MockLabelService) AddReleaseToLabel(labelID uint, releaseID uint, catalogNumber *string, overwriteCatalogNumber bool) error {
 	if m.AddReleaseToLabelFn != nil {
-		return m.AddReleaseToLabelFn(labelID, releaseID, catalogNumber)
+		return m.AddReleaseToLabelFn(labelID, releaseID, catalogNumber, overwriteCatalogNumber)
 	}
 	return nil
 }
