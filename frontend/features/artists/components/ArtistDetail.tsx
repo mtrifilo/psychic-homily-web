@@ -465,7 +465,10 @@ function AdminMusicControls({
     setCandidates(null)
     discoverMusic.mutate(artist.id, {
       onSuccess: data => {
-        setCandidates(data.candidates)
+        // The contract guarantees `candidates: []`, but default to an empty
+        // array so a malformed body opens the picker's "no candidates" state
+        // rather than silently rendering nothing (a null candidates is falsy).
+        setCandidates(data.candidates ?? [])
         setShowManualInput(null)
       },
       onError: err => {
@@ -488,12 +491,16 @@ function AdminMusicControls({
       })
       setSavingCandidateUrl(null)
     }
-    // Drop the accepted candidate from the list; auto-close the picker once
-    // none remain. Cache invalidation is owned by the mutation hooks (PSY-1109).
+    // Drop ONLY the accepted candidate from the list; auto-close the picker
+    // once none remain. Match on (platform, url) — the backend's dedup key — so
+    // a URL that ever appeared under both platforms drops only the one accepted.
+    // Cache invalidation is owned by the mutation hooks (PSY-1109).
     const dropAccepted = () => {
       setCandidates(prev => {
         if (!prev) return null
-        const next = prev.filter(c => c.url !== candidate.url)
+        const next = prev.filter(
+          c => !(c.platform === candidate.platform && c.url === candidate.url)
+        )
         return next.length === 0 ? null : next
       })
       setSavingCandidateUrl(null)

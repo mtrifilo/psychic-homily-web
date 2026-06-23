@@ -108,14 +108,23 @@ export function useDiscoverMusic() {
         throw err
       }
 
-      const data = await response.json()
+      // The body may not be JSON on an upstream-gateway failure: the catch-all
+      // proxy re-emits the backend response verbatim, so a 502/504 can carry an
+      // HTML or empty body. Parse defensively so a non-ok status surfaces as a
+      // status-based message instead of a masking "Unexpected token" parse error.
+      const data = await response.json().catch(() => null)
 
       if (!response.ok) {
         // Huma errors carry `detail`; the proxy 502 carries `error`.
-        throw new Error(data.detail || data.message || data.error || 'Discovery failed')
+        throw new Error(
+          data?.detail ||
+            data?.message ||
+            data?.error ||
+            `Discovery failed (HTTP ${response.status})`
+        )
       }
 
-      return data
+      return data as DiscoverMusicResponse
     },
   })
 }
