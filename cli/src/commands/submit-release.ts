@@ -1,6 +1,6 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
-import { validateRelease } from "../lib/schemas";
+import { validateRelease, isNonEmptyString } from "../lib/schemas";
 import {
   checkDuplicate,
   type DuplicateCheckResult,
@@ -226,9 +226,6 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
         if (action.release.release_year) {
           display.kv("Year", String(action.release.release_year));
         }
-        if (action.release.catalog_number) {
-          display.kv("Catalog", action.release.catalog_number);
-        }
         if (action.resolvedArtists.length > 0) {
           display.kv(
             "Artists",
@@ -281,6 +278,12 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
       }
     }
 
+    // Catalog number applies on every action that links labels (create/update/
+    // skip — backfill re-ingests hit the skip path), so show it for all three.
+    if (isNonEmptyString(action.release.catalog_number)) {
+      display.kv("Catalog", action.release.catalog_number.trim());
+    }
+
     // Show tags if any
     if (resolvedTags && resolvedTags[i].length > 0) {
       display.kv("tags", formatTagsPreview(resolvedTags[i]));
@@ -300,9 +303,9 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
  * A catalogue number identifies a release *within one label's* catalogue
  * (`release_labels.catalog_number`), so it's only meaningful when the release
  * names a single label. Discography-page ingests emit exactly one label per
- * release — the normal case. When multiple labels are present we can't know
- * which one the number belongs to, so we drop it (with a warning) rather than
- * stamp the same number onto every association.
+ * release — the normal case. When multiple *distinct* labels are present we
+ * can't know which one the number belongs to, so we drop it (with a warning)
+ * rather than stamp the same number onto every association.
  */
 export async function linkReleaseLabels(
   client: APIClient,
@@ -313,15 +316,34 @@ export async function linkReleaseLabels(
 ): Promise<void> {
   if (!labels?.length) return;
 
-  if (catalogNumber && labels.length > 1) {
+  // Dedup label names case-insensitively + trimmed. Label resolution is itself
+  // case-insensitive exact-match (resolveLabelByName), so "Sub Pop"/"sub pop"/
+  // " Sub Pop " all resolve to one label — counting raw array entries would
+  // mis-classify a single label named twice as "multiple labels" and wrongly
+  // drop its catalog number. Empty/whitespace-only entries are dropped too.
+  const seen = new Set<string>();
+  const uniqueLabels = labels.filter((name) => {
+    const key = name.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (uniqueLabels.length === 0) return;
+
+  // Trim + require a genuinely non-empty string (matches the repo's
+  // isNonEmptyString convention); a whitespace-only or non-string value is
+  // treated as "no catalog number" rather than stored verbatim.
+  const catalog = isNonEmptyString(catalogNumber)
+    ? catalogNumber.trim()
+    : undefined;
+  if (catalog && uniqueLabels.length > 1) {
     display.warn(
-      `Catalog number "${catalogNumber}" not applied — release has ${labels.length} labels (ambiguous which it belongs to)`,
+      `Catalog number "${catalog}" not applied — release has ${uniqueLabels.length} labels (ambiguous which it belongs to)`,
     );
   }
-  const catalogForLink =
-    catalogNumber && labels.length === 1 ? catalogNumber : undefined;
+  const catalogForLink = catalog && uniqueLabels.length === 1 ? catalog : undefined;
 
-  for (const labelName of labels) {
+  for (const labelName of uniqueLabels) {
     await resolveAndLinkReleaseLabel(
       client,
       labelName,
@@ -407,6 +429,8 @@ async function executeActions(
         if (action.release.external_links?.length) {
           body.external_links = action.release.external_links;
         }
+        // NB: catalog_number is intentionally NOT in the release body — it lives
+        // on the release↔label association and is sent via linkReleaseLabels below.
 
         const result = await client.post<{ id?: number; release?: { id: number } }>("/releases", body);
         const releaseId = result.release?.id ?? result.id;
