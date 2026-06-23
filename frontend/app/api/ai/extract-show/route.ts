@@ -252,14 +252,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // PSY-855: enforce the per-user rate limit BEFORE any (paid) Anthropic work.
-  // The backend counts the attempt + bypasses admins; on a limit hit this
-  // returns the 429 envelope (Retry-After header + JSON body) and we stop here.
-  const throttle = await enforceThrottle(authCookie.value, 'extract-show')
-  if (!throttle.ok) {
-    return throttle.response
-  }
-
   // Check if Anthropic API key is configured
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
@@ -333,6 +325,17 @@ export async function POST(request: NextRequest) {
       { success: false, error: 'Invalid request type. Use "text", "image", or "both"' },
       { status: 400 }
     )
+  }
+
+  // PSY-855: enforce the per-user rate limit just before the (paid) Anthropic
+  // work — after auth + validation + the API-key check, so a malformed request
+  // or a misconfigured server doesn't burn the user's hourly quota. The backend
+  // counts the attempt + bypasses admins; on a limit hit this returns the 429
+  // envelope (Retry-After header + JSON body) and we stop here without calling
+  // Anthropic.
+  const throttle = await enforceThrottle(authCookie.value, 'extract-show')
+  if (!throttle.ok) {
+    return throttle.response
   }
 
   try {
