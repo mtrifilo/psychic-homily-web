@@ -205,6 +205,18 @@ export async function planReleases(
   return actions;
 }
 
+/**
+ * Effective overwrite for one release item: the batch-wide flag OR the item's
+ * own opt-in field. Shared by the dry-run preview and the executor so the
+ * preview can never claim something different from what the write actually does.
+ */
+function shouldOverwriteCatalog(
+  release: ReleaseInput,
+  overwriteAll?: boolean,
+): boolean {
+  return (overwriteAll ?? false) || !!release.overwrite_catalog_number;
+}
+
 /** Display the planned actions as a preview. */
 export function displayPreview(actions: ReleaseAction[], resolvedTags?: ResolvedTag[][], overwriteAll?: boolean): void {
   let creates = 0;
@@ -288,9 +300,9 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
     // Catalog number applies on every action that links labels (create/update/
     // skip — backfill re-ingests hit the skip path), so show it for all three.
     if (isNonEmptyString(action.release.catalog_number)) {
-      const willOverwrite =
-        (overwriteAll ?? false) || !!action.release.overwrite_catalog_number;
-      const suffix = willOverwrite ? dim(" (overwrite existing)") : "";
+      const suffix = shouldOverwriteCatalog(action.release, overwriteAll)
+        ? dim(" (overwrite)")
+        : "";
       display.kv("Catalog", `${action.release.catalog_number.trim()}${suffix}`);
     }
 
@@ -390,8 +402,7 @@ async function executeActions(
     const artistIds = action.resolvedArtists.map((a) => a.artist_id);
     // Overwrite an existing catalog_number when the batch-wide flag is set OR
     // this specific item opted in. Default stays write-once (PSY-1194).
-    const overwriteCatalog =
-      (overwriteAll ?? false) || !!action.release.overwrite_catalog_number;
+    const overwriteCatalog = shouldOverwriteCatalog(action.release, overwriteAll);
 
     if (action.action === "skip") {
       // Still apply tags even on skip

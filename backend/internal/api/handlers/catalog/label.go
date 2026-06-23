@@ -634,10 +634,19 @@ func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddRel
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). Record the overwrite intent + number so an
+	// opt-in overwrite (which mutates an existing value) is distinguishable in
+	// the trail from a first-time link or a no-op idempotent re-link.
 	if h.auditLogService != nil {
+		metadata := map[string]interface{}{
+			"release_id":               req.Body.ReleaseID,
+			"overwrite_catalog_number": req.Body.OverwriteCatalogNumber,
+		}
+		if req.Body.CatalogNumber != nil {
+			metadata["catalog_number"] = *req.Body.CatalogNumber
+		}
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, nil)
+			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, metadata)
 		})
 	}
 
