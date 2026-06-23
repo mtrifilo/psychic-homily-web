@@ -234,6 +234,37 @@ func (s *LinkSuggestionIntegrationSuite) TestAcceptSpotifyWritesLink() {
 	s.Require().NotNil(row.ReviewedAt)
 }
 
+// A stored URL that fails the host-anchored gate (foreign host smuggling a
+// spotify-looking path) is rejected on accept, the link is NOT written, and the
+// row stays pending (defense-in-depth against a sweep bug / hand-inserted row).
+func (s *LinkSuggestionIntegrationSuite) TestAcceptRejectsHostileSpotifyURL() {
+	s.seedReviewer(7)
+	a := s.seedArtist("HostileSpotify")
+	// open.spotify.com is NOT the host — it's a path/userinfo decoy on evil.test.
+	sug := s.seedSuggestion(a.ID, contracts.MusicPlatformSpotify, "https://evil.test/artist/abc123", contracts.MusicConfidenceHigh)
+
+	_, err := s.service.AcceptSuggestion(sug.ID, 7)
+	s.Require().ErrorIs(err, contracts.ErrLinkSuggestionInvalidURL)
+
+	// Link NOT written, row still pending.
+	s.Nil(s.reloadArtist(a.ID).Social.Spotify)
+	s.Equal(catalogm.LinkSuggestionStatusPending, s.reloadSuggestion(sug.ID).Status)
+}
+
+// A non-bandcamp host (raw IP smuggling bandcamp.com in the query) is rejected on
+// a Bandcamp accept before it is stored or fetched.
+func (s *LinkSuggestionIntegrationSuite) TestAcceptRejectsHostileBandcampURL() {
+	s.seedReviewer(7)
+	a := s.seedArtist("HostileBandcamp")
+	sug := s.seedSuggestion(a.ID, contracts.MusicPlatformBandcamp, "https://169.254.169.254/?x=bandcamp.com", contracts.MusicConfidenceHigh)
+
+	_, err := s.service.AcceptSuggestion(sug.ID, 7)
+	s.Require().ErrorIs(err, contracts.ErrLinkSuggestionInvalidURL)
+
+	s.Nil(s.reloadArtist(a.ID).Social.Bandcamp)
+	s.Equal(catalogm.LinkSuggestionStatusPending, s.reloadSuggestion(sug.ID).Status)
+}
+
 // ──────────────────────────────────────────────
 // Accept — Bandcamp (resolver fires)
 // ──────────────────────────────────────────────

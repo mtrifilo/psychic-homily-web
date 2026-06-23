@@ -63,6 +63,14 @@ var ErrLinkSuggestionNotFound = errors.New("link suggestion not found")
 // SAME verdict is idempotent (no error). Handler maps this to a 409.
 var ErrLinkSuggestionAlreadyReviewed = errors.New("link suggestion already reviewed")
 
+// ErrLinkSuggestionInvalidURL is returned by AcceptSuggestion when the stored
+// candidate URL fails the SAME host-anchored gate the per-artist accept
+// endpoints enforce (open.spotify.com/artist/... for Spotify; a *.bandcamp.com
+// profile root for Bandcamp). Defense-in-depth: a sweep bug or a hand-inserted
+// row must not get a hostile/foreign URL written into a rendered social link.
+// Handler maps this to a 422.
+var ErrLinkSuggestionInvalidURL = errors.New("link suggestion url failed validation")
+
 // LinkSuggestionServiceInterface defines the contract for the admin music-link
 // suggestion review queue. AcceptSuggestion writes the link via the existing
 // artist update path (Spotify → social.spotify; Bandcamp → social.bandcamp +

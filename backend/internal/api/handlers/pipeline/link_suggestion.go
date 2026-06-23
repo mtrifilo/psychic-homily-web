@@ -151,6 +151,9 @@ func (h *LinkSuggestionHandler) review(ctx context.Context, idStr string, accept
 		if errors.Is(err, contracts.ErrLinkSuggestionAlreadyReviewed) {
 			return nil, huma.Error409Conflict("Link suggestion has already been reviewed with a different verdict")
 		}
+		if errors.Is(err, contracts.ErrLinkSuggestionInvalidURL) {
+			return nil, huma.Error422UnprocessableEntity("Link suggestion URL failed validation (not a valid Spotify artist / Bandcamp profile URL)")
+		}
 		logger.FromContext(ctx).Error("admin_link_suggestion_review_failed",
 			"suggestion_id", suggestionID,
 			"action", action,

@@ -107,6 +107,16 @@ func TestAcceptLinkSuggestionHandler_AlreadyReviewed(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 409)
 }
 
+func TestAcceptLinkSuggestionHandler_InvalidURL(t *testing.T) {
+	h := linkSuggestionHandler(&testhelpers.MockLinkSuggestionService{
+		AcceptSuggestionFn: func(uint, uint) (*contracts.LinkSuggestionReviewResult, error) {
+			return nil, contracts.ErrLinkSuggestionInvalidURL
+		},
+	})
+	_, err := h.AcceptLinkSuggestionHandler(adminCtx(), &AcceptLinkSuggestionRequest{ID: "42"})
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 func TestAcceptLinkSuggestionHandler_ServiceError(t *testing.T) {
 	h := linkSuggestionHandler(&testhelpers.MockLinkSuggestionService{
 		AcceptSuggestionFn: func(uint, uint) (*contracts.LinkSuggestionReviewResult, error) {

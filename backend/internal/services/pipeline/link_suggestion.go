@@ -3,6 +3,9 @@ package pipeline
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -10,7 +13,15 @@ import (
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
+
+// spotifyArtistPathRe matches an /artist/<id> segment anywhere in the path,
+// mirroring the per-artist Spotify accept endpoint's gate
+// (handlers/catalog/artist.go spotifyArtistPath) so the bulk accept enforces the
+// SAME shape: a locale prefix (/intl-de/artist/...) or trailing sub-tab still
+// validates; the security win is the open.spotify.com host anchor below.
+var spotifyArtistPathRe = regexp.MustCompile(`/artist/[A-Za-z0-9]+(?:/|$)`)
 
 // LinkSuggestionService owns the admin music-link suggestion review queue
 // (PSY-1199). The list query returns pending rows joined to their artist,
@@ -237,25 +248,80 @@ func (s *LinkSuggestionService) RejectSuggestion(suggestionID, reviewerUserID ui
 }
 
 // applyLink writes the suggestion's URL to the artist via the existing artist
-// update path, routing on platform. The artist update path validates the URL
-// shape, stamps provenance, and (for Bandcamp) triggers the profile→embed
-// resolver — none of which is re-implemented here.
+// update path, routing on platform. ArtistService.UpdateArtist does NOT validate
+// social URLs (that gate lives in the per-artist HTTP handlers), and the PSY-1190
+// resolver only re-anchors the FETCH host — neither stops a hostile/foreign value
+// being STORED in the rendered social link. So this boundary re-applies the SAME
+// host-anchored gate the per-artist accept endpoints enforce before writing
+// (defense-in-depth against a sweep bug or a hand-inserted row), then delegates
+// the write (and, for Bandcamp, the profile→embed resolution) to UpdateArtist.
 func (s *LinkSuggestionService) applyLink(suggestion *catalogm.ArtistLinkSuggestion) error {
-	url := suggestion.URL
+	linkURL := suggestion.URL
 	var req contracts.UpdateArtistRequest
 	switch suggestion.Platform {
 	case contracts.MusicPlatformSpotify:
-		req.Spotify = &url
+		if !isValidSpotifyArtistURL(linkURL) {
+			return contracts.ErrLinkSuggestionInvalidURL
+		}
+		req.Spotify = &linkURL
 	case contracts.MusicPlatformBandcamp:
+		if !isBandcampProfileURL(linkURL) {
+			return contracts.ErrLinkSuggestionInvalidURL
+		}
 		// Setting the bandcamp social URL triggers the PSY-1190 resolver inside
 		// UpdateArtist, which fills bandcamp_embed_url from the profile root.
-		req.Bandcamp = &url
+		req.Bandcamp = &linkURL
 	default:
 		return fmt.Errorf("unsupported suggestion platform %q", suggestion.Platform)
 	}
 
 	_, err := s.artistService.UpdateArtist(suggestion.ArtistID, &req)
 	return err
+}
+
+// isValidSpotifyArtistURL mirrors the per-artist endpoint's isValidSpotifyURL:
+// an http/https URL anchored on the open.spotify.com host with an /artist/<id>
+// path segment. The host anchor (not a substring of the whole URL) is the
+// security win — it rejects "https://evil.test/artist/x".
+func isValidSpotifyArtistURL(rawURL string) bool {
+	u, ok := parseHTTPURL(rawURL)
+	if !ok {
+		return false
+	}
+	if strings.ToLower(u.Hostname()) != "open.spotify.com" {
+		return false
+	}
+	return spotifyArtistPathRe.MatchString(u.Path)
+}
+
+// isBandcampProfileURL accepts an http/https *.bandcamp.com artist subdomain
+// (a profile root — the only Bandcamp shape this queue stores and the only one
+// the PSY-1190 resolver acts on). Anchors on the parsed host via
+// utils.IsBandcampArtistHost, so a hostile value like
+// "https://169.254.169.254/?x=bandcamp.com" is rejected before it is stored.
+func isBandcampProfileURL(rawURL string) bool {
+	u, ok := parseHTTPURL(rawURL)
+	if !ok {
+		return false
+	}
+	return utils.IsBandcampArtistHost(u.Hostname())
+}
+
+// parseHTTPURL parses rawURL and confirms an http/https scheme and a non-empty
+// host. Mirrors the per-artist handler's parseHTTPURL so the two accept paths
+// reject the same malformed inputs.
+func parseHTTPURL(rawURL string) (*url.URL, bool) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, false
+	}
+	if u.Hostname() == "" {
+		return nil, false
+	}
+	return u, true
 }
 
 // loadSuggestion fetches the suggestion row, translating a missing row into the
