@@ -158,6 +158,10 @@ type UpdateRadioShowRequest struct {
 	ArchiveURL      *string          `json:"archive_url"`
 	ImageURL        *string          `json:"image_url"`
 	IsActive        *bool            `json:"is_active"`
+	// ScheduleLocked, when set, pins schedule provenance (PSY-1186): true protects the
+	// schedule from the weekly WFMU scrape; false resumes auto-scrape. When omitted, a
+	// schedule edit (Schedule != nil) auto-locks (an explicit hand-curation).
+	ScheduleLocked *bool `json:"schedule_locked"`
 }
 
 // RadioShowDetailResponse represents the full radio show data returned to clients

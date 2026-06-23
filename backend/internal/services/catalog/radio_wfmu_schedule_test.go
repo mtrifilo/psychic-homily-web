@@ -20,11 +20,11 @@ func loadScheduleFixture(t *testing.T) []WFMUScheduleEntry {
 	return entries
 }
 
-// The Summer-2026 fixture contains exactly one stacked two-show cell (Monday 3-6pm:
-// "Jim Price (3-3:01)" / "Scott Williams (3:01-6)") with two show links and no
-// program_time span. The parser drops it and reports it via the skipped count (not
-// silently) — a known limitation tracked as PSY-1186.
-func TestParseWFMUScheduleTable_ReportsSkippedCells(t *testing.T) {
+// The Summer-2026 fixture's one stacked two-show cell (Monday 3-6pm: "Jim Price (3-3:01)"
+// / "Scott Williams (3:01-6)" — two show links, inline meridiem-less times, no program_time
+// span) is now parsed (PSY-1186): both shows resolve, their bare times anchored PM via the
+// "3pm" band, so NO cell is skipped.
+func TestParseWFMUScheduleTable_ParsesStackedCell(t *testing.T) {
 	body, err := os.ReadFile("testdata/wfmu_table.html")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -33,15 +33,22 @@ func TestParseWFMUScheduleTable_ReportsSkippedCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseWFMUScheduleTable: %v", err)
 	}
-	if skipped != 1 {
-		t.Errorf("expected exactly 1 skipped cell (the stacked Jim Price/Scott Williams cell), got %d", skipped)
+	if skipped != 0 {
+		t.Errorf("expected 0 skipped cells (the stacked cell is now parsed), got %d", skipped)
 	}
-	for _, code := range []string{"JP", "SW"} {
-		for _, e := range entries {
-			if e.Code == code {
-				t.Errorf("stacked-cell code %q should have been skipped, but produced an entry", code)
-			}
-		}
+	jp := findEntryByName(entries, "Jim Price")
+	if jp == nil {
+		t.Fatal("Jim Price (stacked) not found")
+	}
+	if jp.Code != "JP" || !hasSlot(jp, 1, "15:00", "15:01") {
+		t.Errorf("Jim Price: want code JP + Mon 15:00-15:01; got code=%q slots=%+v", jp.Code, jp.Slots)
+	}
+	sw := findEntryByName(entries, "Scott Williams")
+	if sw == nil {
+		t.Fatal("Scott Williams (stacked) not found")
+	}
+	if sw.Code != "SW" || !hasSlot(sw, 1, "15:01", "18:00") {
+		t.Errorf("Scott Williams: want code SW + Mon 15:01-18:00; got code=%q slots=%+v", sw.Code, sw.Slots)
 	}
 }
 

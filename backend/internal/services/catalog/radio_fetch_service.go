@@ -515,7 +515,7 @@ func (s *RadioFetchService) runScheduleCycle() {
 		s.logger.Error("radio schedule: scrape failed", "error", err)
 		return
 	}
-	matched, unmatched, err := s.radioService.ApplyWFMUSchedule(entries)
+	matched, unmatched, cleared, err := s.radioService.ApplyWFMUSchedule(entries)
 	if err != nil {
 		s.logger.Error("radio schedule: apply failed", "error", err)
 		return
@@ -525,6 +525,7 @@ func (s *RadioFetchService) runScheduleCycle() {
 		"cells_skipped", skipped,
 		"schedules_written", matched,
 		"unmatched_codes", unmatched,
+		"schedules_cleared", cleared,
 		"duration", time.Since(start),
 	)
 }

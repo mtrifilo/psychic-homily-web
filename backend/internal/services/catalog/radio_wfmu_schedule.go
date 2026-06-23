@@ -62,30 +62,38 @@ type scheduleDiscoverer interface {
 // rosters; PSY-1127). Schedule writes are scoped to this station's shows.
 const wfmuFlagshipStationSlug = "wfmu"
 
+// wfmuScheduleClearMinEntries is the floor a scrape must clear before clear-on-absence
+// runs (PSY-1186). The normal /table grid has ~60+ shows; a result far below this means a
+// broken parse, and clearing "absent" shows then would wipe nearly every schedule. So
+// clear-on-absence is skipped (logged) when a scrape returns fewer than this many shows.
+const wfmuScheduleClearMinEntries = 20
+
 // ApplyWFMUSchedule writes each parsed entry's slots onto the matching WFMU 91.1 show,
 // matched by external_id (== program code) — an exact join, no fuzzy name match. Returns
-// matched/unmatched counts. A single show's validate/marshal/update failure is logged and
-// skipped (one bad row never aborts the batch); an unmatched code is deferred (the show may
-// not have a row yet under create-on-first, PSY-1153).
+// matched/unmatched/cleared counts. A single show's validate/marshal/update failure is
+// logged and skipped (one bad row never aborts the batch); an unmatched code is deferred
+// (the show may not have a row yet under create-on-first, PSY-1153).
 //
-// SCRAPE-WINS (intentional, per the owner's "re-scrape weekly for seasonal churn"
-// decision): wfmu.org/table is the source of truth for WFMU 91.1 schedules, so this
-// overwrites an existing schedule (that's how churn propagates). The one caveat is that it
-// also overwrites a schedule an admin set by hand via the update handler — so an overwrite
-// of a NON-EMPTY schedule is logged (a trail for that rare case). Admin-override protection
-// (a provenance/locked flag) is a tracked follow-up (PSY-1186); today the scrape is authoritative.
-func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, unmatched int, err error) {
+// SCRAPE-WINS for unlocked shows (per the owner's "re-scrape weekly for seasonal churn"
+// decision): wfmu.org/table is the source of truth, so this overwrites an unlocked
+// schedule (that's how churn propagates). schedule_locked shows are SKIPPED — an admin
+// curated those by hand (PSY-1186), so the scrape leaves them alone. After writing, a
+// guarded clear-on-absence nulls the schedule of unlocked shows that dropped off the grid.
+func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, unmatched, cleared int, err error) {
 	if s.db == nil {
-		return 0, 0, fmt.Errorf("database not initialized")
+		return 0, 0, 0, fmt.Errorf("database not initialized")
 	}
 	var station catalogm.RadioStation
 	if err := s.db.Where("slug = ?", wfmuFlagshipStationSlug).First(&station).Error; err != nil {
-		return 0, 0, fmt.Errorf("wfmu flagship station (slug=%q) not found: %w", wfmuFlagshipStationSlug, err)
+		return 0, 0, 0, fmt.Errorf("wfmu flagship station (slug=%q) not found: %w", wfmuFlagshipStationSlug, err)
 	}
 
+	scrapedCodes := make([]string, 0, len(entries))
 	for _, e := range entries {
+		scrapedCodes = append(scrapedCodes, e.Code)
+
 		var show catalogm.RadioShow
-		lookupErr := s.db.Select("id", "schedule").
+		lookupErr := s.db.Select("id", "schedule", "schedule_locked").
 			Where("station_id = ? AND external_id = ?", station.ID, e.Code).
 			First(&show).Error
 		if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
@@ -95,6 +103,10 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 		}
 		if lookupErr != nil {
 			slog.Warn("wfmu schedule: show lookup failed", "code", e.Code, "error", lookupErr)
+			continue
+		}
+		if show.ScheduleLocked {
+			slog.Info("wfmu schedule: show is schedule_locked, skipped (admin-curated)", "code", e.Code, "show_id", show.ID)
 			continue
 		}
 
@@ -108,10 +120,6 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 			slog.Warn("wfmu schedule: marshal failed", "code", e.Code, "error", mErr)
 			continue
 		}
-		if show.Schedule != nil && len(*show.Schedule) > 0 {
-			slog.Info("wfmu schedule: overwriting existing schedule (scrape is authoritative for WFMU 91.1)",
-				"code", e.Code, "show_id", show.ID)
-		}
 		rawMsg := json.RawMessage(raw)
 		if uErr := s.db.Model(&catalogm.RadioShow{}).
 			Where("id = ?", show.ID).
@@ -121,7 +129,35 @@ func (s *RadioService) ApplyWFMUSchedule(entries []WFMUScheduleEntry) (matched, 
 		}
 		matched++
 	}
-	return matched, unmatched, nil
+
+	cleared = s.clearAbsentWFMUSchedules(station.ID, scrapedCodes)
+	return matched, unmatched, cleared, nil
+}
+
+// clearAbsentWFMUSchedules nulls the schedule of WFMU 91.1 shows that have one but whose
+// code was NOT in this scrape (they dropped off the grid) — except schedule_locked shows
+// (admin-curated). Guarded: a scrape returning fewer than wfmuScheduleClearMinEntries shows
+// is treated as suspect (broken parse) and clears nothing, so a bad scrape can't wipe the
+// lineup. Returns the number of schedules cleared.
+func (s *RadioService) clearAbsentWFMUSchedules(stationID uint, scrapedCodes []string) int {
+	if len(scrapedCodes) < wfmuScheduleClearMinEntries {
+		slog.Warn("wfmu schedule: clear-on-absence skipped — scrape returned too few shows (suspect parse)",
+			"scraped", len(scrapedCodes), "min", wfmuScheduleClearMinEntries)
+		return 0
+	}
+	res := s.db.Model(&catalogm.RadioShow{}).
+		Where("station_id = ? AND schedule IS NOT NULL AND schedule_locked = ? AND external_id NOT IN ?",
+			stationID, false, scrapedCodes).
+		Update("schedule", nil)
+	if res.Error != nil {
+		slog.Warn("wfmu schedule: clear-on-absence failed", "station_id", stationID, "error", res.Error)
+		return 0
+	}
+	if res.RowsAffected > 0 {
+		slog.Info("wfmu schedule: cleared schedules for shows absent from the grid",
+			"cleared", res.RowsAffected, "station_id", stationID)
+	}
+	return int(res.RowsAffected)
 }
 
 // dayNameToWeekday maps the table's day-header text to RadioScheduleSlot.DayOfWeek
@@ -159,14 +195,16 @@ func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped i
 	// colToWeekday is learned from the header row's <th class="day"> column positions.
 	colToWeekday := map[int]int{}
 	type placedCell struct {
-		node *html.Node
-		col  int
+		node    *html.Node
+		col     int
+		rowHour string // the cell's starting-row hour label ("3pm") — band context for stacked cells
 	}
 	var programCells []placedCell
 
 	rowspanRemaining := map[int]int{} // col -> further rows still occupied from above
 	for _, row := range rows {
 		col := 0
+		rowHour := "" // this row's left-edge <td class="hour"> label, if any
 		for _, cell := range cellChildren(row) {
 			for rowspanRemaining[col] > 0 { // skip cols held by a rowspan from above
 				col++
@@ -175,12 +213,16 @@ func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped i
 			cs := attrInt(cell, "colspan", 1)
 
 			switch {
+			case hasClass(cell, "hour"):
+				if rowHour == "" {
+					rowHour = strings.TrimSpace(textContent(cell))
+				}
 			case hasClass(cell, "day"):
 				if wd, ok := dayNameToWeekday[strings.ToUpper(strings.TrimSpace(textContent(cell)))]; ok {
 					colToWeekday[col] = wd
 				}
 			case hasClass(cell, "program"):
-				programCells = append(programCells, placedCell{node: cell, col: col})
+				programCells = append(programCells, placedCell{node: cell, col: col, rowHour: rowHour})
 			}
 
 			for k := 0; k < cs; k++ {
@@ -199,7 +241,8 @@ func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped i
 		return nil, 0, fmt.Errorf("schedule table has no day-column headers")
 	}
 
-	// Group slots by program code.
+	// Group slots by program code. Each cell yields one slot (normal) or several (a stacked
+	// two-show cell); all slots from a cell share the cell's weekday (its column).
 	byCode := map[string]*WFMUScheduleEntry{}
 	var order []string
 	for _, pc := range programCells {
@@ -208,25 +251,22 @@ func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped i
 			skipped++ // a program cell outside the 7 day columns (defensive)
 			continue
 		}
-		code, name := extractProgramCodeAndName(pc.node)
-		if code == "" {
+		slots := extractCellSlots(pc.node, pc.rowHour)
+		if len(slots) == 0 {
 			skipped++
 			continue
 		}
-		start, end, ok := parseWFMUTimeRange(programTimeText(pc.node))
-		if !ok {
-			skipped++
-			continue
+		for _, sl := range slots {
+			entry := byCode[sl.code]
+			if entry == nil {
+				entry = &WFMUScheduleEntry{Code: sl.code, Name: sl.name}
+				byCode[sl.code] = entry
+				order = append(order, sl.code)
+			}
+			entry.Slots = append(entry.Slots, catalogm.RadioScheduleSlot{
+				DayOfWeek: weekday, Start: sl.start, End: sl.end,
+			})
 		}
-		entry := byCode[code]
-		if entry == nil {
-			entry = &WFMUScheduleEntry{Code: code, Name: name}
-			byCode[code] = entry
-			order = append(order, code)
-		}
-		entry.Slots = append(entry.Slots, catalogm.RadioScheduleSlot{
-			DayOfWeek: weekday, Start: start, End: end,
-		})
 	}
 
 	out := make([]WFMUScheduleEntry, 0, len(order))
@@ -383,6 +423,99 @@ func extractProgramCodeAndName(cell *html.Node) (code, name string) {
 	return code, name
 }
 
+// parsedSlot is one (show, time) extracted from a program cell — usually one per cell, but
+// a stacked two-show cell yields several.
+type parsedSlot struct{ code, name, start, end string }
+
+// extractCellSlots returns the slot(s) a program cell contributes (PSY-1186). The common
+// case is a single show with a <span class="program_time"> ("3-6pm"). A STACKED cell (two
+// shows split across one slot, e.g. Monday's "Jim Price (3-3:01)" / "Scott Williams
+// (3:01-6)") has multiple show-title-links + inline parenthesized times and NO program_time
+// span — those inline times carry no meridiem, so they are anchored to the cell's band via
+// its row's hour label (rowHour, e.g. "3pm"). Returns nil if nothing parseable (caller
+// counts it as a skipped cell).
+func extractCellSlots(cell *html.Node, rowHour string) []parsedSlot {
+	if pt := programTimeText(cell); pt != "" {
+		code, name := extractProgramCodeAndName(cell)
+		if code == "" {
+			return nil
+		}
+		start, end, ok := parseWFMUTimeRange(pt)
+		if !ok {
+			return nil
+		}
+		return []parsedSlot{{code, name, start, end}}
+	}
+
+	// Stacked: pair each show (code + title, in document order) with the inline time at the
+	// same index. Bare inline times are anchored to the band's meridiem (from rowHour).
+	_, bandMer, ok := parseTimeToken(rowHour)
+	if !ok || bandMer == "" {
+		return nil // no band context → can't disambiguate the meridiem-less inline times
+	}
+	codes := allProgramCodes(cell)
+	names := allShowTitleNames(cell)
+	ranges := inlineTimeRanges(cell)
+	if len(codes) < 2 || len(codes) != len(names) || len(codes) != len(ranges) {
+		return nil // not a recognizable stacked layout
+	}
+	out := make([]parsedSlot, 0, len(codes))
+	for i := range codes {
+		start, end, ok := parseWFMUTimeRangeWithDefault(ranges[i], bandMer)
+		if !ok {
+			return nil
+		}
+		out = append(out, parsedSlot{codes[i], names[i], start, end})
+	}
+	return out
+}
+
+// allProgramCodes returns every KDBprogram-{CODE} id in the cell, in document order.
+func allProgramCodes(cell *html.Node) []string {
+	var codes []string
+	var walk func(*html.Node)
+	walk = func(x *html.Node) {
+		if x.Type == html.ElementNode {
+			if m := kdbProgramIDRe.FindStringSubmatch(getAttr(x, "id")); m != nil {
+				codes = append(codes, m[1])
+			}
+		}
+		for c := x.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(cell)
+	return codes
+}
+
+// allShowTitleNames returns every show-title-link's text in the cell, in document order.
+func allShowTitleNames(cell *html.Node) []string {
+	var names []string
+	var walk func(*html.Node)
+	walk = func(x *html.Node) {
+		if x.Type == html.ElementNode && strings.EqualFold(x.Data, "a") && hasClass(x, "show-title-link") {
+			names = append(names, strings.Join(strings.Fields(textContent(x)), " "))
+		}
+		for c := x.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(cell)
+	return names
+}
+
+var inlineTimeRe = regexp.MustCompile(`\(([^)]*\d[^)]*)\)`)
+
+// inlineTimeRanges returns the parenthesized "(start - end)" time substrings in the cell's
+// text, in document order (a digit must be present, so "(weekly)" is ignored).
+func inlineTimeRanges(cell *html.Node) []string {
+	var out []string
+	for _, m := range inlineTimeRe.FindAllStringSubmatch(textContent(cell), -1) {
+		out = append(out, strings.TrimSpace(m[1]))
+	}
+	return out
+}
+
 // programTimeText returns the trimmed text of the cell's <span class="program_time">.
 func programTimeText(cell *html.Node) string {
 	span := findDescendant(cell, func(x *html.Node) bool {
@@ -432,6 +565,28 @@ func parseWFMUTimeRange(s string) (start, end string, ok bool) {
 		}
 	}
 	return fmtHHMM(leftMin), fmtHHMM(rightMin), true
+}
+
+// parseWFMUTimeRangeWithDefault parses a stacked-cell inline range ("3 - 3:01") whose tokens
+// carry NO meridiem, anchoring each bare token to the cell's band meridiem (defaultMer, from
+// the row's hour label). A token with its own am/pm keeps it. PSY-1186.
+func parseWFMUTimeRangeWithDefault(s, defaultMer string) (start, end string, ok bool) {
+	parts := strings.SplitN(s, "-", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	lMin, lMer, lok := parseTimeToken(strings.TrimSpace(parts[0]))
+	rMin, rMer, rok := parseTimeToken(strings.TrimSpace(parts[1]))
+	if !lok || !rok {
+		return "", "", false
+	}
+	if lMer == "" {
+		lMin = applyMeridiem(lMin, defaultMer)
+	}
+	if rMer == "" {
+		rMin = applyMeridiem(rMin, defaultMer)
+	}
+	return fmtHHMM(lMin), fmtHHMM(rMin), true
 }
 
 func otherMeridiem(m string) string {

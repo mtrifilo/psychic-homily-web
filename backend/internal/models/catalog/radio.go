@@ -608,10 +608,13 @@ type RadioShow struct {
 	Description     *string          `gorm:"column:description"`
 	ScheduleDisplay *string          `gorm:"column:schedule_display"`
 	Schedule        *json.RawMessage `gorm:"column:schedule;type:jsonb"`
-	GenreTags       *json.RawMessage `gorm:"column:genre_tags;type:jsonb;default:'[]'"`
-	ArchiveURL      *string          `gorm:"column:archive_url"`
-	ImageURL        *string          `gorm:"column:image_url"`
-	ExternalID      *string          `gorm:"column:external_id"`
+	// ScheduleLocked: when true, the weekly WFMU scrape (PSY-1159) leaves this show's
+	// schedule alone — an admin curated it by hand (PSY-1186). Cleared to resume auto-scrape.
+	ScheduleLocked bool             `gorm:"column:schedule_locked;not null;default:false"`
+	GenreTags      *json.RawMessage `gorm:"column:genre_tags;type:jsonb;default:'[]'"`
+	ArchiveURL     *string          `gorm:"column:archive_url"`
+	ImageURL       *string          `gorm:"column:image_url"`
+	ExternalID     *string          `gorm:"column:external_id"`
 	// IsActive retained for backward compatibility; LifecycleState is the new
 	// operational signal (PSY-1131).
 	IsActive       bool      `gorm:"column:is_active;not null;default:true"`
