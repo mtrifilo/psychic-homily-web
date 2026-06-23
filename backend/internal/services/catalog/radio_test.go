@@ -1498,6 +1498,124 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStati
 	suite.Equal("2026-06-08", page2[0].AirDate)
 }
 
+// TestGetStationEpisodes_ExcludesFutureEpisodes pins the aired-only contract
+// (PSY-1204): the "Latest playlists" feed keeps everything dated today-or-earlier
+// (shows aired earlier today included) but drops future-dated rows. WFMU
+// publishes 0-track placeholder pages for upcoming broadcasts ahead of airtime;
+// those were sorting to the top of the feed. The bound is day-granular in the
+// station's local zone. Determinism: the seeded dates and the service's pinned
+// bound are two separate reads of the host process clock (no DB-vs-host skew),
+// and the ±2-day margin absorbs both the few-ms gap between those reads and any
+// UTC-midnight straddle. Do not narrow the margin to ±1.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ExcludesFutureEpisodes() {
+	station := suite.createStation("Aired FM")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
+	show := suite.createShow(station.ID, "Catch-Up Show")
+
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	today := now.Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, today)
+	suite.createEpisode(show.ID, future)
+
+	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "future-dated episodes are excluded from the total")
+	suite.Require().Len(rows, 2)
+
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.AirDate] = true
+	}
+	suite.True(got[past], "a recently-aired show is included")
+	suite.True(got[today], "today's show (aired earlier today) is included")
+	suite.False(got[future], "a future-dated (not-yet-aired) show is excluded")
+}
+
+// TestGetRecentEpisodes_ExcludesFutureEpisodes is the dial-wide-feed counterpart:
+// GetRecentEpisodes shares episodeRows with GetStationEpisodes, so the aired-only
+// bound must apply there too (PSY-1204). This station is left with the default
+// (NULL) timezone, so it also covers the COALESCE-to-UTC fallback path that the
+// common createStation case relies on.
+func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ExcludesFutureEpisodes() {
+	station := suite.createStation("Dial FM") // default timezone: NULL → UTC fallback
+	show := suite.createShow(station.ID, "Dial Show")
+
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, future)
+
+	rows, total, err := suite.radioService.GetRecentEpisodes(50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "future-dated episodes are excluded from the dial-wide total")
+	suite.Require().Len(rows, 1)
+	suite.Equal(past, rows[0].AirDate, "only the aired episode surfaces; NULL tz falls back to UTC")
+}
+
+// TestGetStationEpisodes_ToleratesBadStationTimezone guards the crash-proof SQL
+// (PSY-1204, adversarial-review CRITICAL): a legacy/garbage timezone stored
+// directly (bypassing normalizeStationTimezone) must NOT error out of AT TIME
+// ZONE and 500 the public feed — pg_timezone_names resolves the unknown zone to
+// UTC. Without the fallback this query raises `time zone "..." not recognized`.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ToleratesBadStationTimezone() {
+	station := suite.createStation("Garbage TZ FM")
+	// Write a non-loadable zone straight to the column (the service would reject
+	// it; this simulates a legacy/out-of-band row).
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "Mars/Olympus").Error)
+	show := suite.createShow(station.ID, "Resilient Show")
+
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, future)
+
+	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 50, 0)
+	suite.Require().NoError(err, "a bad stored timezone must not error the feed")
+	suite.Equal(int64(1), total)
+	suite.Require().Len(rows, 1)
+	suite.Equal(past, rows[0].AirDate, "unknown zone falls back to UTC; future still excluded")
+}
+
+// TestNormalizeStationTimezone covers the write-boundary validator (PSY-1204):
+// it validates against the SAME catalog the feed resolves through
+// (pg_timezone_names), so an accepted value can never silently degrade to UTC in
+// the feed. nil/blank → nil (NULL → UTC), canonical IANA is accepted and its
+// casing normalized, and values Go's time.LoadLocation would accept but Postgres'
+// catalog lacks (abbreviations like "EST", the alias "Local") are rejected.
+func (suite *RadioServiceIntegrationTestSuite) TestNormalizeStationTimezone() {
+	tz := func(s string) *string { return &s }
+
+	for _, in := range []*string{nil, tz(""), tz("   ")} {
+		got, err := suite.radioService.normalizeStationTimezone(in)
+		suite.Require().NoError(err)
+		suite.Nil(got, "nil/blank normalizes to NULL")
+	}
+
+	for _, tc := range []struct{ in, want string }{
+		{"America/New_York", "America/New_York"},
+		{"  america/new_york ", "America/New_York"}, // trimmed + canonical casing
+		{"UTC", "UTC"},
+	} {
+		got, err := suite.radioService.normalizeStationTimezone(tz(tc.in))
+		suite.Require().NoError(err)
+		suite.Require().NotNil(got)
+		suite.Equal(tc.want, *got)
+	}
+
+	for _, bad := range []string{"EST", "Local", "Mars/Olympus", "not a zone"} {
+		got, err := suite.radioService.normalizeStationTimezone(tz(bad))
+		suite.Require().Error(err, "should reject %q (not a pg_timezone_names entry)", bad)
+		suite.Nil(got)
+	}
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_StrictPerStation() {
 	flagship, sibling, standalone := suite.createNetworkFamily()
 	flagShow := suite.createShow(flagship.ID, "Flag Show")

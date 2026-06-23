@@ -55,6 +55,36 @@ func NewRadioService(database *gorm.DB) *RadioService {
 // Station CRUD
 // =============================================================================
 
+// normalizeStationTimezone validates a station timezone against the SAME catalog
+// the aired-only feed resolves it through — Postgres' pg_timezone_names
+// (PSY-1204) — and returns the catalog's canonical spelling to persist. This
+// keeps the write boundary and the feed's AT TIME ZONE in agreement so an
+// accepted value can never silently resolve to UTC in the feed. time.LoadLocation
+// is intentionally NOT used: Go's tz catalog differs from Postgres' (it accepts
+// abbreviations like "EST" and the alias "Local", which pg_timezone_names lacks),
+// so validating with it would accept zones the feed then quietly treats as UTC.
+// nil or blank → nil (store NULL; the feed falls back to UTC). A value not in
+// pg_timezone_names is rejected.
+func (s *RadioService) normalizeStationTimezone(tz *string) (*string, error) {
+	if tz == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*tz)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var canonical string
+	if err := s.db.Raw(
+		"SELECT name FROM pg_timezone_names WHERE lower(name) = lower(?) LIMIT 1", trimmed,
+	).Scan(&canonical).Error; err != nil {
+		return nil, fmt.Errorf("validate station timezone: %w", err)
+	}
+	if canonical == "" {
+		return nil, fmt.Errorf("invalid timezone %q: not a recognized IANA zone name", *tz)
+	}
+	return &canonical, nil
+}
+
 // CreateStation creates a new radio station
 func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
 	if s.db == nil {
@@ -73,6 +103,11 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 
 	if !catalogm.IsValidBroadcastType(req.BroadcastType) {
 		return nil, fmt.Errorf("invalid broadcast type: %s", req.BroadcastType)
+	}
+
+	timezone, err := s.normalizeStationTimezone(req.Timezone)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.PlaylistSource != nil && !catalogm.IsValidPlaylistSource(*req.PlaylistSource) {
@@ -96,7 +131,7 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 		City:             req.City,
 		State:            req.State,
 		Country:          req.Country,
-		Timezone:         req.Timezone,
+		Timezone:         timezone,
 		StreamURL:        req.StreamURL,
 		StreamURLs:       req.StreamURLs,
 		Website:          req.Website,
@@ -307,7 +342,15 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 		updates["country"] = *req.Country
 	}
 	if req.Timezone != nil {
-		updates["timezone"] = *req.Timezone
+		timezone, err := s.normalizeStationTimezone(req.Timezone)
+		if err != nil {
+			return nil, err
+		}
+		if timezone != nil {
+			updates["timezone"] = *timezone
+		} else {
+			updates["timezone"] = nil // blank clears the column back to NULL
+		}
 	}
 	if req.StreamURL != nil {
 		updates["stream_url"] = *req.StreamURL
@@ -1060,6 +1103,8 @@ func (s *RadioService) episodeArtistPreviews(episodeIDs []uint) (map[uint][]cont
 // GetStationEpisodes returns the station's latest playlists across all of
 // its shows, newest first — strictly the requested station, never its
 // network siblings (PSY-1074); channel shows live under their own tabs.
+// Aired-only: future-dated episodes are excluded (day-granular, station-local;
+// PSY-1204).
 func (s *RadioService) GetStationEpisodes(stationID uint, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
 	if err := s.verifyStationExists(stationID); err != nil {
 		return nil, 0, err
@@ -1072,6 +1117,8 @@ func (s *RadioService) GetStationEpisodes(stationID uint, limit, offset int) ([]
 // GetRecentEpisodes returns the newest playlists across every active
 // station — the dial-wide "latest playlists" feed. (Active-filtering is hub
 // policy; station pages serve inactive stations' archives directly.)
+// Aired-only: future-dated episodes are excluded (day-granular, station-local;
+// PSY-1204).
 func (s *RadioService) GetRecentEpisodes(limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
 	return s.episodeRows(func(q *gorm.DB) *gorm.DB {
 		return q.Where("rst.is_active = ?", true)
@@ -1089,10 +1136,36 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
+	// Pin one instant so the COUNT and the FIND (two separate statements) bound
+	// air_date against the same "now" — otherwise a station-local midnight tick
+	// between them could make total and the returned page disagree by a row.
+	now := time.Now().UTC()
 	base := func() *gorm.DB {
 		return s.db.Table("radio_episodes re").
 			Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
 			Joins("JOIN radio_stations rst ON rst.id = rsh.station_id").
+			// Resolve the station's timezone through pg_timezone_names — the catalog
+			// AT TIME ZONE uses — via a LEFT JOIN so it's looked up once per station
+			// (not once per episode row), case-insensitively. The write boundary
+			// (normalizeStationTimezone) keeps new rows canonical against this same
+			// catalog; the COALESCE-to-UTC backstop means a legacy/out-of-band or
+			// unrecognized value leaves tzn.name NULL and falls back to UTC rather
+			// than erroring out of AT TIME ZONE and 500-ing this public,
+			// all-stations feed.
+			// btrim strips space/tab/newline/CR to match the write side's
+			// strings.TrimSpace, so a legacy whitespace-padded value still resolves.
+			Joins(`LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone, E' \t\n\r'))`).
+			// Aired-only: WFMU (and other providers) publish playlist pages for
+			// UPCOMING broadcasts ahead of airtime, which the importer ingests as
+			// future-dated, 0-track placeholder episodes (PSY-1204). The "Latest
+			// playlists" feed is a DAY-GRANULAR catch-up list: bound air_date at
+			// the station's local "today" so everything dated today-or-earlier
+			// stays (shows aired earlier today included — a same-day show not yet
+			// aired can also appear, which is acceptable for catch-up) and
+			// tomorrow-onward drops. The per-station-zone bound can't use the
+			// air_date index on the dial-wide feed — fine at this scale.
+			// air-time-precise "is it live right now" lives in ComputeEpisodeStatus.
+			Where("re.air_date <= (?::timestamptz AT TIME ZONE COALESCE(tzn.name, 'UTC'))::date", now).
 			Scopes(scope)
 	}
 
