@@ -1587,6 +1587,47 @@ func TestAdminFulfill_Show_MissingAssociations_422(t *testing.T) {
 	}
 }
 
+// Adversarial (mirrors TestAdminDecide_ApproveArtist_RejectsHostileStoredURL):
+// an orphan carrying a hostile-scheme image_url that predates URL validation
+// must be rejected at the fulfill boundary (fulfillEntity re-validates the
+// stored payload), NOT mapped onto the created artist. CreateArtist + claim
+// must never fire. Locks the security property the rescue path inherits from
+// the shared fulfillEntity dispatcher.
+func TestAdminFulfill_RejectsHostileStoredURL(t *testing.T) {
+	raw := json.RawMessage(`{"name":"Evil","image_url":"javascript:alert(document.cookie)"}`)
+	orphan := approvedUnfulfilledRequest(19, "artist")
+	orphan.Payload = &raw
+	createCalled := false
+	claimCalled := false
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				claimCalled = true
+				return true, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 1}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "19"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500) // stored-payload-invalid → typed 500
+	if createCalled {
+		t.Error("CreateArtist must NOT be called for a hostile stored image_url")
+	}
+	if claimCalled {
+		t.Error("claim must NOT fire when fulfillment is rejected")
+	}
+}
+
 // Fulfilling a row that is NOT approved-but-unfulfilled (already fulfilled) →
 // 409, no catalog create.
 func TestAdminFulfill_AlreadyFulfilled_409(t *testing.T) {
