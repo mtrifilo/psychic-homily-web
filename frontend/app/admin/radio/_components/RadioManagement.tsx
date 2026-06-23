@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
@@ -77,6 +77,8 @@ import {
   useTriggerShowBackfill,
   useSyncRun,
   useCancelSyncRun,
+  useStationSyncRuns,
+  useRecentFailedRuns,
   useUnmatchedPlays,
   useBulkLinkPlays,
   type RadioStationListItem,
@@ -1056,6 +1058,125 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
 }
 
 // ============================================================================
+// Sync-run feeds (PSY-1130): per-station history + global recent-failures
+// ============================================================================
+
+// Per-station feed: recent sync runs (newest first), reusing SyncRunRow. Anomalies
+// (empty_unexpected, PSY-1156) surface inline via SyncRunRow's categorized error list
+// on partial/failed runs. Handles loading / empty / error.
+function StationSyncRunFeed({ stationId }: { stationId: number }) {
+  const { data, isLoading, isError } = useStationSyncRuns(stationId)
+  const runs = data?.sync_runs ?? []
+
+  return (
+    <div>
+      <h4 className="font-medium mb-3">Recent sync runs</h4>
+      {isLoading ? (
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : isError ? (
+        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          Couldn&apos;t load sync runs. Reload to try again.
+        </div>
+      ) : runs.length === 0 ? (
+        <AdminEmptyState icon={Inbox} message="No sync runs recorded for this station yet." />
+      ) : (
+        <div className="space-y-3">
+          {runs.map((run) => (
+            <SyncRunRow key={run.id} run={run} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// One compact cross-station failure row: station + status + when + a one-line error
+// summary, clickable to open the station's detail.
+function GlobalFailureRow({
+  run,
+  onOpen,
+}: {
+  run: RadioSyncRun
+  onOpen: (stationId: number) => void
+}) {
+  const display = SYNC_RUN_STATUS_DISPLAY[run.status]
+  const firstError = run.errors?.[0]
+  const extraErrors = (run.errors?.length ?? 0) - 1
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(run.station_id)}
+      className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors"
+    >
+      <div className="flex items-center gap-2">
+        <SyncRunStatusIcon status={run.status} />
+        <Badge className={display.color}>{display.label}</Badge>
+        <span className="font-medium">{run.station_name}</span>
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">{run.run_type}</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {new Date(run.started_at).toLocaleString()}
+        </span>
+      </div>
+      {firstError && (
+        <p className="mt-1 truncate text-xs text-destructive">
+          <span className="font-medium">{firstError.category}</span>
+          {firstError.detail ? `: ${firstError.detail}` : ''}
+          {extraErrors > 0 ? ` (+${extraErrors} more)` : ''}
+        </p>
+      )}
+    </button>
+  )
+}
+
+// Global recent-failures view: the most recent failed + partial runs across all
+// stations, clickable to the station. 'partial' carries the volume-anomaly signal
+// (empty_unexpected), so it belongs here alongside outright failures.
+function RecentFailuresPanel({
+  onOpenStation,
+}: {
+  onOpenStation: (stationId: number) => void
+}) {
+  const { runs, isLoading, isError } = useRecentFailedRuns()
+
+  if (isError) {
+    return (
+      <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        Couldn&apos;t load recent sync failures.
+      </div>
+    )
+  }
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Checking recent sync runs&hellip;
+      </div>
+    )
+  }
+  if (runs.length === 0) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <CheckCircle2 className="h-4 w-4 text-green-500" /> No recent sync failures.
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <AlertCircle className="h-4 w-4 text-destructive" />
+        <h3 className="font-medium">Recent sync failures</h3>
+      </div>
+      <div className="space-y-2">
+        {runs.map((run) => (
+          <GlobalFailureRow key={run.id} run={run} onOpen={onOpenStation} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
 // Show Import Section (per-show historic backfill + live run tracking)
 // ============================================================================
 
@@ -1332,6 +1453,9 @@ function StationDetailPanel({
         </div>
         {discoverRun && !discoverPollError && <SyncRunRow run={discoverRun} />}
       </div>
+
+      {/* Per-station sync-run feed (PSY-1130) */}
+      <StationSyncRunFeed stationId={station.id} />
 
       {/* Shows */}
       <div>
@@ -1805,7 +1929,7 @@ export function RadioManagement() {
   const [selectedStation, setSelectedStation] = useState<RadioStationListItem | null>(null)
   const [detailStation, setDetailStation] = useState<RadioStationListItem | null>(null)
 
-  const stations = stationsData?.stations ?? []
+  const stations = useMemo(() => stationsData?.stations ?? [], [stationsData])
   const filteredStations = stations.filter((s) =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (s.city ?? '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -1814,6 +1938,16 @@ export function RadioManagement() {
   const handleStationClick = useCallback((station: RadioStationListItem) => {
     setDetailStation(station)
   }, [])
+
+  // Open a station's detail from the global failures panel (which carries a run's
+  // station_id, not the full row). No-op if the station isn't in the loaded list.
+  const handleOpenStationById = useCallback(
+    (stationId: number) => {
+      const station = stations.find((s) => s.id === stationId)
+      if (station) setDetailStation(station)
+    },
+    [stations]
+  )
 
   const handleDeleteStation = useCallback(
     (station: RadioStationListItem) => {
@@ -1991,6 +2125,9 @@ export function RadioManagement() {
               <Plus className="mr-2 h-4 w-4" /> Add Station
             </Button>
           </div>
+
+          {/* Global recent-failures feed (PSY-1130) */}
+          <RecentFailuresPanel onOpenStation={handleOpenStationById} />
 
           {/* Station Table */}
           {isLoading ? (
