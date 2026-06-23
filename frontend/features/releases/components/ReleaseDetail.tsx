@@ -22,6 +22,7 @@ import {
   AddToCollectionButton,
   BracketLink,
   ImageAttribution,
+  MusicEmbed,
 } from '@/components/shared'
 import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
@@ -32,7 +33,7 @@ import { CommentThread } from '@/features/comments'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
-import { getReleaseTypeLabel } from '../types'
+import { getReleaseTypeLabel, type ReleaseExternalLink } from '../types'
 
 /** Known platform display info */
 const PLATFORM_CONFIG: Record<
@@ -59,6 +60,27 @@ function getPlatformLabel(platform: string): string {
       .map(w => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ')
   )
+}
+
+/**
+ * Pick the first Bandcamp album/track external link to feed the embed (PSY-1187).
+ *
+ * Only `/album/<slug>` and `/track/<slug>` URLs resolve to a playable Bandcamp
+ * iframe; a bare profile root (e.g. `https://artist.bandcamp.com`) does not.
+ * Restricting to those two path types here means MusicEmbed only fires the
+ * resolver fetch when a player can actually render — a profile-only Bandcamp
+ * link is left to the plain "Listen / Buy" card alone (and MusicEmbed itself
+ * still falls back to a link if a chosen album/track URL fails to resolve).
+ */
+function findBandcampEmbedUrl(
+  links: ReleaseExternalLink[]
+): string | null {
+  const link = links.find(
+    l =>
+      l.platform.toLowerCase() === 'bandcamp' &&
+      (l.url.includes('/album/') || l.url.includes('/track/'))
+  )
+  return link?.url ?? null
 }
 
 interface ReleaseDetailProps {
@@ -139,6 +161,19 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
     release.external_links && release.external_links.length > 0
   const hasLabels = release.labels && release.labels.length > 0
   const hasDescription = !!release.description && release.description.trim().length > 0
+
+  // PSY-1187: render a playable Bandcamp player when a release has a Bandcamp
+  // album/track link. MusicEmbed resolves the URL to an iframe (falling back to
+  // a link if it can't), so the clickable "Listen / Buy" cards below stay as-is.
+  const bandcampEmbedUrl = release.external_links
+    ? findBandcampEmbedUrl(release.external_links)
+    : null
+  // Fallback link text uses the primary (main) artist's name, then the first
+  // artist, then the release title.
+  const primaryArtistName =
+    release.artists?.find(a => a.role === 'main')?.name ??
+    release.artists?.[0]?.name ??
+    release.title
 
   const sidebar = (
     <div className="space-y-6">
@@ -376,6 +411,18 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           {hasExternalLinks && (
             <div>
               <h2 className="text-lg font-semibold mb-3">Listen / Buy</h2>
+              {/* PSY-1187: playable Bandcamp player above the link cards. Renders
+                  only when a Bandcamp album/track link resolves; otherwise the
+                  embed returns null and only the cards below show. */}
+              {bandcampEmbedUrl && (
+                <div className="mb-4">
+                  <MusicEmbed
+                    bandcampAlbumUrl={bandcampEmbedUrl}
+                    artistName={primaryArtistName}
+                    compact
+                  />
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {release.external_links.map(link => (
                   <a
