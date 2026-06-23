@@ -197,8 +197,8 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// passing as a silent success (the PSY-1126 KEXP-0-vs-~50 failure). Fetch only —
 	// the steady-state cadence — and only on a non-failed run: a hard executor failure
 	// is already recorded, and discover/backfill volumes are too variable for a
-	// baseline. Observational: it never escalates (empty_unexpected) and only downgrades
-	// success → partial, never touches a failure.
+	// baseline. Observational: it does not page Sentry (empty_unexpected is not in
+	// escalationError's escalate set) and only downgrades success → partial, never a failure.
 	if opts.Mode == catalogm.RadioSyncRunTypeFetch && out.hardErr == nil {
 		if anomaly, detail := s.detectVolumeAnomaly(stationID, run.ID, out.playsImported); anomaly {
 			out.errs = append(out.errs, runError{category: catalogm.RadioSyncRunErrorEmptyUnexpected, detail: detail})

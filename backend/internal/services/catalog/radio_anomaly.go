@@ -13,14 +13,18 @@ import (
 // as a silent success — the canonical failure (PSY-1126): KEXP returned 0 plays vs a
 // ~50 trailing average and nothing flagged it. The guard is observational: it never
 // drops data, it does not trip the breaker or page Sentry (status=partial resets the
-// failure counter; escalationError ignores empty_unexpected). The partial status + the
-// error row are the signal that feeds the P5 health cards (red when chronically empty).
+// failure counter; empty_unexpected is not in escalationError's escalate set). The
+// partial status + the error row are the signal that feeds the P5 health cards (red
+// when chronically empty).
 //
 // Scope: FETCH runs only. The scheduled fetch cycle is the steady-state cadence where a
 // station has a stable expected play volume; discover/backfill volumes are inherently
 // variable (new-show counts, bounded history windows) so a trailing baseline is not
 // meaningful for them.
 
+// These four knobs are compile-time consts (like radioCircuitBreakerThreshold), not env:
+// they are tuned rarely and deliberately (in code review), not per incident. Promote to
+// env (cf. RADIO_AUTO_BACKFILL_DAYS) only if ops ever needs to retune them live.
 const (
 	// volumeAnomalyFraction — a run is anomalous when its plays_imported falls below
 	// this fraction of the trailing mean (< 30% of normal). Conservative by design
@@ -76,15 +80,24 @@ func volumeAnomaly(currentPlays int, baseline []int) (bool, string) {
 // logged.
 func (s *RadioService) detectVolumeAnomaly(stationID, currentRunID uint, currentPlays int) (bool, string) {
 	var baseline []int
+	// Baseline = SUCCESS fetch runs only. partial is deliberately EXCLUDED: a flagged
+	// anomaly run is itself written partial with its 0/low play count, so counting
+	// partials would let a sustained outage poison its own baseline — after ~MaxSamples
+	// zero-runs the mean would fall below MinMean and the guard would self-silence
+	// exactly when the outage is longest (the PSY-1126 chronic-failure shape). Success-
+	// only keeps the baseline at the station's last known-good volume through a sustained
+	// collapse, until those successes age out of the lookback window (by then it is
+	// breaker/health-card territory, not a per-run anomaly). The current run is still
+	// status=running here; the explicit id guard is belt-and-suspenders.
 	err := s.db.Model(&catalogm.RadioSyncRun{}).
-		Where("station_id = ? AND run_type = ? AND status IN ? AND started_at >= ? AND id <> ?",
+		Where("station_id = ? AND run_type = ? AND status = ? AND started_at >= ? AND id <> ?",
 			stationID,
 			catalogm.RadioSyncRunTypeFetch,
-			[]string{catalogm.RadioSyncRunStatusSuccess, catalogm.RadioSyncRunStatusPartial},
+			catalogm.RadioSyncRunStatusSuccess,
 			time.Now().Add(-volumeAnomalyLookback),
 			currentRunID,
 		).
-		Order("started_at DESC").
+		Order("started_at DESC, id DESC"). // id tie-break: deterministic LIMIT on equal started_at
 		Limit(volumeAnomalyMaxSamples).
 		Pluck("plays_imported", &baseline).Error
 	if err != nil {

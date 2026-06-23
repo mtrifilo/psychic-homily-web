@@ -12,11 +12,9 @@ import (
 // RadioSyncSuite. These cover the wiring (baseline query → status downgrade → error row);
 // the rule's boundaries are unit-tested in TestVolumeAnomaly.
 
-// seedFetchRuns inserts terminal (success) fetch runs with the given play counts, dated
-// recently so they fall inside the trailing-baseline window. Used to establish a station's
-// "normal" volume before the run under test.
-func (s *RadioSyncSuite) seedFetchRuns(stationID uint, plays []int) {
-	base := time.Now().Add(-6 * time.Hour)
+// seedFetchRunsAt inserts terminal fetch runs with the given play counts + status, dated
+// from base (one minute apart). started_at controls baseline ordering/recency.
+func (s *RadioSyncSuite) seedFetchRunsAt(stationID uint, plays []int, status string, base time.Time) {
 	for i, p := range plays {
 		started := base.Add(time.Duration(i) * time.Minute)
 		finished := started.Add(time.Second)
@@ -24,13 +22,19 @@ func (s *RadioSyncSuite) seedFetchRuns(stationID uint, plays []int) {
 			StationID:     stationID,
 			RunType:       catalogm.RadioSyncRunTypeFetch,
 			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
-			Status:        catalogm.RadioSyncRunStatusSuccess,
+			Status:        status,
 			PlaysImported: p,
 			StartedAt:     started,
 			FinishedAt:    &finished,
 		}
 		s.Require().NoError(s.db.Create(&run).Error)
 	}
+}
+
+// seedFetchRuns establishes a station's "normal" volume: success runs dated inside the
+// trailing-baseline window, before the run under test.
+func (s *RadioSyncSuite) seedFetchRuns(stationID uint, plays []int) {
+	s.seedFetchRunsAt(stationID, plays, catalogm.RadioSyncRunStatusSuccess, time.Now().Add(-6*time.Hour))
 }
 
 func (s *RadioSyncSuite) countEmptyUnexpected(runID uint) int64 {
@@ -100,6 +104,26 @@ func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_NormalVolumeNotFlagged() {
 	s.Require().NotNil(res.Import)
 	s.GreaterOrEqual(res.Import.PlaysImported, 15, "a normal fetch imports well above the 30%-of-~49 threshold")
 	s.Equal(int64(0), s.countEmptyUnexpected(res.RunID), "a normal-volume run is not flagged")
+}
+
+// A SUSTAINED outage keeps getting flagged — the baseline is success-only, so the partial
+// rows a long outage produces do NOT poison it. Regression guard for the self-poisoning a
+// success+partial baseline would cause: here 20 newer 0-play PARTIAL runs sit on top of 5
+// known-good successes; with the (buggy) success+partial query the 20 zeros would fill the
+// 20-sample window and drag the mean below MinMean → the fresh 0-play fetch would wrongly
+// pass. Success-only keeps the ~50 baseline intact, so it must still flag.
+func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_SuccessOnlyBaselineNotSelfPoisoned() {
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	s.seedFetchRunsAt(st.ID, []int{50, 50, 50, 50, 50}, catalogm.RadioSyncRunStatusSuccess, time.Now().Add(-6*time.Hour))
+	s.seedFetchRunsAt(st.ID, make([]int, 20), catalogm.RadioSyncRunStatusPartial, time.Now().Add(-2*time.Hour))
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
+		Mode: catalogm.RadioSyncRunTypeFetch, Trigger: catalogm.RadioSyncRunTriggerScheduled,
+	})
+	s.Require().NoError(err)
+	s.Equal(catalogm.RadioSyncRunStatusPartial, s.statusOf(res.RunID),
+		"success-only baseline keeps flagging through a sustained outage (not self-poisoned)")
+	s.Equal(int64(1), s.countEmptyUnexpected(res.RunID))
 }
 
 // With too few prior runs there is no trustworthy baseline, so even a 0-play fetch is not
