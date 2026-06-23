@@ -77,6 +77,11 @@ const DefaultJanitorDormantDays = 30
 // RADIO_JANITOR_INTERVAL_HOURS=0.
 const DefaultJanitorBackfillLookbackDays = 30
 
+// Default WFMU schedule-scrape interval (7 days — weekly). The WFMU program grid
+// (wfmu.org/table) only changes with the season, so a weekly scrape is ample and gentle
+// on WFMU (PSY-1159). RADIO_SCHEDULE_INTERVAL_HOURS=0 (or negative) disables the cycle.
+const DefaultScheduleInterval = 7 * 24 * time.Hour
+
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
 // model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
 // §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
@@ -231,6 +236,13 @@ type RadioFetchService struct {
 	janitorDormantDays          int
 	janitorBackfillLookbackDays int
 
+	// schedule* drive the WFMU program-schedule scrape (PSY-1159): every scheduleInterval,
+	// scrape wfmu.org/table and write each 91.1 show's recurring slots to radio_shows.schedule
+	// (the air-time source PSY-1152 stamps episode windows from). scheduleEnabled == false
+	// (RADIO_SCHEDULE_INTERVAL_HOURS=0) disables the cycle (no goroutine started).
+	scheduleEnabled  bool
+	scheduleInterval time.Duration
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
@@ -350,6 +362,20 @@ func NewRadioFetchService(
 		}
 	}
 
+	// WFMU schedule scrape (PSY-1159). RADIO_SCHEDULE_INTERVAL_HOURS=0 (or negative)
+	// disables the cycle; otherwise it sets the interval (default 7 days).
+	scheduleEnabled := true
+	scheduleInterval := DefaultScheduleInterval
+	if envVal := os.Getenv("RADIO_SCHEDULE_INTERVAL_HOURS"); envVal != "" {
+		if hours, err := strconv.Atoi(envVal); err == nil {
+			if hours <= 0 {
+				scheduleEnabled = false
+			} else {
+				scheduleInterval = time.Duration(hours) * time.Hour
+			}
+		}
+	}
+
 	return &RadioFetchService{
 		radioService:                radioService,
 		discordService:              discordService,
@@ -364,6 +390,8 @@ func NewRadioFetchService(
 		janitorInterval:             janitorInterval,
 		janitorDormantDays:          janitorDormantDays,
 		janitorBackfillLookbackDays: janitorBackfillLookbackDays,
+		scheduleEnabled:             scheduleEnabled,
+		scheduleInterval:            scheduleInterval,
 		stopCh:                      make(chan struct{}),
 		logger:                      slog.Default(),
 	}
@@ -394,6 +422,13 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		go s.runJanitorLoop(ctx)
 	}
 
+	// WFMU schedule scrape (PSY-1159). Skipped when disabled
+	// (RADIO_SCHEDULE_INTERVAL_HOURS=0).
+	if s.scheduleEnabled {
+		s.wg.Add(1)
+		go s.runScheduleLoop(ctx)
+	}
+
 	s.logger.Info("radio fetch service started",
 		"fetch_interval_hours", s.fetchInterval.Hours(),
 		"affinity_interval_hours", s.affinityInterval.Hours(),
@@ -404,6 +439,8 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		"janitor_enabled", s.janitorEnabled,
 		"janitor_interval_hours", s.janitorInterval.Hours(),
 		"janitor_dormant_days", s.janitorDormantDays,
+		"schedule_enabled", s.scheduleEnabled,
+		"schedule_interval_hours", s.scheduleInterval.Hours(),
 	)
 }
 
@@ -443,6 +480,53 @@ func (s *RadioFetchService) runJanitorLoop(ctx context.Context) {
 	shared.RunTickerLoop(ctx, "radio_janitor", s.janitorInterval, s.stopCh, false, func(_ context.Context) {
 		s.runJanitorCycle()
 	})
+}
+
+// runScheduleLoop runs the periodic WFMU schedule scrape (PSY-1159).
+// runImmediately=true: the schedule is the air-time source for episode windowing, so a
+// fresh deploy should populate it without waiting a full (weekly) interval — and it's a
+// single cheap GET of one page, not a per-station sweep.
+func (s *RadioFetchService) runScheduleLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "radio_schedule", s.scheduleInterval, s.stopCh, true, func(_ context.Context) {
+		s.runScheduleCycle()
+	})
+}
+
+// runScheduleCycle scrapes wfmu.org/table and writes the parsed recurring slots onto the
+// WFMU 91.1 shows (matched by external_id). WFMU-only: the /table grid is the 91.1
+// schedule. Every failure is logged and returns — never fatal; the ticker loop continues.
+func (s *RadioFetchService) runScheduleCycle() {
+	start := time.Now()
+	provider, err := s.radioService.getProvider(catalogm.PlaylistSourceWFMU)
+	if err != nil {
+		s.logger.Error("radio schedule: get WFMU provider failed", "error", err)
+		return
+	}
+	defer closeProvider(provider)
+
+	sd, ok := provider.(scheduleDiscoverer)
+	if !ok {
+		s.logger.Error("radio schedule: WFMU provider does not support schedule discovery")
+		return
+	}
+	entries, skipped, err := sd.DiscoverSchedule()
+	if err != nil {
+		s.logger.Error("radio schedule: scrape failed", "error", err)
+		return
+	}
+	matched, unmatched, err := s.radioService.ApplyWFMUSchedule(entries)
+	if err != nil {
+		s.logger.Error("radio schedule: apply failed", "error", err)
+		return
+	}
+	s.logger.Info("radio schedule cycle complete",
+		"shows_parsed", len(entries),
+		"cells_skipped", skipped,
+		"schedules_written", matched,
+		"unmatched_codes", unmatched,
+		"duration", time.Since(start),
+	)
 }
 
 // runAffinityLoop runs the periodic affinity computation.
