@@ -1722,8 +1722,9 @@ func (s *RadioService) buildEpisodeDetailResponse(episode *catalogm.RadioEpisode
 
 	// Flag a not-yet-aired episode (PSY-1205) so the detail page labels it
 	// "upcoming" instead of "aired {future date}". Resolved against the show's
-	// station-local today, like the archive's list flag.
-	today, err := s.stationLocalTodayForShow(episode.ShowID)
+	// station-local today; the station is already preloaded (callers
+	// Preload("Show.Station")), so read its timezone directly — no extra query.
+	today, err := s.stationLocalToday(episode.Show.Station.Timezone)
 	if err != nil {
 		return nil, err
 	}

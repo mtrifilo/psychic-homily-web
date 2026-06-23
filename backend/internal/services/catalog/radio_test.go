@@ -1263,15 +1263,21 @@ func (suite *RadioServiceIntegrationTestSuite) createNetworkFamily() (*catalogm.
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSort() {
+	// Relative dates: the latest-playlist badge is now aired-only-bounded
+	// (PSY-1205), so fixed dates would couple this to the wall clock. All dates
+	// are in the past so they stay aired; ordering is what's asserted.
+	now := time.Now().UTC()
+	alphaLatest := now.AddDate(0, 0, -18).Format("2006-01-02")
+
 	station := suite.createStation("KSRT")
 	older := suite.createShow(station.ID, "Alpha Show")
-	suite.createEpisode(older.ID, "2026-06-01")
-	suite.createEpisode(older.ID, "2026-06-05")
+	suite.createEpisode(older.ID, now.AddDate(0, 0, -22).Format("2006-01-02"))
+	suite.createEpisode(older.ID, alphaLatest)
 	fresh := suite.createShow(station.ID, "Zulu Show")
-	suite.createEpisode(fresh.ID, "2026-06-09")
+	suite.createEpisode(fresh.ID, now.AddDate(0, 0, -14).Format("2006-01-02")) // newest
 	suite.createShow(station.ID, "Mid Show")
 	retired := suite.createShow(station.ID, "Beta Retired")
-	suite.createEpisode(retired.ID, "2026-06-08")
+	suite.createEpisode(retired.ID, now.AddDate(0, 0, -16).Format("2006-01-02"))
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).Update("is_active", false).Error)
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", older.ID).Update("schedule_display", "Mon 9pm-12am").Error)
 
@@ -1281,7 +1287,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.Require().Len(byName, 4)
 	suite.Equal("Alpha Show", byName[0].Name)
 	suite.Require().NotNil(byName[0].LatestAirDate)
-	suite.Equal("2026-06-05", *byName[0].LatestAirDate)
+	suite.Equal(alphaLatest, *byName[0].LatestAirDate)
 	// schedule_display rides along on list rows (PSY-1050 shows directory).
 	suite.Require().NotNil(byName[0].ScheduleDisplay)
 	suite.Equal("Mon 9pm-12am", *byName[0].ScheduleDisplay)
