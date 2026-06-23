@@ -296,3 +296,57 @@ func TestNormalizeInstagramHandle(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidBandcampEmbedURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Valid album/track pages on an artist subdomain.
+		{"album page", "https://artificialgo.bandcamp.com/album/triple-ones", true},
+		{"track page", "https://artificialgo.bandcamp.com/track/one-song", true},
+		{"http scheme accepted", "http://artificialgo.bandcamp.com/album/x", true},
+		{"leading/trailing whitespace trimmed", "  https://x.bandcamp.com/album/y  ", true},
+
+		// Rejected: not an album/track path.
+		{"bare profile root", "https://artificialgo.bandcamp.com", false},
+		{"profile root with trailing slash", "https://artificialgo.bandcamp.com/", false},
+		{"some other path", "https://artificialgo.bandcamp.com/music", false},
+
+		// Rejected: wrong / hostile host (host-anchored, not substring).
+		{"apex bandcamp.com no subdomain", "https://bandcamp.com/album/x", false},
+		{"foreign host with bandcamp in query", "http://169.254.169.254/album/x?bandcamp.com", false},
+		{"lookalike host suffix", "https://evil-bandcamp.com/album/x", false},
+		{"bandcamp in path of other host", "https://evil.test/bandcamp.com/album/x", false},
+
+		// Rejected: bad scheme / unparseable.
+		{"javascript scheme", "javascript:alert(1)", false},
+		{"empty string", "", false},
+		{"not a url", "not a url", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsValidBandcampEmbedURL(tc.input))
+		})
+	}
+}
+
+func TestIsBandcampAlbumURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"album path", "https://x.bandcamp.com/album/y", true},
+		{"track path", "https://x.bandcamp.com/track/y", false},
+		{"track with /album/ in query is not an album", "https://x.bandcamp.com/track/y?from=/album/z", false},
+		{"unparseable", "://bad", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsBandcampAlbumURL(tc.input))
+		})
+	}
+}
