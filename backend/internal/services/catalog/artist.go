@@ -1239,10 +1239,19 @@ func (s *ArtistService) DeriveBandcampEmbedForArtist(artistID uint) (*string, er
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+	return deriveBandcampEmbedForArtist(s.db, artistID)
+}
 
+// deriveBandcampEmbedForArtist is the transaction-aware core of
+// DeriveBandcampEmbedForArtist: it runs the same release-load + selection rule
+// against an explicit *gorm.DB so the PSY-1189 keep-fresh hooks can derive an
+// embed inside the SAME transaction as the triggering release write (a failed
+// embed update then rolls back together with the release change). The exported
+// method delegates here with s.db; the hooks pass tx.
+func deriveBandcampEmbedForArtist(db *gorm.DB, artistID uint) (*string, error) {
 	// Release IDs the artist is credited on (any role).
 	var releaseIDs []uint
-	if err := s.db.Table("artist_releases").
+	if err := db.Table("artist_releases").
 		Where("artist_id = ?", artistID).
 		Distinct().
 		Pluck("release_id", &releaseIDs).Error; err != nil {
@@ -1253,11 +1262,189 @@ func (s *ArtistService) DeriveBandcampEmbedForArtist(artistID uint) (*string, er
 	}
 
 	var releases []catalogm.Release
-	if err := s.db.Preload("ExternalLinks").
+	if err := db.Preload("ExternalLinks").
 		Where("id IN ?", releaseIDs).
 		Find(&releases).Error; err != nil {
 		return nil, fmt.Errorf("failed to load releases for embed derivation: %w", err)
 	}
 
 	return selectBandcampEmbedFromReleases(releases), nil
+}
+
+// ──────────────────────────────────────────────
+// Keep-fresh hooks (PSY-1189)
+//
+// PSY-1188's one-time backfill filled artists.bandcamp_embed_url for the catalog
+// as it stood then, but a release ingested LATER (CLI batch, entity-request
+// fulfillment, admin) doesn't populate the artist embed, and a deleted/unlinked
+// featured release leaves a stale auto-derived value. These two hooks keep the
+// auto-derived embed fresh on every release write path, while NEVER touching a
+// human-curated ("manual") value.
+//
+// They mirror the backfill's two load-bearing invariants:
+//   - FILL-WHEN-EMPTY: only populate bandcamp_embed_url when it IS NULL; never
+//     overwrite a non-null value.
+//   - PROVENANCE GATING: only act on rows whose bandcamp_embed_source is
+//     release_derived (or NULL when filling an empty row). A "manual" value is
+//     immutable here — never overwritten, recomputed, or nulled.
+//
+// Both run against an explicit *gorm.DB (the caller's tx) so the embed mutation
+// participates in the same transaction as the triggering release write.
+// ──────────────────────────────────────────────
+
+// fillReleaseDerivedEmbedsForRelease populates bandcamp_embed_url for every
+// artist credited on releaseID whose embed is currently NULL, deriving the value
+// from that artist's releases via the shared selection rule and stamping
+// release_derived. There is no "primary artist" column on the schema — a release
+// is credited to one-or-more artists via artist_releases — so the fill applies to
+// every credited artist whose embed is empty (each artist's own catalogue drives
+// its own derivation). Already-set embeds (manual OR previously release-derived)
+// are skipped by the IS NULL gate, so this never overwrites a value.
+//
+// db MUST be the transaction handle of the triggering release write so a failure
+// here rolls the whole write back. A no-op (no Bandcamp link, or all credited
+// artists already have an embed) is not an error.
+func fillReleaseDerivedEmbedsForRelease(db *gorm.DB, releaseID uint) error {
+	// Artists credited on this release whose embed is still empty — the only
+	// fill candidates. Distinct because an artist can hold multiple roles on one
+	// release (composer + performer).
+	var artistIDs []uint
+	if err := db.Table("artist_releases").
+		Joins("JOIN artists ON artists.id = artist_releases.artist_id").
+		Where("artist_releases.release_id = ? AND artists.bandcamp_embed_url IS NULL", releaseID).
+		Distinct().
+		Pluck("artist_releases.artist_id", &artistIDs).Error; err != nil {
+		return fmt.Errorf("failed to list fill-candidate artists for release %d: %w", releaseID, err)
+	}
+
+	for _, artistID := range artistIDs {
+		if err := fillReleaseDerivedEmbedForArtist(db, artistID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fillReleaseDerivedEmbedForArtist derives a Bandcamp embed for artistID and, if
+// one is found, writes it stamped release_derived — but only when the embed is
+// still NULL (the WHERE re-asserts the IS NULL guard so a concurrent manual write
+// can't be clobbered). A nil derivation (no embeddable Bandcamp link) is a no-op.
+func fillReleaseDerivedEmbedForArtist(db *gorm.DB, artistID uint) error {
+	embed, err := deriveBandcampEmbedForArtist(db, artistID)
+	if err != nil {
+		return fmt.Errorf("failed to derive embed for artist %d: %w", artistID, err)
+	}
+	if embed == nil {
+		return nil // no embeddable Bandcamp link — leave the column NULL.
+	}
+
+	if err := db.Model(&catalogm.Artist{}).
+		Where("id = ? AND bandcamp_embed_url IS NULL", artistID).
+		Updates(map[string]interface{}{
+			"bandcamp_embed_url":    *embed,
+			"bandcamp_embed_source": catalogm.BandcampEmbedSourceReleaseDerived,
+		}).Error; err != nil {
+		return fmt.Errorf("failed to fill release-derived embed for artist %d: %w", artistID, err)
+	}
+	return nil
+}
+
+// releaseDerivedArtistIDsForRelease returns the IDs of artists credited on
+// releaseID whose CURRENT embed is release_derived — the only artists a removal
+// of this release (or one of its links) can affect. A manual or empty embed is
+// excluded so the recompute caller never even loads it. Callers MUST invoke this
+// BEFORE the delete, since a release delete cascades the artist_releases rows.
+func releaseDerivedArtistIDsForRelease(db *gorm.DB, releaseID uint) ([]uint, error) {
+	var artistIDs []uint
+	if err := db.Table("artist_releases").
+		Joins("JOIN artists ON artists.id = artist_releases.artist_id").
+		Where("artist_releases.release_id = ? AND artists.bandcamp_embed_source = ?",
+			releaseID, catalogm.BandcampEmbedSourceReleaseDerived).
+		Distinct().
+		Pluck("artist_releases.artist_id", &artistIDs).Error; err != nil {
+		return nil, fmt.Errorf("failed to list release-derived artists for release %d: %w", releaseID, err)
+	}
+	return artistIDs, nil
+}
+
+// recomputeReleaseDerivedEmbeds re-derives the auto-derived embed for each of
+// artistIDs after a release (or one of its Bandcamp links) is removed, so a
+// deleted/unlinked release no longer leaves a stale embed pointing at a release
+// the artist no longer has. ONLY rows whose bandcamp_embed_source is
+// release_derived are touched — a manual embed is immutable here (the WHERE
+// re-asserts the source so a manual value is never recomputed or nulled, even
+// under concurrency).
+//
+// For each release_derived artist: re-run the selection rule over the artist's
+// REMAINING releases and write the new value only if it differs from the stored
+// one (no churn when the removed release wasn't the one the embed came from). If
+// no embeddable Bandcamp link remains, both the URL and the source are nulled.
+//
+// db MUST be the transaction handle of the triggering removal so a failure here
+// rolls the removal back too.
+func recomputeReleaseDerivedEmbeds(db *gorm.DB, artistIDs []uint) error {
+	for _, artistID := range artistIDs {
+		if err := recomputeReleaseDerivedEmbedForArtist(db, artistID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recomputeReleaseDerivedEmbedForArtist re-derives a single artist's
+// release_derived embed (see recomputeReleaseDerivedEmbeds). It loads the
+// artist's current embed + source first and returns early — touching nothing —
+// unless the source is exactly release_derived, so a manual or legacy (NULL)
+// embed is left alone.
+func recomputeReleaseDerivedEmbedForArtist(db *gorm.DB, artistID uint) error {
+	var current catalogm.Artist
+	if err := db.Select("id", "bandcamp_embed_url", "bandcamp_embed_source").
+		First(&current, artistID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // artist gone (e.g. cascaded) — nothing to recompute.
+		}
+		return fmt.Errorf("failed to load artist %d for embed recompute: %w", artistID, err)
+	}
+
+	// Provenance gate: only auto-derived embeds are eligible. A manual value is
+	// immutable here; a NULL source (legacy/unknown, or no embed) is left alone.
+	if current.BandcampEmbedSource == nil ||
+		*current.BandcampEmbedSource != catalogm.BandcampEmbedSourceReleaseDerived {
+		return nil
+	}
+
+	derived, err := deriveBandcampEmbedForArtist(db, artistID)
+	if err != nil {
+		return fmt.Errorf("failed to re-derive embed for artist %d: %w", artistID, err)
+	}
+
+	if derived == nil {
+		// No embeddable Bandcamp link remains → clear the auto-derived value and
+		// its source. Re-assert the release_derived guard so a manual write that
+		// landed concurrently is not clobbered.
+		if err := db.Model(&catalogm.Artist{}).
+			Where("id = ? AND bandcamp_embed_source = ?", artistID, catalogm.BandcampEmbedSourceReleaseDerived).
+			Updates(map[string]interface{}{
+				"bandcamp_embed_url":    nil,
+				"bandcamp_embed_source": nil,
+			}).Error; err != nil {
+			return fmt.Errorf("failed to clear release-derived embed for artist %d: %w", artistID, err)
+		}
+		return nil
+	}
+
+	// A value remains. Only write when it actually changed (the removed release
+	// wasn't necessarily the one the embed came from — avoid needless churn).
+	if current.BandcampEmbedURL != nil && *current.BandcampEmbedURL == *derived {
+		return nil
+	}
+	if err := db.Model(&catalogm.Artist{}).
+		Where("id = ? AND bandcamp_embed_source = ?", artistID, catalogm.BandcampEmbedSourceReleaseDerived).
+		Updates(map[string]interface{}{
+			"bandcamp_embed_url":    *derived,
+			"bandcamp_embed_source": catalogm.BandcampEmbedSourceReleaseDerived,
+		}).Error; err != nil {
+		return fmt.Errorf("failed to update release-derived embed for artist %d: %w", artistID, err)
+	}
+	return nil
 }
