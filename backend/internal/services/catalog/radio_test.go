@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -1245,6 +1246,44 @@ func TestRadioService_NilDB_Feeds(t *testing.T) {
 	assertNilDBError(t, func() error { _, err := svc.GetTopLabelsForStation(1, 90, 10); return err })
 }
 
+// TestNormalizeStationTimezone covers the write-boundary validator that keeps a
+// bad timezone out of the column (PSY-1204, adversarial-review CRITICAL): nil
+// passes through, blank/whitespace normalizes to "" (feed falls back to UTC), a
+// valid zone is trimmed, and a non-loadable zone is rejected.
+func TestNormalizeStationTimezone(t *testing.T) {
+	ptr := func(s string) *string { return &s }
+
+	t.Run("nil stays nil", func(t *testing.T) {
+		got, err := normalizeStationTimezone(nil)
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{"empty", "", ""},
+		{"whitespace only", "  ", ""},
+		{"valid zone trimmed", "  America/New_York ", "America/New_York"},
+		{"utc", "UTC", "UTC"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeStationTimezone(ptr(tc.in))
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, tc.want, *got)
+		})
+	}
+
+	for _, bad := range []string{"Mars/Olympus", "Amrica/Los_Angeles", "not a zone"} {
+		t.Run("rejects "+bad, func(t *testing.T) {
+			got, err := normalizeStationTimezone(ptr(bad))
+			require.Error(t, err)
+			require.Nil(t, got)
+		})
+	}
+}
+
 // createNetworkFamily seeds a network with a flagship + one sibling channel,
 // plus one standalone station outside the network. Returns (flagship,
 // sibling, standalone).
@@ -1496,6 +1535,91 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStati
 	suite.Equal(int64(2), total2)
 	suite.Require().Len(page2, 1)
 	suite.Equal("2026-06-08", page2[0].AirDate)
+}
+
+// TestGetStationEpisodes_ExcludesFutureEpisodes pins the aired-only contract
+// (PSY-1204): the "Latest playlists" feed keeps everything dated today-or-earlier
+// (shows aired earlier today included) but drops future-dated rows. WFMU
+// publishes 0-track placeholder pages for upcoming broadcasts ahead of airtime;
+// those were sorting to the top of the feed. The bound is day-granular in the
+// station's local zone. Determinism: both the seeded dates and the query's "now"
+// read the SAME process clock (the service pins time.Now().UTC()), and the ±2-day
+// margin absorbs the sub-microsecond gap between them — so there is no DB-vs-host
+// clock skew and no midnight-rollover flake. Do not narrow the margin to ±1.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ExcludesFutureEpisodes() {
+	station := suite.createStation("Aired FM")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
+	show := suite.createShow(station.ID, "Catch-Up Show")
+
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	today := now.Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, today)
+	suite.createEpisode(show.ID, future)
+
+	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "future-dated episodes are excluded from the total")
+	suite.Require().Len(rows, 2)
+
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.AirDate] = true
+	}
+	suite.True(got[past], "a recently-aired show is included")
+	suite.True(got[today], "today's show (aired earlier today) is included")
+	suite.False(got[future], "a future-dated (not-yet-aired) show is excluded")
+}
+
+// TestGetRecentEpisodes_ExcludesFutureEpisodes is the dial-wide-feed counterpart:
+// GetRecentEpisodes shares episodeRows with GetStationEpisodes, so the aired-only
+// bound must apply there too (PSY-1204). This station is left with the default
+// (NULL) timezone, so it also covers the COALESCE-to-UTC fallback path that the
+// common createStation case relies on.
+func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ExcludesFutureEpisodes() {
+	station := suite.createStation("Dial FM") // default timezone: NULL → UTC fallback
+	show := suite.createShow(station.ID, "Dial Show")
+
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, future)
+
+	rows, total, err := suite.radioService.GetRecentEpisodes(50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "future-dated episodes are excluded from the dial-wide total")
+	suite.Require().Len(rows, 1)
+	suite.Equal(past, rows[0].AirDate, "only the aired episode surfaces; NULL tz falls back to UTC")
+}
+
+// TestGetStationEpisodes_ToleratesBadStationTimezone guards the crash-proof SQL
+// (PSY-1204, adversarial-review CRITICAL): a legacy/garbage timezone stored
+// directly (bypassing normalizeStationTimezone) must NOT error out of AT TIME
+// ZONE and 500 the public feed — pg_timezone_names resolves the unknown zone to
+// UTC. Without the fallback this query raises `time zone "..." not recognized`.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ToleratesBadStationTimezone() {
+	station := suite.createStation("Garbage TZ FM")
+	// Write a non-loadable zone straight to the column (the service would reject
+	// it; this simulates a legacy/out-of-band row).
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "Mars/Olympus").Error)
+	show := suite.createShow(station.ID, "Resilient Show")
+
+	now := time.Now().UTC()
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	suite.createEpisode(show.ID, past)
+	suite.createEpisode(show.ID, future)
+
+	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 50, 0)
+	suite.Require().NoError(err, "a bad stored timezone must not error the feed")
+	suite.Equal(int64(1), total)
+	suite.Require().Len(rows, 1)
+	suite.Equal(past, rows[0].AirDate, "unknown zone falls back to UTC; future still excluded")
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_StrictPerStation() {
