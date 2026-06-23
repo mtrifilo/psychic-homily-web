@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,7 +49,7 @@ func newSpotifyTestServer(t *testing.T) *spotifyTestServer {
 		ts.searchCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"albums":{"items":[
-			{"id":"alb1","name":"Dopesmoker","artists":[{"name":"Sleep"}],"release_date":"2003",
+			{"id":"alb1","name":"Dopesmoker","artists":[{"id":"ABC123","name":"Sleep"}],"release_date":"2003",
 			 "images":[{"url":"https://i.scdn.co/image/big","width":640,"height":640}],
 			 "external_urls":{"spotify":"https://open.spotify.com/album/alb1"}}
 		]}}`))
@@ -83,6 +84,7 @@ func TestSpotifyClient_SearchAlbums(t *testing.T) {
 	assert.Equal(t, "Dopesmoker", albums[0].Name)
 	require.Len(t, albums[0].Artists, 1)
 	assert.Equal(t, "Sleep", albums[0].Artists[0].Name)
+	assert.Equal(t, "ABC123", albums[0].Artists[0].ID)
 	assert.Equal(t, "2003", albums[0].ReleaseDate)
 	assert.Equal(t, "https://i.scdn.co/image/big", bestImageURL(albums[0].Images))
 	assert.Equal(t, "https://open.spotify.com/album/alb1", albums[0].ExternalURLs.Spotify)
@@ -209,4 +211,43 @@ func TestSpotifyClient_TokenError(t *testing.T) {
 	_, err := c.SearchAlbums("Sleep", "Dopesmoker", 10)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token endpoint returned status 401")
+}
+
+func TestSpotifyClient_TokenRefreshOnExpiry(t *testing.T) {
+	// expires_in:0 → the cached token is already expired, so every API call
+	// re-fetches a token (exercises the expiry branch in ensureToken).
+	var tokenCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
+		tokenCalls.Add(1)
+		_, _ = w.Write([]byte(`{"access_token":"tok-abc","expires_in":0}`))
+	})
+	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"albums":{"items":[]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewSpotifyClientWithConfig(srv.Client(), srv.URL, srv.URL, "id", "secret")
+	defer c.Close()
+
+	_, err := c.SearchAlbums("Sleep", "Dopesmoker", 10)
+	require.NoError(t, err)
+	_, err = c.SearchAlbums("Sleep", "Holy Mountain", 10)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), tokenCalls.Load(), "an expired token is re-fetched per call")
+}
+
+func TestParseSpotifyRetryAfter(t *testing.T) {
+	assert.Equal(t, 5*time.Second, parseSpotifyRetryAfter("5"), "sub-cap delta passes through")
+	assert.Equal(t, time.Duration(0), parseSpotifyRetryAfter("0"))
+	assert.Equal(t, time.Duration(0), parseSpotifyRetryAfter("-5"), "negative delta floors to 0")
+	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("120"), "delta over the cap clamps to max")
+	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("99999"), "huge delta clamps to max")
+	assert.Equal(t, spotifyRateLimit, parseSpotifyRetryAfter(""), "missing header → default cadence")
+	assert.Equal(t, spotifyRateLimit, parseSpotifyRetryAfter("not-a-number"), "unparseable → default cadence")
+
+	// HTTP-date form (RFC 9110): a far-future date clamps to the max; a past date floors to 0.
+	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("Wed, 21 Oct 2099 07:28:00 GMT"))
+	assert.Equal(t, time.Duration(0), parseSpotifyRetryAfter("Wed, 21 Oct 1999 07:28:00 GMT"))
 }

@@ -17,7 +17,13 @@
 //
 // Requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET (client-credentials flow).
 // Idempotent: only entities missing an image are considered, so a re-run after a
-// live pass reports zero updates.
+// live pass reports zero updates — which also makes errored entities safe to retry
+// by simply re-running.
+//
+// NOTE: with --limit unset (0), the run loads every image-less release (+ its
+// artists) and every image-less artist into memory at once. That is fine at the
+// current catalog scale; for a very large catalog, run in batches with --limit N
+// (safe + resumable precisely because the run is idempotent).
 package main
 
 import (
@@ -90,12 +96,23 @@ func printReport(r *catalog.SpotifyEnrichReport) {
 	fmt.Printf("Artists:   scanned=%d matched=%d updated=%d skipped=%d errors=%d\n",
 		r.ArtistsScanned, r.ArtistsMatched, r.ArtistsUpdated, r.ArtistsSkipped, r.ArtistErrors)
 	fmt.Println()
+	if errs := r.ReleaseErrors + r.ArtistErrors; errs > 0 {
+		fmt.Printf("%d entit%s errored and were left unchanged; re-run (idempotent) to retry them.\n",
+			errs, plural(errs, "y", "ies"))
+	}
 	if r.DryRun {
 		fmt.Println("DRY RUN — searched Spotify and reported matches; no DB writes.")
 		fmt.Println("Re-run with --confirm to store the matched image references.")
 	} else {
 		fmt.Println("LIVE — matched image references committed.")
 	}
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func loadEnv() {

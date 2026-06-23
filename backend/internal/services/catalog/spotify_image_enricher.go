@@ -22,13 +22,21 @@ import (
 // enriches releases + artists only.
 //
 // Match policy = "strict match only, skip the rest" (the PSY-1185 decision):
-//   - Release covers come from a SEARCH, so a candidate is stored only when its
-//     normalized album name AND a normalized artist name match the release, and
-//     (when both years are known) the years agree within one. Ambiguous hits are
-//     skipped + logged for the deferred candidate-picker — never blindly stored.
-//   - Artist photos come from dereferencing the operator-curated Spotify link
-//     (an exact id), so they are stored directly; the resolved Spotify name is
-//     logged so a mis-pasted link is auditable.
+//   - Release covers come from a SEARCH. A candidate is stored only when its
+//     normalized album name matches AND its artist matches — by Spotify artist ID
+//     when the release's artist has a curated link (immune to two distinct artists
+//     sharing a name), otherwise by normalized name. When both years are known
+//     they must agree within one. When several candidates carry DIFFERENT covers,
+//     the release is skipped + logged as ambiguous for the deferred
+//     candidate-picker — Spotify's top hit is never blindly stored.
+//   - Artist photos dereference the operator-curated Spotify link (an exact id),
+//     so they are stored directly; the resolved Spotify name is logged so a
+//     mis-pasted link is auditable.
+//
+// Every stored URL is validated before persisting (https for image urls;
+// open.spotify.com for the *_source_url linkbacks) — these fields render in
+// <img src> / <a href>, so this honors the repo's validate-on-write contract
+// (PSY-525/747/1113) that the backfill would otherwise bypass.
 
 const (
 	spotifyImageSourceID = "spotify"
@@ -51,9 +59,15 @@ type SpotifyEnrichOptions struct {
 	Limit  int  // max entities PER TYPE to process (0 = no limit)
 }
 
-// SpotifyEnrichReport summarizes a backfill run. Scanned = considered; Matched =
-// passed the strict gate; Updated = written (always 0 on a dry run); Skipped =
-// no usable strict match; Errors = API/DB failures (entity left untouched).
+// SpotifyEnrichReport summarizes a backfill run.
+//   - Scanned: entities considered (missing an image, loaded by the query).
+//   - Matched: a STORABLE match was found — for releases, passed the strict gate +
+//     URL validation; for artists, the curated link resolved to a usable photo
+//     (artist photos have no strict gate: the operator-curated id is exact).
+//   - Updated: written (always 0 on a dry run).
+//   - Skipped: no usable/unambiguous match, or a stored-URL validation failure.
+//   - Errors: API/DB failures; the entity is left untouched and is safe to retry
+//     on a re-run (the run is idempotent).
 type SpotifyEnrichReport struct {
 	DryRun bool
 
@@ -104,7 +118,7 @@ func enrichReleaseCovers(db *gorm.DB, client spotifyImageAPI, opts SpotifyEnrich
 		rel := &releases[i]
 		report.ReleasesScanned++
 
-		artistName := primaryArtistName(rel.Artists)
+		artistName, artistSpotifyID := primaryArtistForMatch(rel.Artists)
 		if artistName == "" || strings.TrimSpace(rel.Title) == "" {
 			report.ReleasesSkipped++
 			slog.Debug("spotify-enrich: release missing artist or title; skipping",
@@ -120,17 +134,33 @@ func enrichReleaseCovers(db *gorm.DB, client spotifyImageAPI, opts SpotifyEnrich
 			continue
 		}
 
-		match := pickStrictAlbumMatch(albums, artistName, rel.Title, rel.ReleaseYear)
+		match, qualifying := pickStrictAlbumMatch(albums, artistName, artistSpotifyID, rel.Title, rel.ReleaseYear)
 		if match == nil {
 			report.ReleasesSkipped++
-			slog.Info("spotify-enrich: no strict album match; skipping",
-				"release_id", rel.ID, "title", rel.Title, "artist", artistName, "candidates", len(albums))
+			if qualifying > 1 {
+				slog.Info("spotify-enrich: ambiguous album match (multiple distinct covers); skipping for candidate-picker",
+					"release_id", rel.ID, "title", rel.Title, "artist", artistName, "qualifying", qualifying)
+			} else {
+				slog.Info("spotify-enrich: no strict album match; skipping",
+					"release_id", rel.ID, "title", rel.Title, "artist", artistName, "candidates", len(albums))
+			}
+			continue
+		}
+
+		// Validate-on-write (PSY-525/747/1113): cover_art_url renders in <img src>
+		// and cover_art_source_url as an attribution <a href>, so reject a non-https
+		// / non-Spotify URL rather than trusting the provider response blindly.
+		if !isHTTPSURL(match.ImageURL) || !isSpotifyWebURL(match.SourceURL) {
+			report.ReleasesSkipped++
+			slog.Warn("spotify-enrich: matched cover failed URL validation; skipping",
+				"release_id", rel.ID, "image_url", match.ImageURL, "source_url", match.SourceURL)
 			continue
 		}
 		report.ReleasesMatched++
 
 		slog.Info("spotify-enrich: release cover match",
 			"release_id", rel.ID, "title", rel.Title, "artist", artistName,
+			"anchored_by_id", artistSpotifyID != "",
 			"spotify_album", match.Name, "matched_year", match.Year,
 			"image_url", match.ImageURL, "source_url", match.SourceURL, "dry_run", opts.DryRun)
 
@@ -198,12 +228,21 @@ func enrichArtistPhotos(db *gorm.DB, client spotifyImageAPI, opts SpotifyEnrichO
 				"artist_id", ar.ID, "name", ar.Name, "spotify_id", spotifyID)
 			continue
 		}
-		report.ArtistsMatched++
 
 		sourceURL := sa.ExternalURLs.Spotify
 		if sourceURL == "" {
 			sourceURL = spotifyURL // fall back to the curated link
 		}
+
+		// Validate-on-write (PSY-525/747/1113): image_url / image_source_url render
+		// in <img src> / <a href>, so reject a non-https / non-Spotify URL.
+		if !isHTTPSURL(imageURL) || !isSpotifyWebURL(sourceURL) {
+			report.ArtistsSkipped++
+			slog.Warn("spotify-enrich: artist photo failed URL validation; skipping",
+				"artist_id", ar.ID, "image_url", imageURL, "source_url", sourceURL)
+			continue
+		}
+		report.ArtistsMatched++
 
 		// The id comes from an operator-curated link, so the artist match is exact
 		// by construction. Log the resolved Spotify name alongside ours so a name
@@ -243,25 +282,42 @@ type spotifyAlbumMatch struct {
 	Year      int // 0 when unknown
 }
 
-// pickStrictAlbumMatch returns the first candidate that satisfies the strict
-// gate, or nil when none do (caller skips + logs). A candidate qualifies only
-// when its normalized album name equals the release title AND one of its artists'
-// normalized names equals the release's primary artist. When BOTH the release and
-// the candidate have a known year, they must agree within spotifyYearTolerance; a
-// candidate with an unknown year is not rejected (we never reject on missing
-// provider data). A qualifying candidate with no usable image is skipped.
-func pickStrictAlbumMatch(albums []SpotifyAlbum, artist, title string, releaseYear *int) *spotifyAlbumMatch {
+// pickStrictAlbumMatch applies the strict-match-skip-ambiguous policy and returns
+// (match, qualifyingCount). match is nil when no candidate qualifies OR when the
+// choice is ambiguous; the caller uses qualifyingCount to log which case it was.
+//
+// A candidate qualifies only when its normalized album name equals the release
+// title AND its artist matches: by Spotify artist ID when artistSpotifyID != ""
+// (the release's artist has a curated link — immune to two distinct artists
+// sharing a name), otherwise by normalized artist name. When both the release and
+// the candidate have a known year they must agree within spotifyYearTolerance; a
+// candidate with an unknown year is not rejected (never reject on missing provider
+// data). A qualifying candidate with no usable image is dropped.
+//
+// chooseUnambiguous then selects among the qualifying candidates, returning nil
+// when multiple carry DIFFERENT covers the year can't disambiguate — so Spotify's
+// top hit is never blindly stored.
+func pickStrictAlbumMatch(albums []SpotifyAlbum, artistName, artistSpotifyID, title string, releaseYear *int) (*spotifyAlbumMatch, int) {
 	wantTitle := normalizeForMatch(title)
-	wantArtist := normalizeForMatch(artist)
-	if wantTitle == "" || wantArtist == "" {
-		return nil
+	if wantTitle == "" {
+		return nil, 0
+	}
+	wantArtist := normalizeForMatch(artistName)
+	anchorByID := artistSpotifyID != ""
+	if !anchorByID && wantArtist == "" {
+		return nil, 0
 	}
 
+	var qualifying []spotifyAlbumMatch
 	for _, alb := range albums {
 		if normalizeForMatch(alb.Name) != wantTitle {
 			continue
 		}
-		if !albumArtistsContain(alb.Artists, wantArtist) {
+		if anchorByID {
+			if !albumArtistsContainID(alb.Artists, artistSpotifyID) {
+				continue
+			}
+		} else if !albumArtistsContainName(alb.Artists, wantArtist) {
 			continue
 		}
 
@@ -277,19 +333,71 @@ func pickStrictAlbumMatch(albums []SpotifyAlbum, artist, title string, releaseYe
 			continue
 		}
 
-		return &spotifyAlbumMatch{
+		qualifying = append(qualifying, spotifyAlbumMatch{
 			Name:      alb.Name,
 			ImageURL:  img,
 			SourceURL: alb.ExternalURLs.Spotify,
 			Year:      candYear,
+		})
+	}
+
+	return chooseUnambiguous(qualifying, releaseYear), len(qualifying)
+}
+
+// chooseUnambiguous returns the single cover among qualifying candidates, or nil
+// when the choice is genuinely ambiguous. One candidate → it. Many candidates that
+// all carry the SAME cover image → that cover (different pressings, identical art —
+// not ambiguous). Many with DIFFERENT covers → narrow to an exact release-year
+// match; if that still doesn't resolve to one cover, return nil (skip + log).
+func chooseUnambiguous(qualifying []spotifyAlbumMatch, releaseYear *int) *spotifyAlbumMatch {
+	if len(qualifying) == 0 {
+		return nil
+	}
+	if allSameCover(qualifying) {
+		return &qualifying[0]
+	}
+	if releaseYear != nil && *releaseYear > 0 {
+		var exact []spotifyAlbumMatch
+		for _, q := range qualifying {
+			if q.Year == *releaseYear {
+				exact = append(exact, q)
+			}
+		}
+		if allSameCover(exact) {
+			return &exact[0]
 		}
 	}
 	return nil
 }
 
-// albumArtistsContain reports whether any of the album's artists' normalized
-// names equals the wanted (already-normalized) artist name.
-func albumArtistsContain(artists []SpotifyAlbumArtistRef, wantNormalized string) bool {
+// allSameCover reports whether every match carries the same image URL — so there
+// is really only one cover to choose regardless of how many album rows matched.
+// An empty slice is not "same cover".
+func allSameCover(matches []spotifyAlbumMatch) bool {
+	if len(matches) == 0 {
+		return false
+	}
+	for i := 1; i < len(matches); i++ {
+		if matches[i].ImageURL != matches[0].ImageURL {
+			return false
+		}
+	}
+	return true
+}
+
+// albumArtistsContainID reports whether any album artist has the given Spotify id.
+func albumArtistsContainID(artists []SpotifyAlbumArtistRef, wantID string) bool {
+	for _, a := range artists {
+		if a.ID == wantID {
+			return true
+		}
+	}
+	return false
+}
+
+// albumArtistsContainName reports whether any album artist's normalized name
+// equals the wanted (already-normalized) artist name.
+func albumArtistsContainName(artists []SpotifyAlbumArtistRef, wantNormalized string) bool {
 	for _, a := range artists {
 		if normalizeForMatch(a.Name) == wantNormalized {
 			return true
@@ -298,18 +406,29 @@ func albumArtistsContain(artists []SpotifyAlbumArtistRef, wantNormalized string)
 	return false
 }
 
-// primaryArtistName returns the artist name to search a release's cover by. The
-// many2many preload does not guarantee role/position order, so we take the first
-// loaded non-empty name. Picking the "wrong" artist on a multi-artist release is
-// safe, not harmful: the strict gate then finds no match and the release is
-// skipped (left for the deferred candidate-picker) rather than mis-tagged.
-func primaryArtistName(artists []catalogm.Artist) string {
-	for _, a := range artists {
-		if strings.TrimSpace(a.Name) != "" {
-			return a.Name
+// primaryArtistForMatch chooses the artist to search + anchor a release's cover
+// by, returning (name, spotifyID). It prefers an artist with a parseable curated
+// Spotify link — enabling ID-anchored matching that is immune to same-name
+// distinct artists — and falls back to the first non-empty name (matched by name,
+// with the ambiguity gate as the backstop). name and spotifyID always come from
+// the SAME artist, so the search term and the ID anchor never disagree.
+func primaryArtistForMatch(artists []catalogm.Artist) (name, spotifyID string) {
+	fallback := ""
+	for i := range artists {
+		nm := strings.TrimSpace(artists[i].Name)
+		if nm == "" {
+			continue
+		}
+		if artists[i].Social.Spotify != nil {
+			if id := extractSpotifyArtistID(*artists[i].Social.Spotify); id != "" {
+				return nm, id
+			}
+		}
+		if fallback == "" {
+			fallback = nm
 		}
 	}
-	return ""
+	return fallback, ""
 }
 
 // normalizeForMatch produces the comparison key for the strict album/artist
@@ -331,6 +450,9 @@ func normalizeForMatch(s string) string {
 	}
 
 	// NFKD-decompose + strip combining marks (diacritics) via the shared stripper.
+	// On the (UTF-8-impossible) transform error we keep the lowercased input rather
+	// than failing, so a partial fold never silently corrupts the match key —
+	// mirrors normalizeName's documented fallback (radio_matching.go).
 	normalizer := transform.Chain(norm.NFKD, markStripper, norm.NFC)
 	if folded, _, err := transform.String(normalizer, s); err == nil {
 		s = folded
@@ -357,9 +479,11 @@ var spotifyArtistIDPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 
 // extractSpotifyArtistID parses an open.spotify.com/artist/<id> URL and returns
 // the id. Host-anchored (mirrors the backend handler's isValidSpotifyURL) so a
-// link on a look-alike host yields "". Handles locale prefixes
-// (/intl-de/artist/<id>) and trailing sub-tabs (/artist/<id>/about). Returns ""
-// for anything that does not parse to a real https Spotify artist URL.
+// link on a look-alike host yields "". "artist" is accepted ONLY as the first
+// path segment, or the second after an intl-* locale prefix or an /embed prefix
+// — so /user/<name>/... (e.g. a Spotify user literally named "artist") can't be
+// misread as an artist link. Returns "" for anything that does not parse to a
+// real https Spotify artist URL.
 func extractSpotifyArtistID(rawURL string) string {
 	raw := strings.TrimSpace(rawURL)
 	if raw == "" {
@@ -377,17 +501,47 @@ func extractSpotifyArtistID(rawURL string) string {
 	if strings.ToLower(u.Hostname()) != "open.spotify.com" {
 		return ""
 	}
+
+	// Path forms: /artist/<id>, /intl-de/artist/<id>, /embed/artist/<id>.
+	// segs[0] is the leading "" before the first slash.
 	segs := strings.Split(u.Path, "/")
-	for i := 0; i+1 < len(segs); i++ {
-		if segs[i] == "artist" {
-			id := segs[i+1]
-			if spotifyArtistIDPattern.MatchString(id) {
-				return id
-			}
-			return ""
-		}
+	artistIdx := -1
+	switch {
+	case len(segs) >= 2 && segs[1] == "artist":
+		artistIdx = 1
+	case len(segs) >= 3 && (strings.HasPrefix(segs[1], "intl-") || segs[1] == "embed") && segs[2] == "artist":
+		artistIdx = 2
+	}
+	if artistIdx == -1 || artistIdx+1 >= len(segs) {
+		return ""
+	}
+	if id := segs[artistIdx+1]; spotifyArtistIDPattern.MatchString(id) {
+		return id
 	}
 	return ""
+}
+
+// isHTTPSURL reports whether raw is a parseable https URL with a host. Gates
+// cover_art_url / image_url before persisting (they render in <img src>); the
+// image CDN host varies (i.scdn.co / mosaic.scdn.co / *.spotifycdn.com), so we
+// require https + a host rather than pinning the host.
+func isHTTPSURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "https" && u.Host != ""
+}
+
+// isSpotifyWebURL reports whether raw is an https open.spotify.com URL. Gates the
+// *_source_url linkback (rendered as an attribution <a href>) before persisting —
+// the repo's host-anchored validate-on-write contract (PSY-1113).
+func isSpotifyWebURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "https" && strings.ToLower(u.Hostname()) == "open.spotify.com"
 }
 
 // absInt returns the absolute value of n.

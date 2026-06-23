@@ -107,7 +107,7 @@ func newFakeAPI() *fakeSpotifyAPI {
 			"Dopesmoker": {{
 				ID:           "alb1",
 				Name:         "Dopesmoker",
-				Artists:      []SpotifyAlbumArtistRef{{Name: "Sleep"}},
+				Artists:      []SpotifyAlbumArtistRef{{ID: "ABC123", Name: "Sleep"}},
 				ReleaseDate:  "2003",
 				Images:       []SpotifyImage{{URL: "https://i.scdn.co/album/big", Width: 640, Height: 640}},
 				ExternalURLs: SpotifyExternalURLs{Spotify: "https://open.spotify.com/album/alb1"},

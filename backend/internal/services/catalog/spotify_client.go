@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -111,7 +112,11 @@ type SpotifyExternalURLs struct {
 }
 
 // SpotifyAlbumArtistRef is the trimmed artist reference on an album object.
+// ID is Spotify's stable artist id — the enricher anchors on it (not the name)
+// when the catalog artist has a curated Spotify link, so two distinct artists
+// who share a name can't be confused.
 type SpotifyAlbumArtistRef struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -305,23 +310,37 @@ func (c *SpotifyClient) apiGetWithRetry(path string, allowRetry bool) ([]byte, e
 	return body, nil
 }
 
-// parseSpotifyRetryAfter reads a Retry-After header (Spotify sends integer
-// seconds), clamped to spotify429MaxWait. Falls back to the rate-limit cadence
-// when the header is missing or unparseable.
+// parseSpotifyRetryAfter reads a Retry-After header. Per RFC 9110 §10.2.3 it may
+// be EITHER delta-seconds ("120") OR an HTTP-date ("Wed, 21 Oct 2025 07:28:00
+// GMT"); we handle both forms. The result is clamped to spotify429MaxWait so a
+// pathological value can't stall the backfill, and a non-empty header we cannot
+// parse falls back to the rate-limit cadence WITH a debug log (so a future
+// header-format change is observable rather than silently swallowed).
 func parseSpotifyRetryAfter(h string) time.Duration {
 	h = strings.TrimSpace(h)
 	if h == "" {
 		return spotifyRateLimit
 	}
-	secs, err := strconv.Atoi(h)
-	if err != nil || secs < 0 {
-		return spotifyRateLimit
+	if secs, err := strconv.Atoi(h); err == nil {
+		return clampRetryWait(time.Duration(secs) * time.Second)
 	}
-	wait := time.Duration(secs) * time.Second
-	if wait > spotify429MaxWait {
-		wait = spotify429MaxWait
+	if t, err := http.ParseTime(h); err == nil {
+		return clampRetryWait(time.Until(t))
 	}
-	return wait
+	slog.Debug("spotify: unparseable Retry-After header; using default backoff", "retry_after", h)
+	return spotifyRateLimit
+}
+
+// clampRetryWait floors a backoff at 0 (past dates / negative deltas → no sleep)
+// and caps it at spotify429MaxWait.
+func clampRetryWait(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	if d > spotify429MaxWait {
+		return spotify429MaxWait
+	}
+	return d
 }
 
 // sanitizeQueryValue strips the double quotes we wrap field-filter values in, so
