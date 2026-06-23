@@ -128,7 +128,7 @@ describe("submitVenues", () => {
     });
   });
 
-  test("single venue update — existing match with new address info", async () => {
+  test("single venue update — existing match with a new website link", async () => {
     const client = createMockClient({
       get: mock(() =>
         Promise.resolve({
@@ -140,11 +140,8 @@ describe("submitVenues", () => {
               city: "Phoenix",
               state: "AZ",
               country: "",
-              address: "",
-              zip_code: "",
-              website: "",
-              capacity: "",
               description: "",
+              social: {},
             },
           ],
         }),
@@ -156,7 +153,6 @@ describe("submitVenues", () => {
         name: "Crescent Ballroom",
         city: "Phoenix",
         state: "AZ",
-        address: "308 N 2nd Ave",
         website: "https://crescentphx.com",
       },
     ];
@@ -186,11 +182,8 @@ describe("submitVenues", () => {
               city: "Phoenix",
               state: "AZ",
               country: "",
-              address: "",
-              zip_code: "",
-              website: "https://existing.com",
-              capacity: "",
               description: "",
+              social: { website: "https://existing.com" },
             },
           ],
         }),
@@ -203,8 +196,8 @@ describe("submitVenues", () => {
         name: "Crescent Ballroom",
         city: "Phoenix",
         state: "AZ",
-        address: "308 N 2nd Ave",
-        website: "https://crescentphx.com",
+        website: "https://crescentphx.com", // already set (different value) → not sent
+        instagram: "@crescentphx", // new → sent
       },
     ];
 
@@ -213,8 +206,49 @@ describe("submitVenues", () => {
 
     expect(result.updates).toBe(1);
     expect(putMock).toHaveBeenCalledTimes(1);
-    // Should only send address (new_info), not website (already_set)
-    expect(putMock).toHaveBeenCalledWith("/venues/42", { address: "308 N 2nd Ave" });
+    // Only new_info is sent: instagram is new; website is already_set (read from
+    // the nested `social` object — PSY-1171) so it is excluded.
+    expect(putMock).toHaveBeenCalledWith("/venues/42", { instagram: "@crescentphx" });
+  });
+
+  test("single venue update — a fresh social link is enriched via PUT under its canonical key (PSY-1171)", async () => {
+    const putMock = mock(() =>
+      Promise.resolve({ id: 42, name: "Crescent Ballroom", slug: "crescent-ballroom" }),
+    );
+    const client = createMockClient({
+      // Existing venue with no links yet; /venues/search nests links under `social`.
+      get: mock(() =>
+        Promise.resolve({
+          venues: [
+            {
+              id: 42,
+              name: "Crescent Ballroom",
+              slug: "crescent-ballroom",
+              city: "Phoenix",
+              state: "AZ",
+              country: "US",
+              address: "",
+              zip_code: "",
+              capacity: "",
+              description: "",
+              social: {},
+            },
+          ],
+        }),
+      ),
+      put: putMock,
+    });
+
+    const venues = [
+      { name: "Crescent Ballroom", city: "Phoenix", state: "AZ", instagram: "@crescentphx" },
+    ];
+
+    const result = await submitVenues(client, venues, true);
+    restoreStderr();
+
+    expect(result.updates).toBe(1);
+    expect(putMock).toHaveBeenCalledTimes(1);
+    expect(putMock).toHaveBeenCalledWith("/venues/42", { instagram: "@crescentphx" });
   });
 
   test("single venue skip — exact duplicate, no new info", async () => {
@@ -229,11 +263,8 @@ describe("submitVenues", () => {
               city: "Phoenix",
               state: "AZ",
               country: "US",
-              address: "401 W Van Buren St",
-              zip_code: "85003",
-              website: "https://thevanburenphx.com",
-              capacity: "1800",
               description: "Live music venue in downtown Phoenix",
+              social: { website: "https://thevanburenphx.com" },
             },
           ],
         }),
@@ -377,11 +408,8 @@ describe("submitVenues", () => {
                 city: "Phoenix",
                 state: "AZ",
                 country: "",
-                address: "",
-                zip_code: "",
-                website: "",
-                capacity: "",
                 description: "",
+                social: {},
               },
             ],
           });
@@ -438,11 +466,8 @@ describe("submitVenues", () => {
               city: "Phoenix",
               state: "AZ",
               country: "",
-              address: "",
-              zip_code: "",
-              website: "",
-              capacity: "",
               description: "",
+              social: {},
             },
           ],
         }),
