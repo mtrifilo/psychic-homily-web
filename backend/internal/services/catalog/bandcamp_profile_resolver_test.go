@@ -49,12 +49,13 @@ func TestExtractFeaturedReleasePath(t *testing.T) {
 			wantOK:   true,
 		},
 		{
-			// No grid block: fall back to the first /album|/track href anywhere,
-			// stripping the ?from query so it doesn't leak into the stored URL.
-			name:     "no music-grid falls back to first release href",
-			fixture:  "bandcamp_profile_no_grid.html",
-			wantPath: "/album/lone-release",
-			wantOK:   true,
+			// No music-grid block: the resolver fills NOTHING rather than risk
+			// picking a nav/featured decoy link from elsewhere on the page. The
+			// fixture has a release-shaped href (/album/lone-release) OUTSIDE any
+			// grid — it must NOT be returned.
+			name:    "no music-grid yields no path (grid is the only signal)",
+			fixture: "bandcamp_profile_no_grid.html",
+			wantOK:  false,
 		},
 		{
 			// Empty profile (no releases): nothing to extract.
@@ -153,7 +154,15 @@ func (h *rewriteHostRoundTripper) RoundTrip(req *http.Request) (*http.Response, 
 	clone := req.Clone(req.Context())
 	clone.URL.Scheme = h.target.Scheme
 	clone.URL.Host = h.target.Host
-	return h.rt.RoundTrip(clone)
+	resp, err := h.rt.RoundTrip(clone)
+	if resp != nil {
+		// Restore the ORIGINAL *.bandcamp.com request URL on the response so the
+		// resolver's final-URL host anchor (ResolveProfileEmbed) sees the
+		// bandcamp host it dialed logically, not the 127.0.0.1 test-server host we
+		// physically routed to.
+		resp.Request = req
+	}
+	return resp, err
 }
 
 // resolverServingFixture builds a resolver whose client serves `body` for any

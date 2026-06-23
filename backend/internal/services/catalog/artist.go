@@ -27,6 +27,13 @@ type ArtistService struct {
 	// httptest server (SetBandcampResolver); nil disables profile resolution
 	// (the fill is a no-op), so a service built without one simply never resolves.
 	bandcampResolver *BandcampProfileResolver
+	// dispatchAsync runs fire-and-forget post-write work (the Bandcamp profile
+	// fetch) OFF the request goroutine, so a CreateArtist/UpdateArtist HTTP request
+	// returns immediately instead of blocking up to bandcampFetchTimeout on a slow
+	// Bandcamp page. Production uses shared.GoSafe (a panic-recovering goroutine);
+	// tests override it (SetSyncDispatch) to run the work inline so they can assert
+	// the embed was filled without racing the goroutine.
+	dispatchAsync func(name string, work func())
 }
 
 // NewArtistService creates a new artist service
@@ -37,6 +44,9 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 	return &ArtistService{
 		db:               database,
 		bandcampResolver: NewBandcampProfileResolver(),
+		dispatchAsync: func(name string, work func()) {
+			shared.GoSafe(context.Background(), name, work)
+		},
 	}
 }
 
@@ -44,6 +54,28 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 // pointed at an httptest server). Passing nil disables profile resolution.
 func (s *ArtistService) SetBandcampResolver(r *BandcampProfileResolver) {
 	s.bandcampResolver = r
+}
+
+// SetSyncDispatch makes post-write resolution run inline on the calling
+// goroutine instead of in a fire-and-forget goroutine. Tests use this so they can
+// assert the resolved embed landed without waiting on a goroutine.
+func (s *ArtistService) SetSyncDispatch() {
+	s.dispatchAsync = func(_ string, work func()) { work() }
+}
+
+// runProfileResolve dispatches the profile→embed fill for artistID. It routes
+// through dispatchAsync (goroutine in prod, inline in tests). A nil dispatcher
+// (a service built via &ArtistService{} without a constructor — only happens in
+// older tests that don't exercise this path) runs inline as a safe default.
+func (s *ArtistService) runProfileResolve(artistID uint, profileURL string) {
+	work := func() {
+		s.resolveProfileEmbedForArtist(context.Background(), artistID, profileURL)
+	}
+	if s.dispatchAsync == nil {
+		work()
+		return
+	}
+	s.dispatchAsync("bandcamp_profile_resolve", work)
 }
 
 // CreateArtist creates a new artist
@@ -103,10 +135,11 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	// PSY-1190: when this create set a Bandcamp PROFILE root (not an embeddable
 	// album/track URL) and supplied no embed, resolve the profile → a featured
 	// album URL and fill bandcamp_embed_url (profile_resolved, fill-when-empty).
-	// A no-op when no profile was set or the embed was supplied above (the
-	// resolver's IS NULL guard skips the manually-stamped row anyway).
+	// Dispatched off the request goroutine (a network fetch); a no-op when no
+	// profile was set or the embed was supplied above (the resolver's IS NULL
+	// guard skips the manually-stamped row anyway).
 	if req.Bandcamp != nil {
-		s.resolveProfileEmbedForArtist(context.Background(), artist.ID, *req.Bandcamp)
+		s.runProfileResolve(artist.ID, *req.Bandcamp)
 	}
 
 	return s.buildArtistResponse(artist), nil
@@ -320,10 +353,10 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 	// (band.bandcamp.com, not an /album|/track URL) and the artist's embed is
 	// still NULL, resolve the profile → a featured album URL and fill
 	// bandcamp_embed_url (profile_resolved, fill-when-empty; a manual value is
-	// left untouched by the resolver's IS NULL guard). Runs after the write so the
-	// network fetch isn't inside the GORM update.
+	// left untouched by the resolver's IS NULL guard). Dispatched off the request
+	// goroutine (a network fetch), after the write commits.
 	if req.Bandcamp != nil {
-		s.resolveProfileEmbedForArtist(context.Background(), artistID, *req.Bandcamp)
+		s.runProfileResolve(artistID, *req.Bandcamp)
 	}
 
 	return s.GetArtist(artistID)
@@ -1193,8 +1226,9 @@ func isBandcampProfileRoot(rawURL string) bool {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	if !strings.HasSuffix(host, ".bandcamp.com") {
+	// Must be an artist subdomain (the shared host-anchor also excludes the bare
+	// apex, which is the storefront, not a profile).
+	if !utils.IsBandcampArtistHost(u.Hostname()) {
 		return false
 	}
 	// Already an embeddable release URL → not a profile root to resolve.

@@ -50,6 +50,8 @@ func (suite *BandcampProfileResolveIntegrationTestSuite) SetupSuite() {
 
 	suite.artistService = &ArtistService{db: suite.db}
 	suite.artistService.SetBandcampResolver(resolver)
+	// Run the profile resolve inline so the assertions don't race a goroutine.
+	suite.artistService.SetSyncDispatch()
 }
 
 func (suite *BandcampProfileResolveIntegrationTestSuite) TearDownSuite() {
