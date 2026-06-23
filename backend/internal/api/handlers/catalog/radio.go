@@ -93,6 +93,9 @@ type RadioSyncManager interface {
 	TriggerShowBackfill(showID uint, since, until string) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRun(runID uint) (*contracts.RadioSyncRunResponse, error)
 	CancelSyncRun(runID uint) error
+	ListSyncRuns(stationID *uint, status string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error)
+	GetStationHealth(stationID uint) (*contracts.RadioStationHealthResponse, error)
+	ListStationHealth() ([]*contracts.RadioStationHealthResponse, error)
 }
 
 // ArtistSlugResolver resolves artist slugs to IDs.
@@ -1641,6 +1644,104 @@ func (h *RadioHandler) AdminCancelSyncRunHandler(ctx context.Context, req *Admin
 
 	resp := &AdminCancelSyncRunResponse{}
 	resp.Body.Success = true
+	return resp, nil
+}
+
+// ============================================================================
+// Admin: Observability feeds (sync-run feed + station health) — PSY-1129/P5
+// ============================================================================
+
+// AdminSyncRunListResponse is the shared envelope for the sync-run feeds: a page of
+// runs (newest first), the matched-set Total (for pagination), and the page Count.
+type AdminSyncRunListResponse struct {
+	Body struct {
+		SyncRuns []*contracts.RadioSyncRunResponse `json:"sync_runs" doc:"Page of sync runs, newest first"`
+		Total    int64                             `json:"total" doc:"Total matched runs (across all pages)"`
+		Count    int                               `json:"count" doc:"Number of runs in this page"`
+	}
+}
+
+// AdminListSyncRunsRequest is the global sync-run feed query (across all stations).
+type AdminListSyncRunsRequest struct {
+	Status string `query:"status" required:"false" enum:"running,success,partial,failed,skipped,cancelled" doc:"Filter by exact run status (e.g. 'failed' for a failures feed)" example:"failed"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"50" doc:"Max results (default 50)" example:"50"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
+}
+
+// AdminListSyncRunsHandler handles GET /admin/radio/sync-runs (global feed).
+func (h *RadioHandler) AdminListSyncRunsHandler(ctx context.Context, req *AdminListSyncRunsRequest) (*AdminSyncRunListResponse, error) {
+	runs, total, err := h.syncManager.ListSyncRuns(nil, req.Status, req.Limit, req.Offset)
+	if err != nil {
+		return nil, mapRadioSyncError(ctx, err, "Failed to list sync runs")
+	}
+	resp := &AdminSyncRunListResponse{}
+	resp.Body.SyncRuns = runs
+	resp.Body.Total = total
+	resp.Body.Count = len(runs)
+	return resp, nil
+}
+
+// AdminListStationSyncRunsRequest is the per-station sync-run feed query.
+type AdminListStationSyncRunsRequest struct {
+	StationID uint   `path:"id" doc:"Radio station ID" example:"1"`
+	Status    string `query:"status" required:"false" enum:"running,success,partial,failed,skipped,cancelled" doc:"Filter by exact run status" example:"failed"`
+	Limit     int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"50" doc:"Max results (default 50)" example:"50"`
+	Offset    int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
+}
+
+// AdminListStationSyncRunsHandler handles GET /admin/radio-stations/{id}/sync-runs.
+func (h *RadioHandler) AdminListStationSyncRunsHandler(ctx context.Context, req *AdminListStationSyncRunsRequest) (*AdminSyncRunListResponse, error) {
+	stationID := req.StationID
+	runs, total, err := h.syncManager.ListSyncRuns(&stationID, req.Status, req.Limit, req.Offset)
+	if err != nil {
+		return nil, mapRadioSyncError(ctx, err, "Failed to list station sync runs")
+	}
+	resp := &AdminSyncRunListResponse{}
+	resp.Body.SyncRuns = runs
+	resp.Body.Total = total
+	resp.Body.Count = len(runs)
+	return resp, nil
+}
+
+// AdminGetStationHealthRequest reads one station's health rollup.
+type AdminGetStationHealthRequest struct {
+	StationID uint `path:"id" doc:"Radio station ID" example:"1"`
+}
+
+// AdminStationHealthResponse wraps a single station-health DTO.
+type AdminStationHealthResponse struct {
+	Body *contracts.RadioStationHealthResponse
+}
+
+// AdminGetStationHealthHandler handles GET /admin/radio-stations/{id}/health.
+func (h *RadioHandler) AdminGetStationHealthHandler(ctx context.Context, req *AdminGetStationHealthRequest) (*AdminStationHealthResponse, error) {
+	health, err := h.syncManager.GetStationHealth(req.StationID)
+	if err != nil {
+		return nil, mapRadioSyncError(ctx, err, "Failed to fetch station health")
+	}
+	return &AdminStationHealthResponse{Body: health}, nil
+}
+
+// AdminListStationHealthRequest has no params — it returns one card per station.
+type AdminListStationHealthRequest struct{}
+
+// AdminListStationHealthResponse is the health-dashboard envelope (one card per station).
+type AdminListStationHealthResponse struct {
+	Body struct {
+		Stations []*contracts.RadioStationHealthResponse `json:"stations" doc:"One health card per station, name ASC"`
+		Count    int                                     `json:"count" doc:"Number of stations"`
+	}
+}
+
+// AdminListStationHealthHandler handles GET /admin/radio/station-health.
+func (h *RadioHandler) AdminListStationHealthHandler(ctx context.Context, req *AdminListStationHealthRequest) (*AdminListStationHealthResponse, error) {
+	health, err := h.syncManager.ListStationHealth()
+	if err != nil {
+		return nil, mapRadioSyncError(ctx, err, "Failed to list station health")
+	}
+	resp := &AdminListStationHealthResponse{}
+	resp.Body.Stations = health
+	resp.Body.Count = len(health)
 	return resp, nil
 }
 
