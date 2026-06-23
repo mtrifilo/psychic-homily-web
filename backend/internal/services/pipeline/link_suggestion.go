@@ -254,10 +254,8 @@ func (s *LinkSuggestionService) applyLink(suggestion *catalogm.ArtistLinkSuggest
 		return fmt.Errorf("unsupported suggestion platform %q", suggestion.Platform)
 	}
 
-	if _, err := s.artistService.UpdateArtist(suggestion.ArtistID, &req); err != nil {
-		return err
-	}
-	return nil
+	_, err := s.artistService.UpdateArtist(suggestion.ArtistID, &req)
+	return err
 }
 
 // loadSuggestion fetches the suggestion row, translating a missing row into the
