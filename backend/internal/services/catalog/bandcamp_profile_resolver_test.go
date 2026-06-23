@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"psychic-homily-backend/internal/utils"
 )
 
 // loadFixture reads a testdata HTML fixture, failing the test if missing.
@@ -58,6 +61,24 @@ func TestExtractFeaturedReleasePath(t *testing.T) {
 			wantOK:  false,
 		},
 		{
+			// Single-release root: a one-item grid still resolves (the spec named
+			// single-release + many-release validation; the others are 2-item).
+			name:     "single-release grid",
+			fixture:  "bandcamp_profile_single_release.html",
+			wantPath: "/album/the-only-record",
+			wantOK:   true,
+		},
+		{
+			// A leading EMPTY <ol id="music-grid"> (a layout/AB-test placeholder)
+			// must NOT shadow the populated grid that follows — iterate all grids
+			// and take the first with a release. The decoy nav /album link before
+			// both grids must also be ignored.
+			name:     "leading empty music-grid does not shadow the populated one",
+			fixture:  "bandcamp_profile_leading_empty_grid.html",
+			wantPath: "/album/the-real-first-release",
+			wantOK:   true,
+		},
+		{
 			// Empty profile (no releases): nothing to extract.
 			name:    "empty profile yields no path",
 			fixture: "bandcamp_profile_empty.html",
@@ -76,6 +97,25 @@ func TestExtractFeaturedReleasePath(t *testing.T) {
 				t.Fatalf("path = %q, want %q", got, tt.wantPath)
 			}
 		})
+	}
+}
+
+// A percent-encoded slug in the extracted href must round-trip into the embed
+// URL intact — not get its '%' double-encoded into a 404 path.
+func TestResolveProfileEmbed_PercentEncodedSlugRoundTrips(t *testing.T) {
+	const body = `<ol id="music-grid"><li class="music-grid-item"><a href="/track/with%20space">x</a></li></ol>`
+	resolver, cleanup := resolverServingFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer cleanup()
+
+	embed, ok := resolver.ResolveProfileEmbed(context.Background(), "https://enc.bandcamp.com")
+	if !ok {
+		t.Fatal("expected resolve to succeed")
+	}
+	want := "https://enc.bandcamp.com/track/with%20space"
+	if embed != want {
+		t.Fatalf("embed = %q, want %q (slug must not be double-encoded)", embed, want)
 	}
 }
 
@@ -163,6 +203,115 @@ func (h *rewriteHostRoundTripper) RoundTrip(req *http.Request) (*http.Response, 
 		resp.Request = req
 	}
 	return resp, err
+}
+
+// cannedResponse is a fixed reply for one logical bandcamp host.
+type cannedResponse struct {
+	status   int
+	location string // when set, a redirect Location (an absolute https://*.bandcamp.com URL)
+	body     string
+}
+
+// cannedRoundTripper answers each request from a per-logical-host table WITHOUT a
+// real network, so a test can drive the real http.Client through a multi-hop
+// cross-host redirect chain and observe production CheckRedirect + resp.Request
+// behavior faithfully. Keyed on the request URL's host, so the resolver's
+// final-URL host anchor sees the REAL logical host of the hop that produced the
+// response (not a rewritten 127.0.0.1).
+type cannedRoundTripper struct {
+	byHost map[string]cannedResponse
+	hits   map[string]int // host → times fetched (assert SSRF targets are never hit)
+}
+
+func (c *cannedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	host := req.URL.Hostname()
+	if c.hits == nil {
+		c.hits = map[string]int{}
+	}
+	c.hits[host]++
+	cr, ok := c.byHost[host]
+	if !ok {
+		// Unmapped host (an SSRF target the test expects never to be reached):
+		// return a sentinel 500 with no body so a leak is visible via hits[].
+		cr = cannedResponse{status: http.StatusInternalServerError}
+	}
+	h := http.Header{}
+	if cr.location != "" {
+		h.Set("Location", cr.location)
+	}
+	return &http.Response{
+		StatusCode: cr.status,
+		Header:     h,
+		Body:       io.NopCloser(strings.NewReader(cr.body)),
+		Request:    req, // the hop that produced this response
+	}, nil
+}
+
+// newCannedResolver builds a resolver wired to the canned table, using the
+// PRODUCTION redirect policy (re-anchor every hop) so redirect handling is the
+// real one.
+func newCannedResolver(rt *cannedRoundTripper) *BandcampProfileResolver {
+	client := &http.Client{
+		Transport: rt,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errStr("too many redirects")
+			}
+			if !isAllowedBandcampFetchURL(req.URL) {
+				return errStr("redirect to disallowed host: " + req.URL.Hostname())
+			}
+			return nil
+		},
+	}
+	return NewBandcampProfileResolverWithClient(client)
+}
+
+// HIGH (adversarial): a profile root that 30x's to a DIFFERENT *.bandcamp.com
+// subdomain must anchor the embed on the FINAL subdomain — the page (and its
+// site-relative /album path) belongs to that host, not the input host. This is
+// the most-documented branch in the resolver and was previously untested.
+func TestResolveProfileEmbed_CrossSubdomainRedirectAnchorsOnFinalHost(t *testing.T) {
+	rt := &cannedRoundTripper{byHost: map[string]cannedResponse{
+		"a.bandcamp.com": {status: http.StatusFound, location: "https://b.bandcamp.com/music"},
+		"b.bandcamp.com": {status: http.StatusOK, body: `<ol id="music-grid"><li class="music-grid-item"><a href="/album/on-b">x</a></li></ol>`},
+	}}
+	resolver := newCannedResolver(rt)
+
+	embed, ok := resolver.ResolveProfileEmbed(context.Background(), "https://a.bandcamp.com")
+	if !ok {
+		t.Fatal("expected cross-subdomain redirect to resolve")
+	}
+	// The embed MUST be on b.bandcamp.com (the final host), NOT a.bandcamp.com.
+	want := "https://b.bandcamp.com/album/on-b"
+	if embed != want {
+		t.Fatalf("embed = %q, want %q (must anchor on the FINAL subdomain)", embed, want)
+	}
+}
+
+// A profile root whose FINAL hop is the bare apex (bandcamp.com) producing an
+// /album path passes the fetch allowlist (apex-OK) but the built embed fails the
+// strict IsValidBandcampEmbedURL gate (apex excluded) — so resolveProfileEmbedForArtist
+// skips it. Here we assert the resolver itself returns the apex-hosted embed and
+// that the strict validator rejects it (the artist.go fill then logs+skips).
+func TestResolveProfileEmbed_ApexFinalHostFailsStrictEmbedGate(t *testing.T) {
+	rt := &cannedRoundTripper{byHost: map[string]cannedResponse{
+		"x.bandcamp.com": {status: http.StatusFound, location: "https://bandcamp.com/music"},
+		"bandcamp.com":   {status: http.StatusOK, body: `<ol id="music-grid"><li class="music-grid-item"><a href="/album/apex">x</a></li></ol>`},
+	}}
+	resolver := newCannedResolver(rt)
+
+	embed, ok := resolver.ResolveProfileEmbed(context.Background(), "https://x.bandcamp.com")
+	if !ok {
+		t.Fatal("resolver should still build an apex-hosted embed (apex is on the fetch allowlist)")
+	}
+	if embed != "https://bandcamp.com/album/apex" {
+		t.Fatalf("embed = %q, want apex-hosted", embed)
+	}
+	// The downstream fill gate (utils.IsValidBandcampEmbedURL) rejects the apex →
+	// resolveProfileEmbedForArtist logs WARN + skips, so no apex URL is stored.
+	if utils.IsValidBandcampEmbedURL(embed) {
+		t.Fatal("apex-hosted embed must FAIL the strict embed gate so the fill skips it")
+	}
 }
 
 // resolverServingFixture builds a resolver whose client serves `body` for any

@@ -63,19 +63,44 @@ func (s *ArtistService) SetSyncDispatch() {
 	s.dispatchAsync = func(_ string, work func()) { work() }
 }
 
-// runProfileResolve dispatches the profile→embed fill for artistID. It routes
-// through dispatchAsync (goroutine in prod, inline in tests). A nil dispatcher
-// (a service built via &ArtistService{} without a constructor — only happens in
-// older tests that don't exercise this path) runs inline as a safe default.
+// FillProfileResolvedEmbedFromBandcamp resolves a Bandcamp PROFILE root → a
+// featured embed and fills artistID's bandcamp_embed_url (profile_resolved,
+// fill-when-empty) — the SAME dispatch the artist Create/Update paths use. It is
+// the exported entry point for OTHER write paths that set social.bandcamp WITHOUT
+// going through ArtistService.UpdateArtist — specifically the pending-edit
+// approval flow (community + trusted-tier inline edits apply a `bandcamp` change
+// via a direct UPDATE), which would otherwise leave the embed unresolved on a
+// common "set a Bandcamp profile" path. A non-profile/empty value is a no-op.
+func (s *ArtistService) FillProfileResolvedEmbedFromBandcamp(artistID uint, profileURL string) {
+	s.runProfileResolve(artistID, profileURL)
+}
+
+// runProfileResolve dispatches the profile→embed fill for artistID through
+// dispatchAsync (a GoSafe goroutine in prod; inline when a test opted in via
+// SetSyncDispatch). A nil dispatcher — a service built via &ArtistService{}
+// without the constructor — defaults to the PRODUCTION goroutine behavior, NOT
+// inline: that way a test that wires a resolver (SetBandcampResolver) but forgets
+// SetSyncDispatch gets the same async path production does (and must opt into sync
+// to assert the fill), rather than a silent inline path that diverges from prod.
+// The goroutine is panic-recovered (GoSafe) and no-ops when the resolver is nil
+// (the legacy direct-construction suites) before touching the DB, so a forgotten
+// dispatcher never spawns a DB-touching goroutine.
 func (s *ArtistService) runProfileResolve(artistID uint, profileURL string) {
+	// Gate on the cheap, pure profile-root classifier BEFORE spawning a goroutine,
+	// so a non-profile value (an /album|/track link, a cleared/empty value, a
+	// non-Bandcamp URL — the common case on a whole-form artist update) never
+	// dispatches one. Also skip when no resolver is configured (legacy suites).
+	if s.bandcampResolver == nil || !isBandcampProfileRoot(profileURL) {
+		return
+	}
 	work := func() {
 		s.resolveProfileEmbedForArtist(context.Background(), artistID, profileURL)
 	}
-	if s.dispatchAsync == nil {
-		work()
-		return
+	dispatch := s.dispatchAsync
+	if dispatch == nil {
+		dispatch = func(name string, w func()) { shared.GoSafe(context.Background(), name, w) }
 	}
-	s.dispatchAsync("bandcamp_profile_resolve", work)
+	dispatch("bandcamp_profile_resolve", work)
 }
 
 // CreateArtist creates a new artist

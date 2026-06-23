@@ -19,9 +19,11 @@ const (
 
 // BandcampEmbedSource records HOW artists.bandcamp_embed_url was set, so a
 // keep-fresh hook (PSY-1189) can safely refresh/clean up the auto-derived
-// embeds without ever clobbering a human-curated value. Keep these in sync with
-// the bandcamp_embed_source VARCHAR(32) column (PSY-1188 migration) — the column
-// is nullable, and a NULL means legacy/unknown (set before the column existed).
+// embeds without ever clobbering a human-curated value. The column is a plain
+// VARCHAR(32) with NO CHECK constraint, so THIS const block — not the PSY-1188
+// migration's comment (which predates profile_resolved and lists only the first
+// two) — is the live source of truth for the legal values. The column is
+// nullable; a NULL means legacy/unknown (set before the column existed).
 const (
 	// BandcampEmbedSourceReleaseDerived marks an embed auto-derived from one of
 	// the artist's catalogued release Bandcamp links (the backfill stamps this).

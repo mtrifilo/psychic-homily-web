@@ -149,14 +149,23 @@ func (r *BandcampProfileResolver) ResolveProfileEmbed(ctx context.Context, profi
 	// on-allowlist; the CheckRedirect re-anchor proved every hop stayed on
 	// bandcamp), in which case the discography — and the site-relative /album path
 	// — belongs to the FINAL subdomain. finalURL is re-anchored here (defense in
-	// depth) before its host is trusted. The path is site-relative (/album/<slug>),
-	// so resolving it against the final origin yields the strict /album|/track URL
-	// artists.bandcamp_embed_url expects.
+	// depth) before its host is trusted.
 	if !isAllowedBandcampFetchURL(finalURL) {
 		return "", false
 	}
-	embed := (&url.URL{Scheme: finalURL.Scheme, Host: finalURL.Host, Path: path}).String()
-	return embed, true
+	// Resolve the extracted href as a relative reference against the final origin.
+	// finalURL.Parse preserves the href's EXISTING percent-encoding (a slug like
+	// /track/with%20x round-trips intact), unlike constructing url.URL{Path: path}
+	// which would treat the already-encoded path as decoded and double-encode the
+	// '%'. The host is overwritten to the validated final host so a (regex-rejected
+	// but defensively) absolute/host-bearing reference can't redirect the origin.
+	ref, err := finalURL.Parse(path)
+	if err != nil {
+		return "", false
+	}
+	ref.Scheme = finalURL.Scheme
+	ref.Host = finalURL.Host
+	return ref.String(), true
 }
 
 // fetch GETs a Bandcamp profile page, returning its body, the FINAL request URL
@@ -186,7 +195,12 @@ func (r *BandcampProfileResolver) fetch(ctx context.Context, fetchURL string) (s
 		return "", nil, false
 	}
 	// resp.Request is the request that produced this response — its URL reflects
-	// the final hop after redirects (Go updates it on each follow).
+	// the final hop after redirects (Go updates it on each follow). http.Client.Do
+	// always sets it on a successful round-trip; guard defensively so a custom
+	// transport that violates the contract can't nil-panic the caller.
+	if resp.Request == nil || resp.Request.URL == nil {
+		return "", nil, false
+	}
 	return string(body), resp.Request.URL, true
 }
 
@@ -198,17 +212,20 @@ func (r *BandcampProfileResolver) fetch(ctx context.Context, fetchURL string) (s
 // release to embed. Anchoring on the grid is deliberate and the ONLY signal used:
 // a nav-bar / "featured-grid" link elsewhere on the page also points at
 // /album|/track, so a whole-page scan would mistake that decoy for the
-// discography's first item. When the grid block is absent (an unrecognized layout
-// we can't reason about), the resolver fills NOTHING rather than risk storing the
-// wrong release — fill-when-empty makes a miss harmless and human-correctable,
-// whereas a wrong embed is a silent defect.
+// discography's first item. When no grid yields a release (an unrecognized layout
+// we can't reason about, or an empty discography), the resolver fills NOTHING
+// rather than risk storing the wrong release — fill-when-empty makes a miss
+// harmless and human-correctable, whereas a wrong embed is a silent defect.
+//
+// Iterate ALL music-grid blocks, not just the first: a layout/AB-test that emits
+// a leading EMPTY <ol id="music-grid"> (e.g. a "featured" placeholder) before the
+// populated one would otherwise make the resolver a silent no-op for that cohort.
+// The first grid that actually contains an /album|/track anchor wins.
 func extractFeaturedReleasePath(html string) (string, bool) {
-	grid := musicGridBlockRe.FindString(html)
-	if grid == "" {
-		return "", false
-	}
-	if m := gridItemHrefRe.FindStringSubmatch(grid); m != nil {
-		return m[1], true
+	for _, grid := range musicGridBlockRe.FindAllString(html, -1) {
+		if m := gridItemHrefRe.FindStringSubmatch(grid); m != nil {
+			return m[1], true
+		}
 	}
 	return "", false
 }

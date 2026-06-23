@@ -451,6 +451,14 @@ type RevisionServiceInterface interface {
 	Rollback(revisionID uint, adminUserID uint) error
 }
 
+// BandcampProfileFillerInterface is the narrow contract the pending-edit approval
+// flow uses to resolve a newly-set artist Bandcamp PROFILE root → an embed
+// (PSY-1190 fill-when-empty), without coupling the admin service to the full
+// catalog ArtistService. Satisfied by *catalog.ArtistService.
+type BandcampProfileFillerInterface interface {
+	FillProfileResolvedEmbedFromBandcamp(artistID uint, profileURL string)
+}
+
 // ──────────────────────────────────────────────
 // Data Quality Service Interface
 // ──────────────────────────────────────────────
