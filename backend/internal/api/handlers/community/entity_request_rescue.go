@@ -126,21 +126,30 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		return nil, huma.Error409Conflict("Entity request is not approved-but-unfulfilled")
 	}
 
-	// Build + validate show associations BEFORE creating anything, so a bad show
-	// body is a clean 422 and never leaves a half-rescue. Non-show types ignore
-	// these fields (buildShowAssociations returns nil when neither is supplied).
-	showAssoc, aerr := buildShowAssociations(req.Body.ShowVenue, req.Body.ShowArtists)
-	if aerr != nil {
-		return nil, aerr
-	}
-	// A show MUST carry associations on the rescue path — the payload alone
-	// can't be fulfilled (the same requirement the decide endpoint enforces).
-	if existing.EntityType == communitym.EntityRequestShow && showAssoc == nil {
-		return nil, huma.Error422UnprocessableEntity("Fulfilling a show requires show_venue and show_artists")
+	// Show associations are meaningful ONLY for a show. Build + validate them
+	// BEFORE creating anything (so a bad show body is a clean 422, never a
+	// half-rescue), but only when the row IS a show — otherwise a non-show
+	// fulfill that incidentally carries a stray show_venue/show_artists would
+	// get a misleading show-specific 422 for the wrong entity type. For
+	// non-show types the fields are simply ignored, as the request doc states.
+	var showAssoc *showAssociations
+	if existing.EntityType == communitym.EntityRequestShow {
+		var aerr error
+		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, req.Body.ShowArtists)
+		if aerr != nil {
+			return nil, aerr
+		}
+		// A show MUST carry associations on the rescue path — the payload alone
+		// can't be fulfilled (the same requirement the decide endpoint enforces).
+		if showAssoc == nil {
+			return nil, huma.Error422UnprocessableEntity("Fulfilling a show requires show_venue and show_artists")
+		}
 	}
 
 	// Create the catalog entity from the stored payload (reusing the shared
 	// per-type dispatcher). showAssoc supplies the show's venue + artists.
+	// Attribution is inherited from fulfillEntity (entity_request_fulfill.go):
+	// a rescued show credits the original REQUESTER, not the rescuing admin.
 	createdID, ferr := h.fulfillEntity(existing, showAssoc)
 	if ferr != nil {
 		logger.FromContext(ctx).Error("entity_request_rescue_fulfill_failed",
@@ -233,22 +242,35 @@ func (h *EntityRequestHandler) voidApproved(ctx context.Context, requestID, admi
 		logger.FromContext(ctx).Error("entity_request_rescue_void_reload_failed",
 			"request_id", requestID, "error", gerr.Error())
 		// The void succeeded; only the re-read failed. A 500 here would wrongly
-		// imply the void didn't happen, so return success with a nil body row.
+		// imply the void didn't happen. Synthesize a minimal row so the 200 body
+		// always carries a usable, non-null request (matching the fulfill path,
+		// which never returns a null request on success) rather than stranding a
+		// consumer with {"request": null}.
+		decider := adminID
+		fresh = &communitym.EntityRequest{
+			ID:            requestID,
+			DecisionState: communitym.EntityRequestStateRejected,
+			DecidedBy:     &decider,
+		}
 	}
 
 	resp := &AdminFulfillEntityRequestResponse{}
 	resp.Body.Request = fresh
 
 	if h.auditLogService != nil {
-		// Log the row's real entity type (artist/venue/...), matching the
-		// fulfill + decide audit rows so a by-entity-type audit query sees the
-		// void. Fall back to "entity_request" only if the re-read above failed.
-		entityType := "entity_request"
-		if fresh != nil {
-			entityType = fresh.EntityType
+		// Log the row's real entity type (artist/venue/...) so a by-entity-type
+		// audit query sees the void, matching the fulfill + decide audit rows.
+		// fresh is always non-nil here (re-read result or the synthesized
+		// fallback above); the fallback's EntityType is "" — log "entity_request"
+		// then rather than an empty type.
+		entityType := fresh.EntityType
+		if entityType == "" {
+			entityType = "entity_request"
 		}
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(adminID, "void_entity_request", entityType, requestID,
+			// rescue_void_* shares the rescue_ prefix with rescue_fulfill_* so a
+			// single prefix query surfaces both halves of the rescue feature.
+			h.auditLogService.LogAction(adminID, "rescue_void_entity_request", entityType, requestID,
 				map[string]interface{}{"request_id": requestID})
 		})
 	}

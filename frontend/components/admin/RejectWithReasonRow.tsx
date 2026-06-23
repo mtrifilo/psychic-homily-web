@@ -54,6 +54,13 @@ export interface RejectWithReasonRowProps {
    * guard for a future type that lands without a fulfillment branch.
    */
   approveDisabled?: boolean
+  /**
+   * Label for the secondary (reject) action. Defaults to "Reject". The
+   * PSY-1088 rescue card passes "Void" — the action dismisses an approved
+   * orphan, which is a void, not a reject (different audit + no notification).
+   * The confirm button reads "Confirm {rejectLabel}".
+   */
+  rejectLabel?: string
 }
 
 /**
@@ -80,6 +87,7 @@ export function RejectWithReasonRow({
   approveLabel = 'Approve',
   approveIcon: ApproveIcon = Check,
   approveDisabled = false,
+  rejectLabel = 'Reject',
 }: RejectWithReasonRowProps) {
   const [rejecting, setRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
@@ -122,7 +130,7 @@ export function RejectWithReasonRow({
             ) : (
               <X className="h-3 w-3 mr-1" />
             )}
-            Confirm Reject
+            Confirm {rejectLabel}
           </Button>
           <Button size="sm" variant="ghost" onClick={cancel} disabled={isActioning}>
             Cancel
@@ -149,7 +157,7 @@ export function RejectWithReasonRow({
         disabled={isActioning}
       >
         <X className="h-3 w-3 mr-1" />
-        Reject
+        {rejectLabel}
       </Button>
     </div>
   )

@@ -643,6 +643,28 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfill
 	suite.Assert().Equal(note, *fetched.DecisionNote)
 }
 
+// Voiding WITHOUT a note CLEARS any stale approval-time note: an orphan from
+// the decide-approve path can carry an approval note, and leaving it on the
+// now-rejected row would be misleading. Adversarial-review (Future-Maintainer).
+func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfilled_ClearsStaleNote() {
+	orphan := suite.newApprovedUnfulfilled("Stale Note Orphan")
+	// Simulate the decide-approve path having stamped an approval note.
+	staleNote := "approved — looks legit"
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).
+		Where("id = ?", orphan.ID).Update("decision_note", staleNote).Error)
+	admin := suite.createUser("voider-clear", tierNewUser, true)
+
+	// Void with NO note.
+	voided, err := suite.service.VoidApprovedUnfulfilled(orphan.ID, admin.ID, nil)
+	suite.Require().NoError(err)
+	suite.Assert().True(voided)
+
+	fetched, err := suite.service.GetRequest(orphan.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStateRejected, fetched.DecisionState)
+	suite.Assert().Nil(fetched.DecisionNote, "void with no note must clear the stale approval note")
+}
+
 // A FULFILLED approved row can NOT be voided — voiding it would strand the
 // already-created entity behind a rejected request.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfilled_FulfilledNotVoidable() {

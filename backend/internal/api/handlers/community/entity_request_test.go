@@ -1804,3 +1804,96 @@ func TestAdminFulfill_InvalidID_400(t *testing.T) {
 	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)
 }
+
+// The riskiest reconciliation branch: the catalog entity WAS created, but the
+// atomic claim WRITE erred (DB blip). The handler must 500 (so the admin learns
+// the link may be unset and can reconcile the now-existing entity) — NOT 200,
+// and the create MUST have already happened. Distinct from the lost-race path
+// (claimed=false, no claim error). Adversarial-review (Future-Maintainer) gap.
+func TestAdminFulfill_ClaimError_500(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(20, "artist")
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				return false, fmt.Errorf("db down")
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 70}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "20"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+	if !createCalled {
+		t.Error("the entity must have been created before the claim write failed")
+	}
+}
+
+// A DB error loading the row pre-fulfill → 500, with no create or claim
+// attempted. Adversarial-review (Future-Maintainer) gap.
+func TestAdminFulfill_LoadError_500(t *testing.T) {
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) {
+				return nil, fmt.Errorf("db down")
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 1}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "21"}
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+	if createCalled {
+		t.Error("no create should be attempted when the pre-fulfill load fails")
+	}
+}
+
+// A non-show fulfill that incidentally carries a malformed show body must NOT
+// 422 on the show-specific message — the show fields are ignored for non-show
+// types. Adversarial-review (Saboteur) finding. The artist is created normally.
+func TestAdminFulfill_NonShowIgnoresShowFields(t *testing.T) {
+	orphan := approvedUnfulfilledRequest(22, "artist")
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+				return true, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 80}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminFulfillEntityRequestRequest{ID: "22"}
+	// A stray, malformed show body (venue without artists) on an ARTIST fulfill.
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Stray Venue", City: "Phoenix", State: "AZ"}
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("a non-show fulfill must ignore show fields, got error: %v", err)
+	}
+	if !createCalled {
+		t.Error("expected CreateArtist to be called")
+	}
+	if resp.Body.CreatedEntityID == nil || *resp.Body.CreatedEntityID != 80 {
+		t.Errorf("expected created_entity_id 80, got %v", resp.Body.CreatedEntityID)
+	}
+}

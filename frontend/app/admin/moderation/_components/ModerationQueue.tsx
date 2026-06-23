@@ -134,7 +134,10 @@ type ModerationItem =
 
 // ─── PSY-603: success banner state ───────────────────────────────────────────
 
-type ModerationActionVerb = 'approved' | 'rejected' | 'created'
+// 'voided' (PSY-1088) is the rescue-queue dismiss: distinct from 'rejected' so
+// the banner doesn't claim the submitter was "notified" (a void dismisses an
+// approved orphan; no notification is sent and the submitter saw it approved).
+type ModerationActionVerb = 'approved' | 'rejected' | 'created' | 'voided'
 
 interface ModerationAction {
   verb: ModerationActionVerb
@@ -735,7 +738,7 @@ function RescueCard({
     (reason: string) => {
       rescueMutation.mutate(
         { id: request.id, action: 'void', note: reason },
-        { onSuccess: () => onActionSuccess({ verb: 'rejected', entityLabel }) }
+        { onSuccess: () => onActionSuccess({ verb: 'voided', entityLabel }) }
       )
     },
     [rescueMutation, request.id, onActionSuccess, entityLabel]
@@ -806,7 +809,9 @@ function RescueCard({
           />
         )}
 
-        {/* Fulfill-immediate + void-with-required-reason */}
+        {/* Fulfill-immediate + void-with-required-reason. The secondary action
+            is a VOID (dismiss an approved orphan), not a reject — labeled so
+            and given a void-specific success banner (no "submitter notified"). */}
         <RejectWithReasonRow
           onApprove={handleFulfill}
           onReject={handleVoid}
@@ -816,6 +821,7 @@ function RescueCard({
           approveLabel="Fulfill"
           approveIcon={PlusCircle}
           approveDisabled={!canFulfill || (isShow && showFormOpen)}
+          rejectLabel="Void"
           rejectPlaceholder="Reason for voiding (required) -- why this approved request should be dismissed"
         />
 
@@ -1628,6 +1634,10 @@ function formatModerationActionMessage(action: ModerationAction): string {
       return `Created — ${action.entityLabel} added to the catalog`
     case 'approved':
       return `Approved — change applied to ${action.entityLabel}`
+    case 'voided':
+      // No notification is sent on a void (the submitter saw the request as
+      // approved); don't claim one, unlike the reject copy.
+      return `Voided — ${action.entityLabel} dismissed`
     default:
       return 'Rejected — submitter notified of reason'
   }

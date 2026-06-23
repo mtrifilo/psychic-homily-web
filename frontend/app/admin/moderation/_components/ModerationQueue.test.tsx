@@ -788,7 +788,7 @@ describe('ModerationQueue', () => {
       expect(screen.getByText('Queue Clear')).toBeInTheDocument()
     })
 
-    it('renders the rescue card with Fulfill + Reject (void) actions', () => {
+    it('renders the rescue card with Fulfill + Void actions', () => {
       setDefaultMocks({ rescue: [orphanArtist] })
       render(<ModerationQueue />)
       fireEvent.click(screen.getByText('Needs attention'))
@@ -796,7 +796,10 @@ describe('ModerationQueue', () => {
       expect(screen.getByText('Orphan Band')).toBeInTheDocument()
       expect(screen.getByText(/Approved but never created/i)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /fulfill/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /^reject$/i })).toBeInTheDocument()
+      // Secondary action is "Void" (not "Reject") — it dismisses an approved
+      // orphan, a distinct action with no submitter notification.
+      expect(screen.getByRole('button', { name: /^void$/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^reject$/i })).not.toBeInTheDocument()
     })
 
     it('fires the rescue mutation with action=fulfill for a non-show orphan', () => {
@@ -821,16 +824,36 @@ describe('ModerationQueue', () => {
 
       render(<ModerationQueue />)
       fireEvent.click(screen.getByText('Needs attention'))
-      fireEvent.click(screen.getByRole('button', { name: /^reject$/i }))
+      fireEvent.click(screen.getByRole('button', { name: /^void$/i }))
       fireEvent.change(screen.getByPlaceholderText(/reason for voiding/i), {
         target: { value: '  bad auto-approve  ' },
       })
-      fireEvent.click(screen.getByRole('button', { name: /confirm reject/i }))
+      fireEvent.click(screen.getByRole('button', { name: /confirm void/i }))
 
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({ id: 50, action: 'void', note: 'bad auto-approve' }),
         expect.anything()
       )
+    })
+
+    it('shows a void-specific success banner (no "submitter notified")', () => {
+      mockUseRescueEntityRequest.mockReturnValue({
+        ...defaultMutationReturn,
+        mutate: (_args: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+      })
+      setDefaultMocks({ rescue: [orphanArtist] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+      fireEvent.click(screen.getByRole('button', { name: /^void$/i }))
+      fireEvent.change(screen.getByPlaceholderText(/reason for voiding/i), {
+        target: { value: 'bad auto-approve' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /confirm void/i }))
+
+      const banner = screen.getByRole('status')
+      expect(banner).toHaveTextContent(/voided/i)
+      expect(banner).not.toHaveTextContent(/notified/i)
     })
 
     it('opens the show form on Fulfill and submits the collected associations', () => {

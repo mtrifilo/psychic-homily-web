@@ -67,13 +67,22 @@ func (s *EntityRequestService) VoidApprovedUnfulfilled(requestID, adminID uint, 
 		return false, fmt.Errorf("database not initialized")
 	}
 	now := time.Now().UTC()
+	// decision_note is written UNCONDITIONALLY (not only when a note is given):
+	// one route to the orphan state is a post-claim failure on the admin DECIDE
+	// approve path, which may have stamped an approval-time note. Voiding flips
+	// the row to 'rejected'; leaving that stale APPROVAL note on a now-rejected
+	// row is misleading, so a void with no note CLEARS it (NULL) rather than
+	// retaining it. A non-nil interface{} map value is required for GORM to
+	// write a NULL (a typed nil *string would be skipped as zero-value).
+	var noteVal interface{}
+	if note != nil {
+		noteVal = *note
+	}
 	updates := map[string]interface{}{
 		"decision_state": communitym.EntityRequestStateRejected,
 		"decided_by":     adminID,
 		"decided_at":     now,
-	}
-	if note != nil {
-		updates["decision_note"] = *note
+		"decision_note":  noteVal,
 	}
 	result := s.db.Model(&communitym.EntityRequest{}).
 		Where("id = ? AND decision_state = ? AND created_entity_id IS NULL",
