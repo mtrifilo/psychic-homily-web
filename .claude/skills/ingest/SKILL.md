@@ -242,6 +242,8 @@ Either way: always dry-run + the two QA scans (step 6) and get explicit confirma
 
 Manual fix-ups via API: rename an artist `PATCH /admin/artists/{id} {"name":...}`; re-link a show's artists `PUT /shows/{id} {"artists":[{"id","is_headliner"}]}`; create one `POST /admin/artists {"name":...}` (exact find-or-create); delete an orphan (0-show) artist `DELETE /artists/{id}`. (Admin token required.)
 
+When the calendar didn't expose the venue's own website/socials, or to fill links on the artists it listed names-only, run **[Per-entity link enrichment (follow)](#per-entity-link-enrichment-follow)** after the ingest.
+
 ### Reusable transform skeleton + shared rulesets
 
 Each venue's transform = these shared parts + a small venue-specific `cleanAct` and city map. Extend the rulesets per venue (the registry "Notes" column records the deltas).
@@ -322,6 +324,8 @@ The CLI **expands** this into the label item plus one `artist` item per roster e
    ```
    To decide **what to refresh next**, list the stalest sources first: `ph sources stale --limit 20` (never-refreshed sort first). Venues use `sources register venue <venue_id> "<calendar_url>"` the same way.
 
+8. **Fill names-only entries (optional follow)** — roster entries whose cards exposed no external link (e.g. Sacred Bones' internal `/collections/` links) land without a Bandcamp/social. Enrich them via **[Per-entity link enrichment (follow)](#per-entity-link-enrichment-follow)** below.
+
 > **Re-ingest now enriches an existing artist's (and venue's) social links — fixed in PSY-1171 (PR #1202).** The old limitation (two field-name mismatches in `cli/src/lib/duplicates.ts`: `ARTIST_FIELDS` read `bandcamp_url`/`spotify_url`/`instagram_url`, and `searchArtists()` read a non-existent top-level `bandcamp_url` instead of the nested `social.bandcamp`) is resolved: `ARTIST_FIELDS` now uses the canonical bare names and `searchArtists`/`searchVenues` flatten the link fields from the response's nested `social`. So an existing artist re-ingested with a `bandcamp`/`spotify`/`instagram`/etc. now gets it filled — no manual `PATCH` required. **Still deferred (PSY-1179):** label socials beyond `website`/`bandcamp`, and venue `address`/`zipcode`/`capacity`, are not yet enriched on re-ingest (the label list response needs widening, venue `address`/`zipcode` need verified-gating since the API redacts them for unverified venues, and `capacity` has no backend column yet).
 
 ### Label registry
@@ -399,6 +403,46 @@ LOCALES = {  # keyword -> locale-tag (category=locale)
 5. **Dry-run on the env** — fix `Unresolved artists:` name mismatches → 0 unresolved.
 6. **Confirm** (PSY-1173 must be live for tags). Big runs background; verify counts = 0 rate-limit / 0 tag-failures.
 7. **Verify** via `GET /artists/{id}/releases` + `GET /entities/release/{id}/tags` (the `/releases` list endpoint is first-page-only; the release-detail `tags` field is a filtered projection — use the entity-tags endpoint).
+
+## Per-entity link enrichment (follow)
+
+Roster / calendar ingests often land entities **names-only** — Sacred Bones' cards link to internal pages (no Bandcamp), and a venue calendar rarely shows the venue's own socials. This pass fills the missing external links on **already-ingested artists and venues** by web-researching each name, verifying the match, and PATCHing the confirmed links. It's the agent's job — there is **no backend "name → link" discovery** (the enrichment service does only dedup + MusicBrainz MBID + SeatGeek); write-back uses the existing admin PATCH endpoints. Like every ingest step: **dry-run → confirm**, on-demand, **never guess**.
+
+### Invoking (what you type)
+
+- **Tail of an ingest:** after a roster/calendar confirm — "…then enrich the names-only entries' links."
+- **Standalone:** `/ingest <env> — enrich the N artists missing links on label <id>` (or `venue <id>`, or "…on the streaming worklist").
+
+### Work-source (which entities — capped at N/run)
+
+Pick **N ≈ 10–15 per run** (like `ph sources stale --limit N`) — web research is the cost, so bound it.
+- **Just-ingested:** the entities you created this run that had no link — already in hand, no lookup needed.
+- **A label/venue source:** `GET /labels/{id}/artists` → for each, `GET /artists/{id}` **detail** and keep those whose `social.*` are empty (the roster *list* omits `social`, so you MUST read detail — the same verify-via-detail rule as PSY-1171). The venue itself: `GET /venues/{id}`.
+- **Show artists:** `GET /admin/streaming-worklist` is a ready-made queue — artists with upcoming shows + a non-terminal `streaming_discovery_status`.
+
+### Find the links (agent web-research, per entity)
+
+Capture **full on-platform URLs** (same host rules as Step 1 "Social links"; the backend rejects bare handles):
+- **artist:** Bandcamp first (highest value — it renders a playable embed), then Spotify (`open.spotify.com/artist/…`), Instagram, official website.
+- **venue:** official website + Instagram (search `"<name>" <city> venue`).
+
+### Verify before applying (skip ambiguous — a wrong link is worse than a missing one)
+
+Apply a link only when the **name matches AND a second signal corroborates**:
+- **artist:** genre / hometown / a release or label that fits what we already know — the roster's label is a strong prior (a band on Sacred Bones' Bandcamp belongs to that scene). Same-name collisions are rife — the dedup section's "Fan Club → Yot Club" lesson applies to web search too.
+- **venue:** city / street address matches.
+
+Can't corroborate → **SKIP**, leave it for manual review. When the source is the streaming worklist, record the outcome either way: `POST /admin/artists/{id}/streaming-discovery-status` → `linked` or `no_links_found`.
+
+### Dry-run → confirm → PATCH
+
+1. **Preview** per entity: the links found + the corroborating evidence, marking new vs already-set. Pause for the user's OK (exactly like a batch dry-run).
+2. **On confirm**, PATCH only the confirmed links:
+   - **artist:** `PATCH /admin/artists/{id}` (all 8 socials in one body) — or the dedicated `/admin/artists/{id}/bandcamp` + `/spotify` endpoints (which also accept `X-Internal-Secret`).
+   - **venue:** `PUT /venues/{id}` (admin-gated; partial body of `website`/`instagram`/… — same endpoint the batch uses).
+3. **Verify** via `GET /artists/{id}` / `GET /venues/{id}` **detail** (the list/roster projections omit `social`).
+
+> **Why a targeted PATCH, not a re-ingest batch?** The batch enriches links on re-ingest now (PSY-1171), but only for fields the *source page* supplied. This follow exists for names-only sources — the links come from web research, so a per-confirmed-entity PATCH is cleaner than hand-populating a batch.
 
 ## Stale-first global refresh (Catalog Refresh)
 
