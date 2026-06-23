@@ -190,6 +190,7 @@ func (r *BandcampProfileResolver) ResolveProfileEmbed(ctx context.Context, profi
 	// extraction then anchors on /music's own final URL (re-anchored in buildEmbed).
 	musicURL := *u
 	musicURL.Path = "/music"
+	musicURL.RawPath = "" // clear any stale escaped path copied from the input
 	musicURL.RawQuery = ""
 	musicURL.Fragment = ""
 	if !isAllowedBandcampFetchURL(&musicURL) {
