@@ -1236,8 +1236,9 @@ const STATION_HEALTH_LEVEL: Record<
   },
 }
 
-// Render a rate (0..1) as a whole percent, or an em-dash when not yet computed (null).
-function formatHealthRate(rate: number | null): string {
+// Render a rate (0..1) as a whole percent, or an em-dash when not yet computed (null or
+// omitted/undefined on the wire). The loose `== null` catches both.
+function formatHealthRate(rate: number | null | undefined): string {
   if (rate == null) return '—'
   return `${Math.round(rate * 100)}%`
 }

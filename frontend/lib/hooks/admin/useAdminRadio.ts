@@ -650,15 +650,18 @@ export interface RadioStationHealth {
   station_id: number
   station_name: string
   station_slug: string
-  last_success_at: string | null
-  last_run_at: string | null
   consecutive_failures: number
   breaker_state: string
-  breaker_tripped_at: string | null
-  recent_success_rate: number | null
-  play_match_rate: number | null
-  zero_play_episode_rate: number | null
-  updated_at: string | null
+  // These map to backend pointer fields with `,omitempty`, so they are OMITTED from the
+  // JSON (i.e. `undefined`, not `null`) when nil — optional here so the type matches the
+  // wire and a strict `=== null` / unguarded use can't silently break never-run stations.
+  last_success_at?: string | null
+  last_run_at?: string | null
+  breaker_tripped_at?: string | null
+  recent_success_rate?: number | null
+  play_match_rate?: number | null
+  zero_play_episode_rate?: number | null
+  updated_at?: string | null
 }
 
 /** Bulk station-health envelope (one card per station). */
