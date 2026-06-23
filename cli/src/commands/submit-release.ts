@@ -1,6 +1,6 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
-import { validateRelease } from "../lib/schemas";
+import { validateRelease, isNonEmptyString } from "../lib/schemas";
 import {
   checkDuplicate,
   type DuplicateCheckResult,
@@ -33,6 +33,12 @@ interface ReleaseInput {
   description?: string;
   artists: ReleaseArtistInput[];
   labels?: string[];
+  /**
+   * Catalogue number for this release within its label's catalogue (e.g.
+   * "CRE001"). Stored on the release↔label association, so it only applies
+   * when `labels` names a single label — see {@link linkReleaseLabels}.
+   */
+  catalog_number?: string;
   external_links?: ReleaseLinkInput[];
   tags?: TagInput[];
 }
@@ -272,6 +278,12 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
       }
     }
 
+    // Catalog number applies on every action that links labels (create/update/
+    // skip — backfill re-ingests hit the skip path), so show it for all three.
+    if (isNonEmptyString(action.release.catalog_number)) {
+      display.kv("Catalog", action.release.catalog_number.trim());
+    }
+
     // Show tags if any
     if (resolvedTags && resolvedTags[i].length > 0) {
       display.kv("tags", formatTagsPreview(resolvedTags[i]));
@@ -285,21 +297,64 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
   display.summary(creates, updates, skips);
 }
 
-/** Execute the planned actions (create/update releases). */
-/** Link a release (and its artists) to any labels specified in the release input. */
-async function linkReleaseLabels(
+/**
+ * Link a release (and its artists) to any labels specified in the release input.
+ *
+ * A catalogue number identifies a release *within one label's* catalogue
+ * (`release_labels.catalog_number`), so it's only meaningful when the release
+ * names a single label. Discography-page ingests emit exactly one label per
+ * release — the normal case. When multiple *distinct* labels are present we
+ * can't know which one the number belongs to, so we drop it (with a warning)
+ * rather than stamp the same number onto every association.
+ */
+export async function linkReleaseLabels(
   client: APIClient,
   releaseId: number,
   labels: string[] | undefined,
   artistIds: number[],
+  catalogNumber?: string,
 ): Promise<void> {
   if (!labels?.length) return;
 
-  for (const labelName of labels) {
-    await resolveAndLinkReleaseLabel(client, labelName, releaseId, artistIds);
+  // Dedup label names case-insensitively + trimmed. Label resolution is itself
+  // case-insensitive exact-match (resolveLabelByName), so "Sub Pop"/"sub pop"/
+  // " Sub Pop " all resolve to one label — counting raw array entries would
+  // mis-classify a single label named twice as "multiple labels" and wrongly
+  // drop its catalog number. Empty/whitespace-only entries are dropped too.
+  const seen = new Set<string>();
+  const uniqueLabels = labels.filter((name) => {
+    const key = name.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (uniqueLabels.length === 0) return;
+
+  // Trim + require a genuinely non-empty string (matches the repo's
+  // isNonEmptyString convention); a whitespace-only or non-string value is
+  // treated as "no catalog number" rather than stored verbatim.
+  const catalog = isNonEmptyString(catalogNumber)
+    ? catalogNumber.trim()
+    : undefined;
+  if (catalog && uniqueLabels.length > 1) {
+    display.warn(
+      `Catalog number "${catalog}" not applied — release has ${uniqueLabels.length} labels (ambiguous which it belongs to)`,
+    );
+  }
+  const catalogForLink = catalog && uniqueLabels.length === 1 ? catalog : undefined;
+
+  for (const labelName of uniqueLabels) {
+    await resolveAndLinkReleaseLabel(
+      client,
+      labelName,
+      releaseId,
+      artistIds,
+      catalogForLink,
+    );
   }
 }
 
+/** Execute the planned actions (create/update releases). */
 async function executeActions(
   client: APIClient,
   actions: ReleaseAction[],
@@ -331,7 +386,7 @@ async function executeActions(
       }
       // Still link labels even on skip (idempotent)
       if (action.dupCheck.existingId) {
-        await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds);
+        await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number);
       }
       skipped++;
       continue;
@@ -374,6 +429,8 @@ async function executeActions(
         if (action.release.external_links?.length) {
           body.external_links = action.release.external_links;
         }
+        // NB: catalog_number is intentionally NOT in the release body — it lives
+        // on the release↔label association and is sent via linkReleaseLabels below.
 
         const result = await client.post<{ id?: number; release?: { id: number } }>("/releases", body);
         const releaseId = result.release?.id ?? result.id;
@@ -387,7 +444,7 @@ async function executeActions(
         }
         // Link release and its artists to labels
         if (releaseId) {
-          await linkReleaseLabels(client, releaseId, action.release.labels, artistIds);
+          await linkReleaseLabels(client, releaseId, action.release.labels, artistIds, action.release.catalog_number);
         }
         created++;
       } catch (err) {
@@ -416,7 +473,7 @@ async function executeActions(
         }
         // Still link labels even when no field updates (idempotent)
         if (action.dupCheck.existingId) {
-          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds);
+          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number);
         }
         skipped++;
         continue;
@@ -449,7 +506,7 @@ async function executeActions(
         }
         // Link release and its artists to labels
         if (action.dupCheck.existingId) {
-          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds);
+          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds, action.release.catalog_number);
         }
         updated++;
       } catch (err) {

@@ -4,6 +4,7 @@ import {
   planReleases,
   submitReleases,
   displayPreview,
+  linkReleaseLabels,
   type SubmitResult,
 } from "../src/commands/submit-release";
 import { APIClient } from "../src/lib/api";
@@ -332,6 +333,142 @@ describe("submitReleases", () => {
     }
   });
 
+  test("create path threads catalog_number through to the label-link POST", async () => {
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+
+    const calls: Array<{ method: string; url: string; body: unknown }> = [];
+    const json = (data: unknown) =>
+      new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr =
+        typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      const method = (init?.method || "GET").toUpperCase();
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      calls.push({ method, url: urlStr, body });
+
+      if (urlStr.includes("/artists/search")) {
+        return json({ artists: [{ id: 42, name: "Nina Hagen Band", slug: "nina-hagen-band" }] });
+      }
+      if (urlStr.includes("/labels/search")) {
+        return json({ labels: [{ id: 4, name: "Creation Records", slug: "creation-records" }] });
+      }
+      if (urlStr.includes("/admin/labels/")) {
+        return json({ success: true });
+      }
+      // Release dup-check (GET) → no match; release create (POST) → new id
+      if (urlStr.includes("/releases")) {
+        return method === "POST" ? json({ release: { id: 555 } }) : json({ releases: [] });
+      }
+      return json({});
+    }) as typeof globalThis.fetch;
+
+    try {
+      const result = await submitReleases(
+        JSON.stringify({
+          title: "Nunsexmonkrock",
+          release_type: "lp",
+          artists: [{ name: "Nina Hagen Band" }],
+          labels: ["Creation Records"],
+          catalog_number: "CRE001",
+        }),
+        { url: "http://test.local", token: "phk_test" },
+        true,
+      );
+
+      expect(result.created).toBe(1);
+      const link = calls.find(
+        (c) => c.method === "POST" && /\/admin\/labels\/4\/releases$/.test(c.url),
+      );
+      expect(link).toBeDefined();
+      expect(link!.body).toMatchObject({ release_id: 555, catalog_number: "CRE001" });
+    } finally {
+      process.stderr.write = origWrite;
+      restoreFetch();
+    }
+  });
+
+  test("skip path (backfill) threads catalog_number to the label-link POST", async () => {
+    // The literal AC: re-ingesting an existing discography to backfill numbers.
+    // Every release already exists → routes to SKIP, where the link still runs.
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+
+    const calls: Array<{ method: string; url: string; body: unknown }> = [];
+    const json = (data: unknown) =>
+      new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr =
+        typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      const method = (init?.method || "GET").toUpperCase();
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      calls.push({ method, url: urlStr, body });
+
+      if (urlStr.includes("/artists/search")) {
+        return json({ artists: [{ id: 42, name: "Radiohead", slug: "radiohead" }] });
+      }
+      if (urlStr.includes("/labels/search")) {
+        return json({ labels: [{ id: 4, name: "Creation Records", slug: "creation-records" }] });
+      }
+      if (urlStr.includes("/admin/labels/")) {
+        return json({ success: true });
+      }
+      // Dup-check finds an already-complete release → action = skip
+      if (urlStr.includes("/releases")) {
+        return json({
+          releases: [
+            {
+              id: 10,
+              title: "OK Computer",
+              slug: "ok-computer",
+              release_type: "lp",
+              release_year: 1997,
+              release_date: "1997-05-21",
+              bandcamp_url: "",
+              spotify_url: "",
+              description: "",
+            },
+          ],
+        });
+      }
+      return json({});
+    }) as typeof globalThis.fetch;
+
+    try {
+      const result = await submitReleases(
+        JSON.stringify({
+          title: "OK Computer",
+          release_type: "lp",
+          release_year: 1997,
+          release_date: "1997-05-21",
+          artists: [{ name: "Radiohead" }],
+          labels: ["Creation Records"],
+          catalog_number: "CRE001",
+        }),
+        { url: "http://test.local", token: "phk_test" },
+        true,
+      );
+
+      expect(result.skipped).toBe(1);
+      const link = calls.find(
+        (c) => c.method === "POST" && /\/admin\/labels\/4\/releases$/.test(c.url),
+      );
+      expect(link).toBeDefined();
+      expect(link!.body).toMatchObject({ release_id: 10, catalog_number: "CRE001" });
+    } finally {
+      process.stderr.write = origWrite;
+      restoreFetch();
+    }
+  });
+
   test("returns error count for invalid JSON", async () => {
     const origWrite = process.stderr.write;
     process.stderr.write = (() => true) as typeof process.stderr.write;
@@ -492,5 +629,222 @@ describe("displayPreview", () => {
     } finally {
       process.stderr.write = origWrite;
     }
+  });
+
+  test("shows the catalog number for create actions", () => {
+    const origWrite = process.stderr.write;
+    const output: string[] = [];
+    process.stderr.write = ((s: string) => {
+      output.push(s);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      displayPreview([
+        {
+          release: {
+            title: "'73 in '83",
+            release_type: "single",
+            artists: [{ name: "The Legend!" }],
+            labels: ["Creation Records"],
+            catalog_number: "CRE001",
+          },
+          action: "create",
+          dupCheck: { action: "create", match: "none", fields: [], confidence: 0 },
+          resolvedArtists: [{ artist_id: 1, name: "The Legend!", role: "main" }],
+          unresolvedArtists: [],
+        },
+      ]);
+
+      const combined = output.join("");
+      expect(combined).toContain("CRE001");
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+});
+
+describe("linkReleaseLabels", () => {
+  interface PostCall {
+    path: string;
+    body: unknown;
+  }
+
+  /** Mock client resolving every label name to a unique id, recording POSTs. */
+  function createLabelMockClient(postCalls: PostCall[]): APIClient {
+    const client = new APIClient({ url: "http://test.local", token: "phk_test" });
+    const ids: Record<string, number> = {};
+    let nextId = 100;
+
+    client.get = mock(async (path: string, params?: Record<string, string>) => {
+      if (path === "/labels/search" && params?.q) {
+        const name = params.q;
+        if (!(name in ids)) ids[name] = nextId++;
+        return { labels: [{ id: ids[name], name, slug: name.toLowerCase() }] };
+      }
+      return {};
+    }) as typeof client.get;
+
+    client.post = mock(async (path: string, body?: unknown) => {
+      postCalls.push({ path, body });
+      return {};
+    }) as typeof client.post;
+
+    return client;
+  }
+
+  function releaseLinks(postCalls: PostCall[]): PostCall[] {
+    return postCalls.filter((c) => /\/admin\/labels\/\d+\/releases$/.test(c.path));
+  }
+
+  async function quiet<T>(fn: () => Promise<T>): Promise<T> {
+    const orig = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      return await fn();
+    } finally {
+      process.stderr.write = orig;
+    }
+  }
+
+  async function captureStderr<T>(
+    fn: () => Promise<T>,
+  ): Promise<{ result: T; output: string }> {
+    const orig = process.stderr.write;
+    const chunks: string[] = [];
+    process.stderr.write = ((s: string) => {
+      chunks.push(s);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const result = await fn();
+      return { result, output: chunks.join("") };
+    } finally {
+      process.stderr.write = orig;
+    }
+  }
+
+  test("applies catalog_number when there is exactly one label", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Creation Records"], [], "CRE001"),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect(links[0].body).toMatchObject({ release_id: 500, catalog_number: "CRE001" });
+  });
+
+  test("drops catalog_number when there are multiple labels (ambiguous)", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Label A", "Label B"], [], "CRE001"),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect((link.body as Record<string, unknown>).catalog_number).toBeUndefined();
+    }
+  });
+
+  test("warns (does not silently drop) when a multi-label number is dropped", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    const { output } = await captureStderr(() =>
+      linkReleaseLabels(client, 500, ["Label A", "Label B"], [], "CRE001"),
+    );
+
+    expect(output).toContain("not applied");
+    expect(output).toContain("CRE001");
+  });
+
+  test("dedups case/whitespace-variant label names and keeps the catalog number", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    // One real label named twice (case/whitespace variant) must NOT be treated
+    // as "multiple labels" — label resolution is case-insensitive exact-match.
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Creation Records", " creation records "], [], "CRE001"),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect(links[0].body).toMatchObject({ release_id: 500, catalog_number: "CRE001" });
+  });
+
+  test("trims surrounding whitespace from the stored catalog number", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Creation Records"], [], "  CRE001  "),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect(links[0].body).toMatchObject({ release_id: 500, catalog_number: "CRE001" });
+  });
+
+  test("omits catalog_number when none is provided (no regression)", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() => linkReleaseLabels(client, 500, ["Creation Records"], []));
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect((links[0].body as Record<string, unknown>).catalog_number).toBeUndefined();
+  });
+
+  test("makes no calls when there are no labels", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() => linkReleaseLabels(client, 500, undefined, [], "CRE001"));
+    await quiet(() => linkReleaseLabels(client, 500, [], [], "CRE001"));
+
+    expect(postCalls).toHaveLength(0);
+  });
+
+  test("treats an empty-string catalog_number as absent", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() => linkReleaseLabels(client, 500, ["Creation Records"], [], ""));
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect((links[0].body as Record<string, unknown>).catalog_number).toBeUndefined();
+  });
+
+  test("treats a whitespace-only catalog_number as absent", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    await quiet(() => linkReleaseLabels(client, 500, ["Creation Records"], [], "   "));
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect((links[0].body as Record<string, unknown>).catalog_number).toBeUndefined();
+  });
+
+  test("treats a non-string catalog_number as absent (runtime guard)", async () => {
+    const postCalls: PostCall[] = [];
+    const client = createLabelMockClient(postCalls);
+
+    // Input is JSON.parse'd + cast, so a non-string value can arrive at runtime.
+    await quiet(() =>
+      linkReleaseLabels(client, 500, ["Creation Records"], [], 123 as unknown as string),
+    );
+
+    const links = releaseLinks(postCalls);
+    expect(links).toHaveLength(1);
+    expect((links[0].body as Record<string, unknown>).catalog_number).toBeUndefined();
   });
 });
