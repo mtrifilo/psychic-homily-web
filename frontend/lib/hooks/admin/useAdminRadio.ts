@@ -130,6 +130,11 @@ export interface RadioShowListItem {
   // schedule_locked (PSY-1186/1193): true when the schedule is hand-curated and the
   // weekly WFMU scrape leaves it alone. Surfaced as a badge in the admin list.
   schedule_locked: boolean
+  // lifecycle_state (active | dormant | retired) + latest_air_date (YYYY-MM-DD or null)
+  // are already emitted by the backend list (PSY-1155/1048); surfaced here for the
+  // navigable show list's filter / sort / lifecycle badge / bulk actions (PSY-1122).
+  lifecycle_state: string
+  latest_air_date: string | null
   episode_count: number
 }
 
@@ -457,6 +462,53 @@ export function useUpdateRadioShow() {
       })
     },
     onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+    },
+  })
+}
+
+/** The settable operational states for a radio show (PSY-1172/1122). */
+export type RadioLifecycleState = 'active' | 'dormant' | 'retired'
+
+/**
+ * Bulk-set lifecycle_state on several shows at once (PSY-1122). There's no bulk backend
+ * endpoint, so this fans out per-show PUTs through the same admin update path the
+ * single-show editor uses (PSY-1172 wired lifecycle_state).
+ *
+ * Uses `Promise.allSettled` so a single failing PUT doesn't abort the rest, and THROWS a
+ * "N of M; X failed" error on any failure so the caller can surface it. Invalidation runs
+ * in `onSettled` (success AND error) so the list reconciles even on a partial failure —
+ * otherwise the operator would see stale state after a mass mutation.
+ */
+export function useBulkSetShowLifecycle() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      showIds,
+      lifecycleState,
+    }: {
+      showIds: number[]
+      stationId: number
+      lifecycleState: RadioLifecycleState
+    }) => {
+      const results = await Promise.allSettled(
+        showIds.map((showId) =>
+          apiRequest<RadioShowDetail>(RADIO_ENDPOINTS.ADMIN_UPDATE_SHOW(showId), {
+            method: 'PUT',
+            body: JSON.stringify({ lifecycle_state: lifecycleState }),
+          })
+        )
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      if (failed > 0) {
+        throw new Error(
+          `Updated ${results.length - failed} of ${results.length} show(s); ${failed} failed.`
+        )
+      }
+    },
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
     },

@@ -37,6 +37,8 @@ const show: RadioShowListItem = {
   image_url: null,
   is_active: true,
   schedule_locked: false,
+  lifecycle_state: 'active',
+  latest_air_date: null,
   episode_count: 3,
 }
 
