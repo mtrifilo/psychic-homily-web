@@ -82,7 +82,6 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"notification_log":      "sent by background job; not user-mutated in E2E",
 	"show_reminders":        "sent by background job; read-only from E2E",
 	"enrichment_runs":       "background service writes these; not user-mutated",
-	"venue_extraction_runs": "background service writes these; not user-mutated",
 	"revisions":             "version history; tests don't assert on the count",
 	"auto_promotion_runs":   "background service output; not user-mutated",
 

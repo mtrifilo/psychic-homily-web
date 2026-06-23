@@ -2,6 +2,13 @@
 
 This standalone discovery app (Bun + Playwright) is **deprecated** in favor of the API-first data pipeline built into the main application.
 
+> **Update (PSY-1165):** the replacement venue-extraction pipeline described below
+> was itself retired (PSY-1158) and removed from the backend (PSY-1165). Venue
+> calendar ingestion now goes through the `/ingest` agent skill. The "Admin
+> Console > Data Pipeline" tab and the `/admin/pipeline/{extract,venues,imports}`
+> endpoints referenced below no longer exist; only `/admin/pipeline/enrichment/*`
+> remains.
+
 ## Why
 
 The Playwright-based scrapers in this app were brittle, slow, and required per-venue provider code. The new pipeline uses:

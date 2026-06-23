@@ -17,7 +17,8 @@ const (
 )
 
 // EnrichmentWorker is a background service that processes the enrichment queue.
-// It follows the same Start/Stop pattern as SchedulerService and CleanupService.
+// It follows the same Start/Stop pattern as CleanupService and the other
+// background ticker services.
 type EnrichmentWorker struct {
 	enrichmentService *EnrichmentService
 	interval          time.Duration

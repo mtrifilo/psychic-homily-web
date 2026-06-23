@@ -62,9 +62,7 @@ type methodDefault struct {
 var ifaceConfigs = map[string]interfaceConfig{
 	"ShowFullServiceInterface":  {skip: true}, // Composite — use sub-interfaces
 	"BookmarkServiceInterface":  {skip: true}, // Not used in handler tests
-	"FetcherServiceInterface":   {skip: true}, // Not used in handler tests
 	"ReminderServiceInterface":  {skip: true}, // Not used in handler tests
-	"SchedulerServiceInterface": {skip: true}, // Not used in handler tests
 	"EnrichmentWorkerInterface": {skip: true}, // Not used in handler tests
 	"AppleAuthServiceInterface": {skip: true}, // Has its own mock in apple_auth_test.go
 	"OAuthCompleter":            {skip: true}, // Not a service
@@ -101,9 +99,6 @@ var customDefaults = map[string]methodDefault{
 	},
 	"MockFollowService.GetBatchUserFollowing": {
 		body: `	return make(map[uint]bool), nil`,
-	},
-	"MockExtractionService.ExtractCalendarPage": {
-		body: `	return &contracts.CalendarExtractionResponse{Success: true, Events: []contracts.CalendarEvent{}}, nil`,
 	},
 	"MockAdminStatsService.GetRecentActivity": {
 		body: `	return &contracts.ActivityFeedResponse{Events: []contracts.ActivityEvent{}}, nil`,
@@ -192,23 +187,6 @@ var customDefaults = map[string]methodDefault{
 		ShowsApproved: []contracts.MonthlyCount{},
 		ShowsRejected: []contracts.MonthlyCount{},
 	}, nil`,
-	},
-	"MockPipelineService.ExtractVenue": {
-		body: `	return &contracts.PipelineResult{
-		VenueID:         venueID,
-		VenueName:       "Test Venue",
-		RenderMethod:    "static",
-		EventsExtracted: 5,
-		EventsImported:  3,
-		DurationMs:      1234,
-		DryRun:          dryRun,
-	}, nil`,
-	},
-	"MockVenueSourceConfigService.CreateOrUpdate": {
-		body: `	return config, nil`,
-	},
-	"MockVenueSourceConfigService.GetRejectionStats": {
-		body: `	return &contracts.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil`,
 	},
 	"MockEnrichmentService.EnrichShow": {
 		body: `	return &contracts.EnrichmentResult{ShowID: showID, CompletedSteps: []string{"artist_match", "musicbrainz", "api_crossref"}}, nil`,

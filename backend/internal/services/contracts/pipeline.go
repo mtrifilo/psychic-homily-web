@@ -7,7 +7,6 @@ import (
 
 	"gorm.io/gorm"
 
-	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
@@ -80,123 +79,6 @@ type ExtractShowResponse struct {
 	Data     *ExtractedShowData `json:"data,omitempty"`
 	Error    string             `json:"error,omitempty"`
 	Warnings []string           `json:"warnings,omitempty"`
-}
-
-// ──────────────────────────────────────────────
-// Calendar Extraction types
-// ──────────────────────────────────────────────
-
-// CalendarEvent represents a single event extracted from a venue calendar page.
-type CalendarEvent struct {
-	Date         string           `json:"date"`
-	Time         *string          `json:"time,omitempty"`
-	Title        string           `json:"title"`
-	Artists      []CalendarArtist `json:"artists"`
-	Cost         *string          `json:"cost,omitempty"`
-	Ages         *string          `json:"ages,omitempty"`
-	TicketURL    *string          `json:"ticket_url,omitempty"`
-	IsMusicEvent *bool            `json:"is_music_event,omitempty"`
-}
-
-// CalendarArtist represents an artist entry within a calendar event.
-type CalendarArtist struct {
-	Name         string `json:"name"`
-	IsHeadliner  bool   `json:"is_headliner"`
-	SetType      string `json:"set_type,omitempty"`
-	BillingOrder int    `json:"billing_order,omitempty"`
-}
-
-// CalendarExtractionResponse is the response from calendar page extraction.
-type CalendarExtractionResponse struct {
-	Success  bool            `json:"success"`
-	Events   []CalendarEvent `json:"events,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	Warnings []string        `json:"warnings,omitempty"`
-}
-
-// ──────────────────────────────────────────────
-// Fetcher types
-// ──────────────────────────────────────────────
-
-// FetchResult contains the result of an HTTP fetch with change detection.
-type FetchResult struct {
-	Changed     bool   // Whether content changed since last fetch
-	Body        string // HTML content (empty if unchanged)
-	ContentHash string // SHA256 hex of body
-	ETag        string // ETag from response header
-	HTTPStatus  int    // HTTP status code
-	RedirectURL string // New URL if 301/308 redirect
-	ContentType string // Content-Type header value
-}
-
-// FetchError wraps HTTP status errors for callers that need to inspect the code.
-type FetchError struct {
-	StatusCode int
-	URL        string
-	Err        error
-}
-
-func (e *FetchError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *FetchError) Unwrap() error {
-	return e.Err
-}
-
-// RenderMethod constants for the three rendering tiers.
-const (
-	RenderMethodStatic     = "static"
-	RenderMethodDynamic    = "dynamic"
-	RenderMethodScreenshot = "screenshot"
-)
-
-// ──────────────────────────────────────────────
-// Pipeline types
-// ──────────────────────────────────────────────
-
-// PipelineResult contains the outcome of a single venue extraction run.
-type PipelineResult struct {
-	VenueID               uint     `json:"venue_id"`
-	VenueName             string   `json:"venue_name"`
-	RenderMethod          string   `json:"render_method"`
-	EventsExtracted       int      `json:"events_extracted"`
-	EventsImported        int      `json:"events_imported"`
-	EventsSkippedNonMusic int      `json:"events_skipped_non_music"`
-	DurationMs            int64    `json:"duration_ms"`
-	Skipped               bool     `json:"skipped"`
-	SkipReason            string   `json:"skip_reason,omitempty"`
-	Error                 string   `json:"error,omitempty"`
-	Warnings              []string `json:"warnings,omitempty"`
-	DryRun                bool     `json:"dry_run"`
-	InitialStatus         string   `json:"initial_status"`
-}
-
-// VenueRejectionStats contains rejection breakdown and approval rate for a venue's pipeline shows.
-type VenueRejectionStats struct {
-	TotalExtracted       int64            `json:"total_extracted"`
-	Approved             int64            `json:"approved"`
-	Rejected             int64            `json:"rejected"`
-	Pending              int64            `json:"pending"`
-	RejectionBreakdown   map[string]int64 `json:"rejection_breakdown"`
-	ApprovalRate         float64          `json:"approval_rate"`
-	SuggestedAutoApprove bool             `json:"suggested_auto_approve"`
-}
-
-// ImportHistoryEntry represents a single extraction run enriched with venue info,
-// used for the cross-venue import history view.
-type ImportHistoryEntry struct {
-	ID              uint      `json:"id"`
-	VenueID         uint      `json:"venue_id"`
-	VenueName       string    `json:"venue_name"`
-	VenueSlug       string    `json:"venue_slug"`
-	SourceType      string    `json:"source_type"`
-	RenderMethod    *string   `json:"render_method"`
-	EventsExtracted int       `json:"events_extracted"`
-	EventsImported  int       `json:"events_imported"`
-	DurationMs      int       `json:"duration_ms"`
-	Error           *string   `json:"error"`
-	RunAt           time.Time `json:"run_at"`
 }
 
 // ──────────────────────────────────────────────
@@ -395,10 +277,11 @@ var ErrStreamingArtistNotFound = errors.New("artist not found")
 // Extraction Service Interface
 // ──────────────────────────────────────────────
 
-// ExtractionServiceInterface defines the contract for AI show extraction operations.
+// ExtractionServiceInterface defines the contract for AI show extraction
+// operations. Used by ShowHandler's AI show-from-text processing. (The
+// venue-calendar extraction method was removed with the legacy pipeline, PSY-1165.)
 type ExtractionServiceInterface interface {
 	ExtractShow(req *ExtractShowRequest) (*ExtractShowResponse, error)
-	ExtractCalendarPage(venueName string, content string, contentType string, extractionNotes ...string) (*CalendarExtractionResponse, error)
 }
 
 // ──────────────────────────────────────────────
@@ -411,56 +294,6 @@ type DiscoveryServiceInterface interface {
 	ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*ImportResult, error)
 	CheckEvents(events []CheckEventInput) (*CheckEventsResult, error)
 	ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*ImportResult, error)
-}
-
-// ──────────────────────────────────────────────
-// Fetcher Service Interface
-// ──────────────────────────────────────────────
-
-// FetcherServiceInterface defines the contract for HTTP fetching with change detection.
-type FetcherServiceInterface interface {
-	Fetch(url string, lastETag string, lastContentHash string) (*FetchResult, error)
-	FetchDynamic(url string) (*FetchResult, error)
-	FetchScreenshot(url string) (*FetchResult, error)
-	DetectRenderMethod(url string) (string, error)
-}
-
-// ──────────────────────────────────────────────
-// Pipeline Service Interface
-// ──────────────────────────────────────────────
-
-// PipelineServiceInterface defines the contract for the AI extraction pipeline orchestrator.
-type PipelineServiceInterface interface {
-	ExtractVenue(venueID uint, dryRun bool) (*PipelineResult, error)
-}
-
-// ──────────────────────────────────────────────
-// Venue Source Config Service Interface
-// ──────────────────────────────────────────────
-
-// VenueSourceConfigServiceInterface defines the contract for venue source config operations.
-type VenueSourceConfigServiceInterface interface {
-	GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error)
-	CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error)
-	UpdateAfterRun(venueID uint, contentHash, etag *string, eventsExtracted int) error
-	IncrementFailures(venueID uint) error
-	RecordRun(run *adminm.VenueExtractionRun) error
-	GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error)
-	GetAllRecentRuns(limit, offset int) ([]ImportHistoryEntry, int64, error)
-	ListConfigured() ([]adminm.VenueSourceConfig, error)
-	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
-	UpdateExtractionNotes(venueID uint, notes *string) error
-	ResetRenderMethod(venueID uint) error
-}
-
-// ──────────────────────────────────────────────
-// Scheduler Service Interface
-// ──────────────────────────────────────────────
-
-// SchedulerServiceInterface defines the contract for the background extraction scheduler.
-type SchedulerServiceInterface interface {
-	Start(ctx context.Context)
-	Stop()
 }
 
 // ──────────────────────────────────────────────

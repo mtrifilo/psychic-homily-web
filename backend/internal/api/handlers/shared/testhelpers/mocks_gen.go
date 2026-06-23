@@ -1686,8 +1686,7 @@ func (m *MockExploreService) GetShuffleTarget() (*contracts.ExploreShuffleTarget
 // ============================================================================
 
 type MockExtractionService struct {
-	ExtractShowFn         func(*contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error)
-	ExtractCalendarPageFn func(string, string, string, ...string) (*contracts.CalendarExtractionResponse, error)
+	ExtractShowFn func(*contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error)
 }
 
 func (m *MockExtractionService) ExtractShow(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
@@ -1695,12 +1694,6 @@ func (m *MockExtractionService) ExtractShow(req *contracts.ExtractShowRequest) (
 		return m.ExtractShowFn(req)
 	}
 	return nil, nil
-}
-func (m *MockExtractionService) ExtractCalendarPage(venueName string, content string, contentType string, extractionNotes ...string) (*contracts.CalendarExtractionResponse, error) {
-	if m.ExtractCalendarPageFn != nil {
-		return m.ExtractCalendarPageFn(venueName, content, contentType, extractionNotes...)
-	}
-	return &contracts.CalendarExtractionResponse{Success: true, Events: []contracts.CalendarEvent{}}, nil
 }
 
 // ============================================================================
@@ -2374,29 +2367,6 @@ func (m *MockPendingEditService) CancelPendingEdit(editID uint, userID uint) err
 		return m.CancelPendingEditFn(editID, userID)
 	}
 	return nil
-}
-
-// ============================================================================
-// Mock: PipelineServiceInterface
-// ============================================================================
-
-type MockPipelineService struct {
-	ExtractVenueFn func(uint, bool) (*contracts.PipelineResult, error)
-}
-
-func (m *MockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
-	if m.ExtractVenueFn != nil {
-		return m.ExtractVenueFn(venueID, dryRun)
-	}
-	return &contracts.PipelineResult{
-		VenueID:         venueID,
-		VenueName:       "Test Venue",
-		RenderMethod:    "static",
-		EventsExtracted: 5,
-		EventsImported:  3,
-		DurationMs:      1234,
-		DryRun:          dryRun,
-	}, nil
 }
 
 // ============================================================================
@@ -4035,91 +4005,6 @@ func (m *MockVenueService) GetVenueBillNetwork(venueID uint, window string, year
 }
 
 // ============================================================================
-// Mock: VenueSourceConfigServiceInterface
-// ============================================================================
-
-type MockVenueSourceConfigService struct {
-	GetByVenueIDFn          func(uint) (*adminm.VenueSourceConfig, error)
-	CreateOrUpdateFn        func(*adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error)
-	UpdateAfterRunFn        func(uint, *string, *string, int) error
-	IncrementFailuresFn     func(uint) error
-	RecordRunFn             func(*adminm.VenueExtractionRun) error
-	GetRecentRunsFn         func(uint, int) ([]adminm.VenueExtractionRun, error)
-	GetAllRecentRunsFn      func(int, int) ([]contracts.ImportHistoryEntry, int64, error)
-	ListConfiguredFn        func() ([]adminm.VenueSourceConfig, error)
-	GetRejectionStatsFn     func(uint) (*contracts.VenueRejectionStats, error)
-	UpdateExtractionNotesFn func(uint, *string) error
-	ResetRenderMethodFn     func(uint) error
-}
-
-func (m *MockVenueSourceConfigService) GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error) {
-	if m.GetByVenueIDFn != nil {
-		return m.GetByVenueIDFn(venueID)
-	}
-	return nil, nil
-}
-func (m *MockVenueSourceConfigService) CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
-	if m.CreateOrUpdateFn != nil {
-		return m.CreateOrUpdateFn(config)
-	}
-	return config, nil
-}
-func (m *MockVenueSourceConfigService) UpdateAfterRun(venueID uint, contentHash *string, etag *string, eventsExtracted int) error {
-	if m.UpdateAfterRunFn != nil {
-		return m.UpdateAfterRunFn(venueID, contentHash, etag, eventsExtracted)
-	}
-	return nil
-}
-func (m *MockVenueSourceConfigService) IncrementFailures(venueID uint) error {
-	if m.IncrementFailuresFn != nil {
-		return m.IncrementFailuresFn(venueID)
-	}
-	return nil
-}
-func (m *MockVenueSourceConfigService) RecordRun(run *adminm.VenueExtractionRun) error {
-	if m.RecordRunFn != nil {
-		return m.RecordRunFn(run)
-	}
-	return nil
-}
-func (m *MockVenueSourceConfigService) GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
-	if m.GetRecentRunsFn != nil {
-		return m.GetRecentRunsFn(venueID, limit)
-	}
-	return nil, nil
-}
-func (m *MockVenueSourceConfigService) GetAllRecentRuns(limit int, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
-	if m.GetAllRecentRunsFn != nil {
-		return m.GetAllRecentRunsFn(limit, offset)
-	}
-	return nil, 0, nil
-}
-func (m *MockVenueSourceConfigService) ListConfigured() ([]adminm.VenueSourceConfig, error) {
-	if m.ListConfiguredFn != nil {
-		return m.ListConfiguredFn()
-	}
-	return nil, nil
-}
-func (m *MockVenueSourceConfigService) GetRejectionStats(venueID uint) (*contracts.VenueRejectionStats, error) {
-	if m.GetRejectionStatsFn != nil {
-		return m.GetRejectionStatsFn(venueID)
-	}
-	return &contracts.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil
-}
-func (m *MockVenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *string) error {
-	if m.UpdateExtractionNotesFn != nil {
-		return m.UpdateExtractionNotesFn(venueID, notes)
-	}
-	return nil
-}
-func (m *MockVenueSourceConfigService) ResetRenderMethod(venueID uint) error {
-	if m.ResetRenderMethodFn != nil {
-		return m.ResetRenderMethodFn(venueID)
-	}
-	return nil
-}
-
-// ============================================================================
 // Mock: WebAuthnServiceInterface
 // ============================================================================
 
@@ -4297,7 +4182,6 @@ var _ contracts.LeaderboardServiceInterface = (*MockLeaderboardService)(nil)
 var _ contracts.NotificationFilterServiceInterface = (*MockNotificationFilterService)(nil)
 var _ contracts.PasswordValidatorInterface = (*MockPasswordValidator)(nil)
 var _ contracts.PendingEditServiceInterface = (*MockPendingEditService)(nil)
-var _ contracts.PipelineServiceInterface = (*MockPipelineService)(nil)
 var _ contracts.RadioServiceInterface = (*MockRadioService)(nil)
 var _ contracts.ReleaseServiceInterface = (*MockReleaseService)(nil)
 var _ contracts.RequestServiceInterface = (*MockRequestService)(nil)
@@ -4313,5 +4197,4 @@ var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistServi
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)
 var _ contracts.VenueServiceInterface = (*MockVenueService)(nil)
-var _ contracts.VenueSourceConfigServiceInterface = (*MockVenueSourceConfigService)(nil)
 var _ contracts.WebAuthnServiceInterface = (*MockWebAuthnService)(nil)
