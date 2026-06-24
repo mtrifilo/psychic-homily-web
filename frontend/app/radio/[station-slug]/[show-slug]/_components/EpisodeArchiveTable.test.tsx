@@ -21,6 +21,7 @@ function makeEpisode(overrides: Partial<RadioEpisodeListItem> = {}): RadioEpisod
     starts_at: null,
     ends_at: null,
     status: 'aired',
+    is_upcoming: false,
     play_count: 24,
     created_at: '2026-06-02T00:00:00Z',
     artist_preview: [],
@@ -145,5 +146,31 @@ describe('EpisodeArchiveTable', () => {
     expect(
       screen.getByRole('link', { name: /archive/ })
     ).toHaveAttribute('href', 'https://example.com/ep.mp3')
+  })
+
+  // PSY-1205: an upcoming (not-yet-aired) episode is labeled "upcoming", and its
+  // date/title/[mp3] do NOT link — there's no playlist yet, so every link would
+  // lead to an empty, aired-looking page.
+  it('labels an upcoming episode and suppresses all links to its empty page', () => {
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            title: 'Next Week',
+            is_upcoming: true,
+            // upcoming WFMU pages carry an archive_url but no playlist yet —
+            // the label must win over the misleading [mp3] link
+            archive_url: 'https://wfmu.org/playlists/shows/999999',
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('upcoming')).toBeInTheDocument()
+    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
+    // date + title render as plain text, not links to the not-yet-aired page
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.getByText('Next Week')).toBeInTheDocument()
   })
 })

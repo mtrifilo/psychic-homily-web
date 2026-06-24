@@ -300,13 +300,18 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_FullPayloa
 	station := suite.createStation("Manual FM", "manual-fm", catalogm.PlaylistSourceManual)
 	artist := suite.createArtist("Matched Artist", "matched-artist")
 
+	// Relative dates: latestEpisodeForShow is now aired-only-bounded (PSY-1205),
+	// so fixed past dates would couple this to the wall clock; keep them aired.
+	now := time.Now().UTC()
+	latestAired := now.AddDate(0, 0, -2).Format("2006-01-02")
+
 	// quiet-show has 1 episode; active-show has 2 → the heuristic picks it.
 	quiet := suite.createShow(station.ID, "Quiet Show", "quiet-show", nil, nil)
-	suite.createEpisode(quiet.ID, "2026-06-01")
+	suite.createEpisode(quiet.ID, now.AddDate(0, 0, -12).Format("2006-01-02"))
 	host := "DJ Host"
 	active := suite.createShow(station.ID, "Active Show", "active-show", nil, &host)
-	suite.createEpisode(active.ID, "2026-05-30")
-	latest := suite.createEpisode(active.ID, "2026-06-08")
+	suite.createEpisode(active.ID, now.AddDate(0, 0, -9).Format("2006-01-02"))
+	latest := suite.createEpisode(active.ID, latestAired)
 
 	suite.createPlay(latest.ID, 1, "Opener", "First Song", nil)
 	suite.createPlay(latest.ID, 2, "Matched Artist", "Middle Song", &artist.ID)
@@ -325,7 +330,7 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_FullPayloa
 	suite.Require().NotNil(resp.ShowName)
 	suite.Equal("Active Show", *resp.ShowName)
 	suite.Require().NotNil(resp.EpisodeAirDate)
-	suite.Equal("2026-06-08", *resp.EpisodeAirDate)
+	suite.Equal(latestAired, *resp.EpisodeAirDate)
 
 	// Current = the latest logged play (highest position).
 	suite.Require().NotNil(resp.CurrentTrack)

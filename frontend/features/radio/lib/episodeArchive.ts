@@ -182,9 +182,14 @@ export async function walkEpisodeNeighbors(
     const offset = page * NEIGHBOR_PAGE_SIZE
     const response = await fetchPage(offset, NEIGHBOR_PAGE_SIZE)
     const all = response.episodes ?? []
+    // Upcoming (not-yet-aired) episodes aren't navigable (PSY-1205): the archive
+    // doesn't link them, so the prev/next nav must not surface a "newer ▶" arrow
+    // that lands on an empty future page either. Filter them out before picking
+    // neighbors; pagination math below stays on raw `all`/`total`.
+    const aired = all.filter(e => !e.is_upcoming)
     // Collapse same-date siblings so a neighbor never self-links.
-    const episodes = all.filter(
-      (e, i) => i === 0 || e.air_date !== all[i - 1].air_date
+    const episodes = aired.filter(
+      (e, i) => i === 0 || e.air_date !== aired[i - 1].air_date
     )
     const index = episodes.findIndex(e => e.air_date === date)
 

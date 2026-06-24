@@ -21,6 +21,7 @@ function makeEpisode(id: number, airDate: string): RadioEpisodeListItem {
     starts_at: null,
     ends_at: null,
     status: 'aired',
+    is_upcoming: false,
     play_count: 10,
     created_at: '2026-01-01T00:00:00Z',
     artist_preview: [],

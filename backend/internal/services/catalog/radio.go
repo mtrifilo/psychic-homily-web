@@ -85,6 +85,44 @@ func (s *RadioService) normalizeStationTimezone(tz *string) (*string, error) {
 	return &canonical, nil
 }
 
+// stationLocalToday returns the current calendar date ("YYYY-MM-DD") in a
+// station's timezone, resolving the zone through pg_timezone_names exactly as the
+// aired-only feed does (PSY-1204/1205) — an empty or unrecognized value falls
+// back to UTC, so a legacy/garbage timezone can never error. It bounds the
+// single-station aired-only surfaces (the shows-directory "latest playlist"
+// badge and the per-show "upcoming" flag); the dial-wide feed resolves per row
+// in SQL instead because it spans stations in different zones.
+func (s *RadioService) stationLocalToday(timezone *string) (string, error) {
+	tz := ""
+	if timezone != nil {
+		tz = *timezone
+	}
+	var today string
+	if err := s.db.Raw(
+		`SELECT (now() AT TIME ZONE COALESCE((SELECT name FROM pg_timezone_names WHERE lower(name) = lower(btrim(?, E' \t\n\r'))), 'UTC'))::date::text`,
+		tz,
+	).Scan(&today).Error; err != nil {
+		return "", fmt.Errorf("resolve station-local today: %w", err)
+	}
+	return today, nil
+}
+
+// stationLocalTodayForShow resolves stationLocalToday for the show's station
+// (PSY-1205), looking the timezone up by show id. A missing show/station/zone
+// falls back to UTC. Used by the per-show aired-only surfaces (the archive's
+// upcoming flag and the now-playing archive fallback's latest-aired episode).
+func (s *RadioService) stationLocalTodayForShow(showID uint) (string, error) {
+	var stationRow struct{ Timezone *string }
+	if err := s.db.Model(&catalogm.RadioShow{}).
+		Select("radio_stations.timezone").
+		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
+		Where("radio_shows.id = ?", showID).
+		Scan(&stationRow).Error; err != nil {
+		return "", fmt.Errorf("resolve show station timezone: %w", err)
+	}
+	return s.stationLocalToday(stationRow.Timezone)
+}
+
 // CreateStation creates a new radio station
 func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
 	if s.db == nil {
@@ -550,6 +588,17 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 	episodeCounts := make(map[uint]int64)
 	latestAirDates := make(map[uint]string)
 	if len(showIDs) > 0 {
+		// "latest playlist" is aired-only (PSY-1205): a future-dated placeholder
+		// (an upcoming WFMU broadcast, or a corrupt date) must not become a show's
+		// latest date and sort it to the top of the "sorted by latest playlist"
+		// directory. Bound MAX to the station's local today (all shows here belong
+		// to one station, so the zone is shared); COUNT stays the full episode
+		// count. A show with only future episodes gets a NULL latest → sorts as
+		// "no playlists yet", which is correct.
+		today, err := s.stationLocalToday(shows[0].Station.Timezone)
+		if err != nil {
+			return nil, err
+		}
 		type countResult struct {
 			ShowID uint
 			Count  int64
@@ -557,7 +606,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 		}
 		var counts []countResult
 		if err := s.db.Model(&catalogm.RadioEpisode{}).
-			Select("show_id, COUNT(*) as count, MAX(air_date) as latest").
+			Select("show_id, COUNT(*) as count, MAX(air_date) FILTER (WHERE air_date <= ?) as latest", today).
 			Where("show_id IN ?", showIDs).
 			Group("show_id").
 			Find(&counts).Error; err != nil {
@@ -758,14 +807,24 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 		return nil, 0, err
 	}
 
+	// Flag upcoming (not-yet-aired) episodes against the show's station-local
+	// today (PSY-1205). Windowless providers (WFMU) can't express "upcoming"
+	// through Status — a null air window settles to "aired" — so the per-show
+	// archive labels them from air_date instead.
+	today, err := s.stationLocalTodayForShow(showID)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	now := time.Now()
 	responses := make([]*contracts.RadioEpisodeResponse, len(episodes))
 	for i, ep := range episodes {
+		airDate := normalizeDate(ep.AirDate)
 		responses[i] = &contracts.RadioEpisodeResponse{
 			ID:              ep.ID,
 			ShowID:          ep.ShowID,
 			Title:           ep.Title,
-			AirDate:         normalizeDate(ep.AirDate),
+			AirDate:         airDate,
 			AirTime:         ep.AirTime,
 			DurationMinutes: ep.DurationMinutes,
 			ArchiveURL:      ep.ArchiveURL,
@@ -773,7 +832,9 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 			EndsAt:          ep.EndsAt,
 			// Status is computed on read — "live" is a function of now, so a stored
 			// value would go stale the instant the window ends (the PSY-1128 bug).
-			Status:        catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, ep.PlaylistState, now),
+			Status: catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, ep.PlaylistState, now),
+			// air_date is a DATE; YYYY-MM-DD strings compare lexicographically.
+			IsUpcoming:    airDate > today,
 			PlayCount:     ep.PlayCount,
 			CreatedAt:     ep.CreatedAt,
 			ArtistPreview: previewOrEmpty(previews, ep.ID),
@@ -1659,6 +1720,15 @@ func (s *RadioService) buildEpisodeDetailResponse(episode *catalogm.RadioEpisode
 		}
 	}
 
+	// Flag a not-yet-aired episode (PSY-1205) so the detail page labels it
+	// "upcoming" instead of "aired {future date}". Resolved against the show's
+	// station-local today; the station is already preloaded (callers
+	// Preload("Show.Station")), so read its timezone directly — no extra query.
+	today, err := s.stationLocalToday(episode.Show.Station.Timezone)
+	if err != nil {
+		return nil, err
+	}
+
 	return &contracts.RadioEpisodeDetailResponse{
 		ID:              episode.ID,
 		ShowID:          episode.ShowID,
@@ -1669,6 +1739,7 @@ func (s *RadioService) buildEpisodeDetailResponse(episode *catalogm.RadioEpisode
 		Title:           episode.Title,
 		AirDate:         normalizeDate(episode.AirDate),
 		AirTime:         episode.AirTime,
+		IsUpcoming:      normalizeDate(episode.AirDate) > today,
 		DurationMinutes: episode.DurationMinutes,
 		Description:     episode.Description,
 		ArchiveURL:      episode.ArchiveURL,
