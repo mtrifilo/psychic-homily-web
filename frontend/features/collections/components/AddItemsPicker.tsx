@@ -916,6 +916,11 @@ function StagedItemsList({
             onRemove={onRemove}
           />
         ) : (
+          // The `max-h-[420px]` here is the literal twin of
+          // STAGED_LIST_VIEWPORT_HEIGHT (the virtual viewport) — keep the two in
+          // sync so the render modes stay visually interchangeable across the
+          // threshold. (Tailwind's arbitrary-value syntax can't read the JS
+          // constant, hence the literal.)
           <div
             className={cn(
               'space-y-0.5',
