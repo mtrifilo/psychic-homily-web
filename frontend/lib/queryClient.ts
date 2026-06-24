@@ -198,6 +198,12 @@ export const queryKeys = {
     // the whole streamingWorklist branch.
     streamingWorklist: (params?: Record<string, unknown>) =>
       ['admin', 'streamingWorklist', params] as const,
+    // Bulk-backfill music-link suggestion review queue (PSY-1207). Limit /
+    // offset are part of the key so pagination produces independent cache
+    // entries; an accept/reject invalidates the whole linkSuggestions branch
+    // so every cached page refetches and the reviewed row drops out.
+    linkSuggestions: (params?: Record<string, unknown>) =>
+      ['admin', 'linkSuggestions', params] as const,
   },
 
   // Artist queries (defined in features/artists/api.ts)
