@@ -23,6 +23,33 @@ vi.mock('use-debounce', () => ({
   useDebounce: (value: unknown) => [value],
 }))
 
+// PSY-994: partial-mock @dnd-kit/core to capture the staged list's drag
+// callbacks. Everything stays real (the real DndContext is still rendered, so
+// useSortable's context provider is intact and the drag-handle tests below keep
+// working) — we only wrap DndContext to grab onDragStart/onDragEnd so a test
+// can fire them directly. jsdom can't drive a real keyboard/pointer drag, so
+// this is how we exercise the virtualize-when-idle ↔ full-render-while-dragging
+// switch that makes off-window reorder targets reachable.
+let capturedOnDragStart: (() => void) | undefined
+let capturedOnDragEnd: ((event: unknown) => void) | undefined
+vi.mock('@dnd-kit/core', async () => {
+  const actual =
+    await vi.importActual<typeof import('@dnd-kit/core')>('@dnd-kit/core')
+  return {
+    ...actual,
+    DndContext: (props: {
+      children: React.ReactNode
+      onDragStart?: () => void
+      onDragEnd?: (event: unknown) => void
+    }) => {
+      capturedOnDragStart = props.onDragStart
+      capturedOnDragEnd = props.onDragEnd
+      const Real = actual.DndContext
+      return <Real {...props} />
+    },
+  }
+})
+
 type MockedEntitySearchResult = {
   data: {
     artists: unknown[]
@@ -318,6 +345,8 @@ describe('parsePasteLine', () => {
 describe('AddItemsPicker', () => {
   beforeEach(() => {
     activeTabValue = 'search'
+    capturedOnDragStart = undefined
+    capturedOnDragEnd = undefined
     mockResolveMutate.mockClear()
     mockResolveSuccessHandler = null
     mockApiRequest.mockClear()
@@ -924,6 +953,101 @@ describe('AddItemsPicker', () => {
     expect(
       screen.queryByTestId('staged-row-drag-handle')
     ).not.toBeInTheDocument()
+  })
+
+  // ── PSY-994: staged-list virtualization (threshold + drag-fallback) ──
+  // The DOM-bounding behavior (only a WINDOW of rows mounts at rest) and the
+  // visual reorder are verified end-to-end in the real-browser manual repro —
+  // jsdom's 0-height scroll element + no-op ResizeObserver means
+  // @tanstack/react-virtual measures a zero viewport and renders an empty
+  // window. These unit tests pin the load-bearing invariants that DON'T need a
+  // real layout: the threshold switchover, that the virtual path is NOT
+  // rendering all rows, and that an active drag falls back to the full render
+  // so every sortable is mounted (off-window reorder targets reachable).
+
+  it('keeps the NON-virtual render at/below the threshold (30 items)', () => {
+    // 30 is the threshold; 30 > 30 is false, so the list stays fully mounted.
+    render(
+      <AddItemsPicker stagedItems={staged(30)} onStagedItemsChange={vi.fn()} />
+    )
+    const list = screen.getByTestId('add-items-picker-staged-list')
+    expect(list).not.toHaveAttribute('data-virtualized')
+    // Every row is in the DOM (the cheap, fully-mounted path the design was
+    // built against for the scroll-but-no-window band).
+    expect(screen.getAllByTestId('add-items-picker-staged-row')).toHaveLength(30)
+  })
+
+  it('virtualizes above the threshold (does NOT mount every row)', () => {
+    // 60 > 30 → the windowed render. The virtual viewport carries the
+    // data-virtualized marker, and (critically) it is NOT mounting all 60 rows
+    // — the unbounded-DOM regression this ticket fixes. In jsdom the window is
+    // empty (zero-height viewport), which still proves "not all rows": the
+    // real-browser repro confirms a non-empty window of ~12.
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
+    )
+    const list = screen.getByTestId('add-items-picker-staged-list')
+    expect(list).toHaveAttribute('data-virtualized', 'true')
+    expect(
+      screen.queryAllByTestId('add-items-picker-staged-row').length
+    ).toBeLessThan(60)
+  })
+
+  it('falls back to the FULL render during a drag so off-window targets are reachable', () => {
+    // The load-bearing a11y + dnd-kit coordination contract (Saboteur lens): a
+    // windowed list can't hit-test or keyboard-reorder to an off-window row.
+    // virtualize-when-idle flips to the full render on drag-start, mounting
+    // EVERY sortable, then back on drag-end. Without this, a keyboard reorder
+    // (or pointer auto-scroll drag) could never cross the window boundary.
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
+    )
+    // Idle: windowed (not all 60 rows mounted).
+    expect(
+      screen.getByTestId('add-items-picker-staged-list')
+    ).toHaveAttribute('data-virtualized', 'true')
+
+    // Drag-start → full render: data-virtualized gone, all 60 rows mounted.
+    act(() => {
+      capturedOnDragStart?.()
+    })
+    const dragList = screen.getByTestId('add-items-picker-staged-list')
+    expect(dragList).not.toHaveAttribute('data-virtualized')
+    expect(screen.getAllByTestId('add-items-picker-staged-row')).toHaveLength(60)
+
+    // Drag-end → back to the windowed render.
+    act(() => {
+      capturedOnDragEnd?.({ active: { id: 'artist-1' }, over: { id: 'artist-1' } })
+    })
+    expect(
+      screen.getByTestId('add-items-picker-staged-list')
+    ).toHaveAttribute('data-virtualized', 'true')
+  })
+
+  it('applies a reorder dragged across the window boundary (off-window target)', () => {
+    // Keyboard/pointer reorder to an off-window index resolves through the same
+    // pure reorder behind onDragEnd. Drive a drag-end that moves the first item
+    // PAST the visible window (index 0 → index 59) and assert the parent gets
+    // the fully reordered array — proving cross-window targets commit correctly.
+    const onStaged = vi.fn()
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={onStaged} />
+    )
+    act(() => {
+      capturedOnDragStart?.()
+    })
+    act(() => {
+      capturedOnDragEnd?.({
+        active: { id: 'artist-1' },
+        over: { id: 'artist-60' },
+      })
+    })
+    expect(onStaged).toHaveBeenCalledTimes(1)
+    const next = onStaged.mock.calls[0][0] as Array<{ entityId: number }>
+    expect(next).toHaveLength(60)
+    // artist-1 moved to the end; no item dropped or duplicated.
+    expect(next.at(-1)?.entityId).toBe(1)
+    expect(new Set(next.map((s) => s.entityId)).size).toBe(60)
   })
 })
 
