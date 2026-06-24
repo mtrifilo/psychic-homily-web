@@ -896,7 +896,19 @@ describe('AICollectionFiller', () => {
     expect(
       screen.getByTestId('ai-collection-filler-file-input')
     ).toBeInTheDocument()
-    // imageFile cleared → with no text, Extract stays disabled.
+
+    // imageFile cleared (not merely imagePreview): if imageFile were stranded
+    // non-null with imagePreview null, `imageReady` would stay false and
+    // Extract would never enable — even after typing text. Proving that typing
+    // text RE-ENABLES Extract pins imageFile === null, which a bare
+    // "Extract is disabled" assertion can't distinguish from the stranded case.
     expect(screen.getByTestId('ai-collection-filler-extract')).toBeDisabled()
+    await user.type(
+      screen.getByTestId('ai-collection-filler-textarea'),
+      'fallback text'
+    )
+    expect(
+      screen.getByTestId('ai-collection-filler-extract')
+    ).not.toBeDisabled()
   })
 })
