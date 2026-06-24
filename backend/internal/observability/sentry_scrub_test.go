@@ -41,8 +41,10 @@ func TestScrubSentryEvent_ScrubsRequest(t *testing.T) {
 			URL:         "https://psychichomily.com/verify?token=MAGICLINK",
 			QueryString: "token=MAGICLINK&next=/home",
 			Cookies:     "auth_token=eyJhbGciOi...; other=1",
-			// The sentryhttp middleware buffers the body into Data unconditionally
-			// (not gated by SendDefaultPII) — a login body would leak plaintext.
+			// Data is the captured request body (the sentryhttp middleware
+			// populates it unconditionally — see scrubRequest's doc; that SDK
+			// behavior is verified in source, not exercised by this test). This
+			// asserts only that the SCRUBBER blanks Data so a login body can't leak.
 			Data: `{"email":"a@b.com","password":"hunter2"}`,
 			Headers: map[string]string{
 				"Authorization": "Bearer eyJ...",
@@ -130,6 +132,44 @@ func TestScrubSentryEvent_RedactsURLUserinfoAndFreeTextSecrets(t *testing.T) {
 			mustNotContain: "ABC123XYZ",
 			mustContain:    "Authorization=" + redactionMarker,
 		},
+		{
+			// auth_token is THIS app's session-cookie name; \btoken\b does NOT
+			// fall inside it ('_' is a word char), so the key family must allow a
+			// leading [\w-]* segment. Regression for the adversarial round-3 gap.
+			name:           "underscore-prefixed auth_token",
+			in:             "upstream set cookie auth_token=eyJhbGci.payload.sig; HttpOnly",
+			mustNotContain: "eyJhbGci.payload.sig",
+			mustContain:    "auth_token=" + redactionMarker,
+		},
+		{
+			name:           "underscore-prefixed session_token",
+			in:             "session_token=SECRET123, retrying",
+			mustNotContain: "SECRET123",
+			mustContain:    "session_token=" + redactionMarker,
+		},
+		{
+			name:           "underscore-prefixed csrf_token",
+			in:             "csrf_token=ABCDEF mismatch",
+			mustNotContain: "ABCDEF",
+			mustContain:    "csrf_token=" + redactionMarker,
+		},
+		{
+			// A multi-word passphrase in a QUOTED value must redact in full, not
+			// just the first word (the value class stops at whitespace). Passwords
+			// here allow spaces (min 12 / max 128). Regression for round-3.
+			name:           "json passphrase password (multi-word)",
+			in:             `bad body {"password":"correct horse battery staple"}`,
+			mustNotContain: "battery staple",
+			mustContain:    "password=" + redactionMarker,
+		},
+		{
+			// A quoted value containing an ESCAPED quote must still redact past the
+			// escape — the value class spans \" so the spaced tail can't survive.
+			name:           "json password with escaped quote",
+			in:             `bad body {"password":"a \"b c d e"}`,
+			mustNotContain: "c d e",
+			mustContain:    "password=" + redactionMarker,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -149,6 +189,23 @@ func TestScrubSentryEvent_BearerWordBoundary(t *testing.T) {
 	// ...but a word merely ending in "bearer" must NOT eat the following word.
 	got = ScrubSentryEvent(&sentry.Event{Message: "the forbearer walked in"}, nil)
 	require.Equal(t, "the forbearer walked in", got.Message)
+}
+
+func TestScrubSentryEvent_RedactsExceptionValue(t *testing.T) {
+	// Redaction (not just capping) must run on Exception[].Value — a wrapped
+	// err.Error() carries its secret via the exception, not the message. The loop
+	// covers every link in a wrap chain (one Exception per Unwrap).
+	event := &sentry.Event{
+		Exception: []sentry.Exception{
+			{Value: "provider rejected api_key=live_sk_ABC123 (401)"},
+			{Value: "caused by Bearer eyJsecret.token"},
+		},
+	}
+	got := ScrubSentryEvent(event, nil)
+	require.NotContains(t, got.Exception[0].Value, "live_sk_ABC123")
+	require.Contains(t, got.Exception[0].Value, "api_key="+redactionMarker)
+	require.NotContains(t, got.Exception[1].Value, "eyJsecret.token")
+	require.Contains(t, got.Exception[1].Value, "Bearer "+redactionMarker)
 }
 
 func TestScrubSentryEvent_LeavesNormalEventIntact(t *testing.T) {

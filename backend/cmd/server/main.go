@@ -89,9 +89,12 @@ func main() {
 			// Explicit (it already defaults false): never attach cookies/headers/
 			// body as PII. PSY-1145.
 			SendDefaultPII: false,
-			// PSY-1145: single chokepoint that caps oversized values + strips
-			// secrets (token-bearing URLs, Bearer fragments, auth cookie/headers)
-			// from every captured event, so no CaptureException site leaks them.
+			// PSY-1145: best-effort secondary net that caps oversized values +
+			// strips common secret shapes (token-bearing URL userinfo/query,
+			// Bearer, key=value / JSON secrets, request body, auth cookie/headers)
+			// from every captured event. NOT a complete guarantee — path-segment
+			// secrets (e.g. the Discord webhook token) must still be redacted at
+			// the call site (utils.RedactErrorURL). See ScrubSentryEvent's doc.
 			BeforeSend: observability.ScrubSentryEvent,
 		}); err != nil {
 			log.Printf("Sentry initialization failed: %v", err)
