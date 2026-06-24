@@ -46,7 +46,10 @@ import type {
   ExtractedCollectionItem,
   MatchSuggestion,
 } from '@/lib/types/extraction'
-import type { StagedCollectionItem } from './AddItemsPicker'
+import type {
+  CollectionEntityType,
+  StagedCollectionItem,
+} from './AddItemsPicker'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
 const SUPPORTED_IMAGE_TYPES = [
@@ -237,8 +240,17 @@ export interface AICollectionFillerProps {
   /**
    * Predicate: is this entity already staged (or already in the
    * collection)? Used to render the "Added" chip per row.
+   *
+   * Accepts the full `CollectionEntityType` union (not just `'artist'`) so the
+   * type matches the parent's `isAlreadyStaged`, which already keys on every
+   * entity type. V1 extraction only ever passes `'artist'` (artists are the
+   * only matched type), but typing the contract to the wider domain avoids a
+   * lie-by-narrowing when release/label matching lands.
    */
-  alreadyStaged: (entityType: 'artist', entityId: number) => boolean
+  alreadyStaged: (
+    entityType: CollectionEntityType,
+    entityId: number
+  ) => boolean
 }
 
 export function AICollectionFiller({

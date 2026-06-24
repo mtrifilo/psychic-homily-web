@@ -148,6 +148,59 @@ describe('useCollectionExtraction', () => {
     )
   })
 
+  // A non-ok HTTP response (5xx) with a JSON error body must surface that
+  // body's `error` string — mirrors useShowExtraction's 500 case so the two
+  // sister hooks stay symmetric (PSY-857 coverage parity).
+  it('surfaces a non-ok HTTP response as the body error', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        { success: false, error: 'AI service is temporarily unavailable' },
+        false,
+        503
+      )
+    )
+
+    const { result } = renderHook(() => useCollectionExtraction(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ type: 'text', text: 'boom' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect((result.current.error as Error).message).toBe(
+      'AI service is temporarily unavailable'
+    )
+  })
+
+  // PSY-857 defensive parse: an upstream HTML 502 (gateway error page) makes
+  // response.json() reject. The hook must catch that and throw a friendly
+  // status-based message, NOT the opaque "Unexpected token '<'" SyntaxError.
+  it('throws a status-based message when the body is not JSON (HTML 502)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: () => Promise.reject(new SyntaxError("Unexpected token '<'")),
+      headers: new Headers(),
+    } as unknown as Response)
+
+    const { result } = renderHook(() => useCollectionExtraction(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ type: 'text', text: 'gateway down' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect((result.current.error as Error).message).toBe(
+      'AI service error (HTTP 502)'
+    )
+  })
+
   // PSY-855: a 429 rate-limit response carries a human-readable retry hint in
   // `error` ("Rate limit exceeded. Try again in N minutes."). The hook must
   // surface that exact message so the AICollectionFiller error banner shows it.
