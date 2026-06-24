@@ -21,11 +21,30 @@ async function extractShowInfo(
     body: JSON.stringify(request),
   })
 
-  const data: ExtractShowResponse = await response.json()
+  // Parse defensively: read the JSON body BEFORE checking response.ok, but
+  // tolerate a non-JSON body. An upstream HTML 502 (Vercel/gateway error page)
+  // would otherwise make response.json() reject with a SyntaxError, which the
+  // caller surfaces as the opaque "Unexpected token '<'" instead of a friendly
+  // message. PSY-855's 429 path keeps working — it returns valid JSON whose
+  // `error` string is preserved by the throw below.
+  let data: ExtractShowResponse | null = null
+  try {
+    data = (await response.json()) as ExtractShowResponse
+  } catch {
+    data = null
+  }
 
-  // If the response indicates an error, throw to trigger mutation error state
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'Failed to extract show information')
+  // If the response indicates an error, throw to trigger mutation error state.
+  // Prefer the server's `error` string (PSY-855 rate-limit hint, AI parse
+  // failures). Fall back to the HTTP status only when the body was unusable
+  // (HTML error page) — otherwise the domain-specific generic message.
+  if (!response.ok || !data?.success) {
+    throw new Error(
+      data?.error ??
+        (data
+          ? 'Failed to extract show information'
+          : `AI service error (HTTP ${response.status})`)
+    )
   }
 
   return data

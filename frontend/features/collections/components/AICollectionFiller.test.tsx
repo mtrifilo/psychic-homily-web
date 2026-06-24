@@ -1,12 +1,94 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { AICollectionFiller } from './AICollectionFiller'
 import type { AICollectionFillerProps } from './AICollectionFiller'
-import type { ExtractedCollectionData } from '@/lib/types/extraction'
+import type {
+  ExtractCollectionRequest,
+  ExtractedCollectionData,
+} from '@/lib/types/extraction'
+
+// jsdom does not fire image load events on `src` assignment, and its canvas
+// has no 2d context — both of which compressImage() depends on. These stubs
+// drive the happy path (onload → real getContext → toDataURL produces the
+// compressed JPEG preview) so the image-extract request shape can be asserted.
+// The decode-failure path overrides Image with one that fires `onerror`.
+const COMPRESSED_JPEG_DATA_URL =
+  'data:image/jpeg;base64,Y29tcHJlc3NlZA==' // "compressed"
+
+class MockImageOnLoad {
+  onload: (() => void) | null = null
+  onerror: ((e: unknown) => void) | null = null
+  width = 800
+  height = 600
+  private _src = ''
+  set src(value: string) {
+    this._src = value
+    queueMicrotask(() => this.onload?.())
+  }
+  get src() {
+    return this._src
+  }
+}
+
+class MockImageOnError {
+  onload: (() => void) | null = null
+  onerror: ((e: unknown) => void) | null = null
+  width = 800
+  height = 600
+  private _src = ''
+  set src(value: string) {
+    this._src = value
+    queueMicrotask(() => this.onerror?.(new Error('decode failed')))
+  }
+  get src() {
+    return this._src
+  }
+}
+
+/**
+ * Stub canvas so compressImage() resolves to a known JPEG data URL. jsdom's
+ * getContext returns null (compressImage rejects on that), so without this the
+ * happy image path would never produce a preview.
+ */
+function stubCanvasCompression() {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    // compressImage() calls ctx.drawImage before reading toDataURL — a bare {}
+    // ctx makes it throw "drawImage is not a function".
+    drawImage: vi.fn(),
+  } as unknown as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+    COMPRESSED_JPEG_DATA_URL
+  )
+}
+
+/** Upload a file via the hidden file input, returning once handled. */
+async function uploadFile(
+  user: ReturnType<typeof userEvent.setup>,
+  file: File
+) {
+  const input = screen.getByTestId(
+    'ai-collection-filler-file-input'
+  ) as HTMLInputElement
+  await user.upload(input, file)
+}
+
+/**
+ * Set a file on the input via fireEvent — bypasses userEvent's
+ * accept-attribute filter, which silently refuses files whose type isn't in
+ * the input's `accept` list. The component's own MIME guard (and the
+ * drag-drop path in production) handle unsupported types regardless of
+ * `accept`, so this drives that guard directly.
+ */
+function changeFile(file: File) {
+  const input = screen.getByTestId(
+    'ai-collection-filler-file-input'
+  ) as HTMLInputElement
+  fireEvent.change(input, { target: { files: [file] } })
+}
 
 // ──────────────────────────────────────────────
 // Mocks
@@ -667,5 +749,154 @@ describe('AICollectionFiller', () => {
     expect(
       screen.queryByTestId('ai-collection-filler-row-request')
     ).not.toBeInTheDocument()
+  })
+
+  // ────────────────────────────────────────────────────────────
+  // PSY-857: image-only + image+text extract modes (request `type`)
+  //
+  // handleExtract branches on hasText/hasImage to set type='text'|'image'|
+  // 'both' and to attach image_data/text. The V1 suite only covered the
+  // 'text' branch (it never uploaded a file); these assert the image branches
+  // send the right request body via the mocked hook's captured `mutate` arg.
+  // ────────────────────────────────────────────────────────────
+
+  /** Last request body the component passed to the (mocked) extraction hook. */
+  function lastExtractRequest(): ExtractCollectionRequest {
+    return mockExtractCalls.at(-1) as ExtractCollectionRequest
+  }
+
+  it('image-only upload extracts with type "image" and the base64 image_data', async () => {
+    stubCanvasCompression()
+    vi.stubGlobal('Image', MockImageOnLoad)
+    const user = userEvent.setup()
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+
+    const file = new File([new Uint8Array([1, 2, 3, 4])], 'list.jpg', {
+      type: 'image/jpeg',
+    })
+    await uploadFile(user, file)
+
+    // Wait for compressImage to resolve → preview visible → Extract enabled.
+    await waitFor(() =>
+      expect(
+        screen.getByAltText('Uploaded article screenshot')
+      ).toBeInTheDocument()
+    )
+    await user.click(screen.getByTestId('ai-collection-filler-extract'))
+
+    const req = lastExtractRequest()
+    expect(req.type).toBe('image')
+    // image_data is the base64 payload AFTER the "data:image/jpeg;base64,"
+    // prefix is stripped (the component splits on ',').
+    expect(req.image_data).toBe(COMPRESSED_JPEG_DATA_URL.split(',')[1])
+    expect(req.media_type).toBe('image/jpeg')
+    // type 'image' carries no text.
+    expect(req.text).toBeUndefined()
+  })
+
+  it('image + text upload extracts with type "both" carrying text AND image_data', async () => {
+    stubCanvasCompression()
+    vi.stubGlobal('Image', MockImageOnLoad)
+    const user = userEvent.setup()
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+
+    const file = new File([new Uint8Array([5, 6, 7, 8])], 'list.png', {
+      type: 'image/png',
+    })
+    await uploadFile(user, file)
+    await waitFor(() =>
+      expect(
+        screen.getByAltText('Uploaded article screenshot')
+      ).toBeInTheDocument()
+    )
+
+    // Add context text alongside the image → 'both'.
+    await user.type(
+      screen.getByTestId('ai-collection-filler-textarea'),
+      'Pitchfork best of 2010s'
+    )
+    await user.click(screen.getByTestId('ai-collection-filler-extract'))
+
+    const req = lastExtractRequest()
+    expect(req.type).toBe('both')
+    expect(req.text).toBe('Pitchfork best of 2010s')
+    expect(req.image_data).toBe(COMPRESSED_JPEG_DATA_URL.split(',')[1])
+    // media_type is always image/jpeg — compressImage re-encodes to JPEG.
+    expect(req.media_type).toBe('image/jpeg')
+  })
+
+  // ────────────────────────────────────────────────────────────
+  // PSY-857: image-input error paths (size / unsupported type / decode fail)
+  // ────────────────────────────────────────────────────────────
+
+  it('rejects an oversized image with the 10MB size error', async () => {
+    const user = userEvent.setup()
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+
+    // 11MB > MAX_IMAGE_SIZE (10MB). A real Uint8Array that large is slow to
+    // allocate in jsdom; spoof `size` via Object.defineProperty instead.
+    const file = new File([new Uint8Array([1])], 'huge.jpg', {
+      type: 'image/jpeg',
+    })
+    Object.defineProperty(file, 'size', { value: 11 * 1024 * 1024 })
+    await uploadFile(user, file)
+
+    const banner = await screen.findByTestId(
+      'ai-collection-filler-image-error'
+    )
+    expect(banner).toHaveTextContent(/too large/i)
+    expect(banner).toHaveTextContent(/10MB/i)
+    // No preview rendered for a rejected file.
+    expect(
+      screen.queryByAltText('Uploaded article screenshot')
+    ).not.toBeInTheDocument()
+  })
+
+  it('rejects an unsupported MIME type with the supported-types error', async () => {
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+
+    const file = new File([new Uint8Array([1, 2])], 'doc.pdf', {
+      type: 'application/pdf',
+    })
+    changeFile(file)
+
+    const banner = await screen.findByTestId(
+      'ai-collection-filler-image-error'
+    )
+    expect(banner).toHaveTextContent(/unsupported image type/i)
+    // Copy lists the accepted types.
+    expect(banner).toHaveTextContent(/JPEG, PNG, GIF, WebP, or HEIC/i)
+    expect(
+      screen.queryByAltText('Uploaded article screenshot')
+    ).not.toBeInTheDocument()
+  })
+
+  it('clears the file + preview and shows an error when image decode fails', async () => {
+    // Image fires onerror → compressImage rejects → component sets imageError
+    // and clears BOTH imageFile and imagePreview so the dropzone returns.
+    vi.stubGlobal('Image', MockImageOnError)
+    const user = userEvent.setup()
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+
+    const file = new File([new Uint8Array([1, 2, 3, 4])], 'broken.heic', {
+      type: 'image/heic',
+    })
+    await uploadFile(user, file)
+
+    const banner = await screen.findByTestId(
+      'ai-collection-filler-image-error'
+    )
+    // compressImage's onerror reject message mentions HEIC/iOS Safari guidance.
+    expect(banner).toHaveTextContent(/failed to decode image/i)
+
+    // imagePreview cleared → the dropzone (file input) is back, no preview img.
+    expect(
+      screen.queryByAltText('Uploaded article screenshot')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByTestId('ai-collection-filler-file-input')
+    ).toBeInTheDocument()
+    // imageFile cleared → with no text, Extract stays disabled.
+    expect(screen.getByTestId('ai-collection-filler-extract')).toBeDisabled()
   })
 })
