@@ -24,6 +24,7 @@ import (
 	"psychic-homily-backend/internal/auth"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
@@ -85,6 +86,13 @@ func main() {
 			Debug:            !isProduction,
 			TracesSampleRate: 0.1, // Sample 10% of transactions for performance monitoring
 			EnableTracing:    true,
+			// Explicit (it already defaults false): never attach cookies/headers/
+			// body as PII. PSY-1145.
+			SendDefaultPII: false,
+			// PSY-1145: single chokepoint that caps oversized values + strips
+			// secrets (token-bearing URLs, Bearer fragments, auth cookie/headers)
+			// from every captured event, so no CaptureException site leaks them.
+			BeforeSend: observability.ScrubSentryEvent,
 		}); err != nil {
 			log.Printf("Sentry initialization failed: %v", err)
 		} else {
