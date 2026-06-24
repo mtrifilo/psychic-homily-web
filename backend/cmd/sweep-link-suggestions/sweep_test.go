@@ -1,0 +1,354 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"gorm.io/gorm"
+
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/testutil"
+)
+
+// fakeDiscoverer returns a fixed candidate set per artist id (and an optional
+// error), so RunSweep is exercised end-to-end against a real DB WITHOUT any
+// MusicBrainz network I/O. The real DiscoverMusicService is the production
+// discoverer; this fake stands in for it so the sweep's loop/filter/upsert logic
+// is what's under test.
+type fakeDiscoverer struct {
+	byArtist map[uint][]contracts.MusicLinkCandidate
+	errFor   map[uint]error
+	calls    []uint // ordered record of artist ids passed in
+	// onCall, when set, is invoked at the START of each DiscoverMusic with the
+	// artist id — used to simulate a SIGINT landing mid-sweep by cancelling the
+	// context after the first artist is reached.
+	onCall func(artistID uint)
+}
+
+func (f *fakeDiscoverer) DiscoverMusic(_ context.Context, artistID uint, _ string) (*contracts.DiscoverMusicResult, error) {
+	f.calls = append(f.calls, artistID)
+	if f.onCall != nil {
+		f.onCall(artistID)
+	}
+	if err := f.errFor[artistID]; err != nil {
+		return nil, err
+	}
+	return &contracts.DiscoverMusicResult{
+		ArtistID:   artistID,
+		Candidates: f.byArtist[artistID],
+	}, nil
+}
+
+func cand(platform, url, confidence string) contracts.MusicLinkCandidate {
+	return contracts.MusicLinkCandidate{
+		Platform: platform,
+		URL:      url,
+		// "musicbrainz" is the ONLY value the source CHECK constraint allows, and
+		// the production DiscoverMusic always sets exactly this — mirror it so the
+		// insert exercises the real ON CONFLICT path, not a constraint rejection.
+		Source:       catalogm.LinkSuggestionSourceMusicBrainz,
+		MBArtistID:   "mbid-" + url,
+		MBArtistName: "MB " + platform,
+		Confidence:   confidence,
+		RegionMatch:  confidence == contracts.MusicConfidenceHigh,
+		Live:         true,
+		Notes:        "note",
+	}
+}
+
+type SweepIntegrationTestSuite struct {
+	suite.Suite
+	testDB *testutil.TestDatabase
+	db     *gorm.DB
+	// store is the REAL suggestion-store service — the sweep upserts through it,
+	// so these tests exercise the production UpsertSuggestions ON CONFLICT path
+	// against a real Postgres, not a fake.
+	store *pipeline.LinkSuggestionService
+}
+
+func (s *SweepIntegrationTestSuite) SetupSuite() {
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
+	s.store = pipeline.NewLinkSuggestionService(s.db, catalog.NewArtistService(s.db))
+}
+
+func (s *SweepIntegrationTestSuite) TearDownSuite() {
+	s.testDB.Cleanup()
+}
+
+func (s *SweepIntegrationTestSuite) TearDownTest() {
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM artist_link_suggestions")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
+}
+
+func TestSweepIntegrationTestSuite(t *testing.T) {
+	suite.Run(t, new(SweepIntegrationTestSuite))
+}
+
+// seedArtist inserts an artist with the given name and optional bandcamp embed /
+// spotify link, returning its id. A nil pointer leaves the column NULL.
+func (s *SweepIntegrationTestSuite) seedArtist(name string, bandcampEmbed, spotify *string) uint {
+	a := catalogm.Artist{Name: name, BandcampEmbedURL: bandcampEmbed}
+	a.Social.Spotify = spotify
+	require.NoError(s.T(), s.db.Create(&a).Error)
+	return a.ID
+}
+
+func (s *SweepIntegrationTestSuite) countSuggestions(artistID uint) int64 {
+	var n int64
+	require.NoError(s.T(), s.db.Model(&catalogm.ArtistLinkSuggestion{}).
+		Where("artist_id = ?", artistID).Count(&n).Error)
+	return n
+}
+
+// TestTargetFilter_OnlyLinkless asserts only artists with BOTH columns NULL are
+// swept — an artist with a bandcamp embed OR a spotify link is excluded.
+func (s *SweepIntegrationTestSuite) TestTargetFilter_OnlyLinkless() {
+	embed := "https://x.bandcamp.com/album/y"
+	spot := "https://open.spotify.com/artist/z"
+	linkless := s.seedArtist("Linkless Band", nil, nil)
+	hasEmbed := s.seedArtist("Has Embed", &embed, nil)
+	hasSpotify := s.seedArtist("Has Spotify", nil, &spot)
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		linkless:   {cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh)},
+		hasEmbed:   {cand(contracts.MusicPlatformSpotify, "https://open.spotify.com/artist/q", contracts.MusicConfidenceReview)},
+		hasSpotify: {cand(contracts.MusicPlatformSpotify, "https://open.spotify.com/artist/r", contracts.MusicConfidenceReview)},
+	}}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* dry-run */)
+	require.NoError(s.T(), err)
+
+	// Only the link-less artist is scanned at all.
+	require.Equal(s.T(), 1, report.ArtistsScanned)
+	require.Equal(s.T(), []uint{linkless}, disc.calls)
+}
+
+// TestDryRun_NoWrites asserts dry-run reports the planned count but writes nothing.
+func (s *SweepIntegrationTestSuite) TestDryRun_NoWrites() {
+	id := s.seedArtist("Band", nil, nil)
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		id: {
+			cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh),
+			cand(contracts.MusicPlatformSpotify, "https://open.spotify.com/artist/q", contracts.MusicConfidenceReview),
+		},
+	}}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, true /* dry-run */)
+	require.NoError(s.T(), err)
+
+	require.Equal(s.T(), 1, report.ArtistsScanned)
+	require.Equal(s.T(), 1, report.ArtistsWithCandidates)
+	require.Equal(s.T(), 2, report.SuggestionsFound)
+	require.Equal(s.T(), 0, report.SuggestionsWritten)
+	require.Zero(s.T(), s.countSuggestions(id), "dry-run must not write")
+}
+
+// TestConfirm_UpsertsPending asserts --confirm writes pending rows with the
+// candidate fields mapped through.
+func (s *SweepIntegrationTestSuite) TestConfirm_UpsertsPending() {
+	id := s.seedArtist("Band", nil, nil)
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		id: {
+			cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh),
+			cand(contracts.MusicPlatformSpotify, "https://open.spotify.com/artist/q", contracts.MusicConfidenceReview),
+		},
+	}}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* confirm */)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 2, report.SuggestionsFound)
+	require.Equal(s.T(), 2, report.SuggestionsWritten)
+
+	var rows []catalogm.ArtistLinkSuggestion
+	require.NoError(s.T(), s.db.Where("artist_id = ?", id).Order("platform").Find(&rows).Error)
+	require.Len(s.T(), rows, 2)
+	require.Equal(s.T(), catalogm.LinkSuggestionStatusPending, rows[0].Status)
+	require.Equal(s.T(), contracts.MusicPlatformBandcamp, rows[0].Platform)
+	require.Equal(s.T(), contracts.MusicConfidenceHigh, rows[0].Confidence)
+	require.True(s.T(), rows[0].RegionMatch)
+	require.True(s.T(), rows[0].Live)
+	require.NotNil(s.T(), rows[0].MBArtistID)
+}
+
+// TestIdempotent_RerunWritesZero asserts a second confirm run inserts nothing new
+// (ON CONFLICT DO NOTHING) — the resumability guarantee.
+func (s *SweepIntegrationTestSuite) TestIdempotent_RerunWritesZero() {
+	id := s.seedArtist("Band", nil, nil)
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		id: {cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh)},
+	}}
+
+	r1, err := RunSweep(context.Background(), s.db, disc, s.store, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 1, r1.SuggestionsWritten)
+	require.Equal(s.T(), 0, r1.SuggestionsSkipped, "first run: nothing pre-existed")
+
+	r2, err := RunSweep(context.Background(), s.db, disc, s.store, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 1, r2.SuggestionsFound, "re-discovers the same candidate")
+	require.Equal(s.T(), 0, r2.SuggestionsWritten, "but writes nothing — idempotent")
+	require.Equal(s.T(), 1, r2.SuggestionsSkipped, "the one re-discovered candidate is reported skipped")
+	require.EqualValues(s.T(), 1, s.countSuggestions(id), "still exactly one row")
+}
+
+// TestNoResurrect_ReviewedRowUntouched is the critical safety property: a row a
+// human already ACCEPTED or REJECTED must NEVER be flipped back to pending by a
+// re-sweep that re-discovers the same (artist, platform, url).
+func (s *SweepIntegrationTestSuite) TestNoResurrect_ReviewedRowUntouched() {
+	id := s.seedArtist("Band", nil, nil)
+	url := "https://a.bandcamp.com"
+
+	// Simulate a prior sweep + human review: insert a rejected row for this exact key.
+	rejected := catalogm.ArtistLinkSuggestion{
+		ArtistID:   id,
+		Platform:   contracts.MusicPlatformBandcamp,
+		URL:        url,
+		Source:     catalogm.LinkSuggestionSourceMusicBrainz,
+		Confidence: contracts.MusicConfidenceHigh,
+		Status:     catalogm.LinkSuggestionStatusRejected,
+	}
+	require.NoError(s.T(), s.db.Create(&rejected).Error)
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		id: {cand(contracts.MusicPlatformBandcamp, url, contracts.MusicConfidenceHigh)},
+	}}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* confirm */)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 0, report.SuggestionsWritten, "the rejected row's key conflicts → DO NOTHING")
+
+	var row catalogm.ArtistLinkSuggestion
+	require.NoError(s.T(), s.db.Where("artist_id = ? AND platform = ? AND url = ?",
+		id, contracts.MusicPlatformBandcamp, url).First(&row).Error)
+	require.Equal(s.T(), catalogm.LinkSuggestionStatusRejected, row.Status,
+		"reviewed status must survive the sweep — never resurrected to pending")
+	require.EqualValues(s.T(), 1, s.countSuggestions(id), "no duplicate row inserted")
+}
+
+// TestPerArtistErrorNonFatal asserts one artist's discovery failure is recorded
+// but does not abort the sweep — the next artist is still processed.
+func (s *SweepIntegrationTestSuite) TestPerArtistErrorNonFatal() {
+	bad := s.seedArtist("AAA Bad", nil, nil)
+	good := s.seedArtist("ZZZ Good", nil, nil)
+
+	disc := &fakeDiscoverer{
+		byArtist: map[uint][]contracts.MusicLinkCandidate{
+			good: {cand(contracts.MusicPlatformBandcamp, "https://g.bandcamp.com", contracts.MusicConfidenceHigh)},
+		},
+		errFor: map[uint]error{bad: errors.New("mb boom")},
+	}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 2, report.ArtistsScanned)
+	require.Len(s.T(), report.Errors, 1)
+	require.Equal(s.T(), 1, report.SuggestionsWritten, "the good artist still got written")
+	require.EqualValues(s.T(), 1, s.countSuggestions(good))
+	require.EqualValues(s.T(), 0, s.countSuggestions(bad))
+}
+
+// TestUpsertErrorDoesNotInflateSkipped is the regression for the code-review
+// finding: a failed upsert's candidates must count toward NEITHER Written nor
+// Skipped (they were never present and never conflict-skipped — they errored).
+// We force a real DB error by feeding a candidate whose confidence violates the
+// column's CHECK constraint (the production service never emits this; this is a
+// defense-in-depth path), so the artist's upsert returns an error.
+func (s *SweepIntegrationTestSuite) TestUpsertErrorDoesNotInflateSkipped() {
+	bad := s.seedArtist("Bad Confidence", nil, nil)
+	good := s.seedArtist("Good Band", nil, nil)
+
+	badCand := cand(contracts.MusicPlatformBandcamp, "https://bad.bandcamp.com", contracts.MusicConfidenceHigh)
+	badCand.Confidence = "bogus" // violates CHECK (confidence IN ('high','review'))
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		bad:  {badCand},
+		good: {cand(contracts.MusicPlatformBandcamp, "https://good.bandcamp.com", contracts.MusicConfidenceReview)},
+	}}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* confirm */)
+	require.NoError(s.T(), err)
+	require.Len(s.T(), report.Errors, 1, "the bad artist's upsert errored")
+	require.Equal(s.T(), 2, report.SuggestionsFound, "both artists' candidates counted as found")
+	require.Equal(s.T(), 1, report.SuggestionsWritten, "only the good artist wrote")
+	require.Equal(s.T(), 0, report.SuggestionsSkipped,
+		"the failed candidate must NOT be mislabeled as already-present")
+	require.EqualValues(s.T(), 0, s.countSuggestions(bad), "nothing written for the bad artist")
+	require.EqualValues(s.T(), 1, s.countSuggestions(good))
+}
+
+// TestSequentialOrder asserts artists are processed in id order, one at a time —
+// a structural check that there is no parallel fan-out reordering calls.
+func (s *SweepIntegrationTestSuite) TestSequentialOrder() {
+	a := s.seedArtist("Artist A", nil, nil)
+	b := s.seedArtist("Artist B", nil, nil)
+	c := s.seedArtist("Artist C", nil, nil)
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{}}
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, true)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), []uint{a, b, c}, disc.calls, "sequential, id-ordered")
+	// All three artists returned zero candidates → the no-candidates counter.
+	require.Equal(s.T(), 3, report.ArtistsScanned)
+	require.Equal(s.T(), 3, report.ArtistsNoCandidates)
+	require.Equal(s.T(), 0, report.ArtistsWithCandidates)
+}
+
+// TestContextCancelStopsSweep asserts a SIGINT mid-sweep (modelled by cancelling
+// the context while processing the first artist) stops the loop cleanly: the
+// remaining artists are NOT processed, a cancellation error is recorded, and the
+// in-flight artist's candidates are NOT written (the post-discovery ctx re-check).
+func (s *SweepIntegrationTestSuite) TestContextCancelStopsSweep() {
+	a := s.seedArtist("Artist A", nil, nil)
+	b := s.seedArtist("Artist B", nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	disc := &fakeDiscoverer{
+		byArtist: map[uint][]contracts.MusicLinkCandidate{
+			a: {cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh)},
+			b: {cand(contracts.MusicPlatformBandcamp, "https://b.bandcamp.com", contracts.MusicConfidenceHigh)},
+		},
+		// Cancel as soon as the first artist is reached, modelling a signal landing
+		// DURING that artist's discovery.
+		onCall: func(uint) { cancel() },
+	}
+
+	report, err := RunSweep(ctx, s.db, disc, s.store, false /* confirm */)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), []uint{a}, disc.calls, "stopped after the first artist; B never discovered")
+	require.Equal(s.T(), 1, report.ArtistsScanned)
+	require.Len(s.T(), report.Errors, 1, "a cancellation error is recorded")
+	require.Contains(s.T(), report.Errors[0], "cancelled")
+	require.Equal(s.T(), 0, report.SuggestionsWritten, "the in-flight artist's partial set is NOT written")
+	require.EqualValues(s.T(), 0, s.countSuggestions(a), "nothing committed on a cancelled sweep")
+	require.EqualValues(s.T(), 0, s.countSuggestions(b))
+}
+
+// TestQueryErrorReturnsError asserts the one path where RunSweep returns a
+// non-nil error — the target query failing — surfaces (rather than silently
+// sweeping nothing). We drop the artists table so the SELECT errors.
+func (s *SweepIntegrationTestSuite) TestQueryErrorReturnsError() {
+	sqlDB, err := s.db.DB()
+	require.NoError(s.T(), err)
+	_, err = sqlDB.Exec("ALTER TABLE artists RENAME TO artists_renamed_for_test")
+	require.NoError(s.T(), err)
+	// Restore so TearDownTest's DELETEs and later tests still work.
+	defer func() {
+		_, _ = sqlDB.Exec("ALTER TABLE artists_renamed_for_test RENAME TO artists")
+	}()
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{}}
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, true)
+	require.Error(s.T(), err, "a failed target query must surface as an error")
+	require.Contains(s.T(), err.Error(), "query link-less artists")
+	require.Nil(s.T(), report)
+	require.Empty(s.T(), disc.calls, "no artist is processed when the query fails")
+}

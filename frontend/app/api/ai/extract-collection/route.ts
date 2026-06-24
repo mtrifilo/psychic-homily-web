@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
 import * as Sentry from '@sentry/nextjs'
+import pLimit from 'p-limit'
 import type {
   ExtractCollectionRequest,
   ExtractCollectionResponse,
@@ -31,6 +32,25 @@ import { getAuthenticatedUser } from '@/lib/auth-profile'
 import { enforceThrottle } from '@/lib/ai-extraction-throttle'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
+
+/**
+ * Defense-in-depth for the Anthropic call. A 250-item canon list runs the
+ * Haiku extraction (~6k output tokens) plus the bounded-parallel match pass;
+ * the platform default (10s on the Vercel Hobby/Pro Node runtime) can clip the
+ * extraction itself and 504 away the already-paid-for Anthropic result. 60s
+ * leaves headroom without inviting runaway executions. (PSY-856.)
+ */
+export const maxDuration = 60
+
+/**
+ * Bounded concurrency for the per-row artist match pass. `matchItems` fans out
+ * one `/artists/search` round-trip per extracted row (up to
+ * MAX_ITEMS_PER_EXTRACTION = 250). A raw `Promise.all` over 250 rows would open
+ * 250 simultaneous backend connections and can exhaust the connection pool; a
+ * cap of 20 keeps the fan-out bounded while still collapsing the sequential
+ * 200×(50-150ms) ≈ 10-30s wall-clock into ~N/20 batches. (PSY-856.)
+ */
+const MATCH_CONCURRENCY = 20
 
 /** Max payload sizes — mirror extract-show's gates so the surfaces stay aligned. */
 const MAX_TEXT_LENGTH = 30000 // canon-list articles run longer than show flyers
@@ -88,59 +108,79 @@ async function searchArtist(name: string): Promise<ArtistSearchResult | null> {
 }
 
 /**
- * Match extracted items against the artists table. Sequential (not parallel)
- * so we don't fan out N=250 simultaneous backend requests at the upper end of
- * the cap. Backend search is cheap (~10ms) so the total is bounded at
- * canon-list scale (~2.5s at 250 items). If we ever hit 1000+ items, batch
- * the search calls via a new endpoint instead of parallelizing N HTTP fetches.
+ * Match a single extracted row against the artists table. Returns the built
+ * item, or null when the row has no usable artist name (skipped upstream so the
+ * result array stays free of empty rows). One `/artists/search` round-trip.
+ */
+async function matchSingleItem(raw: {
+  artist_name?: string
+  release_title?: string
+}): Promise<ExtractedCollectionItem | null> {
+  const artistName = typeof raw.artist_name === 'string' ? raw.artist_name.trim() : ''
+  if (!artistName) return null
+
+  const item: ExtractedCollectionItem = {
+    artist_name: artistName,
+    release_title:
+      typeof raw.release_title === 'string' && raw.release_title.trim().length > 0
+        ? raw.release_title.trim()
+        : undefined,
+  }
+
+  const searchResult = await searchArtist(artistName)
+  if (searchResult && Array.isArray(searchResult.artists) && searchResult.artists.length > 0) {
+    // Same-name-band collision guard (`feedback_human_verify_ai_entity_data.md`):
+    // canon-list articles produce names like "Boris" that match multiple
+    // distinct PH artists (Japanese drone band vs American hardcore band).
+    // If MULTIPLE candidates exact-match (case-insensitive), don't
+    // auto-pick — surface as Pick suggestions so the user verifies. Only
+    // auto-match when there's exactly one candidate with the name.
+    const exactMatches = searchResult.artists.filter(
+      a => a.name.toLowerCase() === artistName.toLowerCase()
+    )
+    if (exactMatches.length === 1) {
+      item.matched_artist_id = exactMatches[0].id
+      item.matched_artist_name = exactMatches[0].name
+      item.matched_artist_slug = exactMatches[0].slug
+    } else {
+      item.artist_suggestions = searchResult.artists.slice(0, 3).map(
+        (a): MatchSuggestion => ({
+          id: a.id,
+          name: a.name,
+          slug: a.slug,
+        })
+      )
+    }
+  }
+
+  return item
+}
+
+/**
+ * Match extracted items against the artists table with BOUNDED concurrency
+ * (PSY-856). Each row issues one `/artists/search` round-trip; at canon-list
+ * scale (200+ rows) the previous sequential loop ran 200×(50-150ms) ≈ 10-30s in
+ * prod and risked a Vercel function timeout (504) that discards the already-paid
+ * Anthropic result. We run the per-row matches through a `p-limit(20)` semaphore
+ * so at most MATCH_CONCURRENCY searches are in flight at once — fast enough to
+ * stay well under the timeout, bounded enough not to exhaust the backend
+ * connection pool.
+ *
+ * `searchArtist` swallows its own errors (returns null), so a single row's
+ * failed search degrades to "no match" rather than rejecting the batch; the
+ * mapped promises therefore don't reject. Order is preserved: `Promise.all`
+ * resolves in input order regardless of completion order, and we filter the
+ * name-less rows (null) out afterward — keeping the result index-aligned with
+ * the input minus skips, identical to the old sequential `continue`.
  */
 async function matchItems(
   rawItems: Array<{ artist_name?: string; release_title?: string }>
 ): Promise<ExtractedCollectionItem[]> {
-  const matched: ExtractedCollectionItem[] = []
-
-  for (const raw of rawItems) {
-    const artistName = typeof raw.artist_name === 'string' ? raw.artist_name.trim() : ''
-    if (!artistName) continue
-
-    const item: ExtractedCollectionItem = {
-      artist_name: artistName,
-      release_title:
-        typeof raw.release_title === 'string' && raw.release_title.trim().length > 0
-          ? raw.release_title.trim()
-          : undefined,
-    }
-
-    const searchResult = await searchArtist(artistName)
-    if (searchResult && Array.isArray(searchResult.artists) && searchResult.artists.length > 0) {
-      // Same-name-band collision guard (`feedback_human_verify_ai_entity_data.md`):
-      // canon-list articles produce names like "Boris" that match multiple
-      // distinct PH artists (Japanese drone band vs American hardcore band).
-      // If MULTIPLE candidates exact-match (case-insensitive), don't
-      // auto-pick — surface as Pick suggestions so the user verifies. Only
-      // auto-match when there's exactly one candidate with the name.
-      const exactMatches = searchResult.artists.filter(
-        a => a.name.toLowerCase() === artistName.toLowerCase()
-      )
-      if (exactMatches.length === 1) {
-        item.matched_artist_id = exactMatches[0].id
-        item.matched_artist_name = exactMatches[0].name
-        item.matched_artist_slug = exactMatches[0].slug
-      } else {
-        item.artist_suggestions = searchResult.artists.slice(0, 3).map(
-          (a): MatchSuggestion => ({
-            id: a.id,
-            name: a.name,
-            slug: a.slug,
-          })
-        )
-      }
-    }
-
-    matched.push(item)
-  }
-
-  return matched
+  const limit = pLimit(MATCH_CONCURRENCY)
+  const results = await Promise.all(
+    rawItems.map(raw => limit(() => matchSingleItem(raw)))
+  )
+  return results.filter((item): item is ExtractedCollectionItem => item !== null)
 }
 
 function parseExtractionResponse(text: string): Record<string, unknown> | null {

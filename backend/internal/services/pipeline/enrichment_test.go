@@ -53,6 +53,113 @@ func TestMusicBrainzClient_NewClient(t *testing.T) {
 	assert.Equal(t, mbMinScore, client.minScore)
 }
 
+// TestMusicBrainzClient_SharedAcrossServices is the PSY-1208 repro: when the
+// SAME *MusicBrainzClient is injected into both DiscoverMusicService and
+// EnrichmentService, both services hold pointer-identical instances, so a single
+// mutex-serialized throttle covers ALL MusicBrainz calls in the process. Before
+// PSY-1208 each constructor called NewMusicBrainzClient() independently, giving
+// two throttles that could combine for ~2 req/s and trip MB's ~1 req/s/IP block.
+//
+// This test enforces the CONSTRUCTOR-LEVEL contract that container.go relies on
+// — that passing one client to both constructors yields one shared client. The
+// container's own wiring (NewServiceContainer constructs ONE mbClient and passes
+// that same variable to both, container.go) is obvious by construction and not
+// re-asserted here, since a full container test would need a live DB + config.
+func TestMusicBrainzClient_SharedAcrossServices(t *testing.T) {
+	shared := NewMusicBrainzClient()
+
+	// Non-nil DB pointer satisfies the constructors without a live DB — neither
+	// constructor touches the DB, and we only inspect the MB client field.
+	stubDB := &gorm.DB{}
+	discover := NewDiscoverMusicService(stubDB, shared)
+	enrich := NewEnrichmentService(stubDB, nil, "", shared)
+
+	// DiscoverMusicService.mb is typed as the mbSearcher interface (PSY-1191);
+	// assert it holds the same concrete *MusicBrainzClient we injected.
+	discoverMB, ok := discover.mb.(*MusicBrainzClient)
+	assert.True(t, ok, "discover.mb should be the concrete *MusicBrainzClient")
+	assert.Same(t, shared, discoverMB, "discovery must hold the injected shared client")
+	assert.Same(t, shared, enrich.mbClient, "enrichment must hold the injected shared client")
+	assert.Same(t, discoverMB, enrich.mbClient,
+		"discovery + enrichment must share ONE MusicBrainz client (pointer identity)")
+}
+
+// TestMusicBrainzClient_DefaultsWhenNotInjected verifies the standalone/test
+// fallback: passing a nil client still yields a working, non-nil throttle so
+// existing callers keep working.
+func TestMusicBrainzClient_DefaultsWhenNotInjected(t *testing.T) {
+	stubDB := &gorm.DB{}
+
+	discover := NewDiscoverMusicService(stubDB, nil)
+	discoverMB, ok := discover.mb.(*MusicBrainzClient)
+	assert.True(t, ok)
+	assert.NotNil(t, discoverMB, "nil client must default-construct")
+
+	enrich := NewEnrichmentService(stubDB, nil, "", nil)
+	assert.NotNil(t, enrich.mbClient, "nil client must default-construct")
+
+	// Two default-constructed services get DISTINCT clients (the pre-PSY-1208
+	// behavior preserved for standalone callers that don't opt into sharing).
+	assert.NotSame(t, discoverMB, enrich.mbClient)
+}
+
+// TestMusicBrainzClient_ThrottleEnforcesSpacing verifies the rate limit still
+// enforces ~1.1s spacing between successive requests on a single client (the
+// shared instance after PSY-1208). throttle() is exercised directly so the test
+// needs no network I/O: the first call returns immediately (zero-value lastReq),
+// the second must block until at least one rateLimit interval has elapsed.
+func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
+	c := NewMusicBrainzClient()
+	// Shorten the interval so the test stays fast while still proving the
+	// throttle blocks for ~one interval; the production interval is mbRateLimit.
+	// 200ms (not, say, 50ms) gives the first-call lower-bound assertion below
+	// generous margin: the first throttle does only a lock + time.Now(), so the
+	// "< rateLimit" check would only flake if a loaded/GC-starved CI box stalled
+	// that for >200ms — far less likely than a tighter window.
+	c.rateLimit = 200 * time.Millisecond
+
+	ctx := context.Background()
+
+	start := time.Now()
+	assert.NoError(t, c.throttle(ctx)) // first slot is free
+	firstElapsed := time.Since(start)
+	assert.Less(t, firstElapsed, c.rateLimit,
+		"first throttle should not block (lastReq is zero)")
+
+	start = time.Now()
+	assert.NoError(t, c.throttle(ctx)) // second must wait one interval
+	secondElapsed := time.Since(start)
+	// secondElapsed >= rateLimit is the robust direction: time.Timer can only
+	// fire late, never early, so this lower bound holds regardless of jitter.
+	assert.GreaterOrEqual(t, secondElapsed, c.rateLimit,
+		"second throttle must block for at least one rateLimit interval")
+}
+
+// TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts the
+// per-call rate-limit WAIT on a cancelled context instead of holding the lock
+// for the full interval — the PSY-1191 cancellable-discovery behavior the
+// shared client must preserve. NOTE: this covers the cancellation of the wait
+// itself, NOT contention on c.mu.Lock(). With one shared client (PSY-1208) a
+// concurrent discovery call can still block up to ~one interval acquiring the
+// lock behind an in-flight enrichment throttle — that bounded wait is the
+// intended cost of a true ~1 req/s process-wide limit, documented in the PR.
+func TestMusicBrainzClient_ThrottleCancellable(t *testing.T) {
+	c := NewMusicBrainzClient()
+	c.rateLimit = time.Hour // make the wait effectively unbounded
+
+	// Prime lastReq so the next throttle would block for ~rateLimit.
+	assert.NoError(t, c.throttle(context.Background()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled
+
+	start := time.Now()
+	err := c.throttle(ctx)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, time.Since(start), time.Second,
+		"cancelled throttle must return promptly, not wait the interval")
+}
+
 func TestSeatGeekClient_NotConfigured(t *testing.T) {
 	client := NewSeatGeekClient("")
 	assert.False(t, client.IsConfigured())
@@ -179,7 +286,7 @@ func (s *EnrichmentIntegrationTestSuite) SetupSuite() {
 	testutil.RunAllMigrations(s.T(), sqlDB, migrationDir)
 
 	mockArtist := &mockArtistServiceForEnrichment{}
-	s.svc = NewEnrichmentService(db, mockArtist, "")
+	s.svc = NewEnrichmentService(db, mockArtist, "", nil)
 }
 
 func (s *EnrichmentIntegrationTestSuite) TearDownSuite() {
