@@ -42,6 +42,7 @@ import {
 import {
   useAdminEntityRequests,
   useDecideEntityRequest,
+  useRescueEntityRequest,
   type ShowArtistInput,
   type ShowVenueInput,
 } from '@/lib/hooks/admin/useAdminEntityRequests'
@@ -117,7 +118,9 @@ function renderValue(value: unknown): string {
 
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
-type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments' | 'requests'
+// 'needs_attention' (PSY-1088) is the rescue view: approved-but-unfulfilled
+// requests, NOT pending ones — a separate review surface from the other four.
+type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments' | 'requests' | 'needs_attention'
 type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show' | 'collection' | 'release' | 'label'
 
 // ─── Unified Item Type ───────────────────────────────────────────────────────
@@ -127,10 +130,14 @@ type ModerationItem =
   | { type: 'report'; data: EntityReportResponse }
   | { type: 'comment'; data: PendingComment }
   | { type: 'request'; data: AdminEntityRequest }
+  | { type: 'rescue'; data: AdminEntityRequest }
 
 // ─── PSY-603: success banner state ───────────────────────────────────────────
 
-type ModerationActionVerb = 'approved' | 'rejected' | 'created'
+// 'voided' (PSY-1088) is the rescue-queue dismiss: distinct from 'rejected' so
+// the banner doesn't claim the submitter was "notified" (a void dismisses an
+// approved orphan; no notification is sent and the submitter saw it approved).
+type ModerationActionVerb = 'approved' | 'rejected' | 'created' | 'voided'
 
 interface ModerationAction {
   verb: ModerationActionVerb
@@ -673,6 +680,161 @@ function RequestCard({
   )
 }
 
+// ─── Rescue Card (PSY-1088) ──────────────────────────────────────────────────
+
+/**
+ * A queued entity request that was APPROVED but whose catalog entity was never
+ * created (created_entity_id IS NULL) — the "needs attention" rescue surface.
+ * Two by-design routes lead here: a trusted-tier auto-approved SHOW (the
+ * auto-approve path can't supply the venue + artist associations CreateShow
+ * needs), and a post-claim fulfillment failure on the admin decide path.
+ *
+ * Mirrors RequestCard's scan path, but its primary action FULFILLS the orphan
+ * (re-runs the catalog create — for a show, collecting the missing associations
+ * via the shared ShowCreateForm first) instead of approving, and its secondary
+ * action VOIDS it (rejects the orphan with a required reason). Both bypass the
+ * decide flow, which only re-processes pending rows.
+ */
+function RescueCard({
+  request,
+  onActionSuccess,
+}: {
+  request: AdminEntityRequest
+  onActionSuccess: (action: ModerationAction) => void
+}) {
+  const rescueMutation = useRescueEntityRequest()
+  const isActioning = rescueMutation.isPending
+  const pendingAction = isActioning ? rescueMutation.variables?.action : undefined
+
+  const entityLabel = requestEntityLabel(request)
+  const previewEntries = payloadPreviewEntries(request.payload)
+  const canFulfill = FULFILLABLE_REQUEST_TYPES.has(request.entity_type)
+  const isShow = request.entity_type === 'show'
+  const [showFormOpen, setShowFormOpen] = useState(false)
+
+  const handleFulfill = useCallback(() => {
+    if (isShow) {
+      // Open-only: the form's own Cancel closes it (mirrors RequestCard).
+      setShowFormOpen(true)
+      return
+    }
+    rescueMutation.mutate(
+      { id: request.id, action: 'fulfill' },
+      { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
+    )
+  }, [isShow, setShowFormOpen, rescueMutation, request.id, onActionSuccess, entityLabel])
+
+  const handleFulfillShow = useCallback(
+    (venue: ShowVenueInput, artists: ShowArtistInput[]) => {
+      rescueMutation.mutate(
+        { id: request.id, action: 'fulfill', show_venue: venue, show_artists: artists },
+        { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
+      )
+    },
+    [rescueMutation, request.id, onActionSuccess, entityLabel]
+  )
+
+  const handleVoid = useCallback(
+    (reason: string) => {
+      rescueMutation.mutate(
+        { id: request.id, action: 'void', note: reason },
+        { onSuccess: () => onActionSuccess({ verb: 'voided', entityLabel }) }
+      )
+    },
+    [rescueMutation, request.id, onActionSuccess, entityLabel]
+  )
+
+  return (
+    <Card className="overflow-hidden border-amber-500/30">
+      <CardContent className="p-4">
+        {/* Header row — no entity link: the entity does not exist yet */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <CategoryBadge kind="rescue" />
+            <Badge variant="outline" className="shrink-0">
+              {entityTypeLabel(request.entity_type)}
+            </Badge>
+            <span className="text-sm font-medium text-foreground truncate">{entityLabel}</span>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {timeAgo(request.created_at)}
+          </span>
+        </div>
+
+        {/* Why it's here */}
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          Approved but never created — fulfill it or void it.
+        </p>
+
+        {/* Attribution */}
+        <div className="mt-2 text-sm text-muted-foreground">
+          <span>
+            by{' '}
+            <UserAttribution
+              name={request.requester_name}
+              username={request.requester_username}
+            />
+          </span>
+          <span className="ml-1">&middot; via {sourceContextLabel(request.source_context)}</span>
+        </div>
+
+        {/* Payload preview */}
+        {previewEntries.length > 0 && (
+          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-mono">
+            {previewEntries.map(([key, value]) => (
+              <div key={key} className="flex gap-2">
+                <span className="text-muted-foreground">{key}:</span>
+                <span className="text-foreground break-all">{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Guard for a future type without a fulfillment branch */}
+        {!canFulfill && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {entityTypeLabel(request.entity_type)} requests must be created manually for now —
+            Fulfill isn&rsquo;t supported for this type. Void it and create the entity directly.
+          </p>
+        )}
+
+        {/* Shows collect the venue + artists before fulfilling */}
+        {isShow && showFormOpen && (
+          <ShowCreateForm
+            defaultCity={typeof request.payload?.city === 'string' ? request.payload.city : ''}
+            defaultState={typeof request.payload?.state === 'string' ? request.payload.state : ''}
+            isSubmitting={pendingAction === 'fulfill'}
+            onSubmit={handleFulfillShow}
+            onCancel={() => setShowFormOpen(false)}
+          />
+        )}
+
+        {/* Fulfill-immediate + void-with-required-reason. The secondary action
+            is a VOID (dismiss an approved orphan), not a reject — labeled so
+            and given a void-specific success banner (no "submitter notified"). */}
+        <RejectWithReasonRow
+          onApprove={handleFulfill}
+          onReject={handleVoid}
+          isActioning={isActioning}
+          isApproving={pendingAction === 'fulfill'}
+          isRejecting={pendingAction === 'void'}
+          approveLabel="Fulfill"
+          approveIcon={PlusCircle}
+          approveDisabled={!canFulfill || (isShow && showFormOpen)}
+          rejectLabel="Void"
+          rejectPlaceholder="Reason for voiding (required) -- why this approved request should be dismissed"
+        />
+
+        {rescueMutation.isError && (
+          <p className="mt-2 text-xs text-destructive">
+            {rescueMutation.error?.message || 'Action failed'}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ─── Entity Report Card ──────────────────────────────────────────────────────
 
 function EntityReportCard({ report }: { report: EntityReportResponse }) {
@@ -1199,8 +1361,23 @@ export function ModerationQueue() {
     entity_type: entityTypeFilter || undefined,
   })
 
-  const isLoading = editsLoading || reportsLoading || commentsLoading || requestsLoading
-  const error = editsError || reportsError || commentsError || requestsError
+  // PSY-1088: approved-but-unfulfilled rescue queue ("needs attention"). A
+  // SEPARATE fetch from the pending queue above — these rows are approved, not
+  // pending, and need fulfill/void rather than approve/reject. Always fetched
+  // so the filter badge can show the count (consistent with the other four).
+  const {
+    data: rescueData,
+    isLoading: rescueLoading,
+    error: rescueError,
+  } = useAdminEntityRequests({
+    state: 'approved',
+    unfulfilled: true,
+    entity_type: entityTypeFilter || undefined,
+  })
+
+  const isLoading =
+    editsLoading || reportsLoading || commentsLoading || requestsLoading || rescueLoading
+  const error = editsError || reportsError || commentsError || requestsError || rescueError
 
   // Merge and sort items by created_at (oldest first for review fairness)
   const items = useMemo<ModerationItem[]>(() => {
@@ -1221,33 +1398,46 @@ export function ModerationQueue() {
       type: 'request' as const,
       data: r,
     }))
+    const rescueItems: ModerationItem[] = (rescueData?.requests || []).map(r => ({
+      type: 'rescue' as const,
+      data: r,
+    }))
 
-    let merged = [...editItems, ...reportItems, ...commentItems, ...requestItems]
-
-    // Apply item type filter
-    if (itemTypeFilter === 'edits') {
-      merged = merged.filter(i => i.type === 'edit')
-    } else if (itemTypeFilter === 'reports') {
-      merged = merged.filter(i => i.type === 'report')
-    } else if (itemTypeFilter === 'comments') {
-      merged = merged.filter(i => i.type === 'comment')
-    } else if (itemTypeFilter === 'requests') {
-      merged = merged.filter(i => i.type === 'request')
+    // 'needs_attention' is a SEPARATE review surface: approved-but-unfulfilled
+    // rows, never the pending ones. The other four filters (and 'all') show the
+    // pending queue and exclude rescues; 'needs_attention' shows only rescues.
+    let merged: ModerationItem[]
+    if (itemTypeFilter === 'needs_attention') {
+      merged = rescueItems
+    } else {
+      merged = [...editItems, ...reportItems, ...commentItems, ...requestItems]
+      if (itemTypeFilter === 'edits') {
+        merged = merged.filter(i => i.type === 'edit')
+      } else if (itemTypeFilter === 'reports') {
+        merged = merged.filter(i => i.type === 'report')
+      } else if (itemTypeFilter === 'comments') {
+        merged = merged.filter(i => i.type === 'comment')
+      } else if (itemTypeFilter === 'requests') {
+        merged = merged.filter(i => i.type === 'request')
+      }
     }
 
     // Sort oldest first (review fairness)
-    merged.sort(
+    merged = [...merged].sort(
       (a, b) =>
         new Date(a.data.created_at).getTime() - new Date(b.data.created_at).getTime()
     )
 
     return merged
-  }, [editsData, reportsData, commentsData, requestsData, itemTypeFilter])
+  }, [editsData, reportsData, commentsData, requestsData, rescueData, itemTypeFilter])
 
   const totalEdits = editsData?.total || 0
   const totalReports = reportsData?.total || 0
   const totalComments = commentsData?.total || 0
   const totalRequests = requestsData?.total || 0
+  const totalRescue = rescueData?.total || 0
+  // 'All' is the pending queue total; rescues (approved-but-unfulfilled) are a
+  // separate surface and are NOT folded in here.
   const totalItems = totalEdits + totalReports + totalComments + totalRequests
 
   if (isLoading) {
@@ -1316,6 +1506,17 @@ export function ModerationQueue() {
             label="Requests"
             count={totalRequests}
           />
+          {/* PSY-1088: approved-but-unfulfilled rescue queue. Separate from the
+              pending tabs; only shown when there's something to rescue (or it's
+              the active tab) so a clear queue doesn't carry a dead tab. */}
+          {(totalRescue > 0 || itemTypeFilter === 'needs_attention') && (
+            <FilterButton
+              active={itemTypeFilter === 'needs_attention'}
+              onClick={() => setItemTypeFilter('needs_attention')}
+              label="Needs attention"
+              count={totalRescue}
+            />
+          )}
         </div>
 
         {/* Entity type filter */}
@@ -1336,7 +1537,8 @@ export function ModerationQueue() {
 
         {/* Summary count */}
         <span className="text-sm text-muted-foreground ml-auto">
-          {items.length} item{items.length !== 1 ? 's' : ''} pending review
+          {items.length} item{items.length !== 1 ? 's' : ''}{' '}
+          {itemTypeFilter === 'needs_attention' ? 'needing attention' : 'pending review'}
         </span>
       </div>
 
@@ -1354,7 +1556,9 @@ export function ModerationQueue() {
                   ? 'No pending comments to review.'
                   : itemTypeFilter === 'requests'
                     ? 'No pending entity-creation requests to review.'
-                    : 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.'
+                    : itemTypeFilter === 'needs_attention'
+                      ? 'No approved-but-unfulfilled requests. Anything approved whose entity was never created would appear here to fulfill or void.'
+                      : 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.'
           }
         />
       )}
@@ -1379,6 +1583,15 @@ export function ModerationQueue() {
               return (
                 <RequestCard
                   key={`request-${item.data.id}`}
+                  request={item.data as AdminEntityRequest}
+                  onActionSuccess={handleActionSuccess}
+                />
+              )
+            }
+            if (item.type === 'rescue') {
+              return (
+                <RescueCard
+                  key={`rescue-${item.data.id}`}
                   request={item.data as AdminEntityRequest}
                   onActionSuccess={handleActionSuccess}
                 />
@@ -1421,6 +1634,10 @@ function formatModerationActionMessage(action: ModerationAction): string {
       return `Created — ${action.entityLabel} added to the catalog`
     case 'approved':
       return `Approved — change applied to ${action.entityLabel}`
+    case 'voided':
+      // No notification is sent on a void (the submitter saw the request as
+      // approved); don't claim one, unlike the reject copy.
+      return `Voided — ${action.entityLabel} dismissed`
     default:
       return 'Rejected — submitter notified of reason'
   }

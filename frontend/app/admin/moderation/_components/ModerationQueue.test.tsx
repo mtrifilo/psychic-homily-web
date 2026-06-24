@@ -155,6 +155,7 @@ const mockUseAdminRejectComment = vi.fn()
 const mockUseAdminHideComment = vi.fn()
 const mockUseAdminEntityRequests = vi.fn()
 const mockUseDecideEntityRequest = vi.fn()
+const mockUseRescueEntityRequest = vi.fn()
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false, isError: false, error: null as Error | null }
 
@@ -183,6 +184,7 @@ vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
 vi.mock('@/lib/hooks/admin/useAdminEntityRequests', () => ({
   useAdminEntityRequests: (...args: unknown[]) => mockUseAdminEntityRequests(...args),
   useDecideEntityRequest: () => mockUseDecideEntityRequest(),
+  useRescueEntityRequest: () => mockUseRescueEntityRequest(),
 }))
 
 // PSY-297: stub the edit-history dialog so the badge interaction test doesn't
@@ -204,6 +206,7 @@ describe('ModerationQueue', () => {
     mockUseAdminHideComment.mockReturnValue(defaultMutationReturn)
     mockUseAdminHideCollection.mockReturnValue(defaultMutationReturn)
     mockUseDecideEntityRequest.mockReturnValue(defaultMutationReturn)
+    mockUseRescueEntityRequest.mockReturnValue(defaultMutationReturn)
   })
 
   function setDefaultMocks(overrides?: {
@@ -211,6 +214,9 @@ describe('ModerationQueue', () => {
     reports?: unknown[]
     comments?: unknown[]
     requests?: unknown[]
+    // PSY-1088: approved-but-unfulfilled rescue rows (the second
+    // useAdminEntityRequests call, with state=approved + unfulfilled=true).
+    rescue?: unknown[]
   }) {
     mockUseAdminPendingEdits.mockReturnValue({
       data: { edits: overrides?.edits ?? [], total: overrides?.edits?.length ?? 0 },
@@ -227,10 +233,16 @@ describe('ModerationQueue', () => {
       isLoading: false,
       error: null,
     })
-    mockUseAdminEntityRequests.mockReturnValue({
-      data: { requests: overrides?.requests ?? [], total: overrides?.requests?.length ?? 0 },
-      isLoading: false,
-      error: null,
+    // The queue calls useAdminEntityRequests TWICE: the pending queue
+    // (state='pending') and the rescue queue (state='approved' +
+    // unfulfilled=true). Route by the filter arg so each gets its own data.
+    mockUseAdminEntityRequests.mockImplementation((filters?: { unfulfilled?: boolean }) => {
+      const rows = filters?.unfulfilled ? (overrides?.rescue ?? []) : (overrides?.requests ?? [])
+      return {
+        data: { requests: rows, total: rows.length },
+        isLoading: false,
+        error: null,
+      }
     })
   }
 
@@ -731,6 +743,146 @@ describe('ModerationQueue', () => {
       fireEvent.click(screen.getByText('Reports'))
 
       expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── PSY-1088: approved-but-unfulfilled rescue queue ──────────────────────
+  describe('rescue queue (needs attention)', () => {
+    const orphanArtist: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 50,
+      entity_type: 'artist',
+      payload: { name: 'Orphan Band', city: 'Phoenix' },
+      source_detail: null,
+      decision_state: 'approved',
+      created_entity_id: null,
+    }
+    const orphanShow: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 51,
+      entity_type: 'show',
+      payload: { title: 'Deferred Show', event_date: '2026-08-01', city: 'Phoenix', state: 'AZ' },
+      source_detail: null,
+      decision_state: 'approved',
+      created_entity_id: null,
+    }
+
+    it('hides the Needs attention tab when there are no orphans', () => {
+      setDefaultMocks({ requests: [mockEntityRequest] })
+      render(<ModerationQueue />)
+      expect(screen.queryByText('Needs attention')).not.toBeInTheDocument()
+    })
+
+    it('shows the Needs attention tab when an orphan exists', () => {
+      setDefaultMocks({ rescue: [orphanArtist] })
+      render(<ModerationQueue />)
+      expect(screen.getByText('Needs attention')).toBeInTheDocument()
+    })
+
+    it('orphans do NOT appear in the pending queue', () => {
+      // Rescue rows go to the rescue query only; the default "All" pending view
+      // must not surface them.
+      setDefaultMocks({ rescue: [orphanArtist] })
+      render(<ModerationQueue />)
+      expect(screen.queryByText('Orphan Band')).not.toBeInTheDocument()
+      expect(screen.getByText('Queue Clear')).toBeInTheDocument()
+    })
+
+    it('renders the rescue card with Fulfill + Void actions', () => {
+      setDefaultMocks({ rescue: [orphanArtist] })
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+
+      expect(screen.getByText('Orphan Band')).toBeInTheDocument()
+      expect(screen.getByText(/Approved but never created/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /fulfill/i })).toBeInTheDocument()
+      // Secondary action is "Void" (not "Reject") — it dismisses an approved
+      // orphan, a distinct action with no submitter notification.
+      expect(screen.getByRole('button', { name: /^void$/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^reject$/i })).not.toBeInTheDocument()
+    })
+
+    it('fires the rescue mutation with action=fulfill for a non-show orphan', () => {
+      const mutate = vi.fn()
+      mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ rescue: [orphanArtist] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+      fireEvent.click(screen.getByRole('button', { name: /fulfill/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 50, action: 'fulfill' }),
+        expect.anything()
+      )
+    })
+
+    it('voids an orphan with the trimmed reason', () => {
+      const mutate = vi.fn()
+      mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ rescue: [orphanArtist] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+      fireEvent.click(screen.getByRole('button', { name: /^void$/i }))
+      fireEvent.change(screen.getByPlaceholderText(/reason for voiding/i), {
+        target: { value: '  bad auto-approve  ' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /confirm void/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 50, action: 'void', note: 'bad auto-approve' }),
+        expect.anything()
+      )
+    })
+
+    it('shows a void-specific success banner (no "submitter notified")', () => {
+      mockUseRescueEntityRequest.mockReturnValue({
+        ...defaultMutationReturn,
+        mutate: (_args: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+      })
+      setDefaultMocks({ rescue: [orphanArtist] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+      fireEvent.click(screen.getByRole('button', { name: /^void$/i }))
+      fireEvent.change(screen.getByPlaceholderText(/reason for voiding/i), {
+        target: { value: 'bad auto-approve' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /confirm void/i }))
+
+      const banner = screen.getByRole('status')
+      expect(banner).toHaveTextContent(/voided/i)
+      expect(banner).not.toHaveTextContent(/notified/i)
+    })
+
+    it('opens the show form on Fulfill and submits the collected associations', () => {
+      const mutate = vi.fn()
+      mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ rescue: [orphanShow] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+
+      // Fulfill opens the associations form (no mutation yet), prefilled.
+      fireEvent.click(screen.getByRole('button', { name: /^fulfill$/i }))
+      expect(screen.getByLabelText('Venue name')).toBeInTheDocument()
+      expect(screen.getByLabelText('Venue city')).toHaveValue('Phoenix')
+      expect(mutate).not.toHaveBeenCalled()
+
+      fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 51,
+          action: 'fulfill',
+          show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
+          show_artists: [{ name: 'Boris', is_headliner: true }],
+        }),
+        expect.anything()
+      )
     })
   })
 })

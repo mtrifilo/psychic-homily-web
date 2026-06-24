@@ -44,6 +44,8 @@ type EntityRequestServiceInterface interface {
 
 	// ListRequests returns requests for the admin queue, filterable by
 	// entity_type + decision_state + source_context, paginated newest-first.
+	// Unfulfilled (PSY-1088) additionally narrows to approved-but-unfulfilled
+	// rows (created_entity_id IS NULL) — the rescue queue.
 	ListRequests(filters *EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
 
 	// Decide records an admin's moderation decision atomically (the conditional
@@ -51,6 +53,24 @@ type EntityRequestServiceInterface interface {
 	// decided_by/at + optional note. Creating the actual entity from the
 	// payload is the HANDLER's responsibility (PSY-997), not the service's.
 	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error)
+
+	// ClaimRescueFulfillment atomically stamps created_entity_id on an
+	// APPROVED-but-UNFULFILLED row (PSY-1088 rescue path). The conditional
+	// UPDATE (WHERE decision_state='approved' AND created_entity_id IS NULL)
+	// guards two concurrent rescues from both winning: the loser sees
+	// claimed=false and the catalog entity it created is a recoverable stray.
+	// Unlike RecordFulfillment, this never overwrites an existing link.
+	// Returns claimed=false (no error) when the row is missing, not approved,
+	// or already fulfilled — the handler then reports the right conflict.
+	ClaimRescueFulfillment(requestID, createdEntityID uint) (claimed bool, err error)
+
+	// VoidApprovedUnfulfilled atomically rejects an APPROVED-but-UNFULFILLED
+	// row (PSY-1088 rescue path) so an admin can dismiss an orphan that should
+	// never have been approved, without DB surgery. The conditional UPDATE
+	// (WHERE decision_state='approved' AND created_entity_id IS NULL) ensures a
+	// fulfilled row can never be voided out from under its created entity.
+	// Returns voided=false (no error) when the row no longer qualifies.
+	VoidApprovedUnfulfilled(requestID, adminID uint, note *string) (voided bool, err error)
 }
 
 // EntityRequestFilters holds the admin-queue list filters. Empty string for a
@@ -60,8 +80,12 @@ type EntityRequestFilters struct {
 	EntityType    string // "artist", "venue", ... ; "" = all types
 	State         string // "pending", "approved", "rejected"; "" = pending (default)
 	SourceContext string // "ai_extraction", "paste_mode", "manual"; "" = all sources
-	Limit         int
-	Offset        int
+	// Unfulfilled (PSY-1088), when true, narrows to rows whose catalog entity
+	// was never created (created_entity_id IS NULL) — the approved-but-
+	// unfulfilled "needs attention" rescue queue. Combine with State="approved".
+	Unfulfilled bool
+	Limit       int
+	Offset      int
 }
 
 // EntityRequestFulfiller creates the actual catalog entity from an approved

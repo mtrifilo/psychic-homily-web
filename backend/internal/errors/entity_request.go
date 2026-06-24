@@ -28,6 +28,11 @@ const (
 	// CodeEntityRequestPayloadInvalid: the stored payload failed to decode into
 	// its typed struct on the fulfillment path (schema drift / corruption).
 	CodeEntityRequestPayloadInvalid = "ENTITY_REQUEST_PAYLOAD_INVALID"
+	// CodeEntityRequestNotRescuable: the rescue endpoint (PSY-1088) was called
+	// on a row that is not approved-but-unfulfilled — it is pending, rejected,
+	// or already fulfilled (created_entity_id set), or was rescued concurrently.
+	// Only approved AND created_entity_id IS NULL rows are rescuable.
+	CodeEntityRequestNotRescuable = "ENTITY_REQUEST_NOT_RESCUABLE"
 )
 
 // EntityRequestError represents an entity-request error with context.
@@ -124,5 +129,17 @@ func ErrEntityRequestPayloadInvalid(entityType string, internal error) *EntityRe
 		Code:     CodeEntityRequestPayloadInvalid,
 		Message:  fmt.Sprintf("Stored %s payload is invalid and cannot be fulfilled", entityType),
 		Internal: internal,
+	}
+}
+
+// ErrEntityRequestNotRescuable creates a conflict error when the rescue
+// endpoint targets a row that is not approved-but-unfulfilled (PSY-1088). Maps
+// to 409 — the row exists but isn't in a state the rescue path can act on
+// (already fulfilled, pending, rejected, or rescued concurrently).
+func ErrEntityRequestNotRescuable(requestID uint) *EntityRequestError {
+	return &EntityRequestError{
+		Code:      CodeEntityRequestNotRescuable,
+		Message:   fmt.Sprintf("Entity request %d is not approved-but-unfulfilled; only such rows can be rescued", requestID),
+		RequestID: requestID,
 	}
 }

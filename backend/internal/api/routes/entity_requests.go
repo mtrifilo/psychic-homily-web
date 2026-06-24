@@ -30,4 +30,10 @@ func setupEntityRequestRoutes(rc RouteContext) {
 	// Admin: moderation queue (consumed by PSY-871).
 	huma.Get(rc.Admin, "/admin/entity-requests", entityRequestHandler.AdminListEntityRequestsHandler)
 	huma.Post(rc.Admin, "/admin/entity-requests/{id}/decide", entityRequestHandler.AdminDecideEntityRequestHandler)
+
+	// Admin: rescue an approved-but-unfulfilled request — fulfill (re-run the
+	// catalog create, supplying show associations) or void it (PSY-1088). The
+	// approved-but-unfulfilled rows are discoverable via the list endpoint's
+	// state=approved + unfulfilled=true filter.
+	huma.Post(rc.Admin, "/admin/entity-requests/{id}/fulfill", entityRequestHandler.AdminFulfillEntityRequestHandler)
 }

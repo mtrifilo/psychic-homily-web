@@ -1,4 +1,4 @@
-import { Pencil, Flag, MessageSquare, PlusCircle, type LucideIcon } from 'lucide-react'
+import { Pencil, Flag, MessageSquare, PlusCircle, AlertTriangle, type LucideIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
  * Moderation "kind" of a queue item. Drives the colored category badge on
  * each moderation card.
  */
-export type AdminCategoryKind = 'edit' | 'report' | 'comment' | 'request'
+export type AdminCategoryKind = 'edit' | 'report' | 'comment' | 'request' | 'rescue'
 
 interface KindConfig {
   label: string
@@ -48,6 +48,14 @@ const KIND_CONFIG: Record<AdminCategoryKind, KindConfig> = {
     label: 'Request',
     icon: PlusCircle,
     tone: 'bg-[#a855f7]/10 text-[#7e22ce] border-[#a855f7]/30 dark:text-[#c084fc] dark:border-[#a855f7]/40',
+  },
+  // PSY-1088: "Needs attention" — an approved-but-unfulfilled request (its
+  // catalog entity was never created). Amber/warning tint signals the orphan
+  // state, distinct from the four normal-flow kinds.
+  rescue: {
+    label: 'Needs attention',
+    icon: AlertTriangle,
+    tone: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-400 dark:border-amber-500/40',
   },
 }
 
