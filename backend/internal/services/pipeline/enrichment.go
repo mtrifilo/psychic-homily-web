@@ -35,19 +35,30 @@ type EnrichmentService struct {
 	matchThreshold float64
 }
 
-// NewEnrichmentService creates a new enrichment service.
+// NewEnrichmentService creates a new enrichment service. A nil mbClient resolves
+// to a freshly constructed client so standalone/test callers can pass nil.
+//
+// mbClient is the SHARED MusicBrainz client (PSY-1208): the server constructs
+// ONE *MusicBrainzClient and passes the same instance here and to
+// NewDiscoverMusicService, so a single mutex-serialized throttle enforces a true
+// ~1 req/s across ALL MusicBrainz calls in the process (MB blocks for exceeding
+// ~1 req/s/IP).
 func NewEnrichmentService(
 	database *gorm.DB,
 	artistService contracts.ArtistServiceInterface,
 	seatgeekClientID string,
+	mbClient *MusicBrainzClient,
 ) *EnrichmentService {
 	if database == nil {
 		database = db.GetDB()
 	}
+	if mbClient == nil {
+		mbClient = NewMusicBrainzClient()
+	}
 	return &EnrichmentService{
 		db:             database,
 		artistService:  artistService,
-		mbClient:       NewMusicBrainzClient(),
+		mbClient:       mbClient,
 		sgClient:       NewSeatGeekClient(seatgeekClientID),
 		logger:         slog.Default(),
 		matchThreshold: AutoMatchThreshold,
