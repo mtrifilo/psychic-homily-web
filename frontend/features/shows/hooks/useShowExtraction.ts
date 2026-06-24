@@ -36,11 +36,13 @@ async function extractShowInfo(
 
   // If the response indicates an error, throw to trigger mutation error state.
   // Prefer the server's `error` string (PSY-855 rate-limit hint, AI parse
-  // failures). Fall back to the HTTP status only when the body was unusable
-  // (HTML error page) — otherwise the domain-specific generic message.
+  // failures). `||` (not `??`) so a missing OR empty `error` still falls
+  // through — matching the pre-PSY-857 fallback. When the body was unusable
+  // (HTML error page → data === null) report the HTTP status; otherwise the
+  // domain-specific generic message.
   if (!response.ok || !data?.success) {
     throw new Error(
-      data?.error ??
+      data?.error ||
         (data
           ? 'Failed to extract show information'
           : `AI service error (HTTP ${response.status})`)
