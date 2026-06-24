@@ -336,12 +336,12 @@ const STAGED_LIST_VIRTUALIZE_THRESHOLD = 30
 const STAGED_ROW_ESTIMATED_HEIGHT = 40
 
 /**
- * Extra rows rendered above + below the visible window. A small buffer keeps a
- * fast scroll from flashing blank rows before the virtualizer catches up, and —
- * load-bearing for a11y — keeps a couple of off-screen neighbours mounted so a
- * keyboard reorder that nudges one position past the edge lands on a real DOM
- * node. Cross-window keyboard moves still rely on the drag-time full render
- * (see StagedItemsList); overscan only smooths the idle-scroll seams.
+ * Extra rows rendered above + below the visible window — purely to keep a fast
+ * idle scroll from flashing blank rows before the virtualizer catches up.
+ * Overscan plays NO role in drag/keyboard reorder: a drag (pointer OR keyboard,
+ * which lifts via `onDragStart`) flips to the full-flow render where EVERY row
+ * is mounted, so reorder reaches any index regardless of this value. It is an
+ * idle-scroll smoothing knob only.
  */
 const STAGED_LIST_OVERSCAN = 8
 
@@ -868,17 +868,23 @@ export function AddItemsPicker({
  *     `scrollTop` is preserved. (An earlier two-container version remounted a
  *     fresh `scrollTop:0` div on drag-start, so grabbing a below-fold row in a
  *     200-item list reset the scroll to top and the drag jumped off-screen —
- *     PSY-994 adversarial review.) The windowed (absolute-positioned) and flow
- *     inners have ~equal total height (rows are ~uniform), so a preserved
- *     scrollTop maps to the same row across the switch.
+ *     PSY-994 adversarial review.) A preserved scrollTop maps to the SAME row
+ *     across the switch: to reach a below-fold row the user scrolls PAST every
+ *     row above it, so the virtualizer has already `measureElement`-measured
+ *     them — the current scroll offset reflects real measured heights, not the
+ *     estimate. Estimate-vs-actual drift lives only BELOW the viewport, where
+ *     it can't shift the row under the pointer.
  *
  * This sidesteps the fragile alternative (keep a window-around-the-dragged-row
  * mounted + hand-rolled auto-scroll + measured-position juggling) that the
  * ticket flags as the hard part.
  *
- * `prefers-reduced-motion` is honored exactly as before: each row's enter
- * animation stays gated on Tailwind's `motion-safe:` variant; virtualization
- * adds no new animation.
+ * `prefers-reduced-motion` is honored throughout: each row's enter animation
+ * stays gated on Tailwind's `motion-safe:` variant. Virtualization adds no new
+ * animation CLASS, but the windowed path mounts/unmounts rows on scroll — which
+ * would re-fire the mount-triggered `animate-in` on every scroll-in. To avoid
+ * that flashing wave, windowed rows are rendered with `animateEnter={false}`
+ * (the enter fade-in plays only in the full-flow render, for genuinely new rows).
  */
 function StagedItemsList({
   items,
@@ -977,6 +983,8 @@ function StagedItemsList({
                         item={item}
                         canReorder={canReorder}
                         onRemove={() => onRemove(item.entityType, item.entityId)}
+                        // Scroll-recycled rows must not re-fire the enter fade-in.
+                        animateEnter={false}
                       />
                     </div>
                   </div>
@@ -1504,11 +1512,21 @@ function StagedRow({
   item,
   canReorder,
   onRemove,
+  animateEnter = true,
 }: {
   index: number
   item: StagedCollectionItem
   canReorder: boolean
   onRemove: () => void
+  /**
+   * Whether the row plays its enter fade-in on mount. TRUE in the full-flow
+   * render (a newly-staged item entering is meaningful). FALSE in the windowed
+   * render: there, scrolling continuously mounts/unmounts rows, so the
+   * mount-triggered `animate-in` would re-fire on every scroll-in — a flashing
+   * wave on exactly the large-N path PSY-994 targets (adversarial review:
+   * Saboteur + Future-Maintainer + Completeness).
+   */
+  animateEnter?: boolean
 }) {
   // useSortable returns no-op refs/listeners when reorder is disabled (single
   // item), keeping hook order stable across renders.
@@ -1534,7 +1552,13 @@ function StagedRow({
     <div
       ref={canReorder ? setNodeRef : undefined}
       style={sortableStyle}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 border border-border/40 bg-popover motion-safe:animate-in motion-safe:fade-in"
+      className={cn(
+        'flex items-center gap-2 rounded-md px-2 py-1.5 border border-border/40 bg-popover',
+        // Enter animation only when this row is genuinely entering (full-flow
+        // render); suppressed for scroll-recycled windowed rows — see the
+        // animateEnter prop doc.
+        animateEnter && 'motion-safe:animate-in motion-safe:fade-in'
+      )}
       data-testid="add-items-picker-staged-row"
     >
       {canReorder && (

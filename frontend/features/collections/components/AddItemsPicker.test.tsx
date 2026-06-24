@@ -956,14 +956,21 @@ describe('AddItemsPicker', () => {
   })
 
   // ── PSY-994: staged-list virtualization (threshold + drag-fallback) ──
-  // The DOM-bounding behavior (only a WINDOW of rows mounts at rest) and the
-  // visual reorder are verified end-to-end in the real-browser manual repro —
-  // jsdom's 0-height scroll element + no-op ResizeObserver means
-  // @tanstack/react-virtual measures a zero viewport and renders an empty
-  // window. These unit tests pin the load-bearing invariants that DON'T need a
-  // real layout: the threshold switchover, that the virtual path is NOT
-  // rendering all rows, and that an active drag falls back to the full render
-  // so every sortable is mounted (off-window reorder targets reachable).
+  // WHAT jsdom CANNOT check (and these tests therefore do NOT): the real
+  // windowing bound (~12 rows mounted), cross-window KEYBOARD reorder, and
+  // pointer AUTO-SCROLL to off-window targets. jsdom gives the scroll element a
+  // 0-height viewport + a no-op ResizeObserver, so @tanstack/react-virtual
+  // measures a zero viewport and renders an EMPTY window, and these tests drive
+  // dnd-kit's `onDragStart/onDragEnd` callbacks directly (bypassing the real
+  // KeyboardSensor / hit-testing / auto-scroll). Those behaviors are
+  // browser-only and are called out as UNVERIFIED + needing a Vercel-preview
+  // spot-check in the PR (the local browser repro could not be run).
+  //
+  // WHAT these tests DO pin (jsdom-checkable, layout-independent): the branch
+  // switchover at the threshold; that the SAME scroll container node is reused
+  // across the idle↔drag swap (the PSY-994 scrollTop-preservation invariant);
+  // that an active drag mounts every sortable (full-render fallback); and that
+  // a drag-end reorder is wired through to the parent.
 
   it('keeps the NON-virtual render at/below the threshold (30 items)', () => {
     // 30 is the threshold; 30 > 30 is false, so the list stays fully mounted.
@@ -977,20 +984,24 @@ describe('AddItemsPicker', () => {
     expect(screen.getAllByTestId('add-items-picker-staged-row')).toHaveLength(30)
   })
 
-  it('virtualizes above the threshold (does NOT mount every row)', () => {
-    // 60 > 30 → the windowed render. The virtual viewport carries the
-    // data-virtualized marker, and (critically) it is NOT mounting all 60 rows
-    // — the unbounded-DOM regression this ticket fixes. In jsdom the window is
-    // empty (zero-height viewport), which still proves "not all rows": the
-    // real-browser repro confirms a non-empty window of ~12.
+  it('selects the windowed branch above the threshold (marker + virtual spacer)', () => {
+    // 60 > 30 → windowed render: the container carries the data-virtualized
+    // marker and renders the virtualizer's full-height spacer div.
+    // NOTE: this does NOT assert the actual window bound (~12 mounted rows).
+    // jsdom's 0-height viewport makes react-virtual render an EMPTY window, so a
+    // row-count assertion would be vacuous (`0 < 60` passes even if windowing
+    // were broken). The real bound is browser-only — see the PR spot-check.
     render(
       <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
     )
     const list = screen.getByTestId('add-items-picker-staged-list')
     expect(list).toHaveAttribute('data-virtualized', 'true')
-    expect(
-      screen.queryAllByTestId('add-items-picker-staged-row').length
-    ).toBeLessThan(60)
+    // The windowed branch rendered its absolute-positioning spacer (height from
+    // getTotalSize = count × estimate) — i.e. the virtual path, not an empty
+    // fragment or the flow render.
+    const spacer = list.querySelector<HTMLElement>('[style*="height:"]')
+    expect(spacer).not.toBeNull()
+    expect(spacer?.style.height).not.toBe('')
   })
 
   it('falls back to the FULL render during a drag so off-window targets are reachable', () => {
@@ -1024,11 +1035,37 @@ describe('AddItemsPicker', () => {
     ).toHaveAttribute('data-virtualized', 'true')
   })
 
-  it('applies a reorder dragged across the window boundary (off-window target)', () => {
-    // Keyboard/pointer reorder to an off-window index resolves through the same
-    // pure reorder behind onDragEnd. Drive a drag-end that moves the first item
-    // PAST the visible window (index 0 → index 59) and assert the parent gets
-    // the fully reordered array — proving cross-window targets commit correctly.
+  it('reuses the SAME scroll-container node across the idle↔drag swap (scrollTop preserved)', () => {
+    // The PSY-994 fix: ONE always-mounted scroll container; only its inner
+    // content swaps on drag-start. If a refactor split this into two sibling
+    // containers (the original bug), the node would remount on drag-start,
+    // resetting scrollTop to 0 — so grabbing a below-fold row in a 200-item
+    // list made the drag jump off-screen. React preserves a DOM node's
+    // reference only when it is NOT remounted, so node identity across the
+    // idle→drag→idle toggle is the one jsdom-checkable proxy for "scrollTop is
+    // preserved". This guards the most expensive bug this change fixed.
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
+    )
+    const before = screen.getByTestId('add-items-picker-staged-list')
+    act(() => {
+      capturedOnDragStart?.()
+    })
+    // Same node during the full-render drag fallback (not a fresh container).
+    expect(screen.getByTestId('add-items-picker-staged-list')).toBe(before)
+    act(() => {
+      capturedOnDragEnd?.({ active: { id: 'artist-1' }, over: { id: 'artist-1' } })
+    })
+    // …and still the same node back at idle.
+    expect(screen.getByTestId('add-items-picker-staged-list')).toBe(before)
+  })
+
+  it('wires a drag-end reorder through to the parent (handleReorder → reorderStagedItems)', () => {
+    // Coverage of the component→helper WIRING only. The `over` id below is a
+    // test-supplied literal, NOT a target produced by dnd-kit hit-testing or by
+    // the windowed DOM — so this does NOT prove cross-window targeting works
+    // (that's browser-only; see the PR spot-check). It asserts that whatever
+    // target dnd-kit resolves is forwarded to reorderStagedItems and bubbled up.
     const onStaged = vi.fn()
     render(
       <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={onStaged} />
