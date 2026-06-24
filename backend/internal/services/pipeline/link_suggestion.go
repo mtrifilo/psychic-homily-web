@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -335,6 +336,62 @@ func (s *LinkSuggestionService) loadSuggestion(suggestionID uint) (*catalogm.Art
 		return nil, fmt.Errorf("load link suggestion: %w", err)
 	}
 	return &suggestion, nil
+}
+
+// UpsertSuggestions inserts each discovered candidate as a PENDING
+// artist_link_suggestions row, skipping any (artist_id, platform, url) that
+// already exists. It is the WRITE counterpart to the list/accept/reject methods
+// above — the batch sweep cmd (PSY-1206) is its only caller today — so the
+// store's persistence mechanics (the ON CONFLICT clause, the candidate→row
+// mapping) stay encapsulated in the service that owns the table, not in the cmd.
+//
+// Returns the number of rows ACTUALLY inserted (RowsAffected), which the caller
+// uses to report idempotency: a re-discovered candidate contributes 0.
+//
+// ON CONFLICT DO NOTHING (not DO UPDATE) is deliberate: the unique key IS the
+// row identity, so a conflict means this exact candidate was already queued —
+// possibly already accepted or rejected by a human. DO NOTHING leaves that
+// reviewed row untouched (never flips it back to pending), which is what makes a
+// re-sweep safe/resumable. An empty candidate list is a no-op (0, nil).
+func (s *LinkSuggestionService) UpsertSuggestions(artistID uint, candidates []contracts.MusicLinkCandidate) (int, error) {
+	if len(candidates) == 0 {
+		return 0, nil
+	}
+	rows := make([]catalogm.ArtistLinkSuggestion, 0, len(candidates))
+	for _, c := range candidates {
+		rows = append(rows, catalogm.ArtistLinkSuggestion{
+			ArtistID:     artistID,
+			Platform:     c.Platform,
+			URL:          c.URL,
+			Source:       c.Source,
+			MBArtistID:   nilIfEmpty(c.MBArtistID),
+			MBArtistName: nilIfEmpty(c.MBArtistName),
+			Confidence:   c.Confidence,
+			RegionMatch:  c.RegionMatch,
+			Live:         c.Live,
+			Notes:        nilIfEmpty(c.Notes),
+			Status:       catalogm.LinkSuggestionStatusPending,
+		})
+	}
+
+	res := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "artist_id"}, {Name: "platform"}, {Name: "url"}},
+		DoNothing: true,
+	}).Create(&rows)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return int(res.RowsAffected), nil
+}
+
+// nilIfEmpty maps the contract's value-type "" (its zero value for an absent
+// optional field) to a nil *string so the nullable mb_artist_id / mb_artist_name
+// / notes columns store SQL NULL rather than an empty string.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // reviewResultFromModel builds the review response from a stored row, used on an
