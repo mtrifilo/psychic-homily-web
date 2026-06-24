@@ -50,6 +50,8 @@ WORKTREE_ID="$(basename "$WORKTREE_PATH")"
 STACK_DIR="$WORKTREE_PATH/dispatch-stack"
 # Compose project names must be lowercase [a-z0-9_-]; worktree dirs like
 # "PSY-1045+content-first-profile" contain uppercase and '+', so sanitize.
+# This value is persisted as STACK_COMPOSE_PROJECT (below) and read back by
+# stack-down.sh — keep its legacy fallback sanitize in sync if you change this.
 COMPOSE_PROJECT="dispatch-$(printf '%s' "$WORKTREE_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
 COMPOSE_PROJECT="${COMPOSE_PROJECT%-}"
 

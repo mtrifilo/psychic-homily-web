@@ -23,14 +23,22 @@ if [ ! -d "$STACK_DIR" ]; then
   exit 0
 fi
 
-# Read mode + ports from .env if available (best-effort).
+# Read mode + ports + the compose project name from .env if available
+# (best-effort). STACK_COMPOSE_PROJECT is the *sanitized* name stack-up.sh
+# actually created the project with — read it back rather than re-deriving, so
+# the two scripts can never disagree (PSY-1203).
 STACK_MODE=""
 STACK_BACKEND_PORT=""
 STACK_FRONTEND_PORT=""
+STACK_COMPOSE_PROJECT=""
 if [ -f "$STACK_DIR/.env" ]; then
-  STACK_MODE="$(grep '^STACK_MODE=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
-  STACK_BACKEND_PORT="$(grep '^STACK_BACKEND_PORT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
-  STACK_FRONTEND_PORT="$(grep '^STACK_FRONTEND_PORT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
+  # tr -d '\r' so a CRLF-rewritten .env (e.g. hand-edited) can't smuggle a
+  # trailing CR into STACK_MODE (breaking the "isolated" gate below) or into the
+  # compose project name (a no-op teardown → leaked container).
+  STACK_MODE="$(grep '^STACK_MODE=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)"
+  STACK_BACKEND_PORT="$(grep '^STACK_BACKEND_PORT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)"
+  STACK_FRONTEND_PORT="$(grep '^STACK_FRONTEND_PORT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)"
+  STACK_COMPOSE_PROJECT="$(grep '^STACK_COMPOSE_PROJECT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)"
 fi
 log "Mode: ${STACK_MODE:-unknown}"
 
@@ -85,7 +93,16 @@ reap_port frontend "$STACK_FRONTEND_PORT"
 
 # Tear down docker compose project if isolated.
 if [ "$STACK_MODE" = "isolated" ]; then
-  COMPOSE_PROJECT="dispatch-${WORKTREE_ID}"
+  # Compose project names must be lowercase [a-z0-9_-]; a worktree dir like
+  # "PSY-1205-radio-aired-surfaces" is not, so the raw "dispatch-${WORKTREE_ID}"
+  # is rejected by docker and the postgres container leaks (PSY-1203). Prefer the
+  # sanitized name stack-up.sh persisted; fall back to the SAME sanitize it
+  # applies for .env files written before STACK_COMPOSE_PROJECT existed.
+  COMPOSE_PROJECT="$STACK_COMPOSE_PROJECT"
+  if [ -z "$COMPOSE_PROJECT" ]; then
+    COMPOSE_PROJECT="dispatch-$(printf '%s' "$WORKTREE_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
+    COMPOSE_PROJECT="${COMPOSE_PROJECT%-}"
+  fi
   log "Tearing down docker compose project $COMPOSE_PROJECT..."
   # Always run from the main repo's backend dir; the compose file is
   # identical in worktree and main, but the worktree may have been removed.
