@@ -79,18 +79,18 @@ func TestMusicBrainzClient_SharedAcrossServices(t *testing.T) {
 }
 
 // TestMusicBrainzClient_DefaultsWhenNotInjected verifies the standalone/test
-// fallback: omitting the optional client (or passing an explicit nil) still
-// yields a working, non-nil throttle so existing callers keep working.
+// fallback: passing a nil client still yields a working, non-nil throttle so
+// existing callers keep working.
 func TestMusicBrainzClient_DefaultsWhenNotInjected(t *testing.T) {
 	stubDB := &gorm.DB{}
 
-	discover := NewDiscoverMusicService(stubDB)
+	discover := NewDiscoverMusicService(stubDB, nil)
 	discoverMB, ok := discover.mb.(*MusicBrainzClient)
 	assert.True(t, ok)
-	assert.NotNil(t, discoverMB, "omitted client must default-construct")
+	assert.NotNil(t, discoverMB, "nil client must default-construct")
 
-	enrich := NewEnrichmentService(stubDB, nil, "")
-	assert.NotNil(t, enrich.mbClient, "omitted client must default-construct")
+	enrich := NewEnrichmentService(stubDB, nil, "", nil)
+	assert.NotNil(t, enrich.mbClient, "nil client must default-construct")
 
 	// Two default-constructed services get DISTINCT clients (the pre-PSY-1208
 	// behavior preserved for standalone callers that don't opt into sharing).
@@ -123,10 +123,14 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 		"second throttle must block for at least one rateLimit interval")
 }
 
-// TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts on a
-// cancelled context instead of holding the lock for the full interval — the
-// PSY-1191 behavior the shared client must preserve under concurrent
-// discovery+enrichment load.
+// TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts the
+// per-call rate-limit WAIT on a cancelled context instead of holding the lock
+// for the full interval — the PSY-1191 cancellable-discovery behavior the
+// shared client must preserve. NOTE: this covers the cancellation of the wait
+// itself, NOT contention on c.mu.Lock(). With one shared client (PSY-1208) a
+// concurrent discovery call can still block up to ~one interval acquiring the
+// lock behind an in-flight enrichment throttle — that bounded wait is the
+// intended cost of a true ~1 req/s process-wide limit, documented in the PR.
 func TestMusicBrainzClient_ThrottleCancellable(t *testing.T) {
 	c := NewMusicBrainzClient()
 	c.rateLimit = time.Hour // make the wait effectively unbounded
@@ -270,7 +274,7 @@ func (s *EnrichmentIntegrationTestSuite) SetupSuite() {
 	testutil.RunAllMigrations(s.T(), sqlDB, migrationDir)
 
 	mockArtist := &mockArtistServiceForEnrichment{}
-	s.svc = NewEnrichmentService(db, mockArtist, "")
+	s.svc = NewEnrichmentService(db, mockArtist, "", nil)
 }
 
 func (s *EnrichmentIntegrationTestSuite) TearDownSuite() {
