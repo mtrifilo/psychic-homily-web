@@ -374,6 +374,24 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
             </div>
           </Link>
           <Link
+            href="/admin/discovery"
+            className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            data-testid="admin-dashboard-link-discovery"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Music className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Discovery triage</p>
+                <p className="text-xs text-muted-foreground">
+                  Review bulk-backfill Bandcamp/Spotify link candidates for
+                  link-less artists.
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
             href="/admin/featured"
             className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             data-testid="admin-dashboard-link-featured"

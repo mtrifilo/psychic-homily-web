@@ -146,6 +146,18 @@ export const API_ENDPOINTS = {
     STREAMING_WORKLIST: {
       LIST: `${API_BASE_URL}/admin/streaming-worklist`,
     },
+    // Bulk-backfill music-link suggestion review queue (PSY-1199/1207).
+    // The sweep cmd (PSY-1206) pre-computes MusicBrainz Bandcamp/Spotify
+    // candidates into artist_link_suggestions; this triage UI lists the
+    // pending rows and accepts (writes the link) / rejects them. Every
+    // candidate is human-reviewed — auto-apply is ruled out (PSY-1196/1197).
+    LINK_SUGGESTIONS: {
+      LIST: `${API_BASE_URL}/admin/link-suggestions`,
+      ACCEPT: (suggestionId: string | number) =>
+        `${API_BASE_URL}/admin/link-suggestions/${suggestionId}/accept`,
+      REJECT: (suggestionId: string | number) =>
+        `${API_BASE_URL}/admin/link-suggestions/${suggestionId}/reject`,
+    },
     REPORTS: {
       LIST: `${API_BASE_URL}/admin/reports`,
       DISMISS: (reportId: string | number) =>
