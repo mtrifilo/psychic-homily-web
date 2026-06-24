@@ -986,6 +986,10 @@ function VirtualStagedRows({
       className="overflow-y-auto"
       style={{ maxHeight: STAGED_LIST_VIEWPORT_HEIGHT }}
       data-testid="add-items-picker-staged-list"
+      // Marks the windowed render path. Load-bearing test/inspection hook: the
+      // threshold tests assert its presence above the threshold + absence
+      // below + absence during a drag (full-render fallback). Don't drop it on
+      // a refactor without updating those tests.
       data-virtualized="true"
     >
       <div
