@@ -10,7 +10,9 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -57,11 +59,16 @@ type SweepIntegrationTestSuite struct {
 	suite.Suite
 	testDB *testutil.TestDatabase
 	db     *gorm.DB
+	// store is the REAL suggestion-store service — the sweep upserts through it,
+	// so these tests exercise the production UpsertSuggestions ON CONFLICT path
+	// against a real Postgres, not a fake.
+	store *pipeline.LinkSuggestionService
 }
 
 func (s *SweepIntegrationTestSuite) SetupSuite() {
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
+	s.store = pipeline.NewLinkSuggestionService(s.db, catalog.NewArtistService(s.db))
 }
 
 func (s *SweepIntegrationTestSuite) TearDownSuite() {
@@ -110,7 +117,7 @@ func (s *SweepIntegrationTestSuite) TestTargetFilter_OnlyLinkless() {
 		hasSpotify: {cand(contracts.MusicPlatformSpotify, "https://open.spotify.com/artist/r", contracts.MusicConfidenceReview)},
 	}}
 
-	report, err := RunSweep(context.Background(), s.db, disc, false /* dry-run */)
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* dry-run */)
 	require.NoError(s.T(), err)
 
 	// Only the link-less artist is scanned at all.
@@ -128,7 +135,7 @@ func (s *SweepIntegrationTestSuite) TestDryRun_NoWrites() {
 		},
 	}}
 
-	report, err := RunSweep(context.Background(), s.db, disc, true /* dry-run */)
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, true /* dry-run */)
 	require.NoError(s.T(), err)
 
 	require.Equal(s.T(), 1, report.ArtistsScanned)
@@ -149,7 +156,7 @@ func (s *SweepIntegrationTestSuite) TestConfirm_UpsertsPending() {
 		},
 	}}
 
-	report, err := RunSweep(context.Background(), s.db, disc, false /* confirm */)
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* confirm */)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 2, report.SuggestionsFound)
 	require.Equal(s.T(), 2, report.SuggestionsWritten)
@@ -173,14 +180,16 @@ func (s *SweepIntegrationTestSuite) TestIdempotent_RerunWritesZero() {
 		id: {cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh)},
 	}}
 
-	r1, err := RunSweep(context.Background(), s.db, disc, false)
+	r1, err := RunSweep(context.Background(), s.db, disc, s.store, false)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 1, r1.SuggestionsWritten)
+	require.Equal(s.T(), 0, r1.SuggestionsSkipped, "first run: nothing pre-existed")
 
-	r2, err := RunSweep(context.Background(), s.db, disc, false)
+	r2, err := RunSweep(context.Background(), s.db, disc, s.store, false)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 1, r2.SuggestionsFound, "re-discovers the same candidate")
 	require.Equal(s.T(), 0, r2.SuggestionsWritten, "but writes nothing — idempotent")
+	require.Equal(s.T(), 1, r2.SuggestionsSkipped, "the one re-discovered candidate is reported skipped")
 	require.EqualValues(s.T(), 1, s.countSuggestions(id), "still exactly one row")
 }
 
@@ -206,7 +215,7 @@ func (s *SweepIntegrationTestSuite) TestNoResurrect_ReviewedRowUntouched() {
 		id: {cand(contracts.MusicPlatformBandcamp, url, contracts.MusicConfidenceHigh)},
 	}}
 
-	report, err := RunSweep(context.Background(), s.db, disc, false /* confirm */)
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* confirm */)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 0, report.SuggestionsWritten, "the rejected row's key conflicts → DO NOTHING")
 
@@ -231,13 +240,42 @@ func (s *SweepIntegrationTestSuite) TestPerArtistErrorNonFatal() {
 		errFor: map[uint]error{bad: errors.New("mb boom")},
 	}
 
-	report, err := RunSweep(context.Background(), s.db, disc, false)
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 2, report.ArtistsScanned)
 	require.Len(s.T(), report.Errors, 1)
 	require.Equal(s.T(), 1, report.SuggestionsWritten, "the good artist still got written")
 	require.EqualValues(s.T(), 1, s.countSuggestions(good))
 	require.EqualValues(s.T(), 0, s.countSuggestions(bad))
+}
+
+// TestUpsertErrorDoesNotInflateSkipped is the regression for the code-review
+// finding: a failed upsert's candidates must count toward NEITHER Written nor
+// Skipped (they were never present and never conflict-skipped — they errored).
+// We force a real DB error by feeding a candidate whose confidence violates the
+// column's CHECK constraint (the production service never emits this; this is a
+// defense-in-depth path), so the artist's upsert returns an error.
+func (s *SweepIntegrationTestSuite) TestUpsertErrorDoesNotInflateSkipped() {
+	bad := s.seedArtist("Bad Confidence", nil, nil)
+	good := s.seedArtist("Good Band", nil, nil)
+
+	badCand := cand(contracts.MusicPlatformBandcamp, "https://bad.bandcamp.com", contracts.MusicConfidenceHigh)
+	badCand.Confidence = "bogus" // violates CHECK (confidence IN ('high','review'))
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{
+		bad:  {badCand},
+		good: {cand(contracts.MusicPlatformBandcamp, "https://good.bandcamp.com", contracts.MusicConfidenceReview)},
+	}}
+
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, false /* confirm */)
+	require.NoError(s.T(), err)
+	require.Len(s.T(), report.Errors, 1, "the bad artist's upsert errored")
+	require.Equal(s.T(), 2, report.SuggestionsFound, "both artists' candidates counted as found")
+	require.Equal(s.T(), 1, report.SuggestionsWritten, "only the good artist wrote")
+	require.Equal(s.T(), 0, report.SuggestionsSkipped,
+		"the failed candidate must NOT be mislabeled as already-present")
+	require.EqualValues(s.T(), 0, s.countSuggestions(bad), "nothing written for the bad artist")
+	require.EqualValues(s.T(), 1, s.countSuggestions(good))
 }
 
 // TestSequentialOrder asserts artists are processed in id order, one at a time —
@@ -248,7 +286,7 @@ func (s *SweepIntegrationTestSuite) TestSequentialOrder() {
 	c := s.seedArtist("Artist C", nil, nil)
 
 	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{}}
-	_, err := RunSweep(context.Background(), s.db, disc, true)
+	_, err := RunSweep(context.Background(), s.db, disc, s.store, true)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), []uint{a, b, c}, disc.calls, "sequential, id-ordered")
 }

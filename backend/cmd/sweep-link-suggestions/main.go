@@ -47,6 +47,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/pipeline"
 )
 
@@ -87,13 +88,20 @@ func main() {
 	mbClient := pipeline.NewMusicBrainzClient()
 	disc := pipeline.NewDiscoverMusicService(database, mbClient)
 
+	// The suggestion store (PSY-1199) owns the artist_link_suggestions table and
+	// its ON CONFLICT upsert — the sweep only ORCHESTRATES, it doesn't touch the
+	// store's persistence mechanics directly. UpsertSuggestions never invokes the
+	// artist write path (only AcceptSuggestion does), but we wire the real artist
+	// service to match the container's construction.
+	store := pipeline.NewLinkSuggestionService(database, catalog.NewArtistService(database))
+
 	// Cancel the sweep cleanly on SIGINT/SIGTERM so an interrupted run stops
 	// between artists (and cancels the in-flight MB/liveness work) instead of
 	// being hard-killed mid-write. Resumable: just re-run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	report, err := RunSweep(ctx, database, disc, !confirm)
+	report, err := RunSweep(ctx, database, disc, store, !confirm)
 	if err != nil {
 		log.Fatalf("sweep: %v", err)
 	}
@@ -144,7 +152,7 @@ func printReport(r *SweepReport) {
 	fmt.Printf("Suggestions found (planned):                      %d\n", r.SuggestionsFound)
 	if confirm {
 		fmt.Printf("Suggestions written (new pending rows):           %d\n", r.SuggestionsWritten)
-		fmt.Printf("Already present (skipped via ON CONFLICT):        %d\n", r.SuggestionsFound-r.SuggestionsWritten)
+		fmt.Printf("Already present (skipped via ON CONFLICT):        %d\n", r.SuggestionsSkipped)
 	}
 	fmt.Printf("Errors:                                           %d\n", len(r.Errors))
 	fmt.Println()
