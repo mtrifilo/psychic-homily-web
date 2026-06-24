@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"gorm.io/gorm"
 
@@ -73,8 +74,18 @@ type upserter interface {
 // the row's identity, not its status. The target query also drops any artist that
 // has since gained a link. A run can be interrupted and re-run safely.
 //
-// ctx bounds the whole sweep: cancelling it stops the loop between artists and
-// cancels any in-flight MB/liveness work for the current artist.
+// Resumability is for CORRECTNESS, not cost: a re-run still re-discovers EVERY
+// link-less artist via MusicBrainz (only the DB insert is conflict-skipped, not
+// the rate-limited MB lookup), so resuming near the end of the backlog re-spends
+// most of the MB traffic. This is deliberate — re-discovery lets a re-sweep pick
+// up links MB has newly published for an artist — and acceptable because the run
+// is a one-shot ops task, not a hot path. (An "AND NOT EXISTS suggestion" filter
+// would make resume cheap but would stop re-discovering artists whose prior
+// candidates were all rejected; that tradeoff is an open ops decision, see PR.)
+//
+// ctx bounds the whole sweep: cancelling it stops the loop (checked before AND
+// after each artist's discovery) and cancels any in-flight MB/liveness work for
+// the current artist via the shared context.
 func RunSweep(ctx context.Context, db *gorm.DB, disc discoverer, store upserter, dryRun bool) (*SweepReport, error) {
 	report := &SweepReport{}
 
@@ -102,6 +113,18 @@ func RunSweep(ctx context.Context, db *gorm.DB, disc discoverer, store upserter,
 			continue
 		}
 
+		// Re-check cancellation AFTER discovery: a SIGINT that lands DURING
+		// DiscoverMusic makes it return a PARTIAL candidate set with a nil error
+		// (it breaks its own loop on ctx cancellation). Upserting that partial set
+		// is harmless for the idempotent queue, but skipping it keeps the
+		// "stops cleanly between artists" contract literally true — the in-flight
+		// artist is left entirely for the resuming run.
+		if ctx.Err() != nil {
+			report.Errors = append(report.Errors,
+				fmt.Sprintf("sweep cancelled during artist %d %q: %v", a.ID, a.Name, ctx.Err()))
+			break
+		}
+
 		if len(result.Candidates) == 0 {
 			report.ArtistsNoCandidates++
 			continue
@@ -110,6 +133,10 @@ func RunSweep(ctx context.Context, db *gorm.DB, disc discoverer, store upserter,
 		report.SuggestionsFound += len(result.Candidates)
 
 		if dryRun {
+			// Heartbeat so a multi-hour run (~1 req/s over the backlog) is visibly
+			// progressing rather than indistinguishable from a hang.
+			log.Printf("[%d/%d] artist %d %q: %d candidate(s) (dry-run)",
+				report.ArtistsScanned, len(artists), a.ID, a.Name, len(result.Candidates))
 			continue
 		}
 
@@ -124,6 +151,8 @@ func RunSweep(ctx context.Context, db *gorm.DB, disc discoverer, store upserter,
 		// upsert SUCCEEDED — a failed upsert's candidates were neither written nor
 		// "already present" (see SweepReport.Errors).
 		report.SuggestionsSkipped += len(result.Candidates) - written
+		log.Printf("[%d/%d] artist %d %q: %d candidate(s), %d written",
+			report.ArtistsScanned, len(artists), a.ID, a.Name, len(result.Candidates), written)
 	}
 
 	return report, nil
@@ -132,10 +161,18 @@ func RunSweep(ctx context.Context, db *gorm.DB, disc discoverer, store upserter,
 // linklessArtists returns the (id, name) of every artist with NO music-platform
 // link — exactly the bulk-backfill target set (PSY-1206): bandcamp_embed_url IS
 // NULL AND spotify IS NULL. Ordered by id so a run's progress (and an
-// interrupted-then-resumed run) is deterministic. This reads the artists table
-// (not the suggestion store), so the query lives with the cmd that orchestrates
-// the sweep — mirroring dedup-shows, where the cmd holds the loop and the
-// service owns the per-item mutation.
+// interrupted-then-resumed run) is deterministic.
+//
+// CONVENTION NOTE: the cmd↔service split here is the dedup-shows shape (the cmd
+// owns the loop + this target query; the service owns the per-item mutation,
+// LinkSuggestionService.UpsertSuggestions). The OTHER artist-backfill cmd,
+// backfill-artist-bandcamp-embeds, pushes its whole query+loop INTO a service
+// (catalog.BackfillArtistBandcampEmbeds) — so the repo has both shapes and this
+// one deliberately follows dedup-shows. The factor that tips it: the loop body is
+// a network call (MusicBrainz) bounded by a shared throttle + signal cancellation,
+// which is orchestration the cmd already owns; pushing it into a service buys no
+// reuse (no other caller wants a multi-hour MB sweep) at the cost of threading
+// ctx/throttle/signal plumbing through the service layer.
 func linklessArtists(db *gorm.DB) ([]linklessArtist, error) {
 	var out []linklessArtist
 	err := db.Model(&catalogm.Artist{}).

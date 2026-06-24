@@ -148,7 +148,8 @@ func printReport(r *SweepReport) {
 	fmt.Println("=== Summary ===")
 	fmt.Printf("Artists scanned (no bandcamp embed + no spotify): %d\n", r.ArtistsScanned)
 	fmt.Printf("  with candidates:                                %d\n", r.ArtistsWithCandidates)
-	fmt.Printf("  no candidates:                                  %d\n", r.ArtistsNoCandidates)
+	fmt.Printf("  skipped, no candidates:                         %d\n", r.ArtistsNoCandidates)
+	fmt.Printf("  skipped, errored (see above):                   %d\n", len(r.Errors))
 	fmt.Printf("Suggestions found (planned):                      %d\n", r.SuggestionsFound)
 	if confirm {
 		fmt.Printf("Suggestions written (new pending rows):           %d\n", r.SuggestionsWritten)
@@ -163,8 +164,11 @@ func printReport(r *SweepReport) {
 		fmt.Println("LIVE — pending suggestions committed.")
 	}
 
-	// Exit non-zero if a live run hit errors so CI/cron wrappers can alert.
-	if confirm && len(r.Errors) > 0 {
+	// Exit non-zero if the run hit ANY errors so a CI/cron wrapper can alert —
+	// regardless of mode. A dry-run that hits systematic discovery failures (e.g.
+	// MB blocking the IP) is a failed pre-flight, not a clean plan, so it must not
+	// exit 0.
+	if len(r.Errors) > 0 {
 		os.Exit(1)
 	}
 }

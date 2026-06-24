@@ -25,10 +25,17 @@ type fakeDiscoverer struct {
 	byArtist map[uint][]contracts.MusicLinkCandidate
 	errFor   map[uint]error
 	calls    []uint // ordered record of artist ids passed in
+	// onCall, when set, is invoked at the START of each DiscoverMusic with the
+	// artist id — used to simulate a SIGINT landing mid-sweep by cancelling the
+	// context after the first artist is reached.
+	onCall func(artistID uint)
 }
 
 func (f *fakeDiscoverer) DiscoverMusic(_ context.Context, artistID uint, _ string) (*contracts.DiscoverMusicResult, error) {
 	f.calls = append(f.calls, artistID)
+	if f.onCall != nil {
+		f.onCall(artistID)
+	}
 	if err := f.errFor[artistID]; err != nil {
 		return nil, err
 	}
@@ -286,7 +293,62 @@ func (s *SweepIntegrationTestSuite) TestSequentialOrder() {
 	c := s.seedArtist("Artist C", nil, nil)
 
 	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{}}
-	_, err := RunSweep(context.Background(), s.db, disc, s.store, true)
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, true)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), []uint{a, b, c}, disc.calls, "sequential, id-ordered")
+	// All three artists returned zero candidates → the no-candidates counter.
+	require.Equal(s.T(), 3, report.ArtistsScanned)
+	require.Equal(s.T(), 3, report.ArtistsNoCandidates)
+	require.Equal(s.T(), 0, report.ArtistsWithCandidates)
+}
+
+// TestContextCancelStopsSweep asserts a SIGINT mid-sweep (modelled by cancelling
+// the context while processing the first artist) stops the loop cleanly: the
+// remaining artists are NOT processed, a cancellation error is recorded, and the
+// in-flight artist's candidates are NOT written (the post-discovery ctx re-check).
+func (s *SweepIntegrationTestSuite) TestContextCancelStopsSweep() {
+	a := s.seedArtist("Artist A", nil, nil)
+	b := s.seedArtist("Artist B", nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	disc := &fakeDiscoverer{
+		byArtist: map[uint][]contracts.MusicLinkCandidate{
+			a: {cand(contracts.MusicPlatformBandcamp, "https://a.bandcamp.com", contracts.MusicConfidenceHigh)},
+			b: {cand(contracts.MusicPlatformBandcamp, "https://b.bandcamp.com", contracts.MusicConfidenceHigh)},
+		},
+		// Cancel as soon as the first artist is reached, modelling a signal landing
+		// DURING that artist's discovery.
+		onCall: func(uint) { cancel() },
+	}
+
+	report, err := RunSweep(ctx, s.db, disc, s.store, false /* confirm */)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), []uint{a}, disc.calls, "stopped after the first artist; B never discovered")
+	require.Equal(s.T(), 1, report.ArtistsScanned)
+	require.Len(s.T(), report.Errors, 1, "a cancellation error is recorded")
+	require.Contains(s.T(), report.Errors[0], "cancelled")
+	require.Equal(s.T(), 0, report.SuggestionsWritten, "the in-flight artist's partial set is NOT written")
+	require.EqualValues(s.T(), 0, s.countSuggestions(a), "nothing committed on a cancelled sweep")
+	require.EqualValues(s.T(), 0, s.countSuggestions(b))
+}
+
+// TestQueryErrorReturnsError asserts the one path where RunSweep returns a
+// non-nil error — the target query failing — surfaces (rather than silently
+// sweeping nothing). We drop the artists table so the SELECT errors.
+func (s *SweepIntegrationTestSuite) TestQueryErrorReturnsError() {
+	sqlDB, err := s.db.DB()
+	require.NoError(s.T(), err)
+	_, err = sqlDB.Exec("ALTER TABLE artists RENAME TO artists_renamed_for_test")
+	require.NoError(s.T(), err)
+	// Restore so TearDownTest's DELETEs and later tests still work.
+	defer func() {
+		_, _ = sqlDB.Exec("ALTER TABLE artists_renamed_for_test RENAME TO artists")
+	}()
+
+	disc := &fakeDiscoverer{byArtist: map[uint][]contracts.MusicLinkCandidate{}}
+	report, err := RunSweep(context.Background(), s.db, disc, s.store, true)
+	require.Error(s.T(), err, "a failed target query must surface as an error")
+	require.Contains(s.T(), err.Error(), "query link-less artists")
+	require.Nil(s.T(), report)
+	require.Empty(s.T(), disc.calls, "no artist is processed when the query fails")
 }
