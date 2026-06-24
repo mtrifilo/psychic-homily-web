@@ -36,10 +36,19 @@ type EnrichmentService struct {
 }
 
 // NewEnrichmentService creates a new enrichment service.
+//
+// The variadic mbClient is the SHARED MusicBrainz client (PSY-1208): the server
+// constructs ONE *MusicBrainzClient and injects the same instance here and into
+// DiscoverMusicService, so a single mutex-serialized throttle enforces a true
+// ~1 req/s across ALL MusicBrainz calls in the process (MB blocks for exceeding
+// ~1 req/s/IP). When omitted, the service default-constructs its own client so
+// standalone/test callers keep working — only the second supplied client (if
+// any) would be ignored, so callers pass at most one.
 func NewEnrichmentService(
 	database *gorm.DB,
 	artistService contracts.ArtistServiceInterface,
 	seatgeekClientID string,
+	mbClient ...*MusicBrainzClient,
 ) *EnrichmentService {
 	if database == nil {
 		database = db.GetDB()
@@ -47,7 +56,7 @@ func NewEnrichmentService(
 	return &EnrichmentService{
 		db:             database,
 		artistService:  artistService,
-		mbClient:       NewMusicBrainzClient(),
+		mbClient:       firstOrNewMBClient(mbClient),
 		sgClient:       NewSeatGeekClient(seatgeekClientID),
 		logger:         slog.Default(),
 		matchThreshold: AutoMatchThreshold,

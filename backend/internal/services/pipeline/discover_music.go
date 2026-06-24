@@ -55,16 +55,25 @@ type DiscoverMusicService struct {
 	regionsFn func(artistID uint) ([]showRegion, error)
 }
 
-// NewDiscoverMusicService builds the service with the real MusicBrainz client
-// and the SSRF-safe liveness checker. A nil database resolves to the process
-// default so callers don't have to thread the global DB pointer.
-func NewDiscoverMusicService(database *gorm.DB) *DiscoverMusicService {
+// NewDiscoverMusicService builds the service with a MusicBrainz client and the
+// SSRF-safe liveness checker. A nil database resolves to the process default so
+// callers don't have to thread the global DB pointer.
+//
+// The variadic mbClient is the SHARED MusicBrainz client (PSY-1208): the server
+// constructs ONE *MusicBrainzClient and injects the same instance here and into
+// EnrichmentService, so a single mutex-serialized throttle enforces a true
+// ~1 req/s across ALL MusicBrainz calls in the process (MB blocks for exceeding
+// ~1 req/s/IP). When omitted, the service default-constructs its own client so
+// standalone/test callers keep working — only the second supplied client (if
+// any) would be ignored, so callers pass at most one.
+func NewDiscoverMusicService(database *gorm.DB, mbClient ...*MusicBrainzClient) *DiscoverMusicService {
 	if database == nil {
 		database = db.GetDB()
 	}
+	mb := firstOrNewMBClient(mbClient)
 	s := &DiscoverMusicService{
 		db:       database,
-		mb:       NewMusicBrainzClient(),
+		mb:       mb,
 		liveness: NewSSRFSafeLivenessChecker(),
 	}
 	s.regionsFn = s.artistShowRegions

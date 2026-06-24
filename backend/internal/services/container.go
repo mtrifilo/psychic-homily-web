@@ -125,9 +125,16 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	discord := notification.NewDiscordService(cfg)
 
+	// PSY-1208: ONE shared MusicBrainz client across discovery + enrichment.
+	// MusicBrainz blocks for exceeding ~1 req/s/IP; two independent clients (one
+	// per service) each have their own throttle and could combine for ~2 req/s.
+	// Injecting the same instance into both services routes ALL MB calls through
+	// a single mutex-serialized throttle, enforcing a true ~1 req/s process-wide.
+	mbClient := pipeline.NewMusicBrainzClient()
+
 	// Enrichment service — SeatGeek client ID is optional
 	seatgeekClientID := os.Getenv("SEATGEEK_CLIENT_ID")
-	enrichmentSvc := pipeline.NewEnrichmentService(database, artist, seatgeekClientID)
+	enrichmentSvc := pipeline.NewEnrichmentService(database, artist, seatgeekClientID, mbClient)
 	enrichmentWorker := pipeline.NewEnrichmentWorker(enrichmentSvc)
 
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
@@ -223,7 +230,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		SourceConfig:           sourceConfig,
 		AIExtractionThrottle:   ratelimit.NewAIExtractionThrottleService(database),
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
-		DiscoverMusic:          pipeline.NewDiscoverMusicService(database),
+		DiscoverMusic:          pipeline.NewDiscoverMusicService(database, mbClient),
 		// PSY-1199: the link-suggestion accept path reuses the artist write path
 		// (UpdateArtist → bandcamp/spotify setters + PSY-1190 resolver), so it
 		// takes the already-constructed artist service.

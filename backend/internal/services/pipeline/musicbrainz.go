@@ -109,6 +109,19 @@ func NewMusicBrainzClient() *MusicBrainzClient {
 	}
 }
 
+// firstOrNewMBClient resolves a service's MusicBrainz client from an optional
+// injected one (PSY-1208). The server passes the single shared client so one
+// mutex-serialized throttle covers discovery + enrichment; standalone/test
+// callers pass nothing and get a freshly constructed client. A non-nil first
+// element wins; otherwise (omitted, or an explicit nil first element) a new
+// client is constructed so the service never holds a nil throttle.
+func firstOrNewMBClient(injected []*MusicBrainzClient) *MusicBrainzClient {
+	if len(injected) > 0 && injected[0] != nil {
+		return injected[0]
+	}
+	return NewMusicBrainzClient()
+}
+
 // SearchArtist searches MusicBrainz for an artist by name.
 // Returns the best match with score >= minScore, or nil if no match found.
 func (c *MusicBrainzClient) SearchArtist(name string) (*MBLookupResult, error) {
