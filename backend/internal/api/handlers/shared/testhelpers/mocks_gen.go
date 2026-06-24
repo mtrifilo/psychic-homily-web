@@ -2221,6 +2221,35 @@ func (m *MockLeaderboardService) GetUserRank(userID uint, dimension string, peri
 }
 
 // ============================================================================
+// Mock: LinkSuggestionServiceInterface
+// ============================================================================
+
+type MockLinkSuggestionService struct {
+	ListPendingSuggestionsFn func(int, int) (*contracts.LinkSuggestionListResult, error)
+	AcceptSuggestionFn       func(uint, uint) (*contracts.LinkSuggestionReviewResult, error)
+	RejectSuggestionFn       func(uint, uint) (*contracts.LinkSuggestionReviewResult, error)
+}
+
+func (m *MockLinkSuggestionService) ListPendingSuggestions(limit int, offset int) (*contracts.LinkSuggestionListResult, error) {
+	if m.ListPendingSuggestionsFn != nil {
+		return m.ListPendingSuggestionsFn(limit, offset)
+	}
+	return nil, nil
+}
+func (m *MockLinkSuggestionService) AcceptSuggestion(suggestionID uint, reviewerUserID uint) (*contracts.LinkSuggestionReviewResult, error) {
+	if m.AcceptSuggestionFn != nil {
+		return m.AcceptSuggestionFn(suggestionID, reviewerUserID)
+	}
+	return nil, nil
+}
+func (m *MockLinkSuggestionService) RejectSuggestion(suggestionID uint, reviewerUserID uint) (*contracts.LinkSuggestionReviewResult, error) {
+	if m.RejectSuggestionFn != nil {
+		return m.RejectSuggestionFn(suggestionID, reviewerUserID)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: NotificationFilterServiceInterface
 // ============================================================================
 
@@ -4224,6 +4253,7 @@ var _ contracts.FollowServiceInterface = (*MockFollowService)(nil)
 var _ contracts.JWTServiceInterface = (*MockJWTService)(nil)
 var _ contracts.LabelServiceInterface = (*MockLabelService)(nil)
 var _ contracts.LeaderboardServiceInterface = (*MockLeaderboardService)(nil)
+var _ contracts.LinkSuggestionServiceInterface = (*MockLinkSuggestionService)(nil)
 var _ contracts.NotificationFilterServiceInterface = (*MockNotificationFilterService)(nil)
 var _ contracts.PasswordValidatorInterface = (*MockPasswordValidator)(nil)
 var _ contracts.PendingEditServiceInterface = (*MockPendingEditService)(nil)

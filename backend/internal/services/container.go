@@ -72,6 +72,7 @@ type ServiceContainer struct {
 	AIExtractionThrottle   *ratelimit.AIExtractionThrottleService
 	StreamingWorklist      *pipeline.StreamingWorklistService
 	DiscoverMusic          *pipeline.DiscoverMusicService
+	LinkSuggestion         *pipeline.LinkSuggestionService
 
 	// Config-only services
 	Discord            *notification.DiscordService
@@ -223,6 +224,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AIExtractionThrottle:   ratelimit.NewAIExtractionThrottleService(database),
 		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
 		DiscoverMusic:          pipeline.NewDiscoverMusicService(database),
+		// PSY-1199: the link-suggestion accept path reuses the artist write path
+		// (UpdateArtist → bandcamp/spotify setters + PSY-1190 resolver), so it
+		// takes the already-constructed artist service.
+		LinkSuggestion:         pipeline.NewLinkSuggestionService(database, artist),
 
 		// Config-only services
 		Discord:            discord,
