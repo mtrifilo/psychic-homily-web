@@ -219,6 +219,16 @@ func (c *MusicBrainzClient) LookupArtistURLRelations(ctx context.Context, mbid s
 // behavior; the PSY-1191 discovery path passes the request context so a
 // disconnected admin stops the per-call rate-limit wait instead of holding the
 // lock for the full interval.
+//
+// CAVEAT (PSY-1208): the lock is held across the whole wait, so only the
+// POST-acquisition wait is ctx-cancellable — acquiring c.mu is not. With one
+// shared client across discovery + enrichment, a caller can block up to ~one
+// rateLimit interval acquiring the lock behind an in-flight call on the shared
+// client. That wait is BOUNDED (the HTTP round-trip runs outside the lock, and
+// each throttle releases c.mu on return) — it is the intended cost of a true
+// ~1 req/s process-wide limit, NOT a deadlock. Note the contending enrichment
+// call (SearchArtist) holds the lock with an un-cancellable context.Background(),
+// so even ctx cancellation on the waiting side can't shorten that ~1.1s hold.
 func (c *MusicBrainzClient) throttle(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -59,6 +59,12 @@ func TestMusicBrainzClient_NewClient(t *testing.T) {
 // mutex-serialized throttle covers ALL MusicBrainz calls in the process. Before
 // PSY-1208 each constructor called NewMusicBrainzClient() independently, giving
 // two throttles that could combine for ~2 req/s and trip MB's ~1 req/s/IP block.
+//
+// This test enforces the CONSTRUCTOR-LEVEL contract that container.go relies on
+// — that passing one client to both constructors yields one shared client. The
+// container's own wiring (NewServiceContainer constructs ONE mbClient and passes
+// that same variable to both, container.go) is obvious by construction and not
+// re-asserted here, since a full container test would need a live DB + config.
 func TestMusicBrainzClient_SharedAcrossServices(t *testing.T) {
 	shared := NewMusicBrainzClient()
 
@@ -106,7 +112,11 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	c := NewMusicBrainzClient()
 	// Shorten the interval so the test stays fast while still proving the
 	// throttle blocks for ~one interval; the production interval is mbRateLimit.
-	c.rateLimit = 50 * time.Millisecond
+	// 200ms (not, say, 50ms) gives the first-call lower-bound assertion below
+	// generous margin: the first throttle does only a lock + time.Now(), so the
+	// "< rateLimit" check would only flake if a loaded/GC-starved CI box stalled
+	// that for >200ms — far less likely than a tighter window.
+	c.rateLimit = 200 * time.Millisecond
 
 	ctx := context.Background()
 
@@ -119,6 +129,8 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	start = time.Now()
 	assert.NoError(t, c.throttle(ctx)) // second must wait one interval
 	secondElapsed := time.Since(start)
+	// secondElapsed >= rateLimit is the robust direction: time.Timer can only
+	// fire late, never early, so this lower bound holds regardless of jitter.
 	assert.GreaterOrEqual(t, secondElapsed, c.rateLimit,
 		"second throttle must block for at least one rateLimit interval")
 }
