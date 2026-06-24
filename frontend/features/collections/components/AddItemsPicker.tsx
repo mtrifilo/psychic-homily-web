@@ -45,7 +45,6 @@ import {
   AlertTriangle,
   Library,
   Loader2,
-  Info,
   GripVertical,
   Inbox,
 } from 'lucide-react'
@@ -53,12 +52,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { InfoTooltip } from '@/components/shared/InfoTooltip'
 import { InlineErrorBanner } from '@/components/shared'
 import {
   useEntitySearch,
@@ -331,35 +325,21 @@ const AI_TAB_TOOLTIP_COPY =
  * hover AND keyboard focus of just the glyph, while clicking the tab itself
  * still switches modes.
  *
- * The Tooltip composition mirrors the canonical `TransitiveTagTooltip`
- * (TagFacetPanel.tsx). The placement as a non-tab sibling INSIDE the Radix
- * tablist is specific to this tab context: Radix's roving-tabindex only
- * governs `role="tab"` descendants, so the glyph stays an ordinary Tab stop
- * rather than joining the arrow-key tab cycle. Verified manually in-browser
- * (arrow keys still move between the three tabs; the glyph is its own Tab
- * stop) — the unit tests mock `@/components/ui/tabs`, so they do not cover
- * the real-Radix focus path. A future shared `InfoTooltip` extraction (PSY
- * follow-up) would standardize this.
+ * Delegates to the shared `InfoTooltip` primitive (PSY-969). The placement as
+ * a non-tab sibling INSIDE the Radix tablist is specific to this tab context:
+ * Radix's roving-tabindex only governs `role="tab"` descendants, so the glyph
+ * stays an ordinary Tab stop rather than joining the arrow-key tab cycle.
+ * Verified manually in-browser (arrow keys still move between the three tabs;
+ * the glyph is its own Tab stop) — the unit tests mock `@/components/ui/tabs`,
+ * so they do not cover the real-Radix focus path.
  */
 function AiTabInfoTooltip() {
   return (
-    <TooltipProvider delayDuration={120}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="What can I paste into the AI tab?"
-            className="inline-flex items-center rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid="ai-tab-info"
-          >
-            <Info className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          {AI_TAB_TOOLTIP_COPY}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <InfoTooltip
+      copy={AI_TAB_TOOLTIP_COPY}
+      label="What can I paste into the AI tab?"
+      testId="ai-tab-info"
+    />
   )
 }
 
