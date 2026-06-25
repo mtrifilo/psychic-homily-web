@@ -321,7 +321,7 @@ export function ArtistGraphVisualization({
   }, [])
 
   const nodeCanvasObject = useCallback(
-    (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    (node: GraphNode, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const isCenter = node.isCenter
