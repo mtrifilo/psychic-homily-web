@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -15,12 +16,16 @@ import (
 type fakeSpotifyAPI struct {
 	albumsByTitle map[string][]SpotifyAlbum
 	artistsByID   map[string]*SpotifyArtist
+	searchErr     error // when set, SearchAlbums returns it (simulates a throttle abort)
 	searchCalls   int
 	artistCalls   int
 }
 
 func (f *fakeSpotifyAPI) SearchAlbums(_, title string, _ int) ([]SpotifyAlbum, error) {
 	f.searchCalls++
+	if f.searchErr != nil {
+		return nil, f.searchErr
+	}
 	return f.albumsByTitle[title], nil
 }
 
@@ -208,4 +213,17 @@ func (s *SpotifyEnrichIntegrationTestSuite) TestLimit_CapsPerType() {
 	s.Require().NoError(err)
 	s.Equal(1, report.ReleasesScanned)
 	s.Equal(1, report.ArtistsScanned)
+}
+
+func (s *SpotifyEnrichIntegrationTestSuite) TestRateLimitedAbortsRun() {
+	// A persistent throttle (ErrSpotifyRateLimited from the client) must abort the
+	// whole run, not fail each entity — so we don't grind the catalog through the
+	// backoff. BackfillSpotifyImages returns an error wrapping the sentinel.
+	s.seedFixture()
+	api := &fakeSpotifyAPI{searchErr: fmt.Errorf("search: %w", ErrSpotifyRateLimited)}
+
+	_, err := BackfillSpotifyImages(s.db, api, SpotifyEnrichOptions{DryRun: true})
+	s.Require().Error(err)
+	s.True(errors.Is(err, ErrSpotifyRateLimited), "a persistent throttle must abort the run with the sentinel")
+	s.Equal(1, api.searchCalls, "abort on the first throttled search, not after grinding every release")
 }

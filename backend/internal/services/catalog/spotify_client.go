@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -36,15 +37,31 @@ const (
 	// spotifyTokenSafetyMargin is shaved off the token's reported lifetime so we
 	// refresh slightly early and never send an about-to-expire token.
 	spotifyTokenSafetyMargin = 60 * time.Second
-	// spotify429MaxWait caps how long we honor a Retry-After before giving up, so
-	// a pathological/hostile value cannot stall the backfill indefinitely.
-	spotify429MaxWait = 30 * time.Second
+	// spotify429MaxWait caps a single honored Retry-After. Penalties after heavy
+	// use can run tens of seconds; we honor up to 2 minutes so the run rides one
+	// out, but bound it so a pathological value can't hang the backfill.
+	spotify429MaxWait = 2 * time.Minute
+	// spotify429DefaultBackoff is used when a 429 carries no (parseable)
+	// Retry-After. Spotify normally sends one; this is a safe fallback.
+	spotify429DefaultBackoff = 5 * time.Second
+	// spotify429MaxRetries bounds how many times one request waits out a 429 before
+	// giving up. Exhausting it means a hard/persistent throttle (see
+	// ErrSpotifyRateLimited): the backfill aborts rather than grinding every entity
+	// through the full backoff.
+	spotify429MaxRetries = 5
 	// spotifyDefaultSearchLimit is how many album candidates we ask for; the
 	// enricher's strict gate filters them down (we never store the top hit blindly).
 	spotifyDefaultSearchLimit = 10
 	// spotifyErrorBodyLimit caps the response body retained in an error message.
 	spotifyErrorBodyLimit = 512
 )
+
+// ErrSpotifyRateLimited signals that a request kept getting 429'd past
+// spotify429MaxRetries — Spotify is throttling us hard (e.g. a leftover penalty
+// from an earlier burst). The enricher treats it as fatal and aborts the run so
+// we don't grind all 865 entities through the backoff; re-running later (the
+// backfill is idempotent) picks up where it left off once the penalty clears.
+var ErrSpotifyRateLimited = errors.New("spotify rate limit not clearing")
 
 // SpotifyClient is a minimal Spotify Web API client using the client-credentials
 // flow (no user auth). Safe for sequential use by the backfill; the token cache
@@ -63,12 +80,18 @@ type SpotifyClient struct {
 }
 
 // NewSpotifyClient builds a production Spotify client pointed at the real API.
-func NewSpotifyClient(clientID, clientSecret string) *SpotifyClient {
+// rateLimit is the minimum interval between API requests; pass <= 0 to fall back
+// to spotifyRateLimit. The backfill derives it from its --rps flag so the cadence
+// can be tuned against Spotify's (unpublished, rolling-window) rate limit.
+func NewSpotifyClient(clientID, clientSecret string, rateLimit time.Duration) *SpotifyClient {
+	if rateLimit <= 0 {
+		rateLimit = spotifyRateLimit
+	}
 	return &SpotifyClient{
 		httpClient:   &http.Client{Timeout: spotifyDefaultTimeout},
 		apiBaseURL:   spotifyAPIBaseURL,
 		accountsURL:  spotifyAccountsBaseURL,
-		rateLimiter:  time.NewTicker(spotifyRateLimit),
+		rateLimiter:  time.NewTicker(rateLimit),
 		clientID:     clientID,
 		clientSecret: clientSecret,
 	}
@@ -259,23 +282,47 @@ func (c *SpotifyClient) ensureToken() (string, error) {
 	return c.accessToken, nil
 }
 
-// apiGet performs an authenticated GET against the Spotify API, retrying once on
-// a 429 after honoring the Retry-After header.
+// apiGet performs an authenticated GET against the Spotify API. On a 429 it waits
+// out the Retry-After and retries, up to spotify429MaxRetries times, so a transient
+// throttle or a leftover penalty is ridden out instead of failing the entity.
+// If the throttle won't clear within the retry budget it returns
+// ErrSpotifyRateLimited so the caller can abort the whole run.
 func (c *SpotifyClient) apiGet(path string) ([]byte, error) {
-	return c.apiGetWithRetry(path, true)
+	for attempt := 0; ; attempt++ {
+		body, retryAfter, err := c.apiGetOnce(path)
+		if err != nil {
+			return nil, err
+		}
+		if retryAfter < 0 {
+			return body, nil // 200 — body is the result
+		}
+		// 429 — back off and retry, bounded by the retry budget.
+		if attempt >= spotify429MaxRetries {
+			return nil, fmt.Errorf("spotify API %s: %w after %d retries", path, ErrSpotifyRateLimited, spotify429MaxRetries)
+		}
+		slog.Warn("spotify: 429 throttle; waiting out Retry-After before retry",
+			"path", path, "attempt", attempt+1, "wait", retryAfter.String())
+		if retryAfter > 0 {
+			time.Sleep(retryAfter)
+		}
+	}
 }
 
-func (c *SpotifyClient) apiGetWithRetry(path string, allowRetry bool) ([]byte, error) {
+// apiGetOnce performs a single authenticated GET. It returns:
+//   - (body, -1, nil)   on 200 — body is the response
+//   - (nil, wait, nil)  on 429 — wait is how long to back off before retrying
+//   - (nil, 0, err)     on any other error or non-2xx status
+func (c *SpotifyClient) apiGetOnce(path string) ([]byte, time.Duration, error) {
 	token, err := c.ensureToken()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	<-c.rateLimiter.C
 
 	req, err := http.NewRequest(http.MethodGet, c.apiBaseURL+path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, 0, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", spotifyUserAgent)
@@ -283,43 +330,35 @@ func (c *SpotifyClient) apiGetWithRetry(path string, allowRetry bool) ([]byte, e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
+		return nil, 0, fmt.Errorf("executing request: %w", err)
 	}
-
-	// 429: drain + close this body explicitly (we recurse before any defer would
-	// fire), wait out Retry-After, and retry exactly once.
-	if resp.StatusCode == http.StatusTooManyRequests && allowRetry {
-		wait := parseSpotifyRetryAfter(resp.Header.Get("Retry-After"))
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		if wait > 0 {
-			time.Sleep(wait)
-		}
-		return c.apiGetWithRetry(path, false)
-	}
-
 	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		_, _ = io.Copy(io.Discard, resp.Body) // drain so the connection can be reused
+		return nil, parseSpotifyRetryAfter(resp.Header.Get("Retry-After")), nil
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
+		return nil, 0, fmt.Errorf("reading response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("spotify API %s returned status %d: %s", path, resp.StatusCode, spotifyTruncateBody(string(body)))
+		return nil, 0, fmt.Errorf("spotify API %s returned status %d: %s", path, resp.StatusCode, spotifyTruncateBody(string(body)))
 	}
-	return body, nil
+	return body, -1, nil
 }
 
 // parseSpotifyRetryAfter reads a Retry-After header. Per RFC 9110 §10.2.3 it may
 // be EITHER delta-seconds ("120") OR an HTTP-date ("Wed, 21 Oct 2025 07:28:00
 // GMT"); we handle both forms. The result is clamped to spotify429MaxWait so a
 // pathological value can't stall the backfill, and a non-empty header we cannot
-// parse falls back to the rate-limit cadence WITH a debug log (so a future
+// parse falls back to spotify429DefaultBackoff WITH a debug log (so a future
 // header-format change is observable rather than silently swallowed).
 func parseSpotifyRetryAfter(h string) time.Duration {
 	h = strings.TrimSpace(h)
 	if h == "" {
-		return spotifyRateLimit
+		return spotify429DefaultBackoff
 	}
 	if secs, err := strconv.Atoi(h); err == nil {
 		return clampRetryWait(time.Duration(secs) * time.Second)
@@ -328,7 +367,7 @@ func parseSpotifyRetryAfter(h string) time.Duration {
 		return clampRetryWait(time.Until(t))
 	}
 	slog.Debug("spotify: unparseable Retry-After header; using default backoff", "retry_after", h)
-	return spotifyRateLimit
+	return spotify429DefaultBackoff
 }
 
 // clampRetryWait floors a backoff at 0 (past dates / negative deltas → no sleep)
