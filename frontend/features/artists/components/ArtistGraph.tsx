@@ -163,6 +163,12 @@ export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
   )
 }
 
+// Node circle radii — shared between the circle paint (nodeCanvasObject) and the
+// label y-offset (nodeLabelsFrame) so the label always sits just below the circle
+// edge; keep the two in lockstep (PSY-1209).
+const CENTER_NODE_RADIUS = 12
+const SATELLITE_NODE_RADIUS = 8
+
 export function ArtistGraphVisualization({
   data,
   activeTypes,
@@ -325,7 +331,7 @@ export function ArtistGraphVisualization({
       const x = node.x ?? 0
       const y = node.y ?? 0
       const isCenter = node.isCenter
-      const radius = isCenter ? 12 : 8
+      const radius = isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
 
       // Draw circle. Labels are NOT drawn here — they're rendered in a single
       // collision-culled post-frame pass (nodeLabelsFrame) so overlapping labels
@@ -358,32 +364,46 @@ export function ArtistGraphVisualization({
     []
   )
 
+  // Degree (link count) per node id → which label wins a collision. A more-
+  // connected artist's label survives over a leaf's when they overlap.
+  const degreeById = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const link of graphData.links) {
+      const source = typeof link.source === 'object' ? link.source.id : link.source
+      const target = typeof link.target === 'object' ? link.target.id : link.target
+      counts.set(source, (counts.get(source) ?? 0) + 1)
+      counts.set(target, (counts.get(target) ?? 0) + 1)
+    }
+    return counts
+  }, [graphData])
+
   // Node labels are drawn in one post-frame pass rather than per-node so they can
   // be collision-culled (PSY-1209): in a dense 1-hop graph the per-node labels
-  // overlapped into an unreadable pile. The center node + the hovered node are
-  // always labeled (force); other labels are dropped when they'd overlap a
-  // higher-priority one. Same gate (globalScale > 0.7), font, truncation, and
-  // y-offset the per-node paint used; theme-aware halo+fill lives in
-  // renderGraphLabels (shared with ForceGraphView).
+  // overlapped into an unreadable pile. The center node is always labeled (force);
+  // other labels are kept in degree order and dropped when they'd overlap a
+  // higher-priority one. A culled neighbor's name is still reachable via the hover
+  // tooltip (reveal-on-hover in the canvas is PSY-1210). Same gate (globalScale >
+  // 0.7), font, truncation, and y-offset the per-node paint used; the theme-aware
+  // halo+fill lives in renderGraphLabels (shared with ForceGraphView).
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= 0.7) return
       const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
       const specs: GraphLabelSpec[] = graphData.nodes.map(node => {
-        const radius = node.isCenter ? 12 : 8
+        const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
         return {
           x: node.x ?? 0,
           y: (node.y ?? 0) + radius + 4,
           text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
           fontSize,
           bold: node.isCenter,
-          force: node.isCenter || node.id === hoveredNode?.id,
-          priority: node.val,
+          force: node.isCenter,
+          priority: degreeById.get(node.id) ?? 0,
         }
       })
       renderGraphLabels(ctx, palette, specs)
     },
-    [graphData, palette, hoveredNode]
+    [graphData, palette, degreeById]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,

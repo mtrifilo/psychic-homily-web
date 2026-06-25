@@ -71,13 +71,22 @@ describe('renderGraphLabels', () => {
     expect(fills).toEqual(['center'])
   })
 
-  it('draws two forced labels even when they overlap (center + hovered)', () => {
+  it('draws two forced labels even when they overlap', () => {
     const { ctx, fills } = makeCtx()
     renderGraphLabels(ctx, PALETTE, [
-      spec({ x: 0, y: 0, text: 'center', force: true }),
-      spec({ x: 0, y: 0, text: 'hovered', force: true }),
+      spec({ x: 0, y: 0, text: 'one', force: true }),
+      spec({ x: 0, y: 0, text: 'two', force: true }),
     ])
-    expect(fills.sort()).toEqual(['center', 'hovered'])
+    expect(fills.sort()).toEqual(['one', 'two'])
+  })
+
+  it('keeps the higher-degree (priority) label when two overlap', () => {
+    const { ctx, fills } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 0, text: 'leaf', priority: 1 }),
+      spec({ x: 0, y: 0, text: 'hub', priority: 7 }),
+    ])
+    expect(fills).toEqual(['hub'])
   })
 
   it('strokes the halo before filling the text', () => {
@@ -86,10 +95,15 @@ describe('renderGraphLabels', () => {
     expect(order).toEqual(['stroke:X', 'fill:X'])
   })
 
-  it('is a no-op for empty input and skips empty text', () => {
+  it('skips empty/whitespace-only labels without reserving their collision box', () => {
     const { ctx, fills } = makeCtx()
-    renderGraphLabels(ctx, PALETTE, [])
-    renderGraphLabels(ctx, PALETTE, [spec({ x: 0, y: 0, text: '' })])
-    expect(fills).toEqual([])
+    renderGraphLabels(ctx, PALETTE, []) // no-op on empty input
+    // A blank/whitespace label must neither draw NOR cull a real neighbor at the
+    // same position — otherwise it reserves an invisible box and hides the name.
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 0, text: '   ', priority: 9 }),
+      spec({ x: 0, y: 0, text: 'real', priority: 1 }),
+    ])
+    expect(fills).toEqual(['real'])
   })
 })

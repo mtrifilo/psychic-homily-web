@@ -472,12 +472,25 @@ export function ForceGraphView({
     [clustersByID, palette],
   )
 
-  // Node labels in one collision-culled post-frame pass (PSY-1209). The hovered
-  // node is always labeled (force); non-isolate nodes win a collision over
-  // isolates; other labels are dropped when they'd overlap a higher-priority one.
-  // Same gate (globalScale > 1.0), font, truncation, and y-offset the per-node
-  // paint used; the theme-aware halo+fill recipe lives in renderGraphLabels
-  // (shared with ArtistGraph).
+  // Degree (link count) per node id → which label wins a collision. A more-
+  // connected node's label survives over a leaf's; isolates (degree 0) lose first.
+  const degreeById = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const link of renderData.links) {
+      const source = typeof link.source === 'object' ? link.source.id : link.source
+      const target = typeof link.target === 'object' ? link.target.id : link.target
+      counts.set(source, (counts.get(source) ?? 0) + 1)
+      counts.set(target, (counts.get(target) ?? 0) + 1)
+    }
+    return counts
+  }, [renderData])
+
+  // Node labels in one collision-culled post-frame pass (PSY-1209). Labels are
+  // kept in degree order and dropped when they'd overlap a higher-priority one;
+  // a culled node's name is still reachable via the hover tooltip below (reveal-
+  // on-hover in the canvas is PSY-1210). Same gate (globalScale > 1.0), font,
+  // truncation, and y-offset the per-node paint used; the theme-aware halo+fill
+  // recipe lives in renderGraphLabels (shared with ArtistGraph).
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= 1.0) return
@@ -489,13 +502,12 @@ export function ForceGraphView({
           y: (node.y ?? 0) + radius + 3,
           text: node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name,
           fontSize,
-          force: node.id === hoveredNode?.id,
-          priority: node.is_isolate ? 0 : 1,
+          priority: degreeById.get(node.id) ?? 0,
         }
       })
       renderGraphLabels(ctx, palette, specs)
     },
-    [renderData, palette, hoveredNode],
+    [renderData, palette, degreeById],
   )
 
   // Convex hulls behind each cluster — drawn under the edges via
