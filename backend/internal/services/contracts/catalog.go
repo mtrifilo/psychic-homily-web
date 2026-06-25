@@ -650,6 +650,13 @@ type SceneListResponse struct {
 	VenueCount        int    `json:"venue_count"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	TotalShowCount    int    `json:"total_show_count"`
+	// Latitude/Longitude position the scene on the geographic-discovery map
+	// (PSY-1212): the city's geocoded centroid, resolved from (city, state) via
+	// the same offline geocoder as ShowCityResponse (PSY-985/PSY-981) — so a city
+	// plots at the same point here and on the shows-by-city map. Omitted (nil) on
+	// a geocoder miss; the scene still lists, just unplaceable.
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
 }
 
 // SceneDetailResponse represents the full computed scene for a city
