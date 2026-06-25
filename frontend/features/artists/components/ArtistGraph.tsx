@@ -130,16 +130,22 @@ export interface ArtistNodeTooltipProps {
     state?: string
     upcoming_show_count: number
   }
-  position: { x: number; y: number }
+  position: { x: number; y: number; flipX?: boolean; flipY?: boolean }
 }
 
 export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
   return (
     <div
-      className="fixed z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
+      className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
       style={{
-        left: position.x + 12,
-        top: position.y - 10,
+        left: position.x,
+        top: position.y,
+        // left/top sit at the node; the transform offsets the tooltip 8px off the
+        // node and flips it toward the container interior near the right/bottom edge.
+        transform: [
+          position.flipX ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)',
+          position.flipY ? 'translateY(calc(-100% - 8px))' : 'translateY(8px)',
+        ].join(' '),
       }}
     >
       <div className="font-medium text-sm">{node.name}</div>
@@ -180,9 +186,11 @@ export function ArtistGraphVisualization({
   const containerRef = useRef<HTMLDivElement>(null)
   const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
-  // The hover handler currently never repositions the tooltip — see the note on
-  // `handleNodeHover` below. Pinned to origin until that's fixed.
-  const [tooltipPos] = useState({ x: 0, y: 0 })
+  // Tooltip position in CONTAINER coords (the tooltip is position:absolute within
+  // the relative container). Set from the hovered node's screen position in
+  // handleNodeHover; flipX/flipY anchor it toward the container's interior near the
+  // right/bottom edges so it doesn't run off the dialog (PSY-1215).
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0, flipX: false, flipY: false })
   const reducedMotion = useReducedMotion()
 
   const graphHeight = containerWidth < 768 ? 350 : 500
@@ -330,12 +338,28 @@ export function ArtistGraphVisualization({
     [onRecenter]
   )
 
-  // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` —
-  // there's no MouseEvent in the signature (see `force-graph` `force-graph.js`
-  // line ~633: `fn(obj.d, prevObj.d)`). The previous-node arg is unused; the
-  // tooltip is pinned at origin until a follow-up adds pointer-based positioning.
+  // react-force-graph-2d's `onNodeHover` gives `(node, previousNode)` with no
+  // MouseEvent, so we anchor the tooltip on the NODE rather than the cursor:
+  // graph2ScreenCoords maps the node's graph position to canvas pixels, which are
+  // also the tooltip's coords because it is position:ABSOLUTE inside the relative
+  // container. (Absolute — not fixed — so it stays correct inside the transformed
+  // Radix dialog, whose transform would otherwise be the containing block for a
+  // fixed tooltip and offset it to the dialog corner.) Flip toward the interior
+  // near the right/bottom edges so it doesn't run off (PSY-1215; previously the
+  // tooltip was pinned to the top-left corner).
   const handleNodeHover = useCallback((node: GraphNode | null) => {
     setHoveredNode(node)
+    const graph = graphRef.current
+    const container = containerRef.current
+    if (node && node.x != null && node.y != null && graph && container) {
+      const { x, y } = graph.graph2ScreenCoords(node.x, node.y)
+      setTooltipPos({
+        x,
+        y,
+        flipX: x > container.clientWidth * 0.6,
+        flipY: y > container.clientHeight * 0.6,
+      })
+    }
   }, [])
 
   const nodeCanvasObject = useCallback(
@@ -454,6 +478,10 @@ export function ArtistGraphVisualization({
         }}
         onNodeClick={handleNodeClick}
         onNodeHover={handleNodeHover}
+        // Suppress the default native name pill — the rich ArtistNodeTooltip below
+        // (now anchored at the node) shows the name + actions, so the pill would be
+        // a redundant second tooltip (PSY-1215). linkLabel (edge tooltip) is kept.
+        nodeLabel={() => ''}
         // PSY-361 / PSY-369 spike: disable node drag to remove the
         // tap-vs-drag ambiguity on touch devices. Tap = re-center,
         // long-press = tooltip; nothing for drag to do.
