@@ -24,6 +24,7 @@ import (
 	"psychic-homily-backend/internal/auth"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
@@ -85,6 +86,16 @@ func main() {
 			Debug:            !isProduction,
 			TracesSampleRate: 0.1, // Sample 10% of transactions for performance monitoring
 			EnableTracing:    true,
+			// Explicit (it already defaults false): never attach cookies/headers/
+			// body as PII. PSY-1145.
+			SendDefaultPII: false,
+			// PSY-1145: best-effort secondary net that caps oversized values +
+			// strips common secret shapes (token-bearing URL userinfo/query,
+			// Bearer, key=value / JSON secrets, request body, auth cookie/headers)
+			// from every captured event. NOT a complete guarantee — path-segment
+			// secrets (e.g. the Discord webhook token) must still be redacted at
+			// the call site (utils.RedactErrorURL). See ScrubSentryEvent's doc.
+			BeforeSend: observability.ScrubSentryEvent,
 		}); err != nil {
 			log.Printf("Sentry initialization failed: %v", err)
 		} else {
