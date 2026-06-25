@@ -364,8 +364,9 @@ export function ArtistGraphVisualization({
         ctx.textBaseline = 'top'
         const labelY = y + radius + 4
         // Theme-aware label (PSY-1092, mirroring PSY-1091's ForceGraphView fix):
-        // the old hardcoded light greys/white were ~1.2:1 on the light "newsprint"
-        // bg. Stroke the background color as a thin halo first so the text stays
+        // the old hardcoded white / zinc-200 were ~1.1:1 on the light "newsprint"
+        // bg (measured: #ffffff 1.13:1, zinc-200 1.11:1 — far below the 4.5:1 bar).
+        // Stroke the background color as a thin halo first so the text stays
         // legible over the colored node circles on either theme, then fill with the
         // resolved foreground. The center node stays distinct via its bold weight
         // (and its indigo circle) rather than a hardcoded white — an accent color
