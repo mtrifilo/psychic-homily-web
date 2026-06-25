@@ -355,19 +355,32 @@ export function ArtistGraphVisualization({
 
       // Draw label (only when zoomed in enough)
       if (globalScale > 0.7) {
+        // save/restore so the halo's lineWidth/lineJoin don't leak into later
+        // per-node paints in this shared ctx.
+        ctx.save()
         const label = node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name
         ctx.font = `${isCenter ? 'bold ' : ''}${fontSize}px sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'top'
-        // PSY-1092: still hardcoded light colors — illegible on the light theme,
-        // the same bug PSY-1091 fixed for ForceGraphView. `palette` already
-        // exposes theme-aware labelText/labelHalo; deferred here only for the
-        // center-node distinction design call. Do not assume this graph is fixed.
-        ctx.fillStyle = isCenter ? '#ffffff' : 'rgba(228, 228, 231, 0.9)' // zinc-200
-        ctx.fillText(label, x, y + radius + 4)
+        const labelY = y + radius + 4
+        // Theme-aware label (PSY-1092, mirroring PSY-1091's ForceGraphView fix):
+        // the old hardcoded light greys/white were ~1.2:1 on the light "newsprint"
+        // bg. Stroke the background color as a thin halo first so the text stays
+        // legible over the colored node circles on either theme, then fill with the
+        // resolved foreground. The center node stays distinct via its bold weight
+        // (and its indigo circle) rather than a hardcoded white — an accent color
+        // would fail the ≥4.5:1 light-bg contrast bar (the PSY-1079 newsprint trap).
+        // Keep the halo ~1/4 the glyph size so letter counters don't fill in.
+        ctx.lineWidth = fontSize / 4
+        ctx.lineJoin = 'round'
+        ctx.strokeStyle = palette.labelHalo
+        ctx.strokeText(label, x, labelY)
+        ctx.fillStyle = palette.labelText
+        ctx.fillText(label, x, labelY)
+        ctx.restore()
       }
     },
-    []
+    [palette]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,
