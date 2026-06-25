@@ -39,6 +39,11 @@ export interface GraphLabelSpec {
   x: number
   /** Top y of the label (textBaseline top) — caller adds radius + offset. */
   y: number
+  /**
+   * The already-truncated label string. Each surface truncates with its own
+   * length/ellipsis (artist graph 20→18 `...`, ForceGraphView 22→20 `…`) — the
+   * thresholds differ ON PURPOSE because the surfaces use different font sizes.
+   */
   text: string
   fontSize: number
   bold?: boolean
@@ -72,16 +77,39 @@ function fontFor(spec: GraphLabelSpec): string {
 }
 
 /**
- * Draw a set of node labels with overlap culling. Intended to run once per frame
- * from `onRenderFramePost(ctx, globalScale)` after the nodes + links are painted,
- * so labels sit on top. Mutates only the ctx, scoped in a single save/restore so
- * the halo's lineWidth/lineJoin and the text alignment don't leak into later
- * paints on the shared ctx.
+ * Degree (link count) per node id — the collision `priority`, so a more-connected
+ * node's label survives over a leaf's when they overlap. Robust to d3-force
+ * mutating `link.source`/`link.target` from a bare id to the resolved node object
+ * (both branches resolve to the same id). Memoize on the graph data in the caller
+ * — it is pure and must NOT run per frame.
+ */
+export function degreeMap<Id extends string | number>(
+  links: ReadonlyArray<{ source: Id | { id: Id }; target: Id | { id: Id } }>,
+): Map<Id, number> {
+  const counts = new Map<Id, number>()
+  for (const link of links) {
+    const source = typeof link.source === 'object' ? link.source.id : link.source
+    const target = typeof link.target === 'object' ? link.target.id : link.target
+    counts.set(source, (counts.get(source) ?? 0) + 1)
+    counts.set(target, (counts.get(target) ?? 0) + 1)
+  }
+  return counts
+}
+
+/**
+ * Draw a set of node labels with overlap culling. Call EXACTLY ONCE per frame from
+ * `onRenderFramePost(ctx, globalScale)` (after the nodes + links are painted, so
+ * labels sit on top) — NOT from `nodeCanvasObject`, which would re-run the whole
+ * cull once per node against a `placed` set that resets each call. Each spec
+ * carries a `priority` (node degree is the convention — see `degreeMap`) and an
+ * optional `force` for a pinned/center node. Mutates only the ctx, scoped in a
+ * single save/restore so the halo's lineWidth/lineJoin and the text alignment
+ * don't leak into later paints on the shared ctx.
  *
  * Ordering: `force` labels first (the artist graph's center), then by `priority`
- * desc (node degree); a stable sort keeps input order among equals. A non-forced
- * label is skipped when its box overlaps any already-placed box. The theme-aware
- * halo (background-color stroke ~1/4 the glyph) under the foreground fill is the
+ * desc; a stable sort keeps input order among equals. A non-forced label is
+ * skipped when its box overlaps any already-placed box. The theme-aware halo
+ * (background-color stroke ~1/4 the glyph) under the foreground fill is the
  * PSY-1091/1092 legibility recipe.
  */
 export function renderGraphLabels(
@@ -109,7 +137,9 @@ export function renderGraphLabels(
     const halfWidth = ctx.measureText(spec.text).width / 2 + LABEL_PADDING
     const box: LabelBox = {
       x0: spec.x - halfWidth,
-      y0: spec.y - LABEL_PADDING,
+      // The halo stroke (lineWidth fontSize/4) straddles the glyph top, painting
+      // ~fontSize/8 above spec.y — reserve that so stacked halos can't kiss.
+      y0: spec.y - LABEL_PADDING - spec.fontSize / 8,
       x1: spec.x + halfWidth,
       y1: spec.y + spec.fontSize * LABEL_HEIGHT_FACTOR + LABEL_PADDING,
     }

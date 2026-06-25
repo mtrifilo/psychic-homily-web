@@ -56,7 +56,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
-import { renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
 import { EdgeLegend } from './EdgeLegend'
 
 // ──────────────────────────────────────────────
@@ -472,18 +472,10 @@ export function ForceGraphView({
     [clustersByID, palette],
   )
 
-  // Degree (link count) per node id → which label wins a collision. A more-
-  // connected node's label survives over a leaf's; isolates (degree 0) lose first.
-  const degreeById = useMemo(() => {
-    const counts = new Map<number, number>()
-    for (const link of renderData.links) {
-      const source = typeof link.source === 'object' ? link.source.id : link.source
-      const target = typeof link.target === 'object' ? link.target.id : link.target
-      counts.set(source, (counts.get(source) ?? 0) + 1)
-      counts.set(target, (counts.get(target) ?? 0) + 1)
-    }
-    return counts
-  }, [renderData])
+  // Degree (link count) per node id → which label wins a collision; isolates
+  // (degree 0) lose first. Shared with ArtistGraph via degreeMap so the two
+  // surfaces can't drift.
+  const degreeById = useMemo(() => degreeMap(renderData.links), [renderData])
 
   // Node labels in one collision-culled post-frame pass (PSY-1209). Labels are
   // kept in degree order and dropped when they'd overlap a higher-priority one;

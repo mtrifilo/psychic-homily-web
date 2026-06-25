@@ -7,7 +7,7 @@ import { Loader2 } from 'lucide-react'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
-import { renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
+import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData } from '../types'
@@ -290,6 +290,18 @@ export function ArtistGraphVisualization({
     }
   }, [reducedMotion])
 
+  // Labels are drawn in onRenderFramePost, which — unlike nodeCanvasObject — does
+  // NOT trigger a canvas redraw when its closure changes (react-force-graph-2d
+  // registers it with no onChange). So a theme toggle while the sim is settled
+  // wouldn't recolor the labels on its own. Kick a one-off repaint on palette
+  // change so renderGraphLabels re-runs with the fresh palette, rather than
+  // relying on another palette-reactive prop (linkColor) incidentally firing.
+  // PSY-1209. (ForceGraphView doesn't need this — its nodeCanvasObject reads
+  // palette for cluster fills, so it already redraws on theme change.)
+  useEffect(() => {
+    graphRef.current?.resumeAnimation()
+  }, [palette])
+
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
   // smooth without being sluggish; 40px padding matches the canvas border.
@@ -364,18 +376,9 @@ export function ArtistGraphVisualization({
     []
   )
 
-  // Degree (link count) per node id → which label wins a collision. A more-
-  // connected artist's label survives over a leaf's when they overlap.
-  const degreeById = useMemo(() => {
-    const counts = new Map<number, number>()
-    for (const link of graphData.links) {
-      const source = typeof link.source === 'object' ? link.source.id : link.source
-      const target = typeof link.target === 'object' ? link.target.id : link.target
-      counts.set(source, (counts.get(source) ?? 0) + 1)
-      counts.set(target, (counts.get(target) ?? 0) + 1)
-    }
-    return counts
-  }, [graphData])
+  // Degree (link count) per node id → which label wins a collision (shared with
+  // ForceGraphView via degreeMap so the two surfaces can't drift).
+  const degreeById = useMemo(() => degreeMap(graphData.links), [graphData])
 
   // Node labels are drawn in one post-frame pass rather than per-node so they can
   // be collision-culled (PSY-1209): in a dense 1-hop graph the per-node labels

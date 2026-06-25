@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
 import type { GraphPalette } from './graphPalette'
 
 const PALETTE = { labelText: '#fff', labelHalo: '#000' } as unknown as GraphPalette
@@ -89,6 +89,18 @@ describe('renderGraphLabels', () => {
     expect(fills).toEqual(['hub'])
   })
 
+  it('culls a vertically-stacked label via the glyph-height factor', () => {
+    // 'leaf' top is at y=16 — clear of 'hub's bare fontSize (12) but INSIDE its
+    // 1.25x glyph-height box, so the height factor is what makes them collide.
+    // If LABEL_HEIGHT_FACTOR dropped to 1.0 both would draw and this would fail.
+    const { ctx, fills } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 16, text: 'leaf', fontSize: 12, priority: 1 }),
+      spec({ x: 0, y: 0, text: 'hub', fontSize: 12, priority: 7 }),
+    ])
+    expect(fills).toEqual(['hub'])
+  })
+
   it('strokes the halo before filling the text', () => {
     const { ctx, order } = makeCtx()
     renderGraphLabels(ctx, PALETTE, [spec({ x: 0, y: 0, text: 'X' })])
@@ -105,5 +117,20 @@ describe('renderGraphLabels', () => {
       spec({ x: 0, y: 0, text: 'real', priority: 1 }),
     ])
     expect(fills).toEqual(['real'])
+  })
+})
+
+describe('degreeMap', () => {
+  it('counts links per node id, handling both bare-id and resolved-node link ends', () => {
+    // d3-force mutates link.source/target from a bare id to the resolved node
+    // object in place; degreeMap must count the same id either way.
+    const degrees = degreeMap<number>([
+      { source: 1, target: 2 },
+      { source: { id: 1 }, target: { id: 3 } },
+    ])
+    expect(degrees.get(1)).toBe(2)
+    expect(degrees.get(2)).toBe(1)
+    expect(degrees.get(3)).toBe(1)
+    expect(degrees.get(99)).toBeUndefined()
   })
 })
