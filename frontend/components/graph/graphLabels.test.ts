@@ -1,0 +1,95 @@
+import { describe, expect, it } from 'vitest'
+
+import { renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import type { GraphPalette } from './graphPalette'
+
+const PALETTE = { labelText: '#fff', labelHalo: '#000' } as unknown as GraphPalette
+
+// Minimal fake 2d context: records the text passed to stroke/fill (and order),
+// and computes a deterministic measureText width from the current `font` px size
+// (jsdom canvas measureText returns 0, which would defeat collision tests).
+function makeCtx() {
+  const fills: string[] = []
+  const order: string[] = []
+  const ctx = {
+    font: '10px sans-serif',
+    textAlign: '',
+    textBaseline: '',
+    lineWidth: 0,
+    lineJoin: '',
+    strokeStyle: '',
+    fillStyle: '',
+    save() {},
+    restore() {},
+    measureText(t: string) {
+      const px = Number(/(\d+(?:\.\d+)?)px/.exec(this.font)?.[1] ?? 10)
+      return { width: t.length * px * 0.6 }
+    },
+    strokeText(t: string) {
+      order.push(`stroke:${t}`)
+    },
+    fillText(t: string) {
+      fills.push(t)
+      order.push(`fill:${t}`)
+    },
+  }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, fills, order }
+}
+
+function spec(p: Partial<GraphLabelSpec> & Pick<GraphLabelSpec, 'x' | 'y' | 'text'>): GraphLabelSpec {
+  return { fontSize: 12, ...p }
+}
+
+describe('renderGraphLabels', () => {
+  it('draws every label when none overlap', () => {
+    const { ctx, fills } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 0, text: 'A' }),
+      spec({ x: 1000, y: 0, text: 'B' }),
+      spec({ x: 0, y: 500, text: 'C' }),
+    ])
+    expect(fills.sort()).toEqual(['A', 'B', 'C'])
+  })
+
+  it('skips a lower-priority label that overlaps a higher-priority one', () => {
+    const { ctx, fills } = makeCtx()
+    // Same position → boxes overlap; keep only the higher priority.
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 0, text: 'low', priority: 1 }),
+      spec({ x: 0, y: 0, text: 'high', priority: 9 }),
+    ])
+    expect(fills).toEqual(['high'])
+  })
+
+  it('always draws a forced label and lets it cull an overlapping non-forced one', () => {
+    const { ctx, fills } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [
+      // High priority but NOT forced — should yield to the forced center.
+      spec({ x: 0, y: 0, text: 'neighbor', priority: 99 }),
+      spec({ x: 0, y: 0, text: 'center', force: true, priority: 0 }),
+    ])
+    expect(fills).toEqual(['center'])
+  })
+
+  it('draws two forced labels even when they overlap (center + hovered)', () => {
+    const { ctx, fills } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 0, text: 'center', force: true }),
+      spec({ x: 0, y: 0, text: 'hovered', force: true }),
+    ])
+    expect(fills.sort()).toEqual(['center', 'hovered'])
+  })
+
+  it('strokes the halo before filling the text', () => {
+    const { ctx, order } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [spec({ x: 0, y: 0, text: 'X' })])
+    expect(order).toEqual(['stroke:X', 'fill:X'])
+  })
+
+  it('is a no-op for empty input and skips empty text', () => {
+    const { ctx, fills } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [])
+    renderGraphLabels(ctx, PALETTE, [spec({ x: 0, y: 0, text: '' })])
+    expect(fills).toEqual([])
+  })
+})
