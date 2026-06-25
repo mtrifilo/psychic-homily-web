@@ -56,6 +56,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
+import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
 import { EdgeLegend } from './EdgeLegend'
 
 // ──────────────────────────────────────────────
@@ -443,7 +444,7 @@ export function ForceGraphView({
   // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
   // cross-cluster edges drawn on top remain visible.
   const nodeCanvasObject = useCallback(
-    (node: RenderNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    (node: RenderNode, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const cluster = clustersByID.get(node.cluster_id)
@@ -464,32 +465,41 @@ export function ForceGraphView({
         ctx.fillStyle = '#22c55e'
         ctx.fill()
       }
-
-      if (globalScale > 1.0) {
-        // save/restore so the halo's lineWidth/lineJoin don't leak into later
-        // per-node paints in this shared ctx.
-        ctx.save()
-        const label = node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name
-        const fontSize = Math.max(9, Math.min(13, 11 / globalScale))
-        ctx.font = `${fontSize}px sans-serif`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'top'
-        const labelY = y + radius + 3
-        // Theme-aware label (PSY-1091): the old hardcoded light grey was ~1.2:1
-        // on the light "newsprint" bg. Stroke the background color as a thin halo
-        // first so the text stays legible over colored nodes / cluster hulls on
-        // either theme, then fill with the resolved foreground. Keep the halo
-        // well under the glyph size (~1/4) so letter counters don't fill in.
-        ctx.lineWidth = fontSize / 4
-        ctx.lineJoin = 'round'
-        ctx.strokeStyle = palette.labelHalo
-        ctx.strokeText(label, x, labelY)
-        ctx.fillStyle = palette.labelText
-        ctx.fillText(label, x, labelY)
-        ctx.restore()
-      }
+      // Labels are NOT drawn here — they're rendered in a single collision-culled
+      // post-frame pass (nodeLabelsFrame) so overlapping labels can be dropped
+      // across all nodes at once (PSY-1209).
     },
     [clustersByID, palette],
+  )
+
+  // Degree (link count) per node id → which label wins a collision; isolates
+  // (degree 0) lose first. Shared with ArtistGraph via degreeMap so the two
+  // surfaces can't drift.
+  const degreeById = useMemo(() => degreeMap(renderData.links), [renderData])
+
+  // Node labels in one collision-culled post-frame pass (PSY-1209). Labels are
+  // kept in degree order and dropped when they'd overlap a higher-priority one;
+  // a culled node's name is still reachable via the hover tooltip below (reveal-
+  // on-hover in the canvas is PSY-1210). Same gate (globalScale > 1.0), font,
+  // truncation, and y-offset the per-node paint used; the theme-aware halo+fill
+  // recipe lives in renderGraphLabels (shared with ArtistGraph).
+  const nodeLabelsFrame = useCallback(
+    (ctx: CanvasRenderingContext2D, globalScale: number) => {
+      if (globalScale <= 1.0) return
+      const fontSize = Math.max(9, Math.min(13, 11 / globalScale))
+      const specs: GraphLabelSpec[] = renderData.nodes.map((node) => {
+        const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+        return {
+          x: node.x ?? 0,
+          y: (node.y ?? 0) + radius + 3,
+          text: node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name,
+          fontSize,
+          priority: degreeById.get(node.id) ?? 0,
+        }
+      })
+      renderGraphLabels(ctx, palette, specs)
+    },
+    [renderData, palette, degreeById],
   )
 
   // Convex hulls behind each cluster — drawn under the edges via
@@ -641,6 +651,7 @@ export function ForceGraphView({
         linkCanvasObjectMode={() => 'before'}
         linkCanvasObject={drawHulls}
         onRenderFramePre={handleRenderFramePre}
+        onRenderFramePost={nodeLabelsFrame}
         cooldownTicks={200}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}
