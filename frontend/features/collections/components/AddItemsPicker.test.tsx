@@ -23,6 +23,33 @@ vi.mock('use-debounce', () => ({
   useDebounce: (value: unknown) => [value],
 }))
 
+// PSY-994: partial-mock @dnd-kit/core to capture the staged list's drag
+// callbacks. Everything stays real (the real DndContext is still rendered, so
+// useSortable's context provider is intact and the drag-handle tests below keep
+// working) — we only wrap DndContext to grab onDragStart/onDragEnd so a test
+// can fire them directly. jsdom can't drive a real keyboard/pointer drag, so
+// this is how we exercise the virtualize-when-idle ↔ full-render-while-dragging
+// switch that makes off-window reorder targets reachable.
+let capturedOnDragStart: (() => void) | undefined
+let capturedOnDragEnd: ((event: unknown) => void) | undefined
+vi.mock('@dnd-kit/core', async () => {
+  const actual =
+    await vi.importActual<typeof import('@dnd-kit/core')>('@dnd-kit/core')
+  return {
+    ...actual,
+    DndContext: (props: {
+      children: React.ReactNode
+      onDragStart?: () => void
+      onDragEnd?: (event: unknown) => void
+    }) => {
+      capturedOnDragStart = props.onDragStart
+      capturedOnDragEnd = props.onDragEnd
+      const Real = actual.DndContext
+      return <Real {...props} />
+    },
+  }
+})
+
 type MockedEntitySearchResult = {
   data: {
     artists: unknown[]
@@ -318,6 +345,8 @@ describe('parsePasteLine', () => {
 describe('AddItemsPicker', () => {
   beforeEach(() => {
     activeTabValue = 'search'
+    capturedOnDragStart = undefined
+    capturedOnDragEnd = undefined
     mockResolveMutate.mockClear()
     mockResolveSuccessHandler = null
     mockApiRequest.mockClear()
@@ -924,6 +953,138 @@ describe('AddItemsPicker', () => {
     expect(
       screen.queryByTestId('staged-row-drag-handle')
     ).not.toBeInTheDocument()
+  })
+
+  // ── PSY-994: staged-list virtualization (threshold + drag-fallback) ──
+  // WHAT jsdom CANNOT check (and these tests therefore do NOT): the real
+  // windowing bound (~12 rows mounted), cross-window KEYBOARD reorder, and
+  // pointer AUTO-SCROLL to off-window targets. jsdom gives the scroll element a
+  // 0-height viewport + a no-op ResizeObserver, so @tanstack/react-virtual
+  // measures a zero viewport and renders an EMPTY window, and these tests drive
+  // dnd-kit's `onDragStart/onDragEnd` callbacks directly (bypassing the real
+  // KeyboardSensor / hit-testing / auto-scroll). Those behaviors are
+  // browser-only and are called out as UNVERIFIED + needing a Vercel-preview
+  // spot-check in the PR (the local browser repro could not be run).
+  //
+  // WHAT these tests DO pin (jsdom-checkable, layout-independent): the branch
+  // switchover at the threshold; that the SAME scroll container node is reused
+  // across the idle↔drag swap (the PSY-994 scrollTop-preservation invariant);
+  // that an active drag mounts every sortable (full-render fallback); and that
+  // a drag-end reorder is wired through to the parent.
+
+  it('keeps the NON-virtual render at/below the threshold (30 items)', () => {
+    // 30 is the threshold; 30 > 30 is false, so the list stays fully mounted.
+    render(
+      <AddItemsPicker stagedItems={staged(30)} onStagedItemsChange={vi.fn()} />
+    )
+    const list = screen.getByTestId('add-items-picker-staged-list')
+    expect(list).not.toHaveAttribute('data-virtualized')
+    // Every row is in the DOM (the cheap, fully-mounted path the design was
+    // built against for the scroll-but-no-window band).
+    expect(screen.getAllByTestId('add-items-picker-staged-row')).toHaveLength(30)
+  })
+
+  it('selects the windowed branch above the threshold (marker + virtual spacer)', () => {
+    // 60 > 30 → windowed render: the container carries the data-virtualized
+    // marker and renders the virtualizer's full-height spacer div.
+    // NOTE: this does NOT assert the actual window bound (~12 mounted rows).
+    // jsdom's 0-height viewport makes react-virtual render an EMPTY window, so a
+    // row-count assertion would be vacuous (`0 < 60` passes even if windowing
+    // were broken). The real bound is browser-only — see the PR spot-check.
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
+    )
+    const list = screen.getByTestId('add-items-picker-staged-list')
+    expect(list).toHaveAttribute('data-virtualized', 'true')
+    // The windowed branch rendered its absolute-positioning spacer (height from
+    // getTotalSize = count × estimate) — i.e. the virtual path, not an empty
+    // fragment or the flow render.
+    const spacer = list.querySelector<HTMLElement>('[style*="height:"]')
+    expect(spacer).not.toBeNull()
+    expect(spacer?.style.height).not.toBe('')
+  })
+
+  it('falls back to the FULL render during a drag so off-window targets are reachable', () => {
+    // The load-bearing a11y + dnd-kit coordination contract (Saboteur lens): a
+    // windowed list can't hit-test or keyboard-reorder to an off-window row.
+    // virtualize-when-idle flips to the full render on drag-start, mounting
+    // EVERY sortable, then back on drag-end. Without this, a keyboard reorder
+    // (or pointer auto-scroll drag) could never cross the window boundary.
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
+    )
+    // Idle: windowed (not all 60 rows mounted).
+    expect(
+      screen.getByTestId('add-items-picker-staged-list')
+    ).toHaveAttribute('data-virtualized', 'true')
+
+    // Drag-start → full render: data-virtualized gone, all 60 rows mounted.
+    act(() => {
+      capturedOnDragStart?.()
+    })
+    const dragList = screen.getByTestId('add-items-picker-staged-list')
+    expect(dragList).not.toHaveAttribute('data-virtualized')
+    expect(screen.getAllByTestId('add-items-picker-staged-row')).toHaveLength(60)
+
+    // Drag-end → back to the windowed render.
+    act(() => {
+      capturedOnDragEnd?.({ active: { id: 'artist-1' }, over: { id: 'artist-1' } })
+    })
+    expect(
+      screen.getByTestId('add-items-picker-staged-list')
+    ).toHaveAttribute('data-virtualized', 'true')
+  })
+
+  it('reuses the SAME scroll-container node across the idle↔drag swap (scrollTop preserved)', () => {
+    // The PSY-994 fix: ONE always-mounted scroll container; only its inner
+    // content swaps on drag-start. If a refactor split this into two sibling
+    // containers (the original bug), the node would remount on drag-start,
+    // resetting scrollTop to 0 — so grabbing a below-fold row in a 200-item
+    // list made the drag jump off-screen. React preserves a DOM node's
+    // reference only when it is NOT remounted, so node identity across the
+    // idle→drag→idle toggle is the one jsdom-checkable proxy for "scrollTop is
+    // preserved". This guards the most expensive bug this change fixed.
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={vi.fn()} />
+    )
+    const before = screen.getByTestId('add-items-picker-staged-list')
+    act(() => {
+      capturedOnDragStart?.()
+    })
+    // Same node during the full-render drag fallback (not a fresh container).
+    expect(screen.getByTestId('add-items-picker-staged-list')).toBe(before)
+    act(() => {
+      capturedOnDragEnd?.({ active: { id: 'artist-1' }, over: { id: 'artist-1' } })
+    })
+    // …and still the same node back at idle.
+    expect(screen.getByTestId('add-items-picker-staged-list')).toBe(before)
+  })
+
+  it('wires a drag-end reorder through to the parent (handleReorder → reorderStagedItems)', () => {
+    // Coverage of the component→helper WIRING only. The `over` id below is a
+    // test-supplied literal, NOT a target produced by dnd-kit hit-testing or by
+    // the windowed DOM — so this does NOT prove cross-window targeting works
+    // (that's browser-only; see the PR spot-check). It asserts that whatever
+    // target dnd-kit resolves is forwarded to reorderStagedItems and bubbled up.
+    const onStaged = vi.fn()
+    render(
+      <AddItemsPicker stagedItems={staged(60)} onStagedItemsChange={onStaged} />
+    )
+    act(() => {
+      capturedOnDragStart?.()
+    })
+    act(() => {
+      capturedOnDragEnd?.({
+        active: { id: 'artist-1' },
+        over: { id: 'artist-60' },
+      })
+    })
+    expect(onStaged).toHaveBeenCalledTimes(1)
+    const next = onStaged.mock.calls[0][0] as Array<{ entityId: number }>
+    expect(next).toHaveLength(60)
+    // artist-1 moved to the end; no item dropped or duplicated.
+    expect(next.at(-1)?.entityId).toBe(1)
+    expect(new Set(next.map((s) => s.entityId)).size).toBe(60)
   })
 })
 

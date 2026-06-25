@@ -35,6 +35,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useDebounce } from 'use-debounce'
 import {
   Plus,
@@ -75,6 +76,8 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type SensorDescriptor,
+  type SensorOptions,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -309,6 +312,44 @@ export interface AddItemsPickerProps {
 /** Maximum visible rows in the staged list before scrolling. Tracks the
  *  Figma's 10-row visible window on state 05. */
 const STAGED_LIST_MAX_VISIBLE = 10
+
+/**
+ * Above this many staged items, the list windows its rows with
+ * `@tanstack/react-virtual` (PSY-994) instead of mounting every row. Below it,
+ * the full non-virtual render stays — drag-reorder is the common case at small
+ * N and a non-windowed list is simpler + needs no dnd-kit coordination.
+ *
+ * 30 is the ticket's locked threshold: comfortably above the 10-row visible
+ * window (so the scroll-but-no-window band — 11..30 — keeps the cheap,
+ * fully-mounted render the design was built against) and well below the
+ * 200-item scale where unbounded DOM actually bites.
+ */
+const STAGED_LIST_VIRTUALIZE_THRESHOLD = 30
+
+/**
+ * Estimated row height (px) fed to the virtualizer. Rows are a single line of
+ * text in a `py-1.5` (6px top + 6px bottom) padded box with a 1px border and a
+ * `space-y-0.5` (2px) gap → ~40px. The virtualizer measures each real row via
+ * `measureElement` after mount, so this estimate only sets the initial window
+ * size + scrollbar extent; an off-by-a-few estimate self-corrects on measure.
+ */
+const STAGED_ROW_ESTIMATED_HEIGHT = 40
+
+/**
+ * Extra rows rendered above + below the visible window — purely to keep a fast
+ * idle scroll from flashing blank rows before the virtualizer catches up.
+ * Overscan plays NO role in drag/keyboard reorder: a drag (pointer OR keyboard,
+ * which lifts via `onDragStart`) flips to the full-flow render where EVERY row
+ * is mounted, so reorder reaches any index regardless of this value. It is an
+ * idle-scroll smoothing knob only.
+ */
+const STAGED_LIST_OVERSCAN = 8
+
+/** Fixed max height (px) of the staged-list scroll viewport — the single
+ *  source for both render modes (windowed + full flow), applied as an inline
+ *  style on the shared scroll container so the two modes stay visually
+ *  interchangeable across the threshold. (Was the PSY-823 `max-h-[420px]`.) */
+const STAGED_LIST_VIEWPORT_HEIGHT = 420
 
 /** Locked copy (PSY-867 design review, 2026-05-26). The "From text (AI)"
  *  tab accepts any pasted text, not just articles — this explainer sets
@@ -773,42 +814,199 @@ export function AddItemsPicker({
         )}
       </Tabs>
 
-      {/* Staged list (PSY-962: overview strip + drag-reorderable detail list) */}
+      {/* Staged list (PSY-962: overview strip + drag-reorderable detail list;
+          PSY-994: windows the detail list above STAGED_LIST_VIRTUALIZE_THRESHOLD) */}
       {stagedCount > 0 && (
         <div className="mt-3 border-t border-border/50 pt-3 space-y-2">
           <StagedOverviewStrip items={stagedItems} />
-          <DndContext
+          <StagedItemsList
+            items={stagedItems}
+            stagedIds={stagedIds}
             sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleReorder}
-          >
-            <SortableContext
-              items={stagedIds}
-              strategy={verticalListSortingStrategy}
-            >
-              <div
-                className={cn(
-                  'space-y-0.5',
-                  stagedCount > STAGED_LIST_MAX_VISIBLE &&
-                    'max-h-[420px] overflow-y-auto'
-                )}
-                data-testid="add-items-picker-staged-list"
-              >
-                {stagedItems.map((item, index) => (
-                  <StagedRow
-                    key={stagedKey(item)}
-                    index={index}
-                    item={item}
-                    canReorder={stagedCount > 1}
-                    onRemove={() => unstageItem(item.entityType, item.entityId)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+            onReorder={handleReorder}
+            onRemove={unstageItem}
+          />
         </div>
       )}
     </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Staged list (PSY-962 drag-reorder + PSY-994 virtualization)
+// ──────────────────────────────────────────────
+
+/**
+ * The drag-reorderable staged-item list. Owns the @dnd-kit `DndContext` and,
+ * above {@link STAGED_LIST_VIRTUALIZE_THRESHOLD} items, windows its rows with
+ * `@tanstack/react-virtual` so a 200-item staging session doesn't mount 200
+ * rows (PSY-994).
+ *
+ * ── dnd-kit ↔ virtualization coordination: VIRTUALIZE-WHEN-IDLE, ──
+ * ──                                          ONE SCROLL CONTAINER  ──
+ *
+ * `@dnd-kit/sortable` hit-tests and computes keyboard-reorder targets against
+ * the rows currently MOUNTED inside its `SortableContext`. A naively windowed
+ * list only mounts ~12 rows, so a drag could never reach an off-window target
+ * and keyboard reorder would stop at the window edge.
+ *
+ * The chosen strategy is the simplest that satisfies the AC (Code Complete:
+ * pick the simplest design that works; isolate the volatile machinery here):
+ *
+ *   - IDLE (not dragging): window the rows. Only ~12 rows + overscan are in the
+ *     DOM — the bounded-DOM goal, and the state the user inspects "at rest".
+ *   - ACTIVE DRAG: render EVERY row (full flow list). `onDragStart` flips
+ *     `isDragging`, which swaps the inner content to the full list for the
+ *     duration of the drag, then `onDragEnd`/`onDragCancel` flip it back. While
+ *     dragging, every sortable is mounted, so the dragged row never unmounts
+ *     mid-drag, pointer drags reach any target (dnd-kit auto-scroll drives the
+ *     container), and keyboard reorder crosses the whole list.
+ *
+ *   - CRITICAL: both modes render INTO THE SAME, always-mounted scroll
+ *     container `<div ref={scrollRef}>` — only its *inner* content swaps. The
+ *     container is never unmounted across the idle↔drag switch, so its
+ *     `scrollTop` is preserved. (An earlier two-container version remounted a
+ *     fresh `scrollTop:0` div on drag-start, so grabbing a below-fold row in a
+ *     200-item list reset the scroll to top and the drag jumped off-screen —
+ *     PSY-994 adversarial review.) A preserved scrollTop maps to the SAME row
+ *     across the switch: to reach a below-fold row the user scrolls PAST every
+ *     row above it, so the virtualizer has already `measureElement`-measured
+ *     them — the current scroll offset reflects real measured heights, not the
+ *     estimate. Estimate-vs-actual drift lives only BELOW the viewport, where
+ *     it can't shift the row under the pointer.
+ *
+ * This sidesteps the fragile alternative (keep a window-around-the-dragged-row
+ * mounted + hand-rolled auto-scroll + measured-position juggling) that the
+ * ticket flags as the hard part.
+ *
+ * `prefers-reduced-motion` is honored throughout: each row's enter animation
+ * stays gated on Tailwind's `motion-safe:` variant. Virtualization adds no new
+ * animation CLASS, but the windowed path mounts/unmounts rows on scroll — which
+ * would re-fire the mount-triggered `animate-in` on every scroll-in. To avoid
+ * that flashing wave, windowed rows are rendered with `animateEnter={false}`
+ * (the enter fade-in plays only in the full-flow render, for genuinely new rows).
+ */
+function StagedItemsList({
+  items,
+  stagedIds,
+  sensors,
+  onReorder,
+  onRemove,
+}: {
+  items: StagedCollectionItem[]
+  stagedIds: string[]
+  sensors: SensorDescriptor<SensorOptions>[]
+  onReorder: (event: DragEndEvent) => void
+  onRemove: (entityType: string, entityId: number) => void
+}) {
+  const [isDragging, setIsDragging] = useState(false)
+  const canReorder = items.length > 1
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Window the rows ONLY when idle and above the threshold. During an active
+  // drag we render every row INTO THE SAME scroll container (see the strategy
+  // note above) so dnd-kit can hit-test / keyboard-move across the whole list
+  // AND the container's scrollTop is preserved across the idle↔drag switch
+  // (no remount → grabbing a below-fold row no longer resets scroll to top).
+  const windowed =
+    items.length > STAGED_LIST_VIRTUALIZE_THRESHOLD && !isDragging
+  // The list scrolls (and caps its height) once it passes the visible-row
+  // window — true across the whole virtualized range and the 11..30 band.
+  const scrollable = items.length > STAGED_LIST_MAX_VISIBLE
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => STAGED_ROW_ESTIMATED_HEIGHT,
+    overscan: STAGED_LIST_OVERSCAN,
+    // Stable key per item so the measurement cache survives a reorder (keyed by
+    // identity, not index) — mirrors the React key + dnd-kit sortable id.
+    getItemKey: (index) => stagedKey(items[index]),
+  })
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setIsDragging(false)
+      onReorder(event)
+    },
+    [onReorder]
+  )
+
+  const virtualRows = virtualizer.getVirtualItems()
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={() => setIsDragging(true)}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setIsDragging(false)}
+    >
+      <SortableContext items={stagedIds} strategy={verticalListSortingStrategy}>
+        {/* ONE scroll container for both render modes — it stays mounted across
+            the idle↔drag switch so scrollTop is preserved; only the inner
+            content swaps (windowed absolute rows ↔ full flow list). maxHeight is
+            an inline style (not a Tailwind arbitrary value) so the windowed and
+            flow paths share the one STAGED_LIST_VIEWPORT_HEIGHT source. */}
+        <div
+          ref={scrollRef}
+          className={cn(scrollable && 'overflow-y-auto')}
+          style={
+            scrollable ? { maxHeight: STAGED_LIST_VIEWPORT_HEIGHT } : undefined
+          }
+          data-testid="add-items-picker-staged-list"
+          // Marks the windowed render path. Load-bearing test/inspection hook:
+          // the threshold tests assert its presence (>threshold, idle) +
+          // absence (≤threshold, or the mid-drag full render). Don't drop it on
+          // a refactor without updating those tests.
+          data-virtualized={windowed ? 'true' : undefined}
+        >
+          {windowed ? (
+            <div
+              className="relative w-full"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualRows.map((vr) => {
+                const item = items[vr.index]
+                return (
+                  <div
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute left-0 top-0 w-full"
+                    style={{ transform: `translateY(${vr.start}px)` }}
+                  >
+                    {/* pb wrapper reproduces the flow `space-y-0.5` gap so the
+                        two render modes look identical across the threshold. */}
+                    <div className="pb-0.5">
+                      <StagedRow
+                        index={vr.index}
+                        item={item}
+                        canReorder={canReorder}
+                        onRemove={() => onRemove(item.entityType, item.entityId)}
+                        // Scroll-recycled rows must not re-fire the enter fade-in.
+                        animateEnter={false}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {items.map((item, index) => (
+                <StagedRow
+                  key={stagedKey(item)}
+                  index={index}
+                  item={item}
+                  canReorder={canReorder}
+                  onRemove={() => onRemove(item.entityType, item.entityId)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </SortableContext>
+    </DndContext>
   )
 }
 
@@ -1314,11 +1512,21 @@ function StagedRow({
   item,
   canReorder,
   onRemove,
+  animateEnter = true,
 }: {
   index: number
   item: StagedCollectionItem
   canReorder: boolean
   onRemove: () => void
+  /**
+   * Whether the row plays its enter fade-in on mount. TRUE in the full-flow
+   * render (a newly-staged item entering is meaningful). FALSE in the windowed
+   * render: there, scrolling continuously mounts/unmounts rows, so the
+   * mount-triggered `animate-in` would re-fire on every scroll-in — a flashing
+   * wave on exactly the large-N path PSY-994 targets (adversarial review:
+   * Saboteur + Future-Maintainer + Completeness).
+   */
+  animateEnter?: boolean
 }) {
   // useSortable returns no-op refs/listeners when reorder is disabled (single
   // item), keeping hook order stable across renders.
@@ -1344,7 +1552,13 @@ function StagedRow({
     <div
       ref={canReorder ? setNodeRef : undefined}
       style={sortableStyle}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 border border-border/40 bg-popover motion-safe:animate-in motion-safe:fade-in"
+      className={cn(
+        'flex items-center gap-2 rounded-md px-2 py-1.5 border border-border/40 bg-popover',
+        // Enter animation only when this row is genuinely entering (full-flow
+        // render); suppressed for scroll-recycled windowed rows — see the
+        // animateEnter prop doc.
+        animateEnter && 'motion-safe:animate-in motion-safe:fade-in'
+      )}
       data-testid="add-items-picker-staged-row"
     >
       {canReorder && (
