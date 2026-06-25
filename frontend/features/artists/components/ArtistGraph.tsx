@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
+import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData } from '../types'
@@ -162,6 +163,12 @@ export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
   )
 }
 
+// Node circle radii — shared between the circle paint (nodeCanvasObject) and the
+// label y-offset (nodeLabelsFrame) so the label always sits just below the circle
+// edge; keep the two in lockstep (PSY-1209).
+const CENTER_NODE_RADIUS = 12
+const SATELLITE_NODE_RADIUS = 8
+
 export function ArtistGraphVisualization({
   data,
   activeTypes,
@@ -283,6 +290,18 @@ export function ArtistGraphVisualization({
     }
   }, [reducedMotion])
 
+  // Labels are drawn in onRenderFramePost, which — unlike nodeCanvasObject — does
+  // NOT trigger a canvas redraw when its closure changes (react-force-graph-2d
+  // registers it with no onChange). So a theme toggle while the sim is settled
+  // wouldn't recolor the labels on its own. Kick a one-off repaint on palette
+  // change so renderGraphLabels re-runs with the fresh palette, rather than
+  // relying on another palette-reactive prop (linkColor) incidentally firing.
+  // PSY-1209. (ForceGraphView doesn't need this — its nodeCanvasObject reads
+  // palette for cluster fills, so it already redraws on theme change.)
+  useEffect(() => {
+    graphRef.current?.resumeAnimation()
+  }, [palette])
+
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
   // smooth without being sluggish; 40px padding matches the canvas border.
@@ -320,14 +339,15 @@ export function ArtistGraphVisualization({
   }, [])
 
   const nodeCanvasObject = useCallback(
-    (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    (node: GraphNode, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const isCenter = node.isCenter
-      const radius = isCenter ? 12 : 8
-      const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
+      const radius = isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
 
-      // Draw circle
+      // Draw circle. Labels are NOT drawn here — they're rendered in a single
+      // collision-culled post-frame pass (nodeLabelsFrame) so overlapping labels
+      // can be dropped across all nodes at once (PSY-1209).
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, 2 * Math.PI)
 
@@ -352,36 +372,41 @@ export function ArtistGraphVisualization({
         ctx.fillStyle = '#22c55e' // green-500
         ctx.fill()
       }
-
-      // Draw label (only when zoomed in enough)
-      if (globalScale > 0.7) {
-        // save/restore so the halo's lineWidth/lineJoin don't leak into later
-        // per-node paints in this shared ctx.
-        ctx.save()
-        const label = node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name
-        ctx.font = `${isCenter ? 'bold ' : ''}${fontSize}px sans-serif`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'top'
-        const labelY = y + radius + 4
-        // Theme-aware label (PSY-1092, mirroring PSY-1091's ForceGraphView fix):
-        // the old hardcoded white / zinc-200 were ~1.1:1 on the light "newsprint"
-        // bg (measured: #ffffff 1.13:1, zinc-200 1.11:1 — far below the 4.5:1 bar).
-        // Stroke the background color as a thin halo first so the text stays
-        // legible over the colored node circles on either theme, then fill with the
-        // resolved foreground. The center node stays distinct via its bold weight
-        // (and its indigo circle) rather than a hardcoded white — an accent color
-        // would fail the ≥4.5:1 light-bg contrast bar (the PSY-1079 newsprint trap).
-        // Keep the halo ~1/4 the glyph size so letter counters don't fill in.
-        ctx.lineWidth = fontSize / 4
-        ctx.lineJoin = 'round'
-        ctx.strokeStyle = palette.labelHalo
-        ctx.strokeText(label, x, labelY)
-        ctx.fillStyle = palette.labelText
-        ctx.fillText(label, x, labelY)
-        ctx.restore()
-      }
     },
-    [palette]
+    []
+  )
+
+  // Degree (link count) per node id → which label wins a collision (shared with
+  // ForceGraphView via degreeMap so the two surfaces can't drift).
+  const degreeById = useMemo(() => degreeMap(graphData.links), [graphData])
+
+  // Node labels are drawn in one post-frame pass rather than per-node so they can
+  // be collision-culled (PSY-1209): in a dense 1-hop graph the per-node labels
+  // overlapped into an unreadable pile. The center node is always labeled (force);
+  // other labels are kept in degree order and dropped when they'd overlap a
+  // higher-priority one. A culled neighbor's name is still reachable via the hover
+  // tooltip (reveal-on-hover in the canvas is PSY-1210). Same gate (globalScale >
+  // 0.7), font, truncation, and y-offset the per-node paint used; the theme-aware
+  // halo+fill lives in renderGraphLabels (shared with ForceGraphView).
+  const nodeLabelsFrame = useCallback(
+    (ctx: CanvasRenderingContext2D, globalScale: number) => {
+      if (globalScale <= 0.7) return
+      const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
+      const specs: GraphLabelSpec[] = graphData.nodes.map(node => {
+        const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
+        return {
+          x: node.x ?? 0,
+          y: (node.y ?? 0) + radius + 4,
+          text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
+          fontSize,
+          bold: node.isCenter,
+          force: node.isCenter,
+          priority: degreeById.get(node.id) ?? 0,
+        }
+      })
+      renderGraphLabels(ctx, palette, specs)
+    },
+    [graphData, palette, degreeById]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,
@@ -418,6 +443,7 @@ export function ArtistGraphVisualization({
         nodeId="id"
         nodeVal="val"
         nodeCanvasObject={nodeCanvasObject}
+        onRenderFramePost={nodeLabelsFrame}
         nodePointerAreaPaint={(node: GraphNode, color: string, ctx: CanvasRenderingContext2D) => {
           const x = node.x ?? 0
           const y = node.y ?? 0
