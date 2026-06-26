@@ -13,12 +13,17 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 )
 
 // SceneService handles computed city-level aggregations for "scene" pages.
 // No new tables — all data is derived from existing venue, show, and artist tables.
 type SceneService struct {
 	db *gorm.DB
+	// geocoder resolves a (city, state) to its centroid coordinates from the
+	// embedded offline dataset — the same geocoder VenueService/ShowService hold
+	// (PSY-985/PSY-981). Stateless, so sharing geo.Default() is safe.
+	geocoder geo.Geocoder
 }
 
 // NewSceneService creates a new scene service.
@@ -26,7 +31,7 @@ func NewSceneService(database *gorm.DB) *SceneService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &SceneService{db: database}
+	return &SceneService{db: database, geocoder: geo.Default()}
 }
 
 // Thresholds for a city to qualify as a "scene".
@@ -90,6 +95,19 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			return nil, fmt.Errorf("failed to count shows for %s, %s: %w", c.City, c.State, err)
 		}
 
+		// Map coordinate: the city's geocoded centroid, resolved from (city, state)
+		// via the SAME offline geocoder that sets venue and show-city coordinates
+		// (PSY-985/PSY-981). Identical to GetShowCities, so a city plots at the
+		// same point on the scenes map and the shows-by-city map. Exact to the
+		// grouped (city, state) key — no venue join, no backfill dependency, no
+		// extra query (venue coords are themselves this same city centroid, so
+		// reading them would be a no-op). A geocoder miss leaves both coords nil:
+		// the scene still lists, it just can't be placed on the map.
+		var lat, lng *float64
+		if s.geocoder != nil {
+			lat, lng, _ = geo.LookupPointers(s.geocoder, c.City, c.State, "")
+		}
+
 		results = append(results, &contracts.SceneListResponse{
 			City:              c.City,
 			State:             c.State,
@@ -97,6 +115,8 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			VenueCount:        c.VenueCount,
 			UpcomingShowCount: int(upcomingCount),
 			TotalShowCount:    c.ShowCount,
+			Latitude:          lat,
+			Longitude:         lng,
 		})
 	}
 
