@@ -60,8 +60,22 @@ describe('focusForeground', () => {
     expect([...(focusForeground(adj, 2) ?? [])].sort()).toEqual([1, 2, 3])
   })
 
-  it('foregrounds everything for the center (every node is its neighbor)', () => {
+  it('returns the hovered hub + its 1-hop neighbors (a hub adjacent to all)', () => {
     expect([...(focusForeground(adj, 1) ?? [])].sort()).toEqual([1, 2, 3, 4])
+  })
+
+  it('adds alwaysInclude even when it is NOT a neighbor of the hovered node', () => {
+    // The artist graph passes its center here so the page subject stays foreground
+    // even when its direct edge to the hovered satellite is filtered out (PSY-1210):
+    // node 4's only neighbor is the center 1, and anchor 99 is unrelated to node 4.
+    const fg = focusForeground(adj, 4, 99)
+    expect(fg?.has(99)).toBe(true)
+    expect([...(fg ?? [])].sort()).toEqual([1, 4, 99])
+  })
+
+  it('ignores a null/undefined alwaysInclude', () => {
+    expect([...(focusForeground(adj, 4, null) ?? [])].sort()).toEqual([1, 4])
+    expect([...(focusForeground(adj, 4) ?? [])].sort()).toEqual([1, 4])
   })
 
   it('returns a singleton for a hovered node with no edges', () => {

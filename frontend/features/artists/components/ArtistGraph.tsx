@@ -171,9 +171,15 @@ export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
-// PSY-1210 hover-focus: nodes/links outside the foreground set fade to this alpha.
-// BACKGROUND_ALPHA is the canvas globalAlpha for nodes; the hex pair is the SAME value
-// for withHexAlpha on link colors, derived so the two can't drift when tuned.
+// PSY-1210 hover-focus: nodes/links outside the foreground set fade using this alpha.
+// BACKGROUND_ALPHA is the canvas globalAlpha for nodes; BACKGROUND_ALPHA_HEX is the same
+// value as a 2-char hex pair for withHexAlpha on link colors — derived, so tuning the
+// constant moves both. (They share the source number, not the PERCEIVED opacity: the node
+// globalAlpha multiplies the node's already-semi-transparent fill, so backgrounded nodes
+// read a touch fainter than the flat-alpha links. Note withHexAlpha passes any non-6-hex
+// color through UNCHANGED, so if an --edge-* token ever became oklch/rgb the background
+// links would silently render at FULL color (no fade) while nodes still dim — the same
+// latent gap the resting cross-connection dim already has. All current tokens are 6-hex.)
 const BACKGROUND_ALPHA = 0.15
 const BACKGROUND_ALPHA_HEX = Math.round(BACKGROUND_ALPHA * 255).toString(16).padStart(2, '0')
 
@@ -317,9 +323,13 @@ export function ArtistGraphVisualization({
   //   (2) hover-focus (PSY-1210): nodeCanvasObject / linkColor / labels read focusedIds;
   //       force-graph's notifyRedraw only sets a flag the rAF loop consumes, and that
   //       loop can be idle/paused, so resumeAnimation is what guarantees the frame renders.
-  // CAVEAT: hover interactions (focus AND the tooltip) inherently need the render loop,
-  // which prefers-reduced-motion pauses (the pauseAnimation effect above) — so they're
-  // inert for reduced-motion users. Pre-existing (the tooltip already was), not new here.
+  // CAVEAT: force-graph's rAF loop reschedules unconditionally, so resumeAnimation here
+  // (on mount via palette, then on hover) keeps the loop running even under
+  // prefers-reduced-motion — i.e. the pauseAnimation effect above doesn't actually hold.
+  // That's PRE-EXISTING (the [palette] resume already ran on mount before this change);
+  // hover-focus thus DOES render for reduced-motion, but the pause being defeated is the
+  // real issue, tracked in PSY-1226. (The canvas is a visual enhancement; the accessible
+  // path is the RelatedArtists list.)
   useEffect(() => {
     graphRef.current?.resumeAnimation()
   }, [palette, hoveredNode])
@@ -374,6 +384,10 @@ export function ArtistGraphVisualization({
   // rebuilt only when the graph data changes; the foreground set is derived per-hover
   // (null = resting view, no focus). The repaint on hover change is forced by the
   // resumeAnimation effect above — see there for the reduced-motion caveat.
+  //
+  // The [graphData] dep on adjacency is load-bearing: the memo captures the freshly
+  // rebuilt BARE-id links, before d3-force mutates source/target into resolved objects
+  // in place (buildAdjacency would accept either shape, but only bare ids occur here).
   const adjacency = useMemo(() => buildAdjacency(graphData.links), [graphData])
   const focusedIds = useMemo(() => {
     if (hoveredNode == null) return null
@@ -381,9 +395,9 @@ export function ArtistGraphVisualization({
     // graphData): a stale hover would otherwise leave focusedIds matching nothing
     // visible and dim the WHOLE graph to the background alpha (PSY-1210 review).
     if (!graphData.nodes.some(n => n.id === hoveredNode.id)) return null
-    const foreground = focusForeground(adjacency, hoveredNode.id)
-    foreground?.add(data.center.id) // the page subject is always foreground
-    return foreground
+    // Keep the center (the page subject) foreground always — passed as the helper's
+    // alwaysInclude anchor so the rule lives in one tested place (PSY-1210 review).
+    return focusForeground(adjacency, hoveredNode.id, data.center.id)
   }, [adjacency, hoveredNode, graphData, data.center.id])
 
   const nodeCanvasObject = useCallback(
@@ -462,7 +476,11 @@ export function ArtistGraphVisualization({
             text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
             fontSize,
             bold: node.isCenter,
-            // Always label the center and the hovered node itself (PSY-1210).
+            // Always label the center and the hovered node. This only applies to the
+            // foreground — the .filter above already drops background nodes — so the
+            // `isCenter` here stays consistent with the center being in focusForeground's
+            // alwaysInclude (a node not in focusedIds is filtered out, never force-labeled
+            // over a dimmed circle). PSY-1210.
             force: node.isCenter || node.id === hoveredNode?.id,
             priority: degreeById.get(node.id) ?? 0,
           }
@@ -516,6 +534,10 @@ export function ArtistGraphVisualization({
         nodeVal="val"
         nodeCanvasObject={nodeCanvasObject}
         onRenderFramePost={nodeLabelsFrame}
+        // The hit area is deliberately NOT narrowed for background (hover-focus-faded)
+        // nodes (PSY-1210): the fade is a visual de-emphasis, but every node stays fully
+        // hoverable/clickable so you can move focus to any node by hovering it (and the
+        // node brightens the moment it becomes the hovered/foreground node).
         nodePointerAreaPaint={(node: GraphNode, color: string, ctx: CanvasRenderingContext2D) => {
           const x = node.x ?? 0
           const y = node.y ?? 0

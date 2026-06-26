@@ -22,8 +22,10 @@ export const endpointId = (e: LinkEndpoint): number => (typeof e === 'number' ? 
 
 /**
  * Build an adjacency map (node id → set of directly-connected node ids) from the
- * graph links. Bidirectional. Handles both link shapes d3-force produces: bare
- * numeric ids before the first tick, resolved `{ id }` node objects after.
+ * graph links. Bidirectional. Uses `endpointId`, so it accepts either link shape —
+ * but note the artist-graph call site builds this from freshly-rebuilt links (bare
+ * numeric ids); the resolved `{ id }` shape only appears later, in the per-frame
+ * `linkColor` lookups (also via `endpointId`), not here.
  */
 export function buildAdjacency(
   links: ReadonlyArray<{ source: LinkEndpoint; target: LinkEndpoint }>,
@@ -47,14 +49,22 @@ export function buildAdjacency(
 }
 
 /**
- * The foreground node-id set for hover-focus: the hovered node plus its 1-hop
- * neighbors. Returns `null` when nothing is hovered — the caller treats `null` as
- * "no focus" (the resting view, everything foreground). A hovered node with no
- * edges yields a singleton set (just itself).
+ * The foreground node-id set for hover-focus: the hovered node, its 1-hop
+ * neighbors, and an optional `alwaysInclude` anchor. Returns `null` when nothing is
+ * hovered — the caller treats `null` as "no focus" (the resting view, everything
+ * foreground). A hovered node with no edges yields a singleton set (just itself).
+ *
+ * `alwaysInclude` is a node the surface keeps foreground regardless of adjacency —
+ * the artist graph passes its center (the page subject), which can sit 2 hops from
+ * the hovered node once its direct edge is filtered out. Owning the rule here (not at
+ * the call site) keeps it discoverable + tested, and lets surfaces with no such
+ * anchor (ForceGraphView, PSY-1225) simply omit it. Always returns a fresh,
+ * caller-safe Set.
  */
 export function focusForeground(
   adjacency: Map<number, Set<number>>,
   hoveredId: number | null | undefined,
+  alwaysInclude?: number | null,
 ): Set<number> | null {
   if (hoveredId == null) return null
   const foreground = new Set<number>([hoveredId])
@@ -62,5 +72,6 @@ export function focusForeground(
   if (neighbors) {
     for (const n of neighbors) foreground.add(n)
   }
+  if (alwaysInclude != null) foreground.add(alwaysInclude)
   return foreground
 }
