@@ -92,6 +92,7 @@ type MBLookupResult struct {
 // MusicBrainzClient provides rate-limited access to the MusicBrainz API.
 type MusicBrainzClient struct {
 	client    *http.Client
+	baseURL   string // defaults to mbBaseURL; overridden in tests to point at httptest
 	mu        sync.Mutex
 	lastReq   time.Time
 	rateLimit time.Duration
@@ -104,6 +105,7 @@ func NewMusicBrainzClient() *MusicBrainzClient {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		baseURL:   mbBaseURL,
 		rateLimit: mbRateLimit,
 		minScore:  mbMinScore,
 	}
@@ -116,7 +118,7 @@ func (c *MusicBrainzClient) SearchArtist(name string) (*MBLookupResult, error) {
 	_ = c.throttle(context.Background())
 
 	encodedName := url.QueryEscape(name)
-	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=5", mbBaseURL, encodedName)
+	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=5", c.baseURL, encodedName)
 
 	body, err := c.doRequest(searchURL)
 	if err != nil {
@@ -173,7 +175,7 @@ func (c *MusicBrainzClient) SearchArtistCandidates(ctx context.Context, name str
 	}
 
 	encodedName := url.QueryEscape(name)
-	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=%d", mbBaseURL, encodedName, mbCandidateLimit)
+	searchURL := fmt.Sprintf("%s/artist/?query=artist:%s&fmt=json&limit=%d", c.baseURL, encodedName, mbCandidateLimit)
 
 	body, err := c.doRequestCtx(ctx, searchURL)
 	if err != nil {
@@ -198,7 +200,7 @@ func (c *MusicBrainzClient) LookupArtistURLRelations(ctx context.Context, mbid s
 		return nil, err
 	}
 
-	lookupURL := fmt.Sprintf("%s/artist/%s?inc=url-rels&fmt=json", mbBaseURL, url.PathEscape(mbid))
+	lookupURL := fmt.Sprintf("%s/artist/%s?inc=url-rels&fmt=json", c.baseURL, url.PathEscape(mbid))
 
 	body, err := c.doRequestCtx(ctx, lookupURL)
 	if err != nil {
@@ -211,6 +213,82 @@ func (c *MusicBrainzClient) LookupArtistURLRelations(ctx context.Context, mbid s
 	}
 
 	return result.Relations, nil
+}
+
+// mbReleaseGroupSearchLimit is the default number of release-group candidates a
+// cover-art search fetches. The caller applies a strict artist+title gate, so a
+// modest list improves recall of the correct match without inflating cost.
+const mbReleaseGroupSearchLimit = 10
+
+// MBReleaseGroupSearchResponse is the response from the release-group search endpoint.
+type MBReleaseGroupSearchResponse struct {
+	ReleaseGroups []MBReleaseGroupResult `json:"release-groups"`
+}
+
+// MBReleaseGroupResult is a release-group (the album abstraction spanning all of
+// an album's editions) from a MusicBrainz search. ID is the MBID the Cover Art
+// Archive is keyed on (coverartarchive.org/release-group/{id}).
+type MBReleaseGroupResult struct {
+	ID               string           `json:"id"`
+	Title            string           `json:"title"`
+	PrimaryType      string           `json:"primary-type"`
+	FirstReleaseDate string           `json:"first-release-date"` // "YYYY" | "YYYY-MM" | "YYYY-MM-DD" | ""
+	ArtistCredit     []MBArtistCredit `json:"artist-credit"`
+}
+
+// MBArtistCredit is one credited artist on a release-group. Name is the credited
+// name as it appears on the release (may be an alias / "feat." form); Artist.Name
+// is the artist's canonical MusicBrainz name. The cover-art matcher checks both.
+type MBArtistCredit struct {
+	Name   string `json:"name"`
+	Artist struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"artist"`
+}
+
+// SearchReleaseGroups searches MusicBrainz for release-groups matching an artist +
+// release title, returning up to `limit` raw candidates with NO score/name filter
+// — the caller applies its own strict gate (mirroring the SearchArtistCandidates
+// contract, PSY-1191). The release-group MBID it returns is what the Cover Art
+// Archive is keyed on. It shares this client's process-wide ~1 req/s throttle
+// (PSY-1208) so cover-art enrichment and discovery never collectively exceed
+// MusicBrainz's per-IP limit.
+//
+// artist and title are embedded as quoted Lucene phrases with any interior double
+// quotes stripped, so a value can't break out of the field query. An empty artist
+// or title returns no results without an API call.
+func (c *MusicBrainzClient) SearchReleaseGroups(ctx context.Context, artist, title string, limit int) ([]MBReleaseGroupResult, error) {
+	if strings.TrimSpace(artist) == "" || strings.TrimSpace(title) == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = mbReleaseGroupSearchLimit
+	}
+
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(`artist:"%s" AND releasegroup:"%s"`, mbStripQuotes(artist), mbStripQuotes(title))
+	searchURL := fmt.Sprintf("%s/release-group/?query=%s&fmt=json&limit=%d", c.baseURL, url.QueryEscape(query), limit)
+
+	body, err := c.doRequestCtx(ctx, searchURL)
+	if err != nil {
+		return nil, fmt.Errorf("musicbrainz release-group search failed: %w", err)
+	}
+
+	var result MBReleaseGroupSearchResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse musicbrainz release-group response: %w", err)
+	}
+	return result.ReleaseGroups, nil
+}
+
+// mbStripQuotes removes interior double quotes from a Lucene phrase value so a
+// title/artist containing a quote can't break out of the quoted field query.
+func mbStripQuotes(s string) string {
+	return strings.ReplaceAll(s, `"`, " ")
 }
 
 // throttle enforces the rate limit, interruptibly. It blocks until the next
