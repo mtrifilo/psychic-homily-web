@@ -191,6 +191,16 @@ export function ArtistGraphVisualization({
   // handleNodeHover; flipX/flipY anchor it toward the container's interior near the
   // right/bottom edges so it doesn't run off the dialog (PSY-1215).
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0, flipX: false, flipY: false })
+
+  // Reset hover when the center changes (re-center) — the React-recommended
+  // "adjust state during render" pattern (not an effect). onNodeHover only fires
+  // on the next under-pointer change, so without this the previous artist's
+  // tooltip would linger at stale coords above the re-centering overlay (PSY-1215).
+  const [hoverCenterId, setHoverCenterId] = useState(data.center.id)
+  if (data.center.id !== hoverCenterId) {
+    setHoverCenterId(data.center.id)
+    setHoveredNode(null)
+  }
   const reducedMotion = useReducedMotion()
 
   const graphHeight = containerWidth < 768 ? 350 : 500
@@ -348,7 +358,6 @@ export function ArtistGraphVisualization({
   // near the right/bottom edges so it doesn't run off (PSY-1215; previously the
   // tooltip was pinned to the top-left corner).
   const handleNodeHover = useCallback((node: GraphNode | null) => {
-    setHoveredNode(node)
     const graph = graphRef.current
     const container = containerRef.current
     if (node && node.x != null && node.y != null && graph && container) {
@@ -359,6 +368,12 @@ export function ArtistGraphVisualization({
         flipX: x > container.clientWidth * 0.6,
         flipY: y > container.clientHeight * 0.6,
       })
+      setHoveredNode(node)
+    } else {
+      // hover-out, or a node without settled coords — hide rather than render the
+      // tooltip at a stale/origin position. Set hoveredNode ONLY when placeable so
+      // the two never desync (PSY-1215).
+      setHoveredNode(null)
     }
   }, [])
 
@@ -478,10 +493,16 @@ export function ArtistGraphVisualization({
         }}
         onNodeClick={handleNodeClick}
         onNodeHover={handleNodeHover}
-        // Suppress the default native name pill — the rich ArtistNodeTooltip below
-        // (now anchored at the node) shows the name + actions, so the pill would be
-        // a redundant second tooltip (PSY-1215). linkLabel (edge tooltip) is kept.
-        nodeLabel={() => ''}
+        // Wheel-zoom moves the node under a stationary pointer without re-firing
+        // onNodeHover, stranding the tooltip at a stale screen position — dismiss it
+        // on zoom (re-hover re-anchors it) (PSY-1215).
+        onZoom={() => setHoveredNode(null)}
+        // The rich ArtistNodeTooltip below (anchored at the node) replaces the
+        // default native name pill for satellite nodes, so suppress the pill there
+        // to avoid a redundant second tooltip. KEEP it for the center node, which
+        // has no rich tooltip — otherwise hovering the center shows no name at low
+        // zoom (PSY-1215). linkLabel (edge tooltip) is kept.
+        nodeLabel={(node: GraphNode) => (node.isCenter ? node.name : '')}
         // PSY-361 / PSY-369 spike: disable node drag to remove the
         // tap-vs-drag ambiguity on touch devices. Tap = re-center,
         // long-press = tooltip; nothing for drag to do.
