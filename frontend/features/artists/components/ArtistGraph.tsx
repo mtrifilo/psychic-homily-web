@@ -8,6 +8,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
+import { buildAdjacency, endpointId, focusForeground } from '@/components/graph/graphFocus'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -170,6 +171,12 @@ export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
+// PSY-1210 hover-focus: nodes/links outside the foreground set fade to this alpha.
+// BACKGROUND_ALPHA is the canvas globalAlpha for nodes; the hex pair is the SAME value
+// for withHexAlpha on link colors, derived so the two can't drift when tuned.
+const BACKGROUND_ALPHA = 0.15
+const BACKGROUND_ALPHA_HEX = Math.round(BACKGROUND_ALPHA * 255).toString(16).padStart(2, '0')
+
 export function ArtistGraphVisualization({
   data,
   activeTypes,
@@ -303,17 +310,19 @@ export function ArtistGraphVisualization({
     }
   }, [reducedMotion])
 
-  // Labels are drawn in onRenderFramePost, which — unlike nodeCanvasObject — does
-  // NOT trigger a canvas redraw when its closure changes (react-force-graph-2d
-  // registers it with no onChange). So a theme toggle while the sim is settled
-  // wouldn't recolor the labels on its own. Kick a one-off repaint on palette
-  // change so renderGraphLabels re-runs with the fresh palette, rather than
-  // relying on another palette-reactive prop (linkColor) incidentally firing.
-  // PSY-1209. (ForceGraphView doesn't need this — its nodeCanvasObject reads
-  // palette for cluster fills, so it already redraws on theme change.)
+  // Kick a one-off repaint when reactive state the canvas reads changes but wouldn't
+  // otherwise force a redraw:
+  //   (1) palette (PSY-1209): labels in onRenderFramePost read it, but that callback
+  //       doesn't self-trigger a redraw.
+  //   (2) hover-focus (PSY-1210): nodeCanvasObject / linkColor / labels read focusedIds;
+  //       force-graph's notifyRedraw only sets a flag the rAF loop consumes, and that
+  //       loop can be idle/paused, so resumeAnimation is what guarantees the frame renders.
+  // CAVEAT: hover interactions (focus AND the tooltip) inherently need the render loop,
+  // which prefers-reduced-motion pauses (the pauseAnimation effect above) — so they're
+  // inert for reduced-motion users. Pre-existing (the tooltip already was), not new here.
   useEffect(() => {
     graphRef.current?.resumeAnimation()
-  }, [palette])
+  }, [palette, hoveredNode])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
@@ -359,12 +368,36 @@ export function ArtistGraphVisualization({
     }
   }, [])
 
+  // Hover-focus (PSY-1210): when a node is hovered, IT + its 1-hop neighbors (plus the
+  // center, which is the page subject and stays foreground always) are the
+  // "foreground"; every other node/link/label fades to the background. Adjacency is
+  // rebuilt only when the graph data changes; the foreground set is derived per-hover
+  // (null = resting view, no focus). The repaint on hover change is forced by the
+  // resumeAnimation effect above — see there for the reduced-motion caveat.
+  const adjacency = useMemo(() => buildAdjacency(graphData.links), [graphData])
+  const focusedIds = useMemo(() => {
+    if (hoveredNode == null) return null
+    // Drop focus if the hovered node was filtered out / refetched away (no longer in
+    // graphData): a stale hover would otherwise leave focusedIds matching nothing
+    // visible and dim the WHOLE graph to the background alpha (PSY-1210 review).
+    if (!graphData.nodes.some(n => n.id === hoveredNode.id)) return null
+    const foreground = focusForeground(adjacency, hoveredNode.id)
+    foreground?.add(data.center.id) // the page subject is always foreground
+    return foreground
+  }, [adjacency, hoveredNode, graphData, data.center.id])
+
   const nodeCanvasObject = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const isCenter = node.isCenter
       const radius = isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
+
+      // Hover-focus (PSY-1210): dim nodes outside the foreground set. globalAlpha
+      // multiplies every fill/stroke below (incl. the show indicator); it's reset to
+      // 1 at the end so the next node + the post-frame labels render at full opacity.
+      // Snap (no transition) — focus appears/clears with the hover, no fade animation.
+      ctx.globalAlpha = focusedIds != null && !focusedIds.has(node.id) ? BACKGROUND_ALPHA : 1
 
       // Draw circle. Labels are NOT drawn here — they're rendered in a single
       // collision-culled post-frame pass (nodeLabelsFrame) so overlapping labels
@@ -393,8 +426,10 @@ export function ArtistGraphVisualization({
         ctx.fillStyle = '#22c55e' // green-500
         ctx.fill()
       }
+
+      ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
     },
-    []
+    [focusedIds]
   )
 
   // Degree (link count) per node id → which label wins a collision (shared with
@@ -405,29 +440,36 @@ export function ArtistGraphVisualization({
   // be collision-culled (PSY-1209): in a dense 1-hop graph the per-node labels
   // overlapped into an unreadable pile. The center node is always labeled (force);
   // other labels are kept in degree order and dropped when they'd overlap a
-  // higher-priority one. A culled neighbor's name is still reachable via the hover
-  // tooltip (reveal-on-hover in the canvas is PSY-1210). Same gate (globalScale >
-  // 0.7), font, truncation, and y-offset the per-node paint used; the theme-aware
-  // halo+fill lives in renderGraphLabels (shared with ForceGraphView).
+  // higher-priority one. A culled neighbor's name is reachable via the hover tooltip;
+  // on hover-focus the background nodes drop their labels and only the foreground set is
+  // a label candidate (still collision-culled among themselves — center + hovered are
+  // forced) (PSY-1210, below). Same gate (globalScale > 0.7), font, truncation, and
+  // y-offset the per-node paint used; the theme-aware halo+fill lives in
+  // renderGraphLabels (shared with ForceGraphView).
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= 0.7) return
       const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
-      const specs: GraphLabelSpec[] = graphData.nodes.map(node => {
-        const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
-        return {
-          x: node.x ?? 0,
-          y: (node.y ?? 0) + radius + 4,
-          text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
-          fontSize,
-          bold: node.isCenter,
-          force: node.isCenter,
-          priority: degreeById.get(node.id) ?? 0,
-        }
-      })
+      const specs: GraphLabelSpec[] = graphData.nodes
+        // Hover-focus (PSY-1210): when focused, label only the foreground set so the
+        // background de-clutters; at rest (focusedIds null) label all, as before.
+        .filter(node => focusedIds == null || focusedIds.has(node.id))
+        .map(node => {
+          const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
+          return {
+            x: node.x ?? 0,
+            y: (node.y ?? 0) + radius + 4,
+            text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
+            fontSize,
+            bold: node.isCenter,
+            // Always label the center and the hovered node itself (PSY-1210).
+            force: node.isCenter || node.id === hoveredNode?.id,
+            priority: degreeById.get(node.id) ?? 0,
+          }
+        })
       renderGraphLabels(ctx, palette, specs)
     },
-    [graphData, palette, degreeById]
+    [graphData, palette, degreeById, focusedIds, hoveredNode]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,
@@ -436,9 +478,18 @@ export function ArtistGraphVisualization({
   const linkColor = useCallback(
     (link: GraphLink) => {
       const color = palette.edges[link.type] ?? palette.unknownEdge
+      // Hover-focus (PSY-1210): a link is foreground only when BOTH its endpoints are in
+      // the foreground set — those render at full color so the focused neighborhood's
+      // edges stay crisp; every other link fades to the background. At rest (no focus),
+      // keep the resting styling: cross-connections dim to 40% (PSY-1083).
+      if (focusedIds) {
+        const foreground =
+          focusedIds.has(endpointId(link.source)) && focusedIds.has(endpointId(link.target))
+        return foreground ? color : withHexAlpha(color, BACKGROUND_ALPHA_HEX)
+      }
       return link.isCrossConnection ? withHexAlpha(color, '66') : color
     },
-    [palette]
+    [palette, focusedIds]
   )
 
   const linkWidth = useCallback((link: GraphLink) => edgeWidth(link.type, link.score), [])
