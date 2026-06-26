@@ -10,6 +10,7 @@ import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData } from '../types'
 
@@ -112,17 +113,21 @@ interface ArtistGraphProps {
 // own component so the "View artist page →" link can be unit-tested
 // independently of the canvas-based ForceGraph2D wrapper.
 //
-// Pointer-events grammar:
-//   - Outer wrapper: pointer-events-none — the tooltip is just a visual
-//     hint and must not steal hover/click events from the canvas
-//     underneath (otherwise the cursor sliding from a node onto the
-//     tooltip would dismiss the tooltip and break re-center clicks on
-//     adjacent nodes).
-//   - Link inside: pointer-events-auto — selectively re-enables the
-//     escape hatch to the full artist detail page. Works on desktop
-//     (hover surfaces tooltip, click goes through) and mobile
-//     (long-press surfaces tooltip per PSY-369 grammar, tap goes
-//     through).
+// Pointer-events grammar (PSY-1218 — hoverable so the link is reachable):
+//   - Outer wrapper: pointer-events-AUTO so the tooltip captures the pointer
+//     when the cursor travels from the node onto it. The parent wires
+//     onMouseEnter (cancel the pending dismiss → keep open) + onMouseLeave
+//     (reschedule the dismiss), so the "View artist page" link is reachable and
+//     clickable instead of vanishing the instant the cursor leaves the node.
+//     Trade-off: the small area the tooltip covers (offset 8px down-right of the
+//     node) can't be hovered/clicked on the canvas while the tooltip is shown —
+//     acceptable for a transient hint.
+//   - Link inside: pointer-events-auto — the explicit escape hatch to the full
+//     artist detail page (kept explicit as defense-in-depth, so the link works even
+//     if the wrapper's pointer-events ever change). The hoverable grace period is a
+//     desktop-mouse affordance; on touch the tooltip surfaces on long-press (PSY-369)
+//     and the tap on the link goes through (the wrapper is pointer-events-auto), but
+//     the mouse-grace timing isn't exercised on touch.
 export interface ArtistNodeTooltipProps {
   node: {
     name: string
@@ -132,16 +137,33 @@ export interface ArtistNodeTooltipProps {
     upcoming_show_count: number
   }
   position: TooltipAnchor
+  /**
+   * PSY-1218: keep the tooltip open while the pointer is over it (the parent
+   * cancels the dismiss timer on enter) and reschedule the dismiss on leave, so
+   * the link below is reachable.
+   *
+   * REQUIRED, not optional: the wrapper is `pointer-events-auto`, so it captures
+   * the pointer and the canvas stops firing `onNodeHover` for the area it covers.
+   * Without these handlers the tooltip would never receive a dismiss signal and
+   * could strand on screen — the exact PSY-1218 bug. Keeping them required makes
+   * that illegal state unrepresentable: a caller can't enable the capturing
+   * wrapper without also wiring its dismissal.
+   */
+  onMouseEnter: () => void
+  onMouseLeave: () => void
 }
 
-export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
+export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }: ArtistNodeTooltipProps) {
   return (
     <div
-      className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
+      data-testid="artist-node-tooltip"
+      className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-auto"
       // left/top sit at the node; the transform offsets the tooltip 8px off the
       // node and flips it toward the container interior near the right/bottom edge
       // (shared with ForceGraphView via tooltipPlacementStyle — PSY-1217).
       style={tooltipPlacementStyle(position)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       <div className="font-medium text-sm">{node.name}</div>
       {(node.city || node.state) && (
@@ -170,6 +192,12 @@ export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
+// PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the
+// node, giving it time to travel onto the tooltip and click the link. Long enough
+// for a deliberate diagonal move (the tooltip sits 8px down-right of the node),
+// short enough that it doesn't feel sticky when you just glance away.
+const TOOLTIP_DISMISS_DELAY_MS = 300
+
 export function ArtistGraphVisualization({
   data,
   activeTypes,
@@ -186,6 +214,24 @@ export function ArtistGraphVisualization({
   // handleNodeHover; flipX/flipY anchor it toward the container's interior near the
   // right/bottom edges so it doesn't run off the dialog (PSY-1215).
   const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({ x: 0, y: 0, flipX: false, flipY: false })
+
+  // PSY-1218: hoverable-tooltip dismiss timer (extracted lifecycle: useDismissTimer).
+  // On hover-out we DELAY hiding the tooltip (scheduleDismiss) so the cursor can
+  // travel onto it and click the "View artist page" link; entering the tooltip
+  // cancels the timer (cancelDismiss), leaving it reschedules. onZoom + unmount
+  // cancel it; re-center hides immediately (a still-pending timer then no-ops against
+  // the already-null hoveredNode).
+  //
+  // overTooltipRef closes the canvas-vs-DOM event-ordering race: the canvas can fire
+  // onNodeHover(null)→scheduleDismiss AFTER the tooltip's onMouseEnter→cancelDismiss,
+  // re-arming a dismiss while the pointer is resting ON the tooltip. The dismiss
+  // callback bails when the pointer is over the tooltip; onMouseLeave reschedules on
+  // a real exit, so the link can't vanish out from under the cursor (PSY-1218 review).
+  const overTooltipRef = useRef(false)
+  const { schedule: scheduleDismiss, cancel: cancelDismiss } = useDismissTimer(() => {
+    if (overTooltipRef.current) return
+    setHoveredNode(null)
+  }, TOOLTIP_DISMISS_DELAY_MS)
 
   // Reset hover when the center changes (re-center) — the React-recommended
   // "adjust state during render" pattern (not an effect). onNodeHover only fires
@@ -350,14 +396,37 @@ export function ArtistGraphVisualization({
   // node never desync; a null placement (hover-out, or a node without settled
   // coords) hides the tooltip rather than stranding it at a stale/origin position.
   const handleNodeHover = useCallback((node: GraphNode | null) => {
-    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+    // The center node has no rich tooltip (suppressed in the render guard below), so
+    // treat hovering it like hover-out — otherwise crossing the center on the way to
+    // a satellite's tooltip would cancelDismiss + show nothing, instantly killing the
+    // grace window the feature exists to provide (PSY-1218 code-review).
+    const placement =
+      node && !node.isCenter
+        ? nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+        : null
     if (placement) {
+      cancelDismiss()
       setTooltipPos(placement)
       setHoveredNode(node)
     } else {
-      setHoveredNode(null)
+      // Hover-out, the center node, or an unplaceable node: DON'T hide immediately —
+      // delay so the cursor can travel onto the tooltip and reach its link (PSY-1218).
+      // Entering the tooltip cancels this; if the cursor never reaches it, it hides.
+      scheduleDismiss()
     }
-  }, [])
+  }, [cancelDismiss, scheduleDismiss])
+
+  // Keep the tooltip open while the pointer is over it (cancel the dismiss) and
+  // reschedule the dismiss when it leaves. overTooltipRef gates the dismiss callback
+  // against the canvas-vs-DOM race described on the timer above (PSY-1218).
+  const handleTooltipEnter = useCallback(() => {
+    overTooltipRef.current = true
+    cancelDismiss()
+  }, [cancelDismiss])
+  const handleTooltipLeave = useCallback(() => {
+    overTooltipRef.current = false
+    scheduleDismiss()
+  }, [scheduleDismiss])
 
   const nodeCanvasObject = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D) => {
@@ -477,8 +546,9 @@ export function ArtistGraphVisualization({
         onNodeHover={handleNodeHover}
         // Wheel-zoom moves the node under a stationary pointer without re-firing
         // onNodeHover, stranding the tooltip at a stale screen position — dismiss it
-        // on zoom (re-hover re-anchors it) (PSY-1215).
-        onZoom={() => setHoveredNode(null)}
+        // on zoom (re-hover re-anchors it) (PSY-1215). Cancel any pending hoverable-
+        // dismiss timer so it can't fire after we've already hidden (PSY-1218).
+        onZoom={() => { cancelDismiss(); setHoveredNode(null) }}
         // The rich ArtistNodeTooltip below (anchored at the node) replaces the
         // default native name pill for satellite nodes, so suppress the pill there
         // to avoid a redundant second tooltip. KEEP it for the center node, which
@@ -505,7 +575,12 @@ export function ArtistGraphVisualization({
       />
 
       {hoveredNode && !hoveredNode.isCenter && (
-        <ArtistNodeTooltip node={hoveredNode} position={tooltipPos} />
+        <ArtistNodeTooltip
+          node={hoveredNode}
+          position={tooltipPos}
+          onMouseEnter={handleTooltipEnter}
+          onMouseLeave={handleTooltipLeave}
+        />
       )}
 
       {/* PSY-361: re-center loading overlay. Sits above the canvas without
