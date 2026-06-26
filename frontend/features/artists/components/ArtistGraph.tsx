@@ -8,6 +8,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
+import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData } from '../types'
@@ -130,23 +131,17 @@ export interface ArtistNodeTooltipProps {
     state?: string
     upcoming_show_count: number
   }
-  position: { x: number; y: number; flipX?: boolean; flipY?: boolean }
+  position: TooltipAnchor
 }
 
 export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
   return (
     <div
       className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
-      style={{
-        left: position.x,
-        top: position.y,
-        // left/top sit at the node; the transform offsets the tooltip 8px off the
-        // node and flips it toward the container interior near the right/bottom edge.
-        transform: [
-          position.flipX ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)',
-          position.flipY ? 'translateY(calc(-100% - 8px))' : 'translateY(8px)',
-        ].join(' '),
-      }}
+      // left/top sit at the node; the transform offsets the tooltip 8px off the
+      // node and flips it toward the container interior near the right/bottom edge
+      // (shared with ForceGraphView via tooltipPlacementStyle — PSY-1217).
+      style={tooltipPlacementStyle(position)}
     >
       <div className="font-medium text-sm">{node.name}</div>
       {(node.city || node.state) && (
@@ -190,7 +185,7 @@ export function ArtistGraphVisualization({
   // the relative container). Set from the hovered node's screen position in
   // handleNodeHover; flipX/flipY anchor it toward the container's interior near the
   // right/bottom edges so it doesn't run off the dialog (PSY-1215).
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0, flipX: false, flipY: false })
+  const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({ x: 0, y: 0, flipX: false, flipY: false })
 
   // Reset hover when the center changes (re-center) — the React-recommended
   // "adjust state during render" pattern (not an effect). onNodeHover only fires
@@ -348,31 +343,18 @@ export function ArtistGraphVisualization({
     [onRecenter]
   )
 
-  // react-force-graph-2d's `onNodeHover` gives `(node, previousNode)` with no
-  // MouseEvent, so we anchor the tooltip on the NODE rather than the cursor:
-  // graph2ScreenCoords maps the node's graph position to canvas pixels, which are
-  // also the tooltip's coords because it is position:ABSOLUTE inside the relative
-  // container. (Absolute — not fixed — so it stays correct inside the transformed
-  // Radix dialog, whose transform would otherwise be the containing block for a
-  // fixed tooltip and offset it to the dialog corner.) Flip toward the interior
-  // near the right/bottom edges so it doesn't run off (PSY-1215; previously the
-  // tooltip was pinned to the top-left corner).
+  // Anchor the tooltip on the NODE (onNodeHover carries no MouseEvent) via the
+  // shared nodeTooltipPlacement helper — see its doc-comment for the
+  // graph2ScreenCoords + position:absolute rationale (PSY-1215, extracted in
+  // PSY-1217). Set hoveredNode ONLY when a placement is returned so position and
+  // node never desync; a null placement (hover-out, or a node without settled
+  // coords) hides the tooltip rather than stranding it at a stale/origin position.
   const handleNodeHover = useCallback((node: GraphNode | null) => {
-    const graph = graphRef.current
-    const container = containerRef.current
-    if (node && node.x != null && node.y != null && graph && container) {
-      const { x, y } = graph.graph2ScreenCoords(node.x, node.y)
-      setTooltipPos({
-        x,
-        y,
-        flipX: x > container.clientWidth * 0.6,
-        flipY: y > container.clientHeight * 0.6,
-      })
+    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+    if (placement) {
+      setTooltipPos(placement)
       setHoveredNode(node)
     } else {
-      // hover-out, or a node without settled coords — hide rather than render the
-      // tooltip at a stale/origin position. Set hoveredNode ONLY when placeable so
-      // the two never desync (PSY-1215).
       setHoveredNode(null)
     }
   }, [])

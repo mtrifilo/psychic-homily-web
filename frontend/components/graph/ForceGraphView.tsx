@@ -57,6 +57,7 @@ import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipPlacement } from './nodeTooltip'
 import { EdgeLegend } from './EdgeLegend'
 
 // ──────────────────────────────────────────────
@@ -134,6 +135,13 @@ const HULL_FADE_END = 1.6
 const HULL_FILL_ALPHA_MAX = 0.12
 
 const OTHER_CLUSTER_ID = 'other'
+
+// A stable empty-clusters reference for the `clusters` default param. An omitted
+// (or inline `[]`) prop would otherwise hand a fresh array each render, giving the
+// `centroids` useMemo — and the reheat + tooltip-dismiss effects keyed on it — a new
+// identity every render, so a stray re-render mid-hover would needlessly reheat the
+// sim and dismiss an open tooltip (PSY-1217 review).
+const EMPTY_CLUSTERS: GraphCluster[] = []
 
 // ──────────────────────────────────────────────
 // Skeleton + dynamic-import boilerplate
@@ -251,7 +259,7 @@ export interface ForceGraphViewProps {
 export function ForceGraphView({
   nodes,
   links,
-  clusters = [],
+  clusters = EMPTY_CLUSTERS,
   containerWidth,
   height,
   hiddenClusterIDs,
@@ -271,9 +279,11 @@ export function ForceGraphView({
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   )
-  // The hover handler currently never repositions the tooltip — see the note on
-  // `handleNodeHover` below. Pinned to origin until that's fixed.
-  const [tooltipPos] = useState({ x: 0, y: 0 })
+  // Tooltip anchor in CONTAINER coords (the tooltip is position:absolute within
+  // the relative container). Set from the hovered node's screen position in
+  // handleNodeHover via the shared nodeTooltipPlacement helper; flipX/flipY steer
+  // it toward the container interior near the right/bottom edges (PSY-1217).
+  const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({ x: 0, y: 0, flipX: false, flipY: false })
 
   const graphHeight = height ?? (containerWidth < 768 ? 400 : 560)
 
@@ -340,6 +350,20 @@ export function ForceGraphView({
       .map(c => c.id)
     return computeCentroids(visibleClusterIDs, containerWidth, graphHeight)
   }, [clusters, hiddenClusterIDs, containerWidth, graphHeight])
+
+  // ForceGraphView explicitly reheats the simulation (d3ReheatSimulation in the
+  // effect below) whenever the data, edge-type/cluster filter, or viewport changes
+  // — which pans the nodes and would strand an already-open tooltip at its now-stale
+  // screen position over empty canvas or an unrelated node. Dismiss it on those same
+  // changes (identical deps to the reheat effect) so it re-anchors on the next hover.
+  // This is the counterpart to ArtistGraph's reset-on-recenter — both dismiss when the
+  // layout shifts under an open tooltip, but each keys on its OWN surface's layout
+  // signal (ForceGraphView's in-canvas EdgeLegend + viewport here; ArtistGraph's
+  // click-to-recenter there), so the triggers are deliberately NOT identical. Surfaced
+  // by the PSY-1217 code-review.
+  useEffect(() => {
+    setHoveredNode(null)
+  }, [renderData, centroids, containerWidth, graphHeight])
 
   // Configure cluster-aware d3 forces. Re-runs whenever the graph data, the
   // viewport, or the visible cluster set changes — d3-force-3d's API allows
@@ -433,12 +457,21 @@ export function ForceGraphView({
     [onNodeClick],
   )
 
-  // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` —
-  // there's no MouseEvent in the signature (see `force-graph` `force-graph.js`
-  // line ~633: `fn(obj.d, prevObj.d)`). The previous-node arg is unused; the
-  // tooltip is pinned at origin until a follow-up adds pointer-based positioning.
+  // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` and no
+  // MouseEvent, so anchor the tooltip on the NODE via the shared
+  // nodeTooltipPlacement helper — see its doc-comment for the graph2ScreenCoords +
+  // position:absolute rationale (PSY-1217; previously the tooltip was pinned at
+  // origin / top-left). Set hoveredNode ONLY when a placement is returned so
+  // position and node never desync; a null placement (hover-out, or a node without
+  // settled coords) hides the tooltip rather than stranding it at a stale position.
   const handleNodeHover = useCallback((node: RenderNode | null) => {
-    setHoveredNode(node)
+    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+    if (placement) {
+      setTooltipPos(placement)
+      setHoveredNode(node)
+    } else {
+      setHoveredNode(null)
+    }
   }, [])
 
   // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
@@ -642,6 +675,15 @@ export function ForceGraphView({
         }}
         onNodeClick={handleNodeClickInternal}
         onNodeHover={handleNodeHover}
+        // Wheel-zoom moves the node under a stationary pointer without re-firing
+        // onNodeHover, stranding the tooltip at a stale screen position — dismiss
+        // it on zoom (re-hover re-anchors it). Matches ArtistGraph (PSY-1217).
+        onZoom={() => setHoveredNode(null)}
+        // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled (default).
+        // Dragging a node moves it without re-firing onNodeHover (the same node
+        // stays under the cursor) or onZoom, so the anchored tooltip would strand
+        // at the node's pre-drag position. Dismiss on drag too (PSY-1217 review).
+        onNodeDrag={() => setHoveredNode(null)}
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
@@ -675,8 +717,10 @@ export function ForceGraphView({
 
       {hoveredNode && (
         <div
-          className="fixed z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
-          style={{ left: tooltipPos.x + 12, top: tooltipPos.y - 10 }}
+          className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
+          // Anchored at the node and flipped toward the interior near the edges —
+          // shared with ArtistGraph via tooltipPlacementStyle (PSY-1217).
+          style={tooltipPlacementStyle(tooltipPos)}
         >
           <div className="font-medium text-sm">{hoveredNode.name}</div>
           {(hoveredNode.city || hoveredNode.state) && (

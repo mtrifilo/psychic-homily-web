@@ -225,7 +225,8 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
               <ForceGraphView
                 nodes={graphData.nodes}
                 links={graphData.links}
-                clusters={[]}
+                /* clusters omitted → ForceGraphView's stable EMPTY_CLUSTERS default
+                   (a fresh [] here would destabilize centroids per render — PSY-1217) */
                 containerWidth={containerWidth}
                 height={GRAPH_HEIGHT_PX}
                 ariaLabel={`Knowledge graph anchored to ${billTitle}: ${graphData.nodes.length} artists.`}
