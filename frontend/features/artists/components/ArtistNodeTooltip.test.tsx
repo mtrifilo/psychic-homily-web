@@ -91,4 +91,30 @@ describe('ArtistNodeTooltip (PSY-361)', () => {
     const link = screen.getByRole('link', { name: /View artist page/i })
     expect(link.className).toMatch(/pointer-events-auto/)
   })
+
+  // PSY-1215: the tooltip is anchored at the node (left/top) and offset via a
+  // transform; near the right/bottom container edge it flips toward the interior
+  // so it doesn't run off the dialog.
+  it('anchors down-right of the node by default (no flip)', () => {
+    renderWithProviders(
+      <ArtistNodeTooltip node={baseNode} position={{ x: 100, y: 200 }} />
+    )
+    const style = screen.getByText('Frozen Soul').parentElement?.getAttribute('style') ?? ''
+    expect(style).toContain('left: 100px')
+    expect(style).toContain('top: 200px')
+    expect(style).toContain('translateX(8px)')
+    expect(style).toContain('translateY(8px)')
+  })
+
+  it('flips toward the node top-left when flipX/flipY are set', () => {
+    renderWithProviders(
+      <ArtistNodeTooltip
+        node={baseNode}
+        position={{ x: 100, y: 200, flipX: true, flipY: true }}
+      />
+    )
+    const style = screen.getByText('Frozen Soul').parentElement?.getAttribute('style') ?? ''
+    expect(style).toContain('translateX(calc(-100% - 8px))')
+    expect(style).toContain('translateY(calc(-100% - 8px))')
+  })
 })
