@@ -13,12 +13,19 @@
 //	go run ./cmd/backfill-spotify-images                 # dry-run (default): search + report, no writes
 //	go run ./cmd/backfill-spotify-images --confirm       # apply changes
 //	go run ./cmd/backfill-spotify-images --limit 50      # cap entities per type (covers + artists)
+//	go run ./cmd/backfill-spotify-images --rps 2         # tune request rate (default 1/s, conservative)
 //	go run ./cmd/backfill-spotify-images --env .env.x    # explicit env file
 //
 // Requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET (client-credentials flow).
 // Idempotent: only entities missing an image are considered, so a re-run after a
 // live pass reports zero updates — which also makes errored entities safe to retry
 // by simply re-running.
+//
+// Rate limiting: Spotify's limit is an unpublished rolling window. --rps sets a
+// conservative steady cadence to avoid tripping it; if a 429 happens anyway, the
+// client honors the Retry-After and rides it out. If the throttle won't clear
+// (e.g. a leftover penalty from an earlier burst), the run ABORTS with a clear
+// message rather than grinding — wait a few minutes and re-run (idempotent).
 //
 // NOTE: with --limit unset (0), the run loads every image-less release (+ its
 // artists) and every image-less artist into memory at once. That is fine at the
@@ -30,6 +37,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -42,13 +50,19 @@ var (
 	confirm bool
 	envFile string
 	limit   int
+	rps     float64
 )
 
 func main() {
 	flag.BoolVar(&confirm, "confirm", false, "Apply changes (default: dry-run only)")
 	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
 	flag.IntVar(&limit, "limit", 0, "Max entities to process per type (0 = no limit)")
+	flag.Float64Var(&rps, "rps", 1.0, "Max Spotify API requests per second (tune against the rolling rate limit)")
 	flag.Parse()
+
+	if rps <= 0 {
+		log.Fatalf("--rps must be greater than 0 (got %g)", rps)
+	}
 
 	loadEnv()
 
@@ -68,9 +82,14 @@ func main() {
 	if confirm {
 		mode = "LIVE"
 	}
-	fmt.Printf("=== Spotify Image Enrichment Backfill (%s) — PSY-1185 ===\n\n", mode)
 
-	client := catalog.NewSpotifyClient(cfg.Spotify.ClientID, cfg.Spotify.ClientSecret)
+	// Derive the inter-request interval from --rps (validated > 0 above). Spotify's
+	// rate limit is an unpublished rolling window; a conservative cadence avoids the
+	// 429 throttle that stalls a large pass.
+	rateLimit := time.Duration(float64(time.Second) / rps)
+	fmt.Printf("=== Spotify Image Enrichment Backfill (%s, %.2g req/s) — PSY-1185 ===\n\n", mode, rps)
+
+	client := catalog.NewSpotifyClient(cfg.Spotify.ClientID, cfg.Spotify.ClientSecret, rateLimit)
 	defer client.Close()
 
 	report, err := catalog.BackfillSpotifyImages(database, client, catalog.SpotifyEnrichOptions{

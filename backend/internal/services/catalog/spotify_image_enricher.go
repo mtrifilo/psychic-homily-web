@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -128,6 +129,9 @@ func enrichReleaseCovers(db *gorm.DB, client spotifyImageAPI, opts SpotifyEnrich
 
 		albums, err := client.SearchAlbums(artistName, rel.Title, spotifyDefaultSearchLimit)
 		if err != nil {
+			if errors.Is(err, ErrSpotifyRateLimited) {
+				return fmt.Errorf("aborting backfill — %w; wait for the throttle to clear and re-run (idempotent)", err)
+			}
 			report.ReleaseErrors++
 			slog.Warn("spotify-enrich: album search failed",
 				"release_id", rel.ID, "title", rel.Title, "artist", artistName, "error", err)
@@ -215,6 +219,9 @@ func enrichArtistPhotos(db *gorm.DB, client spotifyImageAPI, opts SpotifyEnrichO
 
 		sa, err := client.GetArtist(spotifyID)
 		if err != nil {
+			if errors.Is(err, ErrSpotifyRateLimited) {
+				return fmt.Errorf("aborting backfill — %w; wait for the throttle to clear and re-run (idempotent)", err)
+			}
 			report.ArtistErrors++
 			slog.Warn("spotify-enrich: artist fetch failed",
 				"artist_id", ar.ID, "name", ar.Name, "spotify_id", spotifyID, "error", err)

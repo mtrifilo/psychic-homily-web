@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -240,14 +241,39 @@ func TestSpotifyClient_TokenRefreshOnExpiry(t *testing.T) {
 
 func TestParseSpotifyRetryAfter(t *testing.T) {
 	assert.Equal(t, 5*time.Second, parseSpotifyRetryAfter("5"), "sub-cap delta passes through")
+	assert.Equal(t, 90*time.Second, parseSpotifyRetryAfter("90"), "sub-cap delta passes through")
 	assert.Equal(t, time.Duration(0), parseSpotifyRetryAfter("0"))
 	assert.Equal(t, time.Duration(0), parseSpotifyRetryAfter("-5"), "negative delta floors to 0")
-	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("120"), "delta over the cap clamps to max")
-	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("99999"), "huge delta clamps to max")
-	assert.Equal(t, spotifyRateLimit, parseSpotifyRetryAfter(""), "missing header → default cadence")
-	assert.Equal(t, spotifyRateLimit, parseSpotifyRetryAfter("not-a-number"), "unparseable → default cadence")
+	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("99999"), "delta over the cap clamps to max")
+	assert.Equal(t, spotify429DefaultBackoff, parseSpotifyRetryAfter(""), "missing header → default backoff")
+	assert.Equal(t, spotify429DefaultBackoff, parseSpotifyRetryAfter("not-a-number"), "unparseable → default backoff")
 
 	// HTTP-date form (RFC 9110): a far-future date clamps to the max; a past date floors to 0.
 	assert.Equal(t, spotify429MaxWait, parseSpotifyRetryAfter("Wed, 21 Oct 2099 07:28:00 GMT"))
 	assert.Equal(t, time.Duration(0), parseSpotifyRetryAfter("Wed, 21 Oct 1999 07:28:00 GMT"))
+}
+
+func TestSpotifyClient_PersistentThrottleReturnsSentinel(t *testing.T) {
+	// Every request 429s with Retry-After:0 (so retries are instant) → after the
+	// retry budget, apiGet returns ErrSpotifyRateLimited rather than spinning.
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/token" {
+			_, _ = w.Write([]byte(`{"access_token":"tok-abc","expires_in":3600}`))
+			return
+		}
+		calls.Add(1)
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"status":429}}`))
+	}))
+	defer srv.Close()
+
+	c := NewSpotifyClientWithConfig(srv.Client(), srv.URL, srv.URL, "id", "secret")
+	defer c.Close()
+
+	_, err := c.SearchAlbums("Sleep", "Dopesmoker", 10)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrSpotifyRateLimited), "persistent 429 must surface ErrSpotifyRateLimited")
+	assert.Equal(t, int32(spotify429MaxRetries+1), calls.Load(), "1 initial + spotify429MaxRetries attempts")
 }
