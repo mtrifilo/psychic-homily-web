@@ -2,6 +2,7 @@ import {
   LayoutDashboard, ShieldCheck, Clock, BadgeCheck, Flag,
   Disc3, Tag, Tent, Music, Radio, Library, Tags,
   Upload, ClipboardCheck, BarChart3, Users, ScrollText,
+  Sparkles, ListChecks,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
@@ -26,6 +27,7 @@ export const VALID_TABS = [
   'dashboard', 'moderation', 'pending-shows', 'unverified-venues',
   'reports', 'import-show', 'releases', 'labels', 'festivals',
   'collections', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
+  'discovery', 'streaming-worklist',
   'users', 'audit-log',
 ] as const
 
@@ -75,6 +77,8 @@ export const adminNavGroups: AdminNavGroup[] = [
       { tab: 'festivals', label: 'Festivals', icon: Tent },
       { tab: 'artists-admin', label: 'Artists', icon: Music },
       { tab: 'radio', label: 'Radio Stations', icon: Radio },
+      { tab: 'discovery', label: 'Discovery', icon: Sparkles },
+      { tab: 'streaming-worklist', label: 'Streaming Worklist', icon: ListChecks },
     ],
   },
   {
