@@ -60,6 +60,10 @@ func main() {
 	flag.Float64Var(&rps, "rps", 1.0, "Max Spotify API requests per second (tune against the rolling rate limit)")
 	flag.Parse()
 
+	if rps <= 0 {
+		log.Fatalf("--rps must be greater than 0 (got %g)", rps)
+	}
+
 	loadEnv()
 
 	cfg, err := config.Load()
@@ -79,13 +83,10 @@ func main() {
 		mode = "LIVE"
 	}
 
-	// Derive the inter-request interval from --rps. Spotify's rate limit is an
-	// unpublished rolling window; a conservative cadence avoids the 429 throttle
-	// that stalls a large pass. rps <= 0 falls back to the client default.
-	var rateLimit time.Duration
-	if rps > 0 {
-		rateLimit = time.Duration(float64(time.Second) / rps)
-	}
+	// Derive the inter-request interval from --rps (validated > 0 above). Spotify's
+	// rate limit is an unpublished rolling window; a conservative cadence avoids the
+	// 429 throttle that stalls a large pass.
+	rateLimit := time.Duration(float64(time.Second) / rps)
 	fmt.Printf("=== Spotify Image Enrichment Backfill (%s, %.2g req/s) — PSY-1185 ===\n\n", mode, rps)
 
 	client := catalog.NewSpotifyClient(cfg.Spotify.ClientID, cfg.Spotify.ClientSecret, rateLimit)
