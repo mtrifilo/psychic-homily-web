@@ -81,6 +81,9 @@ const (
 	// Spotify (image enrichment — client-credentials flow; PSY-1185)
 	EnvSpotifyClientID     = "SPOTIFY_CLIENT_ID"
 	EnvSpotifyClientSecret = "SPOTIFY_CLIENT_SECRET"
+
+	// Discogs (image enrichment — token auth; PSY-1216)
+	EnvDiscogsToken = "DISCOGS_TOKEN"
 )
 
 // Config holds all configuration for the application
@@ -98,6 +101,7 @@ type Config struct {
 	Apple          AppleConfig
 	Anthropic      AnthropicConfig
 	Spotify        SpotifyConfig
+	Discogs        DiscogsConfig
 }
 
 // AppleConfig holds Sign in with Apple configuration
@@ -119,6 +123,14 @@ type AnthropicConfig struct {
 type SpotifyConfig struct {
 	ClientID     string
 	ClientSecret string
+}
+
+// DiscogsConfig holds the Discogs token used by the cover-art enrichment backfill
+// (PSY-1216) for token-authed search + image fields. Empty in local dev / CI; the
+// backfill cmd runs CAA-only when it is unset. Like SpotifyConfig, the server
+// never calls Discogs, so Validate() deliberately does NOT enforce it.
+type DiscogsConfig struct {
+	Token string
 }
 
 // DiscordConfig holds Discord webhook configuration for admin notifications
@@ -308,6 +320,9 @@ func Load() (*Config, error) {
 		Spotify: SpotifyConfig{
 			ClientID:     GetEnv(EnvSpotifyClientID, ""),
 			ClientSecret: GetEnv(EnvSpotifyClientSecret, ""),
+		},
+		Discogs: DiscogsConfig{
+			Token: GetEnv(EnvDiscogsToken, ""),
 		},
 	}
 
