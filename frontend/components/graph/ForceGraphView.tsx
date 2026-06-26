@@ -136,6 +136,13 @@ const HULL_FILL_ALPHA_MAX = 0.12
 
 const OTHER_CLUSTER_ID = 'other'
 
+// A stable empty-clusters reference for the `clusters` default param. An omitted
+// (or inline `[]`) prop would otherwise hand a fresh array each render, giving the
+// `centroids` useMemo — and the reheat + tooltip-dismiss effects keyed on it — a new
+// identity every render, so a stray re-render mid-hover would needlessly reheat the
+// sim and dismiss an open tooltip (PSY-1217 review).
+const EMPTY_CLUSTERS: GraphCluster[] = []
+
 // ──────────────────────────────────────────────
 // Skeleton + dynamic-import boilerplate
 // ──────────────────────────────────────────────
@@ -252,7 +259,7 @@ export interface ForceGraphViewProps {
 export function ForceGraphView({
   nodes,
   links,
-  clusters = [],
+  clusters = EMPTY_CLUSTERS,
   containerWidth,
   height,
   hiddenClusterIDs,
@@ -344,12 +351,16 @@ export function ForceGraphView({
     return computeCentroids(visibleClusterIDs, containerWidth, graphHeight)
   }, [clusters, hiddenClusterIDs, containerWidth, graphHeight])
 
-  // A layout reheat (data, filter, or viewport change → d3ReheatSimulation in the
-  // effect below) pans the nodes, which would strand an already-open tooltip at
-  // its now-stale screen position over empty canvas or an unrelated node. Dismiss
-  // it on the same changes so it re-anchors on the next hover — the ForceGraphView
-  // analog of ArtistGraph's reset-on-recenter (PSY-1215; this peer-surface gap
-  // surfaced in the PSY-1217 code-review). Same deps as the reheat effect below.
+  // ForceGraphView explicitly reheats the simulation (d3ReheatSimulation in the
+  // effect below) whenever the data, edge-type/cluster filter, or viewport changes
+  // — which pans the nodes and would strand an already-open tooltip at its now-stale
+  // screen position over empty canvas or an unrelated node. Dismiss it on those same
+  // changes (identical deps to the reheat effect) so it re-anchors on the next hover.
+  // This is the counterpart to ArtistGraph's reset-on-recenter — both dismiss when the
+  // layout shifts under an open tooltip, but each keys on its OWN surface's layout
+  // signal (ForceGraphView's in-canvas EdgeLegend + viewport here; ArtistGraph's
+  // click-to-recenter there), so the triggers are deliberately NOT identical. Surfaced
+  // by the PSY-1217 code-review.
   useEffect(() => {
     setHoveredNode(null)
   }, [renderData, centroids, containerWidth, graphHeight])
