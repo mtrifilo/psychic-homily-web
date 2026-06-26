@@ -9,14 +9,17 @@ import { useCallback, useEffect, useRef } from 'react'
  * pointer travels onto it, then dismiss shortly after it leaves.
  *
  * Extracted for PSY-1218 (the artist-graph node tooltip) so the timer lifecycle —
- * the part most prone to subtle bugs (cancel races, falsy-zero ids, missing
- * unmount cleanup) — is tested once in isolation instead of hand-rolled per call
- * site. `useHoverIntentMenu` and `useAutoDismissBanner` re-derive the same
- * lifecycle and could adopt this later.
+ * the part most prone to subtle bugs (cancel races, falsy-zero ids, missing unmount
+ * cleanup) — is tested once in isolation instead of inline at the call site.
+ * (`useHoverIntentMenu` / `useAutoDismissBanner` hand-roll similar lifecycles but
+ * around different state machines; consolidating them onto this primitive would be a
+ * separate refactor, not assumed here.)
  *
- * `onDismiss` is read through a ref, so callers may pass a fresh closure each
- * render (e.g. one that reads current state) without re-creating `schedule` /
- * `cancel` — their identities stay stable across renders.
+ * `onDismiss` is read through a ref, so callers may pass a fresh closure each render
+ * (e.g. one that reads current state) without re-creating `schedule` / `cancel` —
+ * their identities stay stable across renders. `delayMs`, by contrast, is captured by
+ * `schedule` at call time and is NOT re-applied to an already-pending timer, so pass
+ * a stable value (the sole caller uses a module constant).
  */
 export function useDismissTimer(onDismiss: () => void, delayMs: number) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
