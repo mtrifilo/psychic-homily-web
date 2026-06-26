@@ -79,6 +79,11 @@ const routes: RouteItem[] = [
     keywords: ['scenes', 'cities', 'city', 'local', 'geographic', 'phoenix', 'music scene', 'graph', 'explore', 'network', 'visualize'],
   },
   {
+    label: 'Atlas',
+    href: '/atlas',
+    keywords: ['atlas', 'globe', 'map', 'world', 'scenes', 'cities', 'geographic', 'discover', 'spin'],
+  },
+  {
     label: 'Collections',
     href: '/collections',
     keywords: ['collections', 'curated', 'lists', 'playlists', 'graph', 'explore', 'network', 'visualize'],

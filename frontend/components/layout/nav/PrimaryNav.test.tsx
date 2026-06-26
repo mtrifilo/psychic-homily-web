@@ -30,6 +30,8 @@ describe('PrimaryNav', () => {
     expect(screen.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists')
     // PSY-1057: Radio is a plain link to the Dial hub, not a popover trigger.
     expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
+    // PSY-1219: Atlas globe promoted to the top bar.
+    expect(screen.getByRole('link', { name: 'Atlas' })).toHaveAttribute('href', '/atlas')
   })
 
   it('marks Home active on the home route only', () => {

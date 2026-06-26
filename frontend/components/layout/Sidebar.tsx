@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, UserCircle, Shield, PanelLeftClose, PanelLeft,
-  Globe, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Compass, Palette,
+  Globe, Orbit, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Compass, Palette,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -39,6 +39,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/labels', label: 'Labels', icon: Tag },
       { href: '/tags', label: 'Tags', icon: Tags },
       { href: '/scenes', label: 'Scenes', icon: Globe },
+      { href: '/atlas', label: 'Atlas', icon: Orbit },
       { href: '/collections', label: 'Collections', icon: LayoutList },
       { href: '/charts', label: 'Charts', icon: TrendingUp },
       { href: '/radio', label: 'Radio', icon: Radio },

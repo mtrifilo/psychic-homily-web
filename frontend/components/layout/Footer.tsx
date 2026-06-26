@@ -44,6 +44,7 @@ const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
       { href: '/charts', label: 'Charts' },
       { href: '/tags', label: 'Tags' },
       { href: '/scenes', label: 'Scenes' },
+      { href: '/atlas', label: 'Atlas' },
       { href: '/radio', label: 'Radio' },
     ],
   },

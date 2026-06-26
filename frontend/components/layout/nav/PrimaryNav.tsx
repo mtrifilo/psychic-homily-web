@@ -18,10 +18,13 @@ const primaryLinks = [
   { href: '/shows', label: 'Shows' },
   { href: '/artists', label: 'Artists' },
   { href: '/radio', label: 'Radio' },
+  // Atlas — the spin-to-discover globe of scenes (PSY-1213); promoted to the top
+  // bar as a flagship discovery surface (PSY-1219).
+  { href: '/atlas', label: 'Atlas' },
 ]
 
 // Desktop primary navigation. Condenses into the mobile hamburger sheet below
-// `lg` (the dense 7-item row + wide search needs the width); PSY-1020 replaces
+// `lg` (the dense 8-item row + wide search needs the width); PSY-1020 replaces
 // mobile with the bottom tab bar.
 export function PrimaryNav() {
   const pathname = usePathname()
