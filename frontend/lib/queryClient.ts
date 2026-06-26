@@ -375,7 +375,8 @@ export const queryKeys = {
     all: ['scenes'] as const,
     list: ['scenes', 'list'] as const,
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
-    artists: (slug: string, period?: number) => ['scenes', 'artists', slug, period] as const,
+    artists: (slug: string, period?: number, limit?: number) =>
+      ['scenes', 'artists', slug, period, limit] as const,
     genres: (slug: string) => ['scenes', 'genres', slug] as const,
     graph: (slug: string, types?: string[]) => ['scenes', 'graph', slug, types ?? null] as const,
   },

@@ -72,7 +72,10 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
     : API_ENDPOINTS.SCENES.ARTISTS(slug)
 
   return useQuery({
-    queryKey: queryKeys.scenes.artists(slug, period),
+    // `limit` is part of the key: different limits for the same slug+period are
+    // distinct results (e.g. the /atlas preview's 6 vs scene-detail's 10), so
+    // they must not share a cache entry.
+    queryKey: queryKeys.scenes.artists(slug, period, limit),
     queryFn: async (): Promise<SceneArtistsResponse> => {
       return apiRequest<SceneArtistsResponse>(endpoint, {
         method: 'GET',

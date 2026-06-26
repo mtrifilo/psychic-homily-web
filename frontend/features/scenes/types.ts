@@ -12,6 +12,11 @@ export interface SceneListItem {
   venue_count: number
   upcoming_show_count: number
   total_show_count: number
+  // Geocoded city centroid for the /atlas map (PSY-1212). Absent (undefined)
+  // or null when the geocoder couldn't place the city — such scenes can't be
+  // plotted on the globe.
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface SceneListResponse {
