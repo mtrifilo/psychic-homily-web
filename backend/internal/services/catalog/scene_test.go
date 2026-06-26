@@ -49,7 +49,7 @@ func (suite *SceneServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	suite.sceneService = &SceneService{db: suite.testDB.DB}
+	suite.sceneService = NewSceneService(suite.testDB.DB)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TearDownSuite() {
@@ -246,6 +246,52 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MeetsThreshold() {
 	suite.GreaterOrEqual(scene.VenueCount, 2)
 	suite.GreaterOrEqual(scene.TotalShowCount, 3)
 	suite.GreaterOrEqual(scene.UpcomingShowCount, 3)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_IncludesGeocodedCoords() {
+	// A qualifying scene gets its coordinate from the geocoded (city, state)
+	// centroid — the same offline geocoder GetShowCities and venue writes use.
+	// No venue coordinates are involved.
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	a := suite.createArtist("PHX Act")
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("S1", v1.ID, a.ID, user.ID, future)
+	suite.createApprovedShow("S2", v2.ID, a.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("S3", v1.ID, a.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	scene := scenes[0]
+	suite.Require().NotNil(scene.Latitude)
+	suite.Require().NotNil(scene.Longitude)
+	// Phoenix, AZ ≈ (33.45, -112.07).
+	suite.InDelta(33.45, *scene.Latitude, 1.0)
+	suite.InDelta(-112.07, *scene.Longitude, 1.0)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_NullCoordsWhenCityUnknown() {
+	// A city the geocoder can't resolve → coords stay nil (null-safe: the scene
+	// still lists, it just can't be placed on the map).
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Hall A", "Faketown", "ZZ")
+	v2 := suite.createVerifiedVenue("Hall B", "Faketown", "ZZ")
+	a := suite.createArtist("Fake Act")
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("S1", v1.ID, a.ID, user.ID, future)
+	suite.createApprovedShow("S2", v2.ID, a.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("S3", v1.ID, a.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	scene := scenes[0]
+	suite.Nil(scene.Latitude)
+	suite.Nil(scene.Longitude)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_QualifiesWithPastShowsOnly() {
