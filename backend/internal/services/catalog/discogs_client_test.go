@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -107,4 +108,22 @@ func TestParseDiscogsYear(t *testing.T) {
 	assert.Equal(t, 0, parseDiscogsYear(""))
 	assert.Equal(t, 0, parseDiscogsYear("0"))
 	assert.Equal(t, 0, parseDiscogsYear("n/a"))
+}
+
+func TestDiscogsTruncateBody(t *testing.T) {
+	short := "short error"
+	assert.Equal(t, short, discogsTruncateBody(short))
+	long := strings.Repeat("x", discogsErrorBodyLimit+50)
+	got := discogsTruncateBody(long)
+	assert.True(t, strings.HasSuffix(got, "...[truncated]"))
+	assert.Len(t, got, discogsErrorBodyLimit+len("...[truncated]"))
+}
+
+func TestDiscogsClient_LimitCapDefaults(t *testing.T) {
+	c := newDiscogsTestClient(t, "tok", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "10", r.URL.Query().Get("per_page"), "limit<=0 falls back to the default per_page")
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	_, err := c.SearchReleaseCovers(context.Background(), "Sleep", "Dopesmoker", 0)
+	require.NoError(t, err)
 }

@@ -124,23 +124,32 @@ func (a mbReleaseAdapter) SearchReleaseGroups(ctx context.Context, artist, title
 	}
 	out := make([]catalog.MBReleaseGroupCandidate, 0, len(raw))
 	for _, rg := range raw {
-		names := make([]string, 0, len(rg.ArtistCredit)*2)
-		for _, ac := range rg.ArtistCredit {
-			if ac.Name != "" {
-				names = append(names, ac.Name)
-			}
-			if ac.Artist.Name != "" && ac.Artist.Name != ac.Name {
-				names = append(names, ac.Artist.Name)
-			}
-		}
 		out = append(out, catalog.MBReleaseGroupCandidate{
 			MBID:             rg.ID,
 			Title:            rg.Title,
-			ArtistNames:      names,
+			ArtistNames:      flattenArtistNames(rg.ArtistCredit),
 			FirstReleaseDate: rg.FirstReleaseDate,
 		})
 	}
 	return out, nil
+}
+
+// flattenArtistNames collects the credited + canonical artist names from a
+// release-group's artist credit, giving the strict matcher both forms to match
+// against. The credited name is the form printed on the release (may be an alias /
+// "feat." rendering); the canonical name is the artist's MusicBrainz name. Empty
+// names are skipped, and the canonical is omitted when it equals the credited.
+func flattenArtistNames(credits []pipeline.MBArtistCredit) []string {
+	names := make([]string, 0, len(credits)*2)
+	for _, ac := range credits {
+		if ac.Name != "" {
+			names = append(names, ac.Name)
+		}
+		if ac.Artist.Name != "" && ac.Artist.Name != ac.Name {
+			names = append(names, ac.Artist.Name)
+		}
+	}
+	return names
 }
 
 func printReport(r *catalog.CoverArtEnrichReport) {

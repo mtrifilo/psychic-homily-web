@@ -160,6 +160,45 @@ func TestDiscogsTitleContains_TokenBoundary(t *testing.T) {
 		"multi-word title phrase matches")
 }
 
+func TestDiscogsTitleContains_SelfTitled(t *testing.T) {
+	// Artist and title normalize to the SAME token. Splitting on " - " and matching
+	// each side keeps a wrong-artist row out — the old whole-string gate would have
+	// passed "Testament - Low" for artist=title="low".
+	assert.True(t, discogsTitleContains("Low - Low", "low", "low"), "genuine self-titled match")
+	assert.False(t, discogsTitleContains("Testament - Low", "low", "low"),
+		"wrong artist must NOT match a self-titled query")
+}
+
+func TestDiscogsTitleContains_NoSeparatorFallback(t *testing.T) {
+	// No " - " separator → fall back to whole-string containment of both phrases.
+	assert.True(t, discogsTitleContains("Sleep Dopesmoker", "dopesmoker", "sleep"))
+	assert.False(t, discogsTitleContains("Sleep Dopesmoker", "holy mountain", "sleep"))
+}
+
+func TestPickStrictReleaseGroup_NilReleaseYearMatches(t *testing.T) {
+	cands := []MBReleaseGroupCandidate{rg("rg-1", "Dopesmoker", "2003", "Sleep")}
+	mbid, _ := pickStrictReleaseGroup(cands, "Sleep", "Dopesmoker", nil)
+	assert.Equal(t, "rg-1", mbid, "a nil release year skips the year gate, not the match")
+}
+
+func TestPickStrictDiscogs_NilReleaseYearMatches(t *testing.T) {
+	cands := []DiscogsRelease{dr(111, "Sleep - Dopesmoker", 2003, "https://i.discogs.com/a.jpg", "https://www.discogs.com/release/111")}
+	assert.NotNil(t, pickStrictDiscogs(cands, "Sleep", "Dopesmoker", nil))
+}
+
+func TestValidCoverImageURL(t *testing.T) {
+	// CAA images must be https on coverartarchive.org.
+	assert.True(t, validCoverImageURL(coverArtSourceCAA, "https://coverartarchive.org/release-group/x/front"))
+	assert.False(t, validCoverImageURL(coverArtSourceCAA, "http://coverartarchive.org/release-group/x/front"), "non-https rejected")
+	assert.False(t, validCoverImageURL(coverArtSourceCAA, "https://evil.test/x"), "off-host CAA image rejected")
+	assert.False(t, validCoverImageURL(coverArtSourceCAA, "https://coverartarchive.org.attacker.test/x"), "look-alike host rejected")
+	// Discogs images must be https on i.discogs.com.
+	assert.True(t, validCoverImageURL(coverArtSourceDiscogs, "https://i.discogs.com/a.jpg"))
+	assert.False(t, validCoverImageURL(coverArtSourceDiscogs, "https://st.discogs.com/spacer.gif"), "discogs static host rejected")
+	assert.False(t, validCoverImageURL(coverArtSourceDiscogs, "https://www.discogs.com/release/1"), "web host is not the image host")
+	assert.False(t, validCoverImageURL("spotify", "https://i.scdn.co/x"), "unknown source rejected")
+}
+
 func TestValidCoverSourceURL(t *testing.T) {
 	assert.True(t, validCoverSourceURL(coverArtSourceCAA, "https://musicbrainz.org/release-group/x"))
 	assert.False(t, validCoverSourceURL(coverArtSourceCAA, "https://evil.test/release-group/x"))

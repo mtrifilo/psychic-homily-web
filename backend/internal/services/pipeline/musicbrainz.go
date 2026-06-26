@@ -231,7 +231,6 @@ type MBReleaseGroupSearchResponse struct {
 type MBReleaseGroupResult struct {
 	ID               string           `json:"id"`
 	Title            string           `json:"title"`
-	PrimaryType      string           `json:"primary-type"`
 	FirstReleaseDate string           `json:"first-release-date"` // "YYYY" | "YYYY-MM" | "YYYY-MM-DD" | ""
 	ArtistCredit     []MBArtistCredit `json:"artist-credit"`
 }

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -156,9 +157,10 @@ func BackfillCoverArt(
 		}
 
 		// Validate-on-write (PSY-525/747/1113): cover_art_url renders in <img src>
-		// and cover_art_source_url as an attribution <a href>, so reject a non-https
-		// image or an off-host linkback rather than trusting the provider blindly.
-		if !isHTTPSURL(ref.ImageURL) || !validCoverSourceURL(ref.Source, ref.SourceURL) {
+		// and cover_art_source_url as an attribution <a href>, so reject an image on
+		// an unexpected host or an off-host linkback rather than trusting the provider
+		// blindly. Both gates are host-anchored per provider.
+		if !validCoverImageURL(ref.Source, ref.ImageURL) || !validCoverSourceURL(ref.Source, ref.SourceURL) {
 			report.ReleasesSkipped++
 			slog.Warn("cover-art-enrich: matched cover failed URL validation; skipping",
 				"release_id", rel.ID, "source", ref.Source, "image_url", ref.ImageURL, "source_url", ref.SourceURL)
@@ -229,30 +231,43 @@ func resolveCover(
 		slog.Info("cover-art-enrich: ambiguous musicbrainz match (multiple distinct release-groups); skipping CAA",
 			"release_id", rel.ID, "title", rel.Title, "artist", artistName, "qualifying", qualifying)
 	}
+
+	// caaErr remembers a CAA TRANSPORT failure on a matched release. We do NOT abort
+	// on it: a CAA outage must not block the Discogs fallback (that would defeat the
+	// point of having one). It is surfaced only if Discogs also yields nothing, so
+	// the release is still counted as errored + retried rather than silently skipped.
+	var caaErr error
 	if mbid != "" {
 		cover, err := caa.FrontCover(ctx, mbid)
-		if err != nil {
-			return nil, fmt.Errorf("cover art archive: %w", err)
-		}
-		if cover != nil {
+		switch {
+		case err != nil:
+			caaErr = fmt.Errorf("cover art archive: %w", err)
+			slog.Warn("cover-art-enrich: CAA lookup failed; trying Discogs",
+				"release_id", rel.ID, "title", rel.Title, "mbid", mbid, "error", err)
+		case cover != nil:
 			return &coverRef{ImageURL: cover.ImageURL, SourceURL: cover.SourceURL, Source: coverArtSourceCAA}, nil
 		}
-		// Matched a release-group but the Archive has no front cover for it — fall
-		// through to Discogs rather than giving up.
+		// Matched a release-group but the Archive returned no front cover (or errored)
+		// — fall through to Discogs rather than giving up.
 	}
 
 	// 2. Discogs (secondary searchable provider; nil when no token configured).
-	if discogs == nil {
-		return nil, nil
+	if discogs != nil {
+		dcands, err := discogs.SearchReleaseCovers(ctx, artistName, rel.Title, coverArtSearchLimit)
+		if err != nil {
+			if caaErr != nil {
+				return nil, errors.Join(caaErr, fmt.Errorf("discogs search: %w", err))
+			}
+			return nil, fmt.Errorf("discogs search: %w", err)
+		}
+		if d := pickStrictDiscogs(dcands, artistName, rel.Title, rel.ReleaseYear); d != nil {
+			return &coverRef{ImageURL: d.imageURL, SourceURL: d.sourceURL, Source: coverArtSourceDiscogs}, nil
+		}
 	}
-	dcands, err := discogs.SearchReleaseCovers(ctx, artistName, rel.Title, coverArtSearchLimit)
-	if err != nil {
-		return nil, fmt.Errorf("discogs search: %w", err)
-	}
-	if d := pickStrictDiscogs(dcands, artistName, rel.Title, rel.ReleaseYear); d != nil {
-		return &coverRef{ImageURL: d.imageURL, SourceURL: d.sourceURL, Source: coverArtSourceDiscogs}, nil
-	}
-	return nil, nil
+
+	// No cover from any provider. If CAA errored, surface it so the release is
+	// retried on a later run rather than recorded as a clean "no match".
+	return nil, caaErr
 }
 
 // =============================================================================
@@ -356,7 +371,10 @@ func pickStrictDiscogs(cands []DiscogsRelease, artistName, title string, release
 // share a key (same release-group / same cover image) → that one. Several with
 // DIFFERENT keys → narrow to an exact release-year match; if that still doesn't
 // resolve to one key, nil (skip + log). Mirrors the Spotify enricher's
-// chooseUnambiguous so the "never store the top hit blindly" policy is uniform.
+// chooseUnambiguous so the "never store the top hit blindly" policy is uniform —
+// keep the two in sync (a fix to the ambiguity logic in one likely applies to the
+// other; they stay separate per "isolate things likely to change" since the
+// providers' ambiguity semantics could diverge).
 func chooseUnambiguousCover(qualifying []coverCandidate, releaseYear *int) *coverCandidate {
 	if len(qualifying) == 0 {
 		return nil
@@ -404,13 +422,49 @@ func artistNamesContain(names []string, wantNormalized string) bool {
 	return false
 }
 
-// discogsTitleContains reports whether a Discogs "Artist - Title" string, once
-// normalized, contains both wanted phrases as whole tokens. Space-padding both
-// sides makes the substring check token-boundary-aware, so "war" doesn't match
-// inside "warpaint".
+// discogsTitleContains reports whether a Discogs search result matches the wanted
+// artist + title. Discogs combines results as "Artist - Title", so it splits on
+// the FIRST " - " and matches the artist phrase against the artist side and the
+// title phrase against the title side. Matching each phrase against the WHOLE
+// string instead would let a self-titled release collapse the two checks into one
+// (artist and title normalize to the same token) and pass a wrong-artist row —
+// e.g. "Testament - Low" would match artist=title="low". When the result has no
+// " - " separator it falls back to whole-string containment of both phrases.
 func discogsTitleContains(candTitle, wantTitle, wantArtist string) bool {
-	padded := " " + normalizeForMatch(candTitle) + " "
-	return strings.Contains(padded, " "+wantTitle+" ") && strings.Contains(padded, " "+wantArtist+" ")
+	artistPart, titlePart, ok := strings.Cut(candTitle, " - ")
+	if !ok {
+		return tokenContains(candTitle, wantArtist) && tokenContains(candTitle, wantTitle)
+	}
+	return tokenContains(artistPart, wantArtist) && tokenContains(titlePart, wantTitle)
+}
+
+// tokenContains reports whether haystack, once normalized + space-padded, contains
+// the already-normalized want phrase as a whole token. The padding makes the
+// substring check token-boundary-aware, so "war" does not match inside "warpaint".
+func tokenContains(haystack, wantNormalized string) bool {
+	padded := " " + normalizeForMatch(haystack) + " "
+	return strings.Contains(padded, " "+wantNormalized+" ")
+}
+
+// validCoverImageURL gates the stored cover_art_url per provider before persisting
+// (it renders in <img src>). Beyond requiring https it pins the host to the
+// provider's image host — coverartarchive.org for a CAA cover, i.discogs.com for a
+// Discogs cover — so the write boundary is self-defending even if a future image
+// producer is wired upstream (the transport clients already pin these same hosts).
+func validCoverImageURL(source, raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	switch source {
+	case coverArtSourceCAA:
+		return host == "coverartarchive.org" // host of caaBaseURL
+	case coverArtSourceDiscogs:
+		return host == discogsImageHost
+	default:
+		return false
+	}
 }
 
 // validCoverSourceURL gates the *_source_url linkback per provider before

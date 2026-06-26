@@ -17,15 +17,19 @@ import (
 // =============================================================================
 
 type fakeMBSearcher struct {
-	byTitle map[string][]MBReleaseGroupCandidate
-	err     error
-	calls   int
+	byTitle    map[string][]MBReleaseGroupCandidate
+	errByTitle map[string]error // per-title error (for the "continues after error" case)
+	err        error            // errors every call
+	calls      int
 }
 
 func (f *fakeMBSearcher) SearchReleaseGroups(_ context.Context, _, title string, _ int) ([]MBReleaseGroupCandidate, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
+	}
+	if e, ok := f.errByTitle[title]; ok {
+		return nil, e
 	}
 	return f.byTitle[title], nil
 }
@@ -262,4 +266,98 @@ func (s *CoverArtEnrichIntegrationTestSuite) TestCAAOnly_NilDiscogsIsSafe() {
 	s.Require().NoError(s.db.First(&rel, relID).Error)
 	s.Require().NotNil(rel.CoverArtSource)
 	s.Equal("cover_art_archive", *rel.CoverArtSource)
+}
+
+func (s *CoverArtEnrichIntegrationTestSuite) TestCAAError_FallsThroughToDiscogs() {
+	relID := s.seedDopesmoker()
+	mb := mbWithDopesmoker("rg-1")
+	caa := &fakeCAA{err: fmt.Errorf("CAA 503")} // MB matched, but CAA is down
+	discogs := &fakeDiscogs{byTitle: map[string][]DiscogsRelease{
+		"Dopesmoker": {{ID: 111, Title: "Sleep - Dopesmoker", Year: 2003,
+			CoverImage: "https://i.discogs.com/a.jpg", SourceURL: "https://www.discogs.com/release/111"}},
+	}}
+
+	report, err := BackfillCoverArt(context.Background(), s.db, mb, caa, discogs, CoverArtEnrichOptions{})
+	s.Require().NoError(err)
+	s.Equal(0, report.ReleaseErrors, "a CAA outage must not error the release when Discogs fills it")
+	s.Equal(1, report.ReleasesMatchedDiscogs, "the Discogs fallback runs even though CAA errored")
+	s.Equal(1, report.ReleasesUpdated)
+
+	var rel catalogm.Release
+	s.Require().NoError(s.db.First(&rel, relID).Error)
+	s.Equal("discogs", *rel.CoverArtSource)
+}
+
+func (s *CoverArtEnrichIntegrationTestSuite) TestCAAError_NoDiscogsCover_SurfacesError() {
+	s.seedDopesmoker()
+	mb := mbWithDopesmoker("rg-1")
+	caa := &fakeCAA{err: fmt.Errorf("CAA 503")}
+	discogs := &fakeDiscogs{} // Discogs has no cover for Dopesmoker
+
+	report, err := BackfillCoverArt(context.Background(), s.db, mb, caa, discogs, CoverArtEnrichOptions{})
+	s.Require().NoError(err)
+	s.Equal(1, report.ReleaseErrors, "CAA error is surfaced (so the release retries) when Discogs is empty")
+	s.Equal(0, report.ReleasesSkipped, "a CAA-errored release is an error, not a clean skip")
+	s.Equal(0, report.ReleasesUpdated)
+}
+
+func (s *CoverArtEnrichIntegrationTestSuite) TestDiscogsError_SurfacesError() {
+	s.seedDopesmoker()
+	mb := mbWithDopesmoker("rg-1")
+	caa := &fakeCAA{byMBID: map[string]*CoverArtResult{}} // rg-1 → no CAA cover
+	discogs := &fakeDiscogs{err: fmt.Errorf("discogs 500")}
+
+	report, err := BackfillCoverArt(context.Background(), s.db, mb, caa, discogs, CoverArtEnrichOptions{})
+	s.Require().NoError(err)
+	s.Equal(1, report.ReleaseErrors)
+	s.Equal(0, report.ReleasesUpdated)
+}
+
+func (s *CoverArtEnrichIntegrationTestSuite) TestContinuesAfterReleaseError() {
+	// Release A (Dopesmoker) errors on the MB search; release B (Jerusalem) then
+	// enriches via CAA — proving the loop continues past a per-release error.
+	sleep := &catalogm.Artist{Name: "Sleep"}
+	s.Require().NoError(s.db.Create(sleep).Error)
+	relA := &catalogm.Release{Title: "Dopesmoker", ReleaseYear: intPtr(2003)}
+	s.Require().NoError(s.db.Create(relA).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ArtistRelease{
+		ArtistID: sleep.ID, ReleaseID: relA.ID, Role: catalogm.ArtistReleaseRoleMain,
+	}).Error)
+	relB := &catalogm.Release{Title: "Jerusalem", ReleaseYear: intPtr(1999)}
+	s.Require().NoError(s.db.Create(relB).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ArtistRelease{
+		ArtistID: sleep.ID, ReleaseID: relB.ID, Role: catalogm.ArtistReleaseRoleMain,
+	}).Error)
+
+	mb := &fakeMBSearcher{
+		errByTitle: map[string]error{"Dopesmoker": fmt.Errorf("MB down")},
+		byTitle: map[string][]MBReleaseGroupCandidate{
+			"Jerusalem": {{MBID: "rg-j", Title: "Jerusalem", ArtistNames: []string{"Sleep"}, FirstReleaseDate: "1999"}},
+		},
+	}
+	caa := caaWithCover("rg-j", "https://coverartarchive.org/release-group/rg-j/front", "https://musicbrainz.org/release-group/rg-j")
+
+	report, err := BackfillCoverArt(context.Background(), s.db, mb, caa, nil, CoverArtEnrichOptions{})
+	s.Require().NoError(err)
+	s.Equal(2, report.ReleasesScanned)
+	s.Equal(1, report.ReleaseErrors, "release A errored")
+	s.Equal(1, report.ReleasesMatchedCAA, "release B was still processed after A errored")
+	s.Equal(1, report.ReleasesUpdated)
+
+	var b catalogm.Release
+	s.Require().NoError(s.db.First(&b, relB.ID).Error)
+	s.Require().NotNil(b.CoverArtURL, "B was enriched despite A's error")
+}
+
+func (s *CoverArtEnrichIntegrationTestSuite) TestSkipsReleaseWithNoArtist() {
+	// A cover-less release with no artist link is skipped without any provider call.
+	orphan := &catalogm.Release{Title: "Orphan", ReleaseYear: intPtr(2000)}
+	s.Require().NoError(s.db.Create(orphan).Error)
+
+	mb := &fakeMBSearcher{}
+	report, err := BackfillCoverArt(context.Background(), s.db, mb, &fakeCAA{}, nil, CoverArtEnrichOptions{})
+	s.Require().NoError(err)
+	s.Equal(1, report.ReleasesScanned)
+	s.Equal(1, report.ReleasesSkipped)
+	s.Equal(0, mb.calls, "a release with no artist never hits a provider")
 }
