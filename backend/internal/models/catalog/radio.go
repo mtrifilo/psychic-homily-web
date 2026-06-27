@@ -545,8 +545,10 @@ func ParseRadioSchedule(raw *json.RawMessage) (*RadioSchedule, error) {
 // offset). Returns (nil, nil, nil) when no slot matches the weekday (an
 // off-schedule / pop-up airing), so the caller leaves the episode windowless and
 // ComputeEpisodeStatus settles it to aired/archived — never falsely live. When a
-// weekday has more than one slot, the first match wins (air_date is date-only, so
-// a same-day double airing can't be disambiguated here).
+// weekday has more than one slot, the EARLIEST-starting slot wins deterministically
+// (air_date is date-only, so a same-day double airing can't be disambiguated — we
+// freeze a stable choice rather than depend on stored slot order). An End == Start
+// slot is a degenerate full-24-hour window (treated like the midnight wrap).
 //
 // Known edge: a wall-clock time that falls in the once-a-year spring-forward gap
 // (02:00–02:59 in US zones) doesn't exist, so time.Date normalizes it (e.g. an
@@ -565,31 +567,49 @@ func (s *RadioSchedule) WindowForDate(airDate string) (startsAt, endsAt *time.Ti
 		return nil, nil, fmt.Errorf("radio schedule: invalid air_date %q: %w", airDate, err)
 	}
 	weekday := int(day.Weekday()) // 0=Sunday..6=Saturday — matches RadioScheduleSlot.DayOfWeek
-	for _, slot := range s.Slots {
-		if slot.DayOfWeek != weekday {
+	// Pick the EARLIEST-starting slot for this weekday, deterministically. A show
+	// with two same-weekday slots can't be disambiguated from a date-only
+	// air_date, so we freeze a stable choice (HH:MM sorts lexicographically =
+	// chronologically) rather than an arbitrary stored-array-order pick — the
+	// latter could flip the "frozen" window if the scraper re-orders slots.
+	var match *RadioScheduleSlot
+	for i := range s.Slots {
+		if s.Slots[i].DayOfWeek != weekday {
 			continue
 		}
-		sh, sm, ok := parseHHMM(slot.Start)
-		if !ok {
+		if _, _, ok := parseHHMM(s.Slots[i].Start); !ok {
 			continue
 		}
-		eh, em, ok := parseHHMM(slot.End)
-		if !ok {
-			continue
+		if match == nil || s.Slots[i].Start < match.Start {
+			match = &s.Slots[i]
 		}
-		start := time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
-		end := time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
-		if !end.After(start) {
-			end = end.AddDate(0, 0, 1) // End <= Start: slot wraps past midnight
-		}
-		return &start, &end, nil
 	}
-	return nil, nil, nil // no slot for this weekday
+	if match == nil {
+		return nil, nil, nil // no (parseable) slot for this weekday
+	}
+	sh, sm, _ := parseHHMM(match.Start) // ok: filtered above
+	eh, em, ok := parseHHMM(match.End)
+	if !ok {
+		return nil, nil, nil // malformed end on the chosen slot (defensive; slots are validated)
+	}
+	start := time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
+	end := time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
+	if !end.After(start) {
+		// End <= Start wraps past midnight; End == Start is a degenerate full
+		// 24-hour slot (fails safe — only ever over-reports "live").
+		end = end.AddDate(0, 0, 1)
+	}
+	return &start, &end, nil
 }
 
-// parseHHMM parses a "HH:MM" 24-hour string into hour + minute. Schedule slots
-// are HH:MM-validated at write time (Validate), so ok=false is defensive.
+// parseHHMM parses a "HH:MM" 24-hour string into hour + minute, reusing the same
+// hhmmPattern that Validate enforces at write time so the producer and the
+// validator share ONE definition of a well-formed slot time. Schedule slots are
+// HH:MM-validated by ParseRadioSchedule, so ok=false is defensive.
 func parseHHMM(s string) (hour, minute int, ok bool) {
+	if !hhmmPattern.MatchString(s) {
+		return 0, 0, false
+	}
 	t, err := time.Parse("15:04", s)
 	if err != nil {
 		return 0, 0, false

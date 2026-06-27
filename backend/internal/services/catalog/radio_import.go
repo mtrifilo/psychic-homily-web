@@ -933,10 +933,17 @@ func (s *RadioService) episodeAirWindow(showID uint, ep RadioEpisodeImport, now 
 	if ep.AirDate == "" {
 		return nil, nil
 	}
-	// Churn guard: only derive a window for a recently-aired episode (see the
-	// const). A malformed air_date is treated as out-of-window (nil).
+	// Churn FLOOR: only derive a window for an episode aired within the guard (see
+	// the const). Both sides are compared as UTC-midnight dates (matching
+	// fetchSince's convention) so the cutoff is reproducible regardless of server
+	// zone. A malformed air_date is out-of-window (nil). This is a floor, not a
+	// band: a future air_date (a WFMU "upcoming broadcast" placeholder) passes and
+	// yields a correctly-'scheduled' window — the current schedule applies to
+	// upcoming airings, and it self-corrects to aired once it airs. Whether to
+	// import such placeholders at all is PSY-1240's concern, not this derivation's.
 	airDay, err := time.Parse("2006-01-02", ep.AirDate)
-	if err != nil || airDay.Before(now.AddDate(0, 0, -scheduleDerivedWindowMaxAgeDays)) {
+	cutoff := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -scheduleDerivedWindowMaxAgeDays)
+	if err != nil || airDay.Before(cutoff) {
 		return nil, nil
 	}
 	var show catalogm.RadioShow
@@ -1052,6 +1059,12 @@ func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 // playlist that is already final or legitimately still in progress.
 func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
 	if existing.StartsAt == nil {
+		// Resolve a window (provider instants, or schedule-derived for a recent
+		// WFMU episode). When none can be resolved (no schedule yet, off-schedule,
+		// or past the churn guard) the episode stays windowless and this is a
+		// no-op — its status is left to recordPlaylistOutcome / the janitor, the
+		// same as before window stamping (the prior `ep.StartsAt != nil` guard
+		// likewise never fired for a windowless WFMU row).
 		if startsAt, endsAt := s.episodeAirWindow(existing.ShowID, ep, now); startsAt != nil {
 			if err := s.db.Model(existing).Updates(map[string]any{
 				"starts_at": startsAt,

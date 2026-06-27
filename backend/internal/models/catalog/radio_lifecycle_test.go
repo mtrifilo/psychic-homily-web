@@ -230,17 +230,20 @@ func TestWindowForDate(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple slots same weekday → first match wins", func(t *testing.T) {
+	t.Run("multiple slots same weekday → earliest-start wins, independent of array order", func(t *testing.T) {
+		// Later slot listed FIRST: a stable pick must still choose the earliest
+		// start (09:00), not the array-order head — so a re-ordered scrape can't
+		// flip a frozen window.
 		s := sched(
-			RadioScheduleSlot{DayOfWeek: 5, Start: "09:00", End: "10:00"},
 			RadioScheduleSlot{DayOfWeek: 5, Start: "20:00", End: "21:00"},
+			RadioScheduleSlot{DayOfWeek: 5, Start: "09:00", End: "10:00"},
 		)
 		start, _, err := s.WindowForDate("2026-06-26")
 		if err != nil || start == nil {
 			t.Fatalf("got (%v,%v), want a window", start, err)
 		}
 		if start.Hour() != 9 {
-			t.Errorf("first same-day slot should win (09:00), got %d:00", start.Hour())
+			t.Errorf("earliest same-day slot should win (09:00), got %d:00", start.Hour())
 		}
 	})
 
