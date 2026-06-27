@@ -57,6 +57,7 @@ import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from './graphFocus'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipPlacement } from './nodeTooltip'
 import { EdgeLegend } from './EdgeLegend'
 
@@ -474,6 +475,30 @@ export function ForceGraphView({
     }
   }, [])
 
+  // Hover-focus (PSY-1225): when a node is hovered, IT + its 1-hop neighbors (and the
+  // links between two foreground nodes) stay foreground; every other node/link/label fades
+  // to the background. Ported from ArtistGraph (PSY-1210) via the shared graphFocus helper
+  // so the neighborhood math + fade alpha can't drift between the two canvas surfaces.
+  // Unlike the artist graph there is NO single center node, so this is purely hover-driven
+  // (no alwaysInclude anchor) — the PSY-1225 "no center" open question, resolved per lean.
+  //
+  // The [renderData] dep on adjacency is load-bearing: the memo captures the freshly-built
+  // BARE-id links (renderData maps source/target to numeric ids) before d3-force mutates
+  // source/target into resolved objects in place. (buildAdjacency accepts either shape, but
+  // only bare ids occur here; the resolved {id} shape only appears later, in the per-frame
+  // linkColor lookups, also via endpointId.)
+  const adjacency = useMemo(() => buildAdjacency(renderData.links), [renderData])
+  const focusedIds = useMemo(() => {
+    if (hoveredNode == null) return null
+    // Drop focus if the hovered node was filtered out (a hidden cluster / edge-type toggle):
+    // a stale hover would otherwise match nothing visible and dim the WHOLE graph to the
+    // background alpha. The reset-on-renderData effect above also clears hoveredNode, but
+    // only AFTER render — this guards the interim render where renderData changed and that
+    // effect hasn't run yet (ArtistGraph resets hover DURING render, so it has no such gap).
+    if (!renderData.nodes.some(n => n.id === hoveredNode.id)) return null
+    return focusForeground(adjacency, hoveredNode.id)
+  }, [adjacency, hoveredNode, renderData])
+
   // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
   // cross-cluster edges drawn on top remain visible.
   const nodeCanvasObject = useCallback(
@@ -483,6 +508,16 @@ export function ForceGraphView({
       const cluster = clustersByID.get(node.cluster_id)
       const fill = clusterColor(palette, cluster?.color_index ?? -1)
       const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+
+      // Hover-focus (PSY-1225): dim nodes outside the foreground set. globalAlpha multiplies
+      // every fill/stroke below (incl. the show indicator); reset to 1 at the end so the next
+      // node + the post-frame labels render at full opacity. Snap (no fade animation). Because
+      // this callback reads focusedIds, force-graph repaints on hover via onChange→notifyRedraw
+      // (the rAF loop runs continuously for non-reduced-motion users), so NO resumeAnimation is
+      // needed — and not adding one keeps the reduced-motion pause intact here, avoiding the
+      // ArtistGraph/PSY-1226 pause-defeat. (Reduced-motion users get the static snapshot with no
+      // hover-focus, consistent with the hover tooltip also being inert while the loop is paused.)
+      ctx.globalAlpha = focusedIds != null && !focusedIds.has(node.id) ? BACKGROUND_ALPHA : 1
 
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, Math.PI * 2)
@@ -498,11 +533,13 @@ export function ForceGraphView({
         ctx.fillStyle = '#22c55e'
         ctx.fill()
       }
+
+      ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
       // Labels are NOT drawn here — they're rendered in a single collision-culled
       // post-frame pass (nodeLabelsFrame) so overlapping labels can be dropped
       // across all nodes at once (PSY-1209).
     },
-    [clustersByID, palette],
+    [clustersByID, palette, focusedIds],
   )
 
   // Degree (link count) per node id → which label wins a collision; isolates
@@ -520,19 +557,30 @@ export function ForceGraphView({
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= 1.0) return
       const fontSize = Math.max(9, Math.min(13, 11 / globalScale))
-      const specs: GraphLabelSpec[] = renderData.nodes.map((node) => {
-        const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
-        return {
-          x: node.x ?? 0,
-          y: (node.y ?? 0) + radius + 3,
-          text: node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name,
-          fontSize,
-          priority: degreeById.get(node.id) ?? 0,
-        }
-      })
+      const specs: GraphLabelSpec[] = renderData.nodes
+        // Hover-focus (PSY-1225): when focused, label only the foreground set so the
+        // background de-clutters; at rest (focusedIds null) label all, as before. This pass
+        // runs in onRenderFramePost, which does NOT self-trigger a repaint on closure change
+        // (PSY-1209) — but the nodeCanvasObject/linkColor repaint on the same hover redraws
+        // the whole frame, so the new filter is applied without a separate resumeAnimation.
+        .filter(node => focusedIds == null || focusedIds.has(node.id))
+        .map((node) => {
+          const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+          return {
+            x: node.x ?? 0,
+            y: (node.y ?? 0) + radius + 3,
+            text: node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name,
+            fontSize,
+            // Always label the hovered node so the node you're pointing at is named even if a
+            // higher-degree neighbor would win the collision cull. Only ever true while
+            // hovering (hoveredNode null at rest), which is exactly when focus is active.
+            force: node.id === hoveredNode?.id,
+            priority: degreeById.get(node.id) ?? 0,
+          }
+        })
       renderGraphLabels(ctx, palette, specs)
     },
-    [renderData, palette, degreeById],
+    [renderData, palette, degreeById, focusedIds, hoveredNode],
   )
 
   // Convex hulls behind each cluster — drawn under the edges via
@@ -611,6 +659,22 @@ export function ForceGraphView({
   // monochrome styling so payloads without types regress nothing.
   const linkColor = useCallback(
     (link: RenderLink) => {
+      // Hover-focus (PSY-1225): a link is foreground only when BOTH its endpoints are in the
+      // foreground set — those keep their resting full color so the focused neighborhood's
+      // edges stay crisp; every other link fades to the background alpha. Typed links fade
+      // via withHexAlpha on the 6-hex token; untyped links carry rgba() colors withHexAlpha
+      // can't touch, so they fade via an explicit low-alpha grey using BACKGROUND_ALPHA.
+      if (focusedIds) {
+        const foreground =
+          focusedIds.has(endpointId(link.source)) && focusedIds.has(endpointId(link.target))
+        if (!link.type) {
+          // Foreground untyped → the resting intra grey (its "full"); background → faded.
+          return foreground ? 'rgba(148, 163, 184, 0.6)' : `rgba(148, 163, 184, ${BACKGROUND_ALPHA})`
+        }
+        const color = palette.edges[link.type] ?? palette.unknownEdge
+        return foreground ? color : withHexAlpha(color, BACKGROUND_ALPHA_HEX)
+      }
+      // Resting (no focus) — styling unchanged from before PSY-1225.
       if (!link.type) {
         return link.is_cross_cluster
           ? 'rgba(148, 163, 184, 0.35)'
@@ -621,7 +685,7 @@ export function ForceGraphView({
       // applies to its cross-connections.
       return link.is_cross_cluster ? withHexAlpha(color, '66') : color
     },
-    [palette],
+    [palette, focusedIds],
   )
 
   const linkWidth = useCallback((link: RenderLink) => {

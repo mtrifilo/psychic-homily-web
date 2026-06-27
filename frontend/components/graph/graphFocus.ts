@@ -75,3 +75,19 @@ export function focusForeground(
   if (alwaysInclude != null) foreground.add(alwaysInclude)
   return foreground
 }
+
+// Background fade alpha for hover-focus, shared by both canvas surfaces (ArtistGraph +
+// ForceGraphView) so they dim by the SAME amount — a design token, not a per-surface
+// tuning, kept here (next to the neighborhood math) so the two can't drift. BACKGROUND_ALPHA
+// is the canvas globalAlpha for nodes; BACKGROUND_ALPHA_HEX is the same value as a 2-char hex
+// pair for withHexAlpha on (6-hex) link colors — derived, so tuning the constant moves both.
+// (They share the source number, not the PERCEIVED opacity: the node globalAlpha multiplies
+// the node's already-semi-transparent fill, so backgrounded nodes read a touch fainter than
+// the flat-alpha links. Note withHexAlpha passes any non-6-hex color through UNCHANGED, so if
+// an --edge-* token ever became oklch/rgb the background links would silently render at FULL
+// color (no fade) while nodes still dim — the same latent gap the resting cross-connection
+// dim already has. All current --edge-* tokens are 6-hex; ForceGraphView's UNTYPED links,
+// which carry rgba() colors withHexAlpha can't touch, fade via an explicit rgba() using
+// BACKGROUND_ALPHA directly.)
+export const BACKGROUND_ALPHA = 0.15
+export const BACKGROUND_ALPHA_HEX = Math.round(BACKGROUND_ALPHA * 255).toString(16).padStart(2, '0')

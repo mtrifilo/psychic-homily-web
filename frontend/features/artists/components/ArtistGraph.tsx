@@ -8,7 +8,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
-import { buildAdjacency, endpointId, focusForeground } from '@/components/graph/graphFocus'
+import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useDismissTimer } from '@/lib/hooks/common'
@@ -192,18 +192,6 @@ export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }
 // edge; keep the two in lockstep (PSY-1209).
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
-
-// PSY-1210 hover-focus: nodes/links outside the foreground set fade using this alpha.
-// BACKGROUND_ALPHA is the canvas globalAlpha for nodes; BACKGROUND_ALPHA_HEX is the same
-// value as a 2-char hex pair for withHexAlpha on link colors — derived, so tuning the
-// constant moves both. (They share the source number, not the PERCEIVED opacity: the node
-// globalAlpha multiplies the node's already-semi-transparent fill, so backgrounded nodes
-// read a touch fainter than the flat-alpha links. Note withHexAlpha passes any non-6-hex
-// color through UNCHANGED, so if an --edge-* token ever became oklch/rgb the background
-// links would silently render at FULL color (no fade) while nodes still dim — the same
-// latent gap the resting cross-connection dim already has. All current tokens are 6-hex.)
-const BACKGROUND_ALPHA = 0.15
-const BACKGROUND_ALPHA_HEX = Math.round(BACKGROUND_ALPHA * 255).toString(16).padStart(2, '0')
 
 // PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the node
 // before auto-hiding. The tooltip overlaps the node's pointer-area (8px offset vs a
