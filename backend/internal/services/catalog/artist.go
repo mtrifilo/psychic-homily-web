@@ -109,39 +109,23 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Check if artist already exists
-	var existingArtist catalogm.Artist
-	err := s.db.Where("LOWER(name) = LOWER(?)", req.Name).First(&existingArtist).Error
-	if err == nil {
-		return nil, apperrors.ErrArtistExists(req.Name)
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, fmt.Errorf("failed to check existing artist: %w", err)
-	}
-
-	// Generate unique slug
-	baseSlug := utils.GenerateArtistSlug(req.Name)
-	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-		var count int64
-		s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-		return count > 0
-	})
-
-	// Create the artist
-	artist := &catalogm.Artist{
-		Name:             req.Name,
-		Slug:             &slug,
-		State:            req.State,
-		City:             req.City,
-		Country:          req.Country,
-		Description:      req.Description,
-		ImageURL:         req.ImageURL,
-		BandcampEmbedURL: req.BandcampEmbedURL,
-		// Stamp provenance whenever this create actually sets an embed (a
-		// human/admin/AI-fulfiller value): "manual" so the PSY-1189 keep-fresh
-		// hook never auto-refreshes a curated embed. Leave nil when no embed is
-		// supplied so the source isn't falsely claimed (PSY-1188).
-		BandcampEmbedSource: manualEmbedSourceIfSet(req.BandcampEmbedURL),
-		Social: catalogm.Social{
+	// Single artist write path (PSY-1254): dedup by name, unique slug, insert (and
+	// PSY-1247 will add image-enrichment enqueue here). The admin create is explicit,
+	// so a found artist is an error, not a silent reuse — note the funnel may backfill
+	// that found artist's missing slug (a committed write) before we return the error.
+	artist, created, err := FindOrCreateArtistTx(s.db, req.Name, func(a *catalogm.Artist) {
+		a.State = req.State
+		a.City = req.City
+		a.Country = req.Country
+		a.Description = req.Description
+		a.ImageURL = req.ImageURL
+		a.BandcampEmbedURL = req.BandcampEmbedURL
+		// Stamp provenance whenever this create sets an embed (a human/admin/AI
+		// value): "manual" so the PSY-1189 keep-fresh hook never auto-refreshes a
+		// curated embed. nil when no embed is supplied so the source isn't falsely
+		// claimed (PSY-1188).
+		a.BandcampEmbedSource = manualEmbedSourceIfSet(req.BandcampEmbedURL)
+		a.Social = catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
 			Twitter:    req.Twitter,
@@ -150,11 +134,13 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 			SoundCloud: req.SoundCloud,
 			Bandcamp:   req.Bandcamp,
 			Website:    req.Website,
-		},
-	}
-
-	if err := s.db.Create(artist).Error; err != nil {
+		}
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to create artist: %w", err)
+	}
+	if !created {
+		return nil, apperrors.ErrArtistExists(req.Name)
 	}
 
 	// PSY-1190: when this create set a Bandcamp PROFILE root (not an embeddable
@@ -1356,8 +1342,8 @@ func selectBandcampEmbedFromReleases(releases []catalogm.Release) *string {
 				continue
 			}
 			c := embedCandidate{
-				url:     strings.TrimSpace(link.URL),
-				year:    rel.ReleaseYear,
+				url:  strings.TrimSpace(link.URL),
+				year: rel.ReleaseYear,
 				// Anchor on the parsed PATH, not a substring of the whole URL:
 				// a /track/ link with "/album/" in its query string must not be
 				// mis-classified as an album (the URL already passed the strict

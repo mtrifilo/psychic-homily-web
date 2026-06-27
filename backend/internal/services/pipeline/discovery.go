@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/db"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
@@ -433,25 +434,12 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 				continue
 			}
 
-			// Find or create artist
-			var artist catalogm.Artist
-			err := tx.Where("LOWER(name) = LOWER(?)", artistName).First(&artist).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				artist = catalogm.Artist{Name: artistName}
-				if err := tx.Create(&artist).Error; err != nil {
-					return fmt.Errorf("failed to create artist %s: %w", artistName, err)
-				}
-				// Generate slug for the new artist
-				baseSlug := utils.GenerateArtistSlug(artist.Name)
-				artistSlug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-					var count int64
-					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-					return count > 0
-				})
-				tx.Model(&artist).Update("slug", artistSlug)
-			} else if err != nil {
-				return fmt.Errorf("failed to find artist %s: %w", artistName, err)
+			// Single artist write path (PSY-1254): dedup + unique slug + insert.
+			foundArtist, _, err := catalog.FindOrCreateArtistTx(tx, artistName, nil)
+			if err != nil {
+				return fmt.Errorf("artist %s: %w", artistName, err)
 			}
+			artist := *foundArtist
 
 			// Determine position: use billing_order if provided, otherwise array index
 			position := idx
