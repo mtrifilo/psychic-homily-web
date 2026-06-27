@@ -242,29 +242,38 @@ func recordImportError(result *contracts.RadioImportResult, category, detail str
 
 const (
 	// coldStartLookbackDays is the first-fetch window for a station with no prior
-	// last_playlist_fetch_at. It preserves the pre-PSY-1230 default — initial
-	// population of a brand-new station is the backfill path's job (ImportStation),
-	// not this incremental one.
+	// last_playlist_fetch_at. It is intentionally narrower than the steady-state
+	// floor: the stall the floor guards against can't happen on a first fetch
+	// (there is no advancing timestamp yet to overtake a show), 7d already covers
+	// the targeted weekly cadence, and deep / longer-cadence initial population is
+	// the backfill path's job (ImportStation), not this incremental one. Preserves
+	// the pre-PSY-1230 default. (Reconciling cold-start with longer cadences is
+	// part of the fetch-window hardening follow-up.)
 	coldStartLookbackDays = 7
 
 	// fetchLookbackFloorDays floors how far back a SUBSEQUENT incremental fetch
-	// looks, regardless of how recent the last fetch was. last_playlist_fetch_at
-	// advances on every run, so without a floor a show whose cadence is longer than
-	// the gap between runs slips behind `since` and is skipped on every later fetch
-	// — permanently. 14d gives margin over the cadences this fix targets (weekly,
-	// biweekly). Longer cadences (e.g. monthly NTS shows) are NOT covered here —
-	// widening the floor pages NTS deeper (ntsPageLimit=12), so that needs its own
-	// cost analysis; tracked in the fetch-window hardening follow-up. (PSY-1230)
+	// looks. `since` is computed once per STATION from its last_playlist_fetch_at,
+	// which advances on every run — so without a floor a show that airs less often
+	// than the station is fetched slips behind `since` and is skipped on every
+	// later run, permanently. 14d is 2x the targeted WEEKLY cadence (a full week of
+	// slack). Longer cadences (biweekly, monthly NTS shows) are NOT reliably
+	// covered here — a bigger floor also pages NTS deeper (ntsPageLimit=12) and
+	// leans harder on its newest-first ordering assumption, so the right
+	// value/approach needs its own analysis: the fetch-window hardening follow-up. (PSY-1230)
 	fetchLookbackFloorDays = 14
 )
 
-// fetchSince computes the lower bound for an incremental playlist fetch.
+// fetchSince computes the lower bound (`since`) for an incremental playlist
+// fetch. The floor (fetchLookbackFloorDays) is the load-bearing fix: it stops
+// the forward-advancing per-station last_playlist_fetch_at from overtaking a
+// weekly show's once-a-week episode (PSY-1230).
 //
-// The floor (fetchLookbackFloorDays) is the load-bearing fix: it stops the
-// forward-advancing last_playlist_fetch_at from overtaking a weekly show's
-// once-a-week episode (PSY-1230). The bound is normalized to UTC midnight so it
-// is an exact N-day floor — WFMU parses air_date as a UTC-midnight date — and
-// independent of the server's wall-clock zone.
+// `since` is interpreted PER PROVIDER: WFMU compares it against an air_date
+// parsed at UTC midnight (radio_provider_wfmu.go), while NTS/KEXP compare it
+// against a broadcast instant. Normalizing to UTC midnight therefore gives WFMU
+// an exact N-day floor and, for all three, keeps the bound independent of the
+// server's wall-clock zone; for NTS/KEXP it merely rounds the lower bound down
+// to midnight (harmless — it only widens the window by <1d).
 //
 // Re-scanning the wider window is cheap: an already-COMPLETE episode hits a
 // dedup no-op (importEpisode keys on (show_id, external_id)); only a

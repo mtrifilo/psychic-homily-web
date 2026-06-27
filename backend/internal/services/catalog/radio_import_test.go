@@ -103,14 +103,17 @@ func TestRetryTransientConflict(t *testing.T) {
 func TestFetchSince(t *testing.T) {
 	// Fixed clock (mid-day) so we also assert the floor is normalized to midnight.
 	now := time.Date(2026, 6, 26, 18, 30, 0, 0, time.UTC)
-	today := now.UTC().Truncate(24 * time.Hour)              // 2026-06-26 00:00 UTC
-	floor := today.AddDate(0, 0, -fetchLookbackFloorDays)    // 2026-06-12 00:00 UTC
-	coldStart := today.AddDate(0, 0, -coldStartLookbackDays) // 2026-06-19 00:00 UTC
+	today := now.UTC().Truncate(24 * time.Hour)           // 2026-06-26 00:00 UTC
+	floor := today.AddDate(0, 0, -fetchLookbackFloorDays) // 2026-06-12 00:00 UTC
 
-	t.Run("nil last fetch uses the cold-start window (first-fetch depth unchanged)", func(t *testing.T) {
+	t.Run("nil last fetch keeps the pre-PSY-1230 7-day cold-start window", func(t *testing.T) {
+		// Pin to the LITERAL legacy value (not coldStartLookbackDays), so a change
+		// to the constant trips this test instead of silently passing — the prior
+		// behavior was time.Now().AddDate(0,0,-7), here midnight-normalized.
+		want := today.AddDate(0, 0, -7)
 		got := fetchSince(nil, now)
-		if !got.Equal(coldStart) {
-			t.Errorf("nil last fetch: got %v, want cold-start %v", got, coldStart)
+		if !got.Equal(want) {
+			t.Errorf("nil last fetch: got %v, want pre-PSY-1230 7d window %v", got, want)
 		}
 	})
 
