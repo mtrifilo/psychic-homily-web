@@ -22,6 +22,9 @@ type ImageEnrichEnqueueTestSuite struct {
 }
 
 func (s *ImageEnrichEnqueueTestSuite) SetupSuite() {
+	// Enqueue is gated on the feature flag (no consumer ⇒ no rows when off); turn it
+	// on for the whole suite. s.T().Setenv auto-restores after the suite.
+	s.T().Setenv("ENABLE_IMAGE_ENRICH_SWEEP", "1")
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
 }
@@ -109,6 +112,17 @@ func (s *ImageEnrichEnqueueTestSuite) TestEnqueueFailureDoesNotFailCreate() {
 	s.db.Model(&catalogm.Artist{}).Where("name = ?", "Survivor").Count(&artistCount)
 	s.Equal(int64(1), artistCount, "artist must survive a poisoned enqueue (savepoint isolation)")
 	s.Zero(s.queueCount(), "no queue row should exist after the rejected insert")
+}
+
+// TestNoEnqueueWhenDisabled: with the feature flag off, the funnel creates the
+// entity but writes no queue row (no consumer ⇒ no rows, no unbounded growth).
+func (s *ImageEnrichEnqueueTestSuite) TestNoEnqueueWhenDisabled() {
+	s.T().Setenv("ENABLE_IMAGE_ENRICH_SWEEP", "0")
+	a, created, err := FindOrCreateArtistTx(s.db, "Disabled", nil)
+	s.Require().NoError(err)
+	s.Require().True(created)
+	s.NotZero(a.ID)
+	s.Zero(s.queueCount(), "no job should be enqueued when the feature is disabled")
 }
 
 // TestReEnqueueIsIdempotent: a second enqueue for the same entity is a no-op

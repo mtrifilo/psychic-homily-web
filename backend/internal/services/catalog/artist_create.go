@@ -66,7 +66,9 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	// PSY-1247: prompt on-create image enrichment. Enqueue ONLY on the created
 	// path — a found artist is already covered by its own create-time enqueue (or,
 	// for pre-funnel rows, by the Phase-A sweep), so re-enqueuing every time a show
-	// references it would be churn. Best-effort: never fails the create.
+	// references it would be churn. Best-effort: never fails the create (and no-ops
+	// when the feature is disabled). Atomicity depends on whether the caller passes
+	// a tx — see enqueueImageEnrich.
 	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityArtist, artist.ID)
 	return &artist, true, nil
 }

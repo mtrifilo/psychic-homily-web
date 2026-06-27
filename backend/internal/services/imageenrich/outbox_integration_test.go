@@ -150,6 +150,105 @@ func (s *ImageEnrichOutboxTestSuite) TestReclaimsStaleProcessing() {
 	s.Equal(catalogm.ImageEnrichStatusDone, s.reload(job.ID).Status)
 }
 
+// TestReclaimFailsExhaustedStrandedRow: a row stranded in `processing` that has
+// already exhausted max_attempts must be marked `failed` (not requeued to
+// `pending`), or it would zombie forever — the claim filter `attempts <
+// max_attempts` would never re-claim it, and it would hold the entity's active
+// unique slot indefinitely.
+func (s *ImageEnrichOutboxTestSuite) TestReclaimFailsExhaustedStrandedRow() {
+	job := &catalogm.ImageEnrichQueueItem{
+		EntityType: catalogm.ImageEnrichEntityArtist, EntityID: 8,
+		Status: catalogm.ImageEnrichStatusPending, Attempts: 3, MaxAttempts: 3,
+	}
+	s.Require().NoError(s.db.Create(job).Error)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE image_enrich_queue SET status='processing', updated_at = NOW() - INTERVAL '1 hour' WHERE id = ?",
+		job.ID).Error)
+
+	p, _ := s.newPoller(50)
+	p.staleReclaim = time.Minute
+	p.reclaimStale(context.Background())
+
+	j := s.reload(job.ID)
+	s.Equal(catalogm.ImageEnrichStatusFailed, j.Status, "exhausted stranded row must be failed, not requeued")
+	s.Require().NotNil(j.LastError)
+	s.Contains(*j.LastError, "stranded")
+}
+
+// TestPruneRemovesAgedTerminalRows: aged done/failed rows are deleted; fresh
+// terminal rows and (non-terminal) pending rows are kept.
+func (s *ImageEnrichOutboxTestSuite) TestPruneRemovesAgedTerminalRows() {
+	agedDone := s.seedJob(catalogm.ImageEnrichEntityArtist, 1)
+	freshDone := s.seedJob(catalogm.ImageEnrichEntityArtist, 2)
+	agedPending := s.seedJob(catalogm.ImageEnrichEntityArtist, 3)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE image_enrich_queue SET status='done', updated_at = NOW() - INTERVAL '10 day' WHERE id = ?",
+		agedDone.ID).Error)
+	s.Require().NoError(s.db.Model(&catalogm.ImageEnrichQueueItem{}).Where("id = ?", freshDone.ID).
+		Update("status", catalogm.ImageEnrichStatusDone).Error) // updated_at = now
+	s.Require().NoError(s.db.Exec(
+		"UPDATE image_enrich_queue SET updated_at = NOW() - INTERVAL '10 day' WHERE id = ?",
+		agedPending.ID).Error) // still pending, just old
+
+	p, _ := s.newPoller(50)
+	p.retention = 7 * 24 * time.Hour
+	p.pruneTerminal(context.Background())
+
+	var gone int64
+	s.db.Model(&catalogm.ImageEnrichQueueItem{}).Where("id = ?", agedDone.ID).Count(&gone)
+	s.Zero(gone, "aged terminal row must be pruned")
+	s.Equal(catalogm.ImageEnrichStatusDone, s.reload(freshDone.ID).Status, "fresh terminal row kept")
+	s.Equal(catalogm.ImageEnrichStatusPending, s.reload(agedPending.ID).Status, "aged non-terminal row kept")
+}
+
+// TestCanceledEnrichRequeuesWithoutBurningAttempt: a shutdown/cancellation mid-job
+// requeues the row to pending and does NOT count as a provider attempt.
+func (s *ImageEnrichOutboxTestSuite) TestCanceledEnrichRequeuesWithoutBurningAttempt() {
+	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
+
+	p, engine := s.newPoller(50)
+	engine.enrichPhotos = func(_ context.Context, _ []uint) error { return context.Canceled }
+
+	p.RunNow(context.Background())
+
+	j := s.reload(job.ID)
+	s.Equal(catalogm.ImageEnrichStatusPending, j.Status, "canceled enrich requeues")
+	s.Equal(0, j.Attempts, "cancellation must not burn an attempt (claim +1 then requeue -1)")
+	s.Nil(j.LastError, "cancellation is not a failure")
+}
+
+// TestCanceledMidLoopRequeues: the shared enrichers swallow a mid-loop ctx cancel
+// and return nil — the poller must still treat it as a cancellation (via ctx.Err())
+// and requeue the row, not mark it done with no image. Simulated by an enricher
+// that cancels the ctx and returns nil (as a swallowed mid-loop cancel would).
+func (s *ImageEnrichOutboxTestSuite) TestCanceledMidLoopRequeues() {
+	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
+
+	p, engine := s.newPoller(50)
+	ctx, cancel := context.WithCancel(context.Background())
+	engine.enrichPhotos = func(_ context.Context, _ []uint) error { cancel(); return nil }
+
+	p.RunNow(ctx) // claim happens while ctx is live; enrich cancels then returns nil
+
+	j := s.reload(job.ID)
+	s.Equal(catalogm.ImageEnrichStatusPending, j.Status, "swallowed mid-loop cancel must requeue, not mark done")
+	s.Equal(0, j.Attempts, "cancellation must not burn an attempt")
+}
+
+// TestFinalizeGuardSkipsNonProcessingRow: a finalize for a row that is no longer
+// `processing` (e.g. reclaimed out from under a slow worker) is a no-op, so a late
+// write can't clobber the row's new state.
+func (s *ImageEnrichOutboxTestSuite) TestFinalizeGuardSkipsNonProcessingRow() {
+	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 5) // status = pending
+	p, _ := s.newPoller(50)
+
+	// Simulate a late markDone from a worker that thinks it still owns the row.
+	p.markDone(context.Background(), []catalogm.ImageEnrichQueueItem{{ID: job.ID}})
+
+	s.Equal(catalogm.ImageEnrichStatusPending, s.reload(job.ID).Status,
+		"finalize must skip a row not in processing")
+}
+
 // TestDoesNotReclaimFreshProcessing: a recently-touched `processing` row (another
 // worker actively on it) is left alone — neither reclaimed nor claimed.
 func (s *ImageEnrichOutboxTestSuite) TestDoesNotReclaimFreshProcessing() {
