@@ -40,7 +40,11 @@ type Release struct {
 	// source ∈ spotify|discogs|cover_art_archive|user|commons|public_domain.
 	CoverArtSource    *string `gorm:"column:cover_art_source;size:32"`
 	CoverArtSourceURL *string `gorm:"column:cover_art_source_url"`
-	Description       *string `gorm:"column:description"`
+	// ImageEnrichAttemptedAt: see Artist.ImageEnrichAttemptedAt (PSY-1246). NULL =
+	// never attempted by the ongoing cover sweep. Internal: not mapped onto any
+	// API response.
+	ImageEnrichAttemptedAt *time.Time `json:"-" gorm:"column:image_enrich_attempted_at"`
+	Description            *string    `gorm:"column:description"`
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

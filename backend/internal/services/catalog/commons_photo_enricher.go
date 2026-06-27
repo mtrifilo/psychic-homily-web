@@ -72,6 +72,11 @@ type commonsImageAPI interface {
 type CommonsEnrichOptions struct {
 	DryRun bool
 	Limit  int
+	// IDs restricts the scan to these artist ids (still subject to the photo-less
+	// filter). Empty = scan all photo-less artists. The ongoing enrichment sweep
+	// (PSY-1246) passes a bounded, memo-filtered batch here; the CLI backfill
+	// leaves it empty.
+	IDs []uint
 }
 
 // CommonsEnrichReport summarizes a backfill run.
@@ -112,6 +117,9 @@ func BackfillCommonsPhotos(
 		Order("id")
 	if opts.Limit > 0 {
 		q = q.Limit(opts.Limit)
+	}
+	if len(opts.IDs) > 0 {
+		q = q.Where("id IN ?", opts.IDs)
 	}
 	if err := q.Find(&artists).Error; err != nil {
 		return report, fmt.Errorf("loading artists: %w", err)

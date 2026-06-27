@@ -52,7 +52,7 @@ type Artist struct {
 	// Internal column: NOT mapped onto any API response.
 	BandcampEmbedSource *string `json:"-" gorm:"column:bandcamp_embed_source;size:32"`
 	Description         *string `json:"description,omitempty" gorm:"column:description;type:text"`
-	ImageURL         *string `json:"image_url,omitempty" gorm:"column:image_url"`
+	ImageURL            *string `json:"image_url,omitempty" gorm:"column:image_url"`
 	// Provider + deep linkback for the artist photo, for attribution (PSY-1175).
 	// source ∈ spotify|discogs|cover_art_archive|user|commons|public_domain.
 	ImageSource    *string `json:"image_source,omitempty" gorm:"column:image_source;size:32"`
@@ -64,7 +64,13 @@ type Artist struct {
 	// ImageLicense="Public domain" (not the public_domain source id).
 	ImageLicense *string `json:"image_license,omitempty" gorm:"column:image_license;size:64"`
 	ImageAuthor  *string `json:"image_author,omitempty" gorm:"column:image_author"`
-	Social       Social  `gorm:"embedded"`
+	// ImageEnrichAttemptedAt records when the ongoing image-enrichment sweep
+	// (PSY-1246) last tried to resolve a photo for this artist, so it can skip rows
+	// attempted within the re-attempt window instead of re-querying the imageless
+	// long tail every cycle. NULL = never attempted by the sweep. Internal: not
+	// mapped onto any API response.
+	ImageEnrichAttemptedAt *time.Time `json:"-" gorm:"column:image_enrich_attempted_at"`
+	Social                 Social     `gorm:"embedded"`
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

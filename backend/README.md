@@ -673,6 +673,20 @@ no nondeterministic DB state changes from ambient background jobs.
 | `DISABLE_REMINDERS`               | Show reminder service (24h-before email reminders)              |
 | `DISABLE_RELATIONSHIP_DERIVATION` | Derived artist relationships (shared_bills + shared_label)      |
 
+**Opt-in (default OFF) — image enrichment sweep (PSY-1246).** Unlike the
+`DISABLE_*` services above, the ongoing image-enrichment sweep is gated by an
+**`ENABLE_*`** flag and does **not** run unless explicitly turned on: image
+enrichment is paused at the hotlink tier pending a product signal and display is
+gated on PSY-1242, so it must not auto-start in prod. (E2E / dispatch harnesses
+that set the `DISABLE_*` flags need no change — it stays off by default.)
+
+| Variable                            | Default     | Effect                                                          |
+| ----------------------------------- | ----------- | --------------------------------------------------------------- |
+| `ENABLE_IMAGE_ENRICH_SWEEP`         | unset (off) | `"1"` starts the sweep (fills missing artist photos + covers)   |
+| `IMAGE_ENRICH_SWEEP_INTERVAL_HOURS` | `24`        | Tick cadence                                                    |
+| `IMAGE_ENRICH_SWEEP_BATCH`          | `50`        | Entities per type processed per tick                            |
+| `IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS` | `90`        | Don't re-attempt an imageless entity for this many days         |
+
 ### Security Notes
 
 - **Never commit `.env.production`** to version control

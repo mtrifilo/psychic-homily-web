@@ -195,6 +195,7 @@ func main() {
 		radioFetchCancel       context.CancelFunc
 		relDerivationCancel    context.CancelFunc
 		collectionDigestCancel context.CancelFunc
+		imageEnrichSweepCancel context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -263,6 +264,21 @@ func main() {
 		log.Printf("DISABLE_COLLECTION_DIGEST=1: skipping collection digest service startup")
 	}
 
+	// Start image enrichment sweep (PSY-1246: background job filling missing artist
+	// photos + release covers via the shipped fill-when-empty enrichers). OPT-IN,
+	// default OFF (note the inverted polarity vs the DISABLE_* services above):
+	// image enrichment is paused at the hotlink tier pending a product signal and
+	// display is gated on PSY-1242, so the sweep runs only where explicitly enabled
+	// (set ENABLE_IMAGE_ENRICH_SWEEP=1 — e.g. stage first) rather than auto-starting
+	// in prod on deploy.
+	if os.Getenv("ENABLE_IMAGE_ENRICH_SWEEP") == "1" {
+		var imageEnrichSweepCtx context.Context
+		imageEnrichSweepCtx, imageEnrichSweepCancel = context.WithCancel(context.Background())
+		sc.ImageEnrichSweep.Start(imageEnrichSweepCtx)
+	} else {
+		log.Printf("image enrichment sweep disabled (set ENABLE_IMAGE_ENRICH_SWEEP=1 to enable)")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -315,6 +331,10 @@ func main() {
 	if collectionDigestCancel != nil {
 		collectionDigestCancel()
 		sc.CollectionDigest.Stop()
+	}
+	if imageEnrichSweepCancel != nil {
+		imageEnrichSweepCancel()
+		sc.ImageEnrichSweep.Stop()
 	}
 
 	// Graceful shutdown
