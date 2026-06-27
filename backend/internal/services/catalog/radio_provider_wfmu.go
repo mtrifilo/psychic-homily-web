@@ -1339,17 +1339,21 @@ const wfmuLiveNowPlayingPath = "/currentliveshows_aggregator.php?ch=1,4,6,8"
 //
 // On-air semantics: a stream counts as live only when its block carries a
 // playlist link (= a live DJ is logging tracks). Without one the stream is
-// looping unattended — automation, or a rebroadcast — so we return nil and the
-// caller serves the honest latest-archive fallback rather than claiming the
-// stream is "ON AIR". This applies to the main 91.1 stream too (PSY-1239); it was
-// previously exempted ("always on"), which surfaced rebroadcasts/automation as a
-// wrong "ON AIR" show.
+// looping unattended (automation), so we return nil and the caller serves the
+// honest latest-archive fallback rather than claiming the stream is "ON AIR".
+// This applies to the main 91.1 stream too (PSY-1239); it was previously exempted
+// ("always on"), so unattended automation on the flagship surfaced as a wrong
+// "ON AIR" show. This brings main in line with the side streams' existing rule.
 //
-// Accepted limits of the playlist-link heuristic (PSY-1239): a rebroadcast whose
-// block re-serves the ORIGINAL show's /playlists/shows link still reads as live
-// (distinguishing a rebroadcast from a first airing is PSY-1240's scope); and a
-// genuinely-live show is briefly off-air until its DJ logs the first track. Both
-// err toward not over-claiming a live broadcast.
+// SCOPE / accepted limits (PSY-1239): this catches only LINK-LESS automation. A
+// rebroadcast whose block re-serves the ORIGINAL show's /playlists/shows link
+// still reads as live — and that is the more likely shape of the originally
+// reported skew, so this change is a consistency fix, NOT a confirmed fix for
+// that report; distinguishing a rebroadcast from a first airing is PSY-1240's
+// scope. A genuinely-live show is also briefly off-air until its DJ logs the
+// first track. The premise that the main block actually drops its link during
+// automation is not yet verified against a captured off-air response — tracked
+// in PSY-1253. All cases err toward not over-claiming live.
 func (p *WFMUProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error) {
 	body, err := radioLiveGet(p.httpClient, p.baseURL+wfmuLiveNowPlayingPath, wfmuUserAgent, "WFMU")
 	if err != nil {

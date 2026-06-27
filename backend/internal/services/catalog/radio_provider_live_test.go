@@ -321,10 +321,11 @@ func TestWFMUFetchLiveNowPlaying_NoLiveDJOnSideStream(t *testing.T) {
 }
 
 // wfmuAggregatorNoLiveMainHTML is an aggregator fragment where the MAIN 91.1
-// block has NO playlist link — the stream is looping unattended (automation, or
-// a rebroadcast). Pre-PSY-1239 the main stream was exempt and reported "ON AIR"
-// with whatever show the widget named (e.g. a rebroadcast); now it must report
-// not-live so the service serves the latest-archive fallback.
+// block (listed FIRST) has NO playlist link — looping unattended (automation) —
+// while a side stream after it IS live (carries a playlist link). Pre-PSY-1239
+// the main stream was exempt and surfaced its named show as "ON AIR"; now it must
+// report not-live (and not leak that show name) WITHOUT short-circuiting the
+// per-block loop, so the live side stream after it is still parsed.
 const wfmuAggregatorNoLiveMainHTML = `
 <div id="nowplaysong">
 <div id="nowplaying">
@@ -347,6 +348,26 @@ on Burn It Down! with Some DJ
 </span>
 </div>
 </div>
+<div class="item-odd">
+<div class="streamtitle">
+Give the Drummer Radio stream
+(<a href="https://wfmu.org/drummer">Schedule</a>)
+</div>
+<div class="bigline">
+&quot;Live Tune&quot;
+by
+A Live Artist
+</div>
+<div class="smallline">
+<span class="KDBFavIcon KDBprogram" id="KDBprogram-GD"><a href="#">x</a></span>
+on A Live Drummer Show with A Host
+</div>
+<div class="linkssection">
+<span class="links">
+<a href="/playlists/shows/999001">Playlist &amp; Comments</a>
+</span>
+</div>
+</div>
 </div>
 </div>`
 
@@ -358,10 +379,17 @@ func TestWFMUFetchLiveNowPlaying_NoLiveDJOnMain(t *testing.T) {
 	defer provider.Close()
 
 	// Main stream with no playlist link → not live (PSY-1239); the unattended
-	// stream must NOT surface as "ON AIR" — the caller falls back to the archive.
+	// stream must NOT surface as "ON AIR" (its "Burn It Down!" name must not leak).
 	main, err := provider.FetchLiveNowPlaying(wfmuLiveChannelMain)
 	require.NoError(t, err)
 	assert.Nil(t, main)
+
+	// A not-live FIRST block must not short-circuit the per-block loop: the live
+	// side stream after it is still parsed and reported live.
+	drummer, err := provider.FetchLiveNowPlaying(wfmuLiveChannelDrummer)
+	require.NoError(t, err)
+	require.NotNil(t, drummer)
+	assert.Equal(t, "A Live Drummer Show", drummer.ShowName)
 }
 
 func TestParseWFMUSmallline(t *testing.T) {
