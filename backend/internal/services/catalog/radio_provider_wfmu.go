@@ -319,8 +319,9 @@ func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time, 
 // its later shows to the new day — a today-boundary episode is then included
 // inconsistently within that one run, but recovered on the next run (no
 // permanent loss). The `since` lower bound (fetchSince) is UTC-day-based with a
-// 14-day floor, so its boundary fuzz is immaterial; this upper bound must be
-// ET-precise (a UTC "today" would admit tomorrow-ET placeholders all evening).
+// multi-week floor (fetchLookbackFloorDays), so its boundary fuzz is immaterial;
+// this upper bound must be ET-precise (a UTC "today" would admit tomorrow-ET
+// placeholders all evening).
 //
 // LoadLocation only fails when the binary has no IANA tz database; production
 // (and the rest of this radio tz subsystem — WindowForDate, the schedule

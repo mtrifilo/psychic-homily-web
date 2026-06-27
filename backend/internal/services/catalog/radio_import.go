@@ -172,7 +172,10 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 		}
 	}
 
-	// Update last fetch timestamp
+	// Update last fetch timestamp. Unconditional advance is correct here: ImportStation
+	// is a one-shot legacy backfill that derives `since` from backfillDays (not
+	// fetchSince), so the shouldAdvanceLastFetch catch-up gate FetchNewEpisodes uses
+	// does not apply. (PSY-1241)
 	now := time.Now()
 	s.db.Model(&station).Update("last_playlist_fetch_at", now)
 
@@ -301,26 +304,41 @@ func fetchSince(lastFetch *time.Time, now time.Time) time.Time {
 }
 
 // shouldAdvanceLastFetch reports whether an incremental fetch run earned a
-// last_playlist_fetch_at bump. A run advances the timestamp when it made forward
-// progress: it had no fetchable shows (nothing to catch up on) or at least one
-// show's provider fetch succeeded. A TOTAL-station failure — every fetchable show
-// errored its provider fetch, i.e. a full provider/network outage — must NOT
-// advance: the per-show errors don't propagate as a hard error (they land in the
-// result), so without this gate the timestamp kept advancing to ~now on every
-// failed run, pinning fetchSince at the floor and leaving its catch-up branch
-// (lastFetch < floor) permanently dead. Episodes that aired during the outage but
-// older than the floor were then skipped forever. Holding the timestamp stale lets
-// the next successful run re-scan back to the true gap.
+// last_playlist_fetch_at bump. The timestamp is a "durably persisted up to here"
+// watermark, so a run advances it only when it had nothing to do or made real
+// progress; a run that tried and wholly failed must hold it stale so the next good
+// run re-scans the true gap via fetchSince's catch-up branch (lastFetch < floor).
+// Without this gate the timestamp advanced to ~now on every failed run, pinning
+// fetchSince at the floor and skipping forever any episode that aired during the
+// failure but is older than the floor by the time it recovers.
+//
+//   - fetchAttempts == 0  → no fetchable shows; nothing to catch up on → advance.
+//   - fetchSuccesses == 0 → every show's provider fetch errored (a total-station
+//     provider/network outage) → hold.
+//   - episodesReturned > 0 && episodesImported == 0 → providers responded but every
+//     episode failed to persist (e.g. a DB write outage during the import loop) →
+//     hold. (A run that fetched and found nothing new — episodesReturned == 0 — is
+//     not a failure and advances.)
+//   - otherwise → advance.
 //
 // Scope: this gate is TOTAL-station only, because last_playlist_fetch_at is a
 // single per-station watermark. A station where most shows succeed but ONE show
-// errors every run still advances (fetchSuccesses > 0), so that one show's
-// episodes older than the floor are not recovered by the incremental path — e.g. a
-// renamed/removed external_id that 404s until an admin corrects it; recovery there
-// is a manual backfill. Per-show incremental recovery would need a per-show fetch
-// timestamp (tracked as a follow-up). (PSY-1241)
-func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses int) bool {
-	return fetchAttempts == 0 || fetchSuccesses > 0
+// errors every run still advances, so that one show's episodes older than the floor
+// are not recovered by the incremental path — e.g. a renamed/removed external_id
+// that 404s until an admin corrects it; recovery there is a manual backfill.
+// Per-show incremental recovery would need a per-show fetch timestamp (follow-up).
+// (PSY-1241)
+func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) bool {
+	switch {
+	case fetchAttempts == 0:
+		return true
+	case fetchSuccesses == 0:
+		return false
+	case episodesReturned > 0 && episodesImported == 0:
+		return false
+	default:
+		return true
+	}
 }
 
 // FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at,
@@ -355,10 +373,10 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		return nil, fmt.Errorf("loading shows: %w", err)
 	}
 
-	// Track per-run fetch outcomes so a total provider outage doesn't advance the
+	// Track per-run fetch/import outcomes so a wholly-failed run doesn't advance the
 	// timestamp (see shouldAdvanceLastFetch). A show with no external id can't be
 	// fetched and is not counted as an attempt.
-	var fetchAttempts, fetchSuccesses int
+	var fetchAttempts, fetchSuccesses, episodesReturned int
 	for _, show := range shows {
 		if show.ExternalID == nil || *show.ExternalID == "" {
 			continue
@@ -372,6 +390,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 			continue
 		}
 		fetchSuccesses++
+		episodesReturned += len(episodes)
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(show.ID, ep, provider)
@@ -385,12 +404,12 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		}
 	}
 
-	// Advance the last-fetch timestamp only when the run made progress; a total
-	// provider outage leaves it stale so the next good run re-scans the true gap.
+	// Advance the last-fetch timestamp only when the run made progress; a wholly
+	// failed run leaves it stale so the next good run re-scans the true gap.
 	// last_playlist_fetch_at is therefore a "last successful progress" watermark,
 	// NOT "last attempt" — attempt history (including failed/partial runs) lives in
 	// radio_sync_runs. (PSY-1241)
-	if shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses) {
+	if shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, result.EpisodesImported) {
 		if err := s.db.Model(&station).Update("last_playlist_fetch_at", time.Now()).Error; err != nil {
 			slog.Default().Error("radio fetch: failed to advance last_playlist_fetch_at",
 				"station_id", stationID, "error", err)

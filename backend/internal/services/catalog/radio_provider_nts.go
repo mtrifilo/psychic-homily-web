@@ -159,7 +159,7 @@ func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time, u
 		dated := make([]datedEpisode, 0, len(page.Results))
 		for _, ntsEp := range page.Results {
 			ep := parseNTSEpisode(ntsEp, showExternalID)
-			if at, ok := episodeFilterTime(ntsEp, ep); ok {
+			if at, ok := episodeFilterTime(ep); ok {
 				dated = append(dated, datedEpisode{ep: ep, at: at})
 				continue
 			}
@@ -367,15 +367,17 @@ func parseNTSShow(ntsShow ntsShow) RadioShowImport {
 }
 
 // episodeFilterTime returns the timestamp used to window-filter and order an
-// episode: the precise broadcast instant when present, else the day-granularity
-// date recovered from the episode alias (parseNTSEpisode's fallback). The bool is
-// false only when neither is available — a genuinely undateable episode, which the
-// caller keeps unconditionally since no bound can be applied. Filtering on the
-// alias date (rather than keeping every no-broadcast episode) stops a stale archive
-// from surfacing as a recent episode. (PSY-1241)
-func episodeFilterTime(ntsEp ntsEpisode, ep RadioEpisodeImport) (time.Time, bool) {
-	if t, ok := parseNTSBroadcast(ntsEp.Broadcast); ok {
-		return t, true
+// already-parsed episode: the precise broadcast instant (StartsAt) when present,
+// else the day-granularity date recovered from the episode alias (AirDate). It
+// derives entirely from the parsed `ep` so there is exactly one place that reads
+// the raw NTS broadcast (parseNTSEpisode) — no second parse to keep in lockstep.
+// The bool is false only when neither is available — a genuinely undateable
+// episode, which the caller keeps unconditionally since no bound can be applied.
+// Filtering on the alias date (rather than keeping every no-broadcast episode)
+// stops a stale archive from surfacing as a recent episode. (PSY-1241)
+func episodeFilterTime(ep RadioEpisodeImport) (time.Time, bool) {
+	if ep.StartsAt != nil {
+		return *ep.StartsAt, true
 	}
 	if ep.AirDate != "" {
 		if t, err := time.Parse("2006-01-02", ep.AirDate); err == nil {

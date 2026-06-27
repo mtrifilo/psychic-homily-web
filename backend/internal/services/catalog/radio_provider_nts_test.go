@@ -390,6 +390,44 @@ func TestNTS_FetchNewEpisodes_UndatedStaleEpisodeFiltered(t *testing.T) {
 	assert.Equal(t, "huerco-s/recent-2026", episodes[0].ExternalID)
 }
 
+// TestNTS_FetchNewEpisodes_PaginationDepthBounded verifies PSY-1241 AC#5: under the
+// wider 45-day fetch floor, a daily show pages only as deep as the window needs and
+// stops at the first older-than-since page — it does NOT walk the entire archive.
+// The server serves an unbounded newest-first daily archive (one episode/day); the
+// per-page early-exit must bound the request count to ~ceil(window/pageSize)+1.
+func TestNTS_FetchNewEpisodes_PaginationDepthBounded(t *testing.T) {
+	now := time.Now()
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		pageIdx := requests - 1 // sequential, single-threaded test
+		w.Header().Set("Content-Type", "application/json")
+		results := make([]ntsEpisode, ntsPageLimit)
+		for i := 0; i < ntsPageLimit; i++ {
+			day := now.AddDate(0, 0, -(pageIdx*ntsPageLimit + i)) // newest-first, one per day
+			results[i] = ntsEpisode{
+				Name:         fmt.Sprintf("Ep %d", pageIdx*ntsPageLimit+i),
+				EpisodeAlias: fmt.Sprintf("ep-%d", pageIdx*ntsPageLimit+i),
+				Broadcast:    day.Format("2006-01-02T15:04:05Z"),
+			}
+		}
+		data, _ := json.Marshal(ntsEpisodesResponse{Results: results})
+		_, _ = w.Write(data)
+	}))
+	defer server.Close()
+
+	provider := NewNTSProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// 45-day window over a daily show ≈ 4 full pages in-window, then the 5th page's
+	// first episode is older than `since` → early-exit. Bounded, not an archive walk.
+	since := now.AddDate(0, 0, -45)
+	episodes, err := provider.FetchNewEpisodes("daily-show", since, time.Time{})
+	require.NoError(t, err)
+	assert.LessOrEqual(t, requests, 6, "a daily show under the 45d floor must page only a few deep, not walk the archive")
+	assert.GreaterOrEqual(t, len(episodes), 40, "should capture ~45 days of daily episodes")
+}
+
 func TestNTS_FetchNewEpisodes_Empty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
