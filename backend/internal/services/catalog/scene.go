@@ -43,12 +43,24 @@ const (
 // localArtistFilter restricts a scene-artist query to the scene's LOCAL artists —
 // those whose home city/state matches the scene's — so a scene's roster + stats
 // reflect the artists that are PART of the scene, not every touring act that
-// played a venue there (PSY-1233). Splice it as the final predicate of a WHERE
-// clause whose rows are keyed by the `sa` (show_artists) alias used throughout
-// this file, and bind (city, state) for its two placeholders immediately after
-// that clause's existing params. Match is case-insensitive + trimmed; an artist
-// with a NULL/blank home city is excluded (we can't claim they're local). Borough/
-// alias gaps (a Brooklyn artist tagged "New York, NY") are out of scope here.
+// played a venue there (PSY-1233). Splice it as a predicate of a WHERE clause
+// whose rows are keyed by the `sa` (show_artists) alias used throughout this file.
+//
+// PARAM BINDING (read carefully): its two placeholders bind (city, state),
+// positioned where the spliced `?` actually fall in the FINAL SQL — NOT "always
+// at the end" of the args:
+//   - single-statement query: the filter is the last WHERE predicate, so its
+//     (city, state) go right after that clause's existing params (at the tail,
+//     before any GROUP/HAVING/LIMIT params).
+//   - multi-statement/CTE query (querySceneArtistsWithPrimaryVenue): the filter
+//     sits inside the first CTE, so its (city, state) come BEFORE the params of
+//     any later CTE — i.e. mid-list. Order args by placeholder position.
+//
+// Match is case-insensitive + trimmed; an artist with a NULL/blank home city is
+// excluded (we can't claim they're local). Borough/alias gaps (a Brooklyn artist
+// tagged "New York, NY") are out of scope here. Note: scene EXISTENCE (ListScenes)
+// is gated on venues + shows and is UNCHANGED by this filter — so a qualifying
+// scene can legitimately report zero local artists (all bills filled by touring acts).
 const localArtistFilter = `
 		AND sa.artist_id IN (
 			SELECT a2.id FROM artists a2

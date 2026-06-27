@@ -52,10 +52,18 @@ func (s *SceneGraphIntegrationSuite) seedSceneVenue(name, city, state string) *c
 	return testhelpers.CreateVerifiedVenue(s.deps.DB, name, city, state)
 }
 
-// seedSceneArtist creates a bare artist row. Slug doesn't matter for graph
-// computation but the response payload surfaces it.
+// seedSceneArtist creates an artist LOCAL to the suite's default scene (Phoenix,
+// AZ) so it survives the PSY-1233 home-city filter on the scene graph. Use
+// seedSceneArtistIn for an artist based in another city (a touring act / a
+// different scene).
 func (s *SceneGraphIntegrationSuite) seedSceneArtist(name string) *catalogm.Artist {
-	a := &catalogm.Artist{Name: name}
+	return s.seedSceneArtistIn(name, "Phoenix", "AZ")
+}
+
+// seedSceneArtistIn creates an artist with an explicit home city/state. Slug
+// doesn't matter for graph computation but the response payload surfaces it.
+func (s *SceneGraphIntegrationSuite) seedSceneArtistIn(name, city, state string) *catalogm.Artist {
+	a := &catalogm.Artist{Name: name, City: testhelpers.StringPtr(city), State: testhelpers.StringPtr(state)}
 	s.deps.DB.Create(a)
 	slug := fmt.Sprintf("artist-%d", a.ID)
 	s.deps.DB.Model(a).Update("slug", slug)
@@ -296,8 +304,8 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_CrossSceneLeakagePrevented()
 	s.seedSceneVenue("191 Toole", "Tucson", "AZ")
 
 	now := time.Now().UTC()
-	phxArtist := s.seedSceneArtist("PHX-Only")
-	tusArtist := s.seedSceneArtist("TUS-Only")
+	phxArtist := s.seedSceneArtist("PHX-Only")                          // home: Phoenix, AZ (default)
+	tusArtist := s.seedSceneArtistIn("TUS-Only", "Tucson", "AZ")        // home: Tucson, AZ (local to that scene)
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), phx, phxArtist.ID)
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), tus, tusArtist.ID)
 
@@ -349,4 +357,30 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_TypeFilter() {
 	bogus, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{"definitely_not_a_type"})
 	s.Require().NoError(err)
 	s.Equal(0, bogus.Scene.EdgeCount)
+}
+
+// TestSceneGraph_ExcludesTouringActs (PSY-1233): the scene graph reflects LOCAL
+// artists. A touring act (home city != the scene) that plays a venue in the city
+// is excluded from the graph nodes + ArtistCount, even though it shares a bill
+// with a local — so its node AND the cross-bill edge both drop out. This is the
+// graph counterpart to the service-package TestGetActiveArtists_ExcludesTouringActs
+// and the regression guard for the multi-CTE query's param binding.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_ExcludesTouringActs() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+
+	now := time.Now().UTC()
+	local := s.seedSceneArtist("PHX Local")                          // home: Phoenix, AZ
+	touring := s.seedSceneArtistIn("LA Tourer", "Los Angeles", "CA") // home: LA — touring through
+	// Both on the SAME Phoenix bill, so both have an approved show at a Phoenix venue.
+	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, local.ID, touring.ID)
+	s.seedSharedBillsRel(local.ID, touring.ID, 3)
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	s.Require().NoError(err)
+	s.Equal(1, graph.Scene.ArtistCount, "touring act is excluded from the scene graph")
+	s.Require().Len(graph.Nodes, 1)
+	s.Equal(local.ID, graph.Nodes[0].ID)
+	s.Equal(0, graph.Scene.EdgeCount, "the local↔touring edge drops with the excluded touring node")
+	s.Empty(graph.Links)
 }

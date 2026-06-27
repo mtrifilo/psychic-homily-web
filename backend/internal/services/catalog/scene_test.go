@@ -215,7 +215,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_BelowThreshold_Too
 	// Only 1 verified venue — below the 2-verified-venue threshold
 	user := suite.createUser()
 	v := suite.createVerifiedVenue("Venue A", "Tucson", "AZ")
-	a := suite.createArtist("Tucson Act")
+	a := suite.createArtistIn("Tucson Act", "Tucson", "AZ")
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	suite.createApprovedShow("Show 1", v.ID, a.ID, user.ID, future)
 	suite.createApprovedShow("Show 2", v.ID, a.ID, user.ID, future.AddDate(0, 0, 1))
@@ -308,7 +308,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_QualifiesWithPastS
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("The Rialto", "Tucson", "AZ")
 	v2 := suite.createVerifiedVenue("Club Congress", "Tucson", "AZ")
-	a := suite.createArtist("Tucson Band")
+	a := suite.createArtistIn("Tucson Band", "Tucson", "AZ")
 
 	past := time.Now().UTC().AddDate(0, 0, -30)
 	suite.createApprovedShow("Past Tucson Show 1", v1.ID, a.ID, user.ID, past)
@@ -331,7 +331,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MeetsMinimumThresh
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("The Mint", "Los Angeles", "CA")
 	v2 := suite.createVerifiedVenue("The Echo", "Los Angeles", "CA")
-	a := suite.createArtist("LA Band")
+	a := suite.createArtistIn("LA Band", "Los Angeles", "CA")
 
 	future := time.Now().UTC().AddDate(0, 0, 14)
 	suite.createApprovedShow("LA Show 1", v1.ID, a.ID, user.ID, future)
@@ -358,7 +358,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
 	cv1 := suite.createVerifiedVenue("Metro", "Chicago", "IL")
 	cv2 := suite.createVerifiedVenue("Empty Bottle", "Chicago", "IL")
 	cv3 := suite.createVerifiedVenue("Thalia Hall", "Chicago", "IL")
-	ca := suite.createArtist("Chicago Band")
+	ca := suite.createArtistIn("Chicago Band", "Chicago", "IL")
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	for i := 0; i < 7; i++ {
@@ -612,6 +612,44 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_ExcludesTour
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
 	suite.Require().NoError(err)
 	suite.Equal(2, detail.Stats.ArtistCount)
+	// ...and so does the new-artists-30d pulse: all five acts have a recent first
+	// show, but only the two locals count.
+	suite.Equal(2, detail.Pulse.NewArtists30d)
+}
+
+// TestGetSceneGenreDistribution_ExcludesTouringActs (PSY-1233): the scene's genre
+// distribution reflects LOCAL artists. A touring act's genre tag must not pollute
+// the scene even though it played a venue in the city.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_ExcludesTouringActs() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("GX-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("GX-V2", "Phoenix", "AZ")
+	venues := []*catalogm.Venue{v1, v2}
+
+	punkTag := suite.createGenreTag("punk", "punk")
+	jazzTag := suite.createGenreTag("jazz", "jazz")
+	future := time.Now().UTC().AddDate(0, 0, 7)
+
+	// 30 LOCAL punk artists — meets the 30-tagged-artist threshold.
+	for i := 0; i < 30; i++ {
+		a := suite.createArtist(fmt.Sprintf("Local Punk %d", i)) // Phoenix-local (default)
+		suite.createApprovedShow(fmt.Sprintf("LP Show %d", i), venues[i%2].ID, a.ID, user.ID, future.AddDate(0, 0, i))
+		suite.tagArtist(a.ID, punkTag, user.ID)
+	}
+	// A touring jazz act playing a Phoenix venue — its genre must NOT appear.
+	tourer := suite.createArtistIn("LA Jazz Tourer", "Los Angeles", "CA")
+	suite.createApprovedShow("Tour Show", v1.ID, tourer.ID, user.ID, future)
+	suite.tagArtist(tourer.ID, jazzTag, user.ID)
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(genres)
+	names := make([]string, 0, len(genres))
+	for _, g := range genres {
+		names = append(names, g.Name)
+	}
+	suite.Contains(names, "punk", "local artists' genre is present")
+	suite.NotContains(names, "jazz", "a touring act's genre must not pollute the scene")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_RespectsLimit() {
