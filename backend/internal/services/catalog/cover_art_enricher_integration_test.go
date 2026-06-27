@@ -93,6 +93,29 @@ func TestCoverArtEnrichIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(CoverArtEnrichIntegrationTestSuite))
 }
 
+// TestIDsFilter_RestrictsScan covers the IDs option the ongoing sweep (PSY-1246)
+// relies on: a non-empty IDs scans only those releases; an empty IDs preserves the
+// CLI's scan-all. Empty fakes => every scanned release is skipped, so
+// ReleasesScanned reflects exactly which rows the query loaded.
+func (s *CoverArtEnrichIntegrationTestSuite) TestIDsFilter_RestrictsScan() {
+	r1 := &catalogm.Release{Title: "One"}
+	r2 := &catalogm.Release{Title: "Two"}
+	r3 := &catalogm.Release{Title: "Three"}
+	for _, r := range []*catalogm.Release{r1, r2, r3} {
+		s.Require().NoError(s.db.Create(r).Error)
+	}
+
+	mb, caa := &fakeMBSearcher{}, &fakeCAA{}
+
+	only, err := BackfillCoverArt(context.Background(), s.db, mb, caa, nil, CoverArtEnrichOptions{IDs: []uint{r2.ID}})
+	s.Require().NoError(err)
+	s.Equal(1, only.ReleasesScanned, "IDs filter should scan only the listed release")
+
+	all, err := BackfillCoverArt(context.Background(), s.db, mb, caa, nil, CoverArtEnrichOptions{})
+	s.Require().NoError(err)
+	s.Equal(3, all.ReleasesScanned, "empty IDs preserves CLI scan-all")
+}
+
 // seedDopesmoker creates artist "Sleep" + a cover-less "Dopesmoker" (2003) and a
 // covered "Holy Mountain" (2018, not scanned). Returns the cover-less release id.
 func (s *CoverArtEnrichIntegrationTestSuite) seedDopesmoker() uint {

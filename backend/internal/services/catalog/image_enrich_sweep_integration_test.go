@@ -133,4 +133,44 @@ func (s *ImageEnrichSweepIntegrationTestSuite) reloadRelease(r *catalogm.Release
 	return &out
 }
 
+// TestRunCycleStopsOnCanceledContext: a canceled ctx fails the photo selection
+// AND runCycle's ctx.Err() guard skips the covers sweep — neither enricher runs.
+func (s *ImageEnrichSweepIntegrationTestSuite) TestRunCycleStopsOnCanceledContext() {
+	s.Require().NoError(s.db.Create(&catalogm.Artist{Name: "A"}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.Release{Title: "R"}).Error)
+
+	sw, gotPhotos, gotCovers := s.newTestSweep(50)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	sw.RunSweepNow(ctx)
+
+	s.Empty(*gotPhotos)
+	s.Empty(*gotCovers, "covers sweep must be skipped after the ctx is canceled")
+}
+
+// TestStampsCoversBeforeEnrichEvenOnError mirrors the photo error-path test for
+// the releases/covers side (the stamp logic is shared, but assert both halves).
+func (s *ImageEnrichSweepIntegrationTestSuite) TestStampsCoversBeforeEnrichEvenOnError() {
+	r := &catalogm.Release{Title: "Errs"}
+	s.Require().NoError(s.db.Create(r).Error)
+
+	sw, _, _ := s.newTestSweep(50)
+	sw.enrichCovers = func(_ context.Context, _ []uint) error { return errors.New("boom") }
+
+	sw.RunSweepNow(context.Background())
+	s.NotNil(s.reloadRelease(r).ImageEnrichAttemptedAt)
+}
+
+// TestTreatsEmptyStringImageAsMissing: an empty-string image column (not just
+// NULL) counts as image-less and is swept.
+func (s *ImageEnrichSweepIntegrationTestSuite) TestTreatsEmptyStringImageAsMissing() {
+	empty := &catalogm.Artist{Name: "Empty", ImageURL: sweepStrPtr("")}
+	s.Require().NoError(s.db.Create(empty).Error)
+
+	sw, gotPhotos, _ := s.newTestSweep(50)
+	sw.RunSweepNow(context.Background())
+	s.Equal([]uint{empty.ID}, *gotPhotos)
+}
+
 func sweepStrPtr(v string) *string { return &v }

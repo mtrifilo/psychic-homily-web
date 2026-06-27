@@ -83,7 +83,7 @@ func NewImageEnrichmentSweep(database *gorm.DB, mbClient *pipeline.MusicBrainzCl
 		discogsToken: discogsToken,
 		interval:     sweepEnvDuration("IMAGE_ENRICH_SWEEP_INTERVAL_HOURS", time.Hour, defaultImageEnrichSweepInterval),
 		batch:        sweepEnvInt("IMAGE_ENRICH_SWEEP_BATCH", defaultImageEnrichSweepBatch),
-		reattempt:    sweepEnvDuration("IMAGE_ENRICH_REATTEMPT_DAYS", 24*time.Hour, defaultImageEnrichReattempt),
+		reattempt:    sweepEnvDuration("IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultImageEnrichReattempt),
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 	}
@@ -175,7 +175,10 @@ func (s *ImageEnrichmentSweep) selectBatch(ctx context.Context, table string) ([
 	var ids []uint
 	err := s.db.WithContext(ctx).
 		Table(table).
-		Where(col+" IS NULL OR "+col+" = ''").
+		// Explicit parens keep the OR-group local: this is the one query where an
+		// OR clause is AND-combined with a second OR clause, so the grouping is
+		// load-bearing (don't rely on GORM's per-Where auto-parenthesization alone).
+		Where("("+col+" IS NULL OR "+col+" = '')").
 		Where("image_enrich_attempted_at IS NULL OR image_enrich_attempted_at < ?", cutoff).
 		Order("image_enrich_attempted_at ASC NULLS FIRST").
 		Order("id ASC").
@@ -242,9 +245,9 @@ func (s *ImageEnrichmentSweep) runCoverEnricher(ctx context.Context, ids []uint)
 
 // --- MusicBrainz adapters -------------------------------------------------
 // These mirror the cmd-local adapters in cmd/backfill-{commons-photos,cover-art}
-// (kept there for the standalone CLIs). A future cleanup could hoist all three to
-// one shared helper; for now the sweep carries its own so this change does not
-// touch the shipped backfill commands.
+// (kept there for the standalone CLIs). Consolidating all three into one shared
+// helper is tracked as PSY-1248; for now the sweep carries its own so this change
+// does not touch the shipped backfill commands.
 
 type mbArtistEnrichAdapter struct {
 	client *pipeline.MusicBrainzClient
