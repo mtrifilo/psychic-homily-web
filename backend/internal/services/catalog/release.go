@@ -102,6 +102,11 @@ func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*co
 			return err
 		}
 
+		// PSY-1247: prompt on-create cover-art enrichment via the transactional
+		// outbox. Same tx as the release create (atomic), best-effort (never fails
+		// the create — see enqueueImageEnrich).
+		enqueueImageEnrich(tx, catalogm.ImageEnrichEntityRelease, release.ID)
+
 		return nil
 	})
 
