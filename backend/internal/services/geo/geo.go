@@ -37,7 +37,32 @@ type Result struct {
 	Latitude  float64
 	Longitude float64
 	Timezone  string // IANA name, e.g. "America/Phoenix", "Europe/London"
+	// State is the matched place's GeoNames admin1 code. For a US hit this is the
+	// 2-letter state code ("IL"); for a non-US hit it is GeoNames' admin1 (often
+	// numeric) and must NOT be treated as a US state — pair it with Country.
+	State string
+	// Country is the matched place's ISO 3166-1 alpha-2 code ("US").
+	Country string
 }
+
+// USStateStatus is the outcome of resolving a bare city name to a US state via
+// ResolveUSState. It distinguishes "one unambiguous US state" from the two cases
+// a caller must NOT guess past: a multi-state namesake, and a city that is not a
+// known US place at all.
+type USStateStatus int
+
+const (
+	// USStateNotFound: the city name matches no US place in the dataset (it is
+	// non-US, or absent entirely). The caller has no US state to write.
+	USStateNotFound USStateStatus = iota
+	// USStateUnambiguous: every US namesake of this city resolves to the SAME
+	// state — safe to write that state from the bare city name.
+	USStateUnambiguous
+	// USStateAmbiguous: the city name spans two or more US states (Pasadena CA/TX,
+	// Springfield, Bloomington). A bare-city guess would silently corrupt data
+	// (PSY-1244), so the caller must disambiguate from a stronger source instead.
+	USStateAmbiguous
+)
 
 // Geocoder resolves a location to coordinates + timezone. It is an interface so
 // the data source stays swappable (info hiding) and callers can stub it in tests.
@@ -45,6 +70,13 @@ type Geocoder interface {
 	// Resolve returns a Result and ok=true when the location is found. A miss
 	// (ok=false) is expected for obscure places; callers fall back accordingly.
 	Resolve(city, state, country string) (Result, bool)
+	// ResolveUSState maps a bare city name to its US state, but ONLY when that
+	// mapping is unambiguous (all US namesakes share one state). It returns the
+	// 2-letter state with USStateUnambiguous, "" with USStateAmbiguous for a
+	// multi-state namesake, or "" with USStateNotFound for a non-US/unknown city.
+	// Deriving a state from a multi-state namesake is the PSY-1244 corruption bug,
+	// so this never falls back to a population guess — that is the caller's call.
+	ResolveUSState(city string) (state string, status USStateStatus)
 }
 
 // cityRow is one populated place from GeoNames.
@@ -273,7 +305,48 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 			best = c
 		}
 	}
-	return Result{Latitude: best.lat, Longitude: best.lng, Timezone: best.tz}, true
+	return Result{
+		Latitude:  best.lat,
+		Longitude: best.lng,
+		Timezone:  best.tz,
+		State:     best.admin1,
+		Country:   best.country,
+	}, true
+}
+
+// ResolveUSState maps a bare city name to its US state, but only when every US
+// place of that name shares ONE state. See the Geocoder interface for the
+// contract and USStateStatus for the cases.
+//
+// It deliberately ignores population: a multi-state namesake returns Ambiguous
+// (not the biggest city's state), because the whole point is to refuse the
+// highest-population guess that corrupted data in PSY-1244. "Unambiguous" is
+// scoped to the embedded dataset — a city name absent from it is NotFound, and a
+// name present only as one US state is treated as that state even though a tiny
+// same-name town elsewhere may be omitted (acceptable: the dataset is population-
+// filtered and the scene use case cares about real metros).
+func (g *offlineGeocoder) ResolveUSState(city string) (string, USStateStatus) {
+	cityKey := foldKey(city)
+	if cityKey == "" {
+		return "", USStateNotFound
+	}
+	state := ""
+	for _, c := range g.byCity[cityKey] {
+		if c.country != "US" || c.admin1 == "" {
+			continue
+		}
+		if state == "" {
+			state = c.admin1
+			continue
+		}
+		if c.admin1 != state {
+			return "", USStateAmbiguous // same name, two states → don't guess
+		}
+	}
+	if state == "" {
+		return "", USStateNotFound // no US place of this name
+	}
+	return state, USStateUnambiguous
 }
 
 // resolveCountry determines an ISO country code (and, for the US, a state admin1
@@ -368,6 +441,18 @@ func stripLeadingThe(s string) string {
 		return s[4:]
 	}
 	return s
+}
+
+// SamePlaceName reports whether two place names refer to the same place under the
+// geocoder's own folding (diacritics stripped, lowercased, punctuation/space
+// collapsed). Callers cross-checking a place name against another source — e.g.
+// confirming a MusicBrainz city equals an artist's stored city before trusting
+// its parent state — should use this so the comparison matches how Resolve keys
+// the dataset ("Montréal" == "Montreal", "St. Louis" == "saint louis"). Two empty
+// or blank names are NOT considered a match.
+func SamePlaceName(a, b string) bool {
+	ka, kb := foldKey(a), foldKey(b)
+	return ka != "" && ka == kb
 }
 
 // specialLetters maps the lowercase Latin letters that canonical decomposition
