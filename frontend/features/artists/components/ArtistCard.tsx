@@ -28,11 +28,10 @@ function formatLastShowMonth(iso: string | null | undefined): string | null {
 // (PSY-495 Bandcamp model — dormant artists surfaced via tag filter), we
 // show "No upcoming shows" and, if known, the last past-show month so the
 // visitor sees the artist is real, just inactive, not broken.
-function upcomingLabel(artist: ArtistListItem, short: boolean): string {
-  if (artist.upcoming_show_count > 0) {
-    return short
-      ? `${artist.upcoming_show_count} upcoming`
-      : `${artist.upcoming_show_count} upcoming shows`
+function upcomingLabel(artist: ArtistListItem): string {
+  const count = artist.upcoming_show_count
+  if (count > 0) {
+    return `${count} upcoming ${count === 1 ? 'show' : 'shows'}`
   }
   const lastShow = formatLastShowMonth(artist.last_show_date)
   if (lastShow) {
@@ -58,7 +57,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
           <span className="text-xs text-muted-foreground shrink-0">{location}</span>
         )}
         <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-          {upcomingLabel(artist, true)}
+          {upcomingLabel(artist)}
         </span>
       </article>
     )
@@ -81,7 +80,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
           )}
           <span className="flex items-center gap-1.5">
             <Music className="h-3.5 w-3.5 shrink-0" />
-            {upcomingLabel(artist, false)}
+            {upcomingLabel(artist)}
           </span>
         </div>
       </article>
@@ -100,7 +99,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
       <div className="mt-2 space-y-1">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <Music className="h-3.5 w-3.5 shrink-0" />
-          <span>{upcomingLabel(artist, true)}</span>
+          <span>{upcomingLabel(artist)}</span>
         </div>
 
         {hasLocation && (
