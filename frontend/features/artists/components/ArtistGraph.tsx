@@ -376,16 +376,15 @@ export function ArtistGraphVisualization({
   //   (2) hover-focus (PSY-1210): nodeCanvasObject / linkColor / labels read focusedIds;
   //       force-graph's notifyRedraw only sets a flag the rAF loop consumes, and that
   //       loop can be idle/paused, so resumeAnimation is what guarantees the frame renders.
-  // CAVEAT: force-graph's rAF loop reschedules unconditionally, so resumeAnimation here
-  // (on mount via palette, then on hover) keeps the loop running even under
-  // prefers-reduced-motion — i.e. the pauseAnimation effect above doesn't actually hold.
-  // That's PRE-EXISTING (the [palette] resume already ran on mount before this change);
-  // hover-focus thus DOES render for reduced-motion, but the pause being defeated is the
-  // real issue, tracked in PSY-1226. (The canvas is a visual enhancement; the accessible
-  // path is the RelatedArtists list.)
+  // Gated on !reducedMotion (PSY-1226): force-graph's rAF loop reschedules unconditionally,
+  // so resumeAnimation here would keep the loop running forever and DEFEAT the reduced-motion
+  // pauseAnimation above. For reduced-motion users we keep the static snapshot — the canvas is
+  // a visual enhancement and the accessible path is the RelatedArtists list. Deliberate
+  // trade-offs for them: a theme toggle won't recolor the static graph's labels, and the
+  // hover tooltip + hover-focus won't fire (both ride the paused loop's hit-testing).
   useEffect(() => {
-    graphRef.current?.resumeAnimation()
-  }, [palette, hoveredNode])
+    if (!reducedMotion) graphRef.current?.resumeAnimation()
+  }, [palette, hoveredNode, reducedMotion])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
