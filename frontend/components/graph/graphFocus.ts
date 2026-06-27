@@ -7,7 +7,7 @@
  * alpha (nodeCanvasObject / linkColor) and the label gating (nodeLabelsFrame).
  *
  * Extracted as a pure module so the neighborhood math is unit-tested in isolation
- * and shared — ArtistGraph uses it now; ForceGraphView is a planned follow-up.
+ * and shared — both ArtistGraph (PSY-1210) and ForceGraphView (PSY-1225) use it.
  */
 
 /** A link endpoint: a bare node id, or the resolved node object d3-force swaps in. */
