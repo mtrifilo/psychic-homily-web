@@ -174,7 +174,6 @@ vi.mock('@/features/contributions', () => ({
   AttributionLine: (): null => null,
   ReportEntityDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="report-dialog">Report Dialog</div> : null,
-  ContributionPrompt: (): null => null,
   useSuggestEdit: () => ({ mutate: mockSuggestEditMutate, isPending: false }),
 }))
 

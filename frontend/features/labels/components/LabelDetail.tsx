@@ -25,7 +25,7 @@ import { CommentThread } from '@/features/comments'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { useIsAuthenticated } from '@/features/auth'
-import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
+import { AttributionLine, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
@@ -274,16 +274,6 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
             entityType="label"
             entityId={label.id}
             isAuthenticated={isAuthenticated}
-          />
-          <ContributionPrompt
-            entityType="label"
-            entityId={label.id}
-            entitySlug={label.slug}
-            isAuthenticated={!!isAuthenticated}
-            onEditClick={(focusField) => {
-              setEditFocusField(focusField)
-              setIsEditing(true)
-            }}
           />
         </>
       }

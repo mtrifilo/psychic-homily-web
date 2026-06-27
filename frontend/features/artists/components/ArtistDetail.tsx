@@ -48,7 +48,7 @@ import {
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, useSuggestEdit } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { NotifyMeButton } from '@/features/notifications'
@@ -1015,7 +1015,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const suggestArtistEdit = useSuggestEdit()
 
   const [isEditing, setIsEditing] = useState(false)
-  const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
   const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   // Graph Dialog open state — reactive to the `#graph` URL hash (PSY-361
@@ -1184,16 +1183,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             />
             <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
             <AttributionLine entityType="artist" entityId={artist.id} />
-            <ContributionPrompt
-              entityType="artist"
-              entityId={artist.id}
-              entitySlug={artist.slug}
-              isAuthenticated={!!isAuthenticated}
-              onEditClick={(focusField) => {
-                setEditFocusField(focusField)
-                setIsEditing(true)
-              }}
-            />
           </>
         }
         sidebar={
@@ -1288,16 +1277,12 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       {isAuthenticated && (
         <EntityEditDrawer
           open={isEditing}
-          onOpenChange={(open) => {
-            setIsEditing(open)
-            if (!open) setEditFocusField(undefined)
-          }}
+          onOpenChange={(open) => setIsEditing(open)}
           entityType="artist"
           entityId={artist.id}
           entityName={artist.name}
           entity={artist as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
-          focusField={editFocusField}
           onSuccess={(result) => {
             queryClient.invalidateQueries({
               queryKey: queryKeys.artists.detail(artistId),
