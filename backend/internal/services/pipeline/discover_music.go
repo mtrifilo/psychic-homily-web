@@ -94,7 +94,7 @@ func (s *DiscoverMusicService) DiscoverMusic(ctx context.Context, artistID uint,
 		Candidates: []contracts.MusicLinkCandidate{},
 	}
 
-	normName := normalizeArtistName(artistName)
+	normName := NormalizeArtistName(artistName)
 	if normName == "" {
 		// No usable name to match on — return an empty candidate set rather
 		// than searching for the empty string.
@@ -140,7 +140,7 @@ func (s *DiscoverMusicService) DiscoverMusic(ctx context.Context, artistID uint,
 
 		// EXACT-NAME GATE (hard requirement). NEVER take the top match or use
 		// score for identity.
-		if normalizeArtistName(cand.Name) != normName {
+		if NormalizeArtistName(cand.Name) != normName {
 			continue
 		}
 
@@ -233,13 +233,13 @@ func (s *DiscoverMusicService) fillLiveness(ctx context.Context, candidates []co
 	wg.Wait()
 }
 
-// normalizeArtistName lowercases, expands "&" to "and", and strips every
+// NormalizeArtistName lowercases, expands "&" to "and", and strips every
 // non-alphanumeric character. Two names are the SAME identity iff their
 // normalized forms are byte-equal. This is the exact-name gate's comparison key
 // (PSY-1197): it folds "Club XCX" and "Club X.C.X" together but keeps "Club XCX"
 // distinct from "Charli xcx" (→ "charlixcx" vs "clubxcx"), killing the
 // famous-namesake false class at ~zero yield loss.
-func normalizeArtistName(name string) string {
+func NormalizeArtistName(name string) string {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	lower = strings.ReplaceAll(lower, "&", "and")
 	var b strings.Builder
