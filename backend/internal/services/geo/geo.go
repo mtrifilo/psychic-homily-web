@@ -348,7 +348,13 @@ func (g *offlineGeocoder) ResolveUSState(city string) (string, USStateStatus) {
 	usState := ""
 	multiState := false
 	for i, r := range rows {
-		if i == 0 || r.pop > dominant.pop {
+		// Most-populous namesake wins; a population TIE resolves toward the non-US
+		// row so the result is NotFound (defer to a stronger source) rather than a
+		// coin-flip on dataset order — safer at the exact boundary this guards.
+		switch {
+		case i == 0 || r.pop > dominant.pop:
+			dominant = r
+		case r.pop == dominant.pop && dominant.country == "US" && r.country != "US":
 			dominant = r
 		}
 		if r.country != "US" || r.admin1 == "" {

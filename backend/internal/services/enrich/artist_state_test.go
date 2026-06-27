@@ -228,12 +228,16 @@ func TestBackfillArtistStates_DifferentCityHomonym(t *testing.T) {
 	}
 }
 
-// TestBackfillArtistStates_ConsensusTwoCandidates: two distinct MB records naming
-// the same city in the same state make the state correct without an identity
-// check (no url-rels call).
-func TestBackfillArtistStates_ConsensusTwoCandidates(t *testing.T) {
+// TestBackfillArtistStates_AgreeingHomonymsLeaveNull is the round-2 regression:
+// two MusicBrainz records that AGREE on a state must NOT write it without an
+// identity match. Our band is really in Pasadena, TX (state NULL); MusicBrainz has
+// two same-named Pasadena, CA bands that agree on CA — but neither shares our
+// artist's Spotify link, so consensus does NOT write CA. (The old consensus
+// shortcut would have corrupted this; identity is now mandatory.)
+func TestBackfillArtistStates_AgreeingHomonymsLeaveNull(t *testing.T) {
 	store := &fakeStateStore{artists: []catalogm.Artist{
-		{ID: 1, Name: "Common Name", City: sp("Pasadena")}, // no links — consensus carries it
+		{ID: 1, Name: "Common Name", City: sp("Pasadena"), // our band: Pasadena, TX
+			Social: catalogm.Social{Spotify: sp(spotifyA)}},
 	}}
 	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
 	mb := &fakeStateMB{
@@ -245,35 +249,10 @@ func TestBackfillArtistStates_ConsensusTwoCandidates(t *testing.T) {
 					BeginArea: cityArea("Pasadena", "a2"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}},
 			},
 		},
-	}
-
-	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
-	if err != nil {
-		t.Fatalf("backfillArtistStates: %v", err)
-	}
-	if rep.FilledMusicBrainz != 1 || store.updates[1]["state"] != "CA" {
-		t.Fatalf("want CA via consensus; FilledMB=%d state=%v", rep.FilledMusicBrainz, store.updates[1]["state"])
-	}
-	if mb.urlCalls != 0 {
-		t.Errorf("consensus (>=2 agree) needs no identity check, got %d url-rels calls", mb.urlCalls)
-	}
-}
-
-// TestBackfillArtistStates_ConsensusDisagreeLeavesNull: two same-city candidates
-// that resolve to DIFFERENT states cannot be disambiguated → left NULL.
-func TestBackfillArtistStates_ConsensusDisagreeLeavesNull(t *testing.T) {
-	store := &fakeStateStore{artists: []catalogm.Artist{
-		{ID: 1, Name: "Split Name", City: sp("Pasadena"), Social: catalogm.Social{Spotify: sp(spotifyA)}},
-	}}
-	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
-	mb := &fakeStateMB{
-		candidates: map[string][]pipeline.MBArtistResult{
-			"Split Name": {
-				{ID: "c1", Name: "Split Name", Country: "US",
-					BeginArea: cityArea("Pasadena", "a1"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}},
-				{ID: "c2", Name: "Split Name", Country: "US",
-					BeginArea: cityArea("Pasadena", "a2"), Area: &pipeline.MBArea{Name: "Texas", Type: "Subdivision"}},
-			},
+		// Neither CA homonym shares our artist's Spotify link.
+		urlRels: map[string][]pipeline.MBURLRelation{
+			"c1": {spotifyRel(spotifyB)},
+			"c2": {spotifyRel(spotifyB)},
 		},
 	}
 
@@ -281,13 +260,17 @@ func TestBackfillArtistStates_ConsensusDisagreeLeavesNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backfillArtistStates: %v", err)
 	}
-	if rep.Unresolved != 1 || len(store.updates) != 0 {
-		t.Fatalf("disagreement must leave NULL; Unresolved=%d updates=%v", rep.Unresolved, store.updates)
+	if rep.FilledMusicBrainz != 0 || rep.Unresolved != 1 {
+		t.Fatalf("agreeing homonyms must not write a state; FilledMB=%d Unresolved=%d", rep.FilledMusicBrainz, rep.Unresolved)
+	}
+	if _, wrote := store.updates[1]; wrote {
+		t.Errorf("must NOT write CA onto a TX band via agreeing homonyms, wrote %v", store.updates[1])
 	}
 }
 
 // TestBackfillArtistStates_SingleCandidateNoLink: an artist with no platform link
-// can't have identity confirmed, so a single MB match is left NULL.
+// can't have identity confirmed, so MusicBrainz is not even searched and the
+// state is left NULL.
 func TestBackfillArtistStates_SingleCandidateNoLink(t *testing.T) {
 	store := &fakeStateStore{artists: []catalogm.Artist{
 		{ID: 1, Name: "Linkless Band", City: sp("Pasadena")},
@@ -305,10 +288,10 @@ func TestBackfillArtistStates_SingleCandidateNoLink(t *testing.T) {
 		t.Fatalf("backfillArtistStates: %v", err)
 	}
 	if rep.Unresolved != 1 || len(store.updates) != 0 {
-		t.Fatalf("no-link single match must leave NULL; Unresolved=%d updates=%v", rep.Unresolved, store.updates)
+		t.Fatalf("no-link artist must leave NULL; Unresolved=%d updates=%v", rep.Unresolved, store.updates)
 	}
-	if mb.urlCalls != 0 {
-		t.Errorf("no links → no url-rels call needed, got %d", mb.urlCalls)
+	if mb.searchCalls != 0 {
+		t.Errorf("no links → MusicBrainz not searched, got %d searches", mb.searchCalls)
 	}
 }
 
@@ -383,7 +366,9 @@ func TestBackfillArtistStates_ProvenancePreserved(t *testing.T) {
 func TestBackfillArtistStates_MBErrorTripsBreaker(t *testing.T) {
 	artists := make([]catalogm.Artist, mbErrorBreakerThreshold+2)
 	for i := range artists {
-		artists[i] = catalogm.Artist{ID: uint(i + 1), Name: "Ambig", City: sp("Pasadena")}
+		// A link is required for mbState to reach the (erroring) search.
+		artists[i] = catalogm.Artist{ID: uint(i + 1), Name: "Ambig", City: sp("Pasadena"),
+			Social: catalogm.Social{Spotify: sp(spotifyA)}}
 	}
 	store := &fakeStateStore{artists: artists}
 	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}

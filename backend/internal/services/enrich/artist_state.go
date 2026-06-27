@@ -27,12 +27,13 @@ import (
 //  1. Offline, free: geo.ResolveUSState fills the state ONLY when the city name
 //     maps to exactly one US state in the dataset (Chicago -> IL). A multi-state
 //     namesake is reported ambiguous, not guessed.
-//  2. MusicBrainz, for the ambiguous residual: re-search the artist, and trust a
-//     name-matched candidate ONLY when it independently names the SAME city; then
-//     the state is that city's parent Subdivision — taken from the search result
-//     if MusicBrainz tagged one, else fetched with one area-rels lookup. The city
-//     cross-check is what stops a same-named band in another state from writing
-//     the wrong state.
+//  2. MusicBrainz, for the ambiguous residual: re-search the artist and trust a
+//     candidate's state ONLY when its IDENTITY is confirmed — its url-rels share
+//     one of the artist's own Spotify/Bandcamp links. A bare name + same-city
+//     match is never enough (a same-named band from a same-named city in another
+//     state looks identical), so an artist with no link to anchor on is left NULL.
+//     The state is the confirmed record's city's parent Subdivision — on the
+//     search result if MusicBrainz tagged one, else via one area-rels lookup.
 //
 // Anything the two layers can't confirm is left NULL (a review bucket) rather
 // than guessed — a wrong state is harder to undo than an empty one, and it would
@@ -204,21 +205,19 @@ func backfillArtistStates(
 }
 
 // mbState resolves a US state for a city the geocoder wouldn't fill, via
-// MusicBrainz, WITHOUT ever guessing. It re-searches by name, keeps only
-// candidates that independently name the SAME city, and resolves each to a state
-// (the parent Subdivision — on the search result if MusicBrainz tagged one, else
-// via one area-rels lookup). Then it decides:
+// MusicBrainz, WITHOUT ever guessing. A bare name + same-city match is NEVER
+// enough on its own: a same-named band from a same-NAMED city in another state
+// looks identical (whether it appears once or as several agreeing duplicates), so
+// matching on it would re-open the PSY-1244 wrong-state corruption. The only
+// trusted signal is IDENTITY — the candidate's url-rels share one of the artist's
+// own Spotify/Bandcamp links:
 //
-//   - candidates disagree on the state, or none resolved → "" (genuinely
-//     ambiguous; leave NULL).
-//   - they unanimously agree AND there are ≥2 of them → that state. Two distinct
-//     MusicBrainz records naming the same city in the same state make the STATE
-//     correct regardless of which one is "our" band.
-//   - exactly one candidate → a name + same-city coincidence is NOT proof it is
-//     our band (a same-named band in a same-named city of another state looks
-//     identical — the homonym that a bare name+city check misses), so require an
-//     IDENTITY match: the candidate's url-rels must share one of the artist's own
-//     Spotify/Bandcamp links. Confirmed → that state; otherwise "" (leave NULL).
+//   - the artist has no such link to anchor on → "" (can't confirm; leave NULL),
+//     and we skip the search entirely.
+//   - otherwise, the first name + same-city candidate whose identity is confirmed
+//     IS our artist; its city's parent Subdivision (on the search result if
+//     MusicBrainz tagged one, else via a single area-rels lookup) is the state.
+//   - no candidate confirms → "" (leave NULL).
 //
 // Returns a non-nil error only for a MusicBrainz transport failure, so the
 // caller's circuit breaker can observe it.
@@ -227,16 +226,17 @@ func mbState(ctx context.Context, mb MBStateResolver, a *catalogm.Artist, stored
 	if want == "" {
 		return "", "", nil
 	}
+	// Identity can only be confirmed against the artist's own platform links;
+	// with none, no MusicBrainz match is trustworthy, so don't even search.
+	links := artistPlatformLinks(a)
+	if len(links) == 0 {
+		return "", "", nil
+	}
 	candidates, err := mb.SearchArtistCandidates(ctx, a.Name)
 	if err != nil {
 		return "", "", err
 	}
 
-	type cityMatch struct {
-		cand  pipeline.MBArtistResult
-		state string
-	}
-	var matches []cityMatch
 	for i := range candidates {
 		c := candidates[i]
 		if pipeline.NormalizeArtistName(c.Name) != want {
@@ -244,38 +244,25 @@ func mbState(ctx context.Context, mb MBStateResolver, a *catalogm.Artist, stored
 		}
 		cityArea := mbCityArea(c)
 		if cityArea == nil || !geo.SamePlaceName(cityArea.Name, storedCity) {
-			continue // not the same city → can't trust this candidate's state
+			continue // not the same city → can't be our artist's origin record
 		}
+		confirmed, idErr := candidateMatchesLinks(ctx, mb, c, links)
+		if idErr != nil {
+			return "", "", idErr
+		}
+		if !confirmed {
+			continue // a homonym sharing the name + city but not the artist's links
+		}
+		// Identity confirmed: this record IS our artist. Read its city's state.
 		st, lookupErr := candidateState(ctx, mb, c, cityArea)
 		if lookupErr != nil {
 			return "", "", lookupErr
 		}
 		if st != "" {
-			matches = append(matches, cityMatch{cand: c, state: st})
+			return st, DataSourceMusicBrainz, nil
 		}
-	}
-	if len(matches) == 0 {
-		return "", "", nil
-	}
-
-	// Every surviving candidate must agree on one state, or we can't disambiguate.
-	state = matches[0].state
-	for _, m := range matches[1:] {
-		if m.state != state {
-			return "", "", nil // candidates disagree → leave NULL
-		}
-	}
-	if len(matches) >= 2 {
-		return state, DataSourceMusicBrainz, nil // consensus: state is right either way
-	}
-
-	// Exactly one candidate: confirm it is actually our artist before trusting it.
-	confirmed, idErr := candidateIsArtist(ctx, mb, matches[0].cand, a)
-	if idErr != nil {
-		return "", "", idErr
-	}
-	if confirmed {
-		return state, DataSourceMusicBrainz, nil
+		// Confirmed our artist but this record carries no usable US parent state;
+		// keep scanning in case another record of the same artist does.
 	}
 	return "", "", nil
 }
@@ -303,15 +290,14 @@ func candidateState(ctx context.Context, mb MBStateResolver, c pipeline.MBArtist
 	return "", nil
 }
 
-// candidateIsArtist confirms a MusicBrainz candidate IS our artist via a shared
-// streaming link: the candidate's url-rels include one of the artist's own
-// Spotify/Bandcamp URLs (compared in canonical form). An artist with no such link
-// to anchor on cannot be confirmed → false, so the caller leaves the state NULL
-// rather than trust a bare name + city coincidence. Returns an error only for a
-// MusicBrainz transport failure.
-func candidateIsArtist(ctx context.Context, mb MBStateResolver, c pipeline.MBArtistResult, a *catalogm.Artist) (bool, error) {
-	links := artistPlatformLinks(a)
-	if len(links) == 0 || c.ID == "" {
+// candidateMatchesLinks confirms a MusicBrainz candidate IS our artist by a
+// shared streaming link: its url-rels include a URL canonically equal to one of
+// the artist's own Spotify/Bandcamp links (passed in, already non-empty). This is
+// the identity proof a bare name + same-city coincidence can't give — a homonym
+// in a same-named city of another state won't carry the artist's link. Returns an
+// error only for a MusicBrainz transport failure.
+func candidateMatchesLinks(ctx context.Context, mb MBStateResolver, c pipeline.MBArtistResult, links []string) (bool, error) {
+	if c.ID == "" {
 		return false, nil
 	}
 	rels, err := mb.LookupArtistURLRelations(ctx, c.ID)
