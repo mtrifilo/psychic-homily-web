@@ -116,6 +116,24 @@ func (s *CommonsPhotoEnrichIntegrationTestSuite) run(mb *fakeMBArtist, wd *fakeW
 	return report
 }
 
+// TestIDsFilter_RestrictsScan covers the IDs option the ongoing sweep (PSY-1246)
+// relies on: a non-empty IDs scans only those artists; an empty IDs preserves the
+// CLI's scan-all. Empty fakes => every scanned artist is skipped, so ArtistsScanned
+// reflects exactly which rows the query loaded.
+func (s *CommonsPhotoEnrichIntegrationTestSuite) TestIDsFilter_RestrictsScan() {
+	s.seedArtist("Alpha", "")
+	beta := s.seedArtist("Beta", "")
+	s.seedArtist("Gamma", "")
+
+	mb, wd, cm := &fakeMBArtist{}, &fakeWikidata{}, &fakeCommons{}
+
+	only := s.run(mb, wd, cm, CommonsEnrichOptions{IDs: []uint{beta}})
+	s.Equal(1, only.ArtistsScanned, "IDs filter should scan only the listed artist")
+
+	all := s.run(mb, wd, cm, CommonsEnrichOptions{})
+	s.Equal(3, all.ArtistsScanned, "empty IDs preserves CLI scan-all")
+}
+
 func (s *CommonsPhotoEnrichIntegrationTestSuite) TestUniqueMatch_WritesAndIsIdempotent() {
 	id := s.seedArtist("Phoebe Bridgers", "")
 	mb := &fakeMBArtist{

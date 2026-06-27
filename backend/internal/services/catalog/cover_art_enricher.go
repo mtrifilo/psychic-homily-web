@@ -78,6 +78,11 @@ type discogsReleaseSearcher interface {
 type CoverArtEnrichOptions struct {
 	DryRun bool // when true, search + report matches but write nothing
 	Limit  int  // max releases to process (0 = no limit)
+	// IDs restricts the scan to these release ids (still subject to the cover-less
+	// filter). Empty = scan all cover-less releases. The ongoing enrichment sweep
+	// (PSY-1246) passes a bounded, memo-filtered batch here; the CLI backfill
+	// leaves it empty.
+	IDs []uint
 }
 
 // CoverArtEnrichReport summarizes a backfill run.
@@ -123,6 +128,9 @@ func BackfillCoverArt(
 		Order("id")
 	if opts.Limit > 0 {
 		q = q.Limit(opts.Limit)
+	}
+	if len(opts.IDs) > 0 {
+		q = q.Where("id IN ?", opts.IDs)
 	}
 	if err := q.Find(&releases).Error; err != nil {
 		return report, fmt.Errorf("loading releases: %w", err)
