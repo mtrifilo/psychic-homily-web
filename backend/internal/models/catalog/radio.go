@@ -534,6 +534,89 @@ func ParseRadioSchedule(raw *json.RawMessage) (*RadioSchedule, error) {
 	return &sched, nil
 }
 
+// WindowForDate computes the frozen [startsAt, endsAt] air window for a broadcast
+// that aired on airDate (a "2006-01-02" calendar date), from the weekly slot
+// whose DayOfWeek matches that date's weekday, in the schedule's Timezone. This
+// is the producer half of the PSY-1152 air-window subsystem for providers that
+// carry a date but no air time (WFMU): the consumer is ComputeEpisodeStatus.
+//
+// An End <= Start slot wraps past midnight, so endsAt lands on the following day.
+// Times are built in the schedule's IANA zone (DST-correct — never a fixed
+// offset). Returns (nil, nil, nil) when no slot matches the weekday (an
+// off-schedule / pop-up airing), so the caller leaves the episode windowless and
+// ComputeEpisodeStatus settles it to aired/archived — never falsely live. When a
+// weekday has more than one slot, the EARLIEST-starting slot wins deterministically
+// (air_date is date-only, so a same-day double airing can't be disambiguated — we
+// freeze a stable choice rather than depend on stored slot order). An End == Start
+// slot is a degenerate full-24-hour window (treated like the midnight wrap).
+//
+// Known edge: a wall-clock time that falls in the once-a-year spring-forward gap
+// (02:00–02:59 in US zones) doesn't exist, so time.Date normalizes it (e.g. an
+// overnight slot ending 02:30 on the transition day → 01:30). This shifts that
+// one airing's window by up to an hour, but FAILS SAFE: the window only ever
+// closes earlier, so ComputeEpisodeStatus can drop "live" early but never reports
+// a stale episode as falsely live. Not worth special-casing for a twice-a-year,
+// 2 a.m.-bounded slot. (PSY-1238)
+func (s *RadioSchedule) WindowForDate(airDate string) (startsAt, endsAt *time.Time, err error) {
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return nil, nil, fmt.Errorf("radio schedule: invalid timezone %q: %w", s.Timezone, err)
+	}
+	day, err := time.ParseInLocation("2006-01-02", airDate, loc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("radio schedule: invalid air_date %q: %w", airDate, err)
+	}
+	weekday := int(day.Weekday()) // 0=Sunday..6=Saturday — matches RadioScheduleSlot.DayOfWeek
+	// Pick the EARLIEST-starting slot for this weekday, deterministically. A show
+	// with two same-weekday slots can't be disambiguated from a date-only
+	// air_date, so we freeze a stable choice (HH:MM sorts lexicographically =
+	// chronologically) rather than an arbitrary stored-array-order pick — the
+	// latter could flip the "frozen" window if the scraper re-orders slots.
+	var match *RadioScheduleSlot
+	for i := range s.Slots {
+		if s.Slots[i].DayOfWeek != weekday {
+			continue
+		}
+		if _, _, ok := parseHHMM(s.Slots[i].Start); !ok {
+			continue
+		}
+		if match == nil || s.Slots[i].Start < match.Start {
+			match = &s.Slots[i]
+		}
+	}
+	if match == nil {
+		return nil, nil, nil // no (parseable) slot for this weekday
+	}
+	sh, sm, _ := parseHHMM(match.Start) // ok: filtered above
+	eh, em, ok := parseHHMM(match.End)
+	if !ok {
+		return nil, nil, nil // malformed end on the chosen slot (defensive; slots are validated)
+	}
+	start := time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
+	end := time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
+	if !end.After(start) {
+		// End <= Start wraps past midnight; End == Start is a degenerate full
+		// 24-hour slot (fails safe — only ever over-reports "live").
+		end = end.AddDate(0, 0, 1)
+	}
+	return &start, &end, nil
+}
+
+// parseHHMM parses a "HH:MM" 24-hour string into hour + minute, reusing the same
+// hhmmPattern that Validate enforces at write time so the producer and the
+// validator share ONE definition of a well-formed slot time. Schedule slots are
+// HH:MM-validated by ParseRadioSchedule, so ok=false is defensive.
+func parseHHMM(s string) (hour, minute int, ok bool) {
+	if !hhmmPattern.MatchString(s) {
+		return 0, 0, false
+	}
+	t, err := time.Parse("15:04", s)
+	if err != nil {
+		return 0, 0, false
+	}
+	return t.Hour(), t.Minute(), true
+}
+
 // RadioStation represents a radio station entity in the knowledge graph
 type RadioStation struct {
 	ID                  uint             `gorm:"primaryKey"`

@@ -137,3 +137,134 @@ func TestShouldBackfillPlaylist(t *testing.T) {
 		})
 	}
 }
+
+// TestWindowForDate locks the PSY-1238 schedule→air-window mapping: a WFMU
+// episode's frozen [starts_at, ends_at] is built from the matching weekday slot
+// in the schedule's timezone, with overnight wrap, DST-correct instants, and a
+// nil window when no slot matches (so ComputeEpisodeStatus settles to aired).
+func TestWindowForDate(t *testing.T) {
+	ny := func() *time.Location {
+		loc, err := time.LoadLocation("America/New_York")
+		if err != nil {
+			t.Fatalf("load America/New_York: %v", err)
+		}
+		return loc
+	}()
+	// 2026-06-26 is a Friday (EDT, UTC-4); 2026-01-09 is a Friday (EST, UTC-5).
+	sched := func(slots ...RadioScheduleSlot) *RadioSchedule {
+		return &RadioSchedule{Timezone: "America/New_York", Slots: slots}
+	}
+
+	t.Run("normal daytime slot → same-day window in schedule tz", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 5, Start: "15:00", End: "18:00"}) // Fri 3-6pm
+		start, end, err := s.WindowForDate("2026-06-26")
+		if err != nil || start == nil || end == nil {
+			t.Fatalf("got (%v,%v,%v), want a window", start, end, err)
+		}
+		wantStart := time.Date(2026, 6, 26, 15, 0, 0, 0, ny)
+		wantEnd := time.Date(2026, 6, 26, 18, 0, 0, 0, ny)
+		if !start.Equal(wantStart) || !end.Equal(wantEnd) {
+			t.Errorf("got [%v, %v], want [%v, %v]", start, end, wantStart, wantEnd)
+		}
+	})
+
+	t.Run("overnight slot (End <= Start) ends next day", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 5, Start: "21:00", End: "00:00"}) // Fri 9pm-Mid
+		start, end, err := s.WindowForDate("2026-06-26")
+		if err != nil || start == nil || end == nil {
+			t.Fatalf("got (%v,%v,%v), want a window", start, end, err)
+		}
+		wantStart := time.Date(2026, 6, 26, 21, 0, 0, 0, ny)
+		wantEnd := time.Date(2026, 6, 27, 0, 0, 0, 0, ny) // next day midnight
+		if !start.Equal(wantStart) || !end.Equal(wantEnd) {
+			t.Errorf("got [%v, %v], want [%v, %v]", start, end, wantStart, wantEnd)
+		}
+		if !end.After(*start) {
+			t.Errorf("overnight end %v must be after start %v", end, start)
+		}
+	})
+
+	t.Run("overnight slot ending in the spring-forward gap stays ordered (fails safe)", func(t *testing.T) {
+		// 2026-03-08 is the US spring-forward day; 02:00–02:59 doesn't exist. A
+		// Sat 23:30→02:30 slot wraps into that gap. We don't assert the exact
+		// normalized instant (Go's choice), only that a window is produced and
+		// end stays after start — the window can close early but never inverts.
+		s := sched(RadioScheduleSlot{DayOfWeek: 6, Start: "23:30", End: "02:30"}) // Sat 11:30pm–2:30am
+		start, end, err := s.WindowForDate("2026-03-07")                          // Saturday
+		if err != nil || start == nil || end == nil {
+			t.Fatalf("got (%v,%v,%v), want a window", start, end, err)
+		}
+		if !end.After(*start) {
+			t.Errorf("DST-gap end %v must still be after start %v", end, start)
+		}
+	})
+
+	t.Run("DST-aware: same wall-clock slot, different UTC offset in winter vs summer", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 5, Start: "15:00", End: "18:00"})
+		summer, _, err := s.WindowForDate("2026-06-26") // EDT (UTC-4)
+		if err != nil || summer == nil {
+			t.Fatalf("summer: got (%v,%v), want a window", summer, err)
+		}
+		winter, _, err := s.WindowForDate("2026-01-09") // EST (UTC-5)
+		if err != nil || winter == nil {
+			t.Fatalf("winter: got (%v,%v), want a window", winter, err)
+		}
+		// 15:00 local is 19:00Z in EDT but 20:00Z in EST — a fixed offset would
+		// collapse them; an IANA zone keeps them an hour apart.
+		if summer.UTC().Hour() != 19 {
+			t.Errorf("summer 15:00 EDT should be 19:00Z, got %d:00Z", summer.UTC().Hour())
+		}
+		if winter.UTC().Hour() != 20 {
+			t.Errorf("winter 15:00 EST should be 20:00Z, got %d:00Z", winter.UTC().Hour())
+		}
+	})
+
+	t.Run("no slot for the weekday → nil window (off-schedule airing)", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 1, Start: "06:00", End: "10:00"}) // Mon only
+		start, end, err := s.WindowForDate("2026-06-26")                          // Friday
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if start != nil || end != nil {
+			t.Errorf("want nil window for an unscheduled weekday, got [%v, %v]", start, end)
+		}
+	})
+
+	t.Run("multiple slots same weekday → earliest-start wins, independent of array order", func(t *testing.T) {
+		// Later slot listed FIRST: a stable pick must still choose the earliest
+		// start (09:00), not the array-order head — so a re-ordered scrape can't
+		// flip a frozen window.
+		s := sched(
+			RadioScheduleSlot{DayOfWeek: 5, Start: "20:00", End: "21:00"},
+			RadioScheduleSlot{DayOfWeek: 5, Start: "09:00", End: "10:00"},
+		)
+		start, _, err := s.WindowForDate("2026-06-26")
+		if err != nil || start == nil {
+			t.Fatalf("got (%v,%v), want a window", start, err)
+		}
+		if start.Hour() != 9 {
+			t.Errorf("earliest same-day slot should win (09:00), got %d:00", start.Hour())
+		}
+	})
+
+	t.Run("empty schedule → nil window", func(t *testing.T) {
+		start, end, err := sched().WindowForDate("2026-06-26")
+		if err != nil || start != nil || end != nil {
+			t.Errorf("empty schedule: got (%v,%v,%v), want all nil", start, end, err)
+		}
+	})
+
+	t.Run("invalid air_date → error", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 5, Start: "15:00", End: "18:00"})
+		if _, _, err := s.WindowForDate("not-a-date"); err == nil {
+			t.Error("want an error for a malformed air_date")
+		}
+	})
+
+	t.Run("invalid timezone → error", func(t *testing.T) {
+		s := &RadioSchedule{Timezone: "Bogus/Zone", Slots: []RadioScheduleSlot{{DayOfWeek: 5, Start: "15:00", End: "18:00"}}}
+		if _, _, err := s.WindowForDate("2026-06-26"); err == nil {
+			t.Error("want an error for an unloadable timezone")
+		}
+	})
+}
