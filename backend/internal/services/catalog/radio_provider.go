@@ -83,7 +83,10 @@ type RadioPlaylistProvider interface {
 	DiscoverShows() ([]RadioShowImport, error)
 
 	// FetchNewEpisodes returns episodes for a given show within [since, until].
-	// A zero until means no upper bound.
+	// A zero until means no upper bound. Provider-specific exception: the WFMU
+	// provider additionally caps `until` at today (WFMU-local) so it never returns
+	// future-dated rows — WFMU pre-publishes upcoming-broadcast pages that would
+	// otherwise import as 0-track placeholders (PSY-1240). KEXP/NTS do not cap.
 	FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error)
 
 	// FetchPlaylist returns the track plays for a specific episode.
