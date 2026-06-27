@@ -58,10 +58,24 @@ describe('ForceGraphView render-loop control (PSY-1235 / PSY-1226)', () => {
     h.reducedMotion.value = false
   })
 
-  it('resumes the render loop on mount for non-reduced-motion users (PSY-1235 back-nav revive)', () => {
+  it('resumes the render loop on mount for non-reduced-motion users', () => {
     renderGraph()
     expect(h.graph.resumeAnimation).toHaveBeenCalled()
     expect(h.graph.pauseAnimation).not.toHaveBeenCalled()
+  })
+
+  it('resumes again on a fresh re-mount — the PSY-1235 back-nav revive path', () => {
+    // A browser back-navigation re-mounts the component; the effect must re-run and resume
+    // so the loop (and all interaction) revives. jsdom can't run the rAF loop, but it can
+    // verify the resume call fires on each fresh mount (an unmount+remount cycle), which is
+    // what the effect's per-mount re-run guarantees. (The actual 0→159 fps revival is
+    // browser-verified.)
+    const { unmount } = renderGraph()
+    expect(h.graph.resumeAnimation).toHaveBeenCalledTimes(1)
+    h.graph.resumeAnimation.mockClear()
+    unmount()
+    renderGraph()
+    expect(h.graph.resumeAnimation).toHaveBeenCalledTimes(1)
   })
 
   it('does NOT resume — and pauses — under prefers-reduced-motion (PSY-1226 gate holds)', () => {
