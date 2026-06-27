@@ -168,9 +168,11 @@ func (g *offlineGeocoder) loadCountries() {
 		g.isoCodes[iso] = true
 		g.nameToISO[foldKey(name)] = iso
 		// First (canonical GeoNames) name per ISO wins; later aliases don't
-		// override it, so CanonicalCountryName returns a stable display form.
+		// override it, so CanonicalCountryName returns a stable display form. Strip
+		// a leading article ("The Netherlands" -> "Netherlands") so the canonical
+		// form matches what users type and other records store.
 		if _, seen := g.isoToName[iso]; !seen {
-			g.isoToName[iso] = name
+			g.isoToName[iso] = stripLeadingThe(name)
 		}
 		// GeoNames prefixes some names with "The " (e.g. "The Netherlands").
 		// Index the stripped form too so "Netherlands" resolves.

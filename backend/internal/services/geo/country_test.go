@@ -39,6 +39,12 @@ func TestCanonicalCountryName(t *testing.T) {
 	if got, ok := CanonicalCountryName("JP"); !ok || got != "Japan" {
 		t.Errorf("CanonicalCountryName(JP) = %q,%v want Japan", got, ok)
 	}
+	// Leading article stripped: GeoNames stores "The Netherlands".
+	for _, in := range []string{"Netherlands", "NL", "The Netherlands"} {
+		if got, ok := CanonicalCountryName(in); !ok || got != "Netherlands" {
+			t.Errorf("CanonicalCountryName(%q) = %q,%v want Netherlands", in, got, ok)
+		}
+	}
 	if _, ok := CanonicalCountryName("Nowhereland"); ok {
 		t.Error("expected miss for unrecognized country")
 	}

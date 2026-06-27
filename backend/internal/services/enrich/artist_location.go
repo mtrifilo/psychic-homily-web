@@ -81,6 +81,14 @@ type Fill struct {
 // Conflict records an artist whose two sources both resolved a location but
 // disagreed on COUNTRY — a likely homonym (MusicBrainz name-matched a different
 // band). We skip it rather than guess and surface it for human review.
+//
+// Country is a deliberately coarse signal, with two known edges left for the
+// reviewer: (1) a SAME-country homonym (two distinct US bands of one name) is NOT
+// caught — comparing city/state instead would wrongly skip legitimate
+// origin-vs-current-base differences (Tool LA vs Seattle), so the dry-run review
+// remains the backstop there; (2) a genuinely RELOCATED band (MB origin country ≠
+// its Bandcamp current country) also trips this and is skipped — surfaced so a
+// human can fill it, rather than the tool guessing origin vs current.
 type Conflict struct {
 	ArtistID uint
 	Name     string
@@ -258,9 +266,18 @@ func resolveLocation(
 		}
 	}
 
-	// Only artists whose social.bandcamp is set. Any bandcamp URL works: the
-	// location element is in the band header on band/album pages.
-	if bandcamp != nil && a.Social.Bandcamp != nil {
+	// Consult Bandcamp as the fallback (MB didn't resolve) OR for conflict
+	// detection (MB resolved WITH a comparable country). If MB resolved without an
+	// effective country, Bandcamp can't change the outcome — skip the HTTP fetch.
+	// Only artists whose social.bandcamp is set; any bandcamp URL works (the
+	// location is in the band header on band/album pages).
+	needBandcamp := !mbOK
+	if mbOK {
+		if _, ok := effectiveCountryISO(mbLoc); ok {
+			needBandcamp = true
+		}
+	}
+	if needBandcamp && bandcamp != nil && a.Social.Bandcamp != nil {
 		if raw, ok := bandcamp.ResolveProfileLocation(ctx, *a.Social.Bandcamp); ok {
 			bcLoc, bcOK = parseBandcampLocation(raw)
 		}
@@ -367,7 +384,7 @@ func parseBandcampLocation(raw string) (ResolvedLocation, bool) {
 
 	loc := ResolvedLocation{City: cleaned[0]}
 	last := cleaned[len(cleaned)-1]
-	if abbr, ok := utils.StateNameToAbbrev(last); ok && !isCountryNotState(loc.City, abbr, last) {
+	if abbr, ok := utils.StateNameToAbbrev(last); ok && !isCountryNotState(loc.City, last) {
 		// Trailing token is a US state ("…, Arizona" / "…, County, New York").
 		loc.State = abbr
 	} else {
@@ -384,19 +401,30 @@ func parseBandcampLocation(raw string) (ResolvedLocation, bool) {
 }
 
 // isCountryNotState resolves the "Georgia problem": a trailing token that maps to
-// a US state abbreviation but is ALSO a country name (only "Georgia" today). The
-// fast path returns false for the common case (the token is not a country, so no
-// geocoder hit); only for a genuine state/country homograph does it geo-validate
-// — trusting the US state ONLY when the city actually sits in it, otherwise the
-// token is the country (e.g. "Tbilisi, Georgia").
-func isCountryNotState(city, stateAbbrev, token string) bool {
-	if _, ok := geo.CountryToISO(token); !ok {
+// a US state abbreviation but is ALSO a country NAME. It returns true (→ treat the
+// token as the country, not the state) ONLY when both hold:
+//
+//   - the token is a full NAME, not a 2-letter code. EVERY US state abbreviation
+//     collides with some ISO country code (GA=Gabon, CA=Canada, AL=Albania,
+//     LA=Laos…), so a bare 2-letter token is always the state in this catalog.
+//   - the city POSITIVELY resolves inside that country. Positive evidence is
+//     required because the offline cities dataset omits small US towns: keying on
+//     "absent from US-GA" alone would exile a "Dahlonega, Georgia" band (a real
+//     ~6k-pop US-GA town) to the Caucasus. "Tbilisi, Georgia" resolves in GE → the
+//     country; "Dahlonega, Georgia" resolves in neither → stays the US state.
+//
+// The fast path (token isn't a country name) skips the geocoder entirely, so the
+// common "City, Arizona" case costs nothing.
+func isCountryNotState(city, token string) bool {
+	if len(strings.TrimSpace(token)) <= 2 {
 		return false
 	}
-	if _, ok := geo.Default().Resolve(city, stateAbbrev, "US"); ok {
+	iso, ok := geo.CountryToISO(token)
+	if !ok {
 		return false
 	}
-	return true
+	_, inCountry := geo.Default().Resolve(city, "", iso)
+	return inCountry
 }
 
 // canonicalizeCountry rewrites a recognized country to its canonical display name

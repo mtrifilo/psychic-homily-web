@@ -28,10 +28,17 @@ func TestParseBandcampLocation(t *testing.T) {
 		{"intl city + country 2", "Berlin, Germany", ResolvedLocation{City: "Berlin", Country: "Germany"}, true},
 		{"city state country (country canonicalized)", "Brooklyn, New York, USA", ResolvedLocation{City: "Brooklyn", State: "NY", Country: "United States"}, true},
 		{"city county state (trailing token is the state, not country)", "Brooklyn, Kings County, New York", ResolvedLocation{City: "Brooklyn", State: "NY"}, true},
-		// "Georgia" homograph: the COUNTRY when the city isn't a US-GA city...
+		// "Georgia" homograph: the COUNTRY when the city positively resolves there...
 		{"georgia the country", "Tbilisi, Georgia", ResolvedLocation{City: "Tbilisi", Country: "Georgia"}, true},
-		// ...but the US STATE when the city actually sits in Georgia.
+		// ...but the US STATE when the city actually sits in (US) Georgia.
 		{"georgia the us state", "Atlanta, Georgia", ResolvedLocation{City: "Atlanta", State: "GA"}, true},
+		// A 2-letter state abbrev that collides with an ISO code (GA=Gabon) must
+		// NEVER be read as the country — it's the state.
+		{"abbrev GA is the state not Gabon", "Adel, GA", ResolvedLocation{City: "Adel", State: "GA"}, true},
+		{"abbrev CA is the state not Canada", "Lodi, CA", ResolvedLocation{City: "Lodi", State: "CA"}, true},
+		// A small US-GA town absent from the offline cities dataset stays the US
+		// state (no positive evidence it's in the country Georgia).
+		{"small georgia town stays the us state", "Dahlonega, Georgia", ResolvedLocation{City: "Dahlonega", State: "GA"}, true},
 		{"extra whitespace", "  Seattle ,  Washington  ", ResolvedLocation{City: "Seattle", State: "WA"}, true},
 		{"single token city", "Portland", ResolvedLocation{}, false},
 		{"single token country", "France", ResolvedLocation{}, false},
