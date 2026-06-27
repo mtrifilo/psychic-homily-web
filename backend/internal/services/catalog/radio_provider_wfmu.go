@@ -273,12 +273,16 @@ func parseWFMUScheduleCodes(body []byte) (map[string]bool, error) {
 // but only one HTTP request per show per cycle, well within the per-instance
 // rate budget.
 func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
-	// Never ingest future-dated rows: cap `until` at today (WFMU-local). This
-	// applies to ALL WFMU fetch paths — including a manual backfill that passes an
-	// explicit `until` in the future, which is clamped to today (a future `until`
-	// would only ever pull placeholders). Real backfills are unaffected: today's
-	// episodes are kept by the inclusive date boundary (see wfmuTodayCap), and a
-	// past `until` is older than the cap so it still wins. (PSY-1240.)
+	// Don't ingest next-day-or-later rows: cap `until` at today (WFMU-local). This
+	// cap applies to ALL WFMU fetch paths — including a manual backfill that passes
+	// an explicit future `until`, which is clamped to today (a future `until` would
+	// only ever pull placeholders). Real backfills are unaffected: today's episodes
+	// are kept by the inclusive date boundary (see wfmuTodayCap), and a past
+	// `until` is older than the cap so it still wins. NOTE: the cap is a
+	// provider-level filter on air_date; the create-on-first and manual-backfill
+	// callers ALSO re-filter the returned rows through episodeInWindow against
+	// their ORIGINAL (uncapped) `until`, which is always >= the cap, so it never
+	// re-excludes a kept row nor admits a future one. (PSY-1240.)
 	todayCap := wfmuTodayCap(time.Now())
 	if until.IsZero() || todayCap.Before(until) {
 		until = todayCap
@@ -299,8 +303,16 @@ func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time, 
 // catalog and trip the empty_unexpected sync anomaly (PSY-1240). Nothing is
 // lost: the same page imports normally once the broadcast has aired (the
 // air_date doesn't change), and the post-air backfill fills its playlist.
-// PSY-1204/1205 already hide such placeholders from the feeds; this stops
-// creating them at all.
+// PSY-1204/1205 also hide such placeholders from the feeds.
+//
+// LIMIT (day granularity): this drops NEXT-DAY-AND-LATER placeholders — the
+// observed pollution (a weekly show's next-occurrence page, PSY-1230). A page
+// pre-published for a broadcast airing LATER TODAY is dated today, so the cap
+// keeps it and it still imports as a today-dated 0-track row — a smaller residual
+// that self-resolves once the show airs (backfill fills it). WFMU archive dates
+// carry no time, so day granularity is the best a date-only cap can do;
+// eliminating same-day-ahead empties would need playlist-non-emptiness (or air
+// window) gating — out of scope, tracked with the empty_unexpected verification.
 //
 // The cap is recomputed per call against `now`. A discover/backfill run that
 // spans ET midnight can therefore cap its early shows to the previous day and

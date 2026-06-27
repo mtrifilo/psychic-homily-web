@@ -1318,6 +1318,15 @@ func TestWFMU_FetchNewEpisodes_SkipsFutureDatedRows(t *testing.T) {
 	require.Len(t, episodes, 1, "the Jan 1 2099 placeholder must be skipped, the 2020 row kept")
 	assert.Equal(t, "2020-01-01", episodes[0].AirDate)
 	assert.Equal(t, "100001", episodes[0].ExternalID)
+
+	// Explicit FUTURE until (the todayCap.Before(until) clamp arm — e.g. a manual
+	// backfill or discover passing a future window end): still clamped to today,
+	// so the 2099 placeholder is dropped, not honored.
+	farFuture := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	clamped, err := provider.FetchNewEpisodes("FT", time.Time{}, farFuture)
+	require.NoError(t, err)
+	require.Len(t, clamped, 1, "an explicit future until must be clamped to today")
+	assert.Equal(t, "2020-01-01", clamped[0].AirDate)
 }
 
 // wfmuArchiveBoundaryHTML has rows on and just past a fixed date, for asserting
