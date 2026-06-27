@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata" // embed IANA tz db so wfmuTodayCap's America/New_York resolves host-independently
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1246,4 +1247,107 @@ func TestWFMU_FetchNewEpisodes_ArchiveFallback_404(t *testing.T) {
 	episodes, err := provider.FetchNewEpisodes("NOPE", time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC), time.Time{})
 	require.NoError(t, err, "404 from archive page should become empty slice")
 	assert.Empty(t, episodes)
+}
+
+// wfmuArchiveFutureAndPastHTML is a minimal archive page with one FAR-future row
+// (Jan 1, 2099) and one past row (Jan 1, 2020). 2099 is always after today, so a
+// today-capped fetch must skip it no matter when the test runs (PSY-1240).
+const wfmuArchiveFutureAndPastHTML = `
+<div class="showlist">
+<ul>
+<li>
+<span class="KDBFavIcon KDBepisode" id="KDBepisode-900001"><a href="#">x</a></span>
+January 1, 2099:
+<b></b>
+<a href="/playlists/shows/900001">See the playlist</a>
+<br>
+<li>
+<span class="KDBFavIcon KDBepisode" id="KDBepisode-100001"><a href="#">x</a></span>
+January 1, 2020:
+<b></b>
+<a href="/playlists/shows/100001">See the playlist</a>
+<br>
+</ul>
+</div>`
+
+// TestWFMU_TodayCap locks the future-cap bound (PSY-1240): it is the current day
+// in WFMU's timezone, at UTC midnight (matching the date-only air_date parse).
+func TestWFMU_TodayCap(t *testing.T) {
+	// 02:00 UTC Jun 27 is 22:00 EDT Jun 26 — a different calendar day in WFMU's
+	// zone, so the cap is Jun 26 (proving it's computed in ET, not UTC).
+	got := wfmuTodayCap(time.Date(2026, 6, 27, 2, 0, 0, 0, time.UTC))
+	want := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("wfmuTodayCap (ET-prev-day): got %v, want %v", got, want)
+	}
+	// Mid-day UTC stays the same ET date.
+	got2 := wfmuTodayCap(time.Date(2026, 6, 27, 18, 0, 0, 0, time.UTC)) // 14:00 EDT Jun 27
+	want2 := time.Date(2026, 6, 27, 0, 0, 0, 0, time.UTC)
+	if !got2.Equal(want2) {
+		t.Errorf("wfmuTodayCap (mid-day): got %v, want %v", got2, want2)
+	}
+	// Winter (EST = UTC-5): 02:00 UTC Jan 2 is 21:00 EST Jan 1 — prev ET day.
+	// Exercises the OTHER offset so a hardcoded -4 (EDT-only) regression is caught.
+	got3 := wfmuTodayCap(time.Date(2026, 1, 2, 2, 0, 0, 0, time.UTC))
+	want3 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !got3.Equal(want3) {
+		t.Errorf("wfmuTodayCap (EST prev-day): got %v, want %v", got3, want3)
+	}
+}
+
+// TestWFMU_FetchNewEpisodes_SkipsFutureDatedRows: a zero `until` is capped at
+// today, so WFMU's pre-published future-broadcast placeholder rows are not
+// imported, while past/today rows still are (PSY-1240).
+func TestWFMU_FetchNewEpisodes_SkipsFutureDatedRows(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/playlists/FT" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(wfmuArchiveFutureAndPastHTML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// Zero since (no lower bound) + zero until (→ today cap).
+	episodes, err := provider.FetchNewEpisodes("FT", time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, episodes, 1, "the Jan 1 2099 placeholder must be skipped, the 2020 row kept")
+	assert.Equal(t, "2020-01-01", episodes[0].AirDate)
+	assert.Equal(t, "100001", episodes[0].ExternalID)
+}
+
+// wfmuArchiveBoundaryHTML has rows on and just past a fixed date, for asserting
+// the until bound is INCLUSIVE of the boundary day (PSY-1240).
+const wfmuArchiveBoundaryHTML = `
+<div class="showlist">
+<ul>
+<li>
+<span class="KDBFavIcon KDBepisode" id="KDBepisode-200002"><a href="#">x</a></span>
+June 28, 2026:
+<b></b>
+<a href="/playlists/shows/200002">See the playlist</a>
+<br>
+<li>
+<span class="KDBFavIcon KDBepisode" id="KDBepisode-200001"><a href="#">x</a></span>
+June 27, 2026:
+<b></b>
+<a href="/playlists/shows/200001">See the playlist</a>
+<br>
+</ul>
+</div>`
+
+// TestWFMU_ParseArchivePage_UntilBoundaryInclusive locks the POSITIVE boundary
+// the cap must preserve: a row aired exactly on `until` is KEPT (airTime.After is
+// false at equality), the day after is dropped. Guards against a future
+// off-by-one that would silently drop episodes aired today (PSY-1240).
+func TestWFMU_ParseArchivePage_UntilBoundaryInclusive(t *testing.T) {
+	until := time.Date(2026, 6, 27, 0, 0, 0, 0, time.UTC)
+	eps, err := parseWFMUArchivePage([]byte(wfmuArchiveBoundaryHTML), "BD", time.Time{}, until)
+	require.NoError(t, err)
+	require.Len(t, eps, 1, "the boundary day (Jun 27) must be kept; Jun 28 dropped")
+	assert.Equal(t, "2026-06-27", eps[0].AirDate)
 }
