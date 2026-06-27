@@ -197,9 +197,9 @@ const SATELLITE_NODE_RADIUS = 8
 // PSY-1257: radial ego layout. The center is pinned at the origin; every satellite is
 // pulled toward a single ring of this radius so the subject reads as the hub and the
 // neighbors spread evenly around it instead of clumping into the free-force hairball.
-// Depth-1 graph today, so all satellites share one ring; the math keys on hop distance
-// (currently always 1) to stay ready for P1 multi-hop expand-on-demand, where outer
-// rings encode depth. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring —
+// Depth-1 graph today, so all satellites share the one ring (the force gives every
+// satellite the same radius); P1 multi-hop expand-on-demand is where per-ring radii by
+// hop distance would slot in. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring —
 // higher snaps to the ring faster (less organic angular spread). Tuned visually on a
 // dense radio ego graph. EGO_CHARGE_STRENGTH stiffens the default node repulsion so the
 // satellites distribute EVENLY around the ring instead of bunching on one arc (left-side
@@ -211,7 +211,9 @@ const EGO_CHARGE_STRENGTH = -210
 // PSY-1258: dense relationship types get trimmed to each node's k strongest edges so the
 // many-to-many radio signal stops rendering as a teal hairball. Only types listed here are
 // capped (the rest are sparse enough to draw in full); k is intentionally tunable — start
-// at 5 (the upper end of the research's 3–5 range) and adjust visually on /artists/cola.
+// at 5 (the upper end of the research's 3–5 range) and adjust visually on a dense radio
+// ego graph (/artists/cola is the canonical dense reference in prod). Keep values >= 1 —
+// a 0 would drop every edge of the type and orphan its nodes (see edgeCap no-orphan note).
 // Isolated as its own map so the volatile "which types, what k" decision lives in one place.
 const EDGE_CAP_BY_TYPE: Record<string, number> = { radio_cooccurrence: 5 }
 
@@ -388,10 +390,12 @@ export function ArtistGraphVisualization({
     // (d3-force isn't a direct dependency; react-force-graph bundles it but doesn't
     // re-export the factory). It nudges each satellite's velocity toward EGO_RING_RADIUS
     // along its own radius vector, letting the angle settle under charge repulsion. The
-    // mutation lives inside the closure d3 calls each tick (NOT the effect body), so — like
-    // ForceGraphView's clusterX/clusterY — it doesn't trip react-hooks/immutability. The
-    // optional call (`d3Force?.`) no-ops against the test ref stubs, which expose only
-    // pause/resume/zoom.
+    // mutation lives inside the closure d3 calls each tick (NOT the effect body), which the
+    // react-hooks/immutability rule tolerates — the same reason ForceGraphView's clusterX/
+    // clusterY closures sit OUTSIDE its eslint-disable span (that span guards ForceGraphView's
+    // effect-body fx/fy isolate writes, a case this graph doesn't have; the single centerNode
+    // pin above is a one-property write the rule also tolerates). The optional call
+    // (`d3Force?.`) no-ops against the test ref stubs, which expose only pause/resume/zoom.
     fg.d3Force?.('radial', (alpha: number) => {
       for (const node of graphData.nodes) {
         if (node.isCenter) continue
@@ -409,6 +413,14 @@ export function ArtistGraphVisualization({
     // stubs, which don't expose the d3 charge force.
     const charge = fg.d3Force?.('charge')
     charge?.strength?.(EGO_CHARGE_STRENGTH)
+
+    // Deliberately NO d3ReheatSimulation() here (unlike ForceGraphView): the ring radius and
+    // charge are CONSTANT, so re-registering on a graphData change has nothing new to settle.
+    // ForceGraphView reheats because its cluster centroids move with the viewport/cluster set;
+    // ours don't. react-force-graph already reheats when node/link membership changes (the only
+    // time the layout must move), so an extra reheat on every filter toggle would just re-animate
+    // the whole graph and fight the reduced-motion pause. Browser-verified: the ring forms on
+    // first load and re-settles correctly on filter toggle without an explicit reheat.
   }, [graphData])
 
   // PSY-1220 parity with ForceGraphView's reheat-dismiss: a filter-toggle (graphData, via
