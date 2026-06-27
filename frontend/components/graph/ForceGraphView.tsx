@@ -601,7 +601,14 @@ export function ForceGraphView({
         0,
         Math.min(1, (HULL_FADE_END - globalScale) / (HULL_FADE_END - HULL_FADE_START)),
       )
-      const alpha = HULL_FILL_ALPHA_MAX * fadeT
+      // Hover-focus (PSY-1225): when a node is focused, fade the cluster hulls down with the
+      // rest of the background (same BACKGROUND_ALPHA factor the nodes/links use). Without
+      // this the colored cluster washes — which are NOT dimmed by globalAlpha since they're
+      // their own fill pass — visually dominate the dimmed graph and bury the focused
+      // neighborhood (worst in light mode). At rest (no focus) hulls keep their normal
+      // zoom-faded alpha. The hovered node's own cluster fades too: the tooltip already names
+      // the cluster, and keeping one hull lit would re-introduce a competing bright wash.
+      const alpha = HULL_FILL_ALPHA_MAX * fadeT * (focusedIds ? BACKGROUND_ALPHA : 1)
 
       // Group node positions by cluster (skip isolates and "other" — neither
       // wants a region indicator).
@@ -641,7 +648,7 @@ export function ForceGraphView({
         }
       }
     },
-    [renderData.nodes, clustersByID, palette],
+    [renderData.nodes, clustersByID, palette, focusedIds],
   )
 
   // Reset the per-frame hull-painted flag at the start of each render pass.
