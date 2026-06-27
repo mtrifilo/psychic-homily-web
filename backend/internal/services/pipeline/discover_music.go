@@ -443,6 +443,27 @@ func classifyPlatformURL(rawURL string) (platform, normalized string, ok bool) {
 	return contracts.MusicPlatformBandcamp, canonicalPlatformURL(host, u.Path), true
 }
 
+// SamePlatformArtistURL reports whether two URLs are the same Spotify-artist or
+// Bandcamp link once reduced to canonical form (https, lowercased host, trimmed
+// path; userinfo/query/fragment dropped). It returns false unless BOTH are
+// recognized platform URLs of the same platform with the same canonical value.
+//
+// It lets a caller confirm a MusicBrainz candidate shares an artist's own known
+// streaming link — a strong identity match — before trusting that candidate's
+// location (PSY-1255 homonym guard). Only Spotify/Bandcamp are compared (the
+// hosts classifyPlatformURL recognizes); other links can't anchor identity here.
+func SamePlatformArtistURL(a, b string) bool {
+	pa, na, oka := classifyPlatformURL(a)
+	if !oka {
+		return false
+	}
+	pb, nb, okb := classifyPlatformURL(b)
+	if !okb {
+		return false
+	}
+	return pa == pb && na == nb
+}
+
 // canonicalPlatformURL builds the stable, hygienic form used for both the dedup
 // key and the value returned to the admin: always https, lowercased host (passed
 // in already-lowercased), the path with a single trailing slash trimmed, and NO

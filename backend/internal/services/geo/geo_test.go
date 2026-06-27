@@ -101,6 +101,12 @@ func TestResolveUSState(t *testing.T) {
 		// Portland spans OR and ME in the dataset (see TestResolve) — the exact
 		// namesake collision PSY-1244 mis-resolved to the bigger city.
 		{"portland is ambiguous (OR/ME)", "Portland", "", USStateAmbiguous},
+		// Cambridge is US-internally only MA, but the UK Cambridge is the bigger
+		// namesake — a band tagged just "Cambridge" must NOT be stamped MA (the
+		// empty-country international-city corruption an earlier draft allowed).
+		{"cambridge is internationally dominant (UK) → not found", "Cambridge", "", USStateNotFound},
+		// Paris resolves to one US state (TX) but is dominantly Paris, France.
+		{"paris is internationally dominant (FR) → not found", "Paris", "", USStateNotFound},
 		// A non-US city has no US state, even though GeoNames gives it an admin1.
 		{"tokyo is not a US place", "Tokyo", "", USStateNotFound},
 		{"unknown city is not found", "Nowherecityville", "", USStateNotFound},

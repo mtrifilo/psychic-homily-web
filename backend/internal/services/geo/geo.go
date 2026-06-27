@@ -70,12 +70,14 @@ type Geocoder interface {
 	// Resolve returns a Result and ok=true when the location is found. A miss
 	// (ok=false) is expected for obscure places; callers fall back accordingly.
 	Resolve(city, state, country string) (Result, bool)
-	// ResolveUSState maps a bare city name to its US state, but ONLY when that
-	// mapping is unambiguous (all US namesakes share one state). It returns the
-	// 2-letter state with USStateUnambiguous, "" with USStateAmbiguous for a
-	// multi-state namesake, or "" with USStateNotFound for a non-US/unknown city.
-	// Deriving a state from a multi-state namesake is the PSY-1244 corruption bug,
-	// so this never falls back to a population guess — that is the caller's call.
+	// ResolveUSState maps a bare city name to its US state, but ONLY when the
+	// mapping is safe: the name's most-populous namesake worldwide is in the US,
+	// and all US namesakes share one state. It returns the 2-letter state with
+	// USStateUnambiguous; "" with USStateAmbiguous for a multi-state US namesake;
+	// or "" with USStateNotFound for an internationally dominant name (Cambridge,
+	// Paris) or an unknown city. It never falls back to a population guess — that
+	// guess was the PSY-1244 corruption bug — so the caller must disambiguate a
+	// non-Unambiguous result from a stronger source.
 	ResolveUSState(city string) (state string, status USStateStatus)
 }
 
@@ -314,39 +316,62 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 	}, true
 }
 
-// ResolveUSState maps a bare city name to its US state, but only when every US
-// place of that name shares ONE state. See the Geocoder interface for the
-// contract and USStateStatus for the cases.
+// ResolveUSState maps a bare city name to its US state, but only when that
+// mapping is safe on two counts: the name's most-populous namesake WORLDWIDE is
+// in the US, and all US namesakes share ONE state. See the Geocoder interface for
+// the contract and USStateStatus for the cases.
 //
-// It deliberately ignores population: a multi-state namesake returns Ambiguous
-// (not the biggest city's state), because the whole point is to refuse the
-// highest-population guess that corrupted data in PSY-1244. "Unambiguous" is
-// scoped to the embedded dataset — a city name absent from it is NotFound, and a
-// name present only as one US state is treated as that state even though a tiny
-// same-name town elsewhere may be omitted (acceptable: the dataset is population-
-// filtered and the scene use case cares about real metros).
+// Two refusals, both deliberate:
+//   - Internationally dominant name (Cambridge → UK, Paris → FR): a band tagged
+//     only by city, with no country, is more likely the bigger international
+//     place than the smaller US namesake — so return NotFound and let a stronger
+//     source (an explicit country, or MusicBrainz) decide, rather than stamping
+//     a US state on a probably-foreign band.
+//   - Multi-state US namesake (Portland OR/ME, Springfield): return Ambiguous,
+//     never the biggest one — refusing the highest-population guess is the whole
+//     point (it corrupted data in PSY-1244).
+//
+// "Unambiguous" is scoped to the embedded, population-filtered dataset; a tiny
+// same-name town it omits won't shift the answer, which is acceptable for the
+// scene use case (real metros).
 func (g *offlineGeocoder) ResolveUSState(city string) (string, USStateStatus) {
 	cityKey := foldKey(city)
 	if cityKey == "" {
 		return "", USStateNotFound
 	}
-	state := ""
-	for _, c := range g.byCity[cityKey] {
-		if c.country != "US" || c.admin1 == "" {
+	rows := g.byCity[cityKey]
+	if len(rows) == 0 {
+		return "", USStateNotFound
+	}
+
+	var dominant cityRow
+	usState := ""
+	multiState := false
+	for i, r := range rows {
+		if i == 0 || r.pop > dominant.pop {
+			dominant = r
+		}
+		if r.country != "US" || r.admin1 == "" {
 			continue
 		}
-		if state == "" {
-			state = c.admin1
-			continue
-		}
-		if c.admin1 != state {
-			return "", USStateAmbiguous // same name, two states → don't guess
+		switch {
+		case usState == "":
+			usState = r.admin1
+		case r.admin1 != usState:
+			multiState = true
 		}
 	}
-	if state == "" {
-		return "", USStateNotFound // no US place of this name
+
+	if dominant.country != "US" {
+		return "", USStateNotFound // a bigger international namesake → don't assume US
 	}
-	return state, USStateUnambiguous
+	if multiState {
+		return "", USStateAmbiguous // same name, two US states → don't guess
+	}
+	if usState == "" {
+		return "", USStateNotFound // dominant is US but carries no admin1 (rare)
+	}
+	return usState, USStateUnambiguous
 }
 
 // resolveCountry determines an ISO country code (and, for the US, a state admin1

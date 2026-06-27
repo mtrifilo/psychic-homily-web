@@ -158,9 +158,9 @@ func printReport(r *enrich.StateReport) {
 	fmt.Println("=== Summary ===")
 	fmt.Printf("Artists scanned (city set, state empty): %d\n", r.ArtistsScanned)
 	fmt.Printf("  state filled from geocoder (unambig):  %d\n", r.FilledGeo)
-	fmt.Printf("  state filled from MusicBrainz (ambig): %d\n", r.FilledMusicBrainz)
-	fmt.Printf("  ambiguous, MusicBrainz unconfirmed:    %d\n", r.AmbiguousUnresolved)
-	fmt.Printf("  skipped (non-US / no US state):        %d\n", r.Skipped)
+	fmt.Printf("  state filled from MusicBrainz:         %d\n", r.FilledMusicBrainz)
+	fmt.Printf("  unresolved (tried, not confirmed):     %d\n", r.Unresolved)
+	fmt.Printf("  skipped (non-US country / blank city): %d\n", r.Skipped)
 	fmt.Printf("Errors:                                  %d\n", len(r.Errors))
 	fmt.Println()
 

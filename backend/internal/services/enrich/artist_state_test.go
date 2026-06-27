@@ -55,15 +55,17 @@ func (f fakeGeo) ResolveUSState(city string) (string, geo.USStateStatus) {
 	return "", geo.USStateNotFound
 }
 
-// fakeStateMB implements mbStateResolver, counting calls so a test can assert the
-// area-rels lookup was (or was not) reached.
+// fakeStateMB implements MBStateResolver, counting calls so a test can assert
+// which lookups (area-rels, url-rels) were reached.
 type fakeStateMB struct {
 	candidates  map[string][]pipeline.MBArtistResult
 	areaRels    map[string][]pipeline.MBAreaRelation
+	urlRels     map[string][]pipeline.MBURLRelation
 	searchErr   error
 	areaErr     error
 	searchCalls int
 	areaCalls   int
+	urlCalls    int
 }
 
 func (f *fakeStateMB) SearchArtistCandidates(_ context.Context, name string) ([]pipeline.MBArtistResult, error) {
@@ -82,6 +84,11 @@ func (f *fakeStateMB) LookupAreaRelations(_ context.Context, areaID string) ([]p
 	return f.areaRels[areaID], nil
 }
 
+func (f *fakeStateMB) LookupArtistURLRelations(_ context.Context, mbid string) ([]pipeline.MBURLRelation, error) {
+	f.urlCalls++
+	return f.urlRels[mbid], nil
+}
+
 func sp(s string) *string { return &s }
 
 func cityArea(name, id string) *pipeline.MBArea {
@@ -92,6 +99,15 @@ func subdivisionRel(name string) pipeline.MBAreaRelation {
 	return pipeline.MBAreaRelation{Type: "part of", Direction: "backward",
 		Area: &pipeline.MBArea{Name: name, Type: "Subdivision"}}
 }
+
+func spotifyRel(url string) pipeline.MBURLRelation {
+	r := pipeline.MBURLRelation{Type: "streaming"}
+	r.URL.Resource = url
+	return r
+}
+
+const spotifyA = "https://open.spotify.com/artist/aaaaaaaaaaaaaaaaaaaaaa"
+const spotifyB = "https://open.spotify.com/artist/bbbbbbbbbbbbbbbbbbbbbb"
 
 // --- tests -------------------------------------------------------------------
 
@@ -115,103 +131,119 @@ func TestBackfillArtistStates_GeoUnambiguous(t *testing.T) {
 		t.Errorf("unambiguous city should not call MusicBrainz, got %d searches", mb.searchCalls)
 	}
 	u := store.updates[1]
-	if u["state"] != "IL" {
-		t.Errorf("state = %v, want IL", u["state"])
-	}
-	if u["data_source"] != DataSourceGeoNames {
-		t.Errorf("data_source = %v, want geonames", u["data_source"])
+	if u["state"] != "IL" || u["data_source"] != DataSourceGeoNames {
+		t.Errorf("got state=%v source=%v, want IL/geonames", u["state"], u["data_source"])
 	}
 }
 
-// TestBackfillArtistStates_AmbiguousViaAreaRels is the core fix: a multi-state
-// city name (Pasadena) is resolved to the RIGHT state via the parent Subdivision,
-// not a population guess.
-func TestBackfillArtistStates_AmbiguousViaAreaRels(t *testing.T) {
+// TestBackfillArtistStates_AmbiguousIdentityConfirmed is the core fix: a
+// multi-state city (Pasadena) with a SINGLE MusicBrainz match resolves to the
+// right state via the parent Subdivision — but only because the candidate's
+// url-rels share the artist's Spotify link (identity confirmed).
+func TestBackfillArtistStates_AmbiguousIdentityConfirmed(t *testing.T) {
 	store := &fakeStateStore{artists: []catalogm.Artist{
-		{ID: 1, Name: "Some LA Band", City: sp("Pasadena")},
+		{ID: 1, Name: "Some LA Band", City: sp("Pasadena"),
+			Social: catalogm.Social{Spotify: sp(spotifyA + "/")}}, // trailing slash → canonicalized
 	}}
 	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
 	mb := &fakeStateMB{
 		candidates: map[string][]pipeline.MBArtistResult{
 			"Some LA Band": {{
-				Name: "Some LA Band", Country: "US",
+				ID: "mbid-1", Name: "Some LA Band", Country: "US",
 				BeginArea: cityArea("Pasadena", "area-pasadena-ca"),
 			}},
 		},
-		areaRels: map[string][]pipeline.MBAreaRelation{
-			"area-pasadena-ca": {subdivisionRel("California")},
-		},
+		areaRels: map[string][]pipeline.MBAreaRelation{"area-pasadena-ca": {subdivisionRel("California")}},
+		urlRels:  map[string][]pipeline.MBURLRelation{"mbid-1": {spotifyRel(spotifyA)}},
 	}
 
 	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
 	if err != nil {
 		t.Fatalf("backfillArtistStates: %v", err)
 	}
-	if rep.FilledMusicBrainz != 1 {
-		t.Fatalf("FilledMusicBrainz = %d, want 1", rep.FilledMusicBrainz)
+	if rep.FilledMusicBrainz != 1 || store.updates[1]["state"] != "CA" {
+		t.Fatalf("want CA; FilledMB=%d state=%v", rep.FilledMusicBrainz, store.updates[1]["state"])
 	}
-	if got := store.updates[1]["state"]; got != "CA" {
-		t.Errorf("state = %v, want CA (NOT a population-guess TX)", got)
-	}
-	if store.updates[1]["data_source"] != DataSourceMusicBrainz {
-		t.Errorf("data_source = %v, want musicbrainz", store.updates[1]["data_source"])
-	}
-	if mb.areaCalls != 1 {
-		t.Errorf("areaCalls = %d, want 1 (parent lookup)", mb.areaCalls)
+	if mb.areaCalls != 1 || mb.urlCalls != 1 {
+		t.Errorf("areaCalls=%d urlCalls=%d, want 1/1", mb.areaCalls, mb.urlCalls)
 	}
 }
 
-// TestBackfillArtistStates_HomonymGuard is the regression that the blocked PR1
-// lacked: a same-named band whose MusicBrainz city DIFFERS from the artist's
-// stored city must NOT write that other city's state.
-func TestBackfillArtistStates_HomonymGuard(t *testing.T) {
+// TestBackfillArtistStates_SameCityHomonymCaughtByIdentity is the regression the
+// blocked PR1 (and its first rework) lacked: a same-named band whose MusicBrainz
+// city has the SAME NAME but a different state must NOT write that state. Here the
+// MB match is a "Pasadena" band too, but in TX, and its url-rels do not include
+// our artist's Spotify — so identity fails and the state is left NULL.
+func TestBackfillArtistStates_SameCityHomonymCaughtByIdentity(t *testing.T) {
 	store := &fakeStateStore{artists: []catalogm.Artist{
-		{ID: 1, Name: "Mirror Band", City: sp("Pasadena")}, // our band is Pasadena, CA
+		{ID: 1, Name: "Mirror Band", City: sp("Pasadena"), // our band: Pasadena, CA
+			Social: catalogm.Social{Spotify: sp(spotifyA)}},
 	}}
 	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
 	mb := &fakeStateMB{
 		candidates: map[string][]pipeline.MBArtistResult{
-			// A different same-named band that MusicBrainz places in Houston, TX.
 			"Mirror Band": {{
-				Name: "Mirror Band", Country: "US",
-				BeginArea: cityArea("Houston", "area-houston-tx"),
+				ID: "mbid-tx", Name: "Mirror Band", Country: "US",
+				BeginArea: cityArea("Pasadena", "area-pasadena-tx"), // a DIFFERENT Pasadena
 			}},
 		},
-		areaRels: map[string][]pipeline.MBAreaRelation{
-			"area-houston-tx": {subdivisionRel("Texas")},
-		},
+		areaRels: map[string][]pipeline.MBAreaRelation{"area-pasadena-tx": {subdivisionRel("Texas")}},
+		urlRels:  map[string][]pipeline.MBURLRelation{"mbid-tx": {spotifyRel(spotifyB)}}, // a different artist
 	}
 
 	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
 	if err != nil {
 		t.Fatalf("backfillArtistStates: %v", err)
 	}
-	if rep.FilledMusicBrainz != 0 || rep.AmbiguousUnresolved != 1 {
-		t.Fatalf("FilledMusicBrainz=%d AmbiguousUnresolved=%d, want 0/1", rep.FilledMusicBrainz, rep.AmbiguousUnresolved)
+	if rep.FilledMusicBrainz != 0 || rep.Unresolved != 1 {
+		t.Fatalf("FilledMusicBrainz=%d Unresolved=%d, want 0/1", rep.FilledMusicBrainz, rep.Unresolved)
 	}
 	if _, wrote := store.updates[1]; wrote {
-		t.Errorf("must not write a state for a city that doesn't match (homonym), wrote %v", store.updates[1])
-	}
-	if mb.areaCalls != 0 {
-		t.Errorf("city mismatch should short-circuit before the area lookup, got %d", mb.areaCalls)
+		t.Errorf("must NOT write TX onto a CA artist via a same-city-name homonym, wrote %v", store.updates[1])
 	}
 }
 
-// TestBackfillArtistStates_SubdivisionOnSearchResult: when the search result
-// already carries the parent Subdivision, no area-rels lookup is needed.
-func TestBackfillArtistStates_SubdivisionOnSearchResult(t *testing.T) {
+// TestBackfillArtistStates_DifferentCityHomonym: a name match whose MB city
+// differs short-circuits before any area or identity lookup.
+func TestBackfillArtistStates_DifferentCityHomonym(t *testing.T) {
 	store := &fakeStateStore{artists: []catalogm.Artist{
-		{ID: 1, Name: "Tagged Band", City: sp("Pasadena")},
+		{ID: 1, Name: "Echo Band", City: sp("Pasadena"), Social: catalogm.Social{Spotify: sp(spotifyA)}},
 	}}
 	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
 	mb := &fakeStateMB{
 		candidates: map[string][]pipeline.MBArtistResult{
-			"Tagged Band": {{
-				Name:      "Tagged Band",
-				Country:   "US",
-				BeginArea: cityArea("Pasadena", "area-pasadena-ca"),
-				Area:      &pipeline.MBArea{Name: "California", Type: "Subdivision"},
-			}},
+			"Echo Band": {{ID: "mbid-h", Name: "Echo Band", Country: "US", BeginArea: cityArea("Houston", "area-houston")}},
+		},
+	}
+
+	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
+	if err != nil {
+		t.Fatalf("backfillArtistStates: %v", err)
+	}
+	if rep.Unresolved != 1 || len(store.updates) != 0 {
+		t.Fatalf("Unresolved=%d updates=%v, want 1 / none", rep.Unresolved, store.updates)
+	}
+	if mb.areaCalls != 0 || mb.urlCalls != 0 {
+		t.Errorf("city mismatch should short-circuit before lookups, area=%d url=%d", mb.areaCalls, mb.urlCalls)
+	}
+}
+
+// TestBackfillArtistStates_ConsensusTwoCandidates: two distinct MB records naming
+// the same city in the same state make the state correct without an identity
+// check (no url-rels call).
+func TestBackfillArtistStates_ConsensusTwoCandidates(t *testing.T) {
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Common Name", City: sp("Pasadena")}, // no links — consensus carries it
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{
+			"Common Name": {
+				{ID: "c1", Name: "Common Name", Country: "US",
+					BeginArea: cityArea("Pasadena", "a1"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}},
+				{ID: "c2", Name: "Common Name", Country: "US",
+					BeginArea: cityArea("Pasadena", "a2"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}},
+			},
 		},
 	}
 
@@ -220,16 +252,69 @@ func TestBackfillArtistStates_SubdivisionOnSearchResult(t *testing.T) {
 		t.Fatalf("backfillArtistStates: %v", err)
 	}
 	if rep.FilledMusicBrainz != 1 || store.updates[1]["state"] != "CA" {
-		t.Fatalf("want CA via search result; FilledMB=%d state=%v", rep.FilledMusicBrainz, store.updates[1]["state"])
+		t.Fatalf("want CA via consensus; FilledMB=%d state=%v", rep.FilledMusicBrainz, store.updates[1]["state"])
 	}
-	if mb.areaCalls != 0 {
-		t.Errorf("Subdivision already present should skip the area lookup, got %d", mb.areaCalls)
+	if mb.urlCalls != 0 {
+		t.Errorf("consensus (>=2 agree) needs no identity check, got %d url-rels calls", mb.urlCalls)
+	}
+}
+
+// TestBackfillArtistStates_ConsensusDisagreeLeavesNull: two same-city candidates
+// that resolve to DIFFERENT states cannot be disambiguated → left NULL.
+func TestBackfillArtistStates_ConsensusDisagreeLeavesNull(t *testing.T) {
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Split Name", City: sp("Pasadena"), Social: catalogm.Social{Spotify: sp(spotifyA)}},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{
+			"Split Name": {
+				{ID: "c1", Name: "Split Name", Country: "US",
+					BeginArea: cityArea("Pasadena", "a1"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}},
+				{ID: "c2", Name: "Split Name", Country: "US",
+					BeginArea: cityArea("Pasadena", "a2"), Area: &pipeline.MBArea{Name: "Texas", Type: "Subdivision"}},
+			},
+		},
+	}
+
+	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
+	if err != nil {
+		t.Fatalf("backfillArtistStates: %v", err)
+	}
+	if rep.Unresolved != 1 || len(store.updates) != 0 {
+		t.Fatalf("disagreement must leave NULL; Unresolved=%d updates=%v", rep.Unresolved, store.updates)
+	}
+}
+
+// TestBackfillArtistStates_SingleCandidateNoLink: an artist with no platform link
+// can't have identity confirmed, so a single MB match is left NULL.
+func TestBackfillArtistStates_SingleCandidateNoLink(t *testing.T) {
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Linkless Band", City: sp("Pasadena")},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{
+			"Linkless Band": {{ID: "c1", Name: "Linkless Band", Country: "US",
+				BeginArea: cityArea("Pasadena", "a1"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}}},
+		},
+	}
+
+	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
+	if err != nil {
+		t.Fatalf("backfillArtistStates: %v", err)
+	}
+	if rep.Unresolved != 1 || len(store.updates) != 0 {
+		t.Fatalf("no-link single match must leave NULL; Unresolved=%d updates=%v", rep.Unresolved, store.updates)
+	}
+	if mb.urlCalls != 0 {
+		t.Errorf("no links → no url-rels call needed, got %d", mb.urlCalls)
 	}
 }
 
 // TestBackfillArtistStates_NonUSAndGeocoderOnly covers the skip paths: a non-US
-// band is never given a US state, and GeocoderOnly leaves ambiguous names for a
-// later pass instead of calling MusicBrainz.
+// band is never given a US state, and GeocoderOnly leaves ambiguous names
+// unresolved instead of calling MusicBrainz.
 func TestBackfillArtistStates_NonUSAndGeocoderOnly(t *testing.T) {
 	store := &fakeStateStore{artists: []catalogm.Artist{
 		{ID: 1, Name: "Boris", City: sp("Tokyo"), Country: sp("Japan")},
@@ -245,8 +330,8 @@ func TestBackfillArtistStates_NonUSAndGeocoderOnly(t *testing.T) {
 	if rep.Skipped != 1 {
 		t.Errorf("Skipped = %d, want 1 (Tokyo/Japan)", rep.Skipped)
 	}
-	if rep.AmbiguousUnresolved != 1 {
-		t.Errorf("AmbiguousUnresolved = %d, want 1 (Pasadena left for later)", rep.AmbiguousUnresolved)
+	if rep.Unresolved != 1 {
+		t.Errorf("Unresolved = %d, want 1 (Pasadena left for later)", rep.Unresolved)
 	}
 	if mb.searchCalls != 0 {
 		t.Errorf("GeocoderOnly must not call MusicBrainz, got %d", mb.searchCalls)
@@ -308,11 +393,10 @@ func TestBackfillArtistStates_MBErrorTripsBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backfillArtistStates: %v", err)
 	}
-	if rep.AmbiguousUnresolved != len(artists) {
-		t.Errorf("AmbiguousUnresolved = %d, want %d", rep.AmbiguousUnresolved, len(artists))
+	if rep.Unresolved != len(artists) {
+		t.Errorf("Unresolved = %d, want %d", rep.Unresolved, len(artists))
 	}
-	// After the breaker trips, later artists are not searched: search calls are
-	// capped at the threshold, not one per artist.
+	// After the breaker trips, later artists are not searched.
 	if mb.searchCalls > mbErrorBreakerThreshold {
 		t.Errorf("breaker should cap searches at %d, got %d", mbErrorBreakerThreshold, mb.searchCalls)
 	}

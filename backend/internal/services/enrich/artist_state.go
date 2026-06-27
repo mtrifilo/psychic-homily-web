@@ -66,23 +66,25 @@ type StateFill struct {
 
 // StateReport is the structured outcome of a run.
 type StateReport struct {
-	ArtistsScanned      int
-	FilledGeo           int // unambiguous city -> state, offline
-	FilledMusicBrainz   int // ambiguous city disambiguated via MusicBrainz
-	AmbiguousUnresolved int // multi-state name MusicBrainz could not confirm
-	Skipped             int // non-US country, blank city, or no US state derivable
-	Fills               []StateFill
-	Errors              []string
+	ArtistsScanned    int
+	FilledGeo         int // unambiguous city -> state, offline
+	FilledMusicBrainz int // ambiguous/unknown city confirmed via MusicBrainz
+	Unresolved        int // attempted (geocoder declined; MusicBrainz couldn't confirm)
+	Skipped           int // non-US country or blank city — never attempted
+	Fills             []StateFill
+	Errors            []string
 }
 
 // MBStateResolver is the MusicBrainz capability the ambiguous-city path needs:
-// search candidates by name, and walk an area to its parent relations. Both are
-// satisfied by *pipeline.MusicBrainzClient. Kept narrow (interface segregation)
-// and separate from artist_location.go's searcher so each test fakes only what
-// it uses; a nil resolver disables the MusicBrainz pass.
+// search candidates by name, walk an area to its parent Subdivision, and read a
+// candidate's URL relations to confirm identity. All three are satisfied by
+// *pipeline.MusicBrainzClient. Kept narrow (interface segregation) and separate
+// from artist_location.go's searcher so each test fakes only what it uses; a nil
+// resolver disables the MusicBrainz pass.
 type MBStateResolver interface {
 	SearchArtistCandidates(ctx context.Context, name string) ([]pipeline.MBArtistResult, error)
 	LookupAreaRelations(ctx context.Context, areaID string) ([]pipeline.MBAreaRelation, error)
+	LookupArtistURLRelations(ctx context.Context, mbid string) ([]pipeline.MBURLRelation, error)
 }
 
 // stateArtistStore is the narrow store the state pass needs. It is kept separate
@@ -142,24 +144,34 @@ func backfillArtistStates(
 			continue
 		}
 
-		state, source := geoState(g, city)
+		// Layer 1: the offline geocoder, which fills only an unambiguous, US-
+		// dominant city. Ambiguous and internationally-dominant names fall through
+		// to MusicBrainz; a known non-US place is left for the Skipped bucket.
+		state, status := g.ResolveUSState(city)
+		source := ""
+		if status == geo.USStateUnambiguous {
+			source = DataSourceGeoNames
+		}
+
+		// Layer 2: MusicBrainz, for any name the geocoder wouldn't fill (ambiguous
+		// or unknown-but-US-plausible). It returns a state only when it can confirm
+		// the band's identity, so an unconfirmable name stays NULL.
 		if source == "" && useMB {
-			// Ambiguous (or geocoder-unknown but US-plausible) name: ask the source.
 			var mbErr error
-			state, source, mbErr = mbState(ctx, mb, a.Name, city)
+			state, source, mbErr = mbState(ctx, mb, a, city)
 			if mbErr != nil {
 				// A sustained MusicBrainz outage disables the pass for the rest of the
-				// run so an outage doesn't make every remaining ambiguous artist pay a
-				// doomed ~1s-throttled call (mirrors the location backfill's breaker).
+				// run so an outage doesn't make every remaining artist pay a doomed
+				// ~1s-throttled call (mirrors the location backfill's breaker).
 				mbConsecutiveErrors++
 				report.Errors = append(report.Errors, fmt.Sprintf("musicbrainz %q: %v", a.Name, mbErr))
 				if mbConsecutiveErrors >= mbErrorBreakerThreshold {
 					useMB = false
 					report.Errors = append(report.Errors, fmt.Sprintf(
-						"musicbrainz disabled after %d consecutive errors; remaining ambiguous artists left unresolved",
+						"musicbrainz disabled after %d consecutive errors; remaining artists left unresolved",
 						mbConsecutiveErrors))
 				}
-				report.AmbiguousUnresolved++
+				report.Unresolved++
 				continue
 			}
 			mbConsecutiveErrors = 0
@@ -171,14 +183,10 @@ func backfillArtistStates(
 		case DataSourceMusicBrainz:
 			report.FilledMusicBrainz++
 		default:
-			// No layer resolved a state. Distinguish an ambiguous name we tried (or
-			// would have tried) on MusicBrainz from a city that simply isn't a US
-			// place, so the report shows what a later pass could still recover.
-			if _, status := g.ResolveUSState(city); status == geo.USStateAmbiguous {
-				report.AmbiguousUnresolved++
-			} else {
-				report.Skipped++
-			}
+			// Neither layer produced a state. It was attempted (the geocoder ran, and
+			// MusicBrainz too unless --geocoder-only or the breaker tripped) — count
+			// it Unresolved, not Skipped, so the report doesn't read it as non-US.
+			report.Unresolved++
 			continue
 		}
 
@@ -195,33 +203,40 @@ func backfillArtistStates(
 	return report, nil
 }
 
-// geoState returns the unambiguous US state for a city from the offline geocoder,
-// with DataSourceGeoNames, or ("", "") when the name is ambiguous or not a known
-// US place — leaving the decision to the MusicBrainz pass.
-func geoState(g geo.Geocoder, city string) (state, source string) {
-	if st, status := g.ResolveUSState(city); status == geo.USStateUnambiguous {
-		return st, DataSourceGeoNames
-	}
-	return "", ""
-}
-
-// mbState disambiguates a multi-state city name via MusicBrainz. It trusts a
-// name-matched candidate ONLY when that candidate independently names the SAME
-// city; then the state is the city's parent Subdivision — already on the search
-// result if MusicBrainz tagged one, otherwise fetched with a single area-rels
-// lookup. Returns ("", "", nil) when nothing trustworthy is found, and a non-nil
-// error only for a MusicBrainz transport failure (so the caller's breaker can see
-// it). The city cross-check is the homonym guard: a same-named band in another
-// state does not get to write its state onto this artist.
-func mbState(ctx context.Context, mb MBStateResolver, artistName, storedCity string) (state, source string, err error) {
-	candidates, err := mb.SearchArtistCandidates(ctx, artistName)
-	if err != nil {
-		return "", "", err
-	}
-	want := pipeline.NormalizeArtistName(artistName)
+// mbState resolves a US state for a city the geocoder wouldn't fill, via
+// MusicBrainz, WITHOUT ever guessing. It re-searches by name, keeps only
+// candidates that independently name the SAME city, and resolves each to a state
+// (the parent Subdivision — on the search result if MusicBrainz tagged one, else
+// via one area-rels lookup). Then it decides:
+//
+//   - candidates disagree on the state, or none resolved → "" (genuinely
+//     ambiguous; leave NULL).
+//   - they unanimously agree AND there are ≥2 of them → that state. Two distinct
+//     MusicBrainz records naming the same city in the same state make the STATE
+//     correct regardless of which one is "our" band.
+//   - exactly one candidate → a name + same-city coincidence is NOT proof it is
+//     our band (a same-named band in a same-named city of another state looks
+//     identical — the homonym that a bare name+city check misses), so require an
+//     IDENTITY match: the candidate's url-rels must share one of the artist's own
+//     Spotify/Bandcamp links. Confirmed → that state; otherwise "" (leave NULL).
+//
+// Returns a non-nil error only for a MusicBrainz transport failure, so the
+// caller's circuit breaker can observe it.
+func mbState(ctx context.Context, mb MBStateResolver, a *catalogm.Artist, storedCity string) (state, source string, err error) {
+	want := pipeline.NormalizeArtistName(a.Name)
 	if want == "" {
 		return "", "", nil
 	}
+	candidates, err := mb.SearchArtistCandidates(ctx, a.Name)
+	if err != nil {
+		return "", "", err
+	}
+
+	type cityMatch struct {
+		cand  pipeline.MBArtistResult
+		state string
+	}
+	var matches []cityMatch
 	for i := range candidates {
 		c := candidates[i]
 		if pipeline.NormalizeArtistName(c.Name) != want {
@@ -231,27 +246,98 @@ func mbState(ctx context.Context, mb MBStateResolver, artistName, storedCity str
 		if cityArea == nil || !geo.SamePlaceName(cityArea.Name, storedCity) {
 			continue // not the same city → can't trust this candidate's state
 		}
-		// The search result may already carry the parent Subdivision (MusicBrainz
-		// tagged both city and state); use it without a second call.
-		if loc, ok := locationFromMBResult(c); ok && loc.State != "" {
-			return loc.State, DataSourceMusicBrainz, nil
-		}
-		// Otherwise walk the confirmed city up to its parent Subdivision.
-		if cityArea.ID == "" {
-			return "", "", nil
-		}
-		rels, lookupErr := mb.LookupAreaRelations(ctx, cityArea.ID)
+		st, lookupErr := candidateState(ctx, mb, c, cityArea)
 		if lookupErr != nil {
 			return "", "", lookupErr
 		}
-		if name, ok := parentSubdivisionName(rels); ok {
-			if abbr, ok := utils.StateNameToAbbrev(name); ok {
-				return abbr, DataSourceMusicBrainz, nil
-			}
+		if st != "" {
+			matches = append(matches, cityMatch{cand: c, state: st})
 		}
-		return "", "", nil // matched the city but no usable US parent state
+	}
+	if len(matches) == 0 {
+		return "", "", nil
+	}
+
+	// Every surviving candidate must agree on one state, or we can't disambiguate.
+	state = matches[0].state
+	for _, m := range matches[1:] {
+		if m.state != state {
+			return "", "", nil // candidates disagree → leave NULL
+		}
+	}
+	if len(matches) >= 2 {
+		return state, DataSourceMusicBrainz, nil // consensus: state is right either way
+	}
+
+	// Exactly one candidate: confirm it is actually our artist before trusting it.
+	confirmed, idErr := candidateIsArtist(ctx, mb, matches[0].cand, a)
+	if idErr != nil {
+		return "", "", idErr
+	}
+	if confirmed {
+		return state, DataSourceMusicBrainz, nil
 	}
 	return "", "", nil
+}
+
+// candidateState resolves a name + city-matched candidate to its US state: the
+// parent Subdivision from the search result if MusicBrainz tagged one, else via a
+// single area-rels lookup on the city. Returns "" (no error) when no usable US
+// state is found; an error only for a MusicBrainz transport failure.
+func candidateState(ctx context.Context, mb MBStateResolver, c pipeline.MBArtistResult, cityArea *pipeline.MBArea) (string, error) {
+	if loc, ok := locationFromMBResult(c); ok && loc.State != "" {
+		return loc.State, nil
+	}
+	if cityArea.ID == "" {
+		return "", nil
+	}
+	rels, err := mb.LookupAreaRelations(ctx, cityArea.ID)
+	if err != nil {
+		return "", err
+	}
+	if name, ok := parentSubdivisionName(rels); ok {
+		if abbr, ok := utils.StateNameToAbbrev(name); ok {
+			return abbr, nil
+		}
+	}
+	return "", nil
+}
+
+// candidateIsArtist confirms a MusicBrainz candidate IS our artist via a shared
+// streaming link: the candidate's url-rels include one of the artist's own
+// Spotify/Bandcamp URLs (compared in canonical form). An artist with no such link
+// to anchor on cannot be confirmed → false, so the caller leaves the state NULL
+// rather than trust a bare name + city coincidence. Returns an error only for a
+// MusicBrainz transport failure.
+func candidateIsArtist(ctx context.Context, mb MBStateResolver, c pipeline.MBArtistResult, a *catalogm.Artist) (bool, error) {
+	links := artistPlatformLinks(a)
+	if len(links) == 0 || c.ID == "" {
+		return false, nil
+	}
+	rels, err := mb.LookupArtistURLRelations(ctx, c.ID)
+	if err != nil {
+		return false, err
+	}
+	for _, rel := range rels {
+		for _, link := range links {
+			if pipeline.SamePlatformArtistURL(rel.URL.Resource, link) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// artistPlatformLinks returns the artist's Spotify and Bandcamp URLs — the links
+// SamePlatformArtistURL can anchor identity on — skipping blanks.
+func artistPlatformLinks(a *catalogm.Artist) []string {
+	var links []string
+	for _, p := range []*string{a.Social.Spotify, a.Social.Bandcamp} {
+		if s := trimPtr(p); s != "" {
+			links = append(links, s)
+		}
+	}
+	return links
 }
 
 // mbCityArea returns the first City-typed area on a MusicBrainz candidate
