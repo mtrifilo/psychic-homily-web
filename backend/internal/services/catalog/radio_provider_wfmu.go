@@ -1337,10 +1337,19 @@ const wfmuLiveNowPlayingPath = "/currentliveshows_aggregator.php?ch=1,4,6,8"
 // FetchLiveNowPlaying returns the current broadcast on one WFMU stream
 // (PSY-1022). channel is one of the wfmuLiveChannel* keys.
 //
-// On-air semantics mirror WFMU's own widget: the main 91.1 stream is always
-// broadcasting; side streams count as live only when their block carries a
-// playlist link (= a live DJ is logging tracks — without it the stream is
-// looping unattended and we prefer the honest latest-archive fallback).
+// On-air semantics: a stream counts as live only when its block carries a
+// playlist link (= a live DJ is logging tracks). Without one the stream is
+// looping unattended — automation, or a rebroadcast — so we return nil and the
+// caller serves the honest latest-archive fallback rather than claiming the
+// stream is "ON AIR". This applies to the main 91.1 stream too (PSY-1239); it was
+// previously exempted ("always on"), which surfaced rebroadcasts/automation as a
+// wrong "ON AIR" show.
+//
+// Accepted limits of the playlist-link heuristic (PSY-1239): a rebroadcast whose
+// block re-serves the ORIGINAL show's /playlists/shows link still reads as live
+// (distinguishing a rebroadcast from a first airing is PSY-1240's scope); and a
+// genuinely-live show is briefly off-air until its DJ logs the first track. Both
+// err toward not over-claiming a live broadcast.
 func (p *WFMUProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error) {
 	body, err := radioLiveGet(p.httpClient, p.baseURL+wfmuLiveNowPlayingPath, wfmuUserAgent, "WFMU")
 	if err != nil {
@@ -1384,8 +1393,8 @@ var wfmuBiglineTrackRegex = regexp.MustCompile(`^(?:Your DJ speaks over\s+)?[“
 var wfmuKDBProgramIDRegex = regexp.MustCompile(`^KDBprogram-([A-Za-z0-9]+)$`)
 
 // parseWFMUCurrentLiveShows parses the currentliveshows_aggregator fragment
-// into per-channel live payloads. Channels that are present but not live
-// (no playlist link, side streams only) are omitted.
+// into per-channel live payloads. Any channel present but not live (no playlist
+// link — the main 91.1 stream included, since PSY-1239) is omitted.
 func parseWFMUCurrentLiveShows(body []byte) (map[string]*RadioLiveNowPlaying, error) {
 	doc, err := html.Parse(strings.NewReader(string(body)))
 	if err != nil {
@@ -1454,9 +1463,10 @@ func parseWFMULiveStreamBlock(block *html.Node) (string, *RadioLiveNowPlaying) {
 	if key == "" {
 		return "", nil
 	}
-	// Live-DJ rule (see FetchLiveNowPlaying doc): main stream always counts;
-	// side streams need a playlist link.
-	if key != wfmuLiveChannelMain && !hasPlaylistLink {
+	// Live-DJ rule (PSY-1239): a stream counts as live only with a playlist link
+	// (a live DJ logging tracks) — applies to the main 91.1 stream too. See
+	// FetchLiveNowPlaying for the full rationale and accepted limits.
+	if !hasPlaylistLink {
 		return key, nil
 	}
 
