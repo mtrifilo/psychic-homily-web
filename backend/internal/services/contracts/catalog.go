@@ -526,6 +526,8 @@ type ArtistDetailResponse struct {
 	ImageURL         *string        `json:"image_url"`        // Optional artist photo (PSY-521)
 	ImageSource      *string        `json:"image_source"`     // Image provider for attribution (PSY-1175)
 	ImageSourceURL   *string        `json:"image_source_url"` // Deep linkback for attribution (PSY-1175)
+	ImageLicense     *string        `json:"image_license"`    // CC license for a Commons photo (PSY-1232)
+	ImageAuthor      *string        `json:"image_author"`     // Photographer credit for a Commons photo (PSY-1232)
 	Social           SocialResponse `json:"social"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`

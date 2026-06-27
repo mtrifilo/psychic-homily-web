@@ -64,6 +64,9 @@ export interface Artist {
   /** Image provider + deep linkback for attribution (PSY-1175). */
   image_source?: string | null
   image_source_url?: string | null
+  /** CC license + photographer for a Commons-sourced photo (PSY-1232). */
+  image_license?: string | null
+  image_author?: string | null
   social: ArtistSocial
   created_at: string
   updated_at: string

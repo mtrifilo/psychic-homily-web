@@ -57,7 +57,14 @@ type Artist struct {
 	// source ∈ spotify|discogs|cover_art_archive|user|commons|public_domain.
 	ImageSource    *string `json:"image_source,omitempty" gorm:"column:image_source;size:32"`
 	ImageSourceURL *string `json:"image_source_url,omitempty" gorm:"column:image_source_url"`
-	Social         Social  `gorm:"embedded"`
+	// License + author for a Commons-sourced photo (PSY-1232). CC-BY / CC-BY-SA
+	// require crediting the photographer + the specific license; nil for providers
+	// whose attribution derives from ImageSource alone (Spotify, CAA, Discogs). A
+	// public-domain Commons photo still uses ImageSource="commons" with
+	// ImageLicense="Public domain" (not the public_domain source id).
+	ImageLicense *string `json:"image_license,omitempty" gorm:"column:image_license;size:64"`
+	ImageAuthor  *string `json:"image_author,omitempty" gorm:"column:image_author"`
+	Social       Social  `gorm:"embedded"`
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

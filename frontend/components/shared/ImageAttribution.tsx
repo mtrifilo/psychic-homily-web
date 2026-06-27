@@ -30,11 +30,17 @@ export function ImageAttribution({
   sourceUrl,
   kind = 'image',
   className,
+  author,
+  license,
 }: {
   source?: string | null
   sourceUrl?: string | null
   kind?: Kind
   className?: string
+  /** Photographer credit for a Commons (CC) image (PSY-1232). */
+  author?: string | null
+  /** License name for a Commons (CC) image, e.g. "CC BY-SA 4.0" (PSY-1232). */
+  license?: string | null
 }) {
   if (!source) return null
   const name = PROVIDERS[source]
@@ -50,6 +56,17 @@ export function ImageAttribution({
   // Discogs requires the exact "Data provided by Discogs" phrasing.
   if (source === 'discogs') {
     return <p className={wrapClass}>Data provided by {link}</p>
+  }
+  // Commons (CC): the license requires crediting the author + the specific license
+  // alongside the source link. Render them when present; fall back to the plain
+  // "via" form for a legacy/incomplete Commons record.
+  if (source === 'commons' && license) {
+    return (
+      <p className={wrapClass}>
+        {author ? `${noun(kind)}: ${author} · ` : ''}
+        {license} · via {link}
+      </p>
+    )
   }
   // Non-provider sources: short credit, no "via".
   if (source === 'public_domain') {

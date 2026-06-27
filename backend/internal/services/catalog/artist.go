@@ -705,6 +705,8 @@ func (s *ArtistService) buildArtistResponse(artist *catalogm.Artist) *contracts.
 		ImageURL:         artist.ImageURL,
 		ImageSource:      artist.ImageSource,
 		ImageSourceURL:   artist.ImageSourceURL,
+		ImageLicense:     artist.ImageLicense,
+		ImageAuthor:      artist.ImageAuthor,
 		Social: contracts.SocialResponse{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
