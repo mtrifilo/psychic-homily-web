@@ -1726,41 +1726,29 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 				return nil, fmt.Errorf("either ID or Name must be provided for artist")
 			}
 
-			err = tx.Where("LOWER(name) = LOWER(?)", requestArtist.Name).First(&artist).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// Create new artist
-				artist = catalogm.Artist{
-					Name: requestArtist.Name,
+			// PSY-1118: validate + normalize the Instagram handle BEFORE the funnel
+			// (apply can't return an error) so it can't reach social.instagram
+			// un-anchored — canonical https://instagram.com/<handle>, URL-shaped
+			// input rejected. Applied only when a NEW artist is created.
+			var igNormalized *string
+			if requestArtist.InstagramHandle != nil && *requestArtist.InstagramHandle != "" {
+				normalized, nerr := utils.NormalizeInstagramHandle(*requestArtist.InstagramHandle)
+				if nerr != nil {
+					return nil, fmt.Errorf("artist %s: %w", requestArtist.Name, nerr)
 				}
-				// Set Instagram handle if provided. PSY-1118: validate + normalize
-				// here (the shared create/update chokepoint) so the handle can't
-				// reach social.instagram un-anchored — stores the canonical
-				// https://instagram.com/<handle> form, rejecting URL-shaped input.
-				if requestArtist.InstagramHandle != nil && *requestArtist.InstagramHandle != "" {
-					normalized, err := utils.NormalizeInstagramHandle(*requestArtist.InstagramHandle)
-					if err != nil {
-						return nil, fmt.Errorf("artist %s: %w", requestArtist.Name, err)
-					}
-					if normalized != "" {
-						artist.Social.Instagram = &normalized
-					}
+				if normalized != "" {
+					igNormalized = &normalized
 				}
-				if err := tx.Create(&artist).Error; err != nil {
-					return nil, fmt.Errorf("failed to create artist %s: %w", requestArtist.Name, err)
-				}
-				// Generate slug for the new artist
-				baseSlug := utils.GenerateArtistSlug(artist.Name)
-				slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-					var count int64
-					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-					return count > 0
-				})
-				tx.Model(&artist).Update("slug", slug)
-				artist.Slug = &slug
-				isNewArtist = true
-			} else if err != nil {
-				return nil, fmt.Errorf("failed to find artist %s: %w", requestArtist.Name, err)
 			}
+			// Single artist write path (PSY-1254): dedup + unique slug + insert.
+			found, created, ferr := FindOrCreateArtistTx(tx, requestArtist.Name, func(a *catalogm.Artist) {
+				a.Social.Instagram = igNormalized
+			})
+			if ferr != nil {
+				return nil, ferr
+			}
+			artist = *found
+			isNewArtist = created
 		}
 
 		// Determine set type and IsHeadliner flag

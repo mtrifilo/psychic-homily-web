@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
@@ -373,22 +374,21 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		return "SKIP: Artist name is required", "error"
 	}
 
-	// Check for existing artist by name (case insensitive)
+	// Probe first so the DUPLICATE / WOULD IMPORT / IMPORTED message + dry-run gate
+	// can be decided before any write; the actual create + slug-backfill then route
+	// through the single artist funnel (PSY-1254).
 	var existing catalogm.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", artist.Name).First(&existing).Error
-	if err == nil {
-		// Artist exists — backfill slug if missing
-		if existing.Slug == nil && !dryRun {
-			baseSlug := utils.GenerateArtistSlug(existing.Name)
-			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-				var count int64
-				s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-				return count > 0
-			})
-			s.db.Model(&existing).Update("slug", slug)
+	switch {
+	case err == nil:
+		if !dryRun {
+			// Backfill a missing slug via the funnel (a no-op when already set).
+			if _, _, ferr := catalog.FindOrCreateArtistTx(s.db, artist.Name, nil); ferr != nil {
+				return fmt.Sprintf("ERROR: Failed to backfill artist '%s': %v", artist.Name, ferr), "error"
+			}
 		}
 		return fmt.Sprintf("DUPLICATE: Artist '%s' already exists (ID: %d)", artist.Name, existing.ID), "duplicate"
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return fmt.Sprintf("ERROR: Failed to check artist '%s': %v", artist.Name, err), "error"
 	}
 
@@ -396,21 +396,11 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		return fmt.Sprintf("WOULD IMPORT: Artist '%s'", artist.Name), "imported"
 	}
 
-	// Create new artist with slug
-	baseSlug := utils.GenerateArtistSlug(artist.Name)
-	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-		var count int64
-		s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-		return count > 0
-	})
-
-	newArtist := catalogm.Artist{
-		Name:             artist.Name,
-		Slug:             &slug,
-		City:             artist.City,
-		State:            artist.State,
-		BandcampEmbedURL: artist.BandcampEmbedURL,
-		Social: catalogm.Social{
+	newArtist, _, ferr := catalog.FindOrCreateArtistTx(s.db, artist.Name, func(a *catalogm.Artist) {
+		a.City = artist.City
+		a.State = artist.State
+		a.BandcampEmbedURL = artist.BandcampEmbedURL
+		a.Social = catalogm.Social{
 			Instagram:  artist.Instagram,
 			Facebook:   artist.Facebook,
 			Twitter:    artist.Twitter,
@@ -419,11 +409,10 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 			SoundCloud: artist.SoundCloud,
 			Bandcamp:   artist.Bandcamp,
 			Website:    artist.Website,
-		},
-	}
-
-	if err := s.db.Create(&newArtist).Error; err != nil {
-		return fmt.Sprintf("ERROR: Failed to create artist '%s': %v", artist.Name, err), "error"
+		}
+	})
+	if ferr != nil {
+		return fmt.Sprintf("ERROR: Failed to create artist '%s': %v", artist.Name, ferr), "error"
 	}
 
 	return fmt.Sprintf("IMPORTED: Artist '%s' (ID: %d)", artist.Name, newArtist.ID), "imported"
@@ -663,35 +652,13 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		// (PSY-576).
 		syncEventDate := newShow.EventDate
 		for _, exportedArtist := range show.Artists {
-			var artist catalogm.Artist
-			err := tx.Where("LOWER(name) = LOWER(?)", exportedArtist.Name).First(&artist).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// Create artist with slug
-				artistBaseSlug := utils.GenerateArtistSlug(exportedArtist.Name)
-				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {
-					var count int64
-					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-					return count > 0
-				})
-				artist = catalogm.Artist{
-					Name: exportedArtist.Name,
-					Slug: &artistSlug,
-				}
-				if err := tx.Create(&artist).Error; err != nil {
-					return fmt.Errorf("failed to create artist: %w", err)
-				}
-			} else if err != nil {
-				return fmt.Errorf("failed to find artist: %w", err)
-			} else if artist.Slug == nil {
-				// Backfill slug for existing artist
-				artistBaseSlug := utils.GenerateArtistSlug(artist.Name)
-				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {
-					var count int64
-					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-					return count > 0
-				})
-				tx.Model(&artist).Update("slug", artistSlug)
+			// Single artist write path (PSY-1254): dedup, unique slug, insert, and
+			// slug-backfill of an existing slug-less artist — all in the funnel.
+			foundArtist, _, err := catalog.FindOrCreateArtistTx(tx, exportedArtist.Name, nil)
+			if err != nil {
+				return fmt.Errorf("artist %s: %w", exportedArtist.Name, err)
 			}
+			artist := *foundArtist
 
 			// Create show-artist association
 			showArtist := catalogm.ShowArtist{

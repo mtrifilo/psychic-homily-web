@@ -18,7 +18,6 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/utils"
 )
 
 // --- CLI flags ---
@@ -534,22 +533,11 @@ func findVenueByName(database *gorm.DB, name string) *catalogm.Venue {
 }
 
 func createMinimalArtist(database *gorm.DB, name string) (uint, error) {
-	baseSlug := utils.GenerateArtistSlug(name)
-	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-		var count int64
-		database.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-		return count > 0
-	})
-
-	artist := &catalogm.Artist{
-		Name: name,
-		Slug: &slug,
-	}
-
-	if err := database.Create(artist).Error; err != nil {
+	// Single artist write path (PSY-1254).
+	artist, _, err := catalog.FindOrCreateArtistTx(database, name, nil)
+	if err != nil {
 		return 0, fmt.Errorf("failed to create artist: %w", err)
 	}
-
 	return artist.ID, nil
 }
 

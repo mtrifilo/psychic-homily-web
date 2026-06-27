@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/seeddata"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/utils"
 
 	authm "psychic-homily-backend/internal/models/auth"
@@ -608,27 +609,16 @@ type seedReleaseData struct {
 // findOrCreateArtist looks up an artist by name (case-insensitive). If not found,
 // it creates a minimal artist record so the seed is self-contained.
 func findOrCreateArtist(database *gorm.DB, name string) (*catalogm.Artist, error) {
-	var artist catalogm.Artist
-	if err := database.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error; err == nil {
-		return &artist, nil
-	}
-
-	// Artist not in seed data — create a minimal record as fallback
-	slug := utils.GenerateArtistSlug(name)
-	slug = utils.GenerateUniqueSlug(slug, func(candidate string) bool {
-		var count int64
-		database.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-		return count > 0
-	})
-	artist = catalogm.Artist{
-		Name: name,
-		Slug: &slug,
-	}
-	if err := database.Create(&artist).Error; err != nil {
+	// Single artist write path (PSY-1254): keeps the seed self-contained while
+	// routing through the same dedup/slug funnel as the real create paths.
+	artist, created, err := catalog.FindOrCreateArtistTx(database, name, nil)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create fallback artist %s: %w", name, err)
 	}
-	log.Printf("  Created fallback artist: %s", name)
-	return &artist, nil
+	if created {
+		log.Printf("  Created fallback artist: %s", name)
+	}
+	return artist, nil
 }
 
 // seedLabelsAndReleases creates labels, releases, and the junction table entries

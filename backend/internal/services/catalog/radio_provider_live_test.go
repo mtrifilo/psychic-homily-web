@@ -173,7 +173,14 @@ func TestNTSFetchLiveNowPlaying_UnknownChannel(t *testing.T) {
 
 func newWFMULiveServer(t *testing.T, fixture string) *httptest.Server {
 	t.Helper()
-	body := loadLiveTestdata(t, fixture)
+	return newWFMULiveServerRaw(t, loadLiveTestdata(t, fixture))
+}
+
+// newWFMULiveServerRaw serves the given aggregator bytes on the live-now-playing
+// path (newWFMULiveServer is the testdata-file variant); both back the WFMU
+// FetchLiveNowPlaying tests.
+func newWFMULiveServerRaw(t *testing.T, body []byte) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/currentliveshows_aggregator.php" {
 			_, _ = w.Write(body)
@@ -294,9 +301,7 @@ on Some Rerun Show with Someone
 </div>`
 
 func TestWFMUFetchLiveNowPlaying_NoLiveDJOnSideStream(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(wfmuAggregatorNoDrummerDJHTML))
-	}))
+	server := newWFMULiveServerRaw(t, []byte(wfmuAggregatorNoDrummerDJHTML))
 	defer server.Close()
 
 	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
@@ -307,11 +312,84 @@ func TestWFMUFetchLiveNowPlaying_NoLiveDJOnSideStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, drummer)
 
-	// Main stream is always broadcasting.
+	// Main stream is live here because its block carries a playlist link (a live
+	// DJ logging tracks), not because main is exempt from the rule (PSY-1239).
 	main, err := provider.FetchLiveNowPlaying(wfmuLiveChannelMain)
 	require.NoError(t, err)
 	require.NotNil(t, main)
 	assert.Equal(t, "Push Button Heaven", main.ShowName)
+}
+
+// wfmuAggregatorNoLiveMainHTML is an aggregator fragment where the MAIN 91.1
+// block (listed FIRST) has NO playlist link — looping unattended (automation) —
+// while a side stream after it IS live (carries a playlist link). Pre-PSY-1239
+// the main stream was exempt and surfaced its named show as "ON AIR"; now it must
+// report not-live (and not leak that show name) WITHOUT short-circuiting the
+// per-block loop, so the live side stream after it is still parsed.
+const wfmuAggregatorNoLiveMainHTML = `
+<div id="nowplaysong">
+<div id="nowplaying">
+<div class="item-even">
+<div class="streamtitle">
+WFMU stream
+(<a href="https://wfmu.org/table">Schedule</a>)
+</div>
+<div class="bigline">
+&quot;Some Old Tune&quot;
+by
+A Rerun Artist
+</div>
+<div class="smallline">
+on Burn It Down! with Some DJ
+</div>
+<div class="linkssection">
+<span class="links">
+<a href="/wfmu.pls">128k MP3</a>
+</span>
+</div>
+</div>
+<div class="item-odd">
+<div class="streamtitle">
+Give the Drummer Radio stream
+(<a href="https://wfmu.org/drummer">Schedule</a>)
+</div>
+<div class="bigline">
+&quot;Live Tune&quot;
+by
+A Live Artist
+</div>
+<div class="smallline">
+<span class="KDBFavIcon KDBprogram" id="KDBprogram-GD"><a href="#">x</a></span>
+on A Live Drummer Show with A Host
+</div>
+<div class="linkssection">
+<span class="links">
+<a href="/playlists/shows/999001">Playlist &amp; Comments</a>
+</span>
+</div>
+</div>
+</div>
+</div>`
+
+func TestWFMUFetchLiveNowPlaying_NoLiveDJOnMain(t *testing.T) {
+	server := newWFMULiveServerRaw(t, []byte(wfmuAggregatorNoLiveMainHTML))
+	defer server.Close()
+
+	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// Main stream with no playlist link → not live (PSY-1239); the unattended
+	// stream must NOT surface as "ON AIR" (its "Burn It Down!" name must not leak).
+	main, err := provider.FetchLiveNowPlaying(wfmuLiveChannelMain)
+	require.NoError(t, err)
+	assert.Nil(t, main)
+
+	// A not-live FIRST block must not short-circuit the per-block loop: the live
+	// side stream after it is still parsed and reported live.
+	drummer, err := provider.FetchLiveNowPlaying(wfmuLiveChannelDrummer)
+	require.NoError(t, err)
+	require.NotNil(t, drummer)
+	assert.Equal(t, "A Live Drummer Show", drummer.ShowName)
 }
 
 func TestParseWFMUSmallline(t *testing.T) {
