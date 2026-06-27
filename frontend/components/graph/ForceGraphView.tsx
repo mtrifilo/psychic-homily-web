@@ -489,6 +489,21 @@ export function ForceGraphView({
     }
   }, [])
 
+  // PSY-1220: while the d3-force sim is live (onEngineTick), re-anchor the open tooltip to the
+  // hovered node's CURRENT position via the shared placement helper. The node drifts during the
+  // settle/reheat but onNodeHover only re-fires when the object UNDER the cursor changes, so a
+  // stationary cursor over a drifting node would strand the anchored tooltip over empty canvas.
+  // onEngineTick stops firing once the sim cools, so this costs nothing at rest; the `hoveredNode`
+  // guard makes it a no-op when nothing is hovered. A node that lost its settled coords (filtered
+  // out) yields null → dismiss. (ForceGraphView's tooltip is pointer-events-none, so unlike
+  // ArtistGraph there's no over-the-tooltip case to guard against re-anchoring out from under.)
+  const handleEngineTick = useCallback(() => {
+    if (!hoveredNode) return
+    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, hoveredNode)
+    if (placement) setTooltipPos(placement)
+    else setHoveredNode(null)
+  }, [hoveredNode])
+
   // Hover-focus (PSY-1225): when a node is hovered, IT + its 1-hop neighbors (and the
   // links between two foreground nodes) stay foreground; every other node/link/label fades
   // to the background. Ported from ArtistGraph (PSY-1210) via the shared graphFocus helper
@@ -779,6 +794,8 @@ export function ForceGraphView({
         linkCanvasObject={drawHulls}
         onRenderFramePre={handleRenderFramePre}
         onRenderFramePost={nodeLabelsFrame}
+        // PSY-1220: keep the open tooltip pinned to its node as the node drifts during settle.
+        onEngineTick={handleEngineTick}
         cooldownTicks={200}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}

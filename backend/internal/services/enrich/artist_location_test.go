@@ -26,8 +26,19 @@ func TestParseBandcampLocation(t *testing.T) {
 		{"two-word state", "Brooklyn, New York", ResolvedLocation{City: "Brooklyn", State: "NY"}, true},
 		{"intl city + country", "Tokyo, Japan", ResolvedLocation{City: "Tokyo", Country: "Japan"}, true},
 		{"intl city + country 2", "Berlin, Germany", ResolvedLocation{City: "Berlin", Country: "Germany"}, true},
-		{"city state country", "Brooklyn, New York, USA", ResolvedLocation{City: "Brooklyn", State: "NY", Country: "USA"}, true},
+		{"city state country (country canonicalized)", "Brooklyn, New York, USA", ResolvedLocation{City: "Brooklyn", State: "NY", Country: "United States"}, true},
 		{"city county state (trailing token is the state, not country)", "Brooklyn, Kings County, New York", ResolvedLocation{City: "Brooklyn", State: "NY"}, true},
+		// "Georgia" homograph: the COUNTRY when the city positively resolves there...
+		{"georgia the country", "Tbilisi, Georgia", ResolvedLocation{City: "Tbilisi", Country: "Georgia"}, true},
+		// ...but the US STATE when the city actually sits in (US) Georgia.
+		{"georgia the us state", "Atlanta, Georgia", ResolvedLocation{City: "Atlanta", State: "GA"}, true},
+		// A 2-letter state abbrev that collides with an ISO code (GA=Gabon) must
+		// NEVER be read as the country — it's the state.
+		{"abbrev GA is the state not Gabon", "Adel, GA", ResolvedLocation{City: "Adel", State: "GA"}, true},
+		{"abbrev CA is the state not Canada", "Lodi, CA", ResolvedLocation{City: "Lodi", State: "CA"}, true},
+		// A small US-GA town absent from the offline cities dataset stays the US
+		// state (no positive evidence it's in the country Georgia).
+		{"small georgia town stays the us state", "Dahlonega, Georgia", ResolvedLocation{City: "Dahlonega", State: "GA"}, true},
 		{"extra whitespace", "  Seattle ,  Washington  ", ResolvedLocation{City: "Seattle", State: "WA"}, true},
 		{"single token city", "Portland", ResolvedLocation{}, false},
 		{"single token country", "France", ResolvedLocation{}, false},
@@ -61,13 +72,13 @@ func TestLocationFromMBResult(t *testing.T) {
 				BeginArea: &pipeline.MBArea{Name: "Minneapolis", Type: "City"},
 				Area:      &pipeline.MBArea{Name: "Minnesota", Type: "Subdivision"},
 			},
-			want:   ResolvedLocation{City: "Minneapolis", State: "MN", Country: "US"},
+			want:   ResolvedLocation{City: "Minneapolis", State: "MN", Country: "United States"},
 			wantOK: true,
 		},
 		{
-			name:   "iso country only",
+			name:   "iso country only (canonicalized to name)",
 			result: pipeline.MBArtistResult{Country: "GB"},
-			want:   ResolvedLocation{Country: "GB"},
+			want:   ResolvedLocation{Country: "United Kingdom"},
 			wantOK: true,
 		},
 		{
@@ -100,7 +111,7 @@ func TestLocationFromMBResult(t *testing.T) {
 				Country:   "CA",
 			},
 			// "British Columbia" isn't a US state → State stays empty; city+country fill.
-			want:   ResolvedLocation{City: "Ontario", Country: "CA"},
+			want:   ResolvedLocation{City: "Ontario", Country: "Canada"},
 			wantOK: true,
 		},
 	}
@@ -199,7 +210,7 @@ func TestMatchMBLocation(t *testing.T) {
 		if !ok {
 			t.Fatal("expected a match")
 		}
-		if loc.City != "Baltimore" || loc.Country != "US" {
+		if loc.City != "Baltimore" || loc.Country != "United States" {
 			t.Fatalf("got %+v", loc)
 		}
 	})
@@ -357,6 +368,41 @@ func TestBackfillArtistLocations(t *testing.T) {
 		}
 		if report.Missed != 1 {
 			t.Fatalf("errored artist should count as missed, got %d", report.Missed)
+		}
+	})
+
+	t.Run("country conflict between sources is skipped, not filled", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{
+			// MB name-matches an Italian namesake; the band's own Bandcamp says
+			// Phoenix (US state) → countries disagree → skip for review.
+			{ID: 1, Name: "Yellowcake", Social: catalogm.Social{Bandcamp: strptr("https://yc.bandcamp.com/")}},
+			// MB (LA, US) vs the page's Seattle (US) → SAME country → MB wins.
+			{ID: 2, Name: "Tool", Social: catalogm.Social{Bandcamp: strptr("https://tool.bandcamp.com/")}},
+		}}
+		bc := fakeBandcamp{byURL: map[string]string{
+			"https://yc.bandcamp.com/":   "Phoenix, Arizona",
+			"https://tool.bandcamp.com/": "Seattle, Washington",
+		}}
+		mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+			"Yellowcake": {{Name: "Yellowcake", Area: &pipeline.MBArea{Name: "Italy", Type: "Country"}}},
+			"Tool":       {{Name: "Tool", BeginArea: &pipeline.MBArea{Name: "Los Angeles", Type: "City"}, Country: "US"}},
+		}}
+		report, err := backfillArtistLocations(context.Background(), store, bc, mb, Options{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(report.Conflicts) != 1 || report.Conflicts[0].ArtistID != 1 {
+			t.Fatalf("expected 1 conflict for Yellowcake, got %+v", report.Conflicts)
+		}
+		if _, wrote := store.updates[1]; wrote {
+			t.Fatalf("conflicted artist must NOT be written, got %+v", store.updates[1])
+		}
+		// Tool: same country → MB wins (Los Angeles), not skipped.
+		if store.updates[2]["city"] != "Los Angeles" || store.updates[2]["data_source"] != DataSourceMusicBrainz {
+			t.Fatalf("Tool should fill from MB (Los Angeles), got %+v", store.updates[2])
+		}
+		if report.FilledMusicBrainz != 1 {
+			t.Fatalf("expected 1 MB fill (Tool), got %d", report.FilledMusicBrainz)
 		}
 	})
 

@@ -343,6 +343,34 @@ export function ArtistGraphVisualization({
     }
   }, [graphData])
 
+  // PSY-1220 parity with ForceGraphView's reheat-dismiss: a filter-toggle (graphData, via
+  // activeTypes) or a resize (containerWidth) reheats/reframes the layout and pans nodes under an
+  // open tooltip, stranding it at a now-stale position. Dismiss the hover on those shifts (re-hover
+  // re-anchors) via the SAME render-phase "adjust state during render" pattern as the re-center
+  // reset above. Why render-phase and not an effect like ForceGraphView's dismiss: the EFFECT form
+  // trips eslint's react-hooks/set-state-in-effect (a React-Compiler rule) in THIS component, while
+  // the identical effect is clean in ForceGraphView — verified by probe (an isolated mount
+  // setState-in-effect errors here, passes there). ForceGraphView's `eslint-disable
+  // react-hooks/immutability` span (for its in-place d3-force node mutation) opts that whole
+  // component out of the compiler-based effect rules; ArtistGraph has no such span, so don't
+  // "unify" the two to effects here. graphData is memoized (on data/activeTypes — a stable useState
+  // Set in the parent), so a referentially-new value is a real layout change, not a per-render
+  // thrash (the existing adjacency/degree memos already rely on that same stability). Re-center is
+  // also covered here (data → graphData), harmlessly alongside the center.id reset above.
+  const [hoverLayoutSig, setHoverLayoutSig] = useState({ graphData, containerWidth })
+  if (hoverLayoutSig.graphData !== graphData || hoverLayoutSig.containerWidth !== containerWidth) {
+    setHoverLayoutSig({ graphData, containerWidth })
+    setHoveredNode(null)
+  }
+  // The render-phase dismiss above has no DOM mouseleave, so reset the over-tooltip flag + cancel
+  // any pending dismiss on the same shifts — otherwise a stuck overTooltipRef wedges the gate for
+  // the next tooltip and an orphaned timer fires against a stale state (mirrors onZoom + the
+  // re-center teardown effect). No setState here, so it stays a clean synchronization effect.
+  useEffect(() => {
+    overTooltipRef.current = false
+    cancelDismiss()
+  }, [graphData, containerWidth, cancelDismiss])
+
   // Accessibility: the rendered <canvas> is a visual enhancement; the
   // <RelatedArtists> list view is the keyboard/screen-reader counterpart
   // with proper <Link> semantics. We expose the canvas as an image with a
@@ -452,6 +480,21 @@ export function ArtistGraphVisualization({
     overTooltipRef.current = false
     scheduleDismiss()
   }, [scheduleDismiss])
+
+  // PSY-1220: while the d3-force sim is live (onEngineTick), re-anchor the open tooltip to the
+  // hovered node's CURRENT position — the node drifts during the settle/reheat but onNodeHover
+  // doesn't re-fire for a stationary cursor, so the anchored tooltip would strand. Skip while the
+  // pointer is over the tooltip (overTooltipRef): re-anchoring then would slide the HOVERABLE
+  // tooltip (PSY-1218) out from under the cursor as it reaches for the "View artist page" link.
+  // onEngineTick stops once the sim cools, so this is free at rest; the hoveredNode guard makes it
+  // a no-op when nothing is hovered. A node that lost its settled coords (filtered out / refetched
+  // away) yields null → dismiss.
+  const handleEngineTick = useCallback(() => {
+    if (!hoveredNode || overTooltipRef.current) return
+    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, hoveredNode)
+    if (placement) setTooltipPos(placement)
+    else setHoveredNode(null)
+  }, [hoveredNode])
 
   // Hover-focus (PSY-1210): when a node is hovered, IT + its 1-hop neighbors (plus the
   // center, which is the page subject and stays foreground always) are the
@@ -609,6 +652,8 @@ export function ArtistGraphVisualization({
         nodeVal="val"
         nodeCanvasObject={nodeCanvasObject}
         onRenderFramePost={nodeLabelsFrame}
+        // PSY-1220: keep the open tooltip pinned to its node as the node drifts during settle.
+        onEngineTick={handleEngineTick}
         // The hit area is deliberately NOT narrowed for background (hover-focus-faded)
         // nodes (PSY-1210): the fade is a visual de-emphasis, but every node stays fully
         // hoverable/clickable so you can move focus to any node by hovering it (and the

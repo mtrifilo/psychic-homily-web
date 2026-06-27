@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/utils"
 )
@@ -77,6 +78,24 @@ type Fill struct {
 	Location ResolvedLocation
 }
 
+// Conflict records an artist whose two sources both resolved a location but
+// disagreed on COUNTRY — a likely homonym (MusicBrainz name-matched a different
+// band). We skip it rather than guess and surface it for human review.
+//
+// Country is a deliberately coarse signal, with two known edges left for the
+// reviewer: (1) a SAME-country homonym (two distinct US bands of one name) is NOT
+// caught — comparing city/state instead would wrongly skip legitimate
+// origin-vs-current-base differences (Tool LA vs Seattle), so the dry-run review
+// remains the backstop there; (2) a genuinely RELOCATED band (MB origin country ≠
+// its Bandcamp current country) also trips this and is skipped — surfaced so a
+// human can fill it, rather than the tool guessing origin vs current.
+type Conflict struct {
+	ArtistID uint
+	Name     string
+	MB       ResolvedLocation
+	Bandcamp ResolvedLocation
+}
+
 // Report is the structured outcome of a backfill run.
 type Report struct {
 	ArtistsScanned    int
@@ -85,6 +104,7 @@ type Report struct {
 	Missed            int // no source yielded a usable location
 	ResolvedNoFill    int // a location was found but every matching field was already set
 	Fills             []Fill
+	Conflicts         []Conflict // sources disagreed on country — skipped for review
 	Errors            []string
 }
 
@@ -141,7 +161,7 @@ func backfillArtistLocations(
 		a := &artists[i]
 
 		useMB := !opts.BandcampOnly && !mbDisabled
-		loc, source, mbErr := resolveLocation(ctx, a, bandcamp, mb, useMB)
+		loc, source, conflict, mbErr := resolveLocation(ctx, a, bandcamp, mb, useMB)
 
 		// Circuit breaker: after a sustained run of MusicBrainz errors, disable it
 		// for the rest of the run so an outage doesn't make every remaining artist
@@ -159,6 +179,13 @@ func backfillArtistLocations(
 			} else {
 				mbConsecutiveErrors = 0
 			}
+		}
+
+		// Sources disagreed on country (likely a homonym MB match) — skip rather
+		// than write a probably-wrong location; surface it for review.
+		if conflict != nil {
+			report.Conflicts = append(report.Conflicts, *conflict)
+			continue
 		}
 
 		if source == "" {
@@ -203,47 +230,102 @@ func backfillArtistLocations(
 	return report, nil
 }
 
-// resolveLocation tries MusicBrainz first (the curated origin — preferred for
-// factual accuracy after the stage dry-run), then falls back to Bandcamp's
-// self-report. useMB gates the MusicBrainz attempt (false under --bandcamp-only
-// or once the run's circuit breaker has tripped).
+// resolveLocation gathers BOTH sources (when available) so it can detect a
+// homonym: MusicBrainz (curated origin, the preferred fill) and Bandcamp (the
+// band's identity-anchored self-report). useMB gates the MusicBrainz attempt
+// (false under --bandcamp-only or once the run's circuit breaker has tripped).
 //
-// Returns (loc, source, mbErr): source != "" means resolved — possibly via
-// Bandcamp EVEN WHEN MusicBrainz errored, because a transient MB failure must not
-// suppress the fallback. mbErr is the MusicBrainz error (if any), returned
-// independently of recovery so the caller's circuit breaker can observe it; the
-// caller only records it as a run error when the artist resolved nothing.
+// Decision:
+//   - both resolve & their COUNTRIES disagree → return a *Conflict (skip): a
+//     different-country match is the namesake red flag (e.g. our Phoenix
+//     "Yellowcake" vs an Italian one). Same-country differences (origin vs base,
+//     e.g. Tool LA vs its page's Seattle) are NOT a conflict — MusicBrainz wins.
+//   - both resolve & agree, or MusicBrainz only → MusicBrainz.
+//   - Bandcamp only → Bandcamp (also RECOVERS an artist whose MB lookup errored).
+//
+// Returns (loc, source, conflict, mbErr). mbErr is the MusicBrainz error (if
+// any), returned independently of recovery so the caller's circuit breaker can
+// observe it; the caller records it only when the artist resolved nothing.
 func resolveLocation(
 	ctx context.Context,
 	a *catalogm.Artist,
 	bandcamp BandcampLocationResolver,
 	mb MBCandidateSearcher,
 	useMB bool,
-) (ResolvedLocation, string, error) {
+) (ResolvedLocation, string, *Conflict, error) {
 	var mbErr error
+	var mbLoc, bcLoc ResolvedLocation
+	var mbOK, bcOK bool
 
-	// MusicBrainz primary — structured, matched by the discovery exact-name gate.
 	if useMB && mb != nil {
 		candidates, err := mb.SearchArtistCandidates(ctx, a.Name)
 		if err != nil {
 			mbErr = fmt.Errorf("musicbrainz %q: %w", a.Name, err)
-		} else if loc, ok := matchMBLocation(candidates, a.Name); ok {
-			return loc, DataSourceMusicBrainz, nil
+		} else {
+			mbLoc, mbOK = matchMBLocation(candidates, a.Name)
 		}
 	}
 
-	// Bandcamp fallback — only artists whose social.bandcamp is set. Any bandcamp
-	// URL works: the location element is in the band header on band/album pages.
-	// This also RECOVERS an artist whose MusicBrainz lookup errored above.
-	if bandcamp != nil && a.Social.Bandcamp != nil {
+	// Consult Bandcamp as the fallback (MB didn't resolve) OR for conflict
+	// detection (MB resolved WITH a comparable country). If MB resolved without an
+	// effective country, Bandcamp can't change the outcome — skip the HTTP fetch.
+	// Only artists whose social.bandcamp is set; any bandcamp URL works (the
+	// location is in the band header on band/album pages).
+	needBandcamp := !mbOK
+	if mbOK {
+		if _, ok := effectiveCountryISO(mbLoc); ok {
+			needBandcamp = true
+		}
+	}
+	if needBandcamp && bandcamp != nil && a.Social.Bandcamp != nil {
 		if raw, ok := bandcamp.ResolveProfileLocation(ctx, *a.Social.Bandcamp); ok {
-			if loc, ok := parseBandcampLocation(raw); ok {
-				return loc, DataSourceBandcamp, mbErr
-			}
+			bcLoc, bcOK = parseBandcampLocation(raw)
 		}
 	}
 
-	return ResolvedLocation{}, "", mbErr
+	switch {
+	case mbOK && bcOK:
+		if countriesConflict(mbLoc, bcLoc) {
+			return ResolvedLocation{}, "", &Conflict{
+				ArtistID: a.ID, Name: a.Name, MB: mbLoc, Bandcamp: bcLoc,
+			}, mbErr
+		}
+		return mbLoc, DataSourceMusicBrainz, nil, mbErr // agree → MusicBrainz wins
+	case mbOK:
+		return mbLoc, DataSourceMusicBrainz, nil, mbErr
+	case bcOK:
+		return bcLoc, DataSourceBandcamp, nil, mbErr
+	default:
+		return ResolvedLocation{}, "", nil, mbErr
+	}
+}
+
+// countriesConflict reports whether two resolved locations name DIFFERENT
+// countries. Each location's "effective country" is its explicit country if set,
+// else "US" when it carries a US state (our State field only ever holds a US/DC
+// abbreviation, so a state implies the US). A conflict is flagged only when BOTH
+// effective countries are known and differ — an unknown one can't confirm a
+// disagreement (conservative: don't skip a fillable artist on an ambiguous
+// signal). This catches the homonym case (Phoenix "Yellowcake" carrying a US
+// state vs an Italian MusicBrainz match) WITHOUT tripping on same-country
+// origin-vs-base differences (Tool LA vs its own page's Seattle).
+func countriesConflict(a, b ResolvedLocation) bool {
+	isoA, okA := effectiveCountryISO(a)
+	isoB, okB := effectiveCountryISO(b)
+	if !okA || !okB {
+		return false
+	}
+	return isoA != isoB
+}
+
+func effectiveCountryISO(loc ResolvedLocation) (string, bool) {
+	if loc.Country != "" {
+		return geo.CountryToISO(loc.Country)
+	}
+	if loc.State != "" {
+		return "US", true // State holds only US/DC abbrevs (utils.StateNameToAbbrev)
+	}
+	return "", false
 }
 
 // matchMBLocation returns the location of the first candidate whose name matches
@@ -302,11 +384,12 @@ func parseBandcampLocation(raw string) (ResolvedLocation, bool) {
 
 	loc := ResolvedLocation{City: cleaned[0]}
 	last := cleaned[len(cleaned)-1]
-	if abbr, ok := utils.StateNameToAbbrev(last); ok {
+	if abbr, ok := utils.StateNameToAbbrev(last); ok && !isCountryNotState(loc.City, last) {
 		// Trailing token is a US state ("…, Arizona" / "…, County, New York").
 		loc.State = abbr
 	} else {
-		// Trailing token is a country ("…, Japan" / "…, State, USA").
+		// Trailing token is a country ("…, Japan" / "…, State, USA" / "…, Georgia"
+		// the country).
 		loc.Country = last
 		if len(cleaned) >= 3 {
 			if abbr, ok := utils.StateNameToAbbrev(cleaned[len(cleaned)-2]); ok {
@@ -314,7 +397,46 @@ func parseBandcampLocation(raw string) (ResolvedLocation, bool) {
 			}
 		}
 	}
-	return loc, true
+	return canonicalizeCountry(loc), true
+}
+
+// isCountryNotState resolves the "Georgia problem": a trailing token that maps to
+// a US state abbreviation but is ALSO a country NAME. It returns true (→ treat the
+// token as the country, not the state) ONLY when both hold:
+//
+//   - the token is a full NAME, not a 2-letter code. EVERY US state abbreviation
+//     collides with some ISO country code (GA=Gabon, CA=Canada, AL=Albania,
+//     LA=Laos…), so a bare 2-letter token is always the state in this catalog.
+//   - the city POSITIVELY resolves inside that country. Positive evidence is
+//     required because the offline cities dataset omits small US towns: keying on
+//     "absent from US-GA" alone would exile a "Dahlonega, Georgia" band (a real
+//     ~6k-pop US-GA town) to the Caucasus. "Tbilisi, Georgia" resolves in GE → the
+//     country; "Dahlonega, Georgia" resolves in neither → stays the US state.
+//
+// The fast path (token isn't a country name) skips the geocoder entirely, so the
+// common "City, Arizona" case costs nothing.
+func isCountryNotState(city, token string) bool {
+	if len(strings.TrimSpace(token)) <= 2 {
+		return false
+	}
+	iso, ok := geo.CountryToISO(token)
+	if !ok {
+		return false
+	}
+	_, inCountry := geo.Default().Resolve(city, "", iso)
+	return inCountry
+}
+
+// canonicalizeCountry rewrites a recognized country to its canonical display name
+// (so MusicBrainz "US" and Bandcamp "USA" store identically as "United States");
+// an unrecognized value is left untouched.
+func canonicalizeCountry(loc ResolvedLocation) ResolvedLocation {
+	if loc.Country != "" {
+		if name, ok := geo.CanonicalCountryName(loc.Country); ok {
+			loc.Country = name
+		}
+	}
+	return loc
 }
 
 // locationFromMBResult extracts a ResolvedLocation from a MusicBrainz artist
@@ -354,9 +476,10 @@ func locationFromMBResult(r pipeline.MBArtistResult) (ResolvedLocation, bool) {
 	}
 	if loc.Country == "" {
 		if c := strings.TrimSpace(r.Country); c != "" {
-			loc.Country = c // ISO-2, e.g. "US"
+			loc.Country = c // ISO-2, e.g. "US" — canonicalized below
 		}
 	}
+	loc = canonicalizeCountry(loc) // "US" / "United States" → one stable form
 	if loc.isZero() {
 		return ResolvedLocation{}, false
 	}
