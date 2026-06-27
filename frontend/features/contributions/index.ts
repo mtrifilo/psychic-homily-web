@@ -23,10 +23,9 @@ export {
   useReportEntity,
   useContributeOpportunities,
   useContributeCategory,
-  useDataGaps,
   useEntitySaveSuccessBanner,
 } from './hooks'
-export type { EntityAttribution, DataGap } from './hooks'
+export type { EntityAttribution } from './hooks'
 
 // Components
 export { EntityEditDrawer } from './components/EntityEditDrawer'
@@ -34,5 +33,4 @@ export { EntitySaveSuccessBanner } from './components/EntitySaveSuccessBanner'
 export { AttributionLine } from './components/AttributionLine'
 export { ReportEntityDialog } from './components/ReportEntityDialog'
 export { ContributeDashboard } from './components/ContributeDashboard'
-export { ContributionPrompt } from './components/ContributionPrompt'
 export { MyPendingEditsList } from './components/MyPendingEditsList'
