@@ -319,6 +319,8 @@ function ArtistSidebar({
           <ImageAttribution
             source={artist.image_source}
             sourceUrl={artist.image_source_url}
+            author={artist.image_author}
+            license={artist.image_license}
             kind="photo"
             className="mt-1.5 px-0.5"
           />

@@ -43,4 +43,34 @@ describe('ImageAttribution', () => {
     expect(screen.getByText(/cover via/i)).toBeInTheDocument()
     expect(screen.queryByRole('link')).toBeNull()
   })
+
+  it('renders the CC author + license credit for a Commons photo (PSY-1232)', () => {
+    const { container } = render(
+      <ImageAttribution
+        source="commons"
+        sourceUrl="https://commons.wikimedia.org/wiki/File:X.jpg"
+        author="Jane Doe"
+        license="CC BY-SA 4.0"
+        kind="photo"
+      />
+    )
+    expect(container.textContent).toMatch(/Photo: Jane Doe · CC BY-SA 4\.0 · via/)
+    expect(screen.getByRole('link', { name: /wikimedia commons/i })).toHaveAttribute(
+      'href',
+      'https://commons.wikimedia.org/wiki/File:X.jpg'
+    )
+  })
+
+  it('omits the author prefix for a Commons photo with no author (PSY-1232)', () => {
+    const { container } = render(
+      <ImageAttribution
+        source="commons"
+        sourceUrl="https://commons.wikimedia.org/wiki/File:Y.jpg"
+        license="Public domain"
+        kind="photo"
+      />
+    )
+    expect(container.textContent).toMatch(/^Public domain · via/)
+    expect(container.textContent).not.toMatch(/Photo:/)
+  })
 })
