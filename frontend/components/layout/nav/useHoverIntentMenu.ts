@@ -14,6 +14,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // shrinking the open dwell (or `sideOffset`) does not license shrinking this
 // delay. (NN/G's nominal 0.5s dwell is an upper bound; see
 // docs/open-questions/navigation-redesign.md.)
+//
+// NOTE: the close-timer lifecycle below (ref + clearTimer + scheduleClose +
+// unmount-cleanup) is the same primitive extracted as `lib/hooks/common/useDismissTimer`
+// (PSY-1218). This hook predates it and adds two-timer open/close state on top; the two
+// could converge onto that primitive in a future refactor. On convergence, adopt the
+// primitive's `timerRef.current !== null` guard: clearTimer below uses a truthy check,
+// which would skip a legitimately-zero setTimeout id (harmless here only because
+// scheduleOpen/scheduleClose clear before re-arming). CLOSE_DELAY_MS stays tuned
+// independently of useDismissTimer callers (different gap geometry).
 const OPEN_DELAY_MS = 50
 const CLOSE_DELAY_MS = 200
 
