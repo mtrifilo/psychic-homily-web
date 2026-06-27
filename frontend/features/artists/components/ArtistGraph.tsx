@@ -347,11 +347,16 @@ export function ArtistGraphVisualization({
   // activeTypes) or a resize (containerWidth) reheats/reframes the layout and pans nodes under an
   // open tooltip, stranding it at a now-stale position. Dismiss the hover on those shifts (re-hover
   // re-anchors) via the SAME render-phase "adjust state during render" pattern as the re-center
-  // reset above — keeping it out of the react-hooks/set-state-in-effect rule (which fires on an
-  // effect-body setState here because this component also resets hover during render). graphData is
-  // memoized (on data/activeTypes, a stable useState Set in the parent), so a referentially-new
-  // value is a real layout change, not a per-render thrash. Re-center is also covered here (data →
-  // graphData), harmlessly alongside the center.id reset above.
+  // reset above. Why render-phase and not an effect like ForceGraphView's dismiss: the EFFECT form
+  // trips eslint's react-hooks/set-state-in-effect (a React-Compiler rule) in THIS component, while
+  // the identical effect is clean in ForceGraphView — verified by probe (an isolated mount
+  // setState-in-effect errors here, passes there). ForceGraphView's `eslint-disable
+  // react-hooks/immutability` span (for its in-place d3-force node mutation) opts that whole
+  // component out of the compiler-based effect rules; ArtistGraph has no such span, so don't
+  // "unify" the two to effects here. graphData is memoized (on data/activeTypes — a stable useState
+  // Set in the parent), so a referentially-new value is a real layout change, not a per-render
+  // thrash (the existing adjacency/degree memos already rely on that same stability). Re-center is
+  // also covered here (data → graphData), harmlessly alongside the center.id reset above.
   const [hoverLayoutSig, setHoverLayoutSig] = useState({ graphData, containerWidth })
   if (hoverLayoutSig.graphData !== graphData || hoverLayoutSig.containerWidth !== containerWidth) {
     setHoverLayoutSig({ graphData, containerWidth })
