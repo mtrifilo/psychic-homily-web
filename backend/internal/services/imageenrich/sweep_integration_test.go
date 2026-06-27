@@ -1,4 +1,4 @@
-package catalog
+package imageenrich
 
 import (
 	"context"
@@ -16,9 +16,9 @@ import (
 
 // ImageEnrichSweepIntegrationTestSuite covers the sweep's new logic — the
 // no-result memo selection + stamping (PSY-1246). The provider lookups
-// (BackfillCommonsPhotos / BackfillCoverArt) are stubbed via the injectable
-// enrich fields, so these tests exercise selection/stamping without external
-// MusicBrainz/Wikidata/Commons/CAA traffic.
+// (catalog.BackfillCommonsPhotos / catalog.BackfillCoverArt) are stubbed via the
+// injectable enrich fields, so these tests exercise selection/stamping without
+// external MusicBrainz/Wikidata/Commons/CAA traffic.
 type ImageEnrichSweepIntegrationTestSuite struct {
 	suite.Suite
 	testDB *testutil.TestDatabase
@@ -121,18 +121,6 @@ func (s *ImageEnrichSweepIntegrationTestSuite) TestSelectsCoverlessReleases() {
 	s.Nil(s.reloadRelease(withCover).ImageEnrichAttemptedAt)
 }
 
-func (s *ImageEnrichSweepIntegrationTestSuite) reloadArtist(a *catalogm.Artist) *catalogm.Artist {
-	var out catalogm.Artist
-	s.Require().NoError(s.db.First(&out, a.ID).Error)
-	return &out
-}
-
-func (s *ImageEnrichSweepIntegrationTestSuite) reloadRelease(r *catalogm.Release) *catalogm.Release {
-	var out catalogm.Release
-	s.Require().NoError(s.db.First(&out, r.ID).Error)
-	return &out
-}
-
 // TestRunCycleStopsOnCanceledContext: a canceled ctx fails the photo selection
 // AND runCycle's ctx.Err() guard skips the covers sweep — neither enricher runs.
 func (s *ImageEnrichSweepIntegrationTestSuite) TestRunCycleStopsOnCanceledContext() {
@@ -171,6 +159,18 @@ func (s *ImageEnrichSweepIntegrationTestSuite) TestTreatsEmptyStringImageAsMissi
 	sw, gotPhotos, _ := s.newTestSweep(50)
 	sw.RunSweepNow(context.Background())
 	s.Equal([]uint{empty.ID}, *gotPhotos)
+}
+
+func (s *ImageEnrichSweepIntegrationTestSuite) reloadArtist(a *catalogm.Artist) *catalogm.Artist {
+	var out catalogm.Artist
+	s.Require().NoError(s.db.First(&out, a.ID).Error)
+	return &out
+}
+
+func (s *ImageEnrichSweepIntegrationTestSuite) reloadRelease(r *catalogm.Release) *catalogm.Release {
+	var out catalogm.Release
+	s.Require().NoError(s.db.First(&out, r.ID).Error)
+	return &out
 }
 
 func sweepStrPtr(v string) *string { return &v }

@@ -1,4 +1,10 @@
-package catalog
+// Package imageenrich hosts the ongoing image-enrichment sweep. It sits above
+// both catalog (the shipped fill-when-empty enrichers + provider clients) and
+// pipeline (the shared MusicBrainz client), so it depends on both without making
+// either depend on the other — keeping catalog free of a pipeline import (which
+// would cycle with pipeline's catalog-importing tests). Only the service
+// container depends on this package.
+package imageenrich
 
 import (
 	"context"
@@ -11,16 +17,17 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/shared"
 )
 
 // Ongoing image-enrichment sweep (PSY-1246) — the Phase-A "safety net" of the
 // hybrid trigger model decided in PSY-1245. A slow background ticker runs the
-// shipped fill-when-empty enrichers (BackfillCommonsPhotos for artist photos,
-// BackfillCoverArt for release covers) over entities that still have no image, so
-// coverage stays current as the catalog grows regardless of how an entity was
-// added. (Phase B — prompt on-create enqueue — is PSY-1247.)
+// shipped fill-when-empty enrichers (catalog.BackfillCommonsPhotos for artist
+// photos, catalog.BackfillCoverArt for release covers) over entities that still
+// have no image, so coverage stays current as the catalog grows regardless of how
+// an entity was added. (Phase B — prompt on-create enqueue — is PSY-1247.)
 //
 // It does NOT change what users see: enrichment only populates data; prod display
 // stays gated on PSY-1242.
@@ -200,12 +207,12 @@ func (s *ImageEnrichmentSweep) stampAttempted(ctx context.Context, table string,
 // runPhotoEnricher resolves Commons photos for the given artist ids using the
 // shared MB client + fresh Wikidata/Commons clients (closed after the batch).
 func (s *ImageEnrichmentSweep) runPhotoEnricher(ctx context.Context, ids []uint) error {
-	wd := NewWikidataClient()
+	wd := catalog.NewWikidataClient()
 	defer wd.Close()
-	commons := NewCommonsClient()
+	commons := catalog.NewCommonsClient()
 	defer commons.Close()
 
-	report, err := BackfillCommonsPhotos(ctx, s.db, mbArtistEnrichAdapter{client: s.mb}, wd, commons, CommonsEnrichOptions{IDs: ids})
+	report, err := catalog.BackfillCommonsPhotos(ctx, s.db, mbArtistEnrichAdapter{client: s.mb}, wd, commons, catalog.CommonsEnrichOptions{IDs: ids})
 	if report != nil {
 		s.logger.Info("image-enrich sweep photos",
 			"scanned", report.ArtistsScanned, "matched", report.ArtistsMatched,
@@ -217,22 +224,23 @@ func (s *ImageEnrichmentSweep) runPhotoEnricher(ctx context.Context, ids []uint)
 // runCoverEnricher resolves CAA/Discogs covers for the given release ids using
 // the shared MB client + a fresh CAA client (+ Discogs when a token is set).
 func (s *ImageEnrichmentSweep) runCoverEnricher(ctx context.Context, ids []uint) error {
-	caa := NewCoverArtArchiveClient()
+	caa := catalog.NewCoverArtArchiveClient()
 	defer caa.Close()
 
-	opts := CoverArtEnrichOptions{IDs: ids}
+	opts := catalog.CoverArtEnrichOptions{IDs: ids}
 	var (
-		report *CoverArtEnrichReport
+		report *catalog.CoverArtEnrichReport
 		err    error
 	)
-	// Pass an untyped nil when no token — a typed (*DiscogsClient)(nil) stored in
-	// the interface is non-nil and would panic on first call (mirrors the cmd).
+	// Pass an untyped nil when no token — a typed (*catalog.DiscogsClient)(nil)
+	// stored in the interface is non-nil and would panic on first call (mirrors
+	// the cmd).
 	if s.discogsToken != "" {
-		discogs := NewDiscogsClient(s.discogsToken)
+		discogs := catalog.NewDiscogsClient(s.discogsToken)
 		defer discogs.Close()
-		report, err = BackfillCoverArt(ctx, s.db, mbReleaseEnrichAdapter{client: s.mb}, caa, discogs, opts)
+		report, err = catalog.BackfillCoverArt(ctx, s.db, mbReleaseEnrichAdapter{client: s.mb}, caa, discogs, opts)
 	} else {
-		report, err = BackfillCoverArt(ctx, s.db, mbReleaseEnrichAdapter{client: s.mb}, caa, nil, opts)
+		report, err = catalog.BackfillCoverArt(ctx, s.db, mbReleaseEnrichAdapter{client: s.mb}, caa, nil, opts)
 	}
 	if report != nil {
 		s.logger.Info("image-enrich sweep covers",
@@ -253,14 +261,14 @@ type mbArtistEnrichAdapter struct {
 	client *pipeline.MusicBrainzClient
 }
 
-func (a mbArtistEnrichAdapter) SearchArtistCandidates(ctx context.Context, name string) ([]MBArtistCandidate, error) {
+func (a mbArtistEnrichAdapter) SearchArtistCandidates(ctx context.Context, name string) ([]catalog.MBArtistCandidate, error) {
 	raw, err := a.client.SearchArtistCandidates(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MBArtistCandidate, 0, len(raw))
+	out := make([]catalog.MBArtistCandidate, 0, len(raw))
 	for _, r := range raw {
-		out = append(out, MBArtistCandidate{MBID: r.ID, Name: r.Name})
+		out = append(out, catalog.MBArtistCandidate{MBID: r.ID, Name: r.Name})
 	}
 	return out, nil
 }
@@ -283,14 +291,14 @@ type mbReleaseEnrichAdapter struct {
 	client *pipeline.MusicBrainzClient
 }
 
-func (a mbReleaseEnrichAdapter) SearchReleaseGroups(ctx context.Context, artist, title string, limit int) ([]MBReleaseGroupCandidate, error) {
+func (a mbReleaseEnrichAdapter) SearchReleaseGroups(ctx context.Context, artist, title string, limit int) ([]catalog.MBReleaseGroupCandidate, error) {
 	raw, err := a.client.SearchReleaseGroups(ctx, artist, title, limit)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MBReleaseGroupCandidate, 0, len(raw))
+	out := make([]catalog.MBReleaseGroupCandidate, 0, len(raw))
 	for _, rg := range raw {
-		out = append(out, MBReleaseGroupCandidate{
+		out = append(out, catalog.MBReleaseGroupCandidate{
 			MBID:             rg.ID,
 			Title:            rg.Title,
 			ArtistNames:      flattenMBArtistNames(rg.ArtistCredit),

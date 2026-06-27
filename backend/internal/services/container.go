@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
 	exploresvc "psychic-homily-backend/internal/services/explore"
+	"psychic-homily-backend/internal/services/imageenrich"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/ratelimit"
@@ -94,7 +95,7 @@ type ServiceContainer struct {
 	Reminder         *engagement.ReminderService
 	Enrichment       *pipeline.EnrichmentService
 	EnrichmentWorker *pipeline.EnrichmentWorker
-	ImageEnrichSweep *catalog.ImageEnrichmentSweep
+	ImageEnrichSweep *imageenrich.ImageEnrichmentSweep
 	AutoPromotion    *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
@@ -140,7 +141,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	// PSY-1246: ongoing image-enrichment sweep. Reuses the SAME shared MB client
 	// (mbClient) so its MusicBrainz traffic stays under the one ~1 req/s throttle.
-	imageEnrichSweep := catalog.NewImageEnrichmentSweep(database, mbClient, cfg.Discogs.Token)
+	imageEnrichSweep := imageenrich.NewImageEnrichmentSweep(database, mbClient, cfg.Discogs.Token)
 
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
 	discovery.SetEnrichmentService(enrichmentSvc)
