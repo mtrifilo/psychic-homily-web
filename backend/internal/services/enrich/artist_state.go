@@ -214,10 +214,12 @@ func backfillArtistStates(
 //
 //   - the artist has no such link to anchor on → "" (can't confirm; leave NULL),
 //     and we skip the search entirely.
-//   - otherwise, the first name + same-city candidate whose identity is confirmed
-//     IS our artist; its city's parent Subdivision (on the search result if
-//     MusicBrainz tagged one, else via a single area-rels lookup) is the state.
-//   - no candidate confirms → "" (leave NULL).
+//   - otherwise, the first identity-confirmed candidate that YIELDS a US state is
+//     used — its city's parent Subdivision, on the search result if MusicBrainz
+//     tagged one, else via a single area-rels lookup. A confirmed candidate whose
+//     record carries no usable parent state is skipped and scanning continues
+//     (another record of the same artist may carry one).
+//   - no candidate confirms (or none yields a state) → "" (leave NULL).
 //
 // Returns a non-nil error only for a MusicBrainz transport failure, so the
 // caller's circuit breaker can observe it.

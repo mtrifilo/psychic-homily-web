@@ -268,6 +268,41 @@ func TestBackfillArtistStates_AgreeingHomonymsLeaveNull(t *testing.T) {
 	}
 }
 
+// TestBackfillArtistStates_ScansPastConfirmedStatelessCandidate pins the round-2
+// continuation: when the FIRST identity-confirmed candidate yields no usable state
+// (its city has no parent Subdivision), scanning continues and a LATER confirmed
+// record of the same artist supplies the state.
+func TestBackfillArtistStates_ScansPastConfirmedStatelessCandidate(t *testing.T) {
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Two Records", City: sp("Pasadena"), Social: catalogm.Social{Spotify: sp(spotifyA)}},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{
+			"Two Records": {
+				// Confirmed (shares the link) but its city resolves to no Subdivision.
+				{ID: "c1", Name: "Two Records", Country: "US", BeginArea: cityArea("Pasadena", "a1")},
+				// Confirmed, and carries the Subdivision on the search result → CA.
+				{ID: "c2", Name: "Two Records", Country: "US",
+					BeginArea: cityArea("Pasadena", "a2"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}},
+			},
+		},
+		areaRels: map[string][]pipeline.MBAreaRelation{"a1": {}}, // c1's city → no parent state
+		urlRels: map[string][]pipeline.MBURLRelation{
+			"c1": {spotifyRel(spotifyA)},
+			"c2": {spotifyRel(spotifyA)},
+		},
+	}
+
+	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
+	if err != nil {
+		t.Fatalf("backfillArtistStates: %v", err)
+	}
+	if rep.FilledMusicBrainz != 1 || store.updates[1]["state"] != "CA" {
+		t.Fatalf("want CA from the 2nd confirmed record; FilledMB=%d state=%v", rep.FilledMusicBrainz, store.updates[1]["state"])
+	}
+}
+
 // TestBackfillArtistStates_SingleCandidateNoLink: an artist with no platform link
 // can't have identity confirmed, so MusicBrainz is not even searched and the
 // state is left NULL.
