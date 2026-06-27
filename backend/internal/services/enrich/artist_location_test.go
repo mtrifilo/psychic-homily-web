@@ -256,18 +256,21 @@ func (f fakeMB) SearchArtistCandidates(_ context.Context, name string) ([]pipeli
 }
 
 func TestBackfillArtistLocations(t *testing.T) {
-	t.Run("bandcamp primary, musicbrainz fallback, fill-when-empty", func(t *testing.T) {
+	t.Run("musicbrainz primary, bandcamp fallback, fill-when-empty", func(t *testing.T) {
 		store := &fakeStore{artists: []catalogm.Artist{
-			{ID: 1, Name: "Bandcamp Band", Social: catalogm.Social{Bandcamp: strptr("https://bcband.bandcamp.com/")}},
-			{ID: 2, Name: "MB Only Band"}, // no bandcamp → MB fallback
+			// Has BOTH sources — MusicBrainz must win the tie.
+			{ID: 1, Name: "Both Band", Social: catalogm.Social{Bandcamp: strptr("https://both.bandcamp.com/")}},
+			// No MusicBrainz entry → falls back to Bandcamp.
+			{ID: 2, Name: "BC Fallback Band", Social: catalogm.Social{Bandcamp: strptr("https://bc.bandcamp.com/")}},
 			{ID: 3, Name: "Unknown Band"}, // neither source
-			{ID: 4, Name: "Located Band", City: strptr("X"), State: strptr("CA"), Country: strptr("US")}, // nothing empty for its resolved loc
+			{ID: 4, Name: "Located Band", City: strptr("X"), State: strptr("CA"), Country: strptr("US")}, // nothing empty
 		}}
 		bc := fakeBandcamp{byURL: map[string]string{
-			"https://bcband.bandcamp.com/": "Phoenix, Arizona",
+			"https://both.bandcamp.com/": "Phoenix, Arizona", // should be overridden by MB
+			"https://bc.bandcamp.com/":   "Tokyo, Japan",
 		}}
 		mb := fakeMB{byName: map[string][]pipeline.MBArtistResult{
-			"MB Only Band": {{Name: "MB Only Band", BeginArea: &pipeline.MBArea{Name: "Chicago", Type: "City"}, Country: "US"}},
+			"Both Band":    {{Name: "Both Band", BeginArea: &pipeline.MBArea{Name: "Chicago", Type: "City"}, Area: &pipeline.MBArea{Name: "Illinois", Type: "Subdivision"}, Country: "US"}},
 			"Located Band": {{Name: "Located Band", BeginArea: &pipeline.MBArea{Name: "Oakland", Type: "City"}}},
 		}}
 
@@ -278,24 +281,28 @@ func TestBackfillArtistLocations(t *testing.T) {
 		if report.ArtistsScanned != 4 {
 			t.Fatalf("scanned = %d, want 4", report.ArtistsScanned)
 		}
-		if report.FilledBandcamp != 1 || report.FilledMusicBrainz != 1 {
-			t.Fatalf("filled bandcamp=%d mb=%d, want 1/1", report.FilledBandcamp, report.FilledMusicBrainz)
+		if report.FilledMusicBrainz != 1 || report.FilledBandcamp != 1 {
+			t.Fatalf("filled mb=%d bandcamp=%d, want 1/1", report.FilledMusicBrainz, report.FilledBandcamp)
 		}
 		if report.Missed != 1 {
 			t.Fatalf("missed = %d, want 1 (Unknown Band)", report.Missed)
 		}
 		if report.ResolvedNoFill != 1 {
-			t.Fatalf("resolvedNoFill = %d, want 1 (Located Band, city already set)", report.ResolvedNoFill)
+			t.Fatalf("resolvedNoFill = %d, want 1 (Located Band, fields already set)", report.ResolvedNoFill)
 		}
-		// Live run wrote both fills.
-		if store.updates[1]["city"] != "Phoenix" || store.updates[1]["state"] != "AZ" {
-			t.Fatalf("artist 1 update wrong: %+v", store.updates[1])
+		// Precedence: artist 1 has a Bandcamp location too, but MusicBrainz wins.
+		if store.updates[1]["city"] != "Chicago" || store.updates[1]["state"] != "IL" {
+			t.Fatalf("artist 1 should be MB (Chicago, IL), got %+v", store.updates[1])
 		}
-		if store.updates[1]["data_source"] != DataSourceBandcamp {
-			t.Fatalf("artist 1 provenance wrong: %+v", store.updates[1])
+		if store.updates[1]["data_source"] != DataSourceMusicBrainz {
+			t.Fatalf("artist 1 provenance should be musicbrainz, got %+v", store.updates[1])
 		}
-		if store.updates[2]["city"] != "Chicago" || store.updates[2]["data_source"] != DataSourceMusicBrainz {
-			t.Fatalf("artist 2 update wrong: %+v", store.updates[2])
+		// Fallback: artist 2 has no MB entry → Bandcamp fills it.
+		if store.updates[2]["city"] != "Tokyo" || store.updates[2]["country"] != "Japan" {
+			t.Fatalf("artist 2 should be Bandcamp (Tokyo, Japan), got %+v", store.updates[2])
+		}
+		if store.updates[2]["data_source"] != DataSourceBandcamp {
+			t.Fatalf("artist 2 provenance should be bandcamp, got %+v", store.updates[2])
 		}
 	})
 

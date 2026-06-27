@@ -29,12 +29,14 @@ const (
 )
 
 // Confidence in an auto-derived location, by source, written to
-// artists.source_confidence. Bandcamp is the band's own self-report (higher);
-// the MusicBrainz begin-area is the editor-curated ORIGIN, which can differ from
-// where the band is now (slightly lower).
+// artists.source_confidence. MusicBrainz is the editor-curated ORIGIN and the
+// preferred source — a stage dry-run showed it factually reliable (Bad Religion
+// → Los Angeles, Social Distortion → Fullerton). Bandcamp is the band's own
+// self-report and the fallback: useful, but sometimes a label/current base
+// rather than origin (Tool's page says Seattle), so slightly lower.
 const (
-	confidenceBandcamp    = 0.7
-	confidenceMusicBrainz = 0.6
+	confidenceMusicBrainz = 0.7
+	confidenceBandcamp    = 0.6
 )
 
 // ResolvedLocation is a normalized artist location harvested from one source.
@@ -100,7 +102,7 @@ type artistStore interface {
 }
 
 // BackfillArtistLocations enriches artists whose location is incomplete, trying
-// Bandcamp first then MusicBrainz, filling only empty fields, dry-run by default.
+// MusicBrainz first then Bandcamp, filling only empty fields, dry-run by default.
 // It is the production entry point; the store-agnostic core is testable via
 // backfillArtistLocations.
 func BackfillArtistLocations(db *gorm.DB, bandcamp BandcampLocationResolver, mb MBCandidateSearcher, opts Options) (*Report, error) {
@@ -172,11 +174,13 @@ func backfillArtistLocations(
 	return report, nil
 }
 
-// resolveLocation tries Bandcamp first (the band's self-report), then falls back
-// to MusicBrainz (unless BandcampOnly). Returns (loc, source, nil) on a hit,
-// (zero, "", nil) on a clean miss, and (zero, "", err) on a hard source failure
-// (e.g. a MusicBrainz rate-limit) so a persistent outage surfaces in the report
-// instead of masquerading as "no data".
+// resolveLocation tries MusicBrainz first (the curated origin — preferred for
+// factual accuracy after the stage dry-run), then falls back to Bandcamp's
+// self-report for artists MusicBrainz doesn't cover. Returns (loc, source, nil)
+// on a hit, (zero, "", nil) on a clean miss, and (zero, "", err) on a hard
+// source failure (e.g. a MusicBrainz rate-limit) so a persistent outage surfaces
+// in the report instead of masquerading as "no data". --bandcamp-only
+// (opts.BandcampOnly) skips MusicBrainz entirely.
 func resolveLocation(
 	ctx context.Context,
 	a *catalogm.Artist,
@@ -184,17 +188,7 @@ func resolveLocation(
 	mb MBCandidateSearcher,
 	opts Options,
 ) (ResolvedLocation, string, error) {
-	// Bandcamp primary — only artists whose social.bandcamp is set. Any bandcamp
-	// URL works: the location element is in the band header on band/album pages.
-	if bandcamp != nil && a.Social.Bandcamp != nil {
-		if raw, ok := bandcamp.ResolveProfileLocation(ctx, *a.Social.Bandcamp); ok {
-			if loc, ok := parseBandcampLocation(raw); ok {
-				return loc, DataSourceBandcamp, nil
-			}
-		}
-	}
-
-	// MusicBrainz fallback — structured, matched by exact (case-insensitive) name.
+	// MusicBrainz primary — structured, matched by exact (case-insensitive) name.
 	if !opts.BandcampOnly && mb != nil {
 		candidates, err := mb.SearchArtistCandidates(ctx, a.Name)
 		if err != nil {
@@ -202,6 +196,16 @@ func resolveLocation(
 		}
 		if loc, ok := matchMBLocation(candidates, a.Name); ok {
 			return loc, DataSourceMusicBrainz, nil
+		}
+	}
+
+	// Bandcamp fallback — only artists whose social.bandcamp is set. Any bandcamp
+	// URL works: the location element is in the band header on band/album pages.
+	if bandcamp != nil && a.Social.Bandcamp != nil {
+		if raw, ok := bandcamp.ResolveProfileLocation(ctx, *a.Social.Bandcamp); ok {
+			if loc, ok := parseBandcampLocation(raw); ok {
+				return loc, DataSourceBandcamp, nil
+			}
 		}
 	}
 

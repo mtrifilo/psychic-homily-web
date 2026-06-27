@@ -1,7 +1,7 @@
 // Command backfill-artist-location enriches artist city/state/country from data
-// we already fetch but discard (PSY-1234): the band's self-reported location on
-// its Bandcamp profile page (primary) and the MusicBrainz artist search
-// response's area/begin-area/country (fallback).
+// we already fetch but discard (PSY-1234): the MusicBrainz artist search
+// response's area/begin-area/country (primary — curated origin) and the band's
+// self-reported location on its Bandcamp profile page (fallback).
 //
 // FILL-WHEN-EMPTY: only an artist's NULL/blank location fields are touched; a
 // set field is never overwritten. Each fill stamps provenance
@@ -74,7 +74,7 @@ func main() {
 	// Surface the resolved target so a mistargeted --confirm (e.g. prod via the
 	// wrong --env) is caught before any write. Credentials are redacted.
 	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
-	source := "Bandcamp primary + MusicBrainz fallback"
+	source := "MusicBrainz primary + Bandcamp fallback"
 	if bandcampOnly {
 		source = "Bandcamp only"
 	}
