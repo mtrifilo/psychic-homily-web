@@ -19,12 +19,19 @@
 // `count` is upcoming_show_count; radius is in react-globe.gl globe-radius units.
 const DOT_BASE_RADIUS = 0.28
 const DOT_SQRT_DIVISOR = 14
-// Caps the variable (sqrt) part → max radius DOT_BASE_RADIUS + DOT_VARIABLE_MAX.
-// The variable part reaches this cap at count ≈ (DOT_VARIABLE_MAX*DOT_SQRT_DIVISOR)^2 ≈ 49.
+// Caps the variable (sqrt) part → max radius DOT_BASE_RADIUS + DOT_VARIABLE_MAX (0.78).
+// The cap is reached at count ≈ (DOT_VARIABLE_MAX*DOT_SQRT_DIVISOR)^2 ≈ 49, so every
+// scene above ~49 upcoming shows renders the SAME max dot ON PURPOSE: past that the dot
+// would balloon over its neighbours (the bug this fixes). Finer magnitude among the
+// dense tier is conveyed by the hover tooltip + which cities stay labelled when zoomed
+// out — not by dot size.
 const DOT_VARIABLE_MAX = 0.5
 
 export function sceneDotRadius(upcomingShowCount: number): number {
-  const count = Math.max(0, upcomingShowCount)
+  // Non-finite guard: the type says `number`, but sibling fields (latitude/longitude)
+  // are `number | null` from the API, so don't trust it blindly. A NaN radius would
+  // poison the MERGED three.js point geometry (NaN bounding sphere) for the whole layer.
+  const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
   return DOT_BASE_RADIUS + Math.min(Math.sqrt(count) / DOT_SQRT_DIVISOR, DOT_VARIABLE_MAX)
 }
 
@@ -36,7 +43,8 @@ const LABEL_SQRT_DIVISOR = 32
 const LABEL_VARIABLE_MAX = 0.35
 
 export function sceneLabelSize(upcomingShowCount: number): number {
-  const count = Math.max(0, upcomingShowCount)
+  // Non-finite guard — see sceneDotRadius.
+  const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
   return LABEL_BASE_SIZE + Math.min(Math.sqrt(count) / LABEL_SQRT_DIVISOR, LABEL_VARIABLE_MAX)
 }
 
@@ -50,7 +58,16 @@ export function sceneLabelSize(upcomingShowCount: number): number {
 // Thresholds are step functions, not a continuous curve, so `labelsData` only
 // changes — and react-globe.gl only rebuilds label geometry — when the camera
 // crosses a threshold, not on every micro-zoom (PSY-1213 memoized pointsData by
-// reference for the same reason). The default continental POV is altitude 1.8.
+// reference for the same reason).
+//
+// Both entry POVs land in the continental (>=1.5) bucket: the default 1.8 and the
+// geo-resolved 1.6 (AtlasGlobe). Calibrated against the 2026-06 catalog, where
+// Chicago (~283) and Minneapolis (~187) clear the continental 120 but the adjacent
+// St. Paul (~95) does not — that's the decluttered pair the AC names. Two known
+// limits, both deferred to PSY-1229: counts are SEASONAL so a fixed absolute
+// threshold can leave the continental view sparse in a quiet stretch (wants a top-K
+// floor); and the gate is by COUNT, not proximity, so two co-dense adjacent cities
+// both above the threshold would still overlap.
 export function labelMinCountForAltitude(altitude: number): number {
   if (altitude >= 1.5) return 120 // continental — only the very densest scenes
   if (altitude >= 1.0) return 40 // multi-region

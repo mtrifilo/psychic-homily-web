@@ -14,7 +14,13 @@ interface GlobeCanvasProps {
   width: number
   height: number
   scenes: PlaceableScene[]
-  /** Camera focus; re-applied whenever it changes (e.g. visitor geo arrives). */
+  /**
+   * Camera focus. AtlasGlobe resolves this ONCE (the visitor-geo/default race
+   * settles behind a guard) before mounting this canvas, and it's stable for the
+   * component's lifetime: the camera is aimed once via onGlobeReady, and the
+   * PSY-1223 label-visibility threshold is seeded once from `pov.altitude`. If pov
+   * is ever made dynamic, that seed must be re-synced (see the useState below).
+   */
   pov: GlobePov
   onSelect: (scene: PlaceableScene) => void
 }

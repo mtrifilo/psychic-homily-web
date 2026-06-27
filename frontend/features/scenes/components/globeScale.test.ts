@@ -41,17 +41,22 @@ describe('sceneDotRadius', () => {
     }
   })
 
-  it('clamps a negative count to the base (defensive)', () => {
-    expect(sceneDotRadius(-5)).toBeCloseTo(sceneDotRadius(0), 5)
+  it('treats negative or non-finite counts as the base (defensive)', () => {
+    expect(sceneDotRadius(-5)).toBeCloseTo(0.28, 5)
+    // NaN/undefined (the type says number, but the API field could be missing) must
+    // NOT propagate a NaN radius into the merged three.js point geometry.
+    expect(sceneDotRadius(NaN)).toBeCloseTo(0.28, 5)
+    expect(sceneDotRadius(undefined as unknown as number)).toBeCloseTo(0.28, 5)
   })
 })
 
 describe('sceneLabelSize', () => {
-  it('returns the base size at zero and caps the high end', () => {
+  it('returns the base size at zero, caps the high end, and guards non-finite', () => {
     expect(sceneLabelSize(0)).toBeCloseTo(0.5, 5)
     // Cap = base 0.5 + variable cap 0.35 = 0.85.
     expect(sceneLabelSize(283)).toBeCloseTo(0.85, 5)
     expect(sceneLabelSize(10_000)).toBeCloseTo(0.85, 5)
+    expect(sceneLabelSize(NaN)).toBeCloseTo(0.5, 5)
   })
 
   it('is monotonic non-decreasing and bounded by the cap', () => {
@@ -68,6 +73,7 @@ describe('sceneLabelSize', () => {
 describe('labelMinCountForAltitude', () => {
   it('raises the label threshold as the camera zooms out', () => {
     expect(labelMinCountForAltitude(1.8)).toBe(120) // continental (default POV)
+    expect(labelMinCountForAltitude(1.6)).toBe(120) // geo-resolved POV (AtlasGlobe)
     expect(labelMinCountForAltitude(1.5)).toBe(120)
     expect(labelMinCountForAltitude(1.2)).toBe(40) // multi-region
     expect(labelMinCountForAltitude(0.8)).toBe(10) // metro cluster
