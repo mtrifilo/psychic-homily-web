@@ -67,6 +67,17 @@ var clientItemsAttrRe = regexp.MustCompile(`data-client-items="([^"]*)"`)
 // query/fragment doesn't leak into the stored URL.
 var gridItemHrefRe = regexp.MustCompile(`<a\s+[^>]*href="(/(?:album|track)/[^"#?]+)`)
 
+// bandcampLocationRe captures the band's self-reported home location from the
+// profile-header element Bandcamp renders on every band/album page:
+//
+//	<span class="location secondaryText">Phoenix, Arizona</span>
+//
+// The text is free-form "City, State" (US, full state name) or "City, Country"
+// (international); the caller normalizes it. Anchored on the `location
+// secondaryText` class so a SHOW-LISTING venue (emitted as a JSON-LD MusicVenue,
+// a different shape) is never mistaken for the band's own home.
+var bandcampLocationRe = regexp.MustCompile(`class="[^"]*\blocation secondaryText\b[^"]*"[^>]*>([^<]+)`)
+
 // BandcampProfileResolver fetches a Bandcamp profile root and extracts a
 // featured/latest album/track URL. The HTTP client is injectable so tests can
 // point it at an httptest server; production uses newBandcampResolverClient().
@@ -358,4 +369,44 @@ func extractFromClientItemsJSON(htmlBody string) (string, bool) {
 // data is album-only).
 func isReleasePath(p string) bool {
 	return strings.HasPrefix(p, "/album/") || strings.HasPrefix(p, "/track/")
+}
+
+// ResolveProfileLocation fetches a Bandcamp profile root and returns the band's
+// self-reported home-location string (e.g. "Phoenix, Arizona", "Tokyo, Japan"),
+// or "" with ok=false when the page can't be fetched or carries no location.
+//
+// Like ResolveProfileEmbed it reuses the SAME SSRF-hardened client and host
+// anchoring, follows the root's redirect to /music-or-an-album page (the band
+// header — and thus the location element — is present on both), and fills
+// NOTHING on a miss (never errors or panics) so a caller leaves the field empty
+// rather than failing the triggering write. The location lives in the profile
+// header on the FIRST fetched page, so unlike the embed resolver this needs no
+// /music second-fetch fallback.
+func (r *BandcampProfileResolver) ResolveProfileLocation(ctx context.Context, profileURL string) (string, bool) {
+	trimmed := strings.TrimSpace(profileURL)
+	u, err := url.Parse(trimmed)
+	if err != nil || !isAllowedBandcampFetchURL(u) {
+		return "", false
+	}
+	body, _, ok := r.fetch(ctx, u.String())
+	if !ok {
+		return "", false
+	}
+	return extractBandcampLocation(body)
+}
+
+// extractBandcampLocation pulls and cleans the band's location string from a
+// fetched profile-page body, returning ("", false) when no location element is
+// present. HTML entities are unescaped and surrounding whitespace trimmed. Only
+// the FIRST match (the profile header) is used.
+func extractBandcampLocation(body string) (string, bool) {
+	m := bandcampLocationRe.FindStringSubmatch(body)
+	if m == nil {
+		return "", false
+	}
+	loc := strings.TrimSpace(html.UnescapeString(m[1]))
+	if loc == "" {
+		return "", false
+	}
+	return loc, true
 }
