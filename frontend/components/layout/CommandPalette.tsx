@@ -204,6 +204,8 @@ const ADMIN_ROUTE_KEYWORDS: Record<AdminTab, string[]> = {
   analytics: ['analytics', 'metrics', 'growth', 'engagement'],
   'artists-admin': ['artists', 'manage', 'merge', 'aliases'],
   radio: ['radio', 'stations', 'matching', 'kexp', 'wfmu', 'nts', 'manage'],
+  discovery: ['discovery', 'triage', 'links', 'bandcamp', 'spotify', 'streaming', 'candidates'],
+  'streaming-worklist': ['streaming', 'worklist', 'links', 'bandcamp', 'spotify', 'triage', 'discovery'],
   users: ['users', 'accounts', 'manage'],
   'audit-log': ['audit', 'log', 'history', 'actions'],
 }

@@ -132,6 +132,22 @@ const RadioPage = dynamic(() => import('./radio/page'), {
   ),
 })
 
+const DiscoveryPage = dynamic(() => import('./discovery/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+const StreamingWorklistPage = dynamic(() => import('./streaming-worklist/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 const ModerationPage = dynamic(() => import('./moderation/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
@@ -270,6 +286,14 @@ function AdminPageContent() {
 
           <TabsContent value="radio" className="space-y-4" data-testid="admin-tab-radio">
             <RadioPage />
+          </TabsContent>
+
+          <TabsContent value="discovery" className="space-y-4" data-testid="admin-tab-discovery">
+            <DiscoveryPage />
+          </TabsContent>
+
+          <TabsContent value="streaming-worklist" className="space-y-4" data-testid="admin-tab-streaming-worklist">
+            <StreamingWorklistPage />
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4" data-testid="admin-tab-users">
