@@ -45,10 +45,16 @@ describe('ArtistCard', () => {
     expect(heading).toBeInTheDocument()
   })
 
-  it('renders upcoming show count', () => {
+  it('renders upcoming show count (plural)', () => {
     renderWithProviders(<ArtistCard artist={makeArtist({ upcoming_show_count: 5 })} />)
 
-    expect(screen.getByText('5 upcoming')).toBeInTheDocument()
+    expect(screen.getByText('5 upcoming shows')).toBeInTheDocument()
+  })
+
+  it('renders upcoming show count (singular)', () => {
+    renderWithProviders(<ArtistCard artist={makeArtist({ upcoming_show_count: 1 })} />)
+
+    expect(screen.getByText('1 upcoming show')).toBeInTheDocument()
   })
 
   it('renders "No upcoming shows" hint when count is zero and no last-show date (PSY-495)', () => {
