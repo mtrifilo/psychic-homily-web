@@ -534,6 +534,69 @@ func ParseRadioSchedule(raw *json.RawMessage) (*RadioSchedule, error) {
 	return &sched, nil
 }
 
+// WindowForDate computes the frozen [startsAt, endsAt] air window for a broadcast
+// that aired on airDate (a "2006-01-02" calendar date), from the weekly slot
+// whose DayOfWeek matches that date's weekday, in the schedule's Timezone. This
+// is the producer half of the PSY-1152 air-window subsystem for providers that
+// carry a date but no air time (WFMU): the consumer is ComputeEpisodeStatus.
+//
+// An End <= Start slot wraps past midnight, so endsAt lands on the following day.
+// Times are built in the schedule's IANA zone (DST-correct — never a fixed
+// offset). Returns (nil, nil, nil) when no slot matches the weekday (an
+// off-schedule / pop-up airing), so the caller leaves the episode windowless and
+// ComputeEpisodeStatus settles it to aired/archived — never falsely live. When a
+// weekday has more than one slot, the first match wins (air_date is date-only, so
+// a same-day double airing can't be disambiguated here).
+//
+// Known edge: a wall-clock time that falls in the once-a-year spring-forward gap
+// (02:00–02:59 in US zones) doesn't exist, so time.Date normalizes it (e.g. an
+// overnight slot ending 02:30 on the transition day → 01:30). This shifts that
+// one airing's window by up to an hour, but FAILS SAFE: the window only ever
+// closes earlier, so ComputeEpisodeStatus can drop "live" early but never reports
+// a stale episode as falsely live. Not worth special-casing for a twice-a-year,
+// 2 a.m.-bounded slot. (PSY-1238)
+func (s *RadioSchedule) WindowForDate(airDate string) (startsAt, endsAt *time.Time, err error) {
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return nil, nil, fmt.Errorf("radio schedule: invalid timezone %q: %w", s.Timezone, err)
+	}
+	day, err := time.ParseInLocation("2006-01-02", airDate, loc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("radio schedule: invalid air_date %q: %w", airDate, err)
+	}
+	weekday := int(day.Weekday()) // 0=Sunday..6=Saturday — matches RadioScheduleSlot.DayOfWeek
+	for _, slot := range s.Slots {
+		if slot.DayOfWeek != weekday {
+			continue
+		}
+		sh, sm, ok := parseHHMM(slot.Start)
+		if !ok {
+			continue
+		}
+		eh, em, ok := parseHHMM(slot.End)
+		if !ok {
+			continue
+		}
+		start := time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
+		end := time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
+		if !end.After(start) {
+			end = end.AddDate(0, 0, 1) // End <= Start: slot wraps past midnight
+		}
+		return &start, &end, nil
+	}
+	return nil, nil, nil // no slot for this weekday
+}
+
+// parseHHMM parses a "HH:MM" 24-hour string into hour + minute. Schedule slots
+// are HH:MM-validated at write time (Validate), so ok=false is defensive.
+func parseHHMM(s string) (hour, minute int, ok bool) {
+	t, err := time.Parse("15:04", s)
+	if err != nil {
+		return 0, 0, false
+	}
+	return t.Hour(), t.Minute(), true
+}
+
 // RadioStation represents a radio station entity in the knowledge graph
 type RadioStation struct {
 	ID                  uint             `gorm:"primaryKey"`

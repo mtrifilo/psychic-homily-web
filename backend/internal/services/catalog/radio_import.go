@@ -895,10 +895,75 @@ func (s *RadioService) buildNullSafeShowUpdates(existing *catalogm.RadioShow, im
 	return updates
 }
 
+// scheduleDerivedWindowMaxAgeDays bounds how far back a WFMU episode's air window
+// may be DERIVED from the show's CURRENT schedule. The stored schedule reflects
+// the current season; an episode older than this likely aired under a different
+// (since-churned) schedule, so deriving its window from today's slots would
+// mis-window it — the frozen-window rule (a historical event's time is never
+// recomputed against current config; see pattern_radio_show_lifecycle_churn /
+// PSY-1152). It comfortably exceeds the incremental fetch re-list window (so
+// recently-aired episodes always get a window) while staying well under WFMU's
+// seasonal schedule churn. Beyond it an episode is long-aired anyway, so a nil
+// window is correct (ComputeEpisodeStatus settles it to aired/archived). (PSY-1238)
+const scheduleDerivedWindowMaxAgeDays = 30
+
+// episodeAirWindow resolves the frozen [starts_at, ends_at] for an episode. A
+// provider-supplied window wins (KEXP gives start+end, NTS a start) — those
+// providers already carry the broadcast's own instants, so the result is never
+// re-derived. A WINDOWLESS episode (today, only WFMU — it carries a date but no
+// air time) has its window derived from the show's stored weekly schedule
+// (PSY-1159) + the episode's air_date, in the schedule's timezone (PSY-1238),
+// but ONLY when the air_date is recent enough that the current schedule still
+// applies (scheduleDerivedWindowMaxAgeDays — the churn guard). Returns (nil, nil)
+// when there is no provider window AND (the air_date is too old OR no schedule
+// slot matches) — ComputeEpisodeStatus then settles the episode to aired/archived
+// (never falsely live), the conservative windowless fallback.
+//
+// The schedule read happens only on this path (creating a windowless episode, or
+// healing a still-windowless one within the guard), never for an already-windowed
+// re-list — a self-draining, per-windowless-episode read dwarfed by that
+// episode's own playlist fetch. Any load/parse error degrades to a nil window
+// (logged) rather than failing the import. NOTE: this sets only starts_at/ends_at
+// (the authoritative air window); air_time (a separate provider-supplied display
+// string) stays as the provider left it — nil for WFMU, unchanged by this path.
+func (s *RadioService) episodeAirWindow(showID uint, ep RadioEpisodeImport, now time.Time) (startsAt, endsAt *time.Time) {
+	if ep.StartsAt != nil {
+		return ep.StartsAt, ep.EndsAt
+	}
+	if ep.AirDate == "" {
+		return nil, nil
+	}
+	// Churn guard: only derive a window for a recently-aired episode (see the
+	// const). A malformed air_date is treated as out-of-window (nil).
+	airDay, err := time.Parse("2006-01-02", ep.AirDate)
+	if err != nil || airDay.Before(now.AddDate(0, 0, -scheduleDerivedWindowMaxAgeDays)) {
+		return nil, nil
+	}
+	var show catalogm.RadioShow
+	if err := s.db.Select("schedule").First(&show, showID).Error; err != nil {
+		slog.Warn("radio import: loading show schedule for air window failed", "show_id", showID, "error", err)
+		return nil, nil
+	}
+	sched, err := catalogm.ParseRadioSchedule(show.Schedule)
+	if err != nil {
+		slog.Warn("radio import: parsing show schedule for air window failed", "show_id", showID, "error", err)
+		return nil, nil
+	}
+	if sched == nil {
+		return nil, nil // no structured schedule (e.g. a WFMU show not yet scraped)
+	}
+	startsAt, endsAt, err = sched.WindowForDate(ep.AirDate)
+	if err != nil {
+		slog.Warn("radio import: computing air window failed", "show_id", showID, "air_date", ep.AirDate, "error", err)
+		return nil, nil
+	}
+	return startsAt, endsAt
+}
+
 // importEpisode imports a single episode and its playlist. A brand-new episode is
 // created and its playlist fetched. An episode that already exists heals a missing
-// air window (PSY-1152) and, if it has aired with an incomplete playlist, runs a
-// post-air backfill re-fetch (PSY-1154) — otherwise it is a dedup skip.
+// air window (PSY-1152/PSY-1238) and, if it has aired with an incomplete playlist,
+// runs a post-air backfill re-fetch (PSY-1154) — otherwise it is a dedup skip.
 func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provider RadioPlaylistProvider) (*contracts.EpisodeImportResult, error) {
 	now := time.Now()
 
@@ -920,13 +985,15 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return &contracts.EpisodeImportResult{}, nil
 	}
 
-	// Create episode. StartsAt/EndsAt are the frozen air window (PSY-1152) — set
-	// once here from the provider's instants and never re-derived. Status is a
-	// best-effort snapshot computed at ingest; the authoritative live/aired state
-	// is recomputed on read (a stored "live" would go stale), and the column is
-	// kept fresh by the janitor (PSY-1155). The playlist starts pending; the
-	// fetch below settles it (PSY-1154), which is what can promote status to
-	// 'archived'.
+	// Create episode. StartsAt/EndsAt are the frozen air window (PSY-1152) — the
+	// provider's instants (KEXP/NTS) or, for WFMU, derived once here from the
+	// show's schedule + air_date (PSY-1238) — and never re-derived from a later
+	// schedule (the frozen-window rule). Status is a best-effort snapshot computed
+	// at ingest; the authoritative live/aired state is recomputed on read (a
+	// stored "live" would go stale), and the column is kept fresh by the janitor
+	// (PSY-1155). The playlist starts pending; the fetch below settles it
+	// (PSY-1154), which is what can promote status to 'archived'.
+	startsAt, endsAt := s.episodeAirWindow(showID, ep, now)
 	episode := &catalogm.RadioEpisode{
 		ShowID:          showID,
 		Title:           ep.Title,
@@ -935,10 +1002,10 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		DurationMinutes: ep.DurationMinutes,
 		ArchiveURL:      ep.ArchiveURL,
 		ExternalID:      &ep.ExternalID,
-		StartsAt:        ep.StartsAt,
-		EndsAt:          ep.EndsAt,
+		StartsAt:        startsAt,
+		EndsAt:          endsAt,
 		Status: catalogm.ComputeEpisodeStatus(
-			ep.StartsAt, ep.EndsAt, catalogm.RadioPlaylistStatePending, now,
+			startsAt, endsAt, catalogm.RadioPlaylistStatePending, now,
 		),
 	}
 
@@ -973,26 +1040,31 @@ func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 }
 
 // reimportExistingEpisode handles importEpisode's already-exists path. It first
-// heals a missing frozen air window (PSY-1152): rows imported before window stamping
-// have a NULL window and would never show "live", so a show airing across the deploy
-// would lose its ON AIR strip until re-ingest. It then runs a post-air playlist
-// backfill (PSY-1154) iff the episode has aired with an incomplete playlist and has
+// heals a missing frozen air window (PSY-1152): rows imported before window
+// stamping have a NULL window and would never show "live", so a show airing
+// across the deploy would lose its ON AIR strip until re-ingest. The window comes
+// from the provider's instants (KEXP/NTS) or, for WFMU, the show's schedule +
+// air_date (PSY-1238) — so a windowless WFMU episode that gets re-listed inside
+// the fetch window self-heals. It then runs a post-air playlist backfill
+// (PSY-1154) iff the episode has aired with an incomplete playlist and has
 // attempts left — a complete, exhausted (unavailable), still-live, or scheduled
 // episode is left untouched (dedup skip), so a routine re-list never re-fetches a
 // playlist that is already final or legitimately still in progress.
 func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
-	if existing.StartsAt == nil && ep.StartsAt != nil {
-		if err := s.db.Model(existing).Updates(map[string]any{
-			"starts_at": ep.StartsAt,
-			"ends_at":   ep.EndsAt,
-			"status":    catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, existing.PlaylistState, now),
-		}).Error; err != nil {
-			return nil, fmt.Errorf("backfilling episode air window: %w", err)
+	if existing.StartsAt == nil {
+		if startsAt, endsAt := s.episodeAirWindow(existing.ShowID, ep, now); startsAt != nil {
+			if err := s.db.Model(existing).Updates(map[string]any{
+				"starts_at": startsAt,
+				"ends_at":   endsAt,
+				"status":    catalogm.ComputeEpisodeStatus(startsAt, endsAt, existing.PlaylistState, now),
+			}).Error; err != nil {
+				return nil, fmt.Errorf("backfilling episode air window: %w", err)
+			}
+			// Keep the in-memory row consistent so the eligibility check below sees the
+			// healed window.
+			existing.StartsAt = startsAt
+			existing.EndsAt = endsAt
 		}
-		// Keep the in-memory row consistent so the eligibility check below sees the
-		// healed window.
-		existing.StartsAt = ep.StartsAt
-		existing.EndsAt = ep.EndsAt
 	}
 
 	if !catalogm.ShouldBackfillPlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState,
