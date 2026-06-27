@@ -217,10 +217,19 @@ func resolveCommonsPhoto(
 
 	qid := ""
 	if len(exact) == 1 {
-		// Unique exact-name match — low collision risk, use it directly.
+		// Unique exact-name match — low collision risk, used directly UNLESS our
+		// artist's curated link contradicts the MB artist on the SAME platform
+		// (strong evidence it's a different same-named artist). Absence of our link
+		// is NOT a contradiction — MB profiles are incomplete — so only a
+		// same-platform mismatch skips here.
 		urls, err := mb.LookupArtistURLs(ctx, exact[0].MBID)
 		if err != nil {
 			return nil, fmt.Errorf("musicbrainz url-rels: %w", err)
+		}
+		if contradictsAnchors(urls, anchors) {
+			slog.Info("commons-enrich: unique MB match contradicts our artist's link; skipping",
+				"artist_id", ar.ID, "name", ar.Name)
+			return nil, nil
 		}
 		qid = extractWikidataQID(urls)
 	} else {
@@ -272,13 +281,23 @@ func resolveCommonsPhoto(
 // Helpers (pure — unit-tested without HTTP or DB)
 // =============================================================================
 
-var wikidataQIDPattern = regexp.MustCompile(`wikidata\.org/(?:wiki|entity)/(Q\d+)`)
+var wikidataPathQIDPattern = regexp.MustCompile(`^/(?:wiki|entity)/(Q\d+)`)
 
 // extractWikidataQID returns the first Wikidata entity id among a set of artist
-// url-relations, or "".
+// url-relations, or "". The host is parsed + anchored to wikidata.org (not a
+// substring match) per the repo's host-anchoring contract (PSY-1113), so a link
+// like https://evil.test/wikidata.org/wiki/Q1 can't yield a spoofed id.
 func extractWikidataQID(urls []string) string {
-	for _, u := range urls {
-		if m := wikidataQIDPattern.FindStringSubmatch(u); m != nil {
+	for _, raw := range urls {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		host := strings.ToLower(u.Hostname())
+		if host != "wikidata.org" && host != "www.wikidata.org" {
+			continue
+		}
+		if m := wikidataPathQIDPattern.FindStringSubmatch(u.Path); m != nil {
 			return m[1]
 		}
 	}
@@ -334,6 +353,50 @@ func normalizeLink(raw string) string {
 	return host + path
 }
 
+// contradictsAnchors reports whether the MB url-relations carry a link on the SAME
+// identity-bearing platform as one of our artist's anchor links but a DIFFERENT
+// account — strong evidence of a different same-named artist. Only a same-platform
+// mismatch counts; an MB profile simply lacking our link is NOT a contradiction
+// (so a unique exact-name match with incomplete MB links is still used).
+func contradictsAnchors(urls, anchorKeys []string) bool {
+	for _, ak := range anchorKeys {
+		ap := linkPlatform(ak)
+		if ap == "" {
+			continue
+		}
+		for _, u := range urls {
+			k := normalizeLink(u)
+			if k == "" {
+				continue
+			}
+			if linkPlatform(k) == ap && k != ak {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// linkPlatform classifies a normalized link key (host+path) into a known
+// identity-bearing platform, or "" for generic hosts (e.g. a personal website,
+// where a different domain is not a reliable contradiction signal).
+func linkPlatform(key string) string {
+	host := key
+	if i := strings.IndexByte(key, '/'); i >= 0 {
+		host = key[:i]
+	}
+	switch {
+	case host == "open.spotify.com":
+		return "spotify"
+	case host == "soundcloud.com":
+		return "soundcloud"
+	case host == "bandcamp.com" || strings.HasSuffix(host, ".bandcamp.com"):
+		return "bandcamp"
+	default:
+		return ""
+	}
+}
+
 // validCommonsImageURL reports whether raw is an https image on the Commons CDN
 // host. Gates image_url before persisting (it renders in <img src>).
 func validCommonsImageURL(raw string) bool {
@@ -372,8 +435,8 @@ func dedupOne(vals []string) bool {
 }
 
 // nilIfEmpty returns nil for a blank string (→ SQL NULL in a GORM updates map),
-// else the trimmed string. image_author is optional (public-domain files often
-// have no author).
+// else the string unchanged (callers pass an already-trimmed value). image_author
+// is optional (public-domain files often have no author).
 func nilIfEmpty(s string) any {
 	if strings.TrimSpace(s) == "" {
 		return nil

@@ -102,11 +102,7 @@ func (a mbArtistAdapter) SearchArtistCandidates(ctx context.Context, name string
 	if err != nil {
 		return nil, err
 	}
-	out := make([]catalog.MBArtistCandidate, 0, len(raw))
-	for _, r := range raw {
-		out = append(out, catalog.MBArtistCandidate{MBID: r.ID, Name: r.Name})
-	}
-	return out, nil
+	return toMBArtistCandidates(raw), nil
 }
 
 func (a mbArtistAdapter) LookupArtistURLs(ctx context.Context, mbid string) ([]string, error) {
@@ -114,13 +110,29 @@ func (a mbArtistAdapter) LookupArtistURLs(ctx context.Context, mbid string) ([]s
 	if err != nil {
 		return nil, err
 	}
+	return toURLResources(rels), nil
+}
+
+// toMBArtistCandidates maps MusicBrainz search results to the catalog enricher's
+// candidate type.
+func toMBArtistCandidates(raw []pipeline.MBArtistResult) []catalog.MBArtistCandidate {
+	out := make([]catalog.MBArtistCandidate, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, catalog.MBArtistCandidate{MBID: r.ID, Name: r.Name})
+	}
+	return out
+}
+
+// toURLResources flattens MusicBrainz url-relations to their resource URLs,
+// dropping empty entries.
+func toURLResources(rels []pipeline.MBURLRelation) []string {
 	urls := make([]string, 0, len(rels))
 	for _, r := range rels {
 		if r.URL.Resource != "" {
 			urls = append(urls, r.URL.Resource)
 		}
 	}
-	return urls, nil
+	return urls
 }
 
 func printReport(r *catalog.CommonsEnrichReport) {

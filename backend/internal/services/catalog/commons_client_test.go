@@ -90,7 +90,9 @@ func TestIsReusableLicense(t *testing.T) {
 	for _, ok := range []string{"CC BY 2.0", "CC BY-SA 4.0", "CC0", "Public domain", "PDM", "PD-old"} {
 		assert.True(t, isReusableLicense(ok), ok)
 	}
-	for _, no := range []string{"", "Fair use", "All rights reserved", "GFDL", "Copyrighted"} {
+	for _, no := range []string{"", "Fair use", "All rights reserved", "GFDL", "Copyrighted",
+		// NonCommercial / NoDerivatives variants must be rejected despite starting "CC BY".
+		"CC BY-NC 4.0", "CC BY-ND 2.0", "CC BY-NC-SA 3.0", "CC BY-NC-ND 4.0"} {
 		assert.False(t, isReusableLicense(no), no)
 	}
 }
@@ -100,4 +102,6 @@ func TestStripCommonsHTML(t *testing.T) {
 	assert.Equal(t, "Tom & Jerry", stripCommonsHTML(`<span>Tom &amp; Jerry</span>`))
 	assert.Equal(t, "Plain Name", stripCommonsHTML("Plain Name"))
 	assert.Equal(t, "", stripCommonsHTML(""))
+	// An entity-encoded tag is unescaped THEN stripped, so no markup is stored.
+	assert.Equal(t, "x", stripCommonsHTML("&lt;script&gt;x&lt;/script&gt;"))
 }

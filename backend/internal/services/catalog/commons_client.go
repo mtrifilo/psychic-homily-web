@@ -179,7 +179,13 @@ func isReusableLicense(lic string) bool {
 	switch {
 	case l == "":
 		return false
-	case strings.HasPrefix(l, "cc by"): // covers CC BY and CC BY-SA, all versions
+	// Reject NonCommercial / NoDerivatives variants BEFORE the broad "cc by" accept:
+	// "CC BY-NC*" forbids our (commercial-tier) use, and "CC BY-ND*" forbids the
+	// resized thumbnail this code stores (a derivative). Both start with "cc by".
+	case strings.Contains(l, "-nc") || strings.Contains(l, "-nd") ||
+		strings.Contains(l, "noncommercial") || strings.Contains(l, "noderiv"):
+		return false
+	case strings.HasPrefix(l, "cc by"): // CC BY and CC BY-SA, all versions
 		return true
 	case strings.HasPrefix(l, "cc0"):
 		return true
@@ -195,10 +201,13 @@ func isReusableLicense(lic string) bool {
 var commonsHTMLTagRE = regexp.MustCompile(`<[^>]*>`)
 
 // stripCommonsHTML reduces the HTML "Artist" field Commons returns (often an
-// anchor or span) to a plain author name: drop tags, unescape entities, collapse
-// whitespace.
+// anchor or span) to a plain author name: unescape entities FIRST, then drop any
+// (now-literal) tags, then collapse whitespace. Order matters — unescaping before
+// stripping means an entity-encoded tag (e.g. "&lt;script&gt;") becomes a real tag
+// and is removed, so the stored value can never contain markup (defense for any
+// future non-React consumer of image_author).
 func stripCommonsHTML(s string) string {
-	s = commonsHTMLTagRE.ReplaceAllString(s, "")
 	s = html.UnescapeString(s)
+	s = commonsHTMLTagRE.ReplaceAllString(s, "")
 	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
 }
