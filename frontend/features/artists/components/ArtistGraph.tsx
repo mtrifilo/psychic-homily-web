@@ -8,8 +8,10 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
+import { buildAdjacency, endpointId, focusForeground } from '@/components/graph/graphFocus'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData } from '../types'
 
@@ -112,17 +114,21 @@ interface ArtistGraphProps {
 // own component so the "View artist page →" link can be unit-tested
 // independently of the canvas-based ForceGraph2D wrapper.
 //
-// Pointer-events grammar:
-//   - Outer wrapper: pointer-events-none — the tooltip is just a visual
-//     hint and must not steal hover/click events from the canvas
-//     underneath (otherwise the cursor sliding from a node onto the
-//     tooltip would dismiss the tooltip and break re-center clicks on
-//     adjacent nodes).
-//   - Link inside: pointer-events-auto — selectively re-enables the
-//     escape hatch to the full artist detail page. Works on desktop
-//     (hover surfaces tooltip, click goes through) and mobile
-//     (long-press surfaces tooltip per PSY-369 grammar, tap goes
-//     through).
+// Pointer-events grammar (PSY-1218 — hoverable so the link is reachable):
+//   - Outer wrapper: pointer-events-AUTO so the tooltip captures the pointer
+//     when the cursor travels from the node onto it. The parent wires
+//     onMouseEnter (cancel the pending dismiss → keep open) + onMouseLeave
+//     (reschedule the dismiss), so the "View artist page" link is reachable and
+//     clickable instead of vanishing the instant the cursor leaves the node.
+//     Trade-off: the small area the tooltip covers (offset 8px down-right of the
+//     node) can't be hovered/clicked on the canvas while the tooltip is shown —
+//     acceptable for a transient hint.
+//   - Link inside: pointer-events-auto — the explicit escape hatch to the full
+//     artist detail page (kept explicit as defense-in-depth, so the link works even
+//     if the wrapper's pointer-events ever change). The hoverable grace period is a
+//     desktop-mouse affordance; on touch the tooltip surfaces on long-press (PSY-369)
+//     and the tap on the link goes through (the wrapper is pointer-events-auto), but
+//     the mouse-grace timing isn't exercised on touch.
 export interface ArtistNodeTooltipProps {
   node: {
     name: string
@@ -132,16 +138,33 @@ export interface ArtistNodeTooltipProps {
     upcoming_show_count: number
   }
   position: TooltipAnchor
+  /**
+   * PSY-1218: keep the tooltip open while the pointer is over it (the parent
+   * cancels the dismiss timer on enter) and reschedule the dismiss on leave, so
+   * the link below is reachable.
+   *
+   * REQUIRED, not optional: the wrapper is `pointer-events-auto`, so it captures
+   * the pointer and the canvas stops firing `onNodeHover` for the area it covers.
+   * Without these handlers the tooltip would never receive a dismiss signal and
+   * could strand on screen — the exact PSY-1218 bug. Keeping them required makes
+   * that illegal state unrepresentable: a caller can't enable the capturing
+   * wrapper without also wiring its dismissal.
+   */
+  onMouseEnter: () => void
+  onMouseLeave: () => void
 }
 
-export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
+export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }: ArtistNodeTooltipProps) {
   return (
     <div
-      className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
+      data-testid="artist-node-tooltip"
+      className="absolute z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-auto"
       // left/top sit at the node; the transform offsets the tooltip 8px off the
       // node and flips it toward the container interior near the right/bottom edge
       // (shared with ForceGraphView via tooltipPlacementStyle — PSY-1217).
       style={tooltipPlacementStyle(position)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       <div className="font-medium text-sm">{node.name}</div>
       {(node.city || node.state) && (
@@ -170,6 +193,27 @@ export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
+// PSY-1210 hover-focus: nodes/links outside the foreground set fade using this alpha.
+// BACKGROUND_ALPHA is the canvas globalAlpha for nodes; BACKGROUND_ALPHA_HEX is the same
+// value as a 2-char hex pair for withHexAlpha on link colors — derived, so tuning the
+// constant moves both. (They share the source number, not the PERCEIVED opacity: the node
+// globalAlpha multiplies the node's already-semi-transparent fill, so backgrounded nodes
+// read a touch fainter than the flat-alpha links. Note withHexAlpha passes any non-6-hex
+// color through UNCHANGED, so if an --edge-* token ever became oklch/rgb the background
+// links would silently render at FULL color (no fade) while nodes still dim — the same
+// latent gap the resting cross-connection dim already has. All current tokens are 6-hex.)
+const BACKGROUND_ALPHA = 0.15
+const BACKGROUND_ALPHA_HEX = Math.round(BACKGROUND_ALPHA * 255).toString(16).padStart(2, '0')
+
+// PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the node
+// before auto-hiding. The tooltip overlaps the node's pointer-area (8px offset vs a
+// 10px hit radius), so this mainly absorbs accidental micro-movements off the node as
+// the user settles onto the tooltip, not a long traverse. 300ms is an initial feel
+// value (not yet tuned against a hover-timing trace); adjust if it feels sticky or too
+// eager. Tuned independently of the nav menu's CLOSE_DELAY_MS (useHoverIntentMenu) —
+// different gap geometry — so don't "unify" them.
+const TOOLTIP_DISMISS_DELAY_MS = 300
+
 export function ArtistGraphVisualization({
   data,
   activeTypes,
@@ -187,6 +231,30 @@ export function ArtistGraphVisualization({
   // right/bottom edges so it doesn't run off the dialog (PSY-1215).
   const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({ x: 0, y: 0, flipX: false, flipY: false })
 
+  // PSY-1218: hoverable-tooltip dismiss timer (lifecycle extracted to useDismissTimer).
+  // On hover-out we DELAY hiding the tooltip (scheduleDismiss) so the cursor can travel
+  // onto it and click the "View artist page" link; entering the tooltip cancels the
+  // timer (handleTooltipEnter → cancelDismiss), leaving it reschedules.
+  //
+  // overTooltipRef tracks whether the pointer is over the tooltip (set in
+  // handleTooltipEnter/Leave). The dismiss callback bails while it's true, which closes
+  // a canvas-vs-DOM ordering gap: when the cursor crosses from the node onto the
+  // overlaying tooltip, force-graph fires onNodeHover(null) ONCE on that hover-out — and
+  // because canvas hover detection runs in a requestAnimationFrame loop while the DOM
+  // onMouseEnter fires synchronously, that single canvas fire can land a frame AFTER
+  // onMouseEnter→cancelDismiss, re-arming a dismiss while the pointer rests on the
+  // tooltip. The gate bails on it; onMouseLeave reschedules on a real exit, so the link
+  // can't vanish from under the cursor.
+  //
+  // The flag is reset wherever the tooltip is torn down WITHOUT a DOM mouseleave —
+  // onZoom and the [data.center.id] re-center effect below, both of which also
+  // cancelDismiss. The normal pointer-leave path resets it via onMouseLeave.
+  const overTooltipRef = useRef(false)
+  const { schedule: scheduleDismiss, cancel: cancelDismiss } = useDismissTimer(() => {
+    if (overTooltipRef.current) return
+    setHoveredNode(null)
+  }, TOOLTIP_DISMISS_DELAY_MS)
+
   // Reset hover when the center changes (re-center) — the React-recommended
   // "adjust state during render" pattern (not an effect). onNodeHover only fires
   // on the next under-pointer change, so without this the previous artist's
@@ -196,6 +264,16 @@ export function ArtistGraphVisualization({
     setHoverCenterId(data.center.id)
     setHoveredNode(null)
   }
+  // Re-center tears the tooltip down in the render reset above WITHOUT a DOM
+  // mouseleave (true for browser back/forward too, since center is URL-driven), so
+  // reset the over-tooltip flag and cancel any pending dismiss here — a ref/timer
+  // can't be written during render, and an orphaned timer would otherwise fire
+  // against the new center. Mirrors onZoom's explicit teardown; the normal
+  // pointer-leave path resets the flag via onMouseLeave (PSY-1218 review).
+  useEffect(() => {
+    overTooltipRef.current = false
+    cancelDismiss()
+  }, [data.center.id, cancelDismiss])
   const reducedMotion = useReducedMotion()
 
   const graphHeight = containerWidth < 768 ? 350 : 500
@@ -303,17 +381,23 @@ export function ArtistGraphVisualization({
     }
   }, [reducedMotion])
 
-  // Labels are drawn in onRenderFramePost, which — unlike nodeCanvasObject — does
-  // NOT trigger a canvas redraw when its closure changes (react-force-graph-2d
-  // registers it with no onChange). So a theme toggle while the sim is settled
-  // wouldn't recolor the labels on its own. Kick a one-off repaint on palette
-  // change so renderGraphLabels re-runs with the fresh palette, rather than
-  // relying on another palette-reactive prop (linkColor) incidentally firing.
-  // PSY-1209. (ForceGraphView doesn't need this — its nodeCanvasObject reads
-  // palette for cluster fills, so it already redraws on theme change.)
+  // Kick a one-off repaint when reactive state the canvas reads changes but wouldn't
+  // otherwise force a redraw:
+  //   (1) palette (PSY-1209): labels in onRenderFramePost read it, but that callback
+  //       doesn't self-trigger a redraw.
+  //   (2) hover-focus (PSY-1210): nodeCanvasObject / linkColor / labels read focusedIds;
+  //       force-graph's notifyRedraw only sets a flag the rAF loop consumes, and that
+  //       loop can be idle/paused, so resumeAnimation is what guarantees the frame renders.
+  // CAVEAT: force-graph's rAF loop reschedules unconditionally, so resumeAnimation here
+  // (on mount via palette, then on hover) keeps the loop running even under
+  // prefers-reduced-motion — i.e. the pauseAnimation effect above doesn't actually hold.
+  // That's PRE-EXISTING (the [palette] resume already ran on mount before this change);
+  // hover-focus thus DOES render for reduced-motion, but the pause being defeated is the
+  // real issue, tracked in PSY-1226. (The canvas is a visual enhancement; the accessible
+  // path is the RelatedArtists list.)
   useEffect(() => {
     graphRef.current?.resumeAnimation()
-  }, [palette])
+  }, [palette, hoveredNode])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
@@ -350,14 +434,59 @@ export function ArtistGraphVisualization({
   // node never desync; a null placement (hover-out, or a node without settled
   // coords) hides the tooltip rather than stranding it at a stale/origin position.
   const handleNodeHover = useCallback((node: GraphNode | null) => {
-    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+    // The center node has no rich tooltip (suppressed in the render guard below), so
+    // treat hovering it like hover-out — otherwise crossing the center on the way to
+    // a satellite's tooltip would cancelDismiss + show nothing, instantly killing the
+    // grace window the feature exists to provide (PSY-1218 code-review).
+    const placement =
+      node && !node.isCenter
+        ? nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+        : null
     if (placement) {
+      cancelDismiss()
       setTooltipPos(placement)
       setHoveredNode(node)
     } else {
-      setHoveredNode(null)
+      // Hover-out, the center node, or an unplaceable node: DON'T hide immediately —
+      // delay so the cursor can travel onto the tooltip and reach its link (PSY-1218).
+      // Entering the tooltip cancels this; if the cursor never reaches it, it hides.
+      scheduleDismiss()
     }
-  }, [])
+  }, [cancelDismiss, scheduleDismiss])
+
+  // Keep the tooltip open while the pointer is over it (cancel the dismiss) and
+  // reschedule the dismiss when it leaves. overTooltipRef gates the dismiss callback
+  // against the canvas-vs-DOM race described on the timer above (PSY-1218).
+  const handleTooltipEnter = useCallback(() => {
+    overTooltipRef.current = true
+    cancelDismiss()
+  }, [cancelDismiss])
+  const handleTooltipLeave = useCallback(() => {
+    overTooltipRef.current = false
+    scheduleDismiss()
+  }, [scheduleDismiss])
+
+  // Hover-focus (PSY-1210): when a node is hovered, IT + its 1-hop neighbors (plus the
+  // center, which is the page subject and stays foreground always) are the
+  // "foreground"; every other node/link/label fades to the background. Adjacency is
+  // rebuilt only when the graph data changes; the foreground set is derived per-hover
+  // (null = resting view, no focus). The repaint on hover change is forced by the
+  // resumeAnimation effect above — see there for the reduced-motion caveat.
+  //
+  // The [graphData] dep on adjacency is load-bearing: the memo captures the freshly
+  // rebuilt BARE-id links, before d3-force mutates source/target into resolved objects
+  // in place (buildAdjacency would accept either shape, but only bare ids occur here).
+  const adjacency = useMemo(() => buildAdjacency(graphData.links), [graphData])
+  const focusedIds = useMemo(() => {
+    if (hoveredNode == null) return null
+    // Drop focus if the hovered node was filtered out / refetched away (no longer in
+    // graphData): a stale hover would otherwise leave focusedIds matching nothing
+    // visible and dim the WHOLE graph to the background alpha (PSY-1210 review).
+    if (!graphData.nodes.some(n => n.id === hoveredNode.id)) return null
+    // Keep the center (the page subject) foreground always — passed as the helper's
+    // alwaysInclude anchor so the rule lives in one tested place (PSY-1210 review).
+    return focusForeground(adjacency, hoveredNode.id, data.center.id)
+  }, [adjacency, hoveredNode, graphData, data.center.id])
 
   const nodeCanvasObject = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D) => {
@@ -365,6 +494,12 @@ export function ArtistGraphVisualization({
       const y = node.y ?? 0
       const isCenter = node.isCenter
       const radius = isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
+
+      // Hover-focus (PSY-1210): dim nodes outside the foreground set. globalAlpha
+      // multiplies every fill/stroke below (incl. the show indicator); it's reset to
+      // 1 at the end so the next node + the post-frame labels render at full opacity.
+      // Snap (no transition) — focus appears/clears with the hover, no fade animation.
+      ctx.globalAlpha = focusedIds != null && !focusedIds.has(node.id) ? BACKGROUND_ALPHA : 1
 
       // Draw circle. Labels are NOT drawn here — they're rendered in a single
       // collision-culled post-frame pass (nodeLabelsFrame) so overlapping labels
@@ -393,8 +528,10 @@ export function ArtistGraphVisualization({
         ctx.fillStyle = '#22c55e' // green-500
         ctx.fill()
       }
+
+      ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
     },
-    []
+    [focusedIds]
   )
 
   // Degree (link count) per node id → which label wins a collision (shared with
@@ -405,29 +542,40 @@ export function ArtistGraphVisualization({
   // be collision-culled (PSY-1209): in a dense 1-hop graph the per-node labels
   // overlapped into an unreadable pile. The center node is always labeled (force);
   // other labels are kept in degree order and dropped when they'd overlap a
-  // higher-priority one. A culled neighbor's name is still reachable via the hover
-  // tooltip (reveal-on-hover in the canvas is PSY-1210). Same gate (globalScale >
-  // 0.7), font, truncation, and y-offset the per-node paint used; the theme-aware
-  // halo+fill lives in renderGraphLabels (shared with ForceGraphView).
+  // higher-priority one. A culled neighbor's name is reachable via the hover tooltip;
+  // on hover-focus the background nodes drop their labels and only the foreground set is
+  // a label candidate (still collision-culled among themselves — center + hovered are
+  // forced) (PSY-1210, below). Same gate (globalScale > 0.7), font, truncation, and
+  // y-offset the per-node paint used; the theme-aware halo+fill lives in
+  // renderGraphLabels (shared with ForceGraphView).
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= 0.7) return
       const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
-      const specs: GraphLabelSpec[] = graphData.nodes.map(node => {
-        const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
-        return {
-          x: node.x ?? 0,
-          y: (node.y ?? 0) + radius + 4,
-          text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
-          fontSize,
-          bold: node.isCenter,
-          force: node.isCenter,
-          priority: degreeById.get(node.id) ?? 0,
-        }
-      })
+      const specs: GraphLabelSpec[] = graphData.nodes
+        // Hover-focus (PSY-1210): when focused, label only the foreground set so the
+        // background de-clutters; at rest (focusedIds null) label all, as before.
+        .filter(node => focusedIds == null || focusedIds.has(node.id))
+        .map(node => {
+          const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
+          return {
+            x: node.x ?? 0,
+            y: (node.y ?? 0) + radius + 4,
+            text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
+            fontSize,
+            bold: node.isCenter,
+            // Always label the center and the hovered node. This only applies to the
+            // foreground — the .filter above already drops background nodes — so the
+            // `isCenter` here stays consistent with the center being in focusForeground's
+            // alwaysInclude (a node not in focusedIds is filtered out, never force-labeled
+            // over a dimmed circle). PSY-1210.
+            force: node.isCenter || node.id === hoveredNode?.id,
+            priority: degreeById.get(node.id) ?? 0,
+          }
+        })
       renderGraphLabels(ctx, palette, specs)
     },
-    [graphData, palette, degreeById]
+    [graphData, palette, degreeById, focusedIds, hoveredNode]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,
@@ -436,9 +584,18 @@ export function ArtistGraphVisualization({
   const linkColor = useCallback(
     (link: GraphLink) => {
       const color = palette.edges[link.type] ?? palette.unknownEdge
+      // Hover-focus (PSY-1210): a link is foreground only when BOTH its endpoints are in
+      // the foreground set — those render at full color so the focused neighborhood's
+      // edges stay crisp; every other link fades to the background. At rest (no focus),
+      // keep the resting styling: cross-connections dim to 40% (PSY-1083).
+      if (focusedIds) {
+        const foreground =
+          focusedIds.has(endpointId(link.source)) && focusedIds.has(endpointId(link.target))
+        return foreground ? color : withHexAlpha(color, BACKGROUND_ALPHA_HEX)
+      }
       return link.isCrossConnection ? withHexAlpha(color, '66') : color
     },
-    [palette]
+    [palette, focusedIds]
   )
 
   const linkWidth = useCallback((link: GraphLink) => edgeWidth(link.type, link.score), [])
@@ -465,6 +622,10 @@ export function ArtistGraphVisualization({
         nodeVal="val"
         nodeCanvasObject={nodeCanvasObject}
         onRenderFramePost={nodeLabelsFrame}
+        // The hit area is deliberately NOT narrowed for background (hover-focus-faded)
+        // nodes (PSY-1210): the fade is a visual de-emphasis, but every node stays fully
+        // hoverable/clickable so you can move focus to any node by hovering it (and the
+        // node brightens the moment it becomes the hovered/foreground node).
         nodePointerAreaPaint={(node: GraphNode, color: string, ctx: CanvasRenderingContext2D) => {
           const x = node.x ?? 0
           const y = node.y ?? 0
@@ -477,8 +638,10 @@ export function ArtistGraphVisualization({
         onNodeHover={handleNodeHover}
         // Wheel-zoom moves the node under a stationary pointer without re-firing
         // onNodeHover, stranding the tooltip at a stale screen position — dismiss it
-        // on zoom (re-hover re-anchors it) (PSY-1215).
-        onZoom={() => setHoveredNode(null)}
+        // on zoom (re-hover re-anchors it) (PSY-1215). This unmounts the tooltip with
+        // no DOM mouseleave, so reset the over-tooltip flag and cancel any pending
+        // dismiss too, or the flag would wedge the gate for the next tooltip (PSY-1218).
+        onZoom={() => { overTooltipRef.current = false; cancelDismiss(); setHoveredNode(null) }}
         // The rich ArtistNodeTooltip below (anchored at the node) replaces the
         // default native name pill for satellite nodes, so suppress the pill there
         // to avoid a redundant second tooltip. KEEP it for the center node, which
@@ -505,7 +668,12 @@ export function ArtistGraphVisualization({
       />
 
       {hoveredNode && !hoveredNode.isCenter && (
-        <ArtistNodeTooltip node={hoveredNode} position={tooltipPos} />
+        <ArtistNodeTooltip
+          node={hoveredNode}
+          position={tooltipPos}
+          onMouseEnter={handleTooltipEnter}
+          onMouseLeave={handleTooltipLeave}
+        />
       )}
 
       {/* PSY-361: re-center loading overlay. Sits above the canvas without

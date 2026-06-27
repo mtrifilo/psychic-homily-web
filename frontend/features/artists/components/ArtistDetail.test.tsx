@@ -90,7 +90,6 @@ vi.mock('@/features/contributions', () => ({
   AttributionLine: (): null => null,
   ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
     open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
-  ContributionPrompt: (): null => null,
   useSuggestEdit: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 

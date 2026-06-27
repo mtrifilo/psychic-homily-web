@@ -347,17 +347,16 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         </div>
       </section>
 
-      {/* Tools — standalone admin pages outside the main tab grid.
-       Featured curation and Streaming-discovery worklist each live at
-       their own route, so they need explicit links here for
-       discoverability. */}
+      {/* Tools — dashboard quick-links. Discovery and the Streaming-discovery
+       worklist are now sidebar tabs (linked via ?tab=); Featured curation still
+       lives at its own route. Kept here for at-a-glance discoverability. */}
       <section>
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
           Tools
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Link
-            href="/admin/streaming-worklist"
+            href="/admin?tab=streaming-worklist"
             className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             data-testid="admin-dashboard-link-streaming-worklist"
           >
@@ -374,7 +373,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
             </div>
           </Link>
           <Link
-            href="/admin/discovery"
+            href="/admin?tab=discovery"
             className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             data-testid="admin-dashboard-link-discovery"
           >

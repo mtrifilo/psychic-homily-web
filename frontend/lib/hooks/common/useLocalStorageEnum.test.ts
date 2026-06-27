@@ -166,8 +166,8 @@ describe('useLocalStorageEnum', () => {
   })
 
   it('drops a stale intent override when the key prop changes mid-instance', () => {
-    // Simulates a component instance whose `key` prop changes (e.g.
-    // ContributionPrompt re-rendered with a different entityId) AFTER a
+    // Simulates a component instance whose `key` prop changes (e.g. a
+    // per-entity widget re-rendered with a different entityId) AFTER a
     // setter call that failed to persist (localStorage.setItem threw).
     // Without per-key intent isolation, the stale 'true' intent from the
     // previous key would bleed through into the new key's read.

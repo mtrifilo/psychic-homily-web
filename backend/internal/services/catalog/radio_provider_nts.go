@@ -76,6 +76,15 @@ func (p *NTSProvider) DiscoverShows() ([]RadioShowImport, error) {
 		url := fmt.Sprintf("%s/v2/shows?offset=%d&limit=%d", p.baseURL, offset, ntsPageLimit)
 		resp, err := p.doGet(url)
 		if err != nil {
+			// NTS caps how deep offset pagination may go and returns 422
+			// ("The requested offset is not allowed") past that cap instead of an
+			// empty page. Once at least one page is in hand, treat that 422 as the
+			// end of the list and return what we collected — failing the whole
+			// discover on it discards every show already gathered.
+			var httpErr *RadioHTTPError
+			if offset > 0 && errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusUnprocessableEntity {
+				break
+			}
 			return nil, fmt.Errorf("fetching shows: %w", err)
 		}
 
@@ -112,6 +121,12 @@ func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time, u
 			p.baseURL, showExternalID, offset, ntsPageLimit)
 		resp, err := p.doGet(url)
 		if err != nil {
+			// Same NTS offset cap as DiscoverShows: a 422 past the first page
+			// marks the end of available episodes, not a fetch failure.
+			var httpErr *RadioHTTPError
+			if offset > 0 && errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusUnprocessableEntity {
+				break
+			}
 			return nil, fmt.Errorf("fetching episodes for %s: %w", showExternalID, err)
 		}
 

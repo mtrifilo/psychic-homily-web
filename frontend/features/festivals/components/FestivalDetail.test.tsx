@@ -65,7 +65,6 @@ vi.mock('@/features/contributions', () => ({
   AttributionLine: (): null => null,
   ReportEntityDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="report-dialog" /> : null,
-  ContributionPrompt: (): null => null,
 }))
 
 vi.mock('@/features/comments', () => ({

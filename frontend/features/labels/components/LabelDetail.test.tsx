@@ -74,7 +74,6 @@ vi.mock('@/features/notifications', () => ({
 
 vi.mock('@/features/contributions', () => ({
   AttributionLine: (): null => null,
-  ContributionPrompt: (): null => null,
   EntityEditDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
   EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>

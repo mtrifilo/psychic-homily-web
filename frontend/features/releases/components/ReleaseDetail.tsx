@@ -24,7 +24,7 @@ import {
   ImageAttribution,
   MusicEmbed,
 } from '@/components/shared'
-import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
+import { AttributionLine, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { AddReleaseLinkDialog } from './AddReleaseLinkDialog'
 import { AsHeardOn } from '@/features/radio'
@@ -381,16 +381,6 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
               entityType="release"
               entityId={release.id}
               isAuthenticated={isAuthenticated}
-            />
-            <ContributionPrompt
-              entityType="release"
-              entityId={release.id}
-              entitySlug={release.slug}
-              isAuthenticated={!!isAuthenticated}
-              onEditClick={(focusField) => {
-                setEditFocusField(focusField)
-                setIsEditing(true)
-              }}
             />
           </>
         }

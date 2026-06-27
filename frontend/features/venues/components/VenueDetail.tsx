@@ -18,7 +18,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork } from './VenueBillNetwork'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
 
@@ -74,7 +74,6 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
 
 export function VenueDetail({ venueId }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
-  const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
   const { isAuthenticated, user } = useAuthContext()
@@ -272,20 +271,6 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             />
           </header>
 
-          {/* Contribution Prompt */}
-          <div className="mb-4">
-            <ContributionPrompt
-              entityType="venue"
-              entityId={venue.id}
-              entitySlug={venue.slug}
-              isAuthenticated={!!isAuthenticated}
-              onEditClick={(focusField) => {
-                setEditFocusField(focusField)
-                setIsEditingVenue(true)
-              }}
-            />
-          </div>
-
           {/* Description */}
           <div className="mb-6">
             <EntityDescription
@@ -389,16 +374,12 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
       {venue && isAuthenticated && (
         <EntityEditDrawer
           open={isEditingVenue}
-          onOpenChange={(open) => {
-            setIsEditingVenue(open)
-            if (!open) setEditFocusField(undefined)
-          }}
+          onOpenChange={(open) => setIsEditingVenue(open)}
           entityType="venue"
           entityId={venue.id}
           entityName={venue.name}
           entity={venue as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
-          focusField={editFocusField}
           onSuccess={handleVenueUpdated}
         />
       )}

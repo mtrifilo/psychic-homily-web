@@ -16,6 +16,8 @@ export {
   useAutoDismissFlag,
 } from './useAutoDismissBanner'
 
+export { useDismissTimer } from './useDismissTimer'
+
 export {
   useEntityRevisions,
   useRevision,

@@ -41,7 +41,7 @@ import {
   formatFestivalDateRange,
 } from '../types'
 import { useIsAuthenticated } from '@/features/auth'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog } from '@/features/contributions'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { useQueryClient } from '@tanstack/react-query'
@@ -266,16 +266,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
             entityType="festival"
             entityId={festival.id}
             isAuthenticated={isAuthenticated}
-          />
-          <ContributionPrompt
-            entityType="festival"
-            entityId={festival.id}
-            entitySlug={festival.slug}
-            isAuthenticated={!!isAuthenticated}
-            onEditClick={(focusField) => {
-              setEditFocusField(focusField)
-              setIsEditing(true)
-            }}
           />
         </>
       }
