@@ -137,6 +137,17 @@ func printReport(r *enrich.Report) {
 		fmt.Println()
 	}
 
+	if len(r.Conflicts) > 0 {
+		fmt.Println("--- Conflicts (sources disagree on country — skipped for review) ---")
+		for _, c := range r.Conflicts {
+			fmt.Printf("  [conflict] artist %d %q  MB{%s/%s/%s} vs Bandcamp{%s/%s/%s}\n",
+				c.ArtistID, c.Name,
+				c.MB.City, c.MB.State, c.MB.Country,
+				c.Bandcamp.City, c.Bandcamp.State, c.Bandcamp.Country)
+		}
+		fmt.Println()
+	}
+
 	if len(r.Errors) > 0 {
 		fmt.Println("--- Errors ---")
 		for _, e := range r.Errors {
@@ -150,6 +161,7 @@ func printReport(r *enrich.Report) {
 	fmt.Printf("  filled from Bandcamp:                %d\n", r.FilledBandcamp)
 	fmt.Printf("  filled from MusicBrainz:             %d\n", r.FilledMusicBrainz)
 	fmt.Printf("  resolved but nothing empty to fill:  %d\n", r.ResolvedNoFill)
+	fmt.Printf("  conflicts (skipped for review):      %d\n", len(r.Conflicts))
 	fmt.Printf("  missed (no source had a location):   %d\n", r.Missed)
 	fmt.Printf("Errors:                                %d\n", len(r.Errors))
 	fmt.Println()

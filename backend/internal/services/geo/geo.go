@@ -60,6 +60,7 @@ type cityRow struct {
 type offlineGeocoder struct {
 	byCity      map[string][]cityRow // key: foldKey(city name)
 	nameToISO   map[string]string    // key: foldKey(country name) -> ISO2
+	isoToName   map[string]string    // ISO2 -> canonical display name
 	isoCodes    map[string]bool      // valid ISO2 codes
 	usStates    map[string]bool      // US state/territory codes (admin1)
 	caProvinces map[string]bool      // Canadian province codes (non-ISO-colliding)
@@ -94,10 +95,50 @@ func LookupPointers(g Geocoder, city, state, country string) (lat, lng *float64,
 	return &res.Latitude, &res.Longitude, &res.Timezone
 }
 
+// CountryToISO canonicalizes a country string — an ISO 3166-1 alpha-2 code, a
+// full name, or a known alias ("USA") — to its ISO2 code; ok is false for an
+// unrecognized value. It exists to compare country values from heterogeneous
+// sources (MusicBrainz ISO codes vs Bandcamp free-text names) on a single key.
+func CountryToISO(s string) (string, bool) {
+	Default() // ensure the dataset is parsed
+	return defaultGeo.countryToISO(s)
+}
+
+func (g *offlineGeocoder) countryToISO(s string) (string, bool) {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return "", false
+	}
+	if len(t) == 2 {
+		if up := strings.ToUpper(t); g.isoCodes[up] {
+			return up, true
+		}
+	}
+	if iso, ok := g.nameToISO[foldKey(stripLeadingThe(t))]; ok {
+		return iso, true
+	}
+	return "", false
+}
+
+// CanonicalCountryName maps any recognized country string to a single canonical
+// display name (the GeoNames name for its ISO code), so values from different
+// sources ("US" / "USA" / "United States") store identically. ok is false for an
+// unrecognized value (the caller then keeps the original string).
+func CanonicalCountryName(s string) (string, bool) {
+	Default()
+	iso, ok := defaultGeo.countryToISO(s)
+	if !ok {
+		return "", false
+	}
+	name, ok := defaultGeo.isoToName[iso]
+	return name, ok
+}
+
 func newOfflineGeocoder() *offlineGeocoder {
 	g := &offlineGeocoder{
 		byCity:      make(map[string][]cityRow, 40000),
 		nameToISO:   make(map[string]string, 512),
+		isoToName:   make(map[string]string, 256),
 		isoCodes:    make(map[string]bool, 256),
 		usStates:    usStateSet(),
 		caProvinces: caProvinceSet(),
@@ -126,6 +167,11 @@ func (g *offlineGeocoder) loadCountries() {
 		}
 		g.isoCodes[iso] = true
 		g.nameToISO[foldKey(name)] = iso
+		// First (canonical GeoNames) name per ISO wins; later aliases don't
+		// override it, so CanonicalCountryName returns a stable display form.
+		if _, seen := g.isoToName[iso]; !seen {
+			g.isoToName[iso] = name
+		}
 		// GeoNames prefixes some names with "The " (e.g. "The Netherlands").
 		// Index the stripped form too so "Netherlands" resolves.
 		if stripped := stripLeadingThe(name); stripped != name {
