@@ -104,16 +104,28 @@ func TestFetchSince(t *testing.T) {
 	// Fixed clock (mid-day) so we also assert the floor is normalized to midnight.
 	now := time.Date(2026, 6, 26, 18, 30, 0, 0, time.UTC)
 	today := now.UTC().Truncate(24 * time.Hour)           // 2026-06-26 00:00 UTC
-	floor := today.AddDate(0, 0, -fetchLookbackFloorDays) // 2026-06-12 00:00 UTC
+	floor := today.AddDate(0, 0, -fetchLookbackFloorDays) // 2026-05-12 00:00 UTC (45d)
 
-	t.Run("nil last fetch keeps the pre-PSY-1230 7-day cold-start window", func(t *testing.T) {
-		// Pin to the LITERAL legacy value (not coldStartLookbackDays), so a change
-		// to the constant trips this test instead of silently passing — the prior
-		// behavior was time.Now().AddDate(0,0,-7), here midnight-normalized.
-		want := today.AddDate(0, 0, -7)
+	t.Run("floor is the deliberately-chosen 45 days, cold-start unified to it (PSY-1241)", func(t *testing.T) {
+		// Pinned to the literal so an accidental change to the constant trips this
+		// test. 45d covers the ~92%-monthly NTS roster; retune deliberately (and
+		// update this line) per the fetchLookbackFloorDays doc comment.
+		if fetchLookbackFloorDays != 45 {
+			t.Errorf("fetchLookbackFloorDays = %d, want 45", fetchLookbackFloorDays)
+		}
+		if coldStartLookbackDays != fetchLookbackFloorDays {
+			t.Errorf("coldStartLookbackDays = %d, must be unified to the floor %d",
+				coldStartLookbackDays, fetchLookbackFloorDays)
+		}
+	})
+
+	t.Run("nil last fetch uses the cold-start window, unified to the floor (PSY-1241)", func(t *testing.T) {
+		// A first fetch must never look back less than a subsequent one — that is the
+		// one place a monthly show's latest episode could be missed before the floor
+		// takes over. Asserts the unification behaviorally.
 		got := fetchSince(nil, now)
-		if !got.Equal(want) {
-			t.Errorf("nil last fetch: got %v, want pre-PSY-1230 7d window %v", got, want)
+		if !got.Equal(floor) {
+			t.Errorf("nil last fetch must use the floor-width cold-start window: got %v, want %v", got, floor)
 		}
 	})
 
@@ -130,11 +142,39 @@ func TestFetchSince(t *testing.T) {
 		}
 	})
 
-	t.Run("last fetch older than the floor still wins (re-enabled station)", func(t *testing.T) {
-		old := now.AddDate(0, 0, -20)
+	t.Run("last fetch older than the floor still wins (re-enabled station / recovered outage)", func(t *testing.T) {
+		// Older than the 45d floor, so the catch-up branch returns the true lastFetch
+		// rather than clamping forward to the floor.
+		old := now.AddDate(0, 0, -60)
 		got := fetchSince(&old, now)
 		if !got.Equal(old) {
 			t.Errorf("stale last fetch must win: got %v, want %v", got, old)
 		}
 	})
+}
+
+// TestShouldAdvanceLastFetch covers the per-run gate that keeps a total provider
+// outage from advancing last_playlist_fetch_at (PSY-1241). Holding the timestamp
+// stale on a total failure is what lets fetchSince's catch-up branch re-scan the
+// true gap on recovery.
+func TestShouldAdvanceLastFetch(t *testing.T) {
+	cases := []struct {
+		name              string
+		attempts, success int
+		want              bool
+	}{
+		{"no fetchable shows advances (nothing to catch up on)", 0, 0, true},
+		{"all shows succeeded advances", 5, 5, true},
+		{"partial success advances", 5, 1, true},
+		{"total failure holds the timestamp", 5, 0, false},
+		{"single show outage holds the timestamp", 1, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldAdvanceLastFetch(tc.attempts, tc.success); got != tc.want {
+				t.Errorf("shouldAdvanceLastFetch(%d, %d) = %v, want %v",
+					tc.attempts, tc.success, got, tc.want)
+			}
+		})
+	}
 }

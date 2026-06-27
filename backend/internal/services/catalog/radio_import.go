@@ -241,26 +241,32 @@ func recordImportError(result *contracts.RadioImportResult, category, detail str
 }
 
 const (
-	// coldStartLookbackDays is the first-fetch window for a station with no prior
-	// last_playlist_fetch_at. It is intentionally narrower than the steady-state
-	// floor: the stall the floor guards against can't happen on a first fetch
-	// (there is no advancing timestamp yet to overtake a show), 7d already covers
-	// the targeted weekly cadence, and deep / longer-cadence initial population is
-	// the backfill path's job (ImportStation), not this incremental one. Preserves
-	// the pre-PSY-1230 default. (Reconciling cold-start with longer cadences is
-	// part of the fetch-window hardening follow-up.)
-	coldStartLookbackDays = 7
-
 	// fetchLookbackFloorDays floors how far back a SUBSEQUENT incremental fetch
 	// looks. `since` is computed once per STATION from its last_playlist_fetch_at,
-	// which advances on every run — so without a floor a show that airs less often
-	// than the station is fetched slips behind `since` and is skipped on every
-	// later run, permanently. 14d is 2x the targeted WEEKLY cadence (a full week of
-	// slack). Longer cadences (biweekly, monthly NTS shows) are NOT reliably
-	// covered here — a bigger floor also pages NTS deeper (ntsPageLimit=12) and
-	// leans harder on its newest-first ordering assumption, so the right
-	// value/approach needs its own analysis: the fetch-window hardening follow-up. (PSY-1230)
-	fetchLookbackFloorDays = 14
+	// which advances on every run (the fetch loop runs every 6h) — so without a
+	// floor a show that airs less often than the station is fetched slips behind
+	// `since` and is skipped on every later run, permanently (PSY-1230).
+	//
+	// 45 days covers the longest REGULAR cadence on the roster with margin. The NTS
+	// roster is ~92% monthly-cadence (dominant 28-day interval, a thin tail to ~42d;
+	// measured against the stage roster, PSY-1241), so the prior 14-day value left
+	// those episodes with near-zero tolerance for publish lag — the gap between when
+	// an episode airs and when it (with its playlist) becomes listable. A wider
+	// floor mostly just re-lists already-complete episodes, which importEpisode
+	// dedups on (show_id, external_id) — a cheap no-op. The paging cost the 14-day
+	// value guarded against is negligible here: a monthly show is one NTS page
+	// regardless of the floor (the per-page early-exit stops after its 1–2 in-window
+	// episodes), and only the handful of daily shows page one or two deeper.
+	fetchLookbackFloorDays = 45
+
+	// coldStartLookbackDays is the first-fetch window for a station with no prior
+	// last_playlist_fetch_at. It matches the steady-state floor: a first fetch that
+	// looked back LESS than every subsequent fetch would be the one place a
+	// monthly show's most recent episode could be missed before the floor takes
+	// over. Deep initial population (history older than the floor) remains the
+	// backfill path's job (ImportStation / discover create-on-first), not this
+	// incremental one. (PSY-1241; was 7 = the pre-PSY-1230 default.)
+	coldStartLookbackDays = fetchLookbackFloorDays
 )
 
 // fetchSince computes the lower bound (`since`) for an incremental playlist
@@ -278,10 +284,10 @@ const (
 // Re-scanning the wider window is cheap: an already-COMPLETE episode hits a
 // dedup no-op (importEpisode keys on (show_id, external_id)); only a
 // recently-aired, still-pending episode re-fetches its playlist, bounded by
-// RadioBackfillMaxAttempts. A genuinely older lastFetch (a re-enabled station)
-// still widens the window further — but note a fully-failed run currently still
-// advances last_playlist_fetch_at, so this alone does NOT recover a multi-week
-// outage (also tracked in the fetch-window hardening follow-up).
+// RadioBackfillMaxAttempts. A genuinely older lastFetch — a re-enabled station,
+// or a multi-day provider outage during which shouldAdvanceLastFetch held the
+// timestamp back (PSY-1241) — widens the window further so recovery re-scans
+// back to the true gap.
 func fetchSince(lastFetch *time.Time, now time.Time) time.Time {
 	today := now.UTC().Truncate(24 * time.Hour)
 	if lastFetch == nil {
@@ -292,6 +298,29 @@ func fetchSince(lastFetch *time.Time, now time.Time) time.Time {
 		return *lastFetch
 	}
 	return floor
+}
+
+// shouldAdvanceLastFetch reports whether an incremental fetch run earned a
+// last_playlist_fetch_at bump. A run advances the timestamp when it made forward
+// progress: it had no fetchable shows (nothing to catch up on) or at least one
+// show's provider fetch succeeded. A TOTAL-station failure — every fetchable show
+// errored its provider fetch, i.e. a full provider/network outage — must NOT
+// advance: the per-show errors don't propagate as a hard error (they land in the
+// result), so without this gate the timestamp kept advancing to ~now on every
+// failed run, pinning fetchSince at the floor and leaving its catch-up branch
+// (lastFetch < floor) permanently dead. Episodes that aired during the outage but
+// older than the floor were then skipped forever. Holding the timestamp stale lets
+// the next successful run re-scan back to the true gap.
+//
+// Scope: this gate is TOTAL-station only, because last_playlist_fetch_at is a
+// single per-station watermark. A station where most shows succeed but ONE show
+// errors every run still advances (fetchSuccesses > 0), so that one show's
+// episodes older than the floor are not recovered by the incremental path — e.g. a
+// renamed/removed external_id that 404s until an admin corrects it; recovery there
+// is a manual backfill. Per-show incremental recovery would need a per-show fetch
+// timestamp (tracked as a follow-up). (PSY-1241)
+func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses int) bool {
+	return fetchAttempts == 0 || fetchSuccesses > 0
 }
 
 // FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at,
@@ -326,17 +355,23 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		return nil, fmt.Errorf("loading shows: %w", err)
 	}
 
+	// Track per-run fetch outcomes so a total provider outage doesn't advance the
+	// timestamp (see shouldAdvanceLastFetch). A show with no external id can't be
+	// fetched and is not counted as an attempt.
+	var fetchAttempts, fetchSuccesses int
 	for _, show := range shows {
 		if show.ExternalID == nil || *show.ExternalID == "" {
 			continue
 		}
 
+		fetchAttempts++
 		episodes, err := provider.FetchNewEpisodes(*show.ExternalID, since, time.Time{})
 		if err != nil {
 			recordImportError(result, categorizeRunError(err),
 				fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err), nil)
 			continue
 		}
+		fetchSuccesses++
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(show.ID, ep, provider)
@@ -350,9 +385,17 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		}
 	}
 
-	// Update last fetch timestamp
-	now := time.Now()
-	s.db.Model(&station).Update("last_playlist_fetch_at", now)
+	// Advance the last-fetch timestamp only when the run made progress; a total
+	// provider outage leaves it stale so the next good run re-scans the true gap.
+	// last_playlist_fetch_at is therefore a "last successful progress" watermark,
+	// NOT "last attempt" — attempt history (including failed/partial runs) lives in
+	// radio_sync_runs. (PSY-1241)
+	if shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses) {
+		if err := s.db.Model(&station).Update("last_playlist_fetch_at", time.Now()).Error; err != nil {
+			slog.Default().Error("radio fetch: failed to advance last_playlist_fetch_at",
+				"station_id", stationID, "error", err)
+		}
+	}
 
 	return result, nil
 }
