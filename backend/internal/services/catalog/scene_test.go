@@ -111,8 +111,17 @@ func (suite *SceneServiceIntegrationTestSuite) createUnverifiedVenue(name, city,
 	return venue
 }
 
+// createArtist seeds an artist LOCAL to the suite's scene (Phoenix, AZ) so it
+// counts toward the scene under the PSY-1233 home-city filter. Use createArtistIn
+// for a touring act based elsewhere.
 func (suite *SceneServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
-	artist := &catalogm.Artist{Name: name}
+	return suite.createArtistIn(name, "Phoenix", "AZ")
+}
+
+// createArtistIn seeds an artist with an explicit home city/state — used to seed
+// touring acts (city != the scene) for the PSY-1233 local-filter tests.
+func (suite *SceneServiceIntegrationTestSuite) createArtistIn(name, city, state string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name, City: stringPtr(city), State: stringPtr(state)}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
@@ -562,6 +571,47 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_Success() {
 	suite.Equal(2, results[0].ShowCount)
 	suite.Equal(2, results[1].ShowCount)
 	suite.Equal(1, results[2].ShowCount)
+}
+
+// PSY-1233: a scene's artists are its LOCAL artists (home city/state matches the
+// scene), not every touring act that played a venue there. Pins the filter across
+// GetActiveArtists (list + total) and the scene-detail artist count.
+func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_ExcludesTouringActs() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+
+	local := suite.createArtistIn("Phoenix Local", "Phoenix", "AZ")
+	touring := suite.createArtistIn("LA Tourer", "Los Angeles", "CA")
+	// Local despite contributor free-text casing/whitespace (case-insensitive + trimmed match).
+	messy := suite.createArtistIn("Messy Casing", "  phoenix ", " az ")
+	// NULL home city → can't be claimed as local → excluded.
+	noCity := &catalogm.Artist{Name: "No Home City"}
+	suite.Require().NoError(suite.db.Create(noCity).Error)
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("Local 1", v1.ID, local.ID, user.ID, future)
+	suite.createApprovedShow("Local 2", v2.ID, local.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Touring", v1.ID, touring.ID, user.ID, future.AddDate(0, 0, 2))
+	suite.createApprovedShow("Messy", v2.ID, messy.ID, user.ID, future.AddDate(0, 0, 3))
+	suite.createApprovedShow("NoCity", v1.ID, noCity.ID, user.ID, future.AddDate(0, 0, 4))
+
+	results, total, err := suite.sceneService.GetActiveArtists("Phoenix", "AZ", 365, 20, 0)
+	suite.Require().NoError(err)
+
+	names := make([]string, 0, len(results))
+	for _, r := range results {
+		names = append(names, r.Name)
+	}
+	suite.Equal(int64(2), total, "only the two LOCAL artists count toward the scene")
+	suite.ElementsMatch([]string{"Phoenix Local", "Messy Casing"}, names)
+	suite.NotContains(names, "LA Tourer", "a touring act based elsewhere is excluded")
+	suite.NotContains(names, "No Home City", "an artist with no home city can't be claimed as local")
+
+	// The scene-detail artist count uses the same filter.
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Equal(2, detail.Stats.ArtistCount)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_RespectsLimit() {
