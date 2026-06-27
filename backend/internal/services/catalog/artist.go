@@ -109,9 +109,10 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Single artist write path (PSY-1254): dedup by name, unique slug, insert —
-	// plus (PSY-1247) image-enrichment enqueue — all live in the funnel. The admin
-	// create is explicit, so a found artist is an error, not a silent reuse.
+	// Single artist write path (PSY-1254): dedup by name, unique slug, insert (and
+	// PSY-1247 will add image-enrichment enqueue here). The admin create is explicit,
+	// so a found artist is an error, not a silent reuse — note the funnel may backfill
+	// that found artist's missing slug (a committed write) before we return the error.
 	artist, created, err := FindOrCreateArtistTx(s.db, req.Name, func(a *catalogm.Artist) {
 		a.State = req.State
 		a.City = req.City

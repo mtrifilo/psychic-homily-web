@@ -39,6 +39,10 @@ const (
 	BandcampEmbedSourceProfileResolved = "profile_resolved"
 )
 
+// Artist is a band/performer. Create one BY NAME only via
+// catalog.FindOrCreateArtistTx — the single write funnel that owns name dedup and
+// unique-slug generation (and the PSY-1247 enrichment-enqueue hook). Do not
+// open-code find-or-create + Create(&Artist{}) elsewhere (PSY-1254).
 type Artist struct {
 	ID               uint    `gorm:"primaryKey"`
 	Name             string  `gorm:"uniqueIndex"`

@@ -92,3 +92,13 @@ func (s *FindOrCreateArtistTestSuite) TestApplyRunsOnlyOnCreate() {
 	s.Require().NotNil(again.City)
 	s.Equal("Olympia", *again.City, "apply must not run on an existing artist")
 }
+
+func (s *FindOrCreateArtistTestSuite) TestRejectsBlankName() {
+	for _, name := range []string{"", "   ", "\t\n"} {
+		_, _, err := FindOrCreateArtistTx(s.db, name, nil)
+		s.Error(err, "blank/whitespace name %q must be rejected at the funnel boundary", name)
+	}
+	var count int64
+	s.db.Model(&catalogm.Artist{}).Count(&count)
+	s.Zero(count, "no artist row should be created for a blank name")
+}
