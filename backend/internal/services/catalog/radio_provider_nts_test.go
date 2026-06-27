@@ -207,6 +207,40 @@ func TestNTS_DiscoverShows_Empty(t *testing.T) {
 	assert.Empty(t, shows)
 }
 
+func TestNTS_DiscoverShows_OffsetCap422EndsPagination(t *testing.T) {
+	// NTS returns 422 ("The requested offset is not allowed") once the offset
+	// exceeds its pagination cap, instead of an empty page. DiscoverShows must
+	// treat that as the end of the list and return the pages already fetched —
+	// the production bug was that every NTS discover aborted with status 422,
+	// discarding all the shows gathered before the cap.
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("offset") == "0" {
+			results := make([]ntsShow, ntsPageLimit)
+			for i := 0; i < ntsPageLimit; i++ {
+				results[i] = ntsShow{Name: fmt.Sprintf("Show %d", i), Alias: fmt.Sprintf("show-%d", i)}
+			}
+			data, _ := json.Marshal(ntsShowsResponse{Results: results})
+			_, _ = w.Write(data)
+			return
+		}
+		// Past the cap: NTS responds 422 instead of an empty page.
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = fmt.Fprint(w, `{"error":"Unprocessable Entity: The requested offset is not allowed."}`)
+	}))
+	defer server.Close()
+
+	provider := NewNTSProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	shows, err := provider.DiscoverShows()
+	require.NoError(t, err, "a 422 past the offset cap must end pagination, not fail discover")
+	assert.Len(t, shows, ntsPageLimit, "keeps the first page fetched before the 422")
+	assert.Equal(t, 2, requestCount, "stops after the 422 on the second request")
+}
+
 // =============================================================================
 // Episode Discovery Tests
 // =============================================================================
