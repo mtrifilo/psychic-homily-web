@@ -54,10 +54,16 @@ func (l ResolvedLocation) isZero() bool {
 	return l.City == "" && l.State == "" && l.Country == ""
 }
 
+// mbErrorBreakerThreshold is how many CONSECUTIVE MusicBrainz errors trip the
+// circuit breaker: after this many in a row, MusicBrainz is disabled for the
+// rest of the run (remaining artists use Bandcamp only). Without it a sustained
+// MB rate-limit / outage would make every remaining artist pay a doomed
+// ~1s-throttled call, dragging the run on for minutes and prolonging the IP ban.
+const mbErrorBreakerThreshold = 5
+
 // Options configures a backfill run.
 type Options struct {
 	DryRun       bool
-	Verbose      bool
 	Limit        int  // 0 = all artists needing location
 	BandcampOnly bool // skip the MusicBrainz fallback
 }
@@ -128,17 +134,40 @@ func backfillArtistLocations(
 
 	report := &Report{ArtistsScanned: len(artists)}
 	now := time.Now()
+	mbConsecutiveErrors := 0
+	mbDisabled := false
 
 	for i := range artists {
 		a := &artists[i]
 
-		loc, source, err := resolveLocation(ctx, a, bandcamp, mb, opts)
-		if err != nil {
-			report.Errors = append(report.Errors, err.Error())
-			report.Missed++
-			continue
+		useMB := !opts.BandcampOnly && !mbDisabled
+		loc, source, mbErr := resolveLocation(ctx, a, bandcamp, mb, useMB)
+
+		// Circuit breaker: after a sustained run of MusicBrainz errors, disable it
+		// for the rest of the run so an outage doesn't make every remaining artist
+		// pay a doomed ~1s-throttled call. A clean MB response (hit OR miss) resets
+		// the streak.
+		if useMB {
+			if mbErr != nil {
+				mbConsecutiveErrors++
+				if mbConsecutiveErrors >= mbErrorBreakerThreshold && !mbDisabled {
+					mbDisabled = true
+					report.Errors = append(report.Errors, fmt.Sprintf(
+						"musicbrainz disabled after %d consecutive errors; remaining artists use Bandcamp only (last: %v)",
+						mbConsecutiveErrors, mbErr))
+				}
+			} else {
+				mbConsecutiveErrors = 0
+			}
 		}
+
 		if source == "" {
+			// Resolved nothing. Surface a genuine MB error (an outage) but not a
+			// clean miss. An artist recovered via Bandcamp despite an MB error is
+			// NOT counted here — its mbErr only fed the breaker above.
+			if mbErr != nil {
+				report.Errors = append(report.Errors, mbErr.Error())
+			}
 			report.Missed++
 			continue
 		}
@@ -176,50 +205,64 @@ func backfillArtistLocations(
 
 // resolveLocation tries MusicBrainz first (the curated origin — preferred for
 // factual accuracy after the stage dry-run), then falls back to Bandcamp's
-// self-report for artists MusicBrainz doesn't cover. Returns (loc, source, nil)
-// on a hit, (zero, "", nil) on a clean miss, and (zero, "", err) on a hard
-// source failure (e.g. a MusicBrainz rate-limit) so a persistent outage surfaces
-// in the report instead of masquerading as "no data". --bandcamp-only
-// (opts.BandcampOnly) skips MusicBrainz entirely.
+// self-report. useMB gates the MusicBrainz attempt (false under --bandcamp-only
+// or once the run's circuit breaker has tripped).
+//
+// Returns (loc, source, mbErr): source != "" means resolved — possibly via
+// Bandcamp EVEN WHEN MusicBrainz errored, because a transient MB failure must not
+// suppress the fallback. mbErr is the MusicBrainz error (if any), returned
+// independently of recovery so the caller's circuit breaker can observe it; the
+// caller only records it as a run error when the artist resolved nothing.
 func resolveLocation(
 	ctx context.Context,
 	a *catalogm.Artist,
 	bandcamp BandcampLocationResolver,
 	mb MBCandidateSearcher,
-	opts Options,
+	useMB bool,
 ) (ResolvedLocation, string, error) {
-	// MusicBrainz primary — structured, matched by exact (case-insensitive) name.
-	if !opts.BandcampOnly && mb != nil {
+	var mbErr error
+
+	// MusicBrainz primary — structured, matched by the discovery exact-name gate.
+	if useMB && mb != nil {
 		candidates, err := mb.SearchArtistCandidates(ctx, a.Name)
 		if err != nil {
-			return ResolvedLocation{}, "", fmt.Errorf("musicbrainz %q: %w", a.Name, err)
-		}
-		if loc, ok := matchMBLocation(candidates, a.Name); ok {
+			mbErr = fmt.Errorf("musicbrainz %q: %w", a.Name, err)
+		} else if loc, ok := matchMBLocation(candidates, a.Name); ok {
 			return loc, DataSourceMusicBrainz, nil
 		}
 	}
 
 	// Bandcamp fallback — only artists whose social.bandcamp is set. Any bandcamp
 	// URL works: the location element is in the band header on band/album pages.
+	// This also RECOVERS an artist whose MusicBrainz lookup errored above.
 	if bandcamp != nil && a.Social.Bandcamp != nil {
 		if raw, ok := bandcamp.ResolveProfileLocation(ctx, *a.Social.Bandcamp); ok {
 			if loc, ok := parseBandcampLocation(raw); ok {
-				return loc, DataSourceBandcamp, nil
+				return loc, DataSourceBandcamp, mbErr
 			}
 		}
 	}
 
-	return ResolvedLocation{}, "", nil
+	return ResolvedLocation{}, "", mbErr
 }
 
 // matchMBLocation returns the location of the first candidate whose name matches
-// the query exactly (case-insensitive). The exact-name gate mirrors the
-// discovery flow (PSY-1191): a score/top-hit filter would pick a higher-scored
-// famous namesake over the correct artist.
+// the query under the SAME exact-name gate the discovery flow uses
+// (pipeline.NormalizeArtistName, PSY-1197) — not a looser EqualFold — so the two
+// identity checks can't drift (it folds punctuation/"&", catching e.g.
+// "Godspeed You! Black Emperor"). A score/top-hit filter is deliberately avoided:
+// it would pick a higher-scored famous namesake over the correct artist.
+//
+// NOTE: two genuinely different bands CAN share an exact name; this auto-writes
+// the first match's location, so a homonym can be mis-attributed. The mandatory
+// dry-run review is the backstop; PSY-1236 adds a source-disagreement guard.
 func matchMBLocation(candidates []pipeline.MBArtistResult, name string) (ResolvedLocation, bool) {
-	want := strings.TrimSpace(name)
+	want := pipeline.NormalizeArtistName(name)
+	if want == "" {
+		return ResolvedLocation{}, false
+	}
 	for _, c := range candidates {
-		if !strings.EqualFold(strings.TrimSpace(c.Name), want) {
+		if pipeline.NormalizeArtistName(c.Name) != want {
 			continue
 		}
 		if loc, ok := locationFromMBResult(c); ok {
@@ -232,13 +275,19 @@ func matchMBLocation(candidates []pipeline.MBArtistResult, name string) (Resolve
 // parseBandcampLocation splits a Bandcamp "location secondaryText" string into a
 // ResolvedLocation. Bandcamp renders the band's home as "City, Region" where
 // Region is a full US state name ("Phoenix, Arizona") or a country
-// ("Tokyo, Japan"); some bands set only a single token.
+// ("Tokyo, Japan"); occasionally "City, State, Country" or "City, County, State".
 //
-// Rules (conservative — a wrong guess is harder to undo than an empty field):
-//   - "City, Region": Region via utils.StateNameToAbbrev → State (US); else Country.
-//   - "City, State, Country": middle as State (if it maps), last as Country.
-//   - single token: too ambiguous to classify as city vs country → skip (ok=false);
-//     the structured MusicBrainz fallback covers these.
+// Classification keys on the TRAILING (most-specific) token, then the one before
+// it — never blindly on position (conservative; a wrong guess is harder to undo
+// than an empty field):
+//   - last token is a US state name/abbrev → State; else → Country.
+//   - if last was a Country and a preceding token is a US state → also set State.
+//   - single token: too ambiguous (city vs country) → skip; MusicBrainz covers it.
+//
+// KNOWN LIMITATION (PSY-1236): a region that is BOTH a US state name and a
+// country — "Georgia" — is read as the US state. The MusicBrainz primary already
+// covers most such artists correctly; the disambiguation (geocoder-validated)
+// lands with the source-conflict guard.
 func parseBandcampLocation(raw string) (ResolvedLocation, bool) {
 	parts := strings.Split(raw, ",")
 	cleaned := make([]string, 0, len(parts))
@@ -252,19 +301,18 @@ func parseBandcampLocation(raw string) (ResolvedLocation, bool) {
 	}
 
 	loc := ResolvedLocation{City: cleaned[0]}
-	if len(cleaned) >= 3 {
-		if abbr, ok := utils.StateNameToAbbrev(cleaned[len(cleaned)-2]); ok {
-			loc.State = abbr
-		}
-		loc.Country = cleaned[len(cleaned)-1]
-		return loc, true
-	}
-	// Exactly two parts: the region is a US state OR a country.
-	region := cleaned[1]
-	if abbr, ok := utils.StateNameToAbbrev(region); ok {
+	last := cleaned[len(cleaned)-1]
+	if abbr, ok := utils.StateNameToAbbrev(last); ok {
+		// Trailing token is a US state ("…, Arizona" / "…, County, New York").
 		loc.State = abbr
 	} else {
-		loc.Country = region
+		// Trailing token is a country ("…, Japan" / "…, State, USA").
+		loc.Country = last
+		if len(cleaned) >= 3 {
+			if abbr, ok := utils.StateNameToAbbrev(cleaned[len(cleaned)-2]); ok {
+				loc.State = abbr
+			}
+		}
 	}
 	return loc, true
 }
@@ -284,18 +332,21 @@ func locationFromMBResult(r pipeline.MBArtistResult) (ResolvedLocation, bool) {
 		if name == "" {
 			continue
 		}
-		switch a.Type {
-		case "City":
+		// Match Type case-insensitively, mirroring the discovery area helpers —
+		// MusicBrainz's documented casing is "City"/"Subdivision"/"Country" but a
+		// case-sensitive switch would silently drop a future casing change.
+		switch strings.ToLower(a.Type) {
+		case "city":
 			if loc.City == "" {
 				loc.City = name
 			}
-		case "Subdivision":
+		case "subdivision":
 			if loc.State == "" {
 				if abbr, ok := utils.StateNameToAbbrev(name); ok {
 					loc.State = abbr
 				}
 			}
-		case "Country":
+		case "country":
 			if loc.Country == "" {
 				loc.Country = name
 			}
@@ -317,10 +368,13 @@ func locationFromMBResult(r pipeline.MBArtistResult) (ResolvedLocation, bool) {
 // empty: a field already set is never overwritten. Returns the update map and
 // the filled field names; an empty filled list means nothing to write.
 //
-// data_source/source_confidence are set ONLY when the artist has no prior
-// data_source — that column is row-level and may already attribute a different
-// enrichment (e.g. spotify images), so we record provenance without clobbering
-// it. last_verified_at is always bumped when we fill something.
+// The provenance triple (data_source, source_confidence, last_verified_at) is
+// written together or not at all, ONLY when the artist has no prior data_source.
+// That column is row-level and may already attribute a different enrichment (e.g.
+// spotify images); bumping last_verified_at alone would make the triple describe
+// a source it no longer matches. So we record coherent provenance for rows we
+// "own" and leave another enrichment's provenance untouched (the location fields
+// still fill regardless).
 func buildArtistLocationUpdate(
 	a *catalogm.Artist,
 	loc ResolvedLocation,
@@ -347,10 +401,10 @@ func buildArtistLocationUpdate(
 		return nil, nil
 	}
 
-	updates["last_verified_at"] = now
 	if isEmptyPtr(a.DataSource) {
 		updates["data_source"] = source
 		updates["source_confidence"] = confidence
+		updates["last_verified_at"] = now
 	}
 	return updates, filled
 }
@@ -363,12 +417,19 @@ func isEmptyPtr(s *string) bool {
 // gormArtistStore is the production artistStore backed by GORM.
 type gormArtistStore struct{ db *gorm.DB }
 
-// ArtistsNeedingLocation loads artists with at least one empty location field,
-// ordered by id for a stable run. limit <= 0 means all.
+// ArtistsNeedingLocation loads artists missing a CITY — the universal location
+// field both sources supply and the one the UI shows. Gating on city (not on
+// "any of city/state/country empty") lets the run CONVERGE: an international band
+// legitimately has no US state, and a US band filled "City, State" from Bandcamp
+// has no country, so a multi-field gate would re-select — and re-fetch — those
+// rows on every run forever. TRIM matches the in-memory isEmptyPtr check so the
+// SQL gate and the fill logic agree on "empty". Ordered by id for a stable run;
+// limit <= 0 means all. (State/country still fill opportunistically when we fill
+// a city — they're just not what KEEPS an artist in the candidate set.)
 func (s *gormArtistStore) ArtistsNeedingLocation(limit int) ([]catalogm.Artist, error) {
 	var artists []catalogm.Artist
 	q := s.db.
-		Where("city IS NULL OR city = '' OR state IS NULL OR state = '' OR country IS NULL OR country = ''").
+		Where("city IS NULL OR TRIM(city) = ''").
 		Order("id")
 	if limit > 0 {
 		q = q.Limit(limit)

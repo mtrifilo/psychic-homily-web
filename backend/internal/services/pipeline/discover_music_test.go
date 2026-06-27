@@ -344,8 +344,8 @@ func TestNormalizeArtistName(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		if got := normalizeArtistName(c.in); got != c.want {
-			t.Errorf("normalizeArtistName(%q) = %q, want %q", c.in, got, c.want)
+		if got := NormalizeArtistName(c.in); got != c.want {
+			t.Errorf("NormalizeArtistName(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

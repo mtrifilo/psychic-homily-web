@@ -86,7 +86,6 @@ func main() {
 		pipeline.NewMusicBrainzClient(),
 		enrich.Options{
 			DryRun:       !confirm,
-			Verbose:      verbose,
 			Limit:        limit,
 			BandcampOnly: bandcampOnly,
 		},
@@ -147,7 +146,7 @@ func printReport(r *enrich.Report) {
 	}
 
 	fmt.Println("=== Summary ===")
-	fmt.Printf("Artists scanned (location incomplete): %d\n", r.ArtistsScanned)
+	fmt.Printf("Artists scanned (missing city):         %d\n", r.ArtistsScanned)
 	fmt.Printf("  filled from Bandcamp:                %d\n", r.FilledBandcamp)
 	fmt.Printf("  filled from MusicBrainz:             %d\n", r.FilledMusicBrainz)
 	fmt.Printf("  resolved but nothing empty to fill:  %d\n", r.ResolvedNoFill)

@@ -3,6 +3,8 @@ package enrich
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ func TestParseBandcampLocation(t *testing.T) {
 		{"intl city + country", "Tokyo, Japan", ResolvedLocation{City: "Tokyo", Country: "Japan"}, true},
 		{"intl city + country 2", "Berlin, Germany", ResolvedLocation{City: "Berlin", Country: "Germany"}, true},
 		{"city state country", "Brooklyn, New York, USA", ResolvedLocation{City: "Brooklyn", State: "NY", Country: "USA"}, true},
+		{"city county state (trailing token is the state, not country)", "Brooklyn, Kings County, New York", ResolvedLocation{City: "Brooklyn", State: "NY"}, true},
 		{"extra whitespace", "  Seattle ,  Washington  ", ResolvedLocation{City: "Seattle", State: "WA"}, true},
 		{"single token city", "Portland", ResolvedLocation{}, false},
 		{"single token country", "France", ResolvedLocation{}, false},
@@ -157,17 +160,20 @@ func TestBuildArtistLocationUpdate(t *testing.T) {
 		}
 	})
 
-	t.Run("existing data_source is not clobbered", func(t *testing.T) {
+	t.Run("existing data_source: location fills but provenance triple left intact", func(t *testing.T) {
 		a := &catalogm.Artist{ID: 4, DataSource: strptr("spotify")}
-		updates, _ := buildArtistLocationUpdate(a, full, DataSourceBandcamp, confidenceBandcamp, now)
-		if _, ok := updates["data_source"]; ok {
-			t.Fatalf("data_source should be preserved, got %v", updates["data_source"])
+		updates, filled := buildArtistLocationUpdate(a, full, DataSourceBandcamp, confidenceBandcamp, now)
+		// Location still fills.
+		if updates["city"] != "Phoenix" || len(filled) != 3 {
+			t.Fatalf("location should still fill, got %+v filled=%v", updates, filled)
 		}
-		if _, ok := updates["source_confidence"]; ok {
-			t.Fatalf("source_confidence should not be set when data_source preserved")
-		}
-		if updates["last_verified_at"] != now {
-			t.Fatalf("last_verified_at should still be bumped")
+		// The provenance triple is written together-or-not-at-all: a row already
+		// attributed to another enrichment (spotify) is left fully intact, so we
+		// don't bump last_verified_at to point at a source it no longer describes.
+		for _, k := range []string{"data_source", "source_confidence", "last_verified_at"} {
+			if _, ok := updates[k]; ok {
+				t.Fatalf("%s must NOT be written when data_source already set, got %v", k, updates[k])
+			}
 		}
 	})
 
@@ -246,9 +252,11 @@ func (f fakeBandcamp) ResolveProfileLocation(_ context.Context, profileURL strin
 type fakeMB struct {
 	byName map[string][]pipeline.MBArtistResult
 	err    error
+	calls  int // how many times SearchArtistCandidates was invoked (breaker test)
 }
 
-func (f fakeMB) SearchArtistCandidates(_ context.Context, name string) ([]pipeline.MBArtistResult, error) {
+func (f *fakeMB) SearchArtistCandidates(_ context.Context, name string) ([]pipeline.MBArtistResult, error) {
+	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -269,7 +277,7 @@ func TestBackfillArtistLocations(t *testing.T) {
 			"https://both.bandcamp.com/": "Phoenix, Arizona", // should be overridden by MB
 			"https://bc.bandcamp.com/":   "Tokyo, Japan",
 		}}
-		mb := fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
 			"Both Band":    {{Name: "Both Band", BeginArea: &pipeline.MBArea{Name: "Chicago", Type: "City"}, Area: &pipeline.MBArea{Name: "Illinois", Type: "Subdivision"}, Country: "US"}},
 			"Located Band": {{Name: "Located Band", BeginArea: &pipeline.MBArea{Name: "Oakland", Type: "City"}}},
 		}}
@@ -311,7 +319,7 @@ func TestBackfillArtistLocations(t *testing.T) {
 			{ID: 1, Name: "Band", Social: catalogm.Social{Bandcamp: strptr("https://b.bandcamp.com/")}},
 		}}
 		bc := fakeBandcamp{byURL: map[string]string{"https://b.bandcamp.com/": "Tokyo, Japan"}}
-		report, err := backfillArtistLocations(context.Background(), store, bc, fakeMB{}, Options{DryRun: true})
+		report, err := backfillArtistLocations(context.Background(), store, bc, &fakeMB{}, Options{DryRun: true})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -325,7 +333,7 @@ func TestBackfillArtistLocations(t *testing.T) {
 
 	t.Run("bandcamp-only skips musicbrainz", func(t *testing.T) {
 		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "MB Band"}}}
-		mb := fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
 			"MB Band": {{Name: "MB Band", BeginArea: &pipeline.MBArea{Name: "Denver", Type: "City"}}},
 		}}
 		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{BandcampOnly: true})
@@ -339,7 +347,7 @@ func TestBackfillArtistLocations(t *testing.T) {
 
 	t.Run("musicbrainz error surfaces in report", func(t *testing.T) {
 		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Band"}}}
-		mb := fakeMB{err: errors.New("rate limited (HTTP 503)")}
+		mb := &fakeMB{err: errors.New("rate limited (HTTP 503)")}
 		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{})
 		if err != nil {
 			t.Fatalf("orchestrator should not hard-fail on a per-artist MB error: %v", err)
@@ -349,6 +357,60 @@ func TestBackfillArtistLocations(t *testing.T) {
 		}
 		if report.Missed != 1 {
 			t.Fatalf("errored artist should count as missed, got %d", report.Missed)
+		}
+	})
+
+	t.Run("musicbrainz error does NOT suppress the bandcamp fallback", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Band", Social: catalogm.Social{Bandcamp: strptr("https://b.bandcamp.com/")}},
+		}}
+		mb := &fakeMB{err: errors.New("rate limited (HTTP 503)")}
+		bc := fakeBandcamp{byURL: map[string]string{"https://b.bandcamp.com/": "Austin, Texas"}}
+		report, err := backfillArtistLocations(context.Background(), store, bc, mb, Options{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Recovered via Bandcamp despite the MB error.
+		if report.FilledBandcamp != 1 || report.Missed != 0 {
+			t.Fatalf("expected bandcamp recovery: filled=%d missed=%d", report.FilledBandcamp, report.Missed)
+		}
+		if store.updates[1]["state"] != "TX" {
+			t.Fatalf("expected Texas from bandcamp, got %+v", store.updates[1])
+		}
+		// The MB error fed the breaker but is NOT recorded as a run error — the
+		// artist resolved fine.
+		if len(report.Errors) != 0 {
+			t.Fatalf("recovered artist must not record an error, got %v", report.Errors)
+		}
+	})
+
+	t.Run("circuit breaker disables musicbrainz after sustained errors", func(t *testing.T) {
+		var artists []catalogm.Artist
+		for i := 1; i <= 10; i++ {
+			artists = append(artists, catalogm.Artist{ID: uint(i), Name: fmt.Sprintf("Band %d", i)})
+		}
+		store := &fakeStore{artists: artists}
+		mb := &fakeMB{err: errors.New("rate limited (HTTP 503)")}
+		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// MB is called only until the breaker trips on the Nth consecutive error;
+		// the remaining artists make no doomed MB call.
+		if mb.calls != mbErrorBreakerThreshold {
+			t.Fatalf("MB called %d times, want %d (breaker should stop further calls)", mb.calls, mbErrorBreakerThreshold)
+		}
+		if report.Missed != 10 {
+			t.Fatalf("missed = %d, want 10", report.Missed)
+		}
+		var disabled bool
+		for _, e := range report.Errors {
+			if strings.Contains(e, "musicbrainz disabled after") {
+				disabled = true
+			}
+		}
+		if !disabled {
+			t.Fatalf("expected a 'musicbrainz disabled' notice, got %v", report.Errors)
 		}
 	})
 }
