@@ -451,6 +451,20 @@ export function ForceGraphView({
     }
   }, [reducedMotion])
 
+  // PSY-1235: restart force-graph's rAF render loop on (re-)mount. On a fresh page load
+  // react-force-graph starts its own loop, but after a client back-navigation re-mount the
+  // loop comes back DEAD (measured 0 fps vs ~158 fps fresh), which freezes the canvas and
+  // every interaction it drives — hover, click, pan, zoom — until a full refresh.
+  // resumeAnimation restarts it. Gated on !reducedMotion (PSY-1226) so it does NOT defeat the
+  // pause above: for those users the static snapshot is intended (the accessible path is the
+  // caller's list view) and a paused loop has no interaction to lose anyway. The effect re-runs
+  // on every mount, so a re-mounted graph is revived; it also fires if reducedMotion flips off.
+  useEffect(() => {
+    if (!reducedMotion) {
+      graphRef.current?.resumeAnimation()
+    }
+  }, [reducedMotion])
+
   const handleNodeClickInternal = useCallback(
     (node: RenderNode) => {
       onNodeClick(node)
