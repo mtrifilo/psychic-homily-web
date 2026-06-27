@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
@@ -663,35 +664,13 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		// (PSY-576).
 		syncEventDate := newShow.EventDate
 		for _, exportedArtist := range show.Artists {
-			var artist catalogm.Artist
-			err := tx.Where("LOWER(name) = LOWER(?)", exportedArtist.Name).First(&artist).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// Create artist with slug
-				artistBaseSlug := utils.GenerateArtistSlug(exportedArtist.Name)
-				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {
-					var count int64
-					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-					return count > 0
-				})
-				artist = catalogm.Artist{
-					Name: exportedArtist.Name,
-					Slug: &artistSlug,
-				}
-				if err := tx.Create(&artist).Error; err != nil {
-					return fmt.Errorf("failed to create artist: %w", err)
-				}
-			} else if err != nil {
-				return fmt.Errorf("failed to find artist: %w", err)
-			} else if artist.Slug == nil {
-				// Backfill slug for existing artist
-				artistBaseSlug := utils.GenerateArtistSlug(artist.Name)
-				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {
-					var count int64
-					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
-					return count > 0
-				})
-				tx.Model(&artist).Update("slug", artistSlug)
+			// Single artist write path (PSY-1254): dedup, unique slug, insert, and
+			// slug-backfill of an existing slug-less artist — all in the funnel.
+			foundArtist, _, err := catalog.FindOrCreateArtistTx(tx, exportedArtist.Name, nil)
+			if err != nil {
+				return fmt.Errorf("artist %s: %w", exportedArtist.Name, err)
 			}
+			artist := *foundArtist
 
 			// Create show-artist association
 			showArtist := catalogm.ShowArtist{
