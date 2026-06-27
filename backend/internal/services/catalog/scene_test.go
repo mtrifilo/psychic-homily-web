@@ -111,8 +111,17 @@ func (suite *SceneServiceIntegrationTestSuite) createUnverifiedVenue(name, city,
 	return venue
 }
 
+// createArtist seeds an artist LOCAL to the suite's scene (Phoenix, AZ) so it
+// counts toward the scene under the PSY-1233 home-city filter. Use createArtistIn
+// for a touring act based elsewhere.
 func (suite *SceneServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
-	artist := &catalogm.Artist{Name: name}
+	return suite.createArtistIn(name, "Phoenix", "AZ")
+}
+
+// createArtistIn seeds an artist with an explicit home city/state — used to seed
+// touring acts (city != the scene) for the PSY-1233 local-filter tests.
+func (suite *SceneServiceIntegrationTestSuite) createArtistIn(name, city, state string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name, City: stringPtr(city), State: stringPtr(state)}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
@@ -206,7 +215,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_BelowThreshold_Too
 	// Only 1 verified venue — below the 2-verified-venue threshold
 	user := suite.createUser()
 	v := suite.createVerifiedVenue("Venue A", "Tucson", "AZ")
-	a := suite.createArtist("Tucson Act")
+	a := suite.createArtistIn("Tucson Act", "Tucson", "AZ")
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	suite.createApprovedShow("Show 1", v.ID, a.ID, user.ID, future)
 	suite.createApprovedShow("Show 2", v.ID, a.ID, user.ID, future.AddDate(0, 0, 1))
@@ -299,7 +308,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_QualifiesWithPastS
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("The Rialto", "Tucson", "AZ")
 	v2 := suite.createVerifiedVenue("Club Congress", "Tucson", "AZ")
-	a := suite.createArtist("Tucson Band")
+	a := suite.createArtistIn("Tucson Band", "Tucson", "AZ")
 
 	past := time.Now().UTC().AddDate(0, 0, -30)
 	suite.createApprovedShow("Past Tucson Show 1", v1.ID, a.ID, user.ID, past)
@@ -322,7 +331,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MeetsMinimumThresh
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("The Mint", "Los Angeles", "CA")
 	v2 := suite.createVerifiedVenue("The Echo", "Los Angeles", "CA")
-	a := suite.createArtist("LA Band")
+	a := suite.createArtistIn("LA Band", "Los Angeles", "CA")
 
 	future := time.Now().UTC().AddDate(0, 0, 14)
 	suite.createApprovedShow("LA Show 1", v1.ID, a.ID, user.ID, future)
@@ -349,7 +358,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
 	cv1 := suite.createVerifiedVenue("Metro", "Chicago", "IL")
 	cv2 := suite.createVerifiedVenue("Empty Bottle", "Chicago", "IL")
 	cv3 := suite.createVerifiedVenue("Thalia Hall", "Chicago", "IL")
-	ca := suite.createArtist("Chicago Band")
+	ca := suite.createArtistIn("Chicago Band", "Chicago", "IL")
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	for i := 0; i < 7; i++ {
@@ -562,6 +571,85 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_Success() {
 	suite.Equal(2, results[0].ShowCount)
 	suite.Equal(2, results[1].ShowCount)
 	suite.Equal(1, results[2].ShowCount)
+}
+
+// PSY-1233: a scene's artists are its LOCAL artists (home city/state matches the
+// scene), not every touring act that played a venue there. Pins the filter across
+// GetActiveArtists (list + total) and the scene-detail artist count.
+func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_ExcludesTouringActs() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+
+	local := suite.createArtistIn("Phoenix Local", "Phoenix", "AZ")
+	touring := suite.createArtistIn("LA Tourer", "Los Angeles", "CA")
+	// Local despite contributor free-text casing/whitespace (case-insensitive + trimmed match).
+	messy := suite.createArtistIn("Messy Casing", "  phoenix ", " az ")
+	// NULL home city → can't be claimed as local → excluded.
+	noCity := &catalogm.Artist{Name: "No Home City"}
+	suite.Require().NoError(suite.db.Create(noCity).Error)
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("Local 1", v1.ID, local.ID, user.ID, future)
+	suite.createApprovedShow("Local 2", v2.ID, local.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Touring", v1.ID, touring.ID, user.ID, future.AddDate(0, 0, 2))
+	suite.createApprovedShow("Messy", v2.ID, messy.ID, user.ID, future.AddDate(0, 0, 3))
+	suite.createApprovedShow("NoCity", v1.ID, noCity.ID, user.ID, future.AddDate(0, 0, 4))
+
+	results, total, err := suite.sceneService.GetActiveArtists("Phoenix", "AZ", 365, 20, 0)
+	suite.Require().NoError(err)
+
+	names := make([]string, 0, len(results))
+	for _, r := range results {
+		names = append(names, r.Name)
+	}
+	suite.Equal(int64(2), total, "only the two LOCAL artists count toward the scene")
+	suite.ElementsMatch([]string{"Phoenix Local", "Messy Casing"}, names)
+	suite.NotContains(names, "LA Tourer", "a touring act based elsewhere is excluded")
+	suite.NotContains(names, "No Home City", "an artist with no home city can't be claimed as local")
+
+	// The scene-detail artist count uses the same filter.
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Equal(2, detail.Stats.ArtistCount)
+	// ...and so does the new-artists-30d pulse: all five acts have a recent first
+	// show, but only the two locals count.
+	suite.Equal(2, detail.Pulse.NewArtists30d)
+}
+
+// TestGetSceneGenreDistribution_ExcludesTouringActs (PSY-1233): the scene's genre
+// distribution reflects LOCAL artists. A touring act's genre tag must not pollute
+// the scene even though it played a venue in the city.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_ExcludesTouringActs() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("GX-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("GX-V2", "Phoenix", "AZ")
+	venues := []*catalogm.Venue{v1, v2}
+
+	punkTag := suite.createGenreTag("punk", "punk")
+	jazzTag := suite.createGenreTag("jazz", "jazz")
+	future := time.Now().UTC().AddDate(0, 0, 7)
+
+	// 30 LOCAL punk artists — meets the 30-tagged-artist threshold.
+	for i := 0; i < 30; i++ {
+		a := suite.createArtist(fmt.Sprintf("Local Punk %d", i)) // Phoenix-local (default)
+		suite.createApprovedShow(fmt.Sprintf("LP Show %d", i), venues[i%2].ID, a.ID, user.ID, future.AddDate(0, 0, i))
+		suite.tagArtist(a.ID, punkTag, user.ID)
+	}
+	// A touring jazz act playing a Phoenix venue — its genre must NOT appear.
+	tourer := suite.createArtistIn("LA Jazz Tourer", "Los Angeles", "CA")
+	suite.createApprovedShow("Tour Show", v1.ID, tourer.ID, user.ID, future)
+	suite.tagArtist(tourer.ID, jazzTag, user.ID)
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(genres)
+	names := make([]string, 0, len(genres))
+	for _, g := range genres {
+		names = append(names, g.Name)
+	}
+	suite.Contains(names, "punk", "local artists' genre is present")
+	suite.NotContains(names, "jazz", "a touring act's genre must not pollute the scene")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_RespectsLimit() {

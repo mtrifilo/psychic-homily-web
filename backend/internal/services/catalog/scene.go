@@ -40,6 +40,34 @@ const (
 	sceneMinShows  = 3
 )
 
+// localArtistFilter restricts a scene-artist query to the scene's LOCAL artists —
+// those whose home city/state matches the scene's — so a scene's roster + stats
+// reflect the artists that are PART of the scene, not every touring act that
+// played a venue there (PSY-1233). Splice it as a predicate of a WHERE clause
+// whose rows are keyed by the `sa` (show_artists) alias used throughout this file.
+//
+// PARAM BINDING (read carefully): its two placeholders bind (city, state),
+// positioned where the spliced `?` actually fall in the FINAL SQL — NOT "always
+// at the end" of the args:
+//   - single-statement query: the filter is the last WHERE predicate, so its
+//     (city, state) go right after that clause's existing params (at the tail,
+//     before any GROUP/HAVING/LIMIT params).
+//   - multi-statement/CTE query (querySceneArtistsWithPrimaryVenue): the filter
+//     sits inside the first CTE, so its (city, state) come BEFORE the params of
+//     any later CTE — i.e. mid-list. Order args by placeholder position.
+//
+// Match is case-insensitive + trimmed; an artist with a NULL/blank home city is
+// excluded (we can't claim they're local). Borough/alias gaps (a Brooklyn artist
+// tagged "New York, NY") are out of scope here. Note: scene EXISTENCE (ListScenes)
+// is gated on venues + shows and is UNCHANGED by this filter — so a qualifying
+// scene can legitimately report zero local artists (all bills filled by touring acts).
+const localArtistFilter = `
+		AND sa.artist_id IN (
+			SELECT a2.id FROM artists a2
+			WHERE LOWER(TRIM(a2.city)) = LOWER(TRIM(?))
+			  AND LOWER(TRIM(a2.state)) = LOWER(TRIM(?))
+		)`
+
 // ListScenes returns cities that meet scene thresholds:
 // 2+ verified venues AND 3+ approved shows (past or upcoming).
 func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -170,7 +198,8 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
-	// Artist count: distinct artists with approved shows at venues in this city
+	// Artist count: distinct LOCAL artists with approved shows at venues in this
+	// city (home city/state matches the scene — PSY-1233, see localArtistFilter).
 	var artistCount int64
 	if err := s.db.Raw(`
 		SELECT COUNT(DISTINCT sa.artist_id)
@@ -179,8 +208,8 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		JOIN show_venues sv ON sv.show_id = s.id
 		JOIN venues v ON v.id = sv.venue_id
 		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?
-	`, city, state, catalogm.ShowStatusApproved).Scan(&artistCount).Error; err != nil {
+		  AND s.status = ?`+localArtistFilter+`
+	`, city, state, catalogm.ShowStatusApproved, city, state).Scan(&artistCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count artists: %w", err)
 	}
 
@@ -232,7 +261,8 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		showsTrend = fmt.Sprintf("%d", diff)
 	}
 
-	// New artists in last 30 days: artists whose first show in this city was in last 30 days
+	// New artists in last 30 days: LOCAL artists whose first show in this city was
+	// in the last 30 days (home city/state matches the scene — PSY-1233).
 	thirtyDaysAgo := now.AddDate(0, 0, -30)
 	var newArtists30d int64
 	s.db.Raw(`
@@ -244,11 +274,11 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
 			WHERE v.city = ? AND v.state = ?
-			  AND s.status = ?
+			  AND s.status = ?`+localArtistFilter+`
 			GROUP BY sa.artist_id
 			HAVING MIN(s.event_date) >= ?
 		) AS new_artists
-	`, city, state, catalogm.ShowStatusApproved, thirtyDaysAgo).Scan(&newArtists30d)
+	`, city, state, catalogm.ShowStatusApproved, city, state, thirtyDaysAgo).Scan(&newArtists30d)
 
 	// Active venues this month: venues with at least 1 approved show this month
 	var activeVenuesThisMonth int64
@@ -321,7 +351,7 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 
 	cutoff := time.Now().UTC().AddDate(0, 0, -periodDays)
 
-	// Count total distinct artists
+	// Count total distinct LOCAL artists (home city/state matches the scene — PSY-1233)
 	var total int64
 	if err := s.db.Raw(`
 		SELECT COUNT(DISTINCT sa.artist_id)
@@ -331,8 +361,8 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 		JOIN venues v ON v.id = sv.venue_id
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
-		  AND s.event_date >= ?
-	`, city, state, catalogm.ShowStatusApproved, cutoff).Scan(&total).Error; err != nil {
+		  AND s.event_date >= ?`+localArtistFilter+`
+	`, city, state, catalogm.ShowStatusApproved, cutoff, city, state).Scan(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count active artists: %w", err)
 	}
 
@@ -355,11 +385,11 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 		JOIN venues v ON v.id = sv.venue_id
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
-		  AND s.event_date >= ?
+		  AND s.event_date >= ?`+localArtistFilter+`
 		GROUP BY a.id
 		ORDER BY show_count DESC, a.name ASC
 		LIMIT ? OFFSET ?
-	`, city, state, catalogm.ShowStatusApproved, cutoff, limit, offset).Scan(&rows).Error; err != nil {
+	`, city, state, catalogm.ShowStatusApproved, cutoff, city, state, limit, offset).Scan(&rows).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get active artists: %w", err)
 	}
 
@@ -454,10 +484,10 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
 		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
 		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?
+		  AND s.status = ?`+localArtistFilter+`
 		GROUP BY t.id, t.name, t.slug
 		ORDER BY count DESC
-	`, city, state, catalogm.ShowStatusApproved).Scan(&rows).Error
+	`, city, state, catalogm.ShowStatusApproved, city, state).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get scene genre distribution: %w", err)
 	}
@@ -507,10 +537,10 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
 		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
 		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?
+		  AND s.status = ?`+localArtistFilter+`
 		GROUP BY t.id
 		ORDER BY count DESC
-	`, city, state, catalogm.ShowStatusApproved).Scan(&rows).Error
+	`, city, state, catalogm.ShowStatusApproved, city, state).Scan(&rows).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to get genre diversity index: %w", err)
 	}
@@ -811,7 +841,7 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]
 			JOIN shows s ON s.id = sa.show_id
 			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
-			WHERE v.city = ? AND v.state = ? AND s.status = ?
+			WHERE v.city = ? AND v.state = ? AND s.status = ?` + localArtistFilter + `
 		),
 		artist_venue_counts AS (
 			SELECT
@@ -847,8 +877,8 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]
 	`
 	var rows []sceneArtistRow
 	if err := s.db.Raw(q,
-		city, state, catalogm.ShowStatusApproved,
-		city, state, catalogm.ShowStatusApproved,
+		city, state, catalogm.ShowStatusApproved, city, state, // scene_artists CTE (+ local-artist filter)
+		city, state, catalogm.ShowStatusApproved, // artist_venue_counts CTE
 	).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
