@@ -240,7 +240,53 @@ func recordImportError(result *contracts.RadioImportResult, category, detail str
 	})
 }
 
-// FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at.
+const (
+	// coldStartLookbackDays is the first-fetch window for a station with no prior
+	// last_playlist_fetch_at. It preserves the pre-PSY-1230 default — initial
+	// population of a brand-new station is the backfill path's job (ImportStation),
+	// not this incremental one.
+	coldStartLookbackDays = 7
+
+	// fetchLookbackFloorDays floors how far back a SUBSEQUENT incremental fetch
+	// looks, regardless of how recent the last fetch was. last_playlist_fetch_at
+	// advances on every run, so without a floor a show whose cadence is longer than
+	// the gap between runs slips behind `since` and is skipped on every later fetch
+	// — permanently. 14d gives margin over the cadences this fix targets (weekly,
+	// biweekly). Longer cadences (e.g. monthly NTS shows) are NOT covered here —
+	// widening the floor pages NTS deeper (ntsPageLimit=12), so that needs its own
+	// cost analysis; tracked in the fetch-window hardening follow-up. (PSY-1230)
+	fetchLookbackFloorDays = 14
+)
+
+// fetchSince computes the lower bound for an incremental playlist fetch.
+//
+// The floor (fetchLookbackFloorDays) is the load-bearing fix: it stops the
+// forward-advancing last_playlist_fetch_at from overtaking a weekly show's
+// once-a-week episode (PSY-1230). The bound is normalized to UTC midnight so it
+// is an exact N-day floor — WFMU parses air_date as a UTC-midnight date — and
+// independent of the server's wall-clock zone.
+//
+// Re-scanning the wider window is cheap: an already-COMPLETE episode hits a
+// dedup no-op (importEpisode keys on (show_id, external_id)); only a
+// recently-aired, still-pending episode re-fetches its playlist, bounded by
+// RadioBackfillMaxAttempts. A genuinely older lastFetch (a re-enabled station)
+// still widens the window further — but note a fully-failed run currently still
+// advances last_playlist_fetch_at, so this alone does NOT recover a multi-week
+// outage (also tracked in the fetch-window hardening follow-up).
+func fetchSince(lastFetch *time.Time, now time.Time) time.Time {
+	today := now.UTC().Truncate(24 * time.Hour)
+	if lastFetch == nil {
+		return today.AddDate(0, 0, -coldStartLookbackDays)
+	}
+	floor := today.AddDate(0, 0, -fetchLookbackFloorDays)
+	if lastFetch.Before(floor) {
+		return *lastFetch
+	}
+	return floor
+}
+
+// FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at,
+// floored so weekly shows aren't skipped (PSY-1230; see fetchSince).
 func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -261,11 +307,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 	}
 	defer closeProvider(provider)
 
-	// Determine since time: last fetch or 7 days ago
-	since := time.Now().AddDate(0, 0, -7)
-	if station.LastPlaylistFetchAt != nil {
-		since = *station.LastPlaylistFetchAt
-	}
+	since := fetchSince(station.LastPlaylistFetchAt, time.Now())
 
 	result := &contracts.RadioImportResult{}
 

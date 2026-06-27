@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -90,6 +91,47 @@ func TestRetryTransientConflict(t *testing.T) {
 		}
 		if calls != 1 {
 			t.Errorf("non-conflict error must not retry; got %d calls", calls)
+		}
+	})
+}
+
+// TestFetchSince covers the incremental-fetch lower-bound logic (PSY-1230). The
+// load-bearing case is "recent last fetch" — before the floor, a forward-only
+// `since` let weekly shows slip permanently behind the window. The provider-side
+// filter that consumes `since` is covered separately by
+// TestWFMU_ParseArchivePage_SinceFilter.
+func TestFetchSince(t *testing.T) {
+	// Fixed clock (mid-day) so we also assert the floor is normalized to midnight.
+	now := time.Date(2026, 6, 26, 18, 30, 0, 0, time.UTC)
+	today := now.UTC().Truncate(24 * time.Hour)              // 2026-06-26 00:00 UTC
+	floor := today.AddDate(0, 0, -fetchLookbackFloorDays)    // 2026-06-12 00:00 UTC
+	coldStart := today.AddDate(0, 0, -coldStartLookbackDays) // 2026-06-19 00:00 UTC
+
+	t.Run("nil last fetch uses the cold-start window (first-fetch depth unchanged)", func(t *testing.T) {
+		got := fetchSince(nil, now)
+		if !got.Equal(coldStart) {
+			t.Errorf("nil last fetch: got %v, want cold-start %v", got, coldStart)
+		}
+	})
+
+	t.Run("recent last fetch is floored to UTC midnight (the weekly-show stall)", func(t *testing.T) {
+		// A fetch 2h ago would, unfloored, skip a weekly show that aired days ago.
+		// The floor must win, and it must be midnight-aligned (not carry 18:30).
+		recent := now.Add(-2 * time.Hour)
+		got := fetchSince(&recent, now)
+		if !got.Equal(floor) {
+			t.Errorf("recent last fetch must be floored: got %v, want floor %v", got, floor)
+		}
+		if got.Hour() != 0 || got.Minute() != 0 || got.Second() != 0 {
+			t.Errorf("since must be midnight-aligned, got %v", got)
+		}
+	})
+
+	t.Run("last fetch older than the floor still wins (re-enabled station)", func(t *testing.T) {
+		old := now.AddDate(0, 0, -20)
+		got := fetchSince(&old, now)
+		if !got.Equal(old) {
+			t.Errorf("stale last fetch must win: got %v, want %v", got, old)
 		}
 	})
 }
