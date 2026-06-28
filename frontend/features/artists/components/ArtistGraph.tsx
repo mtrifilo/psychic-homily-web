@@ -571,19 +571,23 @@ export function ArtistGraphVisualization({
   //       graphData change, so nodeCanvasObject's dashed ring needs this repaint kick to appear
   //       (the merge that follows triggers its own redraw). Pass a referentially-stable Set from
   //       the parent (memoized) so this doesn't fire every render.
-  //   (4) suggested directions (PSY-1273): suggestedIds drives nodeCanvasObject's glow/badge.
-  //       Today it co-changes with graphData (DOI re-ranks) or expandingIds, but keeping it in
-  //       the deps guards the planned PSY-1260 case where the popular↔niche control re-ranks DOI
-  //       WITHOUT a graphData change — else the glow would stale until the next unrelated redraw.
+  //   (4) DOI re-rank (PSY-1273/PSY-1260): suggestedIds drives the glow/badge AND doiByNodeId
+  //       drives label-collision priority (nodeLabelsFrame). The PSY-1260 discovery-bias slider
+  //       re-ranks DOI WITHOUT a graphData change, so BOTH must be deps: suggestedIds alone isn't
+  //       enough — its top-5 SET contents often don't change on a small bias nudge while
+  //       doiByNodeId (label order) does, so the label re-rank needs its own repaint trigger.
+  //       Both are referentially stable (parent-memoized on [merged, activeTypes, diversityBias]),
+  //       so this fires on a real re-rank, not per render.
   // Gated on !reducedMotion (PSY-1226): force-graph's rAF loop reschedules unconditionally,
   // so resumeAnimation here would keep the loop running forever and DEFEAT the reduced-motion
   // pauseAnimation above. For reduced-motion users we keep the static snapshot — the canvas is
   // a visual enhancement and the accessible path is the RelatedArtists list. Deliberate
-  // trade-offs for them: a theme toggle won't recolor the static graph's labels, and the
-  // hover tooltip + hover-focus won't fire (both ride the paused loop's hit-testing).
+  // trade-offs for them (theme toggle won't recolor; hover won't fire) — and the PSY-1260
+  // discovery-bias slider is HIDDEN for them in RecenteringGraph precisely because this repaint
+  // is gated off, so it can't present a control that does nothing (tracked: a11y follow-up).
   useEffect(() => {
     if (!reducedMotion) graphRef.current?.resumeAnimation()
-  }, [palette, hoveredNode, reducedMotion, expandingIds, suggestedIds])
+  }, [palette, hoveredNode, reducedMotion, expandingIds, suggestedIds, doiByNodeId])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
