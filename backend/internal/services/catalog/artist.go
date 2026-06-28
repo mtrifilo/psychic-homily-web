@@ -35,6 +35,14 @@ type ArtistService struct {
 	// tests override it (SetSyncDispatch) to run the work inline so they can assert
 	// the embed was filled without racing the goroutine.
 	dispatchAsync func(name string, work func())
+	// locationEnricher runs prompt on-create location/MBID enrichment for a freshly
+	// created artist (PSY-1251 Phase B). nil = disabled (the default, and legacy
+	// direct-construction suites); the container wires it — gated on
+	// ENABLE_ARTIST_LOCATION_SWEEP — to a fire-and-forget call into
+	// enrich.EnrichArtistLocationByID. The Phase-A sweep is the durability backstop, so
+	// a lost call (crash, feature off) is caught later; the enrich is fill-when-empty
+	// + stamps the sweep memo, so it's idempotent with the sweep.
+	locationEnricher func(artistID uint)
 }
 
 // NewArtistService creates a new artist service
@@ -62,6 +70,31 @@ func (s *ArtistService) SetBandcampResolver(r *BandcampProfileResolver) {
 // assert the resolved embed landed without waiting on a goroutine.
 func (s *ArtistService) SetSyncDispatch() {
 	s.dispatchAsync = func(_ string, work func()) { work() }
+}
+
+// SetLocationEnricher wires the on-create location/MBID enricher (PSY-1251 Phase B).
+// The container injects a fire-and-forget call into enrich.EnrichArtistLocationByID,
+// gated on ENABLE_ARTIST_LOCATION_SWEEP — so when location enrichment is off (the
+// default) this stays nil and CreateArtist's hook is a no-op. Tests pass a spy.
+func (s *ArtistService) SetLocationEnricher(fn func(artistID uint)) {
+	s.locationEnricher = fn
+}
+
+// runLocationEnrich dispatches the on-create location/MBID enrichment for a freshly
+// created artist through dispatchAsync (a GoSafe goroutine in prod; inline under
+// SetSyncDispatch). A no-op when the enricher is not wired (the feature is off, or a
+// legacy direct-construction suite). The enrich itself is fill-when-empty + stamps the
+// sweep memo, so it's idempotent with the Phase-A sweep.
+func (s *ArtistService) runLocationEnrich(artistID uint) {
+	if s.locationEnricher == nil {
+		return
+	}
+	work := func() { s.locationEnricher(artistID) }
+	dispatch := s.dispatchAsync
+	if dispatch == nil {
+		dispatch = func(name string, w func()) { shared.GoSafe(context.Background(), name, w) }
+	}
+	dispatch("artist_location_enrich", work)
 }
 
 // FillProfileResolvedEmbedFromBandcamp resolves a Bandcamp PROFILE root → a
@@ -154,6 +187,11 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	if req.Bandcamp != nil {
 		s.runProfileResolve(artist.ID, *req.Bandcamp)
 	}
+
+	// PSY-1251 (Phase B): prompt on-create location/MBID enrichment for the new
+	// artist, off the request goroutine. fill-when-empty + stamps the sweep memo →
+	// idempotent with the Phase-A sweep; a no-op when location enrichment is disabled.
+	s.runLocationEnrich(artist.ID)
 
 	return s.buildArtistResponse(artist), nil
 }

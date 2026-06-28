@@ -153,7 +153,18 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// PSY-1250: artist-location sweep (Phase A). Reuses the SAME shared mbClient
 	// (PSY-1208) so its MusicBrainz traffic stays under the one ~1 req/s throttle; a
 	// fresh Bandcamp resolver (stateless, no global rate limit) handles the fallback.
-	artistLocationSweep := enrich.NewArtistLocationSweep(database, catalog.NewBandcampProfileResolver(), mbClient)
+	locationBandcamp := catalog.NewBandcampProfileResolver()
+	artistLocationSweep := enrich.NewArtistLocationSweep(database, locationBandcamp, mbClient)
+
+	// PSY-1251 (Phase B): on-create location/MBID enrichment for interactively-created
+	// artists, gated on the SAME flag as the Phase-A sweep (it's the location-enrichment
+	// feature switch). Off by default → the hook stays nil and CreateArtist's call is a
+	// no-op; the sweep is the durability backstop, so this only adds promptness.
+	if os.Getenv("ENABLE_ARTIST_LOCATION_SWEEP") == "1" {
+		artist.SetLocationEnricher(func(artistID uint) {
+			_ = enrich.EnrichArtistLocationByID(database, locationBandcamp, mbClient, artistID)
+		})
+	}
 
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
 	discovery.SetEnrichmentService(enrichmentSvc)

@@ -11,6 +11,7 @@ package enrich
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -150,6 +151,9 @@ type artistStore interface {
 	// StampLocationAttempted marks ids as attempted (location_enrich_attempted_at = at)
 	// for the sweep's no-result memo.
 	StampLocationAttempted(ids []uint, at time.Time) error
+	// ArtistByID loads one artist by primary key for the on-create single-artist path
+	// (PSY-1251), or (nil, nil) when it's gone.
+	ArtistByID(id uint) (*catalogm.Artist, error)
 }
 
 // BackfillArtistLocations enriches artists whose location is incomplete, trying
@@ -161,6 +165,54 @@ func BackfillArtistLocations(db *gorm.DB, bandcamp BandcampLocationResolver, mb 
 		return nil, fmt.Errorf("database not initialized")
 	}
 	return backfillArtistLocations(context.Background(), &gormArtistStore{db: db}, bandcamp, mb, opts)
+}
+
+// EnrichArtistLocationByID resolves and fills ONE artist's location (city/state/
+// country) + MBID, fill-when-empty — PSY-1251 Phase B's on-create entry, dispatched
+// fire-and-forget so an interactively-created artist gets its location in ~seconds
+// instead of waiting for the Phase-A sweep. It reuses the SAME per-artist resolve
+// (resolveLocation) and write (buildArtistLocationUpdate) as the sweep, and stamps
+// location_enrich_attempted_at so the sweep skips this row — keeping the two
+// idempotent (fill-when-empty + the memo mean no double-write / no extra MB call).
+// A no-op (nil) when the artist is gone or already has a city. The store-agnostic core
+// is testable via enrichArtistLocationByID.
+func EnrichArtistLocationByID(db *gorm.DB, bandcamp BandcampLocationResolver, mb MBCandidateSearcher, artistID uint) error {
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return enrichArtistLocationByID(context.Background(), &gormArtistStore{db: db}, bandcamp, mb, artistID)
+}
+
+// enrichArtistLocationByID is the store-agnostic core of EnrichArtistLocationByID.
+func enrichArtistLocationByID(ctx context.Context, store artistStore, bandcamp BandcampLocationResolver, mb MBCandidateSearcher, artistID uint) error {
+	a, err := store.ArtistByID(artistID)
+	if err != nil {
+		return fmt.Errorf("load artist %d: %w", artistID, err)
+	}
+	if a == nil || !isEmptyPtr(a.City) {
+		return nil // gone, or already located (fill-when-empty no-op)
+	}
+
+	now := time.Now()
+	// Stamp attempted up front so the Phase-A sweep skips this row (idempotency), even
+	// if the resolve below misses or errors — mirrors the sweep's stamp-before-resolve.
+	if err := store.StampLocationAttempted([]uint{a.ID}, now); err != nil {
+		return fmt.Errorf("stamp attempted %d: %w", a.ID, err)
+	}
+
+	loc, source, conflict, _ := resolveLocation(ctx, a, bandcamp, mb, true)
+	if conflict != nil || source == "" {
+		return nil // homonym conflict (skipped for review) or no source resolved
+	}
+	confidence := confidenceMusicBrainz
+	if source == DataSourceBandcamp {
+		confidence = confidenceBandcamp
+	}
+	updates, _ := buildArtistLocationUpdate(a, loc, source, confidence, now)
+	if updates == nil {
+		return nil
+	}
+	return store.UpdateArtistLocation(a.ID, updates)
 }
 
 // backfillArtistLocations is the store-agnostic core. now is stamped on every
@@ -682,4 +734,17 @@ func (s *gormArtistStore) StampLocationAttempted(ids []uint, at time.Time) error
 	return s.db.Table("artists").
 		Where("id IN ?", ids).
 		Update("location_enrich_attempted_at", at).Error
+}
+
+// ArtistByID loads one artist by primary key, or (nil, nil) when not found (PSY-1251).
+func (s *gormArtistStore) ArtistByID(id uint) (*catalogm.Artist, error) {
+	var a catalogm.Artist
+	err := s.db.First(&a, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
 }

@@ -404,6 +404,66 @@ func TestBackfillArtistLocations_CtxCancel(t *testing.T) {
 	}
 }
 
+// TestEnrichArtistLocationByID covers the PSY-1251 on-create single-artist path: it
+// fills + stamps a city-less artist, no-ops on an already-located or missing one, and
+// stamps (but doesn't fill) a miss so the sweep doesn't immediately retry. The conflict
+// path shares resolveLocation with the sweep (covered by TestBackfillArtistLocations).
+func TestEnrichArtistLocationByID(t *testing.T) {
+	const mbid = "11111111-1111-1111-1111-111111111111"
+	mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		"Snail Mail": {{ID: mbid, Name: "Snail Mail", BeginArea: &pipeline.MBArea{Name: "Baltimore", Type: "City"}, Country: "US"}},
+	}}
+
+	t.Run("fills location + MBID and stamps the memo", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Snail Mail"}}}
+		if err := enrichArtistLocationByID(context.Background(), store, fakeBandcamp{}, mb, 1); err != nil {
+			t.Fatal(err)
+		}
+		if store.updates[1]["city"] != "Baltimore" {
+			t.Fatalf("expected city filled, got %+v", store.updates[1])
+		}
+		if store.updates[1]["musicbrainz_artist_id"] != mbid {
+			t.Fatalf("expected MBID stamped, got %+v", store.updates[1])
+		}
+		if _, ok := store.stamped[1]; !ok {
+			t.Fatalf("expected the sweep memo stamped so the sweep skips it")
+		}
+	})
+
+	t.Run("no-op when already located (fill-when-empty)", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Snail Mail", City: strptr("Phoenix")}}}
+		if err := enrichArtistLocationByID(context.Background(), store, fakeBandcamp{}, mb, 1); err != nil {
+			t.Fatal(err)
+		}
+		if len(store.updates) != 0 || len(store.stamped) != 0 {
+			t.Fatalf("a located artist must not be written or stamped, got updates=%v stamped=%v", store.updates, store.stamped)
+		}
+	})
+
+	t.Run("no-op when the artist is gone", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{}}
+		if err := enrichArtistLocationByID(context.Background(), store, fakeBandcamp{}, mb, 999); err != nil {
+			t.Fatal(err)
+		}
+		if len(store.updates) != 0 || len(store.stamped) != 0 {
+			t.Fatalf("a missing artist must do nothing")
+		}
+	})
+
+	t.Run("a miss stamps but does not fill", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Unknown Band"}}}
+		if err := enrichArtistLocationByID(context.Background(), store, fakeBandcamp{}, mb, 1); err != nil {
+			t.Fatal(err)
+		}
+		if len(store.updates) != 0 {
+			t.Fatalf("a miss must not fill, got %v", store.updates)
+		}
+		if _, ok := store.stamped[1]; !ok {
+			t.Fatalf("a miss must still be stamped so the sweep doesn't immediately retry")
+		}
+	})
+}
+
 // --- orchestrator fakes ---
 
 type fakeStore struct {
@@ -451,6 +511,16 @@ func (f *fakeStore) StampLocationAttempted(ids []uint, at time.Time) error {
 		f.stamped[id] = at
 	}
 	return nil
+}
+
+func (f *fakeStore) ArtistByID(id uint) (*catalogm.Artist, error) {
+	for i := range f.artists {
+		if f.artists[i].ID == id {
+			a := f.artists[i]
+			return &a, nil
+		}
+	}
+	return nil, nil
 }
 
 type fakeBandcamp struct{ byURL map[string]string }
