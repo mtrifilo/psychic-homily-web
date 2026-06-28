@@ -64,12 +64,26 @@ const (
 	USStateAmbiguous
 )
 
+// Metro is the US Census CBSA (Core-Based Statistical Area) a place rolls up to —
+// the canonical, OMB-maintained metro/micro definition. CBSACode is the stable
+// 5-digit OMB code (the durable key to store/match on); Name is the friendly
+// title for display ("Los Angeles-Long Beach-Anaheim, CA").
+type Metro struct {
+	CBSACode string
+	Name     string
+}
+
 // Geocoder resolves a location to coordinates + timezone. It is an interface so
 // the data source stays swappable (info hiding) and callers can stub it in tests.
 type Geocoder interface {
 	// Resolve returns a Result and ok=true when the location is found. A miss
 	// (ok=false) is expected for obscure places; callers fall back accordingly.
 	Resolve(city, state, country string) (Result, bool)
+	// ResolveMetro returns the CBSA a (city, state, country) rolls up to, so
+	// suburbs/boroughs share one metro key. ok is false for non-US places, US
+	// places not in any CBSA, or a miss. The state disambiguates same-named cities
+	// ("Pasadena, CA" → Los Angeles vs "Pasadena, TX" → Houston).
+	ResolveMetro(city, state, country string) (Metro, bool)
 	// ResolveUSState maps a bare city name to its US state, but ONLY when the
 	// mapping is safe: the name's most-populous namesake worldwide is in the US,
 	// and all US namesakes share one state. It returns the 2-letter state with
@@ -89,6 +103,14 @@ type cityRow struct {
 	lat     float64
 	lng     float64
 	tz      string
+	// cbsaCode/cbsaName are the US Census CBSA (metro/micro area) the place's
+	// county rolls up to — set for US rows only (joined offline via county FIPS,
+	// see data/README.md). Empty for non-US places and the few US places not in
+	// any CBSA. The CBSA is what makes boroughs/suburbs share one metro key
+	// (Brooklyn + Manhattan → New York-Newark-Jersey City; Pasadena/Santa Monica
+	// + LA → Los Angeles-Long Beach-Anaheim).
+	cbsaCode string
+	cbsaName string
 }
 
 type offlineGeocoder struct {
@@ -226,7 +248,8 @@ func (g *offlineGeocoder) loadCities() {
 	sc := bufio.NewScanner(bytes.NewReader(citiesData))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		// name, asciiname, country, admin1, population, lat, lng, timezone
+		// name, asciiname, country, admin1, population, lat, lng, timezone,
+		// cbsaCode, cbsaName (the last two US-only, may be empty)
 		f := strings.Split(sc.Text(), "\t")
 		if len(f) < 8 {
 			continue
@@ -249,6 +272,12 @@ func (g *offlineGeocoder) loadCities() {
 			lng:     lng,
 			tz:      tz,
 		}
+		// CBSA columns are optional so an older extract without them (8 or 9
+		// fields) still loads (metro empty). Present only for US rows.
+		if len(f) >= 10 {
+			row.cbsaCode = strings.TrimSpace(f[8])
+			row.cbsaName = strings.TrimSpace(f[9])
+		}
 		// Index under both the localized name and the ASCII name so accented
 		// and plain input both hit. foldKey collapses them to one key in most
 		// cases, so guard against duplicate appends.
@@ -262,13 +291,69 @@ func (g *offlineGeocoder) loadCities() {
 }
 
 func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
+	best, ok := g.bestCity(city, state, country)
+	if !ok {
+		return Result{}, false
+	}
+	return Result{
+		Latitude:  best.lat,
+		Longitude: best.lng,
+		Timezone:  best.tz,
+		State:     best.admin1,
+		Country:   best.country,
+	}, true
+}
+
+// ResolveMetro returns the US Census CBSA (metro/micro area) a (city, state,
+// country) belongs to, so suburbs and boroughs roll up to one metro key
+// (Brooklyn, NY → New York-Newark-Jersey City; Pasadena, CA → Los Angeles-Long
+// Beach-Anaheim). ok is false for a non-US place, a US place not in any CBSA, a
+// miss, OR an unpinned ambiguous name (see below).
+//
+// It REFUSES the population guess that sibling ResolveUSState refuses (the
+// PSY-1244 corruption class): a metro is returned only when the same-named place
+// is unambiguously pinned —
+//   - an explicit US state was given AND it matches the selected place's state
+//     (a non-matching state means the highest-population fallback fired → refuse);
+//   - or no state was given but the name is US-unambiguous (one US state, US-
+//     dominant) per ResolveUSState.
+//
+// So "Pasadena, CA" → Los Angeles and "Pasadena, TX" → Houston, but a bare
+// "Pasadena" (or a bogus state) → ok=false rather than a guessed metro. Callers
+// must pass the confident state derived through the artist-state pipeline, never
+// a raw user-entered city alone.
+func (g *offlineGeocoder) ResolveMetro(city, state, country string) (Metro, bool) {
+	best, ok := g.bestCity(city, state, country)
+	if !ok || best.cbsaCode == "" {
+		return Metro{}, false // miss, non-US, or US place not in any CBSA
+	}
+	if _, admin1 := g.resolveCountry(state, country); admin1 != "" {
+		// A US state was given — trust the metro only if it actually pinned THIS
+		// place. A mismatch means bestCity fell back to the highest-population
+		// namesake (admin1 is a preference, not a hard filter), so refuse.
+		if best.admin1 != admin1 {
+			return Metro{}, false
+		}
+	} else if _, status := g.ResolveUSState(city); status != USStateUnambiguous {
+		// No state to pin the namesake and the name isn't unambiguously one US
+		// state — refuse rather than guess the wrong same-named city's metro.
+		return Metro{}, false
+	}
+	return Metro{CBSACode: best.cbsaCode, Name: best.cbsaName}, true
+}
+
+// bestCity selects the populated place a (city, state, country) refers to: it
+// filters the name's candidates by a confident country, prefers an exact US-state
+// (admin1) match, then takes the highest-population row. Shared by Resolve and
+// ResolveMetro so coordinates/timezone and metro always describe the SAME place.
+func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) {
 	cityKey := foldKey(city)
 	if cityKey == "" {
-		return Result{}, false
+		return cityRow{}, false
 	}
 	candidates := g.byCity[cityKey]
 	if len(candidates) == 0 {
-		return Result{}, false
+		return cityRow{}, false
 	}
 
 	iso, admin1 := g.resolveCountry(state, country)
@@ -283,7 +368,7 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 			}
 		}
 		if len(filtered) == 0 {
-			return Result{}, false
+			return cityRow{}, false
 		}
 		candidates = filtered
 	}
@@ -307,13 +392,7 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 			best = c
 		}
 	}
-	return Result{
-		Latitude:  best.lat,
-		Longitude: best.lng,
-		Timezone:  best.tz,
-		State:     best.admin1,
-		Country:   best.country,
-	}, true
+	return best, true
 }
 
 // ResolveUSState maps a bare city name to its US state, but only when that
