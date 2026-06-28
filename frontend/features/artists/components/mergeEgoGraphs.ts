@@ -49,12 +49,18 @@ export function mergeEgoGraphs(
     for (const n of ego.nodes) addNode(n)
   }
 
-  // 2. Union links (dedup by canonical key). The DB stores relationships with
-  //    source_artist_id < target_artist_id, so the same physical edge carries identical
-  //    source_id/target_id/type across payloads and collides on this key.
+  // 2. Union links (dedup by canonical key). We sort the endpoint ids into the key ourselves
+  //    rather than trusting the payload's ordering: STORED types are DB-canonical (source <
+  //    target), but `festival_cobill` is a query-time edge the backend orders with the CURRENT
+  //    center on the source side — so the same X–Y festival edge arrives as (X,Y) from X's ego
+  //    and (Y,X) from Y's ego. min/max makes both collide so the edge isn't drawn (and counted)
+  //    twice. The surviving link keeps its first-seen direction/score (good enough; the score
+  //    only diverges for the recency-weighted festival type).
   const linkByKey = new Map<string, ArtistGraphLink>()
   const addLink = (l: ArtistGraphLink) => {
-    const key = `${l.source_id}|${l.target_id}|${l.type}`
+    const a = Math.min(l.source_id, l.target_id)
+    const b = Math.max(l.source_id, l.target_id)
+    const key = `${a}|${b}|${l.type}`
     if (!linkByKey.has(key)) linkByKey.set(key, l)
   }
   for (const l of base.links) addLink(l)
@@ -95,8 +101,12 @@ export function mergeEgoGraphs(
   const nodes = [...nodeById.values()].filter(
     n => n.id !== centerId && hopByNodeId.has(n.id),
   )
+  // Surviving node ids = center + kept satellites. Links are filtered against THIS set (not
+  // just hopByNodeId) so a link whose endpoint is reachable in the adjacency but has no node
+  // row in any payload — a dangling endpoint — can't leak through and spawn a phantom node.
+  const keptIds = new Set<number>([centerId, ...nodes.map(n => n.id)])
   const links = [...linkByKey.values()].filter(
-    l => hopByNodeId.has(l.source_id) && hopByNodeId.has(l.target_id),
+    l => keptIds.has(l.source_id) && keptIds.has(l.target_id),
   )
 
   return { center: base.center, nodes, links, hopByNodeId }

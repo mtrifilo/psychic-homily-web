@@ -68,6 +68,26 @@ describe('mergeEgoGraphs', () => {
     expect(merged.links).toHaveLength(4) // 1-2, 1-3, 2-3, 2-4
   })
 
+  it('dedupes a REVERSED-direction edge (query-time festival_cobill ordering)', () => {
+    // festival_cobill is a query-time edge the backend orders with the CURRENT center on the
+    // source side, so the same X–Y festival edge arrives as (1,2) from X's ego and (2,1) from
+    // Y's ego. The canonical min/max key must collapse them to ONE edge, not draw a duplicate.
+    const base = ego(1, [2], [link(1, 2, 'festival_cobill')])
+    const exp2 = ego(2, [1], [link(2, 1, 'festival_cobill')]) // reversed pair, same physical edge
+    const merged = mergeEgoGraphs(base, new Map([[2, exp2]]))
+    expect(merged.links.filter(l => l.type === 'festival_cobill')).toHaveLength(1)
+  })
+
+  it('drops a link to a dangling endpoint that has no node row in any payload', () => {
+    // A malformed expansion: a link references id 99 but no payload supplies a node for it.
+    // The link must not survive (it would spawn a phantom node in react-force-graph).
+    const base = ego(1, [2], [link(1, 2)])
+    const exp2: ArtistGraph = { center: node(2), nodes: [], links: [link(2, 99)], user_votes: {} }
+    const merged = mergeEgoGraphs(base, new Map([[2, exp2]]))
+    expect(merged.nodes.map(n => n.id)).toEqual([2])
+    expect(merged.links.some(l => l.source_id === 99 || l.target_id === 99)).toBe(false)
+  })
+
   it('assigns the MINIMUM hop when a node is reachable by two paths', () => {
     // Node 3 is a direct base neighbor (hop 1) AND reappears as node 2's neighbor (hop 2 path).
     const base = ego(1, [2, 3], [link(1, 2), link(1, 3), link(2, 3)])
