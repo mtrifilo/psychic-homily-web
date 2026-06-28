@@ -219,6 +219,29 @@ func TestWindowForDate(t *testing.T) {
 		}
 	})
 
+	t.Run("post-midnight slot resolves on its corrected calendar day (PSY-1283)", func(t *testing.T) {
+		// A WFMU 3-6am show sits in the PREVIOUS day's grid column (broadcast-day grid,
+		// 6am→6am) but airs the next calendar day. After PSY-1283 the slot is stored with
+		// the real airing weekday (Sunday), so an episode airing Sunday 2026-06-28 resolves
+		// to a Sun 03:00–06:00 window — the F4 "Freeform Jazz Dance" case.
+		s := sched(RadioScheduleSlot{DayOfWeek: 0, Start: "03:00", End: "06:00"}) // Sunday 3-6am
+		start, end, err := s.WindowForDate("2026-06-28")                          // a Sunday
+		if err != nil || start == nil || end == nil {
+			t.Fatalf("got (%v,%v,%v), want a Sunday window", start, end, err)
+		}
+		wantStart := time.Date(2026, 6, 28, 3, 0, 0, 0, ny)
+		wantEnd := time.Date(2026, 6, 28, 6, 0, 0, 0, ny)
+		if !start.Equal(wantStart) || !end.Equal(wantEnd) {
+			t.Errorf("got [%v, %v], want [%v, %v]", start, end, wantStart, wantEnd)
+		}
+		// The pre-fix day (Saturday=6) leaves the Sunday episode WINDOWLESS — Impact #1 of
+		// the off-by-one (nil air-window → ComputeEpisodeStatus settles to aired, never live).
+		buggy := sched(RadioScheduleSlot{DayOfWeek: 6, Start: "03:00", End: "06:00"})
+		if bs, be, _ := buggy.WindowForDate("2026-06-28"); bs != nil || be != nil {
+			t.Errorf("pre-fix Saturday slot must yield nil window for a Sunday air_date, got [%v, %v]", bs, be)
+		}
+	})
+
 	t.Run("no slot for the weekday → nil window (off-schedule airing)", func(t *testing.T) {
 		s := sched(RadioScheduleSlot{DayOfWeek: 1, Start: "06:00", End: "10:00"}) // Mon only
 		start, end, err := s.WindowForDate("2026-06-26")                          // Friday

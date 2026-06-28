@@ -195,13 +195,20 @@ func TestParseWFMUScheduleTable_KnownShows(t *testing.T) {
 		t.Errorf("Six Degrees missing Sun 22:00-00:00; slots=%+v", six.Slots)
 	}
 
-	// Travel Zone: Monday Mid–3am (00:00–03:00).
+	// Travel Zone: in the MONDAY grid column at Mid–3am (00:00–03:00). The /table grid is a
+	// broadcast day (6am→6am), so a Mid-3am slot is in the post-midnight band and airs the
+	// NEXT calendar day — Travel Zone therefore airs TUESDAY 00:00–03:00, not Monday. PSY-1283
+	// regression guard: before the fix the column day (Monday) was stored verbatim, which left
+	// WindowForDate(tuesday_air_date) with no matching slot → a windowless episode.
 	tz := findEntryByName(entries, "Travel Zone")
 	if tz == nil {
 		t.Fatal("Travel Zone not found")
 	}
-	if !hasSlot(tz, 1, "00:00", "03:00") {
-		t.Errorf("Travel Zone missing Mon 00:00-03:00; slots=%+v", tz.Slots)
+	if !hasSlot(tz, 2, "00:00", "03:00") {
+		t.Errorf("Travel Zone missing Tue 00:00-03:00 (broadcast-day shift from Mon column); slots=%+v", tz.Slots)
+	}
+	if hasSlot(tz, 1, "00:00", "03:00") {
+		t.Errorf("Travel Zone still has the pre-fix Mon 00:00-03:00 slot (off-by-one not corrected); slots=%+v", tz.Slots)
 	}
 
 	// The Glen Jones Radio Programme: Sunday Noon–3pm. Its show-title-link is an ABSOLUTE
@@ -231,6 +238,34 @@ func TestParseWFMUScheduleTable_AllSlotsValid(t *testing.T) {
 		if err := sched.Validate(); err != nil {
 			t.Errorf("entry %q (%s) produced an invalid schedule: %v", e.Name, e.Code, err)
 		}
+	}
+}
+
+// calendarWeekdayForSlot maps a grid column day to the slot's real calendar airing day:
+// WFMU's /table is a broadcast-day grid (6am→6am), so a slot starting before 06:00 airs the
+// NEXT calendar day, not the day at the top of its column (PSY-1283). The Saturday-column
+// 3-6am case is the real F4 "Freeform Jazz Dance" evidence (stored Saturday, airs Sunday).
+func TestCalendarWeekdayForSlot(t *testing.T) {
+	tests := []struct {
+		name          string
+		columnWeekday int
+		start         string
+		want          int
+	}{
+		{"midnight start shifts to next day", 1, "00:00", 2},          // Mon column → Tue
+		{"3am Saturday-column slot airs Sunday (F4)", 6, "03:00", 0},  // Sat column → Sun (wraps 6→0)
+		{"midnight Saturday-column slot airs Sunday", 6, "00:00", 0},  // modulo wrap
+		{"05:59 is still pre-boundary, shifts", 0, "05:59", 1},        // Sun column → Mon
+		{"06:00 boundary stays on the column day", 1, "06:00", 1},     // daytime begins here
+		{"9am daytime stays on the column day", 2, "09:00", 2},        // Tue stays Tue
+		{"10pm start stays on column day (wraps later)", 0, "22:00", 0}, // pre-midnight start, not pre-6am
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := calendarWeekdayForSlot(tt.columnWeekday, tt.start); got != tt.want {
+				t.Errorf("calendarWeekdayForSlot(%d, %q) = %d, want %d", tt.columnWeekday, tt.start, got, tt.want)
+			}
+		})
 	}
 }
 
