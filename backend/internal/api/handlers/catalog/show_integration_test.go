@@ -3,9 +3,11 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -113,6 +115,32 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnverifiedEmailBlocked() {
 
 	_, err := s.handler.CreateShowHandler(ctx, req)
 	s.Error(err)
+}
+
+// TestUpdateShow_RejectsTooManyArtists: PSY-1267 — the update path (no Resolve) caps
+// the array in the handler, before any DB work, since an update can also create new
+// artists (same outbound-enrichment amplification as create). Assert the specific
+// 422 from the cap, NOT just any error: ShowID "1" doesn't exist, so without the cap
+// the handler would fall through to a 404 and a bare s.Error would still pass
+// (false-green) — the 422 status is what proves the cap fired first.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsTooManyArtists() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
+
+	req := &UpdateShowRequest{ShowID: "1"}
+	artists := make([]Artist, maxShowArtists+1)
+	for i := range artists {
+		name := fmt.Sprintf("Artist %d", i)
+		artists[i] = Artist{Name: &name}
+	}
+	req.Body.Artists = artists
+
+	_, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().Error(err, "an update with more than %d artists must be rejected", maxShowArtists)
+	var se huma.StatusError
+	s.Require().ErrorAs(err, &se)
+	s.Equal(http.StatusUnprocessableEntity, se.GetStatus(),
+		"must be the cap 422, not a 404 fall-through (guards against the cap being removed)")
 }
 
 // --- GetShowHandler ---

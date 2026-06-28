@@ -97,14 +97,46 @@ type CreateShowRequestBody struct {
 	AgeRequirement *string   `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
 	Description    *string   `json:"description,omitempty" doc:"Show description" required:"false"`
 	TicketURL      *string   `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
-	Venues         []Venue   `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
-	Artists        []Artist  `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
-	IsPrivate      *bool     `json:"is_private,omitempty" doc:"If true, show is private and only visible to submitter"`
+	// NOTE: `validate:"..."` tags are NOT enforced here — huma reads its own schema
+	// tags (minItems/maxItems/...), not go-playground `validate`, and this repo wires
+	// no validator. The real per-field validation is the Resolve method below, where
+	// the PSY-1267 artist/venue count caps are enforced.
+	Venues    []Venue  `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
+	Artists   []Artist `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
+	IsPrivate *bool    `json:"is_private,omitempty" doc:"If true, show is private and only visible to submitter"`
 }
+
+// Artist/venue count caps for a single show (PSY-1267). These bound
+// outbound-enrichment amplification: each novel artist creates an entity that
+// enqueues a MusicBrainz/Wikidata/Commons lookup, so an uncapped array lets one
+// authenticated request fan out into thousands of third-party lookups. DoS safety
+// bounds, not product limits — observed real maxima are 10 artists / 1 venue per
+// show (prod, 2026-06-28), so these leave generous headroom.
+const (
+	maxShowArtists = 50
+	maxShowVenues  = 10
+)
 
 // Resolve implements preprocessing and validation for the request body
 func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 	var errors []error
+
+	// PSY-1267: cap the array sizes before the per-element loops below (so an
+	// oversized payload is rejected up front, not looped over).
+	if len(r.Artists) > maxShowArtists {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.artists",
+			Message:  fmt.Sprintf("A show may have at most %d artists", maxShowArtists),
+			Value:    len(r.Artists),
+		})
+	}
+	if len(r.Venues) > maxShowVenues {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.venues",
+			Message:  fmt.Sprintf("A show may have at most %d venues", maxShowVenues),
+			Value:    len(r.Venues),
+		})
+	}
 
 	// Validate text field lengths
 	if r.Title != nil && len(*r.Title) > 255 {
@@ -770,6 +802,19 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 	isAdmin := user.IsAdmin
+
+	// PSY-1267: the same artist/venue count caps as create. The update body has no
+	// Resolve (it validates at the service chokepoint), and an update can create new
+	// artists too — so it amplifies outbound enrichment the same way. Reject an
+	// oversized payload up front.
+	if len(req.Body.Artists) > maxShowArtists {
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("A show may have at most %d artists", maxShowArtists))
+	}
+	if len(req.Body.Venues) > maxShowVenues {
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("A show may have at most %d venues", maxShowVenues))
+	}
 
 	// Early debug log to confirm handler is called
 	logger.FromContext(ctx).Debug("show_update_handler_start",

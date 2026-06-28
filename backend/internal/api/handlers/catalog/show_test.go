@@ -178,6 +178,79 @@ func TestSetShowCancelledHandler_InvalidID(t *testing.T) {
 
 // --- Resolve validation: InstagramHandle ---
 
+// hasErrorAt reports whether errs contains a huma.ErrorDetail at the given location.
+func hasErrorAt(errs []error, location string) bool {
+	for _, e := range errs {
+		var detail *huma.ErrorDetail
+		if errors.As(e, &detail) && detail.Location == location {
+			return true
+		}
+	}
+	return false
+}
+
+func namedArtists(n int) []Artist {
+	out := make([]Artist, n)
+	for i := range out {
+		name := fmt.Sprintf("Artist %d", i)
+		out[i] = Artist{Name: &name}
+	}
+	return out
+}
+
+func namedVenues(n int) []Venue {
+	out := make([]Venue, n)
+	for i := range out {
+		name := fmt.Sprintf("Venue %d", i)
+		out[i] = Venue{Name: &name}
+	}
+	return out
+}
+
+// TestResolve_TooManyArtists: PSY-1267 — an artist array over the cap is rejected
+// with a field-located error (bounds outbound-enrichment amplification).
+func TestResolve_TooManyArtists(t *testing.T) {
+	body := &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    namedVenues(1),
+		Artists:   namedArtists(maxShowArtists + 1),
+	}
+	if !hasErrorAt(body.Resolve(nil), "body.artists") {
+		t.Errorf("expected a body.artists cap error for %d artists", maxShowArtists+1)
+	}
+}
+
+// TestResolve_TooManyVenues: same cap for venues.
+func TestResolve_TooManyVenues(t *testing.T) {
+	body := &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    namedVenues(maxShowVenues + 1),
+		Artists:   namedArtists(1),
+	}
+	if !hasErrorAt(body.Resolve(nil), "body.venues") {
+		t.Errorf("expected a body.venues cap error for %d venues", maxShowVenues+1)
+	}
+}
+
+// TestResolve_AtCapAllowed: exactly at the caps is fine (off-by-one guard).
+func TestResolve_AtCapAllowed(t *testing.T) {
+	body := &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    namedVenues(maxShowVenues),
+		Artists:   namedArtists(maxShowArtists),
+	}
+	errs := body.Resolve(nil)
+	if hasErrorAt(errs, "body.artists") || hasErrorAt(errs, "body.venues") {
+		t.Errorf("exactly %d artists / %d venues must be allowed, got: %v", maxShowArtists, maxShowVenues, errs)
+	}
+}
+
 func TestResolve_InstagramHandleTooLong(t *testing.T) {
 	longHandle := make([]byte, 101)
 	for i := range longHandle {
