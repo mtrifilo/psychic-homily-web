@@ -197,6 +197,7 @@ func main() {
 		collectionDigestCancel  context.CancelFunc
 		imageEnrichSweepCancel  context.CancelFunc
 		imageEnrichOutboxCancel context.CancelFunc
+		artistLocSweepCancel    context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -286,6 +287,21 @@ func main() {
 		log.Printf("image enrichment sweep + outbox disabled (set ENABLE_IMAGE_ENRICH_SWEEP=1 to enable)")
 	}
 
+	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
+	// artist city/state/country via MusicBrainz + Bandcamp, fill-when-empty). OPT-IN,
+	// default OFF (inverted polarity vs the DISABLE_* services above): the resolver
+	// AUTO-WRITES a name-matched location, and the manual cmd's dry-run review is the
+	// documented homonym backstop, so this runs only where explicitly enabled
+	// (ENABLE_ARTIST_LOCATION_SWEEP=1 — e.g. stage first) rather than auto-starting on
+	// deploy. Mirrors the image-sweep posture.
+	if os.Getenv("ENABLE_ARTIST_LOCATION_SWEEP") == "1" {
+		var artistLocSweepCtx context.Context
+		artistLocSweepCtx, artistLocSweepCancel = context.WithCancel(context.Background())
+		sc.ArtistLocationSweep.Start(artistLocSweepCtx)
+	} else {
+		log.Printf("artist location sweep disabled (set ENABLE_ARTIST_LOCATION_SWEEP=1 to enable)")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -346,6 +362,10 @@ func main() {
 	if imageEnrichOutboxCancel != nil {
 		imageEnrichOutboxCancel()
 		sc.ImageEnrichOutbox.Stop()
+	}
+	if artistLocSweepCancel != nil {
+		artistLocSweepCancel()
+		sc.ArtistLocationSweep.Stop()
 	}
 
 	// Graceful shutdown
