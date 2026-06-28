@@ -59,6 +59,93 @@ func TestVerifyArtistStates_CorrectsWrongGuess(t *testing.T) {
 	}
 }
 
+// TestVerifyArtistStates_PreservesExistingProvenance: correcting a row that
+// already has a non-MusicBrainz data_source fixes only the state — the existing
+// provenance (and thus future-MB-enrichment eligibility) is left intact.
+func TestVerifyArtistStates_PreservesExistingProvenance(t *testing.T) {
+	cand, rels := confirmedCandidate("c1", "LA Band", "Pasadena", "California", spotifyA)
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "LA Band", City: sp("Pasadena"), State: sp("TX"),
+			DataSource: sp("bandcamp"), // city was from Bandcamp
+			Social:     catalogm.Social{Spotify: sp(spotifyA)}},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{"LA Band": {cand}},
+		urlRels:    map[string][]pipeline.MBURLRelation{"c1": rels},
+	}
+
+	rep, err := verifyArtistStates(context.Background(), store, g, mb, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verifyArtistStates: %v", err)
+	}
+	if rep.Corrected != 1 {
+		t.Fatalf("Corrected = %d, want 1", rep.Corrected)
+	}
+	u := store.updates[1]
+	if u["state"] != "CA" {
+		t.Errorf("state = %v, want CA", u["state"])
+	}
+	if _, clobbered := u["data_source"]; clobbered {
+		t.Errorf("must NOT clobber an existing data_source on a state-only fix, wrote %v", u["data_source"])
+	}
+}
+
+// TestVerifyArtistStates_FullNameStateNotACorrection: a correct state stored in
+// full-name form ("California") matches MusicBrainz's "CA" once normalized — it
+// must be Confirmed, not rewritten.
+func TestVerifyArtistStates_FullNameStateNotACorrection(t *testing.T) {
+	cand, rels := confirmedCandidate("c1", "LA Band", "Pasadena", "California", spotifyA)
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "LA Band", City: sp("Pasadena"), State: sp("California"), // full name, correct
+			Social: catalogm.Social{Spotify: sp(spotifyA)}},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{"LA Band": {cand}},
+		urlRels:    map[string][]pipeline.MBURLRelation{"c1": rels},
+	}
+
+	rep, err := verifyArtistStates(context.Background(), store, g, mb, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verifyArtistStates: %v", err)
+	}
+	if rep.Confirmed != 1 || rep.Corrected != 0 {
+		t.Fatalf("Confirmed=%d Corrected=%d, want 1/0 (California == CA)", rep.Confirmed, rep.Corrected)
+	}
+	if len(store.updates) != 0 {
+		t.Errorf("a format-only difference must not rewrite, wrote %v", store.updates)
+	}
+}
+
+// TestVerifyArtistStates_FailedWriteNotCountedCorrected: when the DB write fails,
+// the artist is reported as an error, NOT as a correction.
+func TestVerifyArtistStates_FailedWriteNotCountedCorrected(t *testing.T) {
+	cand, rels := confirmedCandidate("c1", "LA Band", "Pasadena", "California", spotifyA)
+	store := &fakeStateStore{
+		artists: []catalogm.Artist{
+			{ID: 1, Name: "LA Band", City: sp("Pasadena"), State: sp("TX"), Social: catalogm.Social{Spotify: sp(spotifyA)}},
+		},
+		updateErr: errors.New("db write failed"),
+	}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{"LA Band": {cand}},
+		urlRels:    map[string][]pipeline.MBURLRelation{"c1": rels},
+	}
+
+	rep, err := verifyArtistStates(context.Background(), store, g, mb, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verifyArtistStates: %v", err)
+	}
+	if rep.Corrected != 0 || len(rep.Corrections) != 0 {
+		t.Errorf("a failed write must not count as Corrected; Corrected=%d corrections=%d", rep.Corrected, len(rep.Corrections))
+	}
+	if len(rep.Errors) != 1 {
+		t.Errorf("Errors = %d, want 1 (the failed write)", len(rep.Errors))
+	}
+}
+
 // TestVerifyArtistStates_LeavesCorrectGuess: a guess MusicBrainz agrees with
 // (Austin→TX) is confirmed and never rewritten.
 func TestVerifyArtistStates_LeavesCorrectGuess(t *testing.T) {

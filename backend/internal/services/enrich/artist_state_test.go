@@ -16,8 +16,9 @@ import (
 // fakeStateStore implements stateArtistStore without a DB, recording the updates
 // a live run would write.
 type fakeStateStore struct {
-	artists []catalogm.Artist
-	updates map[uint]map[string]interface{}
+	artists   []catalogm.Artist
+	updates   map[uint]map[string]interface{}
+	updateErr error // when set, UpdateArtistLocation fails (records nothing)
 }
 
 func (f *fakeStateStore) ArtistsWithCityMissingState(limit int) ([]catalogm.Artist, error) {
@@ -28,6 +29,9 @@ func (f *fakeStateStore) ArtistsWithCityMissingState(limit int) ([]catalogm.Arti
 }
 
 func (f *fakeStateStore) UpdateArtistLocation(id uint, fields map[string]interface{}) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
 	if f.updates == nil {
 		f.updates = map[uint]map[string]interface{}{}
 	}

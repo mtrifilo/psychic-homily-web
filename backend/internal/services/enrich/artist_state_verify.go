@@ -10,6 +10,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/utils"
 )
 
 // PSY-1255 cleanup: re-check artists that ALREADY have a state and correct a
@@ -96,12 +97,19 @@ func verifyArtistStates(
 		if city == "" || current == "" {
 			continue // store gate guarantees both; defensive
 		}
+		// Compare on a normalized 2-letter code: a stored value may be a full name
+		// ("California", VARCHAR(10), written un-normalized from user input), so a
+		// raw compare against MusicBrainz's "CA" would flag a correct state as a
+		// "correction" and needlessly rewrite it. An unrecognized format normalizes
+		// to itself (upper-cased) and so still compares unequal — handled as a real
+		// disagreement, the conservative choice.
+		currentNorm := normalizeUSState(current)
 
 		// The geocoder unambiguously confirms a US-dominant city's state — those are
 		// correct by the same logic that fills them, so skip them WITHOUT a MusicBrainz
 		// call. (A wrong such state would have to disagree with an unambiguous
 		// US-dominant name, which the fill pass never writes.)
-		if st, status := g.ResolveUSState(city); status == geo.USStateUnambiguous && strings.EqualFold(st, current) {
+		if st, status := g.ResolveUSState(city); status == geo.USStateUnambiguous && st == currentNorm {
 			report.DefiniteOK++
 			continue
 		}
@@ -135,40 +143,57 @@ func verifyArtistStates(
 		}
 		mbConsecutiveErrors = 0
 
-		switch {
-		case confirmed == "":
+		switch confirmed {
+		case "":
 			report.Unverified++ // couldn't confirm identity / no state → leave current
-		case strings.EqualFold(confirmed, current):
-			report.Confirmed++ // MusicBrainz agrees → already correct
+		case currentNorm:
+			report.Confirmed++ // MusicBrainz agrees (modulo format) → already correct
 		default:
 			// Identity-confirmed a DIFFERENT state: the stored one was wrong.
-			report.Corrected++
-			report.Corrections = append(report.Corrections, StateCorrection{
-				ArtistID: a.ID, Name: a.Name, City: city, OldState: current, NewState: confirmed,
-			})
 			if opts.DryRun {
+				report.recordCorrection(a, city, current, confirmed)
 				continue
 			}
-			if err := store.UpdateArtistLocation(a.ID, correctionUpdate(confirmed, now)); err != nil {
+			// Provenance: reuse the fill pass's empty-only rule (stateUpdate) — the
+			// `state` value is corrected regardless, but data_source/confidence are
+			// only stamped when the row has no prior source, so we don't clobber a
+			// Bandcamp/user attribution (which also gates future MusicBrainz
+			// enrichment, see pipeline/enrichment.go) for a single-field fix.
+			if err := store.UpdateArtistLocation(a.ID, stateUpdate(a, confirmed, DataSourceMusicBrainz, now)); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("artist %d update: %v", a.ID, err))
+				continue // a failed write is an error, NOT a correction — don't over-report
 			}
+			report.recordCorrection(a, city, current, confirmed)
 		}
 	}
 	return report, nil
 }
 
-// correctionUpdate overwrites a wrong state with the identity-confirmed
-// MusicBrainz one and stamps coherent provenance: the state is now an
-// MusicBrainz-verified origin, so data_source/source_confidence/last_verified_at
-// describe that (unlike the fill pass's empty-only rule — here we are correcting a
-// field whose new value IS authoritatively MusicBrainz's).
-func correctionUpdate(state string, now time.Time) map[string]interface{} {
-	return map[string]interface{}{
-		"state":             state,
-		"data_source":       DataSourceMusicBrainz,
-		"source_confidence": confidenceMusicBrainz,
-		"last_verified_at":  now,
+// recordCorrection counts and lists one correction; called only for a correction
+// that was applied (or, in dry-run, would be applied) — never for a failed write.
+func (r *VerifyReport) recordCorrection(a *catalogm.Artist, city, oldState, newState string) {
+	r.Corrected++
+	r.Corrections = append(r.Corrections, StateCorrection{
+		ArtistID: a.ID, Name: a.Name, City: city, OldState: oldState, NewState: newState,
+	})
+}
+
+// normalizeUSState reduces a stored state value to a 2-letter US code for
+// comparison: a 2-letter input is upper-cased; a full state name is mapped via
+// utils.StateNameToAbbrev; anything else is upper-cased as-is (so it compares
+// unequal to a real code and is treated as a genuine disagreement).
+func normalizeUSState(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
 	}
+	if len(s) == 2 {
+		return strings.ToUpper(s)
+	}
+	if abbr, ok := utils.StateNameToAbbrev(s); ok {
+		return abbr
+	}
+	return strings.ToUpper(s)
 }
 
 // ArtistsWithCityAndState loads artists that have BOTH a non-blank city and a
