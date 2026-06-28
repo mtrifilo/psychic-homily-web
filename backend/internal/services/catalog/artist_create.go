@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -57,11 +58,37 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	}
 	slug := uniqueArtistSlugTx(tx, artist.Name)
 	artist.Slug = &slug
-	// NOTE: SELECT-then-INSERT — artist-name uniqueness is not yet DB-enforced
-	// (PSY-1256), so two concurrent same-name creates can race. Acceptable pre-prod /
-	// single-instance; PSY-1256 adds the unique index + conflict handling here.
-	if cerr := tx.Create(&artist).Error; cerr != nil {
-		return nil, false, fmt.Errorf("create artist %q: %w", name, cerr)
+
+	// Conflict-safe create (PSY-1256). The SELECT above and this INSERT are not
+	// atomic, so a concurrent create of a case-variant of the same name can commit in
+	// between and our INSERT then trips the case-insensitive unique index
+	// (artists_lower_name_uniq) — the funnel dedups on LOWER(name), so this is the
+	// race the index now closes (exact-case dups were already blocked by the old
+	// artists_name_key, dropped by this migration).
+	//
+	// The INSERT runs in a nested tx.Transaction: a SAVEPOINT when the caller already
+	// holds a transaction (show import, discovery), or a standalone BEGIN/COMMIT on a
+	// base *gorm.DB (admin create, data-sync, seed). Either way it CONTAINS a failed
+	// INSERT — Postgres aborts the whole transaction on any failed statement, so
+	// without this the recovery SELECT below (and the caller's eventual COMMIT) would
+	// fail on the poisoned tx. On a collision we re-select and return the winner as
+	// created=false, so concurrent creators converge instead of erroring.
+	createErr := tx.Transaction(func(itx *gorm.DB) error {
+		return itx.Create(&artist).Error
+	})
+	if createErr != nil {
+		if shared.IsDuplicateKey(createErr) {
+			// The collision is on the name index (the case this guards) or, rarely,
+			// the slug index (a concurrent same-slug race). Post-TranslateError the
+			// two are indistinguishable (see pattern_gorm_translate_error), so we
+			// re-select by name: a name collision returns the winner; a slug-only
+			// collision finds nothing and falls through to the error.
+			var existing catalogm.Artist
+			if ferr := tx.Where("LOWER(name) = LOWER(?)", name).First(&existing).Error; ferr == nil {
+				return &existing, false, nil
+			}
+		}
+		return nil, false, fmt.Errorf("create artist %q: %w", name, createErr)
 	}
 	// PSY-1247: prompt on-create image enrichment. Enqueue ONLY on the created
 	// path — a found artist is already covered by its own create-time enqueue (or,

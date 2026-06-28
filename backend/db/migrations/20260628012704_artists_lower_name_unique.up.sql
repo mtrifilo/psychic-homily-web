@@ -1,0 +1,33 @@
+-- PSY-1256: replace case-SENSITIVE artist-name uniqueness with case-INSENSITIVE.
+--
+-- artists.name ALREADY had case-sensitive uniqueness — the implicit constraint
+-- artists_name_key, from `name VARCHAR(255) NOT NULL UNIQUE` in 000001 (plus a
+-- redundant non-unique idx_artists_name). But catalog.FindOrCreateArtistTx dedups
+-- case-INSENSITIVELY (LOWER(name)=LOWER(?)), so two names differing only in case
+-- could BOTH insert: the funnel's SELECT misses and artists_name_key (case-sensitive)
+-- permits it. That case-variant race is the real gap this closes.
+--
+-- Replace both name indexes with ONE functional unique index on LOWER(name) that
+-- matches the funnel's predicate exactly and is strictly stronger than
+-- artists_name_key (a case-insensitive collision subsumes the case-sensitive one),
+-- so the case-sensitive constraint becomes redundant and is dropped. The funnel's
+-- conflict-safe path (re-select on a 23505) now keys on this index.
+--
+-- Functional LOWER(name) index, chosen over converting name to a citext column:
+-- additive/reversible (citext would be a column-type change), and the funnel +
+-- search already query LOWER(name). seed's bulk insert switches to a target-less
+-- ON CONFLICT DO NOTHING (it can no longer name artists_name_key as the arbiter,
+-- and target-less catches this functional index too).
+--
+-- No dedup step: verified ZERO case-insensitive duplicate names on stage (2059
+-- artists) and prod (245) on 2026-06-28, so the unique index builds cleanly.
+-- (Exact-case dups were already impossible under artists_name_key; case-variant
+-- dups were possible but none exist.)
+--
+-- Order matters: create the stronger index BEFORE dropping the weaker constraint,
+-- so name uniqueness is enforced at every point. Multi-statement DDL; golang-migrate
+-- wraps the file in a transaction → the index is built NON-concurrently (CONCURRENTLY
+-- is illegal in a txn and unnecessary on a <=2k-row table).
+CREATE UNIQUE INDEX artists_lower_name_uniq ON artists (LOWER(name));
+ALTER TABLE artists DROP CONSTRAINT IF EXISTS artists_name_key;
+DROP INDEX IF EXISTS idx_artists_name;
