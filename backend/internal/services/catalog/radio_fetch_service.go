@@ -1214,6 +1214,14 @@ func (s *RadioFetchService) runJanitorCycle() {
 
 	sweep := s.runBackfillSweep(time.Duration(s.janitorBackfillLookbackDays) * 24 * time.Hour)
 
+	// Escalate stations stuck in a sustained total-fetch outage (PSY-1269). A healthy
+	// run advances last_playlist_fetch_at, so a watermark stale beyond the threshold
+	// means the station has imported nothing for that long.
+	outagesEscalated, err := s.radioService.EscalateStaleFetchOutages(radioFetchOutageEscalationThreshold, now)
+	if err != nil {
+		s.logger.Error("radio janitor: fetch-outage escalation failed", "error", err)
+	}
+
 	s.logger.Info("radio janitor cycle complete",
 		"dormant_days", s.janitorDormantDays,
 		"shows_promoted", promoted,
@@ -1221,6 +1229,7 @@ func (s *RadioFetchService) runJanitorCycle() {
 		"play_counts_corrected", pcCorrected,
 		"backfill_shows_processed", sweep.processed,
 		"backfill_shows_completed", sweep.completed,
+		"fetch_outages_escalated", outagesEscalated,
 		"duration", time.Since(now),
 	)
 }

@@ -1063,6 +1063,47 @@ func (s *RadioService) escalatePermanentFailure(err error, stationID uint, categ
 	})
 }
 
+// radioFetchOutageEscalationThreshold is how stale a station's last_playlist_fetch_at
+// must be before the janitor escalates it as a sustained total-fetch outage. PSY-1241
+// holds the watermark stale across a wholly-failed run, and a healthy run always
+// advances it (success, empty, or no fetchable shows), so staleness beyond a few
+// fetch cycles (the loop runs ~every 6h) means the station has imported nothing for
+// that long. 18h ≈ 3 missed cycles — long enough to rule out a one-off blip. (PSY-1269)
+const radioFetchOutageEscalationThreshold = 18 * time.Hour
+
+// EscalateStaleFetchOutages escalates active stations whose last successful playlist
+// fetch (last_playlist_fetch_at) is older than `threshold` — a sustained total-fetch
+// outage (PSY-1269). It reuses the PSY-1241 held-watermark as the outage signal: a
+// healthy run always advances the watermark, so a stale one means every fetchable
+// show has been failing. Manual-source stations (no automated fetch) and never-fetched
+// stations (NULL watermark) are excluded. Escalations group per (station,
+// "fetch_outage") in Sentry (see escalatePermanentFailure), so a persistent outage is
+// one issue re-triggered each janitor cycle rather than nightly spam. Returns the
+// number escalated.
+func (s *RadioService) EscalateStaleFetchOutages(threshold time.Duration, now time.Time) (int, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	cutoff := now.Add(-threshold)
+	var stations []catalogm.RadioStation
+	err := s.db.
+		Where("is_active = TRUE AND playlist_source IS NOT NULL AND playlist_source != '' AND playlist_source != ?", catalogm.PlaylistSourceManual).
+		Where("last_playlist_fetch_at IS NOT NULL AND last_playlist_fetch_at < ?", cutoff).
+		Find(&stations).Error
+	if err != nil {
+		return 0, fmt.Errorf("querying stale-fetch stations: %w", err)
+	}
+	for i := range stations {
+		st := stations[i]
+		staleFor := now.Sub(*st.LastPlaylistFetchAt).Round(time.Hour)
+		s.escalatePermanentFailure(
+			fmt.Errorf("radio station %q has imported no new playlists for ~%s (last successful fetch %s)",
+				st.Slug, staleFor, st.LastPlaylistFetchAt.UTC().Format(time.RFC3339)),
+			st.ID, "fetch_outage")
+	}
+	return len(stations), nil
+}
+
 // runErrorDetailLimit caps a radio_sync_run_errors.detail so a flapping provider
 // can't bloat the admin-readable table (migration note on the column).
 const runErrorDetailLimit = 2000

@@ -156,12 +156,16 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 
 	// 2. Fetch episodes for each show
 	since := time.Now().AddDate(0, 0, -backfillDays)
+	var fetchAttempts, fetchSuccesses, episodesReturned int
 	for extID, showID := range showMap {
+		fetchAttempts++
 		episodes, err := provider.FetchNewEpisodes(extID, since, time.Time{})
 		if err != nil {
 			recordImportError(result, categorizeRunError(err), fmt.Sprintf("fetch episodes for show %s: %v", extID, err), nil)
 			continue
 		}
+		fetchSuccesses++
+		episodesReturned += len(episodes)
 
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(showID, ep, provider)
@@ -174,12 +178,11 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 		}
 	}
 
-	// Update last fetch timestamp. Unconditional advance is correct here: ImportStation
-	// is a one-shot legacy backfill that derives `since` from backfillDays (not
-	// fetchSince), so the shouldAdvanceLastFetch catch-up gate FetchNewEpisodes uses
-	// does not apply. (PSY-1241)
-	now := time.Now()
-	s.db.Model(&station).Update("last_playlist_fetch_at", now)
+	// Advance the watermark through the shared gate (PSY-1269): a total failure here
+	// holds it stale too. This legacy full-import path is unwired in production today,
+	// but routing it through advanceLastFetch keeps the watermark invariant intact if
+	// it is ever re-exposed (it remains on the contracts.RadioService interface).
+	s.advanceLastFetch(stationID, fetchAttempts, fetchSuccesses, episodesReturned, result.EpisodesImported)
 
 	return result, nil
 }
@@ -370,6 +373,29 @@ func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, epi
 	}
 }
 
+// advanceLastFetch is the single place an import run updates a station's
+// last_playlist_fetch_at watermark. It advances only when the run made progress
+// (shouldAdvanceLastFetch); a wholly-failed run holds the watermark stale so
+// fetchSince's catch-up branch recovers the gap on the next good run (PSY-1241) and
+// the janitor escalates if it stays stale (PSY-1269, EscalateStaleFetchOutages). A
+// no-progress run and a failed write are both logged, not swallowed — the no-progress
+// warning is the immediate per-cycle outage signal. All import paths (FetchNewEpisodes,
+// ImportStation) route through here so the watermark invariant can't drift. (PSY-1269)
+func (s *RadioService) advanceLastFetch(stationID uint, fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) {
+	if !shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, episodesImported) {
+		slog.Default().Warn("radio fetch: run made no progress; holding last_playlist_fetch_at stale",
+			"station_id", stationID,
+			"fetch_attempts", fetchAttempts, "fetch_successes", fetchSuccesses,
+			"episodes_returned", episodesReturned, "episodes_imported", episodesImported)
+		return
+	}
+	if err := s.db.Model(&catalogm.RadioStation{}).Where("id = ?", stationID).
+		Update("last_playlist_fetch_at", time.Now()).Error; err != nil {
+		slog.Default().Error("radio fetch: failed to advance last_playlist_fetch_at",
+			"station_id", stationID, "error", err)
+	}
+}
+
 // FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at,
 // floored so weekly shows aren't skipped (PSY-1230; see fetchSince).
 func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportResult, error) {
@@ -433,17 +459,11 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		}
 	}
 
-	// Advance the last-fetch timestamp only when the run made progress; a wholly
-	// failed run leaves it stale so the next good run re-scans the true gap.
-	// last_playlist_fetch_at is therefore a "last successful progress" watermark,
-	// NOT "last attempt" — attempt history (including failed/partial runs) lives in
-	// radio_sync_runs. (PSY-1241)
-	if shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, result.EpisodesImported) {
-		if err := s.db.Model(&station).Update("last_playlist_fetch_at", time.Now()).Error; err != nil {
-			slog.Default().Error("radio fetch: failed to advance last_playlist_fetch_at",
-				"station_id", stationID, "error", err)
-		}
-	}
+	// Advance the last-fetch watermark only when the run made progress (a wholly
+	// failed run holds it stale so the next good run re-scans the true gap, PSY-1241).
+	// last_playlist_fetch_at is a "last successful progress" watermark, NOT "last
+	// attempt" — attempt history lives in radio_sync_runs.
+	s.advanceLastFetch(stationID, fetchAttempts, fetchSuccesses, episodesReturned, result.EpisodesImported)
 
 	return result, nil
 }
