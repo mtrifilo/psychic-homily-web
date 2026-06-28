@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/enrich"
 	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/imageenrich"
 	"psychic-homily-backend/internal/services/notification"
@@ -84,20 +85,21 @@ type ServiceContainer struct {
 	PasswordValidator *auth.PasswordValidator
 
 	// DB + Config composite services
-	Auth              *auth.AuthService
-	JWT               *auth.JWTService
-	AppleAuth         *auth.AppleAuthService
-	Extraction        *pipeline.ExtractionService
-	WebAuthn          *auth.WebAuthnService // nil if init fails (passkeys optional)
-	Cleanup           *adminsvc.CleanupService
-	DataSync          *adminsvc.DataSyncService
-	Discovery         *pipeline.DiscoveryService
-	Reminder          *engagement.ReminderService
-	Enrichment        *pipeline.EnrichmentService
-	EnrichmentWorker  *pipeline.EnrichmentWorker
-	ImageEnrichSweep  *imageenrich.ImageEnrichmentSweep
-	ImageEnrichOutbox *imageenrich.ImageEnrichOutboxPoller
-	AutoPromotion     *adminsvc.AutoPromotionService
+	Auth                *auth.AuthService
+	JWT                 *auth.JWTService
+	AppleAuth           *auth.AppleAuthService
+	Extraction          *pipeline.ExtractionService
+	WebAuthn            *auth.WebAuthnService // nil if init fails (passkeys optional)
+	Cleanup             *adminsvc.CleanupService
+	DataSync            *adminsvc.DataSyncService
+	Discovery           *pipeline.DiscoveryService
+	Reminder            *engagement.ReminderService
+	Enrichment          *pipeline.EnrichmentService
+	EnrichmentWorker    *pipeline.EnrichmentWorker
+	ImageEnrichSweep    *imageenrich.ImageEnrichmentSweep
+	ArtistLocationSweep *enrich.ArtistLocationSweep
+	ImageEnrichOutbox   *imageenrich.ImageEnrichOutboxPoller
+	AutoPromotion       *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 }
@@ -147,6 +149,11 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	imageEnricher := imageenrich.NewEnricher(database, mbClient, cfg.Discogs.Token)
 	imageEnrichSweep := imageenrich.NewImageEnrichmentSweep(database, imageEnricher)
 	imageEnrichOutbox := imageenrich.NewImageEnrichOutboxPoller(database, imageEnricher)
+
+	// PSY-1250: artist-location sweep (Phase A). Reuses the SAME shared mbClient
+	// (PSY-1208) so its MusicBrainz traffic stays under the one ~1 req/s throttle; a
+	// fresh Bandcamp resolver (stateless, no global rate limit) handles the fallback.
+	artistLocationSweep := enrich.NewArtistLocationSweep(database, catalog.NewBandcampProfileResolver(), mbClient)
 
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
 	discovery.SetEnrichmentService(enrichmentSvc)
@@ -256,20 +263,21 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		PasswordValidator: auth.NewPasswordValidator(),
 
 		// DB + Config composite services
-		Auth:              auth.NewAuthService(database, cfg, userService),
-		JWT:               jwtService,
-		AppleAuth:         auth.NewAppleAuthService(database, cfg, jwtService),
-		Extraction:        extraction,
-		WebAuthn:          webauthnService,
-		Cleanup:           adminsvc.NewCleanupService(database, userService),
-		DataSync:          adminsvc.NewDataSyncService(database),
-		Discovery:         discovery,
-		Reminder:          engagement.NewReminderService(database, email, cfg),
-		Enrichment:        enrichmentSvc,
-		EnrichmentWorker:  enrichmentWorker,
-		ImageEnrichSweep:  imageEnrichSweep,
-		ImageEnrichOutbox: imageEnrichOutbox,
-		AutoPromotion:     adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
-		CollectionDigest:  engagement.NewCollectionDigestService(database, email, cfg),
+		Auth:                auth.NewAuthService(database, cfg, userService),
+		JWT:                 jwtService,
+		AppleAuth:           auth.NewAppleAuthService(database, cfg, jwtService),
+		Extraction:          extraction,
+		WebAuthn:            webauthnService,
+		Cleanup:             adminsvc.NewCleanupService(database, userService),
+		DataSync:            adminsvc.NewDataSyncService(database),
+		Discovery:           discovery,
+		Reminder:            engagement.NewReminderService(database, email, cfg),
+		Enrichment:          enrichmentSvc,
+		EnrichmentWorker:    enrichmentWorker,
+		ImageEnrichSweep:    imageEnrichSweep,
+		ImageEnrichOutbox:   imageEnrichOutbox,
+		ArtistLocationSweep: artistLocationSweep,
+		AutoPromotion:       adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
+		CollectionDigest:    engagement.NewCollectionDigestService(database, email, cfg),
 	}
 }

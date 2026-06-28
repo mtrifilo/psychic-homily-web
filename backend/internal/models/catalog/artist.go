@@ -103,6 +103,15 @@ type Artist struct {
 	// response (like Metro / BandcampEmbedSource / ImageEnrichAttemptedAt).
 	MusicBrainzArtistID *string `json:"-" gorm:"column:musicbrainz_artist_id;size:36"`
 
+	// LocationEnrichAttemptedAt records when the ongoing artist-LOCATION sweep
+	// (PSY-1250) last tried to resolve a city/state/country for this artist, so it can
+	// skip rows attempted within the re-attempt window instead of re-querying the
+	// locationless long tail (no MusicBrainz/Bandcamp match) every cycle. NULL = never
+	// attempted by the sweep. Internal: not mapped onto any API response. Mirrors
+	// ImageEnrichAttemptedAt; a separate column because the two sweeps converge
+	// independently.
+	LocationEnrichAttemptedAt *time.Time `json:"-" gorm:"column:location_enrich_attempted_at"`
+
 	// Streaming-discovery review state — see StreamingDiscoveryStatus const block.
 	// Reason holds the admin's optional note on no_links_found / skipped outcomes.
 	StreamingDiscoveryStatus StreamingDiscoveryStatus `json:"streaming_discovery_status" gorm:"column:streaming_discovery_status;size:32;not null;default:unreviewed"`

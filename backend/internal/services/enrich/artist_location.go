@@ -73,6 +73,14 @@ type Options struct {
 	DryRun       bool
 	Limit        int  // 0 = all artists needing location
 	BandcampOnly bool // skip the MusicBrainz fallback
+	// ReattemptWindow turns on the no-result memo for the background sweep (PSY-1250).
+	// When > 0, the candidate query additionally skips artists whose
+	// location_enrich_attempted_at is within the window (so the locationless long tail
+	// isn't re-queried every cycle), and every loaded artist is stamped attempted
+	// BEFORE the resolve (poison-row safety: a row that errors still waits one window
+	// before a retry). Zero (the default / the manual cmd) keeps the original behavior:
+	// no memo filter, no stamp.
+	ReattemptWindow time.Duration
 }
 
 // Fill records one artist's enrichment outcome for the report.
@@ -134,8 +142,14 @@ type MBCandidateSearcher interface {
 // artistStore abstracts artist load/update so the orchestrator is unit-testable
 // without a database. gormArtistStore is the production implementation.
 type artistStore interface {
-	ArtistsNeedingLocation(limit int) ([]catalogm.Artist, error)
+	// ArtistsNeedingLocation loads city-less artists. A non-nil reattemptCutoff
+	// (sweep mode) additionally excludes artists stamped at or after it, oldest-attempt
+	// first; nil (manual cmd) keeps the original id-ordered, memo-agnostic selection.
+	ArtistsNeedingLocation(limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error)
 	UpdateArtistLocation(id uint, fields map[string]interface{}) error
+	// StampLocationAttempted marks ids as attempted (location_enrich_attempted_at = at)
+	// for the sweep's no-result memo.
+	StampLocationAttempted(ids []uint, at time.Time) error
 }
 
 // BackfillArtistLocations enriches artists whose location is incomplete, trying
@@ -158,17 +172,45 @@ func backfillArtistLocations(
 	mb MBCandidateSearcher,
 	opts Options,
 ) (*Report, error) {
-	artists, err := store.ArtistsNeedingLocation(opts.Limit)
+	now := time.Now()
+
+	// Sweep mode (ReattemptWindow > 0): filter out artists attempted within the window
+	// so the locationless tail isn't re-queried every cycle.
+	var cutoff *time.Time
+	if opts.ReattemptWindow > 0 {
+		c := now.Add(-opts.ReattemptWindow)
+		cutoff = &c
+	}
+
+	artists, err := store.ArtistsNeedingLocation(opts.Limit, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("load artists: %w", err)
 	}
 
 	report := &Report{ArtistsScanned: len(artists)}
-	now := time.Now()
+
+	// Stamp-before-resolve (sweep mode only, never in a dry run): mark the whole batch
+	// attempted up front so a poison row that errors still waits one re-attempt window
+	// before a retry and can't wedge the sweep (mirrors the image sweep, PSY-1246).
+	if opts.ReattemptWindow > 0 && !opts.DryRun && len(artists) > 0 {
+		ids := make([]uint, len(artists))
+		for i := range artists {
+			ids[i] = artists[i].ID
+		}
+		if err := store.StampLocationAttempted(ids, now); err != nil {
+			return nil, fmt.Errorf("stamp attempted: %w", err)
+		}
+	}
+
 	mbConsecutiveErrors := 0
 	mbDisabled := false
 
 	for i := range artists {
+		// Honor cancellation (server shutdown) between artists — a batch can take
+		// ~1s/artist under the MB throttle. The manual cmd uses a Background ctx.
+		if ctx.Err() != nil {
+			break
+		}
 		a := &artists[i]
 
 		useMB := !opts.BandcampOnly && !mbDisabled
@@ -592,14 +634,28 @@ type gormArtistStore struct{ db *gorm.DB }
 // legitimately has no US state, and a US band filled "City, State" from Bandcamp
 // has no country, so a multi-field gate would re-select — and re-fetch — those
 // rows on every run forever. TRIM matches the in-memory isEmptyPtr check so the
-// SQL gate and the fill logic agree on "empty". Ordered by id for a stable run;
-// limit <= 0 means all. (State/country still fill opportunistically when we fill
-// a city — they're just not what KEEPS an artist in the candidate set.)
-func (s *gormArtistStore) ArtistsNeedingLocation(limit int) ([]catalogm.Artist, error) {
+// SQL gate and the fill logic agree on "empty". limit <= 0 means all. (State/country
+// still fill opportunistically when we fill a city — they're just not what KEEPS an
+// artist in the candidate set.)
+//
+// reattemptCutoff (sweep mode, PSY-1250): when non-nil, also skip artists whose
+// location_enrich_attempted_at is NULL-or-older-than the cutoff and order by attempt
+// time (NULLs — never tried — first) so brand-new and stalest rows come before
+// recently re-checked ones; this is the no-result memo that lets a bounded nightly
+// batch converge. nil (the manual cmd) keeps the original id-ordered, memo-agnostic
+// selection. The city OR-group is parenthesized so it stays local when AND-combined
+// with the memo clause.
+func (s *gormArtistStore) ArtistsNeedingLocation(limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error) {
 	var artists []catalogm.Artist
-	q := s.db.
-		Where("city IS NULL OR TRIM(city) = ''").
-		Order("id")
+	q := s.db.Where("(city IS NULL OR TRIM(city) = '')")
+	if reattemptCutoff != nil {
+		q = q.
+			Where("location_enrich_attempted_at IS NULL OR location_enrich_attempted_at < ?", *reattemptCutoff).
+			Order("location_enrich_attempted_at ASC NULLS FIRST").
+			Order("id ASC")
+	} else {
+		q = q.Order("id")
+	}
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -612,4 +668,18 @@ func (s *gormArtistStore) ArtistsNeedingLocation(limit int) ([]catalogm.Artist, 
 // UpdateArtistLocation applies a fields map to one artist row.
 func (s *gormArtistStore) UpdateArtistLocation(id uint, fields map[string]interface{}) error {
 	return s.db.Model(&catalogm.Artist{}).Where("id = ?", id).Updates(fields).Error
+}
+
+// StampLocationAttempted sets location_enrich_attempted_at = at for the given ids
+// (the sweep's no-result memo). A no-op on an empty slice. Uses Table (not Model) so
+// this bookkeeping write does NOT bump artists.updated_at — the memo marks "we tried",
+// not a content change, and it stamps the whole batch (incl. pure misses) every cycle
+// (matches the sibling image sweep's stampAttempted, imageenrich/enricher.go).
+func (s *gormArtistStore) StampLocationAttempted(ids []uint, at time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.db.Table("artists").
+		Where("id IN ?", ids).
+		Update("location_enrich_attempted_at", at).Error
 }

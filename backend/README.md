@@ -687,6 +687,21 @@ that set the `DISABLE_*` flags need no change — it stays off by default.)
 | `IMAGE_ENRICH_SWEEP_BATCH`          | `50`        | Entities per type processed per tick                            |
 | `IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS` | `90`        | Don't re-attempt an imageless entity for this many days         |
 
+**Opt-in (default OFF) — artist-location sweep (PSY-1250).** Same `ENABLE_*`
+posture as the image sweep, for the same reason: the resolver AUTO-WRITES a
+name-matched location and the manual `backfill-artist-location` cmd's dry-run
+review is the homonym backstop, so this runs only where explicitly enabled (enable
+on stage first, watch the report, then prod). Location only — links are a follow-up
+(PSY-1279). Keep `REATTEMPT_DAYS` ≫ `INTERVAL_HOURS × (locationless tail / batch)`
+or the memo is defeated and the tail is re-queried.
+
+| Variable                               | Default     | Effect                                                          |
+| -------------------------------------- | ----------- | --------------------------------------------------------------- |
+| `ENABLE_ARTIST_LOCATION_SWEEP`         | unset (off) | `"1"` starts the sweep (fills missing artist city/state/country) |
+| `ARTIST_LOCATION_SWEEP_INTERVAL_HOURS` | `24`        | Tick cadence                                                    |
+| `ARTIST_LOCATION_SWEEP_BATCH`          | `50`        | Artists processed per tick                                      |
+| `ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS` | `30`        | Don't re-attempt a locationless artist for this many days       |
+
 ### Security Notes
 
 - **Never commit `.env.production`** to version control

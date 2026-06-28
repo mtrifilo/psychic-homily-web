@@ -106,10 +106,10 @@ func NewImageEnrichOutboxPoller(database *gorm.DB, enricher *Enricher) *ImageEnr
 	return &ImageEnrichOutboxPoller{
 		db:           database,
 		enricher:     enricher,
-		interval:     sweepEnvDuration("IMAGE_ENRICH_OUTBOX_INTERVAL_SECONDS", time.Second, defaultOutboxInterval),
-		batch:        sweepEnvInt("IMAGE_ENRICH_OUTBOX_BATCH", defaultOutboxBatch),
-		staleReclaim: sweepEnvDuration("IMAGE_ENRICH_OUTBOX_STALE_RECLAIM_MINUTES", time.Minute, defaultOutboxStaleReclaim),
-		retention:    sweepEnvDuration("IMAGE_ENRICH_OUTBOX_RETENTION_HOURS", time.Hour, defaultOutboxRetention),
+		interval:     shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_INTERVAL_SECONDS", time.Second, defaultOutboxInterval),
+		batch:        shared.EnvPositiveInt("IMAGE_ENRICH_OUTBOX_BATCH", defaultOutboxBatch),
+		staleReclaim: shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_STALE_RECLAIM_MINUTES", time.Minute, defaultOutboxStaleReclaim),
+		retention:    shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_RETENTION_HOURS", time.Hour, defaultOutboxRetention),
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 	}

@@ -294,22 +294,145 @@ func TestMatchMBLocation(t *testing.T) {
 	})
 }
 
+// TestBackfillArtistLocations_Memo covers the PSY-1250 sweep behavior the manual cmd
+// doesn't exercise: the no-result memo (stamp-before-resolve + cutoff filtering) is on
+// only when ReattemptWindow > 0, and never writes in a dry run.
+func TestBackfillArtistLocations_Memo(t *testing.T) {
+	const window = 720 * time.Hour // 30 days
+	mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		"Resolvable": {{ID: "11111111-1111-1111-1111-111111111111", Name: "Resolvable", BeginArea: &pipeline.MBArea{Name: "Austin", Type: "City"}, Country: "US"}},
+	}}
+
+	t.Run("sweep mode stamps the WHOLE batch before resolving (incl. a miss) + passes a cutoff", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Resolvable"},
+			{ID: 2, Name: "Unresolvable"}, // no MB/Bandcamp → a miss, but still stamped
+		}}
+		_, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{ReattemptWindow: window})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := store.stamped[1]; !ok {
+			t.Fatalf("artist 1 should be stamped attempted")
+		}
+		if _, ok := store.stamped[2]; !ok {
+			t.Fatalf("artist 2 (a miss) must still be stamped (poison-row safety)")
+		}
+		if store.lastCutoff == nil {
+			t.Fatalf("sweep mode must pass a reattempt cutoff to the store")
+		}
+		if store.updates[1]["city"] != "Austin" {
+			t.Fatalf("the resolvable artist should still fill, got %+v", store.updates[1])
+		}
+	})
+
+	t.Run("manual cmd mode (no ReattemptWindow) never stamps + passes a nil cutoff", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Resolvable"}}}
+		_, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(store.stamped) != 0 {
+			t.Fatalf("cmd mode must not stamp the memo, got %v", store.stamped)
+		}
+		if store.lastCutoff != nil {
+			t.Fatalf("cmd mode must pass a nil cutoff, got %v", *store.lastCutoff)
+		}
+	})
+
+	t.Run("dry-run sweep filters by cutoff but writes nothing", func(t *testing.T) {
+		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Resolvable"}}}
+		_, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{ReattemptWindow: window, DryRun: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(store.stamped) != 0 {
+			t.Fatalf("dry-run must not stamp the memo, got %v", store.stamped)
+		}
+		if len(store.updates) != 0 {
+			t.Fatalf("dry-run must not write locations, got %v", store.updates)
+		}
+		if store.lastCutoff == nil {
+			t.Fatalf("dry-run sweep should still filter selection by the cutoff")
+		}
+	})
+
+	t.Run("a recently-attempted artist is excluded by the cutoff", func(t *testing.T) {
+		recent := time.Now() // attempted now → within any window → excluded
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Resolvable"},                                     // never attempted → in
+			{ID: 2, Name: "Resolvable", LocationEnrichAttemptedAt: &recent}, // recent → out
+		}}
+		_, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{ReattemptWindow: window})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := store.stamped[1]; !ok {
+			t.Fatalf("never-attempted artist 1 should be processed")
+		}
+		if _, ok := store.stamped[2]; ok {
+			t.Fatalf("recently-attempted artist 2 must be excluded from the batch")
+		}
+	})
+}
+
+// TestBackfillArtistLocations_CtxCancel pins the sweep's mid-batch shutdown behavior
+// (PSY-1250): with an already-cancelled ctx the whole batch is still stamped attempted
+// up front (poison-row safety), but the per-artist loop breaks before resolving any, so
+// nothing is written. The fake MB would resolve a city if the loop ran — proving the
+// break, not a missing match, is what prevents the write.
+func TestBackfillArtistLocations_CtxCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	store := &fakeStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Resolvable"},
+		{ID: 2, Name: "Resolvable"},
+	}}
+	mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		"Resolvable": {{ID: "11111111-1111-1111-1111-111111111111", Name: "Resolvable", BeginArea: &pipeline.MBArea{Name: "Austin", Type: "City"}, Country: "US"}},
+	}}
+	_, err := backfillArtistLocations(ctx, store, fakeBandcamp{}, mb, Options{ReattemptWindow: 720 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store.stamped) != 2 {
+		t.Fatalf("the whole batch should be stamped up front, got %v", store.stamped)
+	}
+	if len(store.updates) != 0 {
+		t.Fatalf("a cancelled ctx must process (write) no artists, got %v", store.updates)
+	}
+}
+
 // --- orchestrator fakes ---
 
 type fakeStore struct {
-	artists []catalogm.Artist
-	updates map[uint]map[string]interface{}
-	loadErr error
+	artists    []catalogm.Artist
+	updates    map[uint]map[string]interface{}
+	loadErr    error
+	lastCutoff *time.Time         // records the reattemptCutoff the orchestrator passed
+	stamped    map[uint]time.Time // ids marked via StampLocationAttempted
 }
 
-func (f *fakeStore) ArtistsNeedingLocation(limit int) ([]catalogm.Artist, error) {
+func (f *fakeStore) ArtistsNeedingLocation(limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error) {
 	if f.loadErr != nil {
 		return nil, f.loadErr
 	}
-	if limit > 0 && limit < len(f.artists) {
-		return f.artists[:limit], nil
+	f.lastCutoff = reattemptCutoff
+	var out []catalogm.Artist
+	for _, a := range f.artists {
+		// Mirror the real memo filter: include when never attempted (NULL) or attempted
+		// before the cutoff; exclude artists attempted within the window.
+		if reattemptCutoff != nil && a.LocationEnrichAttemptedAt != nil &&
+			!a.LocationEnrichAttemptedAt.Before(*reattemptCutoff) {
+			continue
+		}
+		out = append(out, a)
 	}
-	return f.artists, nil
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (f *fakeStore) UpdateArtistLocation(id uint, fields map[string]interface{}) error {
@@ -317,6 +440,16 @@ func (f *fakeStore) UpdateArtistLocation(id uint, fields map[string]interface{})
 		f.updates = map[uint]map[string]interface{}{}
 	}
 	f.updates[id] = fields
+	return nil
+}
+
+func (f *fakeStore) StampLocationAttempted(ids []uint, at time.Time) error {
+	if f.stamped == nil {
+		f.stamped = map[uint]time.Time{}
+	}
+	for _, id := range ids {
+		f.stamped[id] = at
+	}
 	return nil
 }
 

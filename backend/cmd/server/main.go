@@ -188,15 +188,16 @@ func main() {
 	// Each service keeps its own cancel func; a nil cancel signals "not started"
 	// so the shutdown path can skip it without panicking.
 	var (
-		cleanupCancel           context.CancelFunc
-		reminderCancel          context.CancelFunc
-		enrichmentCancel        context.CancelFunc
-		autoPromotionCancel     context.CancelFunc
-		radioFetchCancel        context.CancelFunc
-		relDerivationCancel     context.CancelFunc
-		collectionDigestCancel  context.CancelFunc
-		imageEnrichSweepCancel  context.CancelFunc
-		imageEnrichOutboxCancel context.CancelFunc
+		cleanupCancel             context.CancelFunc
+		reminderCancel            context.CancelFunc
+		enrichmentCancel          context.CancelFunc
+		autoPromotionCancel       context.CancelFunc
+		radioFetchCancel          context.CancelFunc
+		relDerivationCancel       context.CancelFunc
+		collectionDigestCancel    context.CancelFunc
+		imageEnrichSweepCancel    context.CancelFunc
+		imageEnrichOutboxCancel   context.CancelFunc
+		artistLocationSweepCancel context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -286,6 +287,21 @@ func main() {
 		log.Printf("image enrichment sweep + outbox disabled (set ENABLE_IMAGE_ENRICH_SWEEP=1 to enable)")
 	}
 
+	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
+	// artist city/state/country via MusicBrainz + Bandcamp, fill-when-empty). OPT-IN,
+	// default OFF (inverted polarity vs the DISABLE_* services above): the resolver
+	// AUTO-WRITES a name-matched location, and the manual cmd's dry-run review is the
+	// documented homonym backstop, so this runs only where explicitly enabled
+	// (ENABLE_ARTIST_LOCATION_SWEEP=1 — e.g. stage first) rather than auto-starting on
+	// deploy. Mirrors the image-sweep posture.
+	if os.Getenv("ENABLE_ARTIST_LOCATION_SWEEP") == "1" {
+		var artistLocationSweepCtx context.Context
+		artistLocationSweepCtx, artistLocationSweepCancel = context.WithCancel(context.Background())
+		sc.ArtistLocationSweep.Start(artistLocationSweepCtx)
+	} else {
+		log.Printf("artist location sweep disabled (set ENABLE_ARTIST_LOCATION_SWEEP=1 to enable)")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -346,6 +362,10 @@ func main() {
 	if imageEnrichOutboxCancel != nil {
 		imageEnrichOutboxCancel()
 		sc.ImageEnrichOutbox.Stop()
+	}
+	if artistLocationSweepCancel != nil {
+		artistLocationSweepCancel()
+		sc.ArtistLocationSweep.Stop()
 	}
 
 	// Graceful shutdown

@@ -17,8 +17,6 @@ package imageenrich
 import (
 	"context"
 	"log/slog"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -79,9 +77,9 @@ func NewImageEnrichmentSweep(database *gorm.DB, enricher *Enricher) *ImageEnrich
 	return &ImageEnrichmentSweep{
 		enricher:  enricher,
 		db:        database,
-		interval:  sweepEnvDuration("IMAGE_ENRICH_SWEEP_INTERVAL_HOURS", time.Hour, defaultImageEnrichSweepInterval),
-		batch:     sweepEnvInt("IMAGE_ENRICH_SWEEP_BATCH", defaultImageEnrichSweepBatch),
-		reattempt: sweepEnvDuration("IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultImageEnrichReattempt),
+		interval:  shared.EnvPositiveDuration("IMAGE_ENRICH_SWEEP_INTERVAL_HOURS", time.Hour, defaultImageEnrichSweepInterval),
+		batch:     shared.EnvPositiveInt("IMAGE_ENRICH_SWEEP_BATCH", defaultImageEnrichSweepBatch),
+		reattempt: shared.EnvPositiveDuration("IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultImageEnrichReattempt),
 		stopCh:    make(chan struct{}),
 		logger:    slog.Default(),
 	}
@@ -178,24 +176,4 @@ func (s *ImageEnrichmentSweep) selectBatch(ctx context.Context, table string) ([
 		Limit(s.batch).
 		Pluck("id", &ids).Error
 	return ids, err
-}
-
-// --- env helpers ----------------------------------------------------------
-
-func sweepEnvInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return def
-}
-
-func sweepEnvDuration(key string, unit, def time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return time.Duration(n) * unit
-		}
-	}
-	return def
 }
