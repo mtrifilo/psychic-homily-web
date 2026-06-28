@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,14 @@ func (p *NTSProvider) DiscoverShows() ([]RadioShowImport, error) {
 func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	var allEpisodes []RadioEpisodeImport
 
+	// datedEpisode pairs a parsed episode with the timestamp used to order and
+	// window-filter it — the broadcast instant when present, else its
+	// alias-recovered air date (see episodeFilterTime). (PSY-1241)
+	type datedEpisode struct {
+		ep RadioEpisodeImport
+		at time.Time
+	}
+
 	offset := 0
 	for {
 		<-p.rateLimiter.C
@@ -135,23 +144,41 @@ func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time, u
 			return nil, fmt.Errorf("parsing episodes response: %w", err)
 		}
 
-		reachedOldEpisodes := false
+		// Sort this page newest-first before applying the early-exit. NTS pagination
+		// is assumed to return episodes newest-first, but that ordering is the
+		// provider's, unverified, and the wider fetch floor (PSY-1241) now routinely
+		// keeps multiple in-window pages live for daily shows — so a page that is not
+		// strictly descending would, with a naive break-on-first-old, drop an
+		// in-window episode that happens to sit after an older one. Sorting makes the
+		// per-page early-exit correct for any within-page order. (Cross-page ordering
+		// is still assumed: a fully backdated later page is out of scope — see PSY-1241.)
+		// An episode with no usable date at all (no broadcast AND no alias-recovered
+		// air date) can't be ordered or window-filtered, so it is kept unconditionally;
+		// one with only an alias date is still filtered by that date so a stale archive
+		// is not surfaced into the recent feed.
+		dated := make([]datedEpisode, 0, len(page.Results))
 		for _, ntsEp := range page.Results {
 			ep := parseNTSEpisode(ntsEp, showExternalID)
-
-			// Filter by date range using the broadcast timestamp.
-			if broadcastTime, ok := parseNTSBroadcast(ntsEp.Broadcast); ok {
-				if broadcastTime.Before(since) {
-					reachedOldEpisodes = true
-					break
-				}
-				// Skip episodes after the until bound
-				if !until.IsZero() && broadcastTime.After(until) {
-					continue
-				}
+			if at, ok := episodeFilterTime(ep); ok {
+				dated = append(dated, datedEpisode{ep: ep, at: at})
+				continue
 			}
-
 			allEpisodes = append(allEpisodes, ep)
+		}
+		sort.Slice(dated, func(i, j int) bool { return dated[i].at.After(dated[j].at) })
+
+		reachedOldEpisodes := false
+		for _, d := range dated {
+			// Filter by date range using the episode's broadcast/air-date timestamp.
+			if d.at.Before(since) {
+				reachedOldEpisodes = true
+				break
+			}
+			// Skip episodes after the until bound
+			if !until.IsZero() && d.at.After(until) {
+				continue
+			}
+			allEpisodes = append(allEpisodes, d.ep)
 		}
 
 		if reachedOldEpisodes || len(page.Results) < ntsPageLimit {
@@ -337,6 +364,27 @@ func parseNTSShow(ntsShow ntsShow) RadioShowImport {
 	}
 
 	return show
+}
+
+// episodeFilterTime returns the timestamp used to window-filter and order an
+// already-parsed episode: the precise broadcast instant (StartsAt) when present,
+// else the day-granularity date recovered from the episode alias (AirDate). It
+// derives entirely from the parsed `ep` so there is exactly one place that reads
+// the raw NTS broadcast (parseNTSEpisode) — no second parse to keep in lockstep.
+// The bool is false only when neither is available — a genuinely undateable
+// episode, which the caller keeps unconditionally since no bound can be applied.
+// Filtering on the alias date (rather than keeping every no-broadcast episode)
+// stops a stale archive from surfacing as a recent episode. (PSY-1241)
+func episodeFilterTime(ep RadioEpisodeImport) (time.Time, bool) {
+	if ep.StartsAt != nil {
+		return *ep.StartsAt, true
+	}
+	if ep.AirDate != "" {
+		if t, err := time.Parse("2006-01-02", ep.AirDate); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // parseNTSEpisode converts an NTS episode into our episode import DTO.
