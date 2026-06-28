@@ -151,6 +151,23 @@ func LookupPointers(g Geocoder, city, state, country string) (lat, lng *float64,
 	return &res.Latitude, &res.Longitude, &res.Timezone
 }
 
+// MetroPointer resolves a (city, state, country) to its US Census CBSA code as a
+// nullable pointer — nil on a miss, a refused ambiguous name, or a nil geocoder,
+// so assigning it to a model field / GORM updates map writes SQL NULL. The shared
+// write-path seam for an entity's denormalized metro key (PSY-1255), mirroring
+// LookupPointers for coordinates/timezone. ResolveMetro already refuses to guess
+// an unpinned multi-state name, so a wrong-namesake metro is never stored.
+func MetroPointer(g Geocoder, city, state, country string) *string {
+	if g == nil {
+		return nil
+	}
+	m, ok := g.ResolveMetro(city, state, country)
+	if !ok {
+		return nil
+	}
+	return &m.CBSACode
+}
+
 // CountryToISO canonicalizes a country string — an ISO 3166-1 alpha-2 code, a
 // full name, or a known alias ("USA") — to its ISO2 code; ok is false for an
 // unrecognized value. It exists to compare country values from heterogeneous

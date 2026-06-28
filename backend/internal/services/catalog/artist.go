@@ -15,6 +15,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -117,6 +118,10 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		a.State = req.State
 		a.City = req.City
 		a.Country = req.Country
+		// Denormalized CBSA metro for the scene rollup (PSY-1255 step B), derived
+		// from the create-time location. An enrichment-filled or state-corrected
+		// artist instead gets it from cmd/backfill-entity-metro (authoritative).
+		a.Metro = geo.MetroPointer(geo.Default(), derefString(req.City), derefString(req.State), derefString(req.Country))
 		a.Description = req.Description
 		a.ImageURL = req.ImageURL
 		a.BandcampEmbedURL = req.BandcampEmbedURL

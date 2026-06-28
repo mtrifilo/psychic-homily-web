@@ -25,6 +25,10 @@ type Venue struct {
 	Latitude    *float64 `gorm:"column:latitude;type:numeric(9,6)"`
 	Longitude   *float64 `gorm:"column:longitude;type:numeric(9,6)"`
 	Timezone    *string  `gorm:"column:timezone"`
+	// Metro is the US Census CBSA code the venue's (city, state, country) rolls up
+	// to, set alongside the geocoding in applyGeocoding. DERIVED; NULL on a miss.
+	// Internal grouping key, not exposed in the API. (PSY-1255 step B)
+	Metro       *string  `json:"-" gorm:"column:metro;size:10"`
 	Description *string  `json:"description,omitempty" gorm:"column:description;type:text"`
 	ImageURL    *string  `json:"image_url,omitempty" gorm:"column:image_url"`
 	Social      Social   `gorm:"embedded"`
