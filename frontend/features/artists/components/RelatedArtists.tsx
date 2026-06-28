@@ -21,10 +21,11 @@ import {
 } from '@/components/ui/dialog'
 import { BracketLink, SectionHeader } from '@/components/shared'
 import { useIsAuthenticated } from '@/features/auth'
-import { useArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
+import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { ArtistGraphVisualization } from './ArtistGraph'
+import { mergeEgoGraphs } from './mergeEgoGraphs'
 import {
   MAX_TRAIL_SLOTS,
   pushTrail,
@@ -33,7 +34,7 @@ import {
   buildRecenterAnnouncement,
   type TraversalEntry,
 } from './graphTraversalHistory'
-import type { ArtistGraphLink, ArtistGraphNode } from '../types'
+import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 
 const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> = {
   similar: { label: 'Similar', className: 'bg-zinc-700/50 text-zinc-300 border-zinc-600' },
@@ -403,6 +404,85 @@ function RecenteringGraph({
   const isRecentering =
     !graphMatchesUrl && (resolvingArtist || (centerId > 0 && fetchingGraph))
 
+  // ── PSY-1259: expand-on-demand ──────────────────────────────────────────────
+  // Clicking a satellite fetches ITS ego graph and merges it into the current view
+  // (concentric rings = hop depth), so the user walks the graph outward without losing the
+  // context that re-center discards. Expansions are client-only state keyed by the expanded
+  // node id; the URL still encodes only the center (PSY-361 unchanged). Re-centering is a
+  // fresh start, so expansions reset whenever the center slug changes (render-phase, below).
+  const fetchGraph = useFetchArtistGraph()
+  const [expansions, setExpansions] = useState<Map<number, ArtistGraph>>(new Map())
+  const [expandingIds, setExpandingIds] = useState<Set<number>>(() => new Set())
+
+  // Reset the exploration on a center change (re-center / breadcrumb jump / browser back).
+  // Render-phase "adjust state during render" keyed on the stable centerSlug — the same
+  // pattern ArtistGraph uses for its hover reset, avoiding a setState-in-effect.
+  const [expansionCenterSlug, setExpansionCenterSlug] = useState(centerSlug)
+  if (centerSlug !== expansionCenterSlug) {
+    setExpansionCenterSlug(centerSlug)
+    setExpansions(new Map())
+    setExpandingIds(new Set())
+  }
+
+  // Latest-center ref so an in-flight expand fetch can tell if the user re-centered while it
+  // was resolving — without it, a stale .then() would re-add an expansion for the OLD center
+  // onto the NEW one (mergeEgoGraphs' prune hides most of the damage, but the state still
+  // leaks). Synced in an effect (not written during render) so it reflects the committed value.
+  const centerSlugRef = useRef(centerSlug)
+  useEffect(() => {
+    centerSlugRef.current = centerSlug
+  }, [centerSlug])
+
+  // Click a satellite → expand it (fetch + merge) or, if already expanded, collapse it.
+  // mergeEgoGraphs' reachability prune drops any node left dangling by the collapse, so we
+  // only track the directly-expanded ids here. A click on a node whose fetch is still in
+  // flight is ignored.
+  const handleExpand = useCallback(
+    (node: { id: number; slug: string; name: string }) => {
+      if (expandingIds.has(node.id)) return
+      if (expansions.has(node.id)) {
+        setExpansions(prev => {
+          const next = new Map(prev)
+          next.delete(node.id)
+          return next
+        })
+        return
+      }
+      const slugAtExpand = centerSlug
+      setExpandingIds(prev => new Set(prev).add(node.id))
+      fetchGraph(node.id, fetchTypes)
+        .then(ego => {
+          // Drop the result if the user re-centered while this was in flight — it belongs to
+          // the previous center's exploration, which has already been reset.
+          if (centerSlugRef.current !== slugAtExpand) return
+          setExpansions(prev => new Map(prev).set(node.id, ego))
+        })
+        .catch(() => {
+          // A failed expand fetch simply doesn't grow the graph — nothing to roll back.
+        })
+        .finally(() =>
+          setExpandingIds(prev => {
+            const next = new Set(prev)
+            next.delete(node.id)
+            return next
+          })
+        )
+    },
+    [expandingIds, expansions, fetchGraph, fetchTypes, centerSlug]
+  )
+
+  // The merged client graph + per-node hop distance (null until the base graph loads).
+  const merged = useMemo(
+    () => (graph ? mergeEgoGraphs(graph, expansions) : null),
+    [graph, expansions]
+  )
+  const expandedIds = useMemo(() => new Set(expansions.keys()), [expansions])
+
+  const collapseAll = useCallback(() => {
+    setExpansions(new Map())
+    setExpandingIds(new Set())
+  }, [])
+
   // PSY-361: announce each re-center to assistive tech. Keyed on the
   // graph's actual center.id (not the URL slug) so the announcement
   // fires only after the new payload has actually rendered, and we
@@ -554,24 +634,33 @@ function RecenteringGraph({
     return [originalChip, ...trimmedTrail]
   }, [isOriginalCenter, trail, originalArtistId, originalArtistSlug, originalArtistName])
 
-  // Filter type toggles — only render filters for types that actually
-  // appear in the *current* graph's payload (not the original's).
+  // Filter type toggles — only render filters for types that actually appear in the
+  // current MERGED graph (so a type introduced by an expanded node also gets a toggle).
   const linkTypesPresent = useMemo(() => {
-    if (!graph) return new Set<string>()
-    return new Set(graph.links.map(l => l.type))
-  }, [graph])
+    if (!merged) return new Set<string>()
+    return new Set(merged.links.map(l => l.type))
+  }, [merged])
 
   // Show the previous frame while the new center is loading — never show
   // an empty container or unmount the canvas. If we don't have a graph at
   // all yet (the first fetch is in flight), fall back to a simple loader.
   // Once we have *any* graph data, even stale, we keep rendering it under
   // the recentering overlay.
-  if (!graph) {
+  if (!graph || !merged) {
     return (
       <div className="mb-6 flex items-center justify-center rounded-lg border border-border/50" style={{ height: 400 }}>
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     )
+  }
+
+  // PSY-1259: the canvas renders the merged graph (base ego + expansions). center/links/nodes
+  // come from the merge; user_votes ride through from the base payload for the vote UI.
+  const mergedData: ArtistGraph = {
+    center: merged.center,
+    nodes: merged.nodes,
+    links: merged.links,
+    user_votes: graph.user_votes,
   }
 
   return (
@@ -610,11 +699,35 @@ function RecenteringGraph({
         })}
       </div>
 
+      {/* PSY-1259: expansion status + escape hatch. Discloses how far the user has walked
+          (so the growing graph isn't a mystery) and offers a one-click return to the 1-hop
+          ego. Only shown once something is expanded. */}
+      {expansions.size > 0 && (
+        <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
+          <span>
+            Expanded {expansions.size} {expansions.size === 1 ? 'artist' : 'artists'} ·{' '}
+            {merged.nodes.length} shown
+          </span>
+          <button
+            onClick={collapseAll}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-muted-foreground hover:text-foreground transition-colors"
+            title="Collapse all expansions back to the starting graph"
+          >
+            <RotateCcw className="h-3 w-3" />
+            <span>Collapse all</span>
+          </button>
+        </div>
+      )}
+
       <ArtistGraphVisualization
-        data={graph}
+        data={mergedData}
         activeTypes={activeTypes}
         containerWidth={containerWidth}
         onRecenter={handleRecenter}
+        onExpand={handleExpand}
+        hopByNodeId={merged.hopByNodeId}
+        expandedIds={expandedIds}
+        expandingIds={expandingIds}
         isRecentering={isRecentering}
       />
 

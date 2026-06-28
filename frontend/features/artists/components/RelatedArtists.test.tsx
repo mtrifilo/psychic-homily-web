@@ -43,6 +43,10 @@ const mockUseArtistGraph = vi.fn<(_opts?: unknown) => MockUseArtistGraphValue>(
 
 vi.mock('../hooks/useArtistGraph', () => ({
   useArtistGraph: (opts: unknown) => mockUseArtistGraph(opts),
+  // PSY-1259: the imperative expand fetcher. Returns a stable no-op fetcher — these tests
+  // exercise the dialog/filter/festival flows, not expand-on-demand (covered by the
+  // mergeEgoGraphs unit tests + browser verification).
+  useFetchArtistGraph: () => vi.fn(),
   useArtistRelationshipVote: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useCreateArtistRelationship: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }))
