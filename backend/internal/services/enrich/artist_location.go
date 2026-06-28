@@ -49,6 +49,12 @@ type ResolvedLocation struct {
 	City    string
 	State   string
 	Country string
+	// MBID is the MusicBrainz artist MBID of the exact-name match this location came
+	// from (PSY-1249); empty for a Bandcamp-sourced location or when no MB match
+	// resolved. Stamped onto artists.musicbrainz_artist_id fill-when-empty so later
+	// passes browse MusicBrainz by ID instead of re-searching by name. Deliberately
+	// NOT part of isZero — an MBID alone is not a usable LOCATION.
+	MBID string
 }
 
 func (l ResolvedLocation) isZero() bool {
@@ -204,19 +210,27 @@ func backfillArtistLocations(
 			confidence = confidenceBandcamp
 		}
 		updates, filled := buildArtistLocationUpdate(a, loc, source, confidence, now)
-		if len(filled) == 0 {
-			// Found a location, but every field it could supply was already set.
+		if updates == nil {
+			// Found a location, but every field it could supply — and the MBID —
+			// was already set.
 			report.ResolvedNoFill++
 			continue
 		}
 
-		report.Fills = append(report.Fills, Fill{
-			ArtistID: a.ID, Name: a.Name, Source: source, Fields: filled, Location: loc,
-		})
-		if source == DataSourceBandcamp {
-			report.FilledBandcamp++
+		if len(filled) > 0 {
+			report.Fills = append(report.Fills, Fill{
+				ArtistID: a.ID, Name: a.Name, Source: source, Fields: filled, Location: loc,
+			})
+			if source == DataSourceBandcamp {
+				report.FilledBandcamp++
+			} else {
+				report.FilledMusicBrainz++
+			}
 		} else {
-			report.FilledMusicBrainz++
+			// Only the resolved MBID was stamped — no new location field. Not a
+			// location fill, but we still persist it (below) so the MBID isn't
+			// re-searched next pass.
+			report.ResolvedNoFill++
 		}
 
 		if opts.DryRun {
@@ -348,6 +362,7 @@ func matchMBLocation(candidates []pipeline.MBArtistResult, name string) (Resolve
 			continue
 		}
 		if loc, ok := locationFromMBResult(c); ok {
+			loc.MBID = c.ID // PSY-1249: carry the matched MB artist's MBID through to the write
 			return loc, true
 		}
 	}
@@ -487,17 +502,23 @@ func locationFromMBResult(r pipeline.MBArtistResult) (ResolvedLocation, bool) {
 }
 
 // buildArtistLocationUpdate computes the GORM update map to fill an artist's
-// EMPTY location fields from a resolved location, plus provenance. Fill-when-
-// empty: a field already set is never overwritten. Returns the update map and
-// the filled field names; an empty filled list means nothing to write.
+// EMPTY location fields from a resolved location, plus provenance and (PSY-1249)
+// the MusicBrainz MBID. Fill-when-empty: a field already set is never overwritten.
+// Returns the update map and the filled LOCATION field names; nil updates means
+// nothing to write. NOTE the asymmetry: `filled` lists only location fields, so it
+// can be empty while updates is non-nil — when the only thing to write is an
+// MBID-only stamp (a location resolved whose fields were all already set, or whose
+// only new contribution is the identity). The caller keys "did we write?" on
+// `updates != nil`, and "was it a location fill?" on `len(filled) > 0`.
 //
 // The provenance triple (data_source, source_confidence, last_verified_at) is
-// written together or not at all, ONLY when the artist has no prior data_source.
-// That column is row-level and may already attribute a different enrichment (e.g.
-// spotify images); bumping last_verified_at alone would make the triple describe
-// a source it no longer matches. So we record coherent provenance for rows we
-// "own" and leave another enrichment's provenance untouched (the location fields
-// still fill regardless).
+// written together or not at all, ONLY when a LOCATION field filled AND the artist
+// has no prior data_source. That column is row-level and may already attribute a
+// different enrichment (e.g. spotify images); bumping last_verified_at alone would
+// make the triple describe a source it no longer matches. So we record coherent
+// provenance for rows we "own" and leave another enrichment's provenance untouched
+// (the location fields still fill regardless). An MBID-only stamp claims NO
+// provenance — it doesn't change where the location came from.
 func buildArtistLocationUpdate(
 	a *catalogm.Artist,
 	loc ResolvedLocation,
@@ -520,11 +541,22 @@ func buildArtistLocationUpdate(
 		updates["country"] = loc.Country
 		filled = append(filled, "country")
 	}
-	if len(filled) == 0 {
+
+	// PSY-1249: stamp the resolved MusicBrainz MBID fill-when-empty, independent of
+	// whether a location field filled — so a later pass needn't re-search even when
+	// the location was already complete. loc.MBID is set only for an exact-name MB
+	// match (matchMBLocation); it is empty for a Bandcamp-sourced location.
+	mbidStamped := false
+	if loc.MBID != "" && isEmptyPtr(a.MusicBrainzArtistID) {
+		updates["musicbrainz_artist_id"] = loc.MBID
+		mbidStamped = true
+	}
+
+	if len(filled) == 0 && !mbidStamped {
 		return nil, nil
 	}
 
-	if isEmptyPtr(a.DataSource) {
+	if len(filled) > 0 && isEmptyPtr(a.DataSource) {
 		updates["data_source"] = source
 		updates["source_confidence"] = confidence
 		updates["last_verified_at"] = now

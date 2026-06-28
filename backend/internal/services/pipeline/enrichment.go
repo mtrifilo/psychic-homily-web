@@ -335,11 +335,17 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 		mbSource := catalogm.DataSourceMusicBrainz
 		mbConfidence := float64(mbResult.Score) / 100.0
 		now := time.Now()
-		updateErr := s.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"data_source":       &mbSource,
 			"source_confidence": &mbConfidence,
 			"last_verified_at":  &now,
-		}).Error
+		}
+		// PSY-1249: persist the MBID we just resolved so downstream location/links/
+		// release passes browse MusicBrainz by ID instead of re-searching by name.
+		if mbid := mbidToStamp(artist, mbResult); mbid != "" {
+			updates["musicbrainz_artist_id"] = mbid
+		}
+		updateErr := s.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).Updates(updates).Error
 		if updateErr != nil {
 			s.logger.Warn("failed to update artist provenance",
 				"artist_id", artist.ID,
@@ -351,6 +357,32 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 	}
 
 	return results
+}
+
+// mbidToStamp returns the MusicBrainz MBID to persist onto an artist from a fresh
+// SearchArtist match, or "" to write nothing (PSY-1249). It encodes the two guards
+// that keep a wrong ID off an artist:
+//
+//   - Fill-when-empty: a set MBID is never overwritten (so a re-enrichment can't
+//     clobber a curated/earlier value).
+//   - Exact-name gate: SearchArtist is SCORE-ranked and can return a higher-scored
+//     famous namesake, so the ID is stamped only when the match's name
+//     normalizes-equals the artist's (NormalizeArtistName folds case/punctuation,
+//     the same gate the candidate path uses, PSY-1191/1197).
+//
+// Provenance (data_source/confidence/last_verified_at) is written regardless by the
+// caller — only the durable IDENTITY key is gated here.
+func mbidToStamp(artist catalogm.Artist, mbResult *MBLookupResult) string {
+	if mbResult == nil || mbResult.MBID == "" {
+		return ""
+	}
+	if artist.MusicBrainzArtistID != nil && *artist.MusicBrainzArtistID != "" {
+		return ""
+	}
+	if NormalizeArtistName(mbResult.Name) != NormalizeArtistName(artist.Name) {
+		return ""
+	}
+	return mbResult.MBID
 }
 
 // enrichSeatGeek performs SeatGeek API cross-referencing for a show.

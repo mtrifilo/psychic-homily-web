@@ -45,6 +45,70 @@ func TestEnrichmentService_ValidEnrichmentTypes(t *testing.T) {
 	assert.Equal(t, "all", validTypes[3])
 }
 
+// TestMBIDToStamp exercises the PSY-1249 fill-when-empty + exact-name gate in
+// isolation (the load-bearing decision; the surrounding GORM write is covered by
+// the integration suite). A wrong ID landing on an artist is the core risk, so the
+// namesake-rejection and never-overwrite cases are the ones that matter most.
+func TestMBIDToStamp(t *testing.T) {
+	const validMBID = "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
+	sp := func(s string) *string { return &s }
+
+	tests := []struct {
+		name   string
+		artist catalogm.Artist
+		result *MBLookupResult
+		want   string
+	}{
+		{
+			name:   "exact-name match on an empty artist stamps the MBID",
+			artist: catalogm.Artist{Name: "Snail Mail"},
+			result: &MBLookupResult{MBID: validMBID, Name: "Snail Mail"},
+			want:   validMBID,
+		},
+		{
+			name:   "case/punctuation-insensitive exact match still stamps",
+			artist: catalogm.Artist{Name: "Godspeed You Black Emperor"},
+			result: &MBLookupResult{MBID: validMBID, Name: "Godspeed You! Black Emperor"},
+			want:   validMBID,
+		},
+		{
+			name:   "name mismatch (a higher-scored famous namesake) stamps nothing",
+			artist: catalogm.Artist{Name: "Crush"},
+			result: &MBLookupResult{MBID: validMBID, Name: "Crush the Korean Rapper"},
+			want:   "",
+		},
+		{
+			name:   "an already-set MBID is never overwritten",
+			artist: catalogm.Artist{Name: "Snail Mail", MusicBrainzArtistID: sp("11111111-2222-3333-4444-555555555555")},
+			result: &MBLookupResult{MBID: validMBID, Name: "Snail Mail"},
+			want:   "",
+		},
+		{
+			name:   "a blank existing MBID counts as empty and is filled",
+			artist: catalogm.Artist{Name: "Snail Mail", MusicBrainzArtistID: sp("")},
+			result: &MBLookupResult{MBID: validMBID, Name: "Snail Mail"},
+			want:   validMBID,
+		},
+		{
+			name:   "a nil result stamps nothing",
+			artist: catalogm.Artist{Name: "Snail Mail"},
+			result: nil,
+			want:   "",
+		},
+		{
+			name:   "an empty MBID on the result stamps nothing",
+			artist: catalogm.Artist{Name: "Snail Mail"},
+			result: &MBLookupResult{MBID: "", Name: "Snail Mail"},
+			want:   "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, mbidToStamp(tt.artist, tt.result))
+		})
+	}
+}
+
 func TestMusicBrainzClient_NewClient(t *testing.T) {
 	client := NewMusicBrainzClient()
 	assert.NotNil(t, client)

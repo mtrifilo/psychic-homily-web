@@ -1,0 +1,17 @@
+-- PSY-1249: persist the MusicBrainz artist MBID resolved during enrichment.
+--
+-- enrichMusicBrainz (the show-enrichment worker path) and the artist-location
+-- backfill both resolve an artist's MusicBrainz MBID and then discard it, so every
+-- later enrichment pass (location, links, cover-art, future discography) re-searches
+-- MusicBrainz BY NAME at ~1 req/s — wasteful and homonym-prone. Storing the MBID
+-- once lets those passes browse MusicBrainz by ID instead.
+--
+-- Nullable + additive. Written fill-when-empty + exact-name-gated at the write sites
+-- (a set MBID is never overwritten; only an exact-name match stamps it, so a famous
+-- namesake can't land on the wrong artist). VARCHAR(36) = a canonical MBID UUID,
+-- matching the existing radio_plays.musicbrainz_artist_id column.
+--
+-- No index: every reader looks the value up by the artist's primary key (it reads
+-- artist.musicbrainz_artist_id for a row it already has), not BY MBID. A query by
+-- MBID (dedup-on-import) is PSY-1252 spike territory and can add an index then.
+ALTER TABLE artists ADD COLUMN musicbrainz_artist_id VARCHAR(36);
