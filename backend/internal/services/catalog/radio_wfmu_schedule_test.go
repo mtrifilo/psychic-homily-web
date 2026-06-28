@@ -211,6 +211,21 @@ func TestParseWFMUScheduleTable_KnownShows(t *testing.T) {
 		t.Errorf("Travel Zone still has the pre-fix Mon 00:00-03:00 slot (off-by-one not corrected); slots=%+v", tz.Slots)
 	}
 
+	// Freeform Jazz Dance (F4): in the SATURDAY grid column at 3-6am — the headline PSY-1283
+	// case. The broadcast-day shift maps it to SUNDAY 03:00–06:00, exercising the modulo wrap
+	// (6→0) end-to-end through the parse pipeline (not just the calendarWeekdayForSlot helper).
+	// Confirmed against the source of truth on stage: its episodes air Sundays.
+	fjd := findEntryByName(entries, "Freeform Jazz Dance")
+	if fjd == nil {
+		t.Fatal("Freeform Jazz Dance not found")
+	}
+	if !hasSlot(fjd, 0, "03:00", "06:00") {
+		t.Errorf("Freeform Jazz Dance missing Sun 03:00-06:00 (broadcast-day wrap from Sat column); slots=%+v", fjd.Slots)
+	}
+	if hasSlot(fjd, 6, "03:00", "06:00") {
+		t.Errorf("Freeform Jazz Dance still has the pre-fix Sat 03:00-06:00 slot (modulo wrap not applied); slots=%+v", fjd.Slots)
+	}
+
 	// The Glen Jones Radio Programme: Sunday Noon–3pm. Its show-title-link is an ABSOLUTE
 	// archives URL (.../Playlists/GJ/archives.html), so the code must come from the
 	// KDBprogram-GJ id, not the href — regression guard for that fix.
