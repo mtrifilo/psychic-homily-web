@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -444,15 +443,8 @@ func (s *RadioService) GetActiveStationsWithPlaylistSource() ([]catalogm.RadioSt
 	return stations, nil
 }
 
-// RecordFetchFailure increments the consecutive failure counter on a station.
-// Called by the fetch service on per-station errors.
-func (s *RadioService) RecordFetchFailure(stationID uint) {
-	s.db.Exec("UPDATE radio_stations SET updated_at = ? WHERE id = ?", time.Now(), stationID)
-}
-
-// RecordFetchSuccess resets the consecutive failure tracking for a station.
-func (s *RadioService) RecordFetchSuccess(stationID uint) {
-	now := time.Now()
-	s.db.Model(&catalogm.RadioStation{}).Where("id = ?", stationID).
-		Update("last_playlist_fetch_at", now)
-}
+// Note (PSY-1269): the legacy RecordFetchSuccess/RecordFetchFailure helpers were
+// removed here — they were dead (no callers, not on the contracts interface) and
+// RecordFetchSuccess advanced last_playlist_fetch_at ungated, the exact watermark
+// write site the unify-the-gate change set out to close. The live path advances the
+// watermark only via advanceLastFetch (radio_import.go).

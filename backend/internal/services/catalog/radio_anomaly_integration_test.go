@@ -248,3 +248,57 @@ func (s *RadioSyncSuite) TestFetch_RecoversTrueGapBeyondFloor() {
 	s.True(capturedSince.Before(time.Now().Add(-50*24*time.Hour)),
 		"recovery `since` must reach back to the ~60d gap, not stop at the 45d floor; got %v", capturedSince)
 }
+
+func (s *RadioSyncSuite) setLastFetch(stationID uint, t time.Time) {
+	s.Require().NoError(s.db.Model(&catalogm.RadioStation{}).Where("id = ?", stationID).
+		Update("last_playlist_fetch_at", t).Error)
+}
+
+// PSY-1269: EscalateStaleFetchOutages escalates active, automated stations whose
+// last_playlist_fetch_at has been stale beyond the threshold (a sustained total-fetch
+// outage) — and ONLY those: a fresh station, a manual-source station, and a
+// never-fetched (NULL-watermark) station are all left alone.
+func (s *RadioSyncSuite) TestEscalateStaleFetchOutages() {
+	now := time.Now()
+
+	stale := s.seedStation(catalogm.PlaylistSourceNTS)
+	s.setLastFetch(stale.ID, now.Add(-24*time.Hour))
+
+	fresh := s.seedStation(catalogm.PlaylistSourceKEXP)
+	s.setLastFetch(fresh.ID, now.Add(-1*time.Hour))
+
+	manual := s.seedStation(catalogm.PlaylistSourceManual)
+	s.setLastFetch(manual.ID, now.Add(-24*time.Hour)) // stale, but manual → no automated fetch
+
+	_ = s.seedStation(catalogm.PlaylistSourceWFMU) // never fetched (NULL watermark) → excluded
+
+	// Inactive (deactivated) station that is also stale → excluded by is_active=TRUE.
+	// Created directly (not seedStation) so is_active can be forced false past the
+	// gorm default:true (a struct zero-value would be omitted and default to true).
+	inactiveSrc := catalogm.PlaylistSourceNTS
+	inactive := catalogm.RadioStation{
+		Name: "Inactive Stale", Slug: "test-inactive-stale",
+		BroadcastType: catalogm.BroadcastTypeInternet, PlaylistSource: &inactiveSrc,
+	}
+	s.Require().NoError(s.db.Create(&inactive).Error)
+	s.Require().NoError(s.db.Model(&catalogm.RadioStation{}).Where("id = ?", inactive.ID).
+		Update("is_active", false).Error)
+	s.setLastFetch(inactive.ID, now.Add(-24*time.Hour))
+
+	type escalation struct {
+		stationID uint
+		category  string
+	}
+	var got []escalation
+	s.svc.onPermanentFailure = func(_ error, stationID uint, category string) {
+		got = append(got, escalation{stationID, category})
+	}
+	defer func() { s.svc.onPermanentFailure = nil }()
+
+	count, err := s.svc.EscalateStaleFetchOutages(18*time.Hour, now)
+	s.Require().NoError(err)
+	s.Equal(1, count, "only the stale, active, automated station is escalated")
+	s.Require().Len(got, 1)
+	s.Equal(stale.ID, got[0].stationID)
+	s.Equal(radioFetchOutageCategory, got[0].category)
+}
