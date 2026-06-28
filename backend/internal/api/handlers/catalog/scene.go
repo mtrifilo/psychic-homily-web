@@ -95,7 +95,7 @@ func (h *SceneHandler) GetSceneDetailHandler(ctx context.Context, req *GetSceneD
 // GetSceneActiveArtistsRequest represents the request for getting active artists in a scene.
 type GetSceneActiveArtistsRequest struct {
 	Slug   string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
-	Period int    `query:"period" default:"90" minimum:"7" maximum:"365" doc:"Period in days for activity window"`
+	Period int    `query:"period" default:"180" minimum:"7" maximum:"365" doc:"Active window in days — a roster band is flagged active when it has a show within this window or upcoming (default ~6 months)"`
 	Limit  int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Maximum number of artists to return"`
 	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
@@ -117,7 +117,7 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 
 	period := req.Period
 	if period == 0 {
-		period = 90
+		period = 180
 	}
 	limit := req.Limit
 	if limit == 0 {

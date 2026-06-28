@@ -177,6 +177,46 @@ func TestResolveMetro(t *testing.T) {
 	}
 }
 
+func TestMetroPrincipalByCBSA(t *testing.T) {
+	tests := []struct {
+		name, cbsa, wantCity, wantState string
+		wantOK                          bool
+	}{
+		{"NYC principal", "35620", "New York City", "NY", true},
+		{"LA principal", "31080", "Los Angeles", "CA", true},
+		{"Chicago principal", "16980", "Chicago", "IL", true},
+		{"Phoenix principal", "38060", "Phoenix", "AZ", true},
+		// Twin Cities: the highest-population member (Minneapolis) is the principal,
+		// even though the CBSA title also names St. Paul + Bloomington.
+		{"Twin Cities → Minneapolis", "33460", "Minneapolis", "MN", true},
+		{"unknown code → not found", "00000", "", "", false},
+		{"empty code → not found", "", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mp, ok := MetroPrincipalByCBSA(tt.cbsa)
+			if ok != tt.wantOK {
+				t.Fatalf("MetroPrincipalByCBSA(%q) ok=%v, want %v", tt.cbsa, ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if mp.City != tt.wantCity || mp.State != tt.wantState {
+				t.Errorf("got %q,%q want %q,%q", mp.City, mp.State, tt.wantCity, tt.wantState)
+			}
+			if mp.CBSACode != tt.cbsa {
+				t.Errorf("CBSACode = %q, want %q", mp.CBSACode, tt.cbsa)
+			}
+			if mp.Name == "" {
+				t.Errorf("a resolved metro must carry its friendly name")
+			}
+			if mp.Latitude == 0 || mp.Longitude == 0 {
+				t.Errorf("principal city must have coordinates, got (%v,%v)", mp.Latitude, mp.Longitude)
+			}
+		})
+	}
+}
+
 func TestFoldKey(t *testing.T) {
 	cases := map[string]string{
 		"  Saint-Louis ": "saint louis",

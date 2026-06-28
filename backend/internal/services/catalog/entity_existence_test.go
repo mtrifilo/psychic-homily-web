@@ -125,26 +125,33 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_TagSlugAndID
 }
 
 func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugUsesDetailThreshold() {
+	// Two verified venues in the Phoenix metro (Phoenix + Mesa share CBSA 38060)
+	// and one in the SEPARATE Tucson metro. Metro is denormalized as the
+	// production write paths do (PSY-1255 step C).
 	venues := []*catalogm.Venue{
-		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Verified: true},
-		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Verified: true},
-		{Name: "Small Room", Slug: stringPtr("small-room"), City: "Tucson", State: "AZ", Verified: true},
-		{Name: "Unverified Room", Slug: stringPtr("unverified-room"), City: "Mesa", State: "AZ", Verified: false},
+		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Small Room", Slug: stringPtr("small-room"), City: "Tucson", State: "AZ", Metro: seedMetro("Tucson", "AZ"), Verified: true},
+		{Name: "Unverified Room", Slug: stringPtr("unverified-room"), City: "Mesa", State: "AZ", Metro: seedMetro("Mesa", "AZ"), Verified: false},
 	}
 	for _, venue := range venues {
 		suite.Require().NoError(suite.db.Create(venue).Error)
 	}
 	suite.Require().NoError(suite.db.Model(venues[3]).Update("verified", false).Error)
 
+	// Phoenix metro clears the threshold (2 verified) → its scene exists.
 	exists, err := suite.svc.Exists("scenes", "phoenix-az")
 	suite.Require().NoError(err)
 	suite.True(exists)
 
-	exists, err = suite.svc.Exists("scenes", "tucson-az")
-	suite.Require().NoError(err)
-	suite.False(exists)
-
+	// A suburb slug in the SAME metro rolls up to it (Mesa → Phoenix metro), so it
+	// also resolves — the step-C rollup that keeps old member URLs from 404ing.
 	exists, err = suite.svc.Exists("scenes", "mesa-az")
+	suite.Require().NoError(err)
+	suite.True(exists)
+
+	// Tucson is a separate metro with only 1 verified venue → below threshold.
+	exists, err = suite.svc.Exists("scenes", "tucson-az")
 	suite.Require().NoError(err)
 	suite.False(exists)
 }

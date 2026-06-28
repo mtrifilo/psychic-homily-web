@@ -689,7 +689,10 @@ type ScenePulse struct {
 	ShowsByMonth          []int  `json:"shows_by_month"` // last 6 months
 }
 
-// SceneArtistResponse represents an artist in the active artists endpoint
+// SceneArtistResponse represents an artist in a scene's roster. Under the
+// metro-keyed model (PSY-1255 step C) the roster is every band BASED in the
+// metro; IsActive flags the ones with an upcoming show or one in the active
+// window (played anywhere), which the frontend highlights.
 type SceneArtistResponse struct {
 	ID        uint    `json:"id"`
 	Slug      string  `json:"slug"`
@@ -697,6 +700,7 @@ type SceneArtistResponse struct {
 	City      *string `json:"city"`
 	State     *string `json:"state"`
 	ShowCount int     `json:"show_count"`
+	IsActive  bool    `json:"is_active"`
 }
 
 // ──────────────────────────────────────────────

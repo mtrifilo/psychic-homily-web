@@ -9,6 +9,7 @@ import (
 
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/geo"
 )
 
 // EntityExistenceService answers lightweight public entity existence probes.
@@ -81,15 +82,22 @@ func (s *EntityExistenceService) existsByIDOrSlug(model any, idOrSlug string, ex
 	return id != 0, nil
 }
 
+// sceneExists gates the proxy soft-404 for /scenes/{slug}. It mirrors
+// GetSceneDetail's existence rule (>= sceneMinVenues verified venues), now
+// metro-aware (PSY-1255 step C): a US slug whose (city,state) pins a CBSA counts
+// verified venues across the WHOLE metro (so a Twin Cities slug, or an old
+// suburb slug rolled into its metro, resolves), while a no-CBSA slug keeps the
+// literal city-state venue match.
 func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
+	q := s.db.Model(&catalogm.Venue{}).Where("verified = true")
+	city, state := parseSceneSlugParts(slug)
+	if m, ok := geo.Default().ResolveMetro(city, state, usCountry); ok {
+		q = q.Where("metro = ?", m.CBSACode)
+	} else {
+		q = q.Where("LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?", strings.ToLower(slug))
+	}
 	var verifiedVenueCount int64
-	err := s.db.Raw(`
-		SELECT COUNT(DISTINCT id)
-		FROM venues
-		WHERE verified = true
-		  AND LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?
-	`, strings.ToLower(slug)).Scan(&verifiedVenueCount).Error
-	if err != nil {
+	if err := q.Distinct("id").Count(&verifiedVenueCount).Error; err != nil {
 		return false, err
 	}
 	return verifiedVenueCount >= sceneMinVenues, nil

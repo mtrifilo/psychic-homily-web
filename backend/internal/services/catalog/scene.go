@@ -40,36 +40,87 @@ const (
 	sceneMinShows  = 3
 )
 
-// localArtistFilter restricts a scene-artist query to the scene's LOCAL artists —
-// those whose home city/state matches the scene's — so a scene's roster + stats
-// reflect the artists that are PART of the scene, not every touring act that
-// played a venue there (PSY-1233). Splice it as a predicate of a WHERE clause
-// whose rows are keyed by the `sa` (show_artists) alias used throughout this file.
-//
-// PARAM BINDING (read carefully): its two placeholders bind (city, state),
-// positioned where the spliced `?` actually fall in the FINAL SQL — NOT "always
-// at the end" of the args:
-//   - single-statement query: the filter is the last WHERE predicate, so its
-//     (city, state) go right after that clause's existing params (at the tail,
-//     before any GROUP/HAVING/LIMIT params).
-//   - multi-statement/CTE query (querySceneArtistsWithPrimaryVenue): the filter
-//     sits inside the first CTE, so its (city, state) come BEFORE the params of
-//     any later CTE — i.e. mid-list. Order args by placeholder position.
-//
-// Match is case-insensitive + trimmed; an artist with a NULL/blank home city is
-// excluded (we can't claim they're local). Borough/alias gaps (a Brooklyn artist
-// tagged "New York, NY") are out of scope here. Note: scene EXISTENCE (ListScenes)
-// is gated on venues + shows and is UNCHANGED by this filter — so a qualifying
-// scene can legitimately report zero local artists (all bills filled by touring acts).
-const localArtistFilter = `
-		AND sa.artist_id IN (
-			SELECT a2.id FROM artists a2
-			WHERE LOWER(TRIM(a2.city)) = LOWER(TRIM(?))
-			  AND LOWER(TRIM(a2.state)) = LOWER(TRIM(?))
-		)`
+// usCountry is the country passed to the geocoder when resolving a scene's
+// metro. Scenes only key on a Census CBSA for US places; everything else falls
+// back to (city, state) — see scopeFor.
+const usCountry = "US"
 
-// ListScenes returns cities that meet scene thresholds:
-// 2+ verified venues AND 3+ approved shows (past or upcoming).
+// sceneScope captures how a scene is keyed for querying (PSY-1255 step C). A US
+// place that resolves to a Census CBSA is keyed by that metro code, so the
+// scene's roster = bands BASED in the whole metro (boroughs/suburbs rolled up),
+// not just touring acts who played one city's venue (the PSY-1233 played-here
+// model this replaces). A non-US / no-CBSA place falls back to the literal
+// (city, state) so the Atlas globe can still grow globally.
+//
+// city/state always hold the scene's DISPLAY identity: the metro's principal
+// city for a metro scene, the literal city for a fallback scene.
+type sceneScope struct {
+	metro string // CBSA code; "" => (city, state) fallback scene
+	city  string
+	state string
+}
+
+func (sc sceneScope) isMetro() bool { return sc.metro != "" }
+
+// scopeFor resolves a scene's (principal) city/state to its query scope. A US
+// city that pins a CBSA becomes a metro scope; anything else is a city/state
+// fallback. ResolveMetro already refuses an unpinned ambiguous name, so a
+// wrong-namesake metro is never selected.
+func (s *SceneService) scopeFor(city, state string) sceneScope {
+	if s.geocoder != nil {
+		if m, ok := s.geocoder.ResolveMetro(city, state, usCountry); ok {
+			return sceneScope{metro: m.CBSACode, city: city, state: state}
+		}
+	}
+	return sceneScope{city: city, state: state}
+}
+
+// venuePredicate returns a WHERE fragment (on the given venues alias) selecting
+// the scene's venues, plus its positional bind args. Splice it as the FIRST
+// predicate of a raw WHERE so its args lead the arg list.
+func (sc sceneScope) venuePredicate(alias string) (string, []any) {
+	if sc.isMetro() {
+		return alias + ".metro = ?", []any{sc.metro}
+	}
+	return alias + ".city = ? AND " + alias + ".state = ?", []any{sc.city, sc.state}
+}
+
+// artistPredicate returns a WHERE fragment (on the given artists alias) selecting
+// the scene's roster — bands whose HOME metro is the scene's CBSA, or whose home
+// city/state match for a fallback scene — plus its positional bind args. The
+// city/state branch is case-insensitive + trimmed; an artist with a NULL/blank
+// home city is excluded (we can't claim they're based here). For a metro scene,
+// roster membership comes from the denormalized artists.metro column (backfilled
+// by cmd/backfill-entity-metro) and does NOT require a local show.
+func (sc sceneScope) artistPredicate(alias string) (string, []any) {
+	if sc.isMetro() {
+		return alias + ".metro = ?", []any{sc.metro}
+	}
+	return "LOWER(TRIM(" + alias + ".city)) = LOWER(TRIM(?)) AND LOWER(TRIM(" + alias + ".state)) = LOWER(TRIM(?))",
+		[]any{sc.city, sc.state}
+}
+
+// verifiedVenueCount counts the scene's verified venues — the existence gate
+// shared by GetSceneDetail / GetActiveArtists / GetSceneGraph.
+func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
+	q := s.db.Model(&catalogm.Venue{}).Where("verified = true")
+	if scope.isMetro() {
+		q = q.Where("metro = ?", scope.metro)
+	} else {
+		q = q.Where("city = ? AND state = ?", scope.city, scope.state)
+	}
+	var n int64
+	if err := q.Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// ListScenes returns the metros — and non-US / no-CBSA fallback cities — that
+// meet scene thresholds: 2+ verified venues AND 3+ approved shows (past or
+// upcoming). Verified venues roll up to their Census CBSA (PSY-1255 step C), so
+// a metro's boroughs/suburbs form ONE scene displayed under the metro's
+// principal city; a venue with no CBSA groups by its literal (city, state).
 func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -77,79 +128,81 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 
 	now := time.Now().UTC()
 
-	type cityRow struct {
-		City       string `gorm:"column:city"`
-		State      string `gorm:"column:state"`
-		VenueCount int    `gorm:"column:venue_count"`
-		ShowCount  int    `gorm:"column:show_count"`
+	type groupRow struct {
+		Metro         string `gorm:"column:metro"`
+		City          string `gorm:"column:city"`
+		State         string `gorm:"column:state"`
+		VenueCount    int    `gorm:"column:venue_count"`
+		ShowCount     int    `gorm:"column:show_count"`
+		UpcomingCount int    `gorm:"column:upcoming_count"`
 	}
 
-	// Step 1: Find cities with 1+ verified venues AND 1+ total approved shows.
-	// Uses a single query that joins venues → shows to compute both counts.
-	var cities []cityRow
+	// Group verified venues by CBSA metro (or by (city,state) when the venue has
+	// no metro), counting distinct venues + approved shows + the upcoming subset
+	// in ONE pass — the FILTER aggregate replaces the former per-scene N+1 query.
+	// COALESCE(MAX(v.metro), '') is the group's CBSA (all rows in a metro group
+	// share it; '' for a fallback group); MIN(city)/MIN(state) is the literal
+	// city/state of a fallback group (a metro group displays its principal city
+	// instead, so its MIN city is unused).
+	var groups []groupRow
 	err := s.db.Raw(`
-		SELECT v.city, v.state,
+		SELECT COALESCE(MAX(v.metro), '') AS metro,
+		       MIN(v.city)  AS city,
+		       MIN(v.state) AS state,
 		       COUNT(DISTINCT v.id) AS venue_count,
-		       COUNT(DISTINCT s.id) AS show_count
+		       COUNT(DISTINCT s.id) AS show_count,
+		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count
 		FROM venues v
 		LEFT JOIN show_venues sv ON sv.venue_id = v.id
 		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
 		WHERE v.verified = true
 		  AND v.city IS NOT NULL AND v.city != ''
 		  AND v.state IS NOT NULL AND v.state != ''
-		GROUP BY v.city, v.state
+		GROUP BY COALESCE(v.metro, LOWER(v.city) || '|' || LOWER(v.state))
 		HAVING COUNT(DISTINCT v.id) >= ?
 		   AND COUNT(DISTINCT s.id) >= ?
-	`, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&cities).Error
+	`, now, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
 
-	// Step 2: For each qualifying city, count upcoming approved shows (for display).
-	var results []*contracts.SceneListResponse
-	for i := range cities {
-		c := &cities[i]
-		var upcomingCount int64
-		err := s.db.Raw(`
-			SELECT COUNT(DISTINCT s.id)
-			FROM shows s
-			JOIN show_venues sv ON sv.show_id = s.id
-			JOIN venues v ON v.id = sv.venue_id
-			WHERE v.city = ? AND v.state = ?
-			  AND s.status = ?
-			  AND s.event_date >= ?
-		`, c.City, c.State, catalogm.ShowStatusApproved, now).Scan(&upcomingCount).Error
-		if err != nil {
-			return nil, fmt.Errorf("failed to count shows for %s, %s: %w", c.City, c.State, err)
-		}
+	results := make([]*contracts.SceneListResponse, 0, len(groups))
+	for i := range groups {
+		g := &groups[i]
 
-		// Map coordinate: the city's geocoded centroid, resolved from (city, state)
-		// via the SAME offline geocoder that sets venue and show-city coordinates
-		// (PSY-985/PSY-981). Identical to GetShowCities, so a city plots at the
-		// same point on the scenes map and the shows-by-city map. Exact to the
-		// grouped (city, state) key — no venue join, no backfill dependency, no
-		// extra query (venue coords are themselves this same city centroid, so
-		// reading them would be a no-op). A geocoder miss leaves both coords nil:
-		// the scene still lists, it just can't be placed on the map.
+		// Display identity + map point. A metro scene shows under its principal
+		// (highest-population) city, placed at that city's centroid. A fallback
+		// scene (or a metro whose principal we somehow can't resolve) uses its
+		// literal city/state geocoded the SAME way as GetShowCities (PSY-985/981),
+		// so a scene plots at the same point here and on the shows-by-city map. A
+		// geocoder miss leaves coords nil: the scene still lists, just unplaceable.
+		city, state := g.City, g.State
 		var lat, lng *float64
-		if s.geocoder != nil {
-			lat, lng, _ = geo.LookupPointers(s.geocoder, c.City, c.State, "")
+		if g.Metro != "" {
+			if mp, ok := geo.MetroPrincipalByCBSA(g.Metro); ok {
+				city, state = mp.City, mp.State
+				latV, lngV := mp.Latitude, mp.Longitude
+				lat, lng = &latV, &lngV
+			}
+		}
+		if lat == nil && s.geocoder != nil {
+			lat, lng, _ = geo.LookupPointers(s.geocoder, city, state, "")
 		}
 
 		results = append(results, &contracts.SceneListResponse{
-			City:              c.City,
-			State:             c.State,
-			Slug:              buildSceneSlug(c.City, c.State),
-			VenueCount:        c.VenueCount,
-			UpcomingShowCount: int(upcomingCount),
-			TotalShowCount:    c.ShowCount,
+			City:              city,
+			State:             state,
+			Slug:              buildSceneSlug(city, state),
+			VenueCount:        g.VenueCount,
+			UpcomingShowCount: g.UpcomingCount,
+			TotalShowCount:    g.ShowCount,
 			Latitude:          lat,
 			Longitude:         lng,
 		})
 	}
 
 	// Sort by total show count descending, then upcoming shows as tiebreaker.
-	// Simple insertion sort is fine for a small number of cities.
+	// Simple insertion sort is fine for a small number of scenes.
 	for i := 1; i < len(results); i++ {
 		for j := i; j > 0; j-- {
 			if results[j].TotalShowCount > results[j-1].TotalShowCount ||
@@ -165,55 +218,58 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	return results, nil
 }
 
-// GetSceneDetail returns computed aggregation stats and pulse for a city.
+// GetSceneDetail returns computed aggregation stats and pulse for a scene,
+// addressed by its (principal) city/state. Venue/show stats span the scene's
+// whole metro (or its literal city for a no-CBSA fallback scene); the artist
+// roster + "new artists" count bands BASED in the metro, regardless of where
+// they've played (PSY-1255 step C).
 func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	now := time.Now().UTC()
+	scope := s.scopeFor(city, state)
+	vp, vargs := scope.venuePredicate("v")
+	ap, aargs := scope.artistPredicate("a2")
+	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
+	// across queries) followed by extra args, in placeholder order.
+	venueArgs := func(extra ...any) []any { return append(append([]any{}, vargs...), extra...) }
 
-	// Venue count (verified only)
-	var venueCount int64
-	if err := s.db.Model(&catalogm.Venue{}).
-		Where("city = ? AND state = ? AND verified = true", city, state).
-		Count(&venueCount).Error; err != nil {
+	// Venue count (verified only) — gates scene existence.
+	venueCount, err := s.verifiedVenueCount(scope)
+	if err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	}
 	if venueCount < sceneMinVenues {
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	// Upcoming show count
+	// Upcoming show count (metro-wide)
 	var upcomingShowCount int64
 	if err := s.db.Raw(`
 		SELECT COUNT(DISTINCT s.id)
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		JOIN venues v ON v.id = sv.venue_id
-		WHERE v.city = ? AND v.state = ?
+		WHERE `+vp+`
 		  AND s.status = ?
 		  AND s.event_date >= ?
-	`, city, state, catalogm.ShowStatusApproved, now).Scan(&upcomingShowCount).Error; err != nil {
+	`, venueArgs(catalogm.ShowStatusApproved, now)...).Scan(&upcomingShowCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
-	// Artist count: distinct LOCAL artists with approved shows at venues in this
-	// city (home city/state matches the scene — PSY-1233, see localArtistFilter).
+	// Artist count: bands BASED in the metro (the roster size), regardless of
+	// whether they've played a local show — this is the scene's headline figure
+	// under the new "based-in" model.
 	var artistCount int64
-	if err := s.db.Raw(`
-		SELECT COUNT(DISTINCT sa.artist_id)
-		FROM show_artists sa
-		JOIN shows s ON s.id = sa.show_id
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?`+localArtistFilter+`
-	`, city, state, catalogm.ShowStatusApproved, city, state).Scan(&artistCount).Error; err != nil {
+	if err := s.db.Raw(`SELECT COUNT(*) FROM artists a2 WHERE `+ap, aargs...).Scan(&artistCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count artists: %w", err)
 	}
 
-	// Festival count: festivals with matching city
+	// Festival count: festivals in the scene's principal city/state. Festivals
+	// carry no metro column yet, so a multi-city metro under-counts suburb
+	// festivals — acceptable for v1 (follow-up: add festivals.metro).
 	var festivalCount int64
 	if err := s.db.Model(&catalogm.Festival{}).
 		Where("city = ? AND state = ?", city, state).
@@ -235,10 +291,10 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		JOIN venues v ON v.id = sv.venue_id
-		WHERE v.city = ? AND v.state = ?
+		WHERE `+vp+`
 		  AND s.status = ?
 		  AND s.event_date >= ? AND s.event_date < ?
-	`, city, state, catalogm.ShowStatusApproved, thisMonthStart, nextMonthStart).Scan(&showsThisMonth)
+	`, venueArgs(catalogm.ShowStatusApproved, thisMonthStart, nextMonthStart)...).Scan(&showsThisMonth)
 
 	// Shows previous month
 	var showsPrevMonth int64
@@ -247,10 +303,10 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		JOIN venues v ON v.id = sv.venue_id
-		WHERE v.city = ? AND v.state = ?
+		WHERE `+vp+`
 		  AND s.status = ?
 		  AND s.event_date >= ? AND s.event_date < ?
-	`, city, state, catalogm.ShowStatusApproved, prevMonthStart, thisMonthStart).Scan(&showsPrevMonth)
+	`, venueArgs(catalogm.ShowStatusApproved, prevMonthStart, thisMonthStart)...).Scan(&showsPrevMonth)
 
 	// Trend string
 	diff := int(showsThisMonth) - int(showsPrevMonth)
@@ -261,9 +317,12 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		showsTrend = fmt.Sprintf("%d", diff)
 	}
 
-	// New artists in last 30 days: LOCAL artists whose first show in this city was
-	// in the last 30 days (home city/state matches the scene — PSY-1233).
+	// New artists in last 30 days: metro-based bands whose FIRST approved show
+	// ANYWHERE (not just locally) was in the last 30 days — the "newly gigging
+	// local band" signal under the based-in model (PSY-1255 step C).
 	thirtyDaysAgo := now.AddDate(0, 0, -30)
+	naArgs := append([]any{catalogm.ShowStatusApproved}, aargs...)
+	naArgs = append(naArgs, thirtyDaysAgo)
 	var newArtists30d int64
 	s.db.Raw(`
 		SELECT COUNT(*)
@@ -271,14 +330,12 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			SELECT sa.artist_id, MIN(s.event_date) AS first_show
 			FROM show_artists sa
 			JOIN shows s ON s.id = sa.show_id
-			JOIN show_venues sv ON sv.show_id = s.id
-			JOIN venues v ON v.id = sv.venue_id
-			WHERE v.city = ? AND v.state = ?
-			  AND s.status = ?`+localArtistFilter+`
+			WHERE s.status = ?
+			  AND sa.artist_id IN (SELECT a2.id FROM artists a2 WHERE `+ap+`)
 			GROUP BY sa.artist_id
 			HAVING MIN(s.event_date) >= ?
 		) AS new_artists
-	`, city, state, catalogm.ShowStatusApproved, city, state, thirtyDaysAgo).Scan(&newArtists30d)
+	`, naArgs...).Scan(&newArtists30d)
 
 	// Active venues this month: venues with at least 1 approved show this month
 	var activeVenuesThisMonth int64
@@ -287,10 +344,10 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		FROM venues v
 		JOIN show_venues sv ON sv.venue_id = v.id
 		JOIN shows s ON s.id = sv.show_id
-		WHERE v.city = ? AND v.state = ?
+		WHERE `+vp+`
 		  AND s.status = ?
 		  AND s.event_date >= ? AND s.event_date < ?
-	`, city, state, catalogm.ShowStatusApproved, thisMonthStart, nextMonthStart).Scan(&activeVenuesThisMonth)
+	`, venueArgs(catalogm.ShowStatusApproved, thisMonthStart, nextMonthStart)...).Scan(&activeVenuesThisMonth)
 
 	// Shows by month: last 6 months (from 5 months ago through current month)
 	showsByMonth := make([]int, 6)
@@ -303,10 +360,10 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			FROM shows s
 			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
-			WHERE v.city = ? AND v.state = ?
+			WHERE `+vp+`
 			  AND s.status = ?
 			  AND s.event_date >= ? AND s.event_date < ?
-		`, city, state, catalogm.ShowStatusApproved, monthStart, monthEnd).Scan(&count)
+		`, venueArgs(catalogm.ShowStatusApproved, monthStart, monthEnd)...).Scan(&count)
 		showsByMonth[5-i] = int(count)
 	}
 
@@ -332,38 +389,32 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	}, nil
 }
 
-// GetActiveArtists returns artists ranked by show count in a city within the given period.
+// GetActiveArtists returns the scene's roster — bands BASED in the metro — with
+// the ACTIVE ones sorted first, then by total approved show count, then name
+// (PSY-1255 step C). "Active" = an upcoming approved show OR one within
+// `periodDays`, played ANYWHERE (the default window is ~6 months; see the
+// handler). Pre-step-C this returned only bands who'd played a LOCAL show in the
+// window; membership is now metro residence, decoupled from where the band has
+// gigged, so the full roster paginates here with is_active flagging the live ones.
 func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	// Verify city qualifies as scene
-	var venueCount int64
-	if err := s.db.Model(&catalogm.Venue{}).
-		Where("city = ? AND state = ? AND verified = true", city, state).
-		Count(&venueCount).Error; err != nil {
+	scope := s.scopeFor(city, state)
+	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
-	}
-	if venueCount < sceneMinVenues {
+	} else if n < sceneMinVenues {
 		return nil, 0, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	cutoff := time.Now().UTC().AddDate(0, 0, -periodDays)
+	ap, aargs := scope.artistPredicate("a")
+	activeCutoff := time.Now().UTC().AddDate(0, 0, -periodDays)
 
-	// Count total distinct LOCAL artists (home city/state matches the scene — PSY-1233)
+	// Total roster size = every band based in the metro.
 	var total int64
-	if err := s.db.Raw(`
-		SELECT COUNT(DISTINCT sa.artist_id)
-		FROM show_artists sa
-		JOIN shows s ON s.id = sa.show_id
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?
-		  AND s.event_date >= ?`+localArtistFilter+`
-	`, city, state, catalogm.ShowStatusApproved, cutoff, city, state).Scan(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to count active artists: %w", err)
+	if err := s.db.Raw(`SELECT COUNT(*) FROM artists a WHERE `+ap, aargs...).Scan(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count scene artists: %w", err)
 	}
 
 	type artistRow struct {
@@ -373,24 +424,37 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 		City      *string `gorm:"column:city"`
 		State     *string `gorm:"column:state"`
 		ShowCount int     `gorm:"column:show_count"`
+		IsActive  bool    `gorm:"column:is_active"`
 	}
 
+	// Each roster artist's total approved show count + most-recent show date (any
+	// venue) come from one grouped subquery; is_active = that latest show falls in
+	// the active window (an upcoming show has event_date >= now >= cutoff, so it's
+	// covered). Computing is_active in SQL keeps the active-first ordering correct
+	// across pagination. Placeholder order: cutoff (SELECT), status (subquery),
+	// roster predicate, then LIMIT/OFFSET.
+	rowsArgs := append([]any{activeCutoff, catalogm.ShowStatusApproved}, aargs...)
+	rowsArgs = append(rowsArgs, limit, offset)
 	var rows []artistRow
 	if err := s.db.Raw(`
-		SELECT a.id, a.slug, a.name, a.city, a.state, COUNT(DISTINCT s.id) AS show_count
+		SELECT a.id, a.slug, a.name, a.city, a.state,
+		       COALESCE(ss.show_count, 0) AS show_count,
+		       COALESCE(ss.last_show >= ?, false) AS is_active
 		FROM artists a
-		JOIN show_artists sa ON sa.artist_id = a.id
-		JOIN shows s ON s.id = sa.show_id
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?
-		  AND s.event_date >= ?`+localArtistFilter+`
-		GROUP BY a.id
-		ORDER BY show_count DESC, a.name ASC
+		LEFT JOIN (
+			SELECT sa.artist_id,
+			       COUNT(DISTINCT s.id) AS show_count,
+			       MAX(s.event_date) AS last_show
+			FROM show_artists sa
+			JOIN shows s ON s.id = sa.show_id
+			WHERE s.status = ?
+			GROUP BY sa.artist_id
+		) ss ON ss.artist_id = a.id
+		WHERE `+ap+`
+		ORDER BY is_active DESC, show_count DESC, a.name ASC
 		LIMIT ? OFFSET ?
-	`, city, state, catalogm.ShowStatusApproved, cutoff, city, state, limit, offset).Scan(&rows).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to get active artists: %w", err)
+	`, rowsArgs...).Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get scene artists: %w", err)
 	}
 
 	results := make([]*contracts.SceneArtistResponse, len(rows))
@@ -406,24 +470,53 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 			City:      r.City,
 			State:     r.State,
 			ShowCount: r.ShowCount,
+			IsActive:  r.IsActive,
 		}
 	}
 
 	return results, total, nil
 }
 
-// ParseSceneSlug resolves a slug like "phoenix-az" to actual city and state
-// by matching against verified venues in the database.
+// parseSceneSlugParts splits a scene slug "city-state" into its raw lowercase
+// city and 2-letter state. The LAST '-' separates the state; earlier '-' are
+// part of a multi-word city ("los-angeles-ca" → "los angeles", "ca"). Returns
+// ("","") for a slug with no usable separator. Shared by ParseSceneSlug and the
+// entity-existence probe so both resolve a metro the same way.
+func parseSceneSlugParts(slug string) (city, state string) {
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	i := strings.LastIndex(slug, "-")
+	if i <= 0 || i == len(slug)-1 {
+		return "", ""
+	}
+	return strings.ReplaceAll(slug[:i], "-", " "), slug[i+1:]
+}
+
+// ParseSceneSlug resolves a scene slug to the scene's canonical DISPLAY identity
+// (city, state). A US slug whose (city,state) pins a Census CBSA resolves to that
+// metro's PRINCIPAL city — so an old member slug ("tempe-az", "brooklyn-ny")
+// lands on its metro's canonical scene instead of 404ing (PSY-1255 step C). A
+// slug with no CBSA falls back to matching a verified venue's literal (city,
+// state). Scene EXISTENCE (>= sceneMinVenues) is enforced downstream by
+// GetSceneDetail, so this may resolve a slug whose metro has no qualifying scene.
 func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	if s.db == nil {
 		return "", "", fmt.Errorf("database not initialized")
 	}
 
+	if city, state := parseSceneSlugParts(slug); city != "" && s.geocoder != nil {
+		if m, ok := s.geocoder.ResolveMetro(city, state, usCountry); ok {
+			if mp, ok := geo.MetroPrincipalByCBSA(m.CBSACode); ok {
+				return mp.City, mp.State, nil
+			}
+		}
+	}
+
+	// No CBSA (non-US, or a US place not in any metro): resolve to a verified
+	// venue's literal city/state, exactly as before.
 	type cityState struct {
 		City  string
 		State string
 	}
-
 	var result cityState
 	err := s.db.Raw(`
 		SELECT DISTINCT city, state
@@ -460,12 +553,15 @@ const (
 )
 
 // GetSceneGenreDistribution returns genre tags ranked by the number of distinct
-// artists who play approved shows in this city and carry that genre tag.
+// artists BASED in the metro that carry that genre tag (PSY-1255 step C).
 // Returns empty if fewer than 30 tagged artists exist for the scene.
 func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contracts.GenreCount, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+
+	scope := s.scopeFor(city, state)
+	ap, aargs := scope.artistPredicate("a")
 
 	type genreRow struct {
 		TagID uint   `gorm:"column:tag_id"`
@@ -476,18 +572,14 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 
 	var rows []genreRow
 	err := s.db.Raw(`
-		SELECT t.id AS tag_id, t.name, t.slug, COUNT(DISTINCT sa.artist_id) AS count
-		FROM show_artists sa
-		JOIN show_venues sv ON sv.show_id = sa.show_id
-		JOIN shows s ON s.id = sa.show_id
-		JOIN venues v ON v.id = sv.venue_id
-		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
+		SELECT t.id AS tag_id, t.name, t.slug, COUNT(DISTINCT a.id) AS count
+		FROM artists a
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = a.id
 		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
-		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?`+localArtistFilter+`
+		WHERE `+ap+`
 		GROUP BY t.id, t.name, t.slug
 		ORDER BY count DESC
-	`, city, state, catalogm.ShowStatusApproved, city, state).Scan(&rows).Error
+	`, aargs...).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get scene genre distribution: %w", err)
 	}
@@ -515,13 +607,17 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 }
 
 // GetGenreDiversityIndex computes the normalized Shannon entropy of the genre
-// distribution for a city scene. Returns a value in [0, 1] where higher values
-// indicate more genre diversity. Returns -1 when there is insufficient data
-// (fewer than 50 tagged artists or fewer than 5 genres).
+// distribution across the bands BASED in the metro (PSY-1255 step C). Returns a
+// value in [0, 1] where higher values indicate more genre diversity. Returns -1
+// when there is insufficient data (fewer than 50 tagged artists or fewer than 5
+// genres).
 func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
+
+	scope := s.scopeFor(city, state)
+	ap, aargs := scope.artistPredicate("a")
 
 	type genreRow struct {
 		Count int `gorm:"column:count"`
@@ -529,18 +625,14 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 
 	var rows []genreRow
 	err := s.db.Raw(`
-		SELECT COUNT(DISTINCT sa.artist_id) AS count
-		FROM show_artists sa
-		JOIN show_venues sv ON sv.show_id = sa.show_id
-		JOIN shows s ON s.id = sa.show_id
-		JOIN venues v ON v.id = sv.venue_id
-		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
+		SELECT COUNT(DISTINCT a.id) AS count
+		FROM artists a
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = a.id
 		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
-		WHERE v.city = ? AND v.state = ?
-		  AND s.status = ?`+localArtistFilter+`
+		WHERE `+ap+`
 		GROUP BY t.id
 		ORDER BY count DESC
-	`, city, state, catalogm.ShowStatusApproved, city, state).Scan(&rows).Error
+	`, aargs...).Scan(&rows).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to get genre diversity index: %w", err)
 	}
@@ -663,13 +755,10 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	}
 
 	// Validate scene exists (mirrors GetActiveArtists / GetSceneDetail).
-	var venueCount int64
-	if err := s.db.Model(&catalogm.Venue{}).
-		Where("city = ? AND state = ? AND verified = true", city, state).
-		Count(&venueCount).Error; err != nil {
+	scope := s.scopeFor(city, state)
+	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
-	}
-	if venueCount < sceneMinVenues {
+	} else if n < sceneMinVenues {
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
@@ -680,9 +769,9 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	resolvedTypes := resolveSceneEdgeTypes(types)
 	noEdgesByFilter := len(types) > 0 && len(resolvedTypes) == 0
 
-	// 1. Single CTE query — scene artists + their most-frequent in-scene venue.
-	//    Tie-break: more recent show wins (matches the spike doc §4 spec).
-	rows, err := s.querySceneArtistsWithPrimaryVenue(city, state)
+	// 1. Single CTE query — scene artists (bands based in the metro) + each one's
+	//    most-frequent venue ACROSS the metro. Tie-break: more recent show wins.
+	rows, err := s.querySceneArtistsWithPrimaryVenue(scope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query scene artists: %w", err)
 	}
@@ -828,20 +917,18 @@ func sortStringsAsc(s []string) {
 	}
 }
 
-// querySceneArtistsWithPrimaryVenue runs the CTE that lists every artist with
-// at least one approved show in (city, state) and resolves each artist's
-// most-frequently-played in-scene venue. LEFT JOINs the venue back so the
-// PrimaryVenueID/Name columns are nullable for any artist whose venue plays
-// don't resolve (defensive — should not happen given the source set).
-func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]sceneArtistRow, error) {
+// querySceneArtistsWithPrimaryVenue runs the CTE that lists every band BASED in
+// the scene's metro (PSY-1255 step C) and resolves each one's
+// most-frequently-played venue ACROSS the metro. LEFT JOINs the venue back so
+// the PrimaryVenueID/Name columns are nullable for any roster band that has
+// never played a metro venue (now expected — membership no longer requires a
+// local show; those bands cluster into "other").
+func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, error) {
+	ap, aargs := scope.artistPredicate("a")
+	vp, vargs := scope.venuePredicate("v")
 	const q = `
 		WITH scene_artists AS (
-			SELECT DISTINCT sa.artist_id
-			FROM show_artists sa
-			JOIN shows s ON s.id = sa.show_id
-			JOIN show_venues sv ON sv.show_id = s.id
-			JOIN venues v ON v.id = sv.venue_id
-			WHERE v.city = ? AND v.state = ? AND s.status = ?` + localArtistFilter + `
+			SELECT a.id AS artist_id FROM artists a WHERE %s
 		),
 		artist_venue_counts AS (
 			SELECT
@@ -858,7 +945,7 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]
 			JOIN shows s ON s.id = sa.show_id
 			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
-			WHERE v.city = ? AND v.state = ? AND s.status = ?
+			WHERE %s AND s.status = ?
 				AND sa.artist_id IN (SELECT artist_id FROM scene_artists)
 			GROUP BY sa.artist_id, v.id, v.name
 		)
@@ -871,15 +958,16 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]
 			avc.venue_id   AS primary_venue_id,
 			avc.venue_name AS primary_venue_name
 		FROM artists a
-		JOIN scene_artists sa ON sa.artist_id = a.id
+		JOIN scene_artists sca ON sca.artist_id = a.id
 		LEFT JOIN artist_venue_counts avc ON avc.artist_id = a.id AND avc.rn = 1
 		ORDER BY a.name ASC
 	`
+	// Placeholder order: roster predicate (scene_artists), then venue predicate
+	// + status (artist_venue_counts).
+	args := append(append([]any{}, aargs...), vargs...)
+	args = append(args, catalogm.ShowStatusApproved)
 	var rows []sceneArtistRow
-	if err := s.db.Raw(q,
-		city, state, catalogm.ShowStatusApproved, city, state, // scene_artists CTE (+ local-artist filter)
-		city, state, catalogm.ShowStatusApproved, // artist_venue_counts CTE
-	).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(fmt.Sprintf(q, ap, vp), args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil

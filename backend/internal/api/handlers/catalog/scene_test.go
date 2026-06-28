@@ -224,8 +224,8 @@ func TestGetSceneActiveArtists_DefaultPeriodAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedPeriod != 90 {
-		t.Errorf("expected default period 90, got %d", capturedPeriod)
+	if capturedPeriod != 180 {
+		t.Errorf("expected default period 180, got %d", capturedPeriod)
 	}
 	if capturedLimit != 20 {
 		t.Errorf("expected default limit 20, got %d", capturedLimit)
