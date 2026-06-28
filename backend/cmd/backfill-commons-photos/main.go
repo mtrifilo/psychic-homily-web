@@ -36,6 +36,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/mbadapter"
 	"psychic-homily-backend/internal/services/pipeline"
 )
 
@@ -72,7 +73,7 @@ func main() {
 
 	// One shared MusicBrainz client (PSY-1208), adapted to the catalog enricher's
 	// interfaces so the catalog package needn't depend on the pipeline package.
-	mb := mbArtistAdapter{client: pipeline.NewMusicBrainzClient()}
+	mb := mbadapter.NewArtistAdapter(pipeline.NewMusicBrainzClient())
 
 	wd := catalog.NewWikidataClient()
 	defer wd.Close()
@@ -89,50 +90,6 @@ func main() {
 	}
 
 	printReport(report)
-}
-
-// mbArtistAdapter adapts the shared pipeline.MusicBrainzClient to the catalog
-// enricher's musicBrainzArtistAPI interface.
-type mbArtistAdapter struct {
-	client *pipeline.MusicBrainzClient
-}
-
-func (a mbArtistAdapter) SearchArtistCandidates(ctx context.Context, name string) ([]catalog.MBArtistCandidate, error) {
-	raw, err := a.client.SearchArtistCandidates(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	return toMBArtistCandidates(raw), nil
-}
-
-func (a mbArtistAdapter) LookupArtistURLs(ctx context.Context, mbid string) ([]string, error) {
-	rels, err := a.client.LookupArtistURLRelations(ctx, mbid)
-	if err != nil {
-		return nil, err
-	}
-	return toURLResources(rels), nil
-}
-
-// toMBArtistCandidates maps MusicBrainz search results to the catalog enricher's
-// candidate type.
-func toMBArtistCandidates(raw []pipeline.MBArtistResult) []catalog.MBArtistCandidate {
-	out := make([]catalog.MBArtistCandidate, 0, len(raw))
-	for _, r := range raw {
-		out = append(out, catalog.MBArtistCandidate{MBID: r.ID, Name: r.Name})
-	}
-	return out
-}
-
-// toURLResources flattens MusicBrainz url-relations to their resource URLs,
-// dropping empty entries.
-func toURLResources(rels []pipeline.MBURLRelation) []string {
-	urls := make([]string, 0, len(rels))
-	for _, r := range rels {
-		if r.URL.Resource != "" {
-			urls = append(urls, r.URL.Resource)
-		}
-	}
-	return urls
 }
 
 func printReport(r *catalog.CommonsEnrichReport) {
