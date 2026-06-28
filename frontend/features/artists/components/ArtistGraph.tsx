@@ -119,6 +119,19 @@ interface ArtistGraphProps {
   /** PSY-1259: node ids whose expansion fetch is in flight (rendered with a loading ring). */
   expandingIds?: Set<number>
   /**
+   * PSY-1273: Degree-of-Interest score per non-center node id (see graphDoi.ts). Sets label
+   * collision priority so the most-interesting names survive the cull. Absent → label priority
+   * falls back to raw node degree (the pre-PSY-1273 behaviour, kept for the bill-composition
+   * graph which wires no DOI).
+   */
+  doiByNodeId?: Map<number, number>
+  /**
+   * PSY-1273: the ≤5 unexpanded node ids flagged as suggested expansion directions — drawn with
+   * a subtle glow + "+" so the click-to-expand gesture is discoverable and guided. Absent → no
+   * suggestion affordance (bill-composition graph).
+   */
+  suggestedIds?: Set<number>
+  /**
    * PSY-361: When true, an overlay spinner is shown over the graph while
    * the parent fetches the new center's payload. We deliberately do NOT
    * unmount the canvas — that would cause the simulation-mid-tick stutter
@@ -269,6 +282,11 @@ const RING_GAP = 135
 const RADIAL_FORCE_STRENGTH = 0.4
 const EGO_CHARGE_STRENGTH = -210
 
+// Below this zoom, node labels are dropped (text becomes unreadable). The PSY-1273
+// suggested-direction glow + "+" badge gate on the same threshold: a fixed-pixel hint over
+// the tiny far-zoom dots would bloom into blobs, so it appears/disappears with the labels.
+const LABEL_MIN_SCALE = 0.7
+
 // PSY-1258: dense relationship types get trimmed to each node's k strongest edges so the
 // many-to-many radio signal stops rendering as a teal hairball. Only types listed here are
 // capped (the rest are sparse enough to draw in full); k is intentionally tunable — start
@@ -296,6 +314,8 @@ export function ArtistGraphVisualization({
   hopByNodeId,
   expandedIds,
   expandingIds,
+  doiByNodeId,
+  suggestedIds,
   isRecentering = false,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -687,7 +707,7 @@ export function ArtistGraphVisualization({
   }, [adjacency, hoveredNode, graphData, data.center.id])
 
   const nodeCanvasObject = useCallback(
-    (node: GraphNode, ctx: CanvasRenderingContext2D) => {
+    (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const isCenter = node.isCenter
@@ -732,6 +752,45 @@ export function ArtistGraphVisualization({
           ctx.stroke()
           ctx.setLineDash([])
         }
+
+        // PSY-1273: suggested expansion direction. The few highest-DOI unexpanded nodes
+        // (suggestedIds, already excludes expanded + expanding from the parent) get a subtle
+        // indigo glow + "+" badge so the click-to-expand gesture is discoverable and the eye
+        // is steered toward the most-interesting next steps. Indigo ties the hint to the
+        // "opened" (indigo) state expanding leads to. Static (no animation) so it's reduced-
+        // motion-safe. shadowBlur is scoped in a save/restore so the glow can't leak onto
+        // later paints (and globalAlpha — the hover-focus dim — is preserved across it).
+        // Gated on zoom like the labels, so the hint doesn't bloom over far-zoom dots.
+        if (suggestedIds?.has(node.id) && globalScale > LABEL_MIN_SCALE) {
+          ctx.save()
+          ctx.shadowColor = '#818cf8' // indigo-400
+          ctx.shadowBlur = 8
+          ctx.beginPath()
+          ctx.arc(x, y, radius + 1.5, 0, 2 * Math.PI)
+          ctx.strokeStyle = '#a5b4fc' // indigo-300
+          ctx.lineWidth = 1.5
+          ctx.stroke()
+          ctx.restore()
+
+          // "+" badge, bottom-right (mirrors the green show dot's top-right geometry).
+          const bx = x + radius - 1
+          const by = y + radius - 1
+          ctx.beginPath()
+          ctx.arc(bx, by, 4, 0, 2 * Math.PI)
+          ctx.fillStyle = '#6366f1' // indigo-500
+          ctx.fill()
+          ctx.strokeStyle = '#c7d2fe' // indigo-200 (contrast on both themes)
+          ctx.lineWidth = 1
+          ctx.stroke()
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 1.2
+          ctx.beginPath()
+          ctx.moveTo(bx - 2, by)
+          ctx.lineTo(bx + 2, by)
+          ctx.moveTo(bx, by - 2)
+          ctx.lineTo(bx, by + 2)
+          ctx.stroke()
+        }
       }
 
       // Show indicator for upcoming shows
@@ -744,12 +803,16 @@ export function ArtistGraphVisualization({
 
       ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
     },
-    [focusedIds, expandedIds, expandingIds]
+    [focusedIds, expandedIds, expandingIds, suggestedIds]
   )
 
-  // Degree (link count) per node id → which label wins a collision (shared with
-  // ForceGraphView via degreeMap so the two surfaces can't drift).
-  const degreeById = useMemo(() => degreeMap(graphData.links), [graphData])
+  // Degree (link count) per node id → label collision priority FALLBACK, used only when no
+  // DOI map is supplied (the bill-composition graph). When doiByNodeId is present it wins in
+  // nodeLabelsFrame, so skip the work entirely. Shared with ForceGraphView via degreeMap.
+  const degreeById = useMemo(
+    () => (doiByNodeId ? null : degreeMap(graphData.links)),
+    [graphData, doiByNodeId]
+  )
 
   // PSY-1258: legend disclosure. Each row shows its DISPLAYED (post-cap) edge count, and
   // when a dense type was actually trimmed we add a footnote naming the cap ("Radio
@@ -783,8 +846,14 @@ export function ArtistGraphVisualization({
   // renderGraphLabels (shared with ForceGraphView).
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (globalScale <= 0.7) return
+      if (globalScale <= LABEL_MIN_SCALE) return
       const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
+      // PSY-1273: collision priority is the Degree-of-Interest score when the host supplies it
+      // (so the most-interesting names — not merely the most-connected — survive the cull), and
+      // falls back to raw degree otherwise (bill-composition graph, which wires no DOI). Decide
+      // at the map level, never per-node, so DOI floats and integer degrees are never compared.
+      const priorityFor = (id: number): number =>
+        doiByNodeId ? (doiByNodeId.get(id) ?? 0) : (degreeById?.get(id) ?? 0)
       const specs: GraphLabelSpec[] = graphData.nodes
         // Hover-focus (PSY-1210): when focused, label only the foreground set so the
         // background de-clutters; at rest (focusedIds null) label all, as before.
@@ -803,12 +872,12 @@ export function ArtistGraphVisualization({
             // alwaysInclude (a node not in focusedIds is filtered out, never force-labeled
             // over a dimmed circle). PSY-1210.
             force: node.isCenter || node.id === hoveredNode?.id,
-            priority: degreeById.get(node.id) ?? 0,
+            priority: priorityFor(node.id),
           }
         })
       renderGraphLabels(ctx, palette, specs)
     },
-    [graphData, palette, degreeById, focusedIds, hoveredNode]
+    [graphData, palette, degreeById, doiByNodeId, focusedIds, hoveredNode]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,
