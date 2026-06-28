@@ -37,10 +37,10 @@ func (s *ImageEnrichOutboxTestSuite) TearDownTest() {
 }
 func TestImageEnrichOutboxTestSuite(t *testing.T) { suite.Run(t, new(ImageEnrichOutboxTestSuite)) }
 
-// newPoller wires a poller to the test DB sharing a sweep "engine" (whose
+// newPoller wires a poller to the test DB sharing an Enricher "engine" (whose
 // enrichers the caller overrides per-test). batch + a generous reclaim window.
-func (s *ImageEnrichOutboxTestSuite) newPoller(batch int) (*ImageEnrichOutboxPoller, *ImageEnrichmentSweep) {
-	engine := NewImageEnrichmentSweep(s.db, nil, "")
+func (s *ImageEnrichOutboxTestSuite) newPoller(batch int) (*ImageEnrichOutboxPoller, *Enricher) {
+	engine := NewEnricher(s.db, nil, "")
 	p := NewImageEnrichOutboxPoller(s.db, engine)
 	p.batch = batch
 	p.staleReclaim = 30 * time.Minute
@@ -70,7 +70,7 @@ func (s *ImageEnrichOutboxTestSuite) TestDoesNotStampAttempted() {
 
 	p, engine := s.newPoller(50)
 	// Enricher runs but finds no image (the no-match / transient case) — a no-op.
-	engine.enrichPhotos = func(_ context.Context, _ []uint) error { return nil }
+	engine.EnrichPhotos = func(_ context.Context, _ []uint) error { return nil }
 
 	p.RunNow(context.Background())
 
@@ -89,8 +89,8 @@ func (s *ImageEnrichOutboxTestSuite) TestClaimsPendingAndMarksDone() {
 
 	var gotPhotos, gotCovers []uint
 	p, engine := s.newPoller(50)
-	engine.enrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
-	engine.enrichCovers = func(_ context.Context, ids []uint) error { gotCovers = append(gotCovers, ids...); return nil }
+	engine.EnrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
+	engine.EnrichCovers = func(_ context.Context, ids []uint) error { gotCovers = append(gotCovers, ids...); return nil }
 
 	p.RunNow(context.Background())
 
@@ -113,7 +113,7 @@ func (s *ImageEnrichOutboxTestSuite) TestEnricherErrorRequeuesThenFails() {
 	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
 
 	p, engine := s.newPoller(50)
-	engine.enrichPhotos = func(_ context.Context, _ []uint) error { return errors.New("boom") }
+	engine.EnrichPhotos = func(_ context.Context, _ []uint) error { return errors.New("boom") }
 
 	p.RunNow(context.Background())
 	j1 := s.reload(job.ID)
@@ -143,7 +143,7 @@ func (s *ImageEnrichOutboxTestSuite) TestSkipsRowAtMaxAttempts() {
 
 	var gotPhotos []uint
 	p, engine := s.newPoller(50)
-	engine.enrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
+	engine.EnrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
 
 	p.RunNow(context.Background())
 
@@ -165,7 +165,7 @@ func (s *ImageEnrichOutboxTestSuite) TestReclaimsStaleProcessing() {
 	var gotPhotos []uint
 	p, engine := s.newPoller(50)
 	p.staleReclaim = time.Minute // 1h-old processing row is well past this
-	engine.enrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
+	engine.EnrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
 
 	p.RunNow(context.Background())
 
@@ -230,7 +230,7 @@ func (s *ImageEnrichOutboxTestSuite) TestCanceledEnrichRequeuesWithoutBurningAtt
 	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
 
 	p, engine := s.newPoller(50)
-	engine.enrichPhotos = func(_ context.Context, _ []uint) error { return context.Canceled }
+	engine.EnrichPhotos = func(_ context.Context, _ []uint) error { return context.Canceled }
 
 	p.RunNow(context.Background())
 
@@ -249,7 +249,7 @@ func (s *ImageEnrichOutboxTestSuite) TestCanceledMidLoopRequeues() {
 
 	p, engine := s.newPoller(50)
 	ctx, cancel := context.WithCancel(context.Background())
-	engine.enrichPhotos = func(_ context.Context, _ []uint) error { cancel(); return nil }
+	engine.EnrichPhotos = func(_ context.Context, _ []uint) error { cancel(); return nil }
 
 	p.RunNow(ctx) // claim happens while ctx is live; enrich cancels then returns nil
 
@@ -281,7 +281,7 @@ func (s *ImageEnrichOutboxTestSuite) TestDoesNotReclaimFreshProcessing() {
 
 	var gotPhotos []uint
 	p, engine := s.newPoller(50) // staleReclaim = 30m
-	engine.enrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
+	engine.EnrichPhotos = func(_ context.Context, ids []uint) error { gotPhotos = append(gotPhotos, ids...); return nil }
 
 	p.RunNow(context.Background())
 

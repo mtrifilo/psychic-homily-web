@@ -51,19 +51,17 @@ const (
 // bounded (the sweep batch is capped), no MB-budget blowup, and a success leaves a
 // non-null image so the sweep skips it (no double-write).
 //
-// # Shared enrichment engine (PSY-1208)
+// # Shared enrichment engine (PSY-1208, PSY-1266)
 //
-// It shares the ImageEnrichmentSweep as its enrichment ENGINE: the sweep owns the
-// per-entity enrichers (enrichPhotos / enrichCovers) and — critically — the ONE
-// process-wide MusicBrainz client (the attempted_at memo is the sweep's alone; the
-// outbox deliberately does not stamp it — see above). Reusing it
-// keeps ALL MB traffic (sweep + outbox + discovery) under a single
-// mutex-serialized ~1 req/s throttle; a second client would double the rate and
-// trip MB's sticky 503 penalty. The sweep's ticker is the backfill trigger; this
-// poller is the prompt trigger; both drive the same engine, and run safely
-// concurrently because the shared MB mutex serializes their lookups. (This reaches
-// the sweep's unexported fields from within the package — a deliberate intra-package
-// share; extracting a standalone Enricher both hold is a tracked follow-up.)
+// It holds the shared *Enricher — the same instance the Phase-A sweep holds — which
+// owns the per-entity enrichers (EnrichPhotos / EnrichCovers) and, critically, the
+// ONE process-wide MusicBrainz client. Reusing it keeps ALL MB traffic (sweep +
+// outbox + discovery) under a single mutex-serialized ~1 req/s throttle; a second
+// client would double the rate and trip MB's sticky 503 penalty. The sweep's ticker
+// is the backfill trigger; this poller is the prompt trigger; both drive the same
+// Enricher, and run safely concurrently because the shared MB mutex serializes their
+// lookups. (The outbox does NOT stamp the attempted_at memo — that is the sweep's
+// alone; see above.)
 //
 // # Concurrency + recovery
 //
@@ -86,8 +84,8 @@ const (
 //     batch wall-clock to keep even that ABA case rare (batch=20 at ~1 req/s is
 //     ~1-2 min, well under the 15 min default).
 type ImageEnrichOutboxPoller struct {
-	db     *gorm.DB
-	engine *ImageEnrichmentSweep // shared enrichers + MB client (PSY-1208); see type doc
+	db       *gorm.DB
+	enricher *Enricher // shared engine: enrichers + the one MB client (PSY-1208/1266); see type doc
 
 	interval     time.Duration
 	batch        int
@@ -99,15 +97,15 @@ type ImageEnrichOutboxPoller struct {
 	logger *slog.Logger
 }
 
-// NewImageEnrichOutboxPoller constructs the poller. engine MUST be the same
-// ImageEnrichmentSweep wired in the container so the shared MB client is reused.
-func NewImageEnrichOutboxPoller(database *gorm.DB, engine *ImageEnrichmentSweep) *ImageEnrichOutboxPoller {
+// NewImageEnrichOutboxPoller constructs the poller. enricher MUST be the same
+// *Enricher wired into the sweep in the container, so the shared MB client is reused.
+func NewImageEnrichOutboxPoller(database *gorm.DB, enricher *Enricher) *ImageEnrichOutboxPoller {
 	if database == nil {
 		database = db.GetDB()
 	}
 	return &ImageEnrichOutboxPoller{
 		db:           database,
-		engine:       engine,
+		enricher:     enricher,
 		interval:     sweepEnvDuration("IMAGE_ENRICH_OUTBOX_INTERVAL_SECONDS", time.Second, defaultOutboxInterval),
 		batch:        sweepEnvInt("IMAGE_ENRICH_OUTBOX_BATCH", defaultOutboxBatch),
 		staleReclaim: sweepEnvDuration("IMAGE_ENRICH_OUTBOX_STALE_RECLAIM_MINUTES", time.Minute, defaultOutboxStaleReclaim),
@@ -184,10 +182,10 @@ func (p *ImageEnrichOutboxPoller) processTick(ctx context.Context) {
 	// ctx.Err()) and requeues those rows rather than stranding or wrongly marking
 	// them done.
 	if len(artistIDs) > 0 {
-		p.runBatch(ctx, "artists", artistIDs, artistItems, p.engine.enrichPhotos)
+		p.runBatch(ctx, "artists", artistIDs, artistItems, p.enricher.EnrichPhotos)
 	}
 	if len(releaseIDs) > 0 {
-		p.runBatch(ctx, "releases", releaseIDs, releaseItems, p.engine.enrichCovers)
+		p.runBatch(ctx, "releases", releaseIDs, releaseItems, p.enricher.EnrichCovers)
 	}
 }
 
