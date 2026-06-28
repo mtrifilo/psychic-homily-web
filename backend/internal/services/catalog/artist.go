@@ -290,7 +290,7 @@ func effectiveLocField(updates map[string]interface{}, key string, current *stri
 		if p, ok := v.(*string); ok {
 			return derefString(p)
 		}
-		return ""
+		return "" // unreachable: location keys are always staged as *string (NilIfEmpty)
 	}
 	return derefString(current)
 }

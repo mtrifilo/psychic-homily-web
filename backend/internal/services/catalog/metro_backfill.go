@@ -14,7 +14,8 @@ import (
 // geo.ResolveMetro, so it must equal that derivation at all times for the scene
 // rollup to be correct. Every FOREGROUND service write path sets it alongside the
 // location: artists via the create funnel (FindOrCreateArtistTx, covering admin
-// create + data-sync import) + UpdateArtist + the contribution-edit apply; venues
+// create + data-sync import + show-inline/discovery/seed, …) + UpdateArtist + the
+// contribution-edit apply; venues
 // via applyGeocoding (create + UpdateVenue) + the contribution-edit apply +
 // data-sync import. Only the BACKGROUND location writers — the artist location-
 // enrichment fill and the offline state/location backfills (step 0) — change an
