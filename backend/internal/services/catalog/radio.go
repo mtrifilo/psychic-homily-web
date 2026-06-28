@@ -41,22 +41,6 @@ type RadioService struct {
 	// (or didn't). nil → escalatePermanentFailure fires the real sentry.CaptureException
 	// (PSY-1141).
 	onPermanentFailure func(err error, stationID uint, category string)
-
-	// nowFunc returns the current time; injectable so the WFMU rebroadcast schedule
-	// cross-check (PSY-1253) is testable at a fixed instant. nil → time.Now. NOTE: this
-	// governs ONLY the rebroadcast cross-check (s.now()). The per-station now-playing TTL
-	// cache has its OWN separate clock (nowPlayingCache.now) for expiry — the two are not
-	// unified, so a test pinning nowFunc does not freeze cache expiry (the first fetch of a
-	// fresh station always runs the live path because its cache entry is empty).
-	nowFunc func() time.Time
-}
-
-// now returns the service clock (time.Now unless a test injected nowFunc).
-func (s *RadioService) now() time.Time {
-	if s.nowFunc != nil {
-		return s.nowFunc()
-	}
-	return time.Now()
 }
 
 // NewRadioService creates a new radio service
