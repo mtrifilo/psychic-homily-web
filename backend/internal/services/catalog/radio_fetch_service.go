@@ -431,6 +431,7 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 
 	s.logger.Info("radio fetch service started",
 		"fetch_interval_hours", s.fetchInterval.Hours(),
+		"fetch_lookback_floor_days", resolveFetchLookbackFloorDays(),
 		"affinity_interval_hours", s.affinityInterval.Hours(),
 		"rematch_interval_hours", s.rematchInterval.Hours(),
 		"discover_interval_hours", s.discoverInterval.Hours(),

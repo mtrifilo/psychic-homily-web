@@ -106,26 +106,23 @@ func TestFetchSince(t *testing.T) {
 	today := now.UTC().Truncate(24 * time.Hour)           // 2026-06-26 00:00 UTC
 	floor := today.AddDate(0, 0, -fetchLookbackFloorDays) // 2026-05-12 00:00 UTC (45d)
 
-	t.Run("floor is the deliberately-chosen 45 days, cold-start unified to it (PSY-1241)", func(t *testing.T) {
-		// Pinned to the literal so an accidental change to the constant trips this
-		// test. 45d covers the ~92%-monthly NTS roster; retune deliberately (and
-		// update this line) per the fetchLookbackFloorDays doc comment.
+	t.Run("default floor is the deliberately-chosen 45 days (PSY-1241/PSY-1268)", func(t *testing.T) {
+		// Pinned to the literal so an accidental change to the DEFAULT trips this test.
+		// 45d covers the stage roster's max regular cadence (~31d) with margin; retune
+		// deliberately (and update this line), or override at runtime via
+		// RADIO_FETCH_LOOKBACK_FLOOR_DAYS — see TestResolveFetchLookbackFloorDays.
 		if fetchLookbackFloorDays != 45 {
 			t.Errorf("fetchLookbackFloorDays = %d, want 45", fetchLookbackFloorDays)
 		}
-		if coldStartLookbackDays != fetchLookbackFloorDays {
-			t.Errorf("coldStartLookbackDays = %d, must be unified to the floor %d",
-				coldStartLookbackDays, fetchLookbackFloorDays)
-		}
 	})
 
-	t.Run("nil last fetch uses the cold-start window, unified to the floor (PSY-1241)", func(t *testing.T) {
+	t.Run("nil last fetch (cold start) uses the same floor as a steady-state fetch", func(t *testing.T) {
 		// A first fetch must never look back less than a subsequent one — that is the
 		// one place a monthly show's latest episode could be missed before the floor
-		// takes over. Asserts the unification behaviorally.
-		got := fetchSince(nil, now)
+		// takes over.
+		got := fetchSince(nil, now, fetchLookbackFloorDays)
 		if !got.Equal(floor) {
-			t.Errorf("nil last fetch must use the floor-width cold-start window: got %v, want %v", got, floor)
+			t.Errorf("cold-start since must equal the floor: got %v, want %v", got, floor)
 		}
 	})
 
@@ -133,7 +130,7 @@ func TestFetchSince(t *testing.T) {
 		// A fetch 2h ago would, unfloored, skip a weekly show that aired days ago.
 		// The floor must win, and it must be midnight-aligned (not carry 18:30).
 		recent := now.Add(-2 * time.Hour)
-		got := fetchSince(&recent, now)
+		got := fetchSince(&recent, now, fetchLookbackFloorDays)
 		if !got.Equal(floor) {
 			t.Errorf("recent last fetch must be floored: got %v, want floor %v", got, floor)
 		}
@@ -146,11 +143,59 @@ func TestFetchSince(t *testing.T) {
 		// Older than the 45d floor, so the catch-up branch returns the true lastFetch
 		// rather than clamping forward to the floor.
 		old := now.AddDate(0, 0, -60)
-		got := fetchSince(&old, now)
+		got := fetchSince(&old, now, fetchLookbackFloorDays)
 		if !got.Equal(old) {
 			t.Errorf("stale last fetch must win: got %v, want %v", got, old)
 		}
 	})
+
+	t.Run("a wider configured floorDays widens the window for both branches (PSY-1268)", func(t *testing.T) {
+		// RADIO_FETCH_LOOKBACK_FLOOR_DAYS=90 → `since` reaches back 90d, and the
+		// cold-start branch tracks it.
+		wide := today.AddDate(0, 0, -90)
+		recent := now.Add(-2 * time.Hour)
+		if got := fetchSince(&recent, now, 90); !got.Equal(wide) {
+			t.Errorf("recent fetch with floorDays=90: got %v, want %v", got, wide)
+		}
+		if got := fetchSince(nil, now, 90); !got.Equal(wide) {
+			t.Errorf("cold-start with floorDays=90: got %v, want %v", got, wide)
+		}
+		// The catch-up boundary moves with the param: a 60d-old lastFetch wins at the
+		// default 45d floor (tested above) but is INSIDE a 90d floor, so the floor wins.
+		old60 := now.AddDate(0, 0, -60)
+		if got := fetchSince(&old60, now, 90); !got.Equal(wide) {
+			t.Errorf("60d-old lastFetch under a 90d floor must clamp to the floor: got %v, want %v", got, wide)
+		}
+	})
+}
+
+// TestResolveFetchLookbackFloorDays covers the RADIO_FETCH_LOOKBACK_FLOOR_DAYS env
+// override (PSY-1268): a positive value within [1, maxFetchLookbackFloorDays] wins;
+// anything else (unset/empty, 0, negative, over-max, garbage) falls back to the
+// fetchLookbackFloorDays default — a 0/negative floor would reintroduce the PSY-1230
+// permanent-skip bug and an over-max one would make KEXP page its whole archive. The
+// default VALUE itself is pinned to the literal in TestFetchSince.
+func TestResolveFetchLookbackFloorDays(t *testing.T) {
+	cases := []struct {
+		name, env string
+		want      int
+	}{
+		{"unset/empty uses default", "", fetchLookbackFloorDays},
+		{"valid override wins", "90", 90},
+		{"at the max wins", "365", maxFetchLookbackFloorDays},
+		{"over the max is ignored (KEXP archive-walk guard)", "100000", fetchLookbackFloorDays},
+		{"zero is ignored (no floor would reintroduce PSY-1230)", "0", fetchLookbackFloorDays},
+		{"negative is ignored", "-5", fetchLookbackFloorDays},
+		{"garbage is ignored", "soon", fetchLookbackFloorDays},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("RADIO_FETCH_LOOKBACK_FLOOR_DAYS", tc.env)
+			if got := resolveFetchLookbackFloorDays(); got != tc.want {
+				t.Errorf("resolveFetchLookbackFloorDays() with env=%q = %d, want %d", tc.env, got, tc.want)
+			}
+		})
+	}
 }
 
 // TestShouldAdvanceLastFetch covers the per-run gate that keeps a wholly-failed
@@ -196,7 +241,7 @@ func TestShouldAdvanceLastFetch(t *testing.T) {
 func TestFetchWindow_AdmitsMonthlyAndBiweeklyCadence(t *testing.T) {
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
 	recent := now.Add(-2 * time.Hour) // steady state: lastFetch ~recent → since = floor
-	since := fetchSince(&recent, now)
+	since := fetchSince(&recent, now, fetchLookbackFloorDays)
 	until := now
 
 	inWindow := func(daysAgo int) bool {
