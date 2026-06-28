@@ -38,7 +38,8 @@ type ListScenesResponse struct {
 	}
 }
 
-// ListScenesHandler handles GET /scenes — returns cities that qualify as scenes.
+// ListScenesHandler handles GET /scenes — returns the metros (and non-US / no-CBSA
+// fallback cities) that qualify as scenes, each displayed under its principal city.
 func (h *SceneHandler) ListScenesHandler(ctx context.Context, req *ListScenesRequest) (*ListScenesResponse, error) {
 	scenes, err := h.sceneService.ListScenes()
 	if err != nil {
@@ -100,15 +101,16 @@ type GetSceneActiveArtistsRequest struct {
 	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
-// GetSceneActiveArtistsResponse represents the response for active artists.
+// GetSceneActiveArtistsResponse represents the response for a scene's roster.
 type GetSceneActiveArtistsResponse struct {
 	Body struct {
-		Artists []*contracts.SceneArtistResponse `json:"artists" doc:"List of active artists"`
-		Total   int64                            `json:"total" doc:"Total number of active artists"`
+		Artists []*contracts.SceneArtistResponse `json:"artists" doc:"The scene's roster — bands based in the metro, active ones (is_active) first"`
+		Total   int64                            `json:"total" doc:"Total roster size (all bands based in the metro), NOT just the active subset"`
 	}
 }
 
-// GetSceneActiveArtistsHandler handles GET /scenes/{slug}/artists — returns artists ranked by show count.
+// GetSceneActiveArtistsHandler handles GET /scenes/{slug}/artists — returns the scene's
+// roster (bands based in the metro), active-first then by approved show count.
 func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *GetSceneActiveArtistsRequest) (*GetSceneActiveArtistsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {

@@ -3,7 +3,6 @@ package catalog
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"gorm.io/gorm"
 
@@ -94,7 +93,9 @@ func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
 	if m, ok := geo.Default().ResolveMetro(city, state, usCountry); ok {
 		q = q.Where("metro = ?", m.CBSACode)
 	} else {
-		q = q.Where("LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?", strings.ToLower(slug))
+		// Same case-insensitive + trimmed match the detail gate (verifiedVenueCount)
+		// uses for a no-CBSA scene, so the proxy soft-404 and the page agree.
+		q = q.Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", city, state)
 	}
 	var verifiedVenueCount int64
 	if err := q.Distinct("id").Count(&verifiedVenueCount).Error; err != nil {

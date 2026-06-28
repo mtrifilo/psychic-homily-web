@@ -23,6 +23,13 @@ type SceneService struct {
 	// geocoder resolves a (city, state) to its centroid coordinates from the
 	// embedded offline dataset — the same geocoder VenueService/ShowService hold
 	// (PSY-985/PSY-981). Stateless, so sharing geo.Default() is safe.
+	//
+	// COUPLING (PSY-1255 step C): metro keying relies on this geocoder and the
+	// venues.metro column having been written by the SAME geo build — scopeFor
+	// (here) and the principal-city/slug lookup (geo.MetroPrincipalByCBSA, a
+	// package fn on geo.Default()) must agree, or list-grouping and per-scene
+	// scoping could desync. In production both are geo.Default(); a test that
+	// injects a different stub geocoder would break that invariant.
 	geocoder geo.Geocoder
 }
 
@@ -77,12 +84,16 @@ func (s *SceneService) scopeFor(city, state string) sceneScope {
 
 // venuePredicate returns a WHERE fragment (on the given venues alias) selecting
 // the scene's venues, plus its positional bind args. Splice it as the FIRST
-// predicate of a raw WHERE so its args lead the arg list.
+// predicate of a raw WHERE so its args lead the arg list. The fallback branch is
+// case-insensitive + trimmed to match BOTH the ListScenes fallback grouping key
+// and artistPredicate — otherwise a mixed-case no-CBSA scene could list but then
+// 404 on its detail page (the matching MUST agree across list/detail/existence).
 func (sc sceneScope) venuePredicate(alias string) (string, []any) {
 	if sc.isMetro() {
 		return alias + ".metro = ?", []any{sc.metro}
 	}
-	return alias + ".city = ? AND " + alias + ".state = ?", []any{sc.city, sc.state}
+	return "LOWER(TRIM(" + alias + ".city)) = LOWER(TRIM(?)) AND LOWER(TRIM(" + alias + ".state)) = LOWER(TRIM(?))",
+		[]any{sc.city, sc.state}
 }
 
 // artistPredicate returns a WHERE fragment (on the given artists alias) selecting
@@ -107,7 +118,7 @@ func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
 	if scope.isMetro() {
 		q = q.Where("metro = ?", scope.metro)
 	} else {
-		q = q.Where("city = ? AND state = ?", scope.city, scope.state)
+		q = q.Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", scope.city, scope.state)
 	}
 	var n int64
 	if err := q.Count(&n).Error; err != nil {
@@ -158,7 +169,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		WHERE v.verified = true
 		  AND v.city IS NOT NULL AND v.city != ''
 		  AND v.state IS NOT NULL AND v.state != ''
-		GROUP BY COALESCE(v.metro, LOWER(v.city) || '|' || LOWER(v.state))
+		GROUP BY COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(TRIM(v.state)))
 		HAVING COUNT(DISTINCT v.id) >= ?
 		   AND COUNT(DISTINCT s.id) >= ?
 	`, now, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
@@ -272,7 +283,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	// festivals — acceptable for v1 (follow-up: add festivals.metro).
 	var festivalCount int64
 	if err := s.db.Model(&catalogm.Festival{}).
-		Where("city = ? AND state = ?", city, state).
+		Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", city, state).
 		Count(&festivalCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count festivals: %w", err)
 	}
@@ -396,7 +407,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 // handler). Pre-step-C this returned only bands who'd played a LOCAL show in the
 // window; membership is now metro residence, decoupled from where the band has
 // gigged, so the full roster paginates here with is_active flagging the live ones.
-func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -409,7 +420,7 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 	}
 
 	ap, aargs := scope.artistPredicate("a")
-	activeCutoff := time.Now().UTC().AddDate(0, 0, -periodDays)
+	activeCutoff := time.Now().UTC().AddDate(0, 0, -activeWindowDays)
 
 	// Total roster size = every band based in the metro.
 	var total int64
@@ -923,6 +934,13 @@ func sortStringsAsc(s []string) {
 // the PrimaryVenueID/Name columns are nullable for any roster band that has
 // never played a metro venue (now expected — membership no longer requires a
 // local show; those bands cluster into "other").
+//
+// NOTE (known follow-up): the node set is the FULL metro roster (no LIMIT) —
+// larger than the old played-here set, so the graph + relationship scan for a
+// dense metro can return many (mostly isolate) nodes. Today's catalog keeps this
+// bounded; a principled top-N selection with a truncation flag is deferred to a
+// follow-up so it aligns with the graph-density work (PSY-1257/1259) rather than
+// adding a silent cap here.
 func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, error) {
 	ap, aargs := scope.artistPredicate("a")
 	vp, vargs := scope.venuePredicate("v")

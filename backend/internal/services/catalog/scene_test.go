@@ -462,6 +462,35 @@ func (suite *SceneServiceIntegrationTestSuite) TestScene_NoCBSAFallback() {
 	suite.Equal("Faketown Band", roster[0].Name)
 }
 
+// TestScene_NoCBSAFallback_MixedCase pins the adversarial-review fix: the
+// ListScenes fallback grouping and the detail/existence gate must match
+// case-insensitively, or a no-CBSA scene whose venues are stored with
+// inconsistent casing would LIST (case-insensitive group) but 404 on click
+// (case-sensitive gate). Two venues "Faketown"/"faketown" must be one scene that
+// resolves on its detail page.
+func (suite *SceneServiceIntegrationTestSuite) TestScene_NoCBSAFallback_MixedCase() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Club One", "Faketown", "ZZ")
+	v2 := suite.createVerifiedVenue("Club Two", "faketown", "ZZ") // same place, different casing
+	band := suite.createArtistIn("Mixed Case Band", "FAKETOWN", "ZZ")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("M1", v1.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("M2", v2.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("M3", v1.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal(2, scenes[0].VenueCount) // both venues rolled together despite casing
+
+	// The detail gate must AGREE — the listed scene must not 404 on click.
+	detail, err := suite.sceneService.GetSceneDetail(scenes[0].City, scenes[0].State)
+	suite.Require().NoError(err)
+	suite.Equal(2, detail.Stats.VenueCount)
+	suite.Equal(1, detail.Stats.ArtistCount) // the mixed-case-home band matches case-insensitively
+}
+
 // =============================================================================
 // GetSceneDetail Tests
 // =============================================================================
