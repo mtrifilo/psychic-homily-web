@@ -268,3 +268,115 @@ func TestWindowForDate(t *testing.T) {
 		}
 	})
 }
+
+// TestCoversTime locks the PSY-1253 "is this show on air now per its own schedule" predicate
+// behind the WFMU rebroadcast check. The headline case is the captured real rebroadcast:
+// F4 "Freeform Jazz Dance" is a SATURDAY 3-6am show, so it does NOT cover Sunday 3:57am
+// (when T6 "Thinking Hour" is scheduled) — the cross-check that distinguishes a rebroadcast
+// from a first airing.
+func TestCoversTime(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load America/New_York: %v", err)
+	}
+	sched := func(slots ...RadioScheduleSlot) *RadioSchedule {
+		return &RadioSchedule{Timezone: "America/New_York", Slots: slots}
+	}
+	// 2026-06-28 is a Sunday (EDT); 2026-06-27 is the preceding Saturday.
+	sun0357 := time.Date(2026, 6, 28, 3, 57, 0, 0, ny)
+
+	t.Run("rebroadcast: a Saturday 3-6am show does NOT cover Sunday 3:57am (the F4 case)", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 6, Start: "03:00", End: "06:00"}) // F4: Sat 3-6am
+		if s.CoversTime(sun0357) {
+			t.Error("Saturday's slot must not cover Sunday 3:57am → rebroadcast")
+		}
+	})
+
+	t.Run("live: a Sunday 3-6am show DOES cover Sunday 3:57am (the T6 case)", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 0, Start: "03:00", End: "06:00"}) // T6: Sun 3-6am
+		if !s.CoversTime(sun0357) {
+			t.Error("Sunday's slot must cover Sunday 3:57am → genuinely live")
+		}
+	})
+
+	t.Run("containment is [start, end): start inclusive, end exclusive", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 0, Start: "03:00", End: "06:00"})
+		if !s.CoversTime(time.Date(2026, 6, 28, 3, 0, 0, 0, ny)) {
+			t.Error("start instant must be covered (inclusive)")
+		}
+		if s.CoversTime(time.Date(2026, 6, 28, 6, 0, 0, 0, ny)) {
+			t.Error("end instant must NOT be covered (exclusive)")
+		}
+	})
+
+	t.Run("overnight wrap: a Sat 23:00-01:00 slot covers Sun 00:30 (previous-day occurrence)", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 6, Start: "23:00", End: "01:00"})
+		if !s.CoversTime(time.Date(2026, 6, 28, 0, 30, 0, 0, ny)) {
+			t.Error("Sunday 00:30 must be covered by Saturday's overnight-wrap slot")
+		}
+		if !s.CoversTime(time.Date(2026, 6, 27, 23, 30, 0, 0, ny)) {
+			t.Error("Saturday 23:30 must be covered by the same-day part of the wrap slot")
+		}
+		if s.CoversTime(time.Date(2026, 6, 28, 1, 30, 0, 0, ny)) {
+			t.Error("Sunday 01:30 is past the wrap slot's 01:00 end → not covered")
+		}
+	})
+
+	t.Run("End == Start is a full 24-hour window (the slotWindow convention)", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 0, Start: "03:00", End: "03:00"}) // Sun, degenerate
+		if !s.CoversTime(time.Date(2026, 6, 28, 3, 0, 0, 0, ny)) {
+			t.Error("Sunday 03:00 (start) must be covered")
+		}
+		if !s.CoversTime(time.Date(2026, 6, 28, 23, 59, 0, 0, ny)) {
+			t.Error("Sunday 23:59 must be covered by the 24h window")
+		}
+		if !s.CoversTime(time.Date(2026, 6, 29, 2, 59, 0, 0, ny)) {
+			t.Error("Monday 02:59 must be covered (the 24h window wraps to Mon 03:00)")
+		}
+		if s.CoversTime(time.Date(2026, 6, 29, 3, 0, 0, 0, ny)) {
+			t.Error("Monday 03:00 is the exclusive end of the 24h window → not covered")
+		}
+		if s.CoversTime(time.Date(2026, 6, 28, 2, 59, 0, 0, ny)) {
+			t.Error("Sunday 02:59 is before the window start → not covered")
+		}
+	})
+
+	t.Run("multiple slots: covered if ANY matches", func(t *testing.T) {
+		s := sched(
+			RadioScheduleSlot{DayOfWeek: 1, Start: "06:00", End: "10:00"}, // Mon (no match)
+			RadioScheduleSlot{DayOfWeek: 0, Start: "03:00", End: "06:00"}, // Sun (matches)
+		)
+		if !s.CoversTime(sun0357) {
+			t.Error("a matching slot anywhere in the list must count as covered")
+		}
+	})
+
+	t.Run("no slot for the weekday → not covered", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 1, Start: "03:00", End: "06:00"}) // Mon only
+		if s.CoversTime(sun0357) {
+			t.Error("a show with no Sunday slot must not cover Sunday")
+		}
+	})
+
+	t.Run("empty schedule → not covered", func(t *testing.T) {
+		if sched().CoversTime(sun0357) {
+			t.Error("an empty schedule covers nothing")
+		}
+	})
+
+	t.Run("DST-correct: a wall-clock slot is evaluated in the zone, not a fixed offset", func(t *testing.T) {
+		// 15:00-18:00 ET Friday. A UTC instant of 19:30Z on 2026-06-26 (Friday) is
+		// 15:30 EDT → covered; the same wall-clock in winter would be a different offset.
+		s := sched(RadioScheduleSlot{DayOfWeek: 5, Start: "15:00", End: "18:00"})
+		if !s.CoversTime(time.Date(2026, 6, 26, 19, 30, 0, 0, time.UTC)) {
+			t.Error("19:30Z on a summer Friday is 15:30 EDT → must be covered")
+		}
+	})
+
+	t.Run("unloadable timezone → not covered (fail safe)", func(t *testing.T) {
+		s := &RadioSchedule{Timezone: "Bogus/Zone", Slots: []RadioScheduleSlot{{DayOfWeek: 0, Start: "03:00", End: "06:00"}}}
+		if s.CoversTime(sun0357) {
+			t.Error("an unloadable timezone must fail safe to NOT covered")
+		}
+	})
+}

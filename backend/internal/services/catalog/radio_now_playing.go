@@ -230,7 +230,78 @@ func (s *RadioService) tryLiveNowPlaying(station *catalogm.RadioStation) *contra
 		return nil // provider answered: nothing live on this channel
 	}
 
+	// Rebroadcast suppression (PSY-1253): WFMU's flagship re-serves an off-slot show
+	// during automation WITH the original show's playlist link, so the PSY-1239 link rule
+	// still reads it as live. If the on-air show is a KNOWN scheduled show airing outside
+	// its own slot, it's a rebroadcast — treat as not-live and serve the archive fallback
+	// rather than a wrong "ON AIR".
+	if s.isWFMUFlagshipRebroadcast(station, source, channel, live, s.now()) {
+		slog.Info("radio now-playing: suppressing WFMU rebroadcast (off-slot show) as not-live",
+			"station_id", station.ID, "station_slug", station.Slug,
+			"show_external_id", derefString(live.ShowExternalID), "show_name", live.ShowName)
+		return nil
+	}
+
 	return s.buildLiveNowPlayingResponse(station.ID, live)
+}
+
+// isWFMUFlagshipRebroadcast reports whether a live payload on the WFMU flagship is actually
+// a rebroadcast — a KNOWN scheduled show airing OUTSIDE its slot (PSY-1253). Real evidence
+// (captured 2026-06-28 03:58 ET): the main 91.1 block re-served Saturday's "Freeform Jazz
+// Dance" (program F4) with its /playlists/shows link during Sunday's 3-6am slot (scheduled
+// show: T6), so the link rule alone reads it as live. The reliable discriminator is the
+// show's OWN schedule: if it doesn't cover now, it's airing off-slot.
+//
+// Precise / off-slot-only rule (PSY-1253 decision): only suppress when we can PROVE the show
+// is off-slot — it has a stored, non-empty schedule that does not cover now. A show that is
+// unknown, has no usable scraped schedule, or carries no program code is TRUSTED as live (an
+// unscheduled fill-in, which WFMU does heavily, must not be mislabeled). Scope: WFMU flagship
+// channel only — the sole stream with scraped per-show schedules; all other sources/channels
+// return false here, preserving existing behavior.
+//
+// ACCEPTED LIMITATION: the cross-check trusts the STORED schedule (weekly-scraped, PSY-1159,
+// or admin-locked). If a show genuinely moves slots and the scrape lags, a live first-airing
+// on the NEW slot looks identical to a rebroadcast and is suppressed until the schedule
+// catches up (an admin-locked schedule that is wrong stays wrong until corrected). This is
+// inherent to schedule-based detection; we err toward suppressing a possibly-stale-scheduled
+// show rather than re-introducing the false-ON-AIR. The SOLE caller (tryLiveNowPlaying) logs
+// each suppression at INFO for traceability — note the log is the caller's, not this
+// predicate's (which returns only a bool), so any NEW caller must log too; and the signal is
+// noisy (every routine overnight rebroadcast logs), so a wrongly-suppressed moved show is not
+// trivially alertable from the log alone.
+func (s *RadioService) isWFMUFlagshipRebroadcast(station *catalogm.RadioStation, source, channel string, live *RadioLiveNowPlaying, now time.Time) bool {
+	if source != catalogm.PlaylistSourceWFMU || channel != wfmuLiveChannelMain {
+		return false
+	}
+	if live.ShowExternalID == nil || *live.ShowExternalID == "" {
+		return false // no program code → can't cross-check → trust as live
+	}
+	var show catalogm.RadioShow
+	err := s.db.Select("schedule").
+		Where("station_id = ? AND external_id = ?", station.ID, *live.ShowExternalID).
+		First(&show).Error
+	if err != nil {
+		// record-not-found is the normal "unknown show / unscheduled fill-in" case → trust
+		// as live, silently. A REAL DB error also fails safe to live (never hide a
+		// possibly-live show), but is logged so a transient outage that skips rebroadcast
+		// suppression leaves a signal rather than looking like a genuine fill-in.
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			slog.Warn("radio now-playing: rebroadcast schedule lookup failed; trusting on-air as live",
+				"station_id", station.ID, "show_external_id", *live.ShowExternalID, "error", err)
+		}
+		return false
+	}
+	sched, err := catalogm.ParseRadioSchedule(show.Schedule)
+	if err != nil || sched == nil || len(sched.Slots) == 0 {
+		// No usable stored schedule (none, invalid, or an empty slot list — which
+		// ParseRadioSchedule/Validate accept) → can't prove the show is off-slot → trust
+		// as live. Empty-slots must trust, not suppress: CoversTime returns false for every
+		// instant, which would otherwise permanently hide a genuinely-live show.
+		return false
+	}
+	// Genuinely live iff the show's own schedule covers now; otherwise it's a known show
+	// airing off its slot — a rebroadcast.
+	return !sched.CoversTime(now)
 }
 
 // resolveLiveProvider returns the live adapter for a playlist source, plus a
