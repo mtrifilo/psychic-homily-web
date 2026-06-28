@@ -29,7 +29,7 @@ function SceneArtistsList({ slug }: { slug: string }) {
   if (!data?.artists || data.artists.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-2">
-        No active artists in the last 90 days.
+        No artists based in this scene yet.
       </p>
     )
   }
@@ -46,9 +46,16 @@ function SceneArtistsList({ slug }: { slug: string }) {
             <Mic2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="truncate font-medium">{artist.name}</span>
           </div>
-          <Badge variant="secondary" className="ml-2 shrink-0 text-xs">
-            {artist.show_count} show{artist.show_count !== 1 ? 's' : ''}
-          </Badge>
+          <div className="ml-2 flex shrink-0 items-center gap-1.5">
+            {artist.is_active && (
+              <Badge variant="success" className="text-xs" title="Has an upcoming show or one in the last ~6 months">
+                Active
+              </Badge>
+            )}
+            <Badge variant="secondary" className="text-xs">
+              {artist.show_count} show{artist.show_count !== 1 ? 's' : ''}
+            </Badge>
+          </div>
         </Link>
       ))}
       {data.total > 10 && (
@@ -225,8 +232,8 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Mic2 className="h-4 w-4 text-muted-foreground" />
-              Active Artists
-              <span className="text-xs font-normal text-muted-foreground">(last 90 days)</span>
+              Local Artists
+              <span className="text-xs font-normal text-muted-foreground">(based here · active highlighted)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>

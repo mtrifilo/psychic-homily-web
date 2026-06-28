@@ -56,6 +56,10 @@ export interface SceneArtist {
   city: string
   state: string
   show_count: number
+  // True when the band has an upcoming approved show or one within the active
+  // window (~6mo), played anywhere (PSY-1255 step C). The roster lists every
+  // band BASED in the metro; the UI highlights the active ones.
+  is_active: boolean
 }
 
 export interface SceneArtistsResponse {

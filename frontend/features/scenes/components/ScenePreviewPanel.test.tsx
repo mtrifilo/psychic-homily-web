@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
@@ -59,6 +59,25 @@ describe('ScenePreviewPanel', () => {
     ).toHaveAttribute('href', '/scenes/chicago-il')
   })
 
+  it('flags active roster members with an accessible "(active)" marker', () => {
+    mockUseSceneArtists.mockReturnValue({
+      data: {
+        artists: [
+          { id: 1, slug: 'band-a', name: 'Band A', is_active: true },
+          { id: 2, slug: 'band-b', name: 'Band B', is_active: false },
+        ],
+        total: 2,
+      },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+
+    const bandA = screen.getByText('Band A').closest('li')!
+    expect(within(bandA).getByText('(active)')).toBeInTheDocument()
+    const bandB = screen.getByText('Band B').closest('li')!
+    expect(within(bandB).queryByText('(active)')).not.toBeInTheDocument()
+  })
+
   it('calls onClose when the close button is clicked', () => {
     mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
     const onClose = vi.fn()
@@ -74,12 +93,12 @@ describe('ScenePreviewPanel', () => {
     expect(screen.getByText('Loading…')).toBeInTheDocument()
   })
 
-  it('handles a scene with no active artists', () => {
+  it('handles a scene with an empty roster', () => {
     mockUseSceneArtists.mockReturnValue({
       data: { artists: [], total: 0 },
       isLoading: false,
     })
     renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
-    expect(screen.getByText(/no recent activity yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/no artists based here yet/i)).toBeInTheDocument()
   })
 })

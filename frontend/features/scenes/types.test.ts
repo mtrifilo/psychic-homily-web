@@ -79,6 +79,7 @@ describe('scene types contract', () => {
       city: 'Phoenix',
       state: 'AZ',
       show_count: 5,
+      is_active: true,
     }
     const response: SceneArtistsResponse = { artists: [artist], total: 1 }
 
