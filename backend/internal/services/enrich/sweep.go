@@ -33,7 +33,10 @@ import (
 // dry-run review is the documented homonym backstop — so opt-in-per-environment
 // (enable on stage first, watch the report, then prod) is deliberate, matching the
 // sibling image sweep rather than the DISABLE_* workers. Links enrichment is a
-// separate follow-up (PSY-1279); this sweep is location-only.
+// separate follow-up (PSY-1279); this sweep is location-only. NB the same flag is the
+// location-enrichment FEATURE switch: =1 also turns on PSY-1251's eager on-create
+// enrichment (per-create MB calls on the interactive create paths), wired in the
+// service container — not just this nightly sweep.
 //
 // Operator note: keep REATTEMPT_DAYS comfortably larger than INTERVAL_HOURS × the
 // number of ticks it takes to walk the locationless tail (tail size / batch) — a

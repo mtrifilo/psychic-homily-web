@@ -112,7 +112,7 @@ func (s *ArtistLocationSweepIntegrationTestSuite) TestArtistsNeedingLocationOrde
 	older := time.Now().Add(-60 * 24 * time.Hour) // stale, beyond 30d
 	newer := time.Now().Add(-45 * 24 * time.Hour) // stale, beyond 30d but newer than older
 
-	never := &catalogm.Artist{Name: "A Never"}                                     // NULL → first
+	never := &catalogm.Artist{Name: "A Never"} // NULL → first
 	stalest := &catalogm.Artist{Name: "B Stalest", LocationEnrichAttemptedAt: &older}
 	stale := &catalogm.Artist{Name: "C Stale", LocationEnrichAttemptedAt: &newer}
 	// Create out of attempt-order to prove the ORDER BY (not insertion/id) decides.
@@ -171,4 +171,29 @@ func (s *ArtistLocationSweepIntegrationTestSuite) TestSweepCycleFillsStampsAndCo
 	var r2 catalogm.Artist
 	s.Require().NoError(s.db.First(&r2, resolvable.ID).Error)
 	s.Nil(r2.City, "a within-window artist must NOT be re-processed (the memo holds)")
+}
+
+// PSY-1251 idempotency, end-to-end against real Postgres: the on-create path
+// (EnrichArtistLocationByID) stamps the memo, so the sweep's candidate query then
+// EXCLUDES that row within the window — no double MB call / double write.
+func (s *ArtistLocationSweepIntegrationTestSuite) TestOnCreateStampMakesSweepSkipTheRow() {
+	a := &catalogm.Artist{Name: "Just Created"}
+	s.Require().NoError(s.db.Create(a).Error)
+
+	// A miss (no MB match, no Bandcamp) → stamps attempted but fills nothing.
+	s.Require().NoError(EnrichArtistLocationByID(s.db, fakeBandcamp{}, &fakeMB{}, a.ID))
+
+	var reloaded catalogm.Artist
+	s.Require().NoError(s.db.First(&reloaded, a.ID).Error)
+	s.Require().NotNil(reloaded.LocationEnrichAttemptedAt, "on-create enrich must stamp the memo")
+	s.Nil(reloaded.City, "a miss must not fill a location")
+
+	// The sweep's candidate query (within the 30d window) now excludes the row.
+	store := &gormArtistStore{db: s.db}
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	got, err := store.ArtistsNeedingLocation(0, &cutoff)
+	s.Require().NoError(err)
+	for _, c := range got {
+		s.NotEqualf(a.ID, c.ID, "the sweep must skip the just-on-create-stamped artist %d", a.ID)
+	}
 }

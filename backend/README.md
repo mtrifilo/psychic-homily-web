@@ -693,11 +693,14 @@ name-matched location and the manual `backfill-artist-location` cmd's dry-run
 review is the homonym backstop, so this runs only where explicitly enabled (enable
 on stage first, watch the report, then prod). Location only — links are a follow-up
 (PSY-1279). Keep `REATTEMPT_DAYS` ≫ `INTERVAL_HOURS × (locationless tail / batch)`
-or the memo is defeated and the tail is re-queried.
+or the memo is defeated and the tail is re-queried. **This flag is the location-
+enrichment FEATURE switch:** `=1` enables BOTH the nightly sweep AND PSY-1251's
+eager on-create enrichment (per-create MusicBrainz calls, off the request goroutine,
+for interactively-created artists — admin create + entity-request fulfillment).
 
 | Variable                               | Default     | Effect                                                          |
 | -------------------------------------- | ----------- | --------------------------------------------------------------- |
-| `ENABLE_ARTIST_LOCATION_SWEEP`         | unset (off) | `"1"` starts the sweep (fills missing artist city/state/country) |
+| `ENABLE_ARTIST_LOCATION_SWEEP`         | unset (off) | `"1"` enables location enrichment: the nightly sweep + on-create (PSY-1251) |
 | `ARTIST_LOCATION_SWEEP_INTERVAL_HOURS` | `24`        | Tick cadence                                                    |
 | `ARTIST_LOCATION_SWEEP_BATCH`          | `50`        | Artists processed per tick                                      |
 | `ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS` | `30`        | Don't re-attempt a locationless artist for this many days       |
