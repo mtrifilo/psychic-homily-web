@@ -26,6 +26,7 @@ import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
+import { computeGraphDoi, selectSuggestedExpansions } from './graphDoi'
 import {
   MAX_TRAIL_SLOTS,
   pushTrail,
@@ -73,6 +74,12 @@ const DEFAULT_ACTIVE_TYPES = STORED_TYPES
 // slug. Absent means the route's original artist is the center. Stored as a
 // slug (not an ID) so links are human-readable and shareable.
 const CENTER_QUERY_KEY = 'center'
+
+// PSY-1273: how many unexpanded nodes get flagged as suggested expansion directions. Capped
+// (van Ham & Perer "highlight <5") so the graph guides the eye to a few high-DOI next steps
+// instead of lighting up every neighbor — and so a freshly-expanded hub can't flag all of
+// the neighbors it just revealed (the cap is over the WHOLE graph, see selectSuggestedExpansions).
+const MAX_SUGGESTED_DIRECTIONS = 5
 
 // Two top-level exports: `ArtistSimilarSidebar` is the sidebar dense list;
 // `ArtistGraphDialog` is the on-demand modal hosting `RecenteringGraph`.
@@ -496,6 +503,28 @@ function RecenteringGraph({
   )
   const expandedIds = useMemo(() => new Set(expansions.keys()), [expansions])
 
+  // PSY-1273: Degree-of-Interest ranking over the merged graph. Drives two things in the
+  // canvas: label collision priority (most-interesting names survive the cull) and the
+  // suggested expansion directions. Scoped to `activeTypes` so it tracks the DRAWN graph —
+  // toggling a relationship type off re-ranks (and stops scoring nodes whose only ties were
+  // hidden), keeping labels + suggestions consistent with what's on screen. Memoized on
+  // [merged, activeTypes] so it recomputes only when the graph or the toggles actually change.
+  const doi = useMemo(
+    () => (merged ? computeGraphDoi(merged, activeTypes) : null),
+    [merged, activeTypes]
+  )
+
+  // The top ≤5 DOI-ranked nodes the user hasn't already expanded (or isn't mid-expanding) —
+  // these get the "suggested direction" affordance in the canvas. Excluding expanding nodes
+  // too keeps a node from being flagged-as-suggested and showing its loading ring at once.
+  // Referentially stable (memoized) so ArtistGraph's paint callbacks don't churn per render.
+  const suggestedIds = useMemo(() => {
+    if (!doi) return new Set<number>()
+    const excluded = new Set<number>(expandedIds)
+    for (const id of expandingIds) excluded.add(id)
+    return new Set(selectSuggestedExpansions(doi.ranked, excluded, MAX_SUGGESTED_DIRECTIONS))
+  }, [doi, expandedIds, expandingIds])
+
   const collapseAll = useCallback(() => {
     generationRef.current += 1 // cancel any in-flight expand — the user asked for zero expansions
     setExpansions(new Map())
@@ -737,6 +766,8 @@ function RecenteringGraph({
         hopByNodeId={merged.hopByNodeId}
         expandedIds={expandedIds}
         expandingIds={expandingIds}
+        doiByNodeId={doi?.doiByNodeId}
+        suggestedIds={suggestedIds}
         isRecentering={isRecentering}
       />
 

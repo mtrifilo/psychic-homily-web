@@ -64,6 +64,7 @@ const exp3 = ego(3, [5], [link(3, 5)]) // expanding node 3 reveals node 5 at hop
 const nodeIds = () => (vizProps.data.nodes as ArtistGraphNode[]).map(n => n.id).sort()
 const expandedIds = () => [...(vizProps.expandedIds as Set<number>)].sort()
 const expandingIds = () => [...(vizProps.expandingIds as Set<number>)].sort()
+const suggestedIds = () => [...(vizProps.suggestedIds as Set<number>)].sort((a, b) => a - b)
 
 const renderDialog = () =>
   renderWithProviders(
@@ -135,5 +136,45 @@ describe('RecenteringGraph — expand-on-demand orchestration (PSY-1259)', () =>
     await act(async () => fetchCalls[1].resolve(exp3))
     expect(expandedIds()).toEqual([]) // nothing re-added
     expect(nodeIds()).toEqual([2, 3]) // node 5 never appears, node 4 stays gone
+  })
+})
+
+describe('RecenteringGraph — DOI suggested expansion directions (PSY-1273)', () => {
+  beforeEach(() => {
+    vizProps = null
+    fetchCalls.length = 0
+    mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
+  })
+
+  it('flags unexpanded neighbors as DOI-ranked suggestions and passes per-node DOI scores', () => {
+    renderDialog()
+    expect(suggestedIds()).toEqual([2, 3]) // both hop-1, unexpanded
+    expect((vizProps.doiByNodeId as Map<number, number>).size).toBe(2)
+  })
+
+  it('drops an expanded node from the suggestions and surfaces its newly-revealed neighbor', async () => {
+    renderDialog()
+    act(() => vizProps.onExpand({ id: 2, slug: 'a2', name: 'a2' }))
+    await act(async () => fetchCalls[0].resolve(exp2)) // reveals node 4 at hop 2
+    // node 2 is now expanded (no longer a suggestion); node 3 + the newly-revealed node 4 are.
+    expect(suggestedIds()).toEqual([3, 4])
+  })
+
+  it('drops an in-flight (expanding) node from the suggestions', () => {
+    renderDialog()
+    act(() => vizProps.onExpand({ id: 2, slug: 'a2', name: 'a2' })) // fetch in flight, unresolved
+    expect(expandingIds()).toEqual([2])
+    expect(suggestedIds()).toEqual([3]) // node 2 excluded while loading
+  })
+
+  it('caps suggestions at 5 so a hub does not flag all its neighbours', () => {
+    const wide = ego(
+      1,
+      [2, 3, 4, 5, 6, 7, 8],
+      [link(1, 2), link(1, 3), link(1, 4), link(1, 5), link(1, 6), link(1, 7), link(1, 8)],
+    )
+    mockUseArtistGraph.mockReturnValue({ data: wide, isFetching: false })
+    renderDialog()
+    expect(suggestedIds()).toHaveLength(5)
   })
 })
