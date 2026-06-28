@@ -60,26 +60,34 @@ export function ScenePreviewPanel({ scene, onClose }: ScenePreviewPanelProps) {
 
       <div>
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Active artists
+          Local artists
         </h3>
         {isLoading ? (
           <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
         ) : artists.length > 0 ? (
           <ul className="mt-2 flex flex-col gap-1">
             {artists.map((a) => (
-              <li key={a.id}>
+              <li key={a.id} className="flex items-center gap-1.5">
+                {/* Reserve the dot's width on every row so names stay aligned
+                    whether or not the band is active. */}
+                <span className="flex h-1.5 w-1.5 shrink-0" aria-hidden>
+                  {a.is_active && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-success-foreground" />
+                  )}
+                </span>
                 <Link
                   href={`/artists/${a.slug}`}
                   className="text-sm underline-offset-4 hover:underline"
                 >
                   {a.name}
                 </Link>
+                {a.is_active && <span className="sr-only">(active)</span>}
               </li>
             ))}
           </ul>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
-            No recent activity yet.
+            No artists based here yet.
           </p>
         )}
       </div>

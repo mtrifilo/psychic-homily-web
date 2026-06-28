@@ -56,10 +56,14 @@ interface UseSceneArtistsOptions {
 }
 
 /**
- * Hook to fetch active artists for a scene
+ * Hook to fetch a scene's roster — the bands BASED in the metro (PSY-1255 step C).
+ * Each artist carries `is_active`; the endpoint returns the whole roster, active
+ * ones first, not just the active subset. `period` overrides the active window
+ * (days); when omitted, the backend's default (~6 months) applies — do NOT
+ * re-default it here, or the FE-sent window would contradict that model.
  */
 export function useSceneArtists(options: UseSceneArtistsOptions) {
-  const { slug, period = 90, limit = 20, offset = 0 } = options
+  const { slug, period, limit = 20, offset = 0 } = options
 
   const params = new URLSearchParams()
   if (period) params.set('period', period.toString())

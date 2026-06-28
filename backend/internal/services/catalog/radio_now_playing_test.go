@@ -5,6 +5,7 @@ package catalog
 // the per-station TTL cache (no per-request provider fan-out).
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -520,6 +521,130 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_UnmappedWFMUSlugSkips
 	suite.Require().NoError(err)
 	suite.Equal(contracts.NowPlayingSourceLatestArchive, resp.Source)
 	suite.Equal(0, fake.calls, "unmapped stream must not call the provider")
+}
+
+// --- WFMU rebroadcast suppression (PSY-1253) ---------------------------------
+
+// createWFMUShowWithSchedule creates an active WFMU flagship show whose schedule has a single
+// weekly slot (dow: 0=Sun..6=Sat) in America/New_York — the cross-check substrate for the
+// rebroadcast detector.
+func (suite *RadioNowPlayingIntegrationTestSuite) createWFMUShowWithSchedule(stationID uint, name, slug, externalID string, dow int, start, end string) *catalogm.RadioShow {
+	raw := json.RawMessage(fmt.Sprintf(
+		`{"timezone":"America/New_York","slots":[{"day_of_week":%d,"start":%q,"end":%q}]}`, dow, start, end))
+	ext := externalID
+	show := &catalogm.RadioShow{StationID: stationID, Name: name, Slug: slug, ExternalID: &ext, IsActive: true, Schedule: &raw}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	return show
+}
+
+// sundayEarlyAM is the captured rebroadcast instant: 2026-06-28 (Sunday) 03:57 EDT.
+func (suite *RadioNowPlayingIntegrationTestSuite) sundayEarlyAM() time.Time {
+	ny, err := time.LoadLocation("America/New_York")
+	suite.Require().NoError(err)
+	return time.Date(2026, 6, 28, 3, 57, 0, 0, ny)
+}
+
+// The headline PSY-1253 case, end-to-end: the WFMU main stream re-serves Saturday's F4
+// "Freeform Jazz Dance" (with its playlist link) during Sunday's 3-6am slot (scheduled show:
+// T6). The widget reads as live, but the cross-check sees F4 airing off its Saturday slot →
+// suppress → archive fallback, NOT a wrong "ON AIR".
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMURebroadcastSuppressedToArchive() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	suite.createWFMUShowWithSchedule(station.ID, "Freeform Jazz Dance", "freeform-jazz-dance", "F4", 6, "03:00", "06:00") // Saturday
+	suite.createWFMUShowWithSchedule(station.ID, "Thinking Hour", "thinking-hour", "T6", 0, "03:00", "06:00")             // Sunday
+	suite.radioService.nowFunc = suite.sundayEarlyAM
+
+	ext := "F4"
+	fake := &fakeLiveProvider{live: &RadioLiveNowPlaying{ShowName: "Freeform Jazz Dance", ShowExternalID: &ext}}
+	suite.injectLiveProvider(fake)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, fake.calls, "the live provider is still consulted")
+	suite.Equal(contracts.NowPlayingSourceLatestArchive, resp.Source, "an off-slot rebroadcast must NOT surface as live")
+	suite.False(resp.OnAir)
+}
+
+// The genuinely-live counterpart: the on-air show (T6) IS the one scheduled now → surfaces
+// as live. Guards against the suppressor over-reaching and hiding real shows.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMUScheduledShowSurfacesLive() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	suite.createWFMUShowWithSchedule(station.ID, "Freeform Jazz Dance", "freeform-jazz-dance", "F4", 6, "03:00", "06:00")
+	suite.createWFMUShowWithSchedule(station.ID, "Thinking Hour", "thinking-hour", "T6", 0, "03:00", "06:00")
+	suite.radioService.nowFunc = suite.sundayEarlyAM
+
+	ext := "T6"
+	fake := &fakeLiveProvider{live: &RadioLiveNowPlaying{ShowName: "Thinking Hour", ShowExternalID: &ext}}
+	suite.injectLiveProvider(fake)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLive, resp.Source, "the show scheduled now must surface as live")
+	suite.True(resp.OnAir)
+}
+
+// Precise/off-slot-only rule: an on-air show with NO stored schedule (an unscheduled fill-in,
+// which WFMU does heavily) is TRUSTED as live — only a provably off-slot KNOWN show is
+// suppressed, so genuine fill-ins are never hidden.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMUUnscheduledFillInTrustedAsLive() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	// No radio_shows row / schedule exists for code "ZZ".
+	suite.radioService.nowFunc = suite.sundayEarlyAM
+
+	ext := "ZZ"
+	fake := &fakeLiveProvider{live: &RadioLiveNowPlaying{ShowName: "A Last-Minute Fill-In", ShowExternalID: &ext}}
+	suite.injectLiveProvider(fake)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLive, resp.Source, "an unknown/unscheduled fill-in must be trusted as live")
+	suite.True(resp.OnAir)
+}
+
+// A present-but-EMPTY-slots schedule (Validate accepts {"slots":[]}) must be treated as "no
+// usable schedule" → trusted as live, NOT suppressed. Guards the code-review finding that an
+// empty-slots schedule would make CoversTime false for every instant and permanently hide a
+// genuinely-live show.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMUEmptySlotsScheduleTrustedAsLive() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	emptySlots := json.RawMessage(`{"timezone":"America/New_York","slots":[]}`)
+	ext := "ES"
+	show := &catalogm.RadioShow{StationID: station.ID, Name: "Empty Slots Show", Slug: "empty-slots-show", ExternalID: &ext, IsActive: true, Schedule: &emptySlots}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.radioService.nowFunc = suite.sundayEarlyAM
+
+	fake := &fakeLiveProvider{live: &RadioLiveNowPlaying{ShowName: "Empty Slots Show", ShowExternalID: &ext}}
+	suite.injectLiveProvider(fake)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLive, resp.Source, "an empty-slots schedule must trust as live, not suppress")
+	suite.True(resp.OnAir)
+}
+
+// AC1 end-to-end: drive the REAL captured fixture through the REAL WFMU provider + parser into
+// GetStationNowPlaying (not a synthetic fakeLiveProvider), so the captured rebroadcast flows
+// through the actual program-code extraction → schedule cross-check → suppression. This closes
+// the parser↔suppressor seam: a drift in the extracted program code breaks THIS test, not just
+// a hand-copied "F4" constant in the synthetic suppression test.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMURealFixtureRebroadcastSuppressedEndToEnd() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	suite.createWFMUShowWithSchedule(station.ID, "Freeform Jazz Dance", "freeform-jazz-dance", "F4", 6, "03:00", "06:00") // Saturday
+	suite.createWFMUShowWithSchedule(station.ID, "Thinking Hour", "thinking-hour", "T6", 0, "03:00", "06:00")             // Sunday
+	suite.radioService.nowFunc = suite.sundayEarlyAM
+
+	server := newWFMULiveServer(suite.T(), "wfmu_currentliveshows_rebroadcast.html")
+	defer server.Close()
+	suite.radioService.liveProviderFactory = func(string) (RadioLiveProvider, func(), bool) {
+		p := NewWFMUProviderWithClient(server.Client(), server.URL)
+		return p, p.Close, true
+	}
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLatestArchive, resp.Source,
+		"the REAL captured rebroadcast (F4 off its Saturday slot) must be suppressed end-to-end")
+	suite.False(resp.OnAir)
 }
 
 // --- caching -----------------------------------------------------------------

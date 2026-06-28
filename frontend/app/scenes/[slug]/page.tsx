@@ -80,7 +80,7 @@ export async function generateMetadata({
   }
 
   const title = `${scene.city}, ${scene.state} Music Scene`
-  const description = `Explore the ${scene.city}, ${scene.state} music scene — venues, active artists, upcoming shows, and scene pulse.`
+  const description = `Explore the ${scene.city}, ${scene.state} music scene — venues, local artists, upcoming shows, and scene pulse.`
 
   return {
     title,

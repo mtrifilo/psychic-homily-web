@@ -35,6 +35,24 @@ type ArtistService struct {
 	// tests override it (SetSyncDispatch) to run the work inline so they can assert
 	// the embed was filled without racing the goroutine.
 	dispatchAsync func(name string, work func())
+	// locationEnricher eagerly resolves a freshly-created artist's location/MBID
+	// (PSY-1251 Phase B). nil = disabled (the default, and legacy direct-construction
+	// suites); the container wires it — gated on ENABLE_ARTIST_LOCATION_SWEEP — to a
+	// fire-and-forget call into enrich.EnrichArtistLocationByID. The Phase-A sweep is the
+	// durability backstop, so a lost call (crash, feature off) is caught later; the
+	// enrich is fill-when-empty + stamps the sweep memo, so it's idempotent with it.
+	//
+	// SCOPE — deliberately hooked at the service layer (CreateArtist), NOT in the
+	// FindOrCreateArtistTx funnel where the image-enrich enqueue (PSY-1247) lives. So it
+	// covers only the two INTERACTIVE, committed, admin-rate-limited create paths (admin
+	// API create + entity-request fulfillment); the in-tx/bulk paths (discovery import,
+	// show-import, data-sync) rely on the sweep. Two reasons it can't sit in the funnel
+	// like the image enqueue: (1) fire-and-forget reads the artist by id in a goroutine,
+	// which would miss an uncommitted in-tx row — the image enqueue is a transactional
+	// outbox insert, so it can; (2) firing per-artist inside a bulk import would spawn a
+	// goroutine per row. The image enqueue uses a durable outbox to get full coverage;
+	// this trades that for simplicity, with the sweep guaranteeing eventual coverage.
+	locationEnricher func(artistID uint)
 }
 
 // NewArtistService creates a new artist service
@@ -62,6 +80,35 @@ func (s *ArtistService) SetBandcampResolver(r *BandcampProfileResolver) {
 // assert the resolved embed landed without waiting on a goroutine.
 func (s *ArtistService) SetSyncDispatch() {
 	s.dispatchAsync = func(_ string, work func()) { work() }
+}
+
+// SetLocationEnricher wires the on-create location/MBID enricher (PSY-1251 Phase B).
+// The container injects a fire-and-forget call into enrich.EnrichArtistLocationByID,
+// gated on ENABLE_ARTIST_LOCATION_SWEEP — so when location enrichment is off (the
+// default) this stays nil and CreateArtist's hook is a no-op. Tests pass a spy.
+func (s *ArtistService) SetLocationEnricher(fn func(artistID uint)) {
+	s.locationEnricher = fn
+}
+
+// runLocationEnrich dispatches the on-create location/MBID enrichment for a freshly
+// created artist through dispatchAsync (a GoSafe goroutine in prod; inline under
+// SetSyncDispatch). A no-op when the enricher is not wired (the feature is off, or a
+// legacy direct-construction suite). The enrich itself is fill-when-empty + stamps the
+// sweep memo, so it's idempotent with the Phase-A sweep.
+func (s *ArtistService) runLocationEnrich(artistID uint) {
+	if s.locationEnricher == nil {
+		return
+	}
+	work := func() { s.locationEnricher(artistID) }
+	dispatch := s.dispatchAsync
+	// A nil dispatcher means a service built via &ArtistService{} (not the constructor)
+	// that wired an enricher but no dispatch — default to the PROD async path rather
+	// than inline, so such a test sees prod behavior and must opt into sync to assert
+	// (mirrors runProfileResolve).
+	if dispatch == nil {
+		dispatch = func(name string, w func()) { shared.GoSafe(context.Background(), name, w) }
+	}
+	dispatch("artist_location_enrich", work)
 }
 
 // FillProfileResolvedEmbedFromBandcamp resolves a Bandcamp PROFILE root → a
@@ -154,6 +201,14 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	if req.Bandcamp != nil {
 		s.runProfileResolve(artist.ID, *req.Bandcamp)
 	}
+
+	// PSY-1251 (Phase B): eager on-create location/MBID enrichment for the new artist,
+	// off the request goroutine. fill-when-empty + stamps the sweep memo → idempotent
+	// with the Phase-A sweep; a no-op when location enrichment is disabled. Safe to read
+	// the artist by id in the goroutine here because FindOrCreateArtistTx ran the insert
+	// in a standalone tx on the base *gorm.DB (CreateArtist is never inside a caller tx),
+	// so the row is committed before this returns.
+	s.runLocationEnrich(artist.ID)
 
 	return s.buildArtistResponse(artist), nil
 }

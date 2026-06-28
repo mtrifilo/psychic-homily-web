@@ -31,6 +31,13 @@ describe('Badge', () => {
     expect(badge).toHaveClass('border-primary/20')
   })
 
+  it('applies the success variant classes', () => {
+    render(<Badge variant="success">Active</Badge>)
+    const badge = screen.getByText('Active')
+    expect(badge).toHaveClass('bg-success')
+    expect(badge).toHaveClass('text-success-foreground')
+  })
+
   it('exposes a badgeVariants helper that reflects the variant', () => {
     expect(badgeVariants({ variant: 'secondary' })).toContain('bg-secondary')
     expect(badgeVariants({ variant: 'outline' })).toContain('text-foreground')
