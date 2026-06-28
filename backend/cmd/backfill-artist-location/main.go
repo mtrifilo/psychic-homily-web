@@ -161,6 +161,7 @@ func printReport(r *enrich.Report) {
 	fmt.Printf("  filled from Bandcamp:                %d\n", r.FilledBandcamp)
 	fmt.Printf("  filled from MusicBrainz:             %d\n", r.FilledMusicBrainz)
 	fmt.Printf("  resolved but nothing empty to fill:  %d\n", r.ResolvedNoFill)
+	fmt.Printf("  MusicBrainz MBIDs stamped:           %d\n", r.StampedMBID)
 	fmt.Printf("  conflicts (skipped for review):      %d\n", len(r.Conflicts))
 	fmt.Printf("  missed (no source had a location):   %d\n", r.Missed)
 	fmt.Printf("Errors:                                %d\n", len(r.Errors))
