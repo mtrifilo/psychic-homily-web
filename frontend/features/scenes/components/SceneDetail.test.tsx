@@ -220,12 +220,32 @@ describe('SceneDetailView', () => {
       expect(within(sundressed).getByText('1 show')).toBeInTheDocument()
     })
 
-    it('renders an empty-state message when no active artists', () => {
+    it('renders an empty-state message when the roster is empty', () => {
       mockUseSceneArtists.mockReturnValue({ data: emptyArtists, isLoading: false })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
-        screen.getByText('No active artists in the last 90 days.')
+        screen.getByText('No artists based in this scene yet.')
       ).toBeInTheDocument()
+    })
+
+    it('marks active roster members with an "Active" badge, inactive ones without', () => {
+      mockUseSceneArtists.mockReturnValue({
+        data: {
+          artists: [
+            { id: 1, slug: 'gatecreeper', name: 'Gatecreeper', city: 'Phoenix', state: 'AZ', show_count: 5, is_active: true },
+            { id: 2, slug: 'sundressed', name: 'Sundressed', city: 'Phoenix', state: 'AZ', show_count: 1, is_active: false },
+          ],
+          total: 2,
+        } as SceneArtistsResponse,
+        isLoading: false,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+
+      const gatecreeper = screen.getByText('Gatecreeper').closest('a')!
+      expect(within(gatecreeper).getByText('Active')).toBeInTheDocument()
+
+      const sundressed = screen.getByText('Sundressed').closest('a')!
+      expect(within(sundressed).queryByText('Active')).not.toBeInTheDocument()
     })
 
     it('renders the "and N more" overflow line when total exceeds 10', () => {
