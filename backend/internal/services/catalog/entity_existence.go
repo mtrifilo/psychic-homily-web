@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -93,9 +94,12 @@ func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
 	if m, ok := geo.Default().ResolveMetro(city, state, usCountry); ok {
 		q = q.Where("metro = ?", m.CBSACode)
 	} else {
-		// Same case-insensitive + trimmed match the detail gate (verifiedVenueCount)
-		// uses for a no-CBSA scene, so the proxy soft-404 and the page agree.
-		q = q.Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", city, state)
+		// No-CBSA fallback: match the SAME slug form ParseSceneSlug's no-CBSA
+		// resolver uses (scene.go), so the proxy gate and the page agree. It LOWERs
+		// both sides (handles mixed-case venue data) AND is lossless for hyphenated
+		// city names like "Winston-Salem" — unlike re-parsing the slug, which would
+		// collapse the hyphen to a space and miss the stored row.
+		q = q.Where("LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?", strings.ToLower(slug))
 	}
 	var verifiedVenueCount int64
 	if err := q.Distinct("id").Count(&verifiedVenueCount).Error; err != nil {

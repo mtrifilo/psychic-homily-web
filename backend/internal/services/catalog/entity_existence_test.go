@@ -156,6 +156,26 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugUse
 	suite.False(exists)
 }
 
+// TestExists_SceneSlugHyphenatedNoCBSACity guards the adversarial round-2 fix: a
+// no-CBSA city whose NAME contains a hyphen ("Foo-Bar") must still pass the
+// existence probe. The fallback must match the slug form losslessly (LOWER +
+// REPLACE), not re-parse the slug — re-parsing would collapse "foo-bar" to
+// "foo bar" and 404 a scene that both lists and renders.
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugHyphenatedNoCBSACity() {
+	venues := []*catalogm.Venue{
+		{Name: "Hyphen Hall", Slug: stringPtr("hyphen-hall"), City: "Foo-Bar", State: "ZZ", Metro: seedMetro("Foo-Bar", "ZZ"), Verified: true},
+		{Name: "Dash Den", Slug: stringPtr("dash-den"), City: "Foo-Bar", State: "ZZ", Metro: seedMetro("Foo-Bar", "ZZ"), Verified: true},
+	}
+	for _, venue := range venues {
+		suite.Require().NoError(suite.db.Create(venue).Error)
+	}
+	suite.Require().Nil(venues[0].Metro, "Foo-Bar is not in any CBSA → fallback path")
+
+	exists, err := suite.svc.Exists("scenes", "foo-bar-zz")
+	suite.Require().NoError(err)
+	suite.True(exists)
+}
+
 func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_UnsupportedEntityTypeIsMissing() {
 	exists, err := suite.svc.Exists("collections", "any")
 	suite.Require().NoError(err)
