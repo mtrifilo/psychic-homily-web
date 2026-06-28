@@ -140,13 +140,14 @@ func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_NoBaselineNotFlagged() {
 	s.Equal(int64(0), s.countEmptyUnexpected(res.RunID))
 }
 
-// seedShowWithStaleFetch creates an active show on the station and stamps the
-// station's last_playlist_fetch_at ~30 days in the past, so a test can observe
-// whether a fetch run advances it. Returns the external id used.
+// seedShowWithStaleFetch creates an active show on the station and stamps BOTH the
+// station roll-up AND the show's own watermark ~30 days in the past, so a test can observe
+// whether a fetch run advances either. Stamping the SHOW too keeps the helper honest under
+// PSY-1272: `since` is now computed per show, so a station-only stale stamp would silently
+// cold-start the show. Delegates to seedActiveShow so all show seeding stays in one place.
 func (s *RadioSyncSuite) seedShowWithStaleFetch(stationID uint, ext string) {
-	show := catalogm.RadioShow{StationID: stationID, Name: ext, Slug: ext, ExternalID: &ext, IsActive: true}
-	s.Require().NoError(s.db.Create(&show).Error)
 	stale := time.Now().Add(-30 * 24 * time.Hour)
+	s.seedActiveShow(stationID, ext, &stale)
 	s.Require().NoError(s.db.Model(&catalogm.RadioStation{}).Where("id = ?", stationID).
 		Update("last_playlist_fetch_at", stale).Error)
 }
@@ -210,12 +211,13 @@ func (s *RadioSyncSuite) TestFetch_Success_AdvancesLastFetchTimestamp() {
 		"a healthy fetch must advance last_playlist_fetch_at to ~now, got %v", got)
 }
 
-// PSY-1241 AC2: after a multi-week outage held the watermark stale beyond the 45-day
-// floor, a recovery fetch must re-scan back to the TRUE gap (the stale watermark),
-// not clamp forward to the floor — otherwise outage-era episodes older than the
-// floor are skipped forever. This proves the widen-past-floor half of recovery end
-// to end (the hold half is TestFetch_TotalOutage_HoldsLastFetchTimestamp) by
-// capturing the `since` fetchSince hands the provider.
+// PSY-1241 AC2 (now per-show, PSY-1272): after a multi-week outage held a show's
+// watermark stale beyond the 45-day floor, a recovery fetch must re-scan back to the
+// TRUE gap (the stale watermark), not clamp forward to the floor — otherwise outage-era
+// episodes older than the floor are skipped forever. This proves the widen-past-floor
+// half of recovery end to end (the hold half is TestFetch_TotalOutage_HoldsLastFetchTimestamp)
+// by capturing the `since` fetchSince hands the provider for that show. Since PSY-1272 the
+// per-SHOW watermark — not the station roll-up — drives this `since`.
 func (s *RadioSyncSuite) TestFetch_RecoversTrueGapBeyondFloor() {
 	st := s.seedStation(catalogm.PlaylistSourceNTS)
 	ext := "recover-show"
@@ -223,9 +225,10 @@ func (s *RadioSyncSuite) TestFetch_RecoversTrueGapBeyondFloor() {
 	s.Require().NoError(s.db.Create(&show).Error)
 
 	// A ~60-day-stale watermark is the state a >45-day outage leaves behind (held by
-	// shouldAdvanceLastFetch across the outage), older than the floor.
+	// shouldAdvanceLastFetch across the outage), older than the floor. Stamped on the
+	// SHOW (PSY-1272) — that is what fetchSince reads to compute this show's `since`.
 	stale := time.Now().Add(-60 * 24 * time.Hour)
-	s.Require().NoError(s.db.Model(&catalogm.RadioStation{}).Where("id = ?", st.ID).
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", show.ID).
 		Update("last_playlist_fetch_at", stale).Error)
 
 	var capturedSince time.Time

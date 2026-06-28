@@ -701,6 +701,16 @@ type RadioShow struct {
 	ArchiveURL     *string          `gorm:"column:archive_url"`
 	ImageURL       *string          `gorm:"column:image_url"`
 	ExternalID     *string          `gorm:"column:external_id"`
+	// LastPlaylistFetchAt is the per-show incremental-fetch watermark (PSY-1272):
+	// the high-water mark of "playlists durably imported up to here" for THIS show.
+	// FetchNewEpisodes computes each show's `since` from it and advances it per show
+	// (only when that show's own fetch + import made progress), so a single
+	// persistently-failing show (e.g. a renamed external_id) holds its OWN watermark
+	// and recovers its gap once it succeeds again — independent of its siblings.
+	// radio_stations.last_playlist_fetch_at remains the total-station roll-up the
+	// PSY-1269 sustained-outage janitor reads. NULL = never fetched (cold-start to
+	// the floor; see fetchSince).
+	LastPlaylistFetchAt *time.Time `gorm:"column:last_playlist_fetch_at"`
 	// IsActive retained for backward compatibility; LifecycleState is the new
 	// operational signal (PSY-1131).
 	IsActive       bool      `gorm:"column:is_active;not null;default:true"`
