@@ -70,9 +70,12 @@ export function doiWeightsForBias(bias: number): DoiWeights {
 }
 
 export interface GraphDoi {
-  /** DOI score in [0, sum-of-weights] per scored node id (NON-center nodes that still have
-   *  an active-type edge — i.e. the nodes the canvas actually paints). The center is the
-   *  anchor: never a suggestion, always force-labeled, so it carries no DOI. */
+  /** DOI score per scored node id (NON-center nodes that still have an active-type edge — i.e.
+   *  the nodes the canvas actually paints). The center is the anchor: never a suggestion, always
+   *  force-labeled, so it carries no DOI. Range: with the default weights it's `[0, 1]`, but the
+   *  PSY-1260 discovery-bias slider can drive the importance weight NEGATIVE (down to −0.3 at full
+   *  Niche), so a high-degree/zero-relevance node can score below 0. Only RELATIVE order is
+   *  meaningful — do not assume `≥ 0` or a fixed upper bound (see `doiWeightsForBias`). */
   doiByNodeId: Map<number, number>
   /** Scored node ids sorted by DOI desc (ties broken by id asc for determinism). */
   ranked: number[]

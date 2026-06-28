@@ -265,4 +265,27 @@ describe('computeGraphDoi — diversity bias re-ranks hub vs niche (PSY-1260)', 
     const { doiByNodeId } = computeGraphDoi(merged, undefined, doiWeightsForBias(1))
     expect(doiByNodeId.get(3)!).toBeGreaterThan(doiByNodeId.get(2)!)
   })
+
+  it('Niche (bias 1) does NOT hide the strongest, genuinely-relevant connection (AC #2)', () => {
+    // node 2 is BOTH the hub (degree 3) AND the strongest tie (similar 1.0); node 3 is a niche
+    // leaf with a near-zero-relevance tie (similar 0.0). Even at full Niche — importance weight
+    // −0.3 working fully against the hub — its relevance advantage (weight 0.5 > 0.3) keeps it on
+    // top. This pins the invariant that the bias re-orders within similar relevance but never
+    // buries a maximally-relevant artist; it would break if the importance swing widened past ±0.5.
+    const relevantHub = mergeEgoGraphs(
+      ego(
+        1,
+        [2, 3, 4, 5],
+        [
+          link(1, 2, 'similar', 1.0), // hub: strongest tie
+          link(1, 3, 'similar', 0.0), // niche leaf: weakest tie
+          link(2, 4, 'similar', 0.5),
+          link(2, 5, 'similar', 0.5),
+        ],
+      ),
+      noExpansions,
+    )
+    const { doiByNodeId } = computeGraphDoi(relevantHub, undefined, doiWeightsForBias(1))
+    expect(doiByNodeId.get(2)!).toBeGreaterThan(doiByNodeId.get(3)!)
+  })
 })

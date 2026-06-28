@@ -45,6 +45,9 @@ vi.mock('next/navigation', () => ({
 vi.mock('../hooks/useArtists', () => ({
   useArtist: () => ({ data: undefined, isLoading: false }),
 }))
+// Non-reduced-motion so the PSY-1260 discovery-bias slider renders (it's hidden for reduced-motion
+// users, whose canvas repaint is gated off). Explicit so these tests don't ride jsdom's matchMedia.
+vi.mock('../hooks/useReducedMotion', () => ({ useReducedMotion: () => false }))
 
 import { ArtistGraphDialog } from './RelatedArtists'
 
