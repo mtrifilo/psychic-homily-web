@@ -125,6 +125,45 @@ func TestResolveUSState(t *testing.T) {
 	}
 }
 
+// TestResolveMetro pins the CBSA rollup that the Atlas scenes need: suburbs and
+// boroughs share one metro key, and the state disambiguates same-named cities.
+func TestResolveMetro(t *testing.T) {
+	g := Default()
+	tests := []struct {
+		name              string
+		city, state, ctry string
+		wantCode          string
+		wantOK            bool
+	}{
+		{"pasadena CA rolls up to LA", "Pasadena", "CA", "", "31080", true},
+		{"pasadena TX rolls up to Houston", "Pasadena", "TX", "", "26420", true},
+		{"santa monica (suburb) → LA", "Santa Monica", "CA", "", "31080", true},
+		{"brooklyn (borough) → NYC", "Brooklyn", "NY", "", "35620", true},
+		{"oakland → SF", "Oakland", "CA", "", "41860", true},
+		{"chicago → Chicago CBSA", "Chicago", "IL", "", "16980", true},
+		{"phoenix → Phoenix CBSA", "Phoenix", "AZ", "", "38060", true},
+		// Non-US place: CBSA is US-only, so no metro (caller falls back to city).
+		{"london GB has no CBSA", "London", "", "GB", "", false},
+		{"unknown city → no metro", "Nowherecityville", "", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, ok := g.ResolveMetro(tt.city, tt.state, tt.ctry)
+			if ok != tt.wantOK {
+				t.Fatalf("ResolveMetro(%q,%q,%q) ok=%v, want %v", tt.city, tt.state, tt.ctry, ok, tt.wantOK)
+			}
+			if ok {
+				if m.CBSACode != tt.wantCode {
+					t.Errorf("CBSACode = %q, want %q (name=%q)", m.CBSACode, tt.wantCode, m.Name)
+				}
+				if m.Name == "" {
+					t.Errorf("a resolved metro must have a friendly name, got empty for %q", tt.city)
+				}
+			}
+		})
+	}
+}
+
 func TestFoldKey(t *testing.T) {
 	cases := map[string]string{
 		"  Saint-Louis ": "saint louis",

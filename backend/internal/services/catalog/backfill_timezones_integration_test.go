@@ -27,6 +27,11 @@ func (s stubGeocoder) ResolveUSState(string) (string, geo.USStateStatus) {
 	return "", geo.USStateNotFound
 }
 
+// ResolveMetro satisfies geo.Geocoder; unused by this timezone-backfill test.
+func (s stubGeocoder) ResolveMetro(string, string, string) (geo.Metro, bool) {
+	return geo.Metro{}, false
+}
+
 type BackfillIntegrationTestSuite struct {
 	suite.Suite
 	testDB *testutil.TestDatabase

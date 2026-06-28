@@ -48,6 +48,8 @@ type fakeGeo struct {
 
 func (f fakeGeo) Resolve(string, string, string) (geo.Result, bool) { return geo.Result{}, false }
 
+func (f fakeGeo) ResolveMetro(string, string, string) (geo.Metro, bool) { return geo.Metro{}, false }
+
 func (f fakeGeo) ResolveUSState(city string) (string, geo.USStateStatus) {
 	key := strings.ToLower(strings.TrimSpace(city))
 	if st, ok := f.unambiguous[key]; ok {
