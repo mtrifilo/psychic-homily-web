@@ -15,9 +15,9 @@ import (
 //   - envNonNegativeInt: the value must be >= 0 (0 is a valid "disable").
 //
 // These deliberately do NOT log a rejected value (matching the pre-existing
-// silent-fallback behavior of every knob). A knob that needs to surface a rejected
-// override (e.g. resolveFetchLookbackFloorDays, which also enforces an upper bound)
-// keeps its own bespoke parsing.
+// silent-fallback behavior of every knob they migrate). A knob that needs to surface
+// a rejected override (e.g. resolveFetchLookbackFloorDays, which also enforces an
+// upper bound and Warns) keeps its own bespoke parsing.
 
 // envPositiveInt returns the env var parsed as a positive int (> 0), or def when the
 // var is unset, unparseable, or non-positive.
@@ -41,8 +41,10 @@ func envNonNegativeInt(name string, def int) int {
 	return def
 }
 
-// envPositiveHours returns the env var parsed as a positive whole number of hours
-// (as a Duration), or def when the var is unset, unparseable, or non-positive.
+// envPositiveHours returns the env var parsed as a positive WHOLE number of hours
+// (as a Duration), or def when the var is unset, unparseable, or non-positive. The
+// value is whole hours only — a fractional or unit-suffixed value (e.g. "1.5", "30m")
+// is unparseable by strconv.Atoi and silently falls back to def.
 func envPositiveHours(name string, def time.Duration) time.Duration {
 	if v := os.Getenv(name); v != "" {
 		if hours, err := strconv.Atoi(v); err == nil && hours > 0 {
