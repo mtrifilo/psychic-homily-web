@@ -20,6 +20,8 @@
  * pre-PSY-1083 ArtistGraph legend).
  */
 
+import { type ReactNode } from 'react'
+
 import { cn } from '@/lib/utils'
 import { edgeColorCSS, edgeLineDash, edgeTypeLabel, orderEdgeTypes } from './edgeGrammar'
 
@@ -37,6 +39,13 @@ export interface EdgeLegendProps {
    * encodes signal magnitude. Defaults on; the artist graph keeps it.
    */
   showWeightHint?: boolean
+  /**
+   * Optional disclosure line rendered under the rows (PSY-1258). The artist
+   * graph uses it to surface its per-node top-k edge cap ("Radio Co-occurrence:
+   * each artist's 5 strongest") so the cap is never silent — see CLAUDE.md
+   * "no silent caps". Omitted by callers that don't cap.
+   */
+  footnote?: ReactNode
   className?: string
 }
 
@@ -67,6 +76,7 @@ export function EdgeLegend({
   hiddenTypes,
   onToggleType,
   showWeightHint = true,
+  footnote,
   className,
 }: EdgeLegendProps) {
   const ordered = orderEdgeTypes(types)
@@ -128,6 +138,13 @@ export function EdgeLegend({
           <span className="text-[10px] text-muted-foreground/80 leading-tight">
             Thicker = stronger signal
           </span>
+        </div>
+      )}
+      {/* PSY-1258: cap-disclosure line — keeps a per-node edge cap visible instead of
+          silently dropping edges. Width-capped so it doesn't stretch the floating legend. */}
+      {footnote && (
+        <div className="pt-1 mt-1 border-t border-border/40 max-w-[12rem] text-[10px] leading-tight text-muted-foreground/80">
+          {footnote}
         </div>
       )}
     </div>

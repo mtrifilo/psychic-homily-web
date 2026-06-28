@@ -5,10 +5,11 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
-import { buildLinkLabel, edgeLineDash, edgeWidth } from '@/components/graph/edgeGrammar'
+import { buildLinkLabel, edgeLineDash, edgeTypeLabel, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
+import { capEdgesPerNode } from '@/components/graph/edgeCap'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useDismissTimer } from '@/lib/hooks/common'
@@ -193,6 +194,29 @@ export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
+// PSY-1257: radial ego layout. The center is pinned at the origin; every satellite is
+// pulled toward a single ring of this radius so the subject reads as the hub and the
+// neighbors spread evenly around it instead of clumping into the free-force hairball.
+// Depth-1 graph today, so all satellites share the one ring (the force gives every
+// satellite the same radius); P1 multi-hop expand-on-demand is where per-ring radii by
+// hop distance would slot in. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring —
+// higher snaps to the ring faster (less organic angular spread). Tuned visually on a
+// dense radio ego graph. EGO_CHARGE_STRENGTH stiffens the default node repulsion so the
+// satellites distribute EVENLY around the ring instead of bunching on one arc (left-side
+// label crowding without it) — the radial force fixes the radius, charge fixes the angle.
+const EGO_RING_RADIUS = 165
+const RADIAL_FORCE_STRENGTH = 0.4
+const EGO_CHARGE_STRENGTH = -210
+
+// PSY-1258: dense relationship types get trimmed to each node's k strongest edges so the
+// many-to-many radio signal stops rendering as a teal hairball. Only types listed here are
+// capped (the rest are sparse enough to draw in full); k is intentionally tunable — start
+// at 5 (the upper end of the research's 3–5 range) and adjust visually on a dense radio
+// ego graph (/artists/cola is the canonical dense reference in prod). Keep values >= 1 —
+// a 0 would drop every edge of the type and orphan its nodes (see edgeCap no-orphan note).
+// Isolated as its own map so the volatile "which types, what k" decision lives in one place.
+const EDGE_CAP_BY_TYPE: Record<string, number> = { radio_cooccurrence: 5 }
+
 // PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the node
 // before auto-hiding. The tooltip overlaps the node's pointer-area (8px offset vs a
 // 10px hit radius), so this mainly absorbs accidental micro-movements off the node as
@@ -299,22 +323,35 @@ export function ArtistGraphVisualization({
       })
     }
 
-    // Filter links by active types and build graph links
-    for (const link of data.links) {
-      if (!activeTypes.has(link.type)) continue
-
-      const isCross =
-        link.source_id !== data.center.id && link.target_id !== data.center.id
-
-      links.push({
+    // Active links (filtered by the type toggles) in raw form, carrying the original
+    // payload row under `raw` so the per-node cap can rank by score before we project
+    // to the render shape. capEdgesPerNode keeps only each node's k strongest edges of a
+    // dense type (PSY-1258) — its no-orphan invariant guarantees every still-connected
+    // satellite keeps at least its strongest edge, so the connected-node filter below
+    // can't make a node vanish under the cap.
+    const activeRaw = data.links.filter(link => activeTypes.has(link.type))
+    const { links: keptRaw, counts: edgeCounts, cappedTypes } = capEdgesPerNode(
+      activeRaw.map(link => ({
         source: link.source_id,
         target: link.target_id,
         type: link.type,
         score: link.score,
-        votes_up: link.votes_up,
-        votes_down: link.votes_down,
-        detail: link.detail,
-        isCrossConnection: isCross,
+        raw: link,
+      })),
+      EDGE_CAP_BY_TYPE,
+    )
+
+    for (const { raw } of keptRaw) {
+      links.push({
+        source: raw.source_id,
+        target: raw.target_id,
+        type: raw.type,
+        score: raw.score,
+        votes_up: raw.votes_up,
+        votes_down: raw.votes_down,
+        detail: raw.detail,
+        isCrossConnection:
+          raw.source_id !== data.center.id && raw.target_id !== data.center.id,
       })
     }
 
@@ -328,19 +365,62 @@ export function ArtistGraphVisualization({
     // Filter nodes to only those with visible edges (always keep center)
     const filteredNodes = nodes.filter(n => n.isCenter || connectedIds.has(n.id))
 
-    return { nodes: filteredNodes, links }
+    return { nodes: filteredNodes, links, edgeCounts, cappedTypes }
   }, [data, activeTypes])
 
-  // Set node size based on score
+  // Ego layout forces (PSY-1257): pin the center at the origin and add a radial
+  // constraint that seats every satellite on a single ring, so the subject reads as the
+  // hub and neighbors spread evenly instead of settling into the free-force hairball.
+  // Re-runs on graphData change (filter toggle / re-center) to re-register the closure
+  // over the current nodes — mirrors ForceGraphView's force-config effect.
   useEffect(() => {
-    if (graphRef.current) {
-      // Fix center node position
-      const centerNode = graphData.nodes.find(n => n.isCenter)
-      if (centerNode) {
-        centerNode.fx = 0
-        centerNode.fy = 0
-      }
+    const fg = graphRef.current
+    if (!fg) return
+
+    // Pin the center at the origin (relied on by zoomToFit framing and the radial ring's
+    // geometry). `.find()` over the memoized nodes; the single-property write here is the
+    // documented d3 pin contract, not an accidental mutation.
+    const centerNode = graphData.nodes.find(n => n.isCenter)
+    if (centerNode) {
+      centerNode.fx = 0
+      centerNode.fy = 0
     }
+
+    // Custom radial tick force — a small inline reimplementation of d3-force's forceRadial
+    // (d3-force isn't a direct dependency; react-force-graph bundles it but doesn't
+    // re-export the factory). It nudges each satellite's velocity toward EGO_RING_RADIUS
+    // along its own radius vector, letting the angle settle under charge repulsion. The
+    // mutation lives inside the closure d3 calls each tick (NOT the effect body), which the
+    // react-hooks/immutability rule tolerates — the same reason ForceGraphView's clusterX/
+    // clusterY closures sit OUTSIDE its eslint-disable span (that span guards ForceGraphView's
+    // effect-body fx/fy isolate writes, a case this graph doesn't have; the single centerNode
+    // pin above is a one-property write the rule also tolerates). The optional call
+    // (`d3Force?.`) no-ops against the test ref stubs, which expose only pause/resume/zoom.
+    fg.d3Force?.('radial', (alpha: number) => {
+      for (const node of graphData.nodes) {
+        if (node.isCenter) continue
+        const x = node.x ?? 0
+        const y = node.y ?? 0
+        const dist = Math.hypot(x, y) || 1e-6
+        const k = ((EGO_RING_RADIUS - dist) * RADIAL_FORCE_STRENGTH * alpha) / dist
+        node.vx = (node.vx ?? 0) + x * k
+        node.vy = (node.vy ?? 0) + y * k
+      }
+    })
+
+    // Stiffen the default many-body repulsion so satellites spread evenly around the ring
+    // (the radial force alone fixes radius, not angle). `.strength?.` no-ops on the test
+    // stubs, which don't expose the d3 charge force.
+    const charge = fg.d3Force?.('charge')
+    charge?.strength?.(EGO_CHARGE_STRENGTH)
+
+    // Deliberately NO d3ReheatSimulation() here (unlike ForceGraphView): the ring radius and
+    // charge are CONSTANT, so re-registering on a graphData change has nothing new to settle.
+    // ForceGraphView reheats because its cluster centroids move with the viewport/cluster set;
+    // ours don't. react-force-graph already reheats when node/link membership changes (the only
+    // time the layout must move), so an extra reheat on every filter toggle would just re-animate
+    // the whole graph and fight the reduced-motion pause. Browser-verified: the ring forms on
+    // first load and re-settles correctly on filter toggle without an explicit reheat.
   }, [graphData])
 
   // PSY-1220 parity with ForceGraphView's reheat-dismiss: a filter-toggle (graphData, via
@@ -568,6 +648,26 @@ export function ArtistGraphVisualization({
   // ForceGraphView via degreeMap so the two surfaces can't drift).
   const degreeById = useMemo(() => degreeMap(graphData.links), [graphData])
 
+  // PSY-1258: legend disclosure. Each row shows its DISPLAYED (post-cap) edge count, and
+  // when a dense type was actually trimmed we add a footnote naming the cap ("Radio
+  // Co-occurrence: each artist's 5 strongest (47 of 312)") so the cap is never silent.
+  const legendDisclosure = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const [type, tally] of graphData.edgeCounts) counts.set(type, tally.shown)
+    if (graphData.cappedTypes.size === 0) {
+      return { counts, footnote: undefined as string | undefined }
+    }
+    const footnote = Array.from(graphData.cappedTypes)
+      .map(type => {
+        const k = EDGE_CAP_BY_TYPE[type]
+        const tally = graphData.edgeCounts.get(type)
+        const of = tally ? ` (${tally.shown} of ${tally.total})` : ''
+        return `${edgeTypeLabel(type)}: each artist's ${k} strongest${of}`
+      })
+      .join(' · ')
+    return { counts, footnote }
+  }, [graphData])
+
   // Node labels are drawn in one post-frame pass rather than per-node so they can
   // be collision-culled (PSY-1209): in a dense 1-hop graph the per-node labels
   // overlapped into an unreadable pile. The center node is always labeled (force);
@@ -728,8 +828,14 @@ export function ArtistGraphVisualization({
       {/* Legend — shared EdgeLegend (PSY-1083) in static mode: rows mirror
           the active type toggles (the pill row above the canvas owns
           toggling, including the festival_cobill lazy opt-in fetch, so the
-          in-canvas legend stays display-only here). */}
-      <EdgeLegend className="absolute top-2 right-2" types={Array.from(activeTypes)} />
+          in-canvas legend stays display-only here). Counts + footnote disclose
+          the per-node top-k edge cap (PSY-1258) so it's never silent. */}
+      <EdgeLegend
+        className="absolute top-2 right-2"
+        types={Array.from(activeTypes)}
+        counts={legendDisclosure.counts}
+        footnote={legendDisclosure.footnote}
+      />
     </div>
   )
 }
