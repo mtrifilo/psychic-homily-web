@@ -14,6 +14,7 @@ import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type T
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
+import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
 import type { ArtistGraph as ArtistGraphData } from '../types'
 
 function GraphSkeleton() {
@@ -267,20 +268,10 @@ export function ArtistNodeTooltip({
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
-// PSY-1257/1259: concentric-ring ego layout. The center is pinned at the origin; every
-// satellite is pulled toward the ring for its hop distance, so the subject reads as the hub
-// and each expand-on-demand step lands its new neighbors on the next ring out. Hop-1
-// neighbors sit at EGO_RING_RADIUS; each further hop adds RING_GAP (radius = EGO_RING_RADIUS
-// + (hop-1)*RING_GAP). With no expansions every satellite is hop 1 → the single-ring P0
-// layout. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring — higher snaps to the
-// ring faster (less organic angular spread). Tuned visually on a dense radio ego graph.
-// EGO_CHARGE_STRENGTH stiffens the default node repulsion so satellites distribute EVENLY
-// around their ring instead of bunching on one arc — the radial force fixes the radius,
-// charge fixes the angle.
-const EGO_RING_RADIUS = 165
-const RING_GAP = 135
-const RADIAL_FORCE_STRENGTH = 0.4
-const EGO_CHARGE_STRENGTH = -210
+// PSY-1257/1259/1275: the deterministic concentric-ring ego layout (EGO_RING_RADIUS / RING_GAP /
+// pinEgoLayoutPositions) lives in ./egoRingLayout — the center is pinned at the origin and every
+// satellite at an even angle on its hop-ring; see that file's docs for why it's pinned, not
+// force-settled. The graphData memo below applies it to the render nodes.
 
 // Below this zoom, node labels are dropped (text becomes unreadable). The PSY-1273
 // suggested-direction GLOW (a device-px shadowBlur that would bloom over far-zoom dots) gates
@@ -367,6 +358,12 @@ export function ArtistGraphVisualization({
 
   const graphHeight = containerWidth < 768 ? 350 : 500
 
+  // zoomToFit padding (px). PSY-1275 bumped desktop 40→70 to leave room for the labels that hang
+  // below the outer-ring nodes — but the mobile canvas is only 350px tall, where 70px top+bottom
+  // would eat 40% of the height and over-shrink the ring (clipping labels under the LABEL_MIN_SCALE
+  // cull), so mobile keeps the original 40px. Tied to the same 768px breakpoint as graphHeight.
+  const zoomToFitPadding = containerWidth < 768 ? 40 : 70
+
   // Build graph data from API response
   const graphData = useMemo(() => {
     const nodes: GraphNode[] = []
@@ -442,69 +439,22 @@ export function ArtistGraphVisualization({
     // Filter nodes to only those with visible edges (always keep center)
     const filteredNodes = nodes.filter(n => n.isCenter || connectedIds.has(n.id))
 
+    // PSY-1275: deterministically PIN the center at the origin and every satellite at an even
+    // angle on its hop-ring. Setting fx/fy on the freshly-created node objects here means
+    // react-force-graph initializes the sim already pinned and d3 never moves them — the default
+    // link/charge forces can't collapse the ring (which is what bunched the dense radio graph). The
+    // geometry + the why-pinned rationale live in the pure, unit-tested ./egoRingLayout helper.
+    pinEgoLayoutPositions(filteredNodes, hopByNodeId, EGO_RING_RADIUS, RING_GAP)
+
     return { nodes: filteredNodes, links, edgeCounts, cappedTypes }
-  }, [data, activeTypes])
+  }, [data, activeTypes, hopByNodeId])
 
-  // Ego layout forces (PSY-1257): pin the center at the origin and add a radial
-  // constraint that seats every satellite on a single ring, so the subject reads as the
-  // hub and neighbors spread evenly instead of settling into the free-force hairball.
-  // Re-runs on graphData change (filter toggle / re-center) to re-register the closure
-  // over the current nodes — mirrors ForceGraphView's force-config effect.
-  useEffect(() => {
-    const fg = graphRef.current
-    if (!fg) return
-
-    // Pin the center at the origin (relied on by zoomToFit framing and the radial ring's
-    // geometry). `.find()` over the memoized nodes; the single-property write here is the
-    // documented d3 pin contract, not an accidental mutation.
-    const centerNode = graphData.nodes.find(n => n.isCenter)
-    if (centerNode) {
-      centerNode.fx = 0
-      centerNode.fy = 0
-    }
-
-    // Custom radial tick force — a small inline reimplementation of d3-force's forceRadial
-    // (d3-force isn't a direct dependency; react-force-graph bundles it but doesn't
-    // re-export the factory). It nudges each satellite's velocity toward EGO_RING_RADIUS
-    // along its own radius vector, letting the angle settle under charge repulsion. The
-    // mutation lives inside the closure d3 calls each tick (NOT the effect body), which the
-    // react-hooks/immutability rule tolerates — the same reason ForceGraphView's clusterX/
-    // clusterY closures sit OUTSIDE its eslint-disable span (that span guards ForceGraphView's
-    // effect-body fx/fy isolate writes, a case this graph doesn't have; the single centerNode
-    // pin above is a one-property write the rule also tolerates). The optional call
-    // (`d3Force?.`) no-ops against the test ref stubs, which expose only pause/resume/zoom.
-    fg.d3Force?.('radial', (alpha: number) => {
-      for (const node of graphData.nodes) {
-        if (node.isCenter) continue
-        const hop = hopByNodeId?.get(node.id) ?? 1
-        const targetRadius = EGO_RING_RADIUS + (hop - 1) * RING_GAP
-        const x = node.x ?? 0
-        const y = node.y ?? 0
-        const dist = Math.hypot(x, y) || 1e-6
-        const k = ((targetRadius - dist) * RADIAL_FORCE_STRENGTH * alpha) / dist
-        node.vx = (node.vx ?? 0) + x * k
-        node.vy = (node.vy ?? 0) + y * k
-      }
-    })
-
-    // Stiffen the default many-body repulsion so satellites spread evenly around the ring
-    // (the radial force alone fixes radius, not angle). `.strength?.` no-ops on the test
-    // stubs, which don't expose the d3 charge force.
-    const charge = fg.d3Force?.('charge')
-    charge?.strength?.(EGO_CHARGE_STRENGTH)
-
-    // Deliberately NO d3ReheatSimulation() here (unlike ForceGraphView): the ring radius and
-    // charge are CONSTANT, so re-registering on a graphData change has nothing new to settle.
-    // ForceGraphView reheats because its cluster centroids move with the viewport/cluster set;
-    // ours don't. react-force-graph already reheats when node/link membership changes (the only
-    // time the layout must move), so an extra reheat on every filter toggle would just re-animate
-    // the whole graph and fight the reduced-motion pause. Browser-verified: the ring forms on
-    // first load and re-settles correctly on filter toggle without an explicit reheat.
-    //
-    // hopByNodeId is a dep because the radial closure reads it for the per-ring radius — an
-    // expand changes both graphData and hopByNodeId together, but keying on both keeps the
-    // registered closure honest rather than relying on graphData co-changing.
-  }, [graphData, hopByNodeId])
+  // PSY-1275: no force-config effect — the layout is deterministic. Every node carries its pin
+  // (fx/fy) straight from the graphData memo (center at the origin, satellites at even angles on
+  // their hop-ring), so react-force-graph initializes the sim already pinned and d3's default
+  // link/charge forces can't move (collapse) the ring. This replaced the PSY-1257 radial-force +
+  // charge-tuning approach, which lost the tug-of-war with the default link force (~30px target
+  // distance) on the dense radio graph and bunched the satellites near the center.
 
   // PSY-1220 parity with ForceGraphView's reheat-dismiss: a filter-toggle (graphData, via
   // activeTypes) or a resize (containerWidth) reheats/reframes the layout and pans nodes under an
@@ -590,8 +540,8 @@ export function ArtistGraphVisualization({
   }, [palette, hoveredNode, reducedMotion, expandingIds, suggestedIds, doiByNodeId])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
-  // the layout is properly centered + scaled. The 500ms transition is
-  // smooth without being sluggish; 40px padding matches the canvas border.
+  // the layout is properly centered + scaled. The 500ms transition is smooth without being
+  // sluggish; zoomToFitPadding (PSY-1275) leaves room for the labels below the outer-ring nodes.
   // Keyed on `data.center.id` so this fires once per re-center, not on
   // every filter toggle (filter changes preserve framing intentionally).
   useEffect(() => {
@@ -600,10 +550,10 @@ export function ArtistGraphVisualization({
     // a delay the bounding box is computed before forces have moved
     // anything, so the zoom-to-fit fires on stale positions.
     const timer = setTimeout(() => {
-      graphRef.current?.zoomToFit(500, 40)
+      graphRef.current?.zoomToFit(500, zoomToFitPadding)
     }, 250)
     return () => clearTimeout(timer)
-  }, [data.center.id])
+  }, [data.center.id, zoomToFitPadding])
 
   // PSY-1259: re-frame after an expand/collapse so the newly-revealed outer ring fits in view
   // (an expand grows the graph past the current viewport otherwise) and a collapse re-tightens.
@@ -613,10 +563,10 @@ export function ArtistGraphVisualization({
   useEffect(() => {
     if (!graphRef.current) return
     const timer = setTimeout(() => {
-      graphRef.current?.zoomToFit(500, 40)
+      graphRef.current?.zoomToFit(500, zoomToFitPadding)
     }, 250)
     return () => clearTimeout(timer)
-  }, [expandedIds])
+  }, [expandedIds, zoomToFitPadding])
 
   // PSY-1259: clicking a non-center node EXPANDS it (fetch + merge its neighbors) — or
   // collapses it if already expanded; the parent decides which from expandedIds. Re-center
@@ -669,13 +619,21 @@ export function ArtistGraphVisualization({
     scheduleDismiss()
   }, [scheduleDismiss])
 
-  // PSY-1220: while the d3-force sim is live (onEngineTick), re-anchor the open tooltip to the
-  // hovered node's CURRENT position — the node drifts during the settle/reheat but onNodeHover
-  // doesn't re-fire for a stationary cursor, so the anchored tooltip would strand. Skip while the
-  // pointer is over the tooltip (overTooltipRef): re-anchoring then would slide the HOVERABLE
-  // tooltip (PSY-1218) out from under the cursor as it reaches for the "View artist page" link.
-  // onEngineTick stops once the sim cools, so this is free at rest; the hoveredNode guard makes it
-  // a no-op when nothing is hovered. A node that lost its settled coords (filtered out / refetched
+  // PSY-1220/1275: while the force engine is ticking (onEngineTick), re-anchor the open tooltip to
+  // the hovered node's CURRENT SCREEN position. Since PSY-1275 a node's WORLD position is fixed
+  // (every node is pinned), but its SCREEN position still moves while the initial-mount zoomToFit
+  // camera tween is in flight, and onNodeHover doesn't re-fire for a stationary cursor — so without
+  // this the tooltip would strand mid-zoom. This does real work only on the FIRST load: every
+  // graphData/containerWidth change (re-center, expand, resize) dismisses the hover synchronously in
+  // the render-phase reset above BEFORE its zoomToFit fires, and a filter toggle doesn't move the
+  // camera at all (framing is preserved) — so handleEngineTick early-returns on those paths. NB it's
+  // gated on the force ENGINE, not the camera tween (verified against force-graph source); it
+  // happens to cover the mount tween only because the engine is still in its post-mount cooldown
+  // then. Retained also as defensive parity with ForceGraphView, whose nodes genuinely drift. Skip
+  // while the pointer is over the tooltip (overTooltipRef): re-anchoring then would slide the
+  // HOVERABLE tooltip (PSY-1218) out from under the cursor as it reaches for the "View artist page"
+  // link. onEngineTick stops once the sim cools, so this is free at rest; the hoveredNode guard
+  // makes it a no-op when nothing is hovered. A node that lost its coords (filtered out / refetched
   // away) yields null → dismiss.
   const handleEngineTick = useCallback(() => {
     if (!hoveredNode || overTooltipRef.current) return
