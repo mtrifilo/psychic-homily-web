@@ -478,6 +478,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	// PSY-985: geocode imported venues so timezone/coordinates are populated like
 	// the VenueService create path (nil on a miss → legacy state->tz fallback).
 	newVenue.Latitude, newVenue.Longitude, newVenue.Timezone = geo.LookupPointers(geo.Default(), newVenue.City, newVenue.State, "")
+	newVenue.Metro = geo.MetroPointer(geo.Default(), newVenue.City, newVenue.State, "") // PSY-1255 step B
 
 	if err := s.db.Create(&newVenue).Error; err != nil {
 		return fmt.Sprintf("ERROR: Failed to create venue '%s': %v", venue.Name, err), "error"
@@ -615,6 +616,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 				}
 				// PSY-985: geocode imported venues (see importVenue).
 				venue.Latitude, venue.Longitude, venue.Timezone = geo.LookupPointers(geo.Default(), venue.City, venue.State, "")
+				venue.Metro = geo.MetroPointer(geo.Default(), venue.City, venue.State, "") // PSY-1255 step B
 				if err := tx.Create(&venue).Error; err != nil {
 					return fmt.Errorf("failed to create venue: %w", err)
 				}

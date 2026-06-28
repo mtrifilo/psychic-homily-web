@@ -22,12 +22,16 @@ type Venue struct {
 	// Geocoding (PSY-985): resolved offline from city/state/country at create/update.
 	// Timezone is the IANA zone used to anchor show times to the venue's locale.
 	// Nullable — a geocode miss falls back to the legacy state->tz map.
-	Latitude    *float64 `gorm:"column:latitude;type:numeric(9,6)"`
-	Longitude   *float64 `gorm:"column:longitude;type:numeric(9,6)"`
-	Timezone    *string  `gorm:"column:timezone"`
-	Description *string  `json:"description,omitempty" gorm:"column:description;type:text"`
-	ImageURL    *string  `json:"image_url,omitempty" gorm:"column:image_url"`
-	Social      Social   `gorm:"embedded"`
+	Latitude  *float64 `gorm:"column:latitude;type:numeric(9,6)"`
+	Longitude *float64 `gorm:"column:longitude;type:numeric(9,6)"`
+	Timezone  *string  `gorm:"column:timezone"`
+	// Metro is the US Census CBSA code the venue's (city, state, country) rolls up
+	// to, set alongside the geocoding in applyGeocoding. DERIVED; NULL on a miss.
+	// Internal grouping key, not exposed in the API. (PSY-1255 step B)
+	Metro       *string `json:"-" gorm:"column:metro;size:10"`
+	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
+	ImageURL    *string `json:"image_url,omitempty" gorm:"column:image_url"`
+	Social      Social  `gorm:"embedded"`
 	Verified    bool
 	SubmittedBy *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
 

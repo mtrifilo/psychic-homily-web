@@ -376,6 +376,40 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 				updates["latitude"] = lat
 				updates["longitude"] = lng
 				updates["timezone"] = tz
+				// metro is a sibling of the geocoding (PSY-1255 step B): keep it
+				// fresh when a contribution edit relocates the venue.
+				updates["metro"] = geo.MetroPointer(geo.Default(),
+					updatedString(updates, "city", current.City),
+					updatedString(updates, "state", current.State),
+					updatedString(updates, "country", currentCountry))
+			}
+		}
+	}
+
+	// metro is derived from an artist's (city, state, country) too — keep it fresh
+	// when a contribution / trusted-tier inline edit relocates the artist, the same
+	// way UpdateArtist does (this path bypasses the service). (PSY-1255 step B)
+	if edit.EntityType == "artist" {
+		_, cityChanged := updates["city"]
+		_, stateChanged := updates["state"]
+		_, countryChanged := updates["country"]
+		if cityChanged || stateChanged || countryChanged {
+			var current catalogm.Artist
+			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
+				curCity, curState, curCountry := "", "", ""
+				if current.City != nil {
+					curCity = *current.City
+				}
+				if current.State != nil {
+					curState = *current.State
+				}
+				if current.Country != nil {
+					curCountry = *current.Country
+				}
+				updates["metro"] = geo.MetroPointer(geo.Default(),
+					updatedString(updates, "city", curCity),
+					updatedString(updates, "state", curState),
+					updatedString(updates, "country", curCountry))
 			}
 		}
 	}

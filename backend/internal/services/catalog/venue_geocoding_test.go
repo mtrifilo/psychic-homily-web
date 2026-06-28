@@ -22,6 +22,10 @@ func TestApplyGeocoding(t *testing.T) {
 		if v.Latitude == nil || v.Longitude == nil {
 			t.Errorf("expected lat/lng populated, got lat=%v lng=%v", v.Latitude, v.Longitude)
 		}
+		// metro is a sibling of the geocoding (PSY-1255 step B).
+		if v.Metro == nil || *v.Metro != "38060" {
+			t.Errorf("metro = %v, want 38060 (Phoenix CBSA)", v.Metro)
+		}
 	})
 
 	t.Run("international venue resolved by country name", func(t *testing.T) {
@@ -36,11 +40,11 @@ func TestApplyGeocoding(t *testing.T) {
 	t.Run("geocode miss leaves all fields nil (legacy fallback)", func(t *testing.T) {
 		v := &catalogm.Venue{City: "Nowherecityville", State: "ZZ"}
 		s.applyGeocoding(v)
-		// All-or-nothing invariant: a miss must leave lat/lng/timezone ALL nil.
+		// All-or-nothing invariant: a miss must leave lat/lng/timezone/metro ALL nil.
 		// UpdateVenue relies on this — it forwards these pointers straight into the
-		// GORM updates map, so a miss must write SQL NULL across all three.
-		if v.Timezone != nil || v.Latitude != nil || v.Longitude != nil {
-			t.Errorf("expected all geo fields nil on miss, got tz=%v lat=%v lng=%v", v.Timezone, v.Latitude, v.Longitude)
+		// GORM updates map, so a miss must write SQL NULL across all four (PSY-1255).
+		if v.Timezone != nil || v.Latitude != nil || v.Longitude != nil || v.Metro != nil {
+			t.Errorf("expected all geo fields nil on miss, got tz=%v lat=%v lng=%v metro=%v", v.Timezone, v.Latitude, v.Longitude, v.Metro)
 		}
 	})
 

@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS idx_artists_metro;
+DROP INDEX IF EXISTS idx_venues_metro;
+ALTER TABLE artists DROP COLUMN IF EXISTS metro;
+ALTER TABLE venues  DROP COLUMN IF EXISTS metro;

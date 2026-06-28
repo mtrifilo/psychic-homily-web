@@ -15,6 +15,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -117,6 +118,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		a.State = req.State
 		a.City = req.City
 		a.Country = req.Country
+		// (metro is derived from this location by the create funnel — PSY-1255 step B.)
 		a.Description = req.Description
 		a.ImageURL = req.ImageURL
 		a.BandcampEmbedURL = req.BandcampEmbedURL
@@ -269,6 +271,30 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts
 	return responses, nil
 }
 
+// locationFieldChanged reports whether a UpdateArtist updates map touches any
+// location column, i.e. whether the artist's metro may need recomputing.
+func locationFieldChanged(updates map[string]interface{}) bool {
+	for _, k := range []string{"city", "state", "country"} {
+		if _, ok := updates[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// effectiveLocField returns the post-update value of a location field: the value
+// just staged in the updates map (a *string from NilIfEmpty, possibly nil) when
+// the request changed it, else the current stored value.
+func effectiveLocField(updates map[string]interface{}, key string, current *string) string {
+	if v, ok := updates[key]; ok {
+		if p, ok := v.(*string); ok {
+			return derefString(p)
+		}
+		return "" // unreachable: location keys are always staged as *string (NilIfEmpty)
+	}
+	return derefString(current)
+}
+
 // UpdateArtist updates an existing artist
 func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
@@ -310,6 +336,20 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 	}
 	if req.Country != nil {
 		updates["country"] = utils.NilIfEmpty(*req.Country)
+	}
+	// metro is derived from (city, state, country) — recompute it when this admin
+	// edit relocates the artist, so it stays a sibling of the location (like the
+	// venue write paths, PSY-1255 step B). cmd/backfill-entity-metro is the
+	// backstop for the background enrichment / state-correction passes that change
+	// location without going through here.
+	if locationFieldChanged(updates) {
+		var cur catalogm.Artist
+		if err := s.db.Select("city", "state", "country").First(&cur, artistID).Error; err == nil {
+			updates["metro"] = geo.MetroPointer(geo.Default(),
+				effectiveLocField(updates, "city", cur.City),
+				effectiveLocField(updates, "state", cur.State),
+				effectiveLocField(updates, "country", cur.Country))
+		}
 	}
 	if req.Description != nil {
 		updates["description"] = utils.NilIfEmpty(*req.Description)

@@ -34,16 +34,17 @@ func NewVenueService(database *gorm.DB) *VenueService {
 	}
 }
 
-// applyGeocoding resolves and sets latitude/longitude/timezone on a venue from
-// its city/state/country via the offline geocoder (in-memory, no network, never
-// errors). A miss leaves the fields nil so display falls back to the legacy
-// state->timezone map — no regression. (PSY-985)
+// applyGeocoding resolves and sets latitude/longitude/timezone AND the CBSA metro
+// on a venue from its city/state/country via the offline geocoder (in-memory, no
+// network, never errors). A miss leaves the fields nil so display falls back to
+// the legacy state->timezone map — no regression. (PSY-985; metro PSY-1255 step B)
 func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	country := ""
 	if v.Country != nil {
 		country = *v.Country
 	}
 	v.Latitude, v.Longitude, v.Timezone = geo.LookupPointers(s.geocoder, v.City, v.State, country)
+	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
 }
 
 // CreateVenue creates a new venue
@@ -294,10 +295,13 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 		// Write unconditionally: on a geocode miss the pointers are nil and GORM's
 		// map Updates writes SQL NULL, so a relocated-but-unresolvable venue falls
 		// back to the legacy state->tz map instead of keeping the OLD location's
-		// stale timezone/coordinates (mirrors the create path's miss->NULL).
+		// stale timezone/coordinates (mirrors the create path's miss->NULL). metro
+		// is a sibling here — forward it too, or a relocated venue keeps the OLD
+		// metro's CBSA and is mis-rostered in the Atlas scene (PSY-1255 step B).
 		updates["latitude"] = effective.Latitude
 		updates["longitude"] = effective.Longitude
 		updates["timezone"] = effective.Timezone
+		updates["metro"] = effective.Metro
 	}
 
 	// Update the venue
