@@ -84,19 +84,20 @@ type ServiceContainer struct {
 	PasswordValidator *auth.PasswordValidator
 
 	// DB + Config composite services
-	Auth             *auth.AuthService
-	JWT              *auth.JWTService
-	AppleAuth        *auth.AppleAuthService
-	Extraction       *pipeline.ExtractionService
-	WebAuthn         *auth.WebAuthnService // nil if init fails (passkeys optional)
-	Cleanup          *adminsvc.CleanupService
-	DataSync         *adminsvc.DataSyncService
-	Discovery        *pipeline.DiscoveryService
-	Reminder         *engagement.ReminderService
-	Enrichment       *pipeline.EnrichmentService
-	EnrichmentWorker *pipeline.EnrichmentWorker
-	ImageEnrichSweep *imageenrich.ImageEnrichmentSweep
-	AutoPromotion    *adminsvc.AutoPromotionService
+	Auth              *auth.AuthService
+	JWT               *auth.JWTService
+	AppleAuth         *auth.AppleAuthService
+	Extraction        *pipeline.ExtractionService
+	WebAuthn          *auth.WebAuthnService // nil if init fails (passkeys optional)
+	Cleanup           *adminsvc.CleanupService
+	DataSync          *adminsvc.DataSyncService
+	Discovery         *pipeline.DiscoveryService
+	Reminder          *engagement.ReminderService
+	Enrichment        *pipeline.EnrichmentService
+	EnrichmentWorker  *pipeline.EnrichmentWorker
+	ImageEnrichSweep  *imageenrich.ImageEnrichmentSweep
+	ImageEnrichOutbox *imageenrich.ImageEnrichOutboxPoller
+	AutoPromotion     *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 }
@@ -142,6 +143,11 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// PSY-1246: ongoing image-enrichment sweep. Reuses the SAME shared MB client
 	// (mbClient) so its MusicBrainz traffic stays under the one ~1 req/s throttle.
 	imageEnrichSweep := imageenrich.NewImageEnrichmentSweep(database, mbClient, cfg.Discogs.Token)
+
+	// PSY-1247: the transactional-outbox poller — the prompt, on-create enrichment
+	// trigger. Shares the sweep as its enrichment engine so all MusicBrainz traffic
+	// stays under the one shared client's throttle (PSY-1208).
+	imageEnrichOutbox := imageenrich.NewImageEnrichOutboxPoller(database, imageEnrichSweep)
 
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
 	discovery.SetEnrichmentService(enrichmentSvc)
@@ -251,19 +257,20 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		PasswordValidator: auth.NewPasswordValidator(),
 
 		// DB + Config composite services
-		Auth:             auth.NewAuthService(database, cfg, userService),
-		JWT:              jwtService,
-		AppleAuth:        auth.NewAppleAuthService(database, cfg, jwtService),
-		Extraction:       extraction,
-		WebAuthn:         webauthnService,
-		Cleanup:          adminsvc.NewCleanupService(database, userService),
-		DataSync:         adminsvc.NewDataSyncService(database),
-		Discovery:        discovery,
-		Reminder:         engagement.NewReminderService(database, email, cfg),
-		Enrichment:       enrichmentSvc,
-		EnrichmentWorker: enrichmentWorker,
-		ImageEnrichSweep: imageEnrichSweep,
-		AutoPromotion:    adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
-		CollectionDigest: engagement.NewCollectionDigestService(database, email, cfg),
+		Auth:              auth.NewAuthService(database, cfg, userService),
+		JWT:               jwtService,
+		AppleAuth:         auth.NewAppleAuthService(database, cfg, jwtService),
+		Extraction:        extraction,
+		WebAuthn:          webauthnService,
+		Cleanup:           adminsvc.NewCleanupService(database, userService),
+		DataSync:          adminsvc.NewDataSyncService(database),
+		Discovery:         discovery,
+		Reminder:          engagement.NewReminderService(database, email, cfg),
+		Enrichment:        enrichmentSvc,
+		EnrichmentWorker:  enrichmentWorker,
+		ImageEnrichSweep:  imageEnrichSweep,
+		ImageEnrichOutbox: imageEnrichOutbox,
+		AutoPromotion:     adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
+		CollectionDigest:  engagement.NewCollectionDigestService(database, email, cfg),
 	}
 }

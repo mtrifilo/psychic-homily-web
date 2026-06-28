@@ -188,14 +188,15 @@ func main() {
 	// Each service keeps its own cancel func; a nil cancel signals "not started"
 	// so the shutdown path can skip it without panicking.
 	var (
-		cleanupCancel          context.CancelFunc
-		reminderCancel         context.CancelFunc
-		enrichmentCancel       context.CancelFunc
-		autoPromotionCancel    context.CancelFunc
-		radioFetchCancel       context.CancelFunc
-		relDerivationCancel    context.CancelFunc
-		collectionDigestCancel context.CancelFunc
-		imageEnrichSweepCancel context.CancelFunc
+		cleanupCancel           context.CancelFunc
+		reminderCancel          context.CancelFunc
+		enrichmentCancel        context.CancelFunc
+		autoPromotionCancel     context.CancelFunc
+		radioFetchCancel        context.CancelFunc
+		relDerivationCancel     context.CancelFunc
+		collectionDigestCancel  context.CancelFunc
+		imageEnrichSweepCancel  context.CancelFunc
+		imageEnrichOutboxCancel context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -275,8 +276,14 @@ func main() {
 		var imageEnrichSweepCtx context.Context
 		imageEnrichSweepCtx, imageEnrichSweepCancel = context.WithCancel(context.Background())
 		sc.ImageEnrichSweep.Start(imageEnrichSweepCtx)
+
+		// PSY-1247: the on-create outbox poller shares the same opt-in gate as the
+		// Phase-A sweep (both are paused at the hotlink tier pending PSY-1242).
+		var imageEnrichOutboxCtx context.Context
+		imageEnrichOutboxCtx, imageEnrichOutboxCancel = context.WithCancel(context.Background())
+		sc.ImageEnrichOutbox.Start(imageEnrichOutboxCtx)
 	} else {
-		log.Printf("image enrichment sweep disabled (set ENABLE_IMAGE_ENRICH_SWEEP=1 to enable)")
+		log.Printf("image enrichment sweep + outbox disabled (set ENABLE_IMAGE_ENRICH_SWEEP=1 to enable)")
 	}
 
 	// Create HTTP server
@@ -335,6 +342,10 @@ func main() {
 	if imageEnrichSweepCancel != nil {
 		imageEnrichSweepCancel()
 		sc.ImageEnrichSweep.Stop()
+	}
+	if imageEnrichOutboxCancel != nil {
+		imageEnrichOutboxCancel()
+		sc.ImageEnrichOutbox.Stop()
 	}
 
 	// Graceful shutdown

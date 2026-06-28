@@ -16,8 +16,9 @@ import (
 // artists, discovery import, the data-sync show + single-artist imports,
 // festival-entry, and seed — so name dedup and unique-slug generation live in
 // exactly one place rather than being copy-pasted and drifting (the prior copies
-// differed in slug timing). PSY-1247 will add the image-enrichment enqueue here,
-// so it too covers every create path. No magic: callers invoke it explicitly.
+// differed in slug timing). The image-enrichment outbox enqueue (PSY-1247) lives
+// here too, so it covers every create path at once. No magic: callers invoke it
+// explicitly.
 //
 // tx is the caller's transaction (or the base *gorm.DB — it works on either).
 // apply, when non-nil, sets fields on a NEWLY created artist before insert; it is
@@ -62,6 +63,13 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	if cerr := tx.Create(&artist).Error; cerr != nil {
 		return nil, false, fmt.Errorf("create artist %q: %w", name, cerr)
 	}
+	// PSY-1247: prompt on-create image enrichment. Enqueue ONLY on the created
+	// path — a found artist is already covered by its own create-time enqueue (or,
+	// for pre-funnel rows, by the Phase-A sweep), so re-enqueuing every time a show
+	// references it would be churn. Best-effort: never fails the create (and no-ops
+	// when the feature is disabled). Atomicity depends on whether the caller passes
+	// a tx — see enqueueImageEnrich.
+	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityArtist, artist.ID)
 	return &artist, true, nil
 }
 
