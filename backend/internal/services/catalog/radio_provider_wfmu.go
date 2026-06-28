@@ -1399,22 +1399,23 @@ const wfmuLiveNowPlayingPath = "/currentliveshows_aggregator.php?ch=1,4,6,8"
 // (PSY-1022). channel is one of the wfmuLiveChannel* keys.
 //
 // On-air semantics: a stream counts as live only when its block carries a
-// playlist link (= a live DJ is logging tracks). Without one the stream is
-// looping unattended (automation), so we return nil and the caller serves the
-// honest latest-archive fallback rather than claiming the stream is "ON AIR".
-// This applies to the main 91.1 stream too (PSY-1239); it was previously exempted
-// ("always on"), so unattended automation on the flagship surfaced as a wrong
-// "ON AIR" show. This brings main in line with the side streams' existing rule.
+// playlist link in its .linkssection (= a live DJ is logging tracks; the link gate
+// is scoped to that subtree so a stray /playlists/shows href elsewhere can't force a
+// false-live — PSY-1253). Without one the stream is looping unattended (automation),
+// so we return nil and the caller serves the honest latest-archive fallback rather
+// than claiming "ON AIR". This applies to the main 91.1 stream too (PSY-1239); it was
+// previously exempted ("always on"), so unattended automation on the flagship surfaced
+// as a wrong "ON AIR" show. This brings main in line with the side streams' rule.
 //
-// SCOPE / accepted limits (PSY-1239): this catches only LINK-LESS automation. A
-// rebroadcast whose block re-serves the ORIGINAL show's /playlists/shows link
-// still reads as live — and that is the more likely shape of the originally
-// reported skew, so this change is a consistency fix, NOT a confirmed fix for
-// that report; distinguishing a rebroadcast from a first airing is PSY-1240's
-// scope. A genuinely-live show is also briefly off-air until its DJ logs the
-// first track. The premise that the main block actually drops its link during
-// automation is not yet verified against a captured off-air response — tracked
-// in PSY-1253. All cases err toward not over-claiming live.
+// SCOPE (PSY-1239 + PSY-1253): the link gate here catches only LINK-LESS automation.
+// Real overnight captures (2026-06-28) showed the main block in practice does NOT go
+// link-less during automation — it REBROADCASTS an off-slot show WITH the original
+// show's /playlists/shows link, so the link gate alone reads it as live. That
+// rebroadcast case is handled one layer up, in the now-playing service
+// (isWFMUFlagshipRebroadcast): it cross-checks the on-air program code against
+// radio_shows.schedule and suppresses a known show airing outside its slot. A
+// genuinely-live show is still briefly off-air until its DJ logs the first track. All
+// cases err toward not over-claiming live.
 func (p *WFMUProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error) {
 	body, err := radioLiveGet(p.httpClient, p.baseURL+wfmuLiveNowPlayingPath, wfmuUserAgent, "WFMU")
 	if err != nil {
@@ -1493,8 +1494,13 @@ func parseWFMULiveStreamBlock(block *html.Node) (string, *RadioLiveNowPlaying) {
 	var streamTitle, bigline, smallline, programCode string
 	hasPlaylistLink := false
 
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
+	// inLinks tracks whether the walk is inside the block's .linkssection subtree, so the
+	// playlist-link gate counts ONLY a /playlists/shows anchor in the links section — not a
+	// stray one elsewhere in the block (a favicon/share/"previous show" href) that could
+	// otherwise force a false-live (PSY-1253 hardening). Validated against the real captured
+	// fixtures, where the live-DJ link lives in .linkssection.
+	var walk func(n *html.Node, inLinks bool)
+	walk = func(n *html.Node, inLinks bool) {
 		if n.Type == html.ElementNode {
 			switch {
 			case n.Data == "div" && getAttr(n, "class") == "streamtitle":
@@ -1514,15 +1520,17 @@ func parseWFMULiveStreamBlock(block *html.Node) (string, *RadioLiveNowPlaying) {
 						programCode = m[1]
 					}
 				}
-			case n.Data == "a" && episodeIDRegex.MatchString(getAttr(n, "href")):
+			case n.Data == "div" && getAttr(n, "class") == "linkssection":
+				inLinks = true // descendants are the live-DJ links section
+			case n.Data == "a" && inLinks && episodeIDRegex.MatchString(getAttr(n, "href")):
 				hasPlaylistLink = true
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
+			walk(c, inLinks)
 		}
 	}
-	walk(block)
+	walk(block, false)
 
 	key := wfmuStreamChannelKey(collapseWhitespace(streamTitle))
 	if key == "" {

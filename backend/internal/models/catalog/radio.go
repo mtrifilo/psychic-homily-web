@@ -592,13 +592,9 @@ func (s *RadioSchedule) WindowForDate(airDate string) (startsAt, endsAt *time.Ti
 	if !ok {
 		return nil, nil, nil // malformed end on the chosen slot (defensive; slots are validated)
 	}
-	start := time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
-	end := time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
-	if !end.After(start) {
-		// End <= Start wraps past midnight; End == Start is a degenerate full
-		// 24-hour slot (fails safe — only ever over-reports "live").
-		end = end.AddDate(0, 0, 1)
-	}
+	// slotWindow applies the shared midnight-wrap rule: End <= Start wraps past midnight,
+	// End == Start is a degenerate full 24-hour slot (fails safe — only ever over-reports "live").
+	start, end := slotWindow(day, sh, sm, eh, em, loc)
 	return &start, &end, nil
 }
 
@@ -615,6 +611,67 @@ func parseHHMM(s string) (hour, minute int, ok bool) {
 		return 0, 0, false
 	}
 	return t.Hour(), t.Minute(), true
+}
+
+// slotWindow builds the concrete [start, end) instants for a weekly slot occurring on the
+// calendar day `day`, in loc. Shared by WindowForDate (producer of an episode's frozen air
+// window) and CoversTime (rebroadcast cross-check) so they can never disagree about a slot's
+// extent. An End <= Start slot wraps past midnight (end lands on the next day); an End ==
+// Start slot is therefore a degenerate full 24-hour window (a midnight-to-midnight airing) —
+// the convention both callers rely on. start/end hour+minute are the already-parsed slot
+// times (parseHHMM); DST is handled by time.Date in loc (never a fixed offset).
+func slotWindow(day time.Time, sh, sm, eh, em int, loc *time.Location) (start, end time.Time) {
+	start = time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
+	end = time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
+	if !end.After(start) {
+		end = end.AddDate(0, 0, 1)
+	}
+	return start, end
+}
+
+// CoversTime reports whether t falls within any of the schedule's weekly slots, evaluated
+// in the schedule's timezone. It is the "is this show on the air right now per its own
+// schedule" predicate behind the WFMU rebroadcast check (PSY-1253): WFMU re-serves an
+// off-slot show (a rebroadcast) during automation WITH the original show's playlist link,
+// so the PSY-1239 link rule still reads it as live — the only reliable way to tell a
+// rebroadcast from a first airing is that the show's OWN schedule does not cover now.
+//
+// Each slot is (day_of_week, start, end) in s.Timezone; an end <= start wraps past midnight
+// (mirroring WindowForDate), so a slot that started on the PREVIOUS day can still cover an
+// early-morning t — both the same-day and previous-day occurrences are checked (a slot is at
+// most 24h, so those two candidate start-days are sufficient). A slot whose times don't
+// parse is skipped (defensive; slots are HH:MM-validated at write). An unloadable timezone
+// returns false (fail safe: when in doubt, NOT "covered" → the caller does not suppress, so
+// a tz error never hides a genuinely-live show). Containment is [start, end).
+func (s *RadioSchedule) CoversTime(t time.Time) bool {
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return false
+	}
+	lt := t.In(loc)
+	for i := range s.Slots {
+		sh, sm, ok := parseHHMM(s.Slots[i].Start)
+		if !ok {
+			continue
+		}
+		eh, em, ok := parseHHMM(s.Slots[i].End)
+		if !ok {
+			continue
+		}
+		// Check the occurrence whose START day is today and yesterday, so a slot that wraps
+		// past midnight into t's day is caught.
+		for _, dayOffset := range []int{0, -1} {
+			day := lt.AddDate(0, 0, dayOffset)
+			if int(day.Weekday()) != s.Slots[i].DayOfWeek {
+				continue
+			}
+			start, end := slotWindow(day, sh, sm, eh, em, loc)
+			if !lt.Before(start) && lt.Before(end) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // RadioStation represents a radio station entity in the knowledge graph
