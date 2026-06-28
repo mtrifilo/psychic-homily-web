@@ -198,12 +198,60 @@ func TestBuildArtistLocationUpdate(t *testing.T) {
 			t.Fatalf("filled = %v, want 3", filled)
 		}
 	})
+
+	// --- PSY-1249: MBID stamping ---
+	mbLoc := ResolvedLocation{City: "Baltimore", State: "MD", Country: "US", MBID: "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"}
+
+	t.Run("MB match stamps the MBID alongside a location fill", func(t *testing.T) {
+		a := &catalogm.Artist{ID: 6}
+		updates, filled := buildArtistLocationUpdate(a, mbLoc, DataSourceMusicBrainz, confidenceMusicBrainz, now)
+		if updates["musicbrainz_artist_id"] != mbLoc.MBID {
+			t.Fatalf("expected MBID stamped, got %+v", updates)
+		}
+		if len(filled) != 3 {
+			t.Fatalf("filled = %v, want 3 location fields", filled)
+		}
+	})
+
+	t.Run("a set MBID is never overwritten", func(t *testing.T) {
+		a := &catalogm.Artist{ID: 7, MusicBrainzArtistID: strptr("11111111-2222-3333-4444-555555555555")}
+		updates, _ := buildArtistLocationUpdate(a, mbLoc, DataSourceMusicBrainz, confidenceMusicBrainz, now)
+		if _, ok := updates["musicbrainz_artist_id"]; ok {
+			t.Fatalf("MBID must NOT be overwritten, got %v", updates["musicbrainz_artist_id"])
+		}
+	})
+
+	t.Run("a Bandcamp location (no MBID) stamps nothing", func(t *testing.T) {
+		a := &catalogm.Artist{ID: 8}
+		bcLoc := ResolvedLocation{City: "Tokyo", Country: "Japan"} // MBID empty
+		updates, _ := buildArtistLocationUpdate(a, bcLoc, DataSourceBandcamp, confidenceBandcamp, now)
+		if _, ok := updates["musicbrainz_artist_id"]; ok {
+			t.Fatalf("no MBID should be stamped for a Bandcamp location, got %v", updates["musicbrainz_artist_id"])
+		}
+	})
+
+	t.Run("MBID-only write when the location is already complete (no provenance)", func(t *testing.T) {
+		a := &catalogm.Artist{ID: 9, City: strptr("Baltimore"), State: strptr("MD"), Country: strptr("US")}
+		updates, filled := buildArtistLocationUpdate(a, mbLoc, DataSourceMusicBrainz, confidenceMusicBrainz, now)
+		if filled != nil {
+			t.Fatalf("expected no location fill, got filled=%v", filled)
+		}
+		if updates == nil || updates["musicbrainz_artist_id"] != mbLoc.MBID {
+			t.Fatalf("expected an MBID-only update, got %+v", updates)
+		}
+		// An MBID-only stamp claims no location provenance and writes no location field.
+		for _, k := range []string{"data_source", "source_confidence", "last_verified_at", "city", "state", "country"} {
+			if _, ok := updates[k]; ok {
+				t.Fatalf("%s must NOT be written on an MBID-only stamp, got %v", k, updates[k])
+			}
+		}
+	})
 }
 
 func TestMatchMBLocation(t *testing.T) {
 	candidates := []pipeline.MBArtistResult{
-		{Name: "Famous Namesake", Country: "GB", Score: 100},
-		{Name: "Snail Mail", BeginArea: &pipeline.MBArea{Name: "Baltimore", Type: "City"}, Country: "US"},
+		{ID: "44444444-4444-4444-4444-444444444444", Name: "Famous Namesake", Country: "GB", Score: 100},
+		{ID: "11111111-1111-1111-1111-111111111111", Name: "Snail Mail", BeginArea: &pipeline.MBArea{Name: "Baltimore", Type: "City"}, Country: "US"},
 	}
 	t.Run("exact name match (case-insensitive) wins over higher-scored namesake", func(t *testing.T) {
 		loc, ok := matchMBLocation(candidates, "snail mail")
@@ -212,6 +260,25 @@ func TestMatchMBLocation(t *testing.T) {
 		}
 		if loc.City != "Baltimore" || loc.Country != "United States" {
 			t.Fatalf("got %+v", loc)
+		}
+		// PSY-1249: the matched candidate's MBID rides along (NOT the namesake's).
+		if loc.MBID != "11111111-1111-1111-1111-111111111111" {
+			t.Fatalf("MBID = %q, want the exact-name match's id (not the namesake's)", loc.MBID)
+		}
+	})
+	t.Run("a malformed (non-UUID) candidate id is not carried", func(t *testing.T) {
+		c := []pipeline.MBArtistResult{
+			{ID: "not-a-uuid", Name: "Garbage Id", BeginArea: &pipeline.MBArea{Name: "Austin", Type: "City"}, Country: "US"},
+		}
+		loc, ok := matchMBLocation(c, "Garbage Id")
+		if !ok {
+			t.Fatal("expected a location match")
+		}
+		if loc.City != "Austin" {
+			t.Fatalf("location should still resolve, got %+v", loc)
+		}
+		if loc.MBID != "" {
+			t.Fatalf("a non-UUID id must NOT be carried, got %q", loc.MBID)
 		}
 	})
 	t.Run("no name match", func(t *testing.T) {
@@ -322,6 +389,64 @@ func TestBackfillArtistLocations(t *testing.T) {
 		}
 		if store.updates[2]["data_source"] != DataSourceBandcamp {
 			t.Fatalf("artist 2 provenance should be bandcamp, got %+v", store.updates[2])
+		}
+	})
+
+	t.Run("PSY-1249: stamps MBID on a fresh match, keeps a set one, MBID-only when nothing new fills", func(t *testing.T) {
+		const (
+			snailMBID = "11111111-1111-1111-1111-111111111111"
+			turnMBID  = "22222222-2222-2222-2222-222222222222"
+			locMBID   = "33333333-3333-3333-3333-333333333333"
+		)
+		store := &fakeStore{artists: []catalogm.Artist{
+			// Fresh artist, exact-name MB match → location AND MBID stamped.
+			{ID: 1, Name: "Snail Mail"},
+			// Already has an MBID → location still fills, but the MBID is not clobbered.
+			{ID: 2, Name: "Turnstile", MusicBrainzArtistID: strptr("99999999-9999-9999-9999-999999999999")},
+			// City-less (so the production `city IS NULL` gate selects it) but state +
+			// country already set, and MB resolves only that same state/country → no
+			// location field fills → MBID-only write.
+			{ID: 3, Name: "Located", State: strptr("CA"), Country: strptr("US")},
+		}}
+		mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+			"Snail Mail": {{ID: snailMBID, Name: "Snail Mail", BeginArea: &pipeline.MBArea{Name: "Baltimore", Type: "City"}, Country: "US"}},
+			"Turnstile":  {{ID: turnMBID, Name: "Turnstile", BeginArea: &pipeline.MBArea{Name: "Baltimore", Type: "City"}, Country: "US"}},
+			"Located":    {{ID: locMBID, Name: "Located", Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}, Country: "US"}},
+		}}
+
+		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Artist 1: fresh exact-name match → location + MBID both written.
+		if store.updates[1]["musicbrainz_artist_id"] != snailMBID {
+			t.Fatalf("artist 1 should get its MBID stamped, got %+v", store.updates[1])
+		}
+		if store.updates[1]["city"] != "Baltimore" {
+			t.Fatalf("artist 1 should also fill location, got %+v", store.updates[1])
+		}
+		// Artist 2: a set MBID is never overwritten (location still fills).
+		if _, ok := store.updates[2]["musicbrainz_artist_id"]; ok {
+			t.Fatalf("artist 2's set MBID must not be overwritten, got %v", store.updates[2]["musicbrainz_artist_id"])
+		}
+		if store.updates[2]["city"] != "Baltimore" {
+			t.Fatalf("artist 2 location should still fill, got %+v", store.updates[2])
+		}
+		// Artist 3: city-less but state/country set → MBID-only write, no location/provenance.
+		if store.updates[3]["musicbrainz_artist_id"] != locMBID {
+			t.Fatalf("artist 3 should get an MBID-only stamp, got %+v", store.updates[3])
+		}
+		for _, k := range []string{"city", "state", "country", "data_source"} {
+			if _, ok := store.updates[3][k]; ok {
+				t.Fatalf("artist 3 MBID-only write must not include %s, got %+v", k, store.updates[3])
+			}
+		}
+		// Artist 3 is resolved-no-fill for LOCATION purposes; both 1 and 3 stamped an MBID.
+		if report.ResolvedNoFill != 1 {
+			t.Fatalf("resolvedNoFill = %d, want 1 (artist 3)", report.ResolvedNoFill)
+		}
+		if report.StampedMBID != 2 {
+			t.Fatalf("stampedMBID = %d, want 2 (artists 1 and 3; artist 2 kept its own)", report.StampedMBID)
 		}
 	})
 
