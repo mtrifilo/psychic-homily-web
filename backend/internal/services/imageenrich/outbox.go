@@ -29,27 +29,34 @@ const (
 // fill-when-empty enrichers the sweep uses, so a new entity gets its image within
 // ~one poll interval instead of waiting for the slow daily Phase-A sweep.
 //
-// # One-shot prompt + sweep backstop (NOT per-entity retry)
+// # One-shot prompt + sweep re-attempt (NOT per-entity outbox retry)
 //
-// The shared enrichers (BackfillCommonsPhotos / BackfillCoverArt) swallow
-// per-entity provider misses into their report and return an error ONLY when the
-// up-front batch DB load fails. So enrich(ctx, ids) returning nil means "the batch
-// ran" — whether or not every entity got an image — and the jobs are marked done
-// after ONE attempt. That is intentional: the outbox is the prompt one-shot path;
-// the Phase-A sweep owns re-attempting the imageless tail on its (long) re-attempt
-// window. The attempts/max_attempts retry machinery here therefore bounds the
-// INFRA-error case (enrich returning an error, e.g. a DB load failure), not
-// per-entity provider misses. Known limitation: an entity whose lookup hit a
-// transient blip is marked done and not re-attempted by the outbox — it waits for
-// the sweep's re-attempt window. Tracked as a follow-up (thread per-id outcomes);
-// fixing it here by re-querying + requeuing every miss would breach the
-// no-MB-budget-blowup AC (rapid retries on genuine no-matches).
+// The shared enrichers (BackfillCommonsPhotos / BackfillCoverArt) swallow per-entity
+// provider misses into their report and return an error ONLY when the up-front batch
+// DB load fails. So enrich(ctx, ids) returning nil means "the batch ran" — whether
+// or not every entity got an image — and the jobs are marked done after ONE attempt.
+// That is intentional: the outbox is the prompt one-shot path. The
+// attempts/max_attempts retry here bounds the INFRA-error case (enrich returning an
+// error, e.g. a DB load failure), not per-entity provider misses.
+//
+// Crucially the outbox does NOT stamp the entity's image_enrich_attempted_at memo
+// (PSY-1265). That memo belongs to the Phase-A sweep; stamping it from the outbox
+// would make the outbox's single attempt suppress the sweep for the full re-attempt
+// window (~90d), so an entity whose lookup hit a transient blip would wait 90 days.
+// By leaving attempted_at NULL, an entity the outbox attempted but could not image
+// (transient OR genuine no-match) is re-attempted by the sweep on its next cycle
+// (~24h, and NULLS-FIRST so it is high priority), and the sweep stamps the memo on
+// ITS attempt. Net: a transient miss recovers in ~a day instead of ~90d, while a
+// genuine no-match costs just one extra sweep attempt before being memoized —
+// bounded (the sweep batch is capped), no MB-budget blowup, and a success leaves a
+// non-null image so the sweep skips it (no double-write).
 //
 // # Shared enrichment engine (PSY-1208)
 //
 // It shares the ImageEnrichmentSweep as its enrichment ENGINE: the sweep owns the
-// per-entity enrichers (enrichPhotos / enrichCovers), the attempted_at memo
-// stamping, and — critically — the ONE process-wide MusicBrainz client. Reusing it
+// per-entity enrichers (enrichPhotos / enrichCovers) and — critically — the ONE
+// process-wide MusicBrainz client (the attempted_at memo is the sweep's alone; the
+// outbox deliberately does not stamp it — see above). Reusing it
 // keeps ALL MB traffic (sweep + outbox + discovery) under a single
 // mutex-serialized ~1 req/s throttle; a second client would double the rate and
 // trip MB's sticky 503 penalty. The sweep's ticker is the backfill trigger; this
@@ -215,9 +222,12 @@ func (p *ImageEnrichOutboxPoller) claimBatch(ctx context.Context) ([]catalogm.Im
 	return items, err
 }
 
-// runBatch stamps the entity-level attempt memo (sweep coexistence), runs the
-// enricher over the ids, then finalizes the claimed job rows: done on success,
-// requeue/fail on infra error, requeue-without-burning-an-attempt on cancellation.
+// runBatch runs the enricher over the ids, then finalizes the claimed job rows:
+// done on success, requeue/fail on infra error, requeue-without-burning-an-attempt
+// on cancellation. It deliberately does NOT stamp image_enrich_attempted_at — the
+// sweep owns that memo and re-attempts imageless entities on its next cycle (see the
+// type doc, PSY-1265), which is what gives a transient miss a ~1-day retry instead
+// of a 90-day wait.
 func (p *ImageEnrichOutboxPoller) runBatch(
 	ctx context.Context,
 	table string,
@@ -225,12 +235,6 @@ func (p *ImageEnrichOutboxPoller) runBatch(
 	items []catalogm.ImageEnrichQueueItem,
 	enrich func(context.Context, []uint) error,
 ) {
-	// Stamp image_enrich_attempted_at so the Phase-A sweep won't re-attempt an
-	// entity the outbox just handled (idempotent coexistence). Best-effort.
-	if err := p.engine.stampAttempted(ctx, table, ids); err != nil {
-		p.logger.Warn("image-enrich outbox: stamp attempted failed", "table", table, "error", err)
-	}
-
 	// Finalize writes must survive a shutdown-canceled tick ctx (otherwise a claimed
 	// row would be left `processing` until the next reclaim), but stay bounded so a
 	// hung DB write during shutdown can't wedge Stop()/wg.Wait() — WithoutCancel
