@@ -9,7 +9,7 @@ import { buildLinkLabel, edgeLineDash, edgeTypeLabel, edgeWidth } from '@/compon
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
 import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
-import { capEdgesPerNode } from '@/components/graph/edgeCap'
+import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useDismissTimer } from '@/lib/hooks/common'
@@ -283,18 +283,10 @@ const RADIAL_FORCE_STRENGTH = 0.4
 const EGO_CHARGE_STRENGTH = -210
 
 // Below this zoom, node labels are dropped (text becomes unreadable). The PSY-1273
-// suggested-direction glow + "+" badge gate on the same threshold: a fixed-pixel hint over
-// the tiny far-zoom dots would bloom into blobs, so it appears/disappears with the labels.
+// suggested-direction GLOW (a device-px shadowBlur that would bloom over far-zoom dots) gates
+// on the same threshold; the ring + "+" badge are world-units and stay visible at every zoom
+// (the hint must survive the zoomed-out multi-expand view — that's when it matters most).
 const LABEL_MIN_SCALE = 0.7
-
-// PSY-1258: dense relationship types get trimmed to each node's k strongest edges so the
-// many-to-many radio signal stops rendering as a teal hairball. Only types listed here are
-// capped (the rest are sparse enough to draw in full); k is intentionally tunable — start
-// at 5 (the upper end of the research's 3–5 range) and adjust visually on a dense radio
-// ego graph (/artists/cola is the canonical dense reference in prod). Keep values >= 1 —
-// a 0 would drop every edge of the type and orphan its nodes (see edgeCap no-orphan note).
-// Isolated as its own map so the volatile "which types, what k" decision lives in one place.
-const EDGE_CAP_BY_TYPE: Record<string, number> = { radio_cooccurrence: 5 }
 
 // PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the node
 // before auto-hiding. The tooltip overlaps the node's pointer-area (8px offset vs a
@@ -579,6 +571,10 @@ export function ArtistGraphVisualization({
   //       graphData change, so nodeCanvasObject's dashed ring needs this repaint kick to appear
   //       (the merge that follows triggers its own redraw). Pass a referentially-stable Set from
   //       the parent (memoized) so this doesn't fire every render.
+  //   (4) suggested directions (PSY-1273): suggestedIds drives nodeCanvasObject's glow/badge.
+  //       Today it co-changes with graphData (DOI re-ranks) or expandingIds, but keeping it in
+  //       the deps guards the planned PSY-1260 case where the popular↔niche control re-ranks DOI
+  //       WITHOUT a graphData change — else the glow would stale until the next unrelated redraw.
   // Gated on !reducedMotion (PSY-1226): force-graph's rAF loop reschedules unconditionally,
   // so resumeAnimation here would keep the loop running forever and DEFEAT the reduced-motion
   // pauseAnimation above. For reduced-motion users we keep the static snapshot — the canvas is
@@ -587,7 +583,7 @@ export function ArtistGraphVisualization({
   // hover tooltip + hover-focus won't fire (both ride the paused loop's hit-testing).
   useEffect(() => {
     if (!reducedMotion) graphRef.current?.resumeAnimation()
-  }, [palette, hoveredNode, reducedMotion, expandingIds])
+  }, [palette, hoveredNode, reducedMotion, expandingIds, suggestedIds])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
@@ -755,16 +751,21 @@ export function ArtistGraphVisualization({
 
         // PSY-1273: suggested expansion direction. The few highest-DOI unexpanded nodes
         // (suggestedIds, already excludes expanded + expanding from the parent) get a subtle
-        // indigo glow + "+" badge so the click-to-expand gesture is discoverable and the eye
-        // is steered toward the most-interesting next steps. Indigo ties the hint to the
+        // indigo halo ring + "+" badge so the click-to-expand gesture is discoverable and the
+        // eye is steered toward the most-interesting next steps. Indigo ties the hint to the
         // "opened" (indigo) state expanding leads to. Static (no animation) so it's reduced-
-        // motion-safe. shadowBlur is scoped in a save/restore so the glow can't leak onto
-        // later paints (and globalAlpha — the hover-focus dim — is preserved across it).
-        // Gated on zoom like the labels, so the hint doesn't bloom over far-zoom dots.
-        if (suggestedIds?.has(node.id) && globalScale > LABEL_MIN_SCALE) {
+        // motion-safe. The ring + badge are world-units, so they scale with the node and stay
+        // visible at EVERY zoom — including the zoomed-out multi-expand view where "which way
+        // next?" matters most. The soft glow (shadowBlur) is the only zoom-gated part: it's a
+        // device-px effect that would bloom over far-zoom dots, so it's added on top only at
+        // readable zoom (when labels show too). save/restore scopes the shadow so it can't leak
+        // onto later paints, and preserves globalAlpha (the hover-focus dim) across it.
+        if (suggestedIds?.has(node.id)) {
           ctx.save()
-          ctx.shadowColor = '#818cf8' // indigo-400
-          ctx.shadowBlur = 8
+          if (globalScale > LABEL_MIN_SCALE) {
+            ctx.shadowColor = '#818cf8' // indigo-400
+            ctx.shadowBlur = 8
+          }
           ctx.beginPath()
           ctx.arc(x, y, radius + 1.5, 0, 2 * Math.PI)
           ctx.strokeStyle = '#a5b4fc' // indigo-300

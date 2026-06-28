@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import { computeGraphDoi, selectSuggestedExpansions, DOI_WEIGHTS } from './graphDoi'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
+import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 
 // PSY-1273 — the pure DOI ranking behind label priority + suggested expansion directions.
@@ -157,6 +158,39 @@ describe('computeGraphDoi', () => {
     const similarOnly = computeGraphDoi(merged, new Set(['similar']))
     expect(similarOnly.ranked).toEqual([2])
     expect(similarOnly.doiByNodeId.has(3)).toBe(false)
+  })
+
+  it('scores over the per-node edge cap — a capped-away weak tie does not affect DOI', () => {
+    // The canvas trims dense radio edges to each node's top-k (k=5). DOI must score the SAME
+    // capped graph, else a node could glow / win a label on ties that aren't drawn. Construct a
+    // weak radio edge 2–7 that the cap drops from BOTH endpoints (each already has 5 stronger
+    // radio edges), and assert it changes no DOI score vs a graph that never had it.
+    const strong = [
+      link(1, 2, 'radio_cooccurrence', 0.99), link(2, 3, 'radio_cooccurrence', 0.98),
+      link(2, 4, 'radio_cooccurrence', 0.97), link(2, 5, 'radio_cooccurrence', 0.96),
+      link(2, 6, 'radio_cooccurrence', 0.95),
+      link(1, 7, 'radio_cooccurrence', 0.99), link(3, 7, 'radio_cooccurrence', 0.94),
+      link(4, 7, 'radio_cooccurrence', 0.93), link(5, 7, 'radio_cooccurrence', 0.92),
+      link(6, 7, 'radio_cooccurrence', 0.91),
+    ]
+    const ids = [2, 3, 4, 5, 6, 7]
+    const without = mergeEgoGraphs(ego(1, ids, strong), noExpansions)
+    const withWeak = mergeEgoGraphs(
+      ego(1, ids, [...strong, link(2, 7, 'radio_cooccurrence', 0.01)]),
+      noExpansions,
+    )
+
+    // Premise: the weak 2–7 tie really is dropped by the cap (else this proves nothing).
+    const capped = capEdgesPerNode(
+      withWeak.links.map(l => ({ source: l.source_id, target: l.target_id, type: l.type, score: l.score })),
+      EDGE_CAP_BY_TYPE,
+    ).links
+    expect(capped.some(l => l.source === 2 && l.target === 7)).toBe(false)
+
+    // The dropped tie sways no node's DOI — scoring matches the graph that never had it.
+    const a = computeGraphDoi(without).doiByNodeId
+    const b = computeGraphDoi(withWeak).doiByNodeId
+    for (const id of ids) expect(b.get(id)!).toBeCloseTo(a.get(id)!)
   })
 
   it('ranks by DOI desc with a deterministic id tiebreak', () => {

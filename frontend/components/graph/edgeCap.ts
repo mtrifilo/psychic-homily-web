@@ -50,6 +50,19 @@ export interface EdgeCapResult<L> {
   cappedTypes: Set<string>
 }
 
+/**
+ * Which dense relationship types get trimmed to each node's k strongest, and the k.
+ * Shared single source of truth (PSY-1273): the canvas (ArtistGraph.graphData) AND the
+ * Degree-of-Interest scoring (graphDoi.computeGraphDoi) BOTH cap by this, so the ranking
+ * is computed over exactly the edges drawn — add a capped type or change a k in one place.
+ *
+ * Only radio_cooccurrence is dense enough to need it; k=5 is the upper end of the research's
+ * 3–5 range (docs/open-questions/graph-density-discovery-redesign.md §3.3). Tune visually on
+ * /artists/cola (the canonical dense reference in prod). Keep values >= 1 — a 0 would drop
+ * every edge of the type and orphan its nodes (see the no-orphan invariant above).
+ */
+export const EDGE_CAP_BY_TYPE: Readonly<Record<string, number>> = { radio_cooccurrence: 5 }
+
 export function capEdgesPerNode<L extends CappableLink>(
   links: readonly L[],
   capByType: Readonly<Record<string, number>>,

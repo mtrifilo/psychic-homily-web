@@ -15,9 +15,11 @@
  * free; a richer importance signal — global degree / follower count — is a later backend
  * add). Weights are relevance-dominant per the PSY-1259 decisions (comment D), tuned visually.
  *
- * Scoped to the VISIBLE graph: the caller passes `activeTypes` so edges the user has toggled
- * off don't sway the ranking (a node is only scored when it still has an on-screen edge),
- * keeping label priority + suggested directions consistent with what's actually drawn.
+ * Scoped to the VISIBLE graph: scoring runs over exactly the edges the canvas draws — the
+ * `activeTypes` toggles AND the per-node edge cap (the same two steps ArtistGraph.graphData
+ * uses). So toggling a type off re-ranks, a node is only scored when it has an on-screen edge,
+ * and a radio-dense node can't glow on capped-away ties — label priority + suggested directions
+ * stay consistent with what's actually drawn (degree, not just node membership).
  *
  * Pure + UI-free, so it's unit-tested without the canvas like mergeEgoGraphs / edgeCap.
  *
@@ -26,6 +28,7 @@
  *   - `ranked` → fed to `selectSuggestedExpansions` to flag the top ≤5 unexpanded nodes.
  */
 
+import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import type { MergedEgoGraph } from './mergeEgoGraphs'
 
 /**
@@ -82,11 +85,12 @@ function normalize(value: number, min: number, max: number): number {
  * The three terms, each min-max normalized across the scored node set so the weights mean
  * what they say:
  *
- *   - importance = DISTINCT-NEIGHBOR count (in-subgraph degree). Each connected artist
- *     counts once, regardless of how many edge TYPES tie the pair, so a node isn't inflated
- *     just because the backend emitted both a `similar` and a `radio_cooccurrence` edge for
- *     one relationship. The spike's free centrality proxy: more distinct neighbors = a richer
- *     expansion target. (The center counts as a neighbor.)
+ *   - importance = DISTINCT-NEIGHBOR count (in-subgraph degree) over the DRAWN edges. Each
+ *     connected artist counts once, regardless of how many edge TYPES tie the pair, so a node
+ *     isn't inflated just because the backend emitted both a `similar` and a `radio_cooccurrence`
+ *     edge for one relationship; and capped-away ties don't count (degree matches what's drawn).
+ *     The spike's free centrality proxy: more distinct neighbors = a richer expansion target.
+ *     (The center counts as a neighbor.)
  *
  *   - relevance = strength of the node's STRONGEST tie, normalized PER EDGE TYPE first.
  *     Edge `score` is a per-type magnitude on different scales (similar = Wilson [0,1];
@@ -116,11 +120,20 @@ export function computeGraphDoi(
   weights: DoiWeights = DOI_WEIGHTS,
 ): GraphDoi {
   const centerId = merged.center.id
-  // Only edges of active types contribute (when a filter is given) — so toggling a type off
-  // in the UI re-ranks to match what's drawn. Omitted = consider all edges.
-  const links = activeTypes
+  // Score over exactly the DRAWN graph, in the same two steps the canvas uses
+  // (ArtistGraph.graphData): (1) drop edges of toggled-off types, (2) apply the per-node edge
+  // cap. Without the cap, a radio-dense node's importance/relevance would count the weak ties
+  // the canvas trims away (top-k keeps the strongest), so it could glow / win a label while
+  // looking sparse on screen. The cap's no-orphan invariant (k>=1) keeps every still-connected
+  // node's strongest edge, so the scored set still equals the painted set. `activeTypes`
+  // omitted = consider all edges (the cap still applies — it's display-intrinsic, not a toggle).
+  const activeLinks = activeTypes
     ? merged.links.filter(l => activeTypes.has(l.type))
     : merged.links
+  const links = capEdgesPerNode(
+    activeLinks.map(l => ({ source: l.source_id, target: l.target_id, type: l.type, score: l.score, raw: l })),
+    EDGE_CAP_BY_TYPE,
+  ).links.map(kept => kept.raw)
 
   // Pass 1: per-type max score (for per-type relevance normalization) + per-node distinct
   // neighbor sets (degree counts each connected artist once, not once per edge type).
@@ -138,7 +151,11 @@ export function computeGraphDoi(
     addNeighbor(link.target_id, link.source_id)
   }
 
-  // Pass 2: per-node strongest per-type-normalized tie (relevance raw input).
+  // Pass 2: per-node strongest per-type-normalized tie (relevance raw input). NB: per-type
+  // min/max normalization means the SOLE surviving edge of a type normalizes to 1.0 regardless
+  // of its absolute score — a deliberate property of "strongest of its kind", not a bug to
+  // "fix" (a lone weak similar tie reads as a full-strength similar tie). Acceptable: relevance
+  // is one of three blended terms, and this only bites on sparse / heavily-toggled subgraphs.
   const relevanceRawById = new Map<number, number>()
   for (const link of links) {
     let strength: number
@@ -155,10 +172,11 @@ export function computeGraphDoi(
     }
   }
 
-  // The scored set: non-center nodes that still have an active edge (== the nodes the canvas
-  // paints, since the per-node edge cap's no-orphan invariant keeps every still-connected
-  // node's strongest edge). Extracted ONCE into an array so the range pass and the scoring
-  // pass read the same triple — no duplicated `.get() ?? fallback` to drift between them.
+  // The scored set: non-center nodes that still have a DRAWN edge (`links` is already the
+  // filtered + capped set above, so this is exactly the painted node set — the cap's no-orphan
+  // invariant keeps every still-connected node's strongest edge). Extracted ONCE into an array
+  // so the range pass and the scoring pass read the same triple — no duplicated
+  // `.get() ?? fallback` to drift between them.
   const scored: Array<{ id: number; deg: number; rel: number; hop: number }> = []
   for (const node of merged.nodes) {
     const neighbors = neighborsById.get(node.id)
