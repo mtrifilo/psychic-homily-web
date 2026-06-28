@@ -227,7 +227,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           </CardContent>
         </Card>
 
-        {/* Active Artists */}
+        {/* Local Artists — the metro roster, active bands first */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
