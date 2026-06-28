@@ -18,6 +18,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/mbadapter"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -212,7 +213,7 @@ func (s *ImageEnrichmentSweep) runPhotoEnricher(ctx context.Context, ids []uint)
 	commons := catalog.NewCommonsClient()
 	defer commons.Close()
 
-	report, err := catalog.BackfillCommonsPhotos(ctx, s.db, mbArtistEnrichAdapter{client: s.mb}, wd, commons, catalog.CommonsEnrichOptions{IDs: ids})
+	report, err := catalog.BackfillCommonsPhotos(ctx, s.db, mbadapter.NewArtistAdapter(s.mb), wd, commons, catalog.CommonsEnrichOptions{IDs: ids})
 	if report != nil {
 		s.logger.Info("image-enrich sweep photos",
 			"scanned", report.ArtistsScanned, "matched", report.ArtistsMatched,
@@ -238,9 +239,9 @@ func (s *ImageEnrichmentSweep) runCoverEnricher(ctx context.Context, ids []uint)
 	if s.discogsToken != "" {
 		discogs := catalog.NewDiscogsClient(s.discogsToken)
 		defer discogs.Close()
-		report, err = catalog.BackfillCoverArt(ctx, s.db, mbReleaseEnrichAdapter{client: s.mb}, caa, discogs, opts)
+		report, err = catalog.BackfillCoverArt(ctx, s.db, mbadapter.NewReleaseAdapter(s.mb), caa, discogs, opts)
 	} else {
-		report, err = catalog.BackfillCoverArt(ctx, s.db, mbReleaseEnrichAdapter{client: s.mb}, caa, nil, opts)
+		report, err = catalog.BackfillCoverArt(ctx, s.db, mbadapter.NewReleaseAdapter(s.mb), caa, nil, opts)
 	}
 	if report != nil {
 		s.logger.Info("image-enrich sweep covers",
@@ -249,76 +250,6 @@ func (s *ImageEnrichmentSweep) runCoverEnricher(ctx context.Context, ids []uint)
 			"skipped", report.ReleasesSkipped, "errors", report.ReleaseErrors)
 	}
 	return err
-}
-
-// --- MusicBrainz adapters -------------------------------------------------
-// These mirror the cmd-local adapters in cmd/backfill-{commons-photos,cover-art}
-// (kept there for the standalone CLIs). Consolidating all three into one shared
-// helper is tracked as PSY-1248; for now the sweep carries its own so this change
-// does not touch the shipped backfill commands.
-
-type mbArtistEnrichAdapter struct {
-	client *pipeline.MusicBrainzClient
-}
-
-func (a mbArtistEnrichAdapter) SearchArtistCandidates(ctx context.Context, name string) ([]catalog.MBArtistCandidate, error) {
-	raw, err := a.client.SearchArtistCandidates(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]catalog.MBArtistCandidate, 0, len(raw))
-	for _, r := range raw {
-		out = append(out, catalog.MBArtistCandidate{MBID: r.ID, Name: r.Name})
-	}
-	return out, nil
-}
-
-func (a mbArtistEnrichAdapter) LookupArtistURLs(ctx context.Context, mbid string) ([]string, error) {
-	rels, err := a.client.LookupArtistURLRelations(ctx, mbid)
-	if err != nil {
-		return nil, err
-	}
-	urls := make([]string, 0, len(rels))
-	for _, r := range rels {
-		if r.URL.Resource != "" {
-			urls = append(urls, r.URL.Resource)
-		}
-	}
-	return urls, nil
-}
-
-type mbReleaseEnrichAdapter struct {
-	client *pipeline.MusicBrainzClient
-}
-
-func (a mbReleaseEnrichAdapter) SearchReleaseGroups(ctx context.Context, artist, title string, limit int) ([]catalog.MBReleaseGroupCandidate, error) {
-	raw, err := a.client.SearchReleaseGroups(ctx, artist, title, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]catalog.MBReleaseGroupCandidate, 0, len(raw))
-	for _, rg := range raw {
-		out = append(out, catalog.MBReleaseGroupCandidate{
-			MBID:             rg.ID,
-			Title:            rg.Title,
-			ArtistNames:      flattenMBArtistNames(rg.ArtistCredit),
-			FirstReleaseDate: rg.FirstReleaseDate,
-		})
-	}
-	return out, nil
-}
-
-func flattenMBArtistNames(credits []pipeline.MBArtistCredit) []string {
-	names := make([]string, 0, len(credits)*2)
-	for _, ac := range credits {
-		if ac.Name != "" {
-			names = append(names, ac.Name)
-		}
-		if ac.Artist.Name != "" && ac.Artist.Name != ac.Name {
-			names = append(names, ac.Artist.Name)
-		}
-	}
-	return names
 }
 
 // --- env helpers ----------------------------------------------------------

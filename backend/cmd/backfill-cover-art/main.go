@@ -40,6 +40,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/mbadapter"
 	"psychic-homily-backend/internal/services/pipeline"
 )
 
@@ -85,7 +86,7 @@ func main() {
 
 	// One shared MusicBrainz client (PSY-1208), adapted to the catalog enricher's
 	// interface so the catalog package needn't depend on the pipeline package.
-	mbAdapter := mbReleaseAdapter{client: pipeline.NewMusicBrainzClient()}
+	mbAdapter := mbadapter.NewReleaseAdapter(pipeline.NewMusicBrainzClient())
 
 	caaClient := catalog.NewCoverArtArchiveClient()
 	defer caaClient.Close()
@@ -108,48 +109,6 @@ func main() {
 	}
 
 	printReport(report)
-}
-
-// mbReleaseAdapter adapts the shared pipeline.MusicBrainzClient to the catalog
-// enricher's musicBrainzReleaseSearcher interface, flattening each release-group's
-// artist credit into the credited + canonical names the strict matcher checks.
-type mbReleaseAdapter struct {
-	client *pipeline.MusicBrainzClient
-}
-
-func (a mbReleaseAdapter) SearchReleaseGroups(ctx context.Context, artist, title string, limit int) ([]catalog.MBReleaseGroupCandidate, error) {
-	raw, err := a.client.SearchReleaseGroups(ctx, artist, title, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]catalog.MBReleaseGroupCandidate, 0, len(raw))
-	for _, rg := range raw {
-		out = append(out, catalog.MBReleaseGroupCandidate{
-			MBID:             rg.ID,
-			Title:            rg.Title,
-			ArtistNames:      flattenArtistNames(rg.ArtistCredit),
-			FirstReleaseDate: rg.FirstReleaseDate,
-		})
-	}
-	return out, nil
-}
-
-// flattenArtistNames collects the credited + canonical artist names from a
-// release-group's artist credit, giving the strict matcher both forms to match
-// against. The credited name is the form printed on the release (may be an alias /
-// "feat." rendering); the canonical name is the artist's MusicBrainz name. Empty
-// names are skipped, and the canonical is omitted when it equals the credited.
-func flattenArtistNames(credits []pipeline.MBArtistCredit) []string {
-	names := make([]string, 0, len(credits)*2)
-	for _, ac := range credits {
-		if ac.Name != "" {
-			names = append(names, ac.Name)
-		}
-		if ac.Artist.Name != "" && ac.Artist.Name != ac.Name {
-			names = append(names, ac.Artist.Name)
-		}
-	}
-	return names
 }
 
 func printReport(r *catalog.CoverArtEnrichReport) {
