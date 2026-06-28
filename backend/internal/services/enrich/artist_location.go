@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -200,7 +201,14 @@ func enrichArtistLocationByID(ctx context.Context, store artistStore, bandcamp B
 		return fmt.Errorf("stamp attempted %d: %w", a.ID, err)
 	}
 
-	loc, source, conflict, _ := resolveLocation(ctx, a, bandcamp, mb, true)
+	loc, source, conflict, mbErr := resolveLocation(ctx, a, bandcamp, mb, true)
+	// Surface a genuine MB outage so a degraded MusicBrainz during on-create enrichment
+	// isn't silently indistinguishable from a clean miss (no batch Report here to carry
+	// it). The stamp above means the sweep retries this row after one window regardless.
+	if mbErr != nil {
+		slog.Default().Warn("on-create location enrich: musicbrainz error",
+			"artist_id", a.ID, "error", mbErr)
+	}
 	if conflict != nil || source == "" {
 		return nil // homonym conflict (skipped for review) or no source resolved
 	}

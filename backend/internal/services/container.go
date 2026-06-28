@@ -157,12 +157,18 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	artistLocationSweep := enrich.NewArtistLocationSweep(database, locationBandcamp, mbClient)
 
 	// PSY-1251 (Phase B): on-create location/MBID enrichment for interactively-created
-	// artists, gated on the SAME flag as the Phase-A sweep (it's the location-enrichment
-	// feature switch). Off by default → the hook stays nil and CreateArtist's call is a
-	// no-op; the sweep is the durability backstop, so this only adds promptness.
+	// artists. NB the flag is shared with the Phase-A sweep on purpose — ENABLE_ARTIST_
+	// LOCATION_SWEEP is the location-enrichment FEATURE switch, so =1 turns on BOTH the
+	// nightly sweep AND these per-create MusicBrainz calls (off the request goroutine).
+	// Off by default → the hook stays nil and CreateArtist's call is a no-op; the sweep
+	// is the durability backstop, so this only adds promptness.
 	if os.Getenv("ENABLE_ARTIST_LOCATION_SWEEP") == "1" {
 		artist.SetLocationEnricher(func(artistID uint) {
-			_ = enrich.EnrichArtistLocationByID(database, locationBandcamp, mbClient, artistID)
+			// Fire-and-forget: log a genuine DB/load failure (the sweep retries the row);
+			// the no-op cases (gone / located / miss) return nil.
+			if err := enrich.EnrichArtistLocationByID(database, locationBandcamp, mbClient, artistID); err != nil {
+				log.Printf("on-create location enrich failed for artist %d: %v", artistID, err)
+			}
 		})
 	}
 

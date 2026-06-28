@@ -72,6 +72,9 @@ func (s *ArtistLocationEnrichOnCreateTestSuite) TestNotFiredOnDuplicate() {
 	s.Require().NoError(err)
 	called = called[:0] // reset after the genuine create
 
+	// CreateArtist returns ErrArtistExists at the `if !created` guard BEFORE reaching
+	// runLocationEnrich, so the not-created path never fires the hook (even though the
+	// funnel may have done an incidental slug-backfill write on the found row).
 	_, err = svc.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().Error(err, "a duplicate create returns ErrArtistExists")
 	s.Empty(called, "a duplicate (not-created) path must NOT fire the enricher")
