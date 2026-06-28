@@ -267,20 +267,21 @@ export function ArtistNodeTooltip({
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
-// PSY-1257/1259: concentric-ring ego layout. The center is pinned at the origin; every
-// satellite is pulled toward the ring for its hop distance, so the subject reads as the hub
-// and each expand-on-demand step lands its new neighbors on the next ring out. Hop-1
-// neighbors sit at EGO_RING_RADIUS; each further hop adds RING_GAP (radius = EGO_RING_RADIUS
-// + (hop-1)*RING_GAP). With no expansions every satellite is hop 1 → the single-ring P0
-// layout. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring — higher snaps to the
-// ring faster (less organic angular spread). Tuned visually on a dense radio ego graph.
-// EGO_CHARGE_STRENGTH stiffens the default node repulsion so satellites distribute EVENLY
-// around their ring instead of bunching on one arc — the radial force fixes the radius,
-// charge fixes the angle.
-const EGO_RING_RADIUS = 165
-const RING_GAP = 135
-const RADIAL_FORCE_STRENGTH = 0.4
-const EGO_CHARGE_STRENGTH = -210
+// PSY-1257/1259/1275: deterministic concentric-ring ego layout. The center sits at the origin;
+// every satellite is PINNED (fx/fy) at an even angle on the ring for its hop distance, so the
+// subject reads as the hub and each expand-on-demand step lands its new neighbors evenly on the
+// next ring out. Hop-1 neighbors sit at EGO_RING_RADIUS; each further hop adds RING_GAP
+// (radius = EGO_RING_RADIUS + (hop-1)*RING_GAP).
+//
+// PSY-1275: positions are PINNED, not force-settled. The original PSY-1257 design pulled
+// satellites toward the ring with a custom radial force and let charge spread the angle — but
+// d3's default link force (~30px target distance, cached at initialize so an after-the-fact
+// override doesn't take without a reheat) won the tug-of-war on the dense radio graph and
+// collapsed the ring inward, bunching the satellites near the center. Pinning sidesteps it: even
+// angles are computed up front (graphData memo), the link/charge forces can't move a pinned node,
+// and zoomToFit frames a stable bbox with no settle transient. Deterministic + reduced-motion-safe.
+const EGO_RING_RADIUS = 130
+const RING_GAP = 120
 
 // Below this zoom, node labels are dropped (text becomes unreadable). The PSY-1273
 // suggested-direction GLOW (a device-px shadowBlur that would bloom over far-zoom dots) gates
@@ -382,6 +383,9 @@ export function ArtistGraphVisualization({
       upcoming_show_count: data.center.upcoming_show_count,
       isCenter: true,
       val: 8,
+      // PSY-1275: pin the center at the origin (fx/fy) so the deterministic ring is geometric.
+      fx: 0,
+      fy: 0,
     })
 
     // Related nodes
@@ -442,69 +446,38 @@ export function ArtistGraphVisualization({
     // Filter nodes to only those with visible edges (always keep center)
     const filteredNodes = nodes.filter(n => n.isCenter || connectedIds.has(n.id))
 
-    return { nodes: filteredNodes, links, edgeCounts, cappedTypes }
-  }, [data, activeTypes])
-
-  // Ego layout forces (PSY-1257): pin the center at the origin and add a radial
-  // constraint that seats every satellite on a single ring, so the subject reads as the
-  // hub and neighbors spread evenly instead of settling into the free-force hairball.
-  // Re-runs on graphData change (filter toggle / re-center) to re-register the closure
-  // over the current nodes — mirrors ForceGraphView's force-config effect.
-  useEffect(() => {
-    const fg = graphRef.current
-    if (!fg) return
-
-    // Pin the center at the origin (relied on by zoomToFit framing and the radial ring's
-    // geometry). `.find()` over the memoized nodes; the single-property write here is the
-    // documented d3 pin contract, not an accidental mutation.
-    const centerNode = graphData.nodes.find(n => n.isCenter)
-    if (centerNode) {
-      centerNode.fx = 0
-      centerNode.fy = 0
+    // PSY-1275: compute + PIN each satellite at an even angle on its hop-ring. Setting BOTH the
+    // position (x/y) and the pin (fx/fy) here, on the freshly-created node objects, means
+    // react-force-graph initializes the sim already pinned — d3 never moves them, so the default
+    // link/charge forces can't collapse the ring (which is what bunched the dense radio graph; see
+    // the EGO_RING_RADIUS comment). The layout is fully deterministic: an even, well-spread ring.
+    // Grouped by hop so each concentric ring is evenly divided; the center stays at the origin.
+    const ringByHop = new Map<number, GraphNode[]>()
+    for (const n of filteredNodes) {
+      if (n.isCenter) continue
+      const hop = hopByNodeId?.get(n.id) ?? 1
+      const ring = ringByHop.get(hop)
+      if (ring) ring.push(n)
+      else ringByHop.set(hop, [n])
+    }
+    for (const [hop, ring] of ringByHop) {
+      const r = EGO_RING_RADIUS + (hop - 1) * RING_GAP
+      ring.forEach((n, i) => {
+        const angle = (2 * Math.PI * i) / ring.length
+        n.fx = n.x = r * Math.cos(angle)
+        n.fy = n.y = r * Math.sin(angle)
+      })
     }
 
-    // Custom radial tick force — a small inline reimplementation of d3-force's forceRadial
-    // (d3-force isn't a direct dependency; react-force-graph bundles it but doesn't
-    // re-export the factory). It nudges each satellite's velocity toward EGO_RING_RADIUS
-    // along its own radius vector, letting the angle settle under charge repulsion. The
-    // mutation lives inside the closure d3 calls each tick (NOT the effect body), which the
-    // react-hooks/immutability rule tolerates — the same reason ForceGraphView's clusterX/
-    // clusterY closures sit OUTSIDE its eslint-disable span (that span guards ForceGraphView's
-    // effect-body fx/fy isolate writes, a case this graph doesn't have; the single centerNode
-    // pin above is a one-property write the rule also tolerates). The optional call
-    // (`d3Force?.`) no-ops against the test ref stubs, which expose only pause/resume/zoom.
-    fg.d3Force?.('radial', (alpha: number) => {
-      for (const node of graphData.nodes) {
-        if (node.isCenter) continue
-        const hop = hopByNodeId?.get(node.id) ?? 1
-        const targetRadius = EGO_RING_RADIUS + (hop - 1) * RING_GAP
-        const x = node.x ?? 0
-        const y = node.y ?? 0
-        const dist = Math.hypot(x, y) || 1e-6
-        const k = ((targetRadius - dist) * RADIAL_FORCE_STRENGTH * alpha) / dist
-        node.vx = (node.vx ?? 0) + x * k
-        node.vy = (node.vy ?? 0) + y * k
-      }
-    })
+    return { nodes: filteredNodes, links, edgeCounts, cappedTypes }
+  }, [data, activeTypes, hopByNodeId])
 
-    // Stiffen the default many-body repulsion so satellites spread evenly around the ring
-    // (the radial force alone fixes radius, not angle). `.strength?.` no-ops on the test
-    // stubs, which don't expose the d3 charge force.
-    const charge = fg.d3Force?.('charge')
-    charge?.strength?.(EGO_CHARGE_STRENGTH)
-
-    // Deliberately NO d3ReheatSimulation() here (unlike ForceGraphView): the ring radius and
-    // charge are CONSTANT, so re-registering on a graphData change has nothing new to settle.
-    // ForceGraphView reheats because its cluster centroids move with the viewport/cluster set;
-    // ours don't. react-force-graph already reheats when node/link membership changes (the only
-    // time the layout must move), so an extra reheat on every filter toggle would just re-animate
-    // the whole graph and fight the reduced-motion pause. Browser-verified: the ring forms on
-    // first load and re-settles correctly on filter toggle without an explicit reheat.
-    //
-    // hopByNodeId is a dep because the radial closure reads it for the per-ring radius — an
-    // expand changes both graphData and hopByNodeId together, but keying on both keeps the
-    // registered closure honest rather than relying on graphData co-changing.
-  }, [graphData, hopByNodeId])
+  // PSY-1275: no force-config effect — the layout is deterministic. Every node carries its pin
+  // (fx/fy) straight from the graphData memo (center at the origin, satellites at even angles on
+  // their hop-ring), so react-force-graph initializes the sim already pinned and d3's default
+  // link/charge forces can't move (collapse) the ring. This replaced the PSY-1257 radial-force +
+  // charge-tuning approach, which lost the tug-of-war with the default link force (~30px target
+  // distance) on the dense radio graph and bunched the satellites near the center.
 
   // PSY-1220 parity with ForceGraphView's reheat-dismiss: a filter-toggle (graphData, via
   // activeTypes) or a resize (containerWidth) reheats/reframes the layout and pans nodes under an
@@ -591,7 +564,7 @@ export function ArtistGraphVisualization({
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
-  // smooth without being sluggish; 40px padding matches the canvas border.
+  // smooth without being sluggish; 70px padding (PSY-1275) leaves room for the labels that sit below the outer-ring nodes.
   // Keyed on `data.center.id` so this fires once per re-center, not on
   // every filter toggle (filter changes preserve framing intentionally).
   useEffect(() => {
@@ -600,7 +573,7 @@ export function ArtistGraphVisualization({
     // a delay the bounding box is computed before forces have moved
     // anything, so the zoom-to-fit fires on stale positions.
     const timer = setTimeout(() => {
-      graphRef.current?.zoomToFit(500, 40)
+      graphRef.current?.zoomToFit(500, 70)
     }, 250)
     return () => clearTimeout(timer)
   }, [data.center.id])
@@ -613,7 +586,7 @@ export function ArtistGraphVisualization({
   useEffect(() => {
     if (!graphRef.current) return
     const timer = setTimeout(() => {
-      graphRef.current?.zoomToFit(500, 40)
+      graphRef.current?.zoomToFit(500, 70)
     }, 250)
     return () => clearTimeout(timer)
   }, [expandedIds])
