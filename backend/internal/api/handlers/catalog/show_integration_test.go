@@ -115,6 +115,25 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnverifiedEmailBlocked() {
 	s.Error(err)
 }
 
+// TestUpdateShow_RejectsTooManyArtists: PSY-1267 — the update path (no Resolve) caps
+// the array in the handler, before any DB work, since an update can also create new
+// artists (same outbound-enrichment amplification as create).
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsTooManyArtists() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
+
+	req := &UpdateShowRequest{ShowID: "1"}
+	artists := make([]Artist, maxShowArtists+1)
+	for i := range artists {
+		name := fmt.Sprintf("Artist %d", i)
+		artists[i] = Artist{Name: &name}
+	}
+	req.Body.Artists = artists
+
+	_, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Error(err, "an update with more than %d artists must be rejected", maxShowArtists)
+}
+
 // --- GetShowHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetShow_ByID() {
