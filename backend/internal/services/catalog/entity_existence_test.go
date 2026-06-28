@@ -125,28 +125,55 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_TagSlugAndID
 }
 
 func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugUsesDetailThreshold() {
+	// Two verified venues in the Phoenix metro (Phoenix + Mesa share CBSA 38060)
+	// and one in the SEPARATE Tucson metro. Metro is denormalized as the
+	// production write paths do (PSY-1255 step C).
 	venues := []*catalogm.Venue{
-		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Verified: true},
-		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Verified: true},
-		{Name: "Small Room", Slug: stringPtr("small-room"), City: "Tucson", State: "AZ", Verified: true},
-		{Name: "Unverified Room", Slug: stringPtr("unverified-room"), City: "Mesa", State: "AZ", Verified: false},
+		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Small Room", Slug: stringPtr("small-room"), City: "Tucson", State: "AZ", Metro: seedMetro("Tucson", "AZ"), Verified: true},
+		{Name: "Unverified Room", Slug: stringPtr("unverified-room"), City: "Mesa", State: "AZ", Metro: seedMetro("Mesa", "AZ"), Verified: false},
 	}
 	for _, venue := range venues {
 		suite.Require().NoError(suite.db.Create(venue).Error)
 	}
 	suite.Require().NoError(suite.db.Model(venues[3]).Update("verified", false).Error)
 
+	// Phoenix metro clears the threshold (2 verified) → its scene exists.
 	exists, err := suite.svc.Exists("scenes", "phoenix-az")
 	suite.Require().NoError(err)
 	suite.True(exists)
 
+	// A suburb slug in the SAME metro rolls up to it (Mesa → Phoenix metro), so it
+	// also resolves — the step-C rollup that keeps old member URLs from 404ing.
+	exists, err = suite.svc.Exists("scenes", "mesa-az")
+	suite.Require().NoError(err)
+	suite.True(exists)
+
+	// Tucson is a separate metro with only 1 verified venue → below threshold.
 	exists, err = suite.svc.Exists("scenes", "tucson-az")
 	suite.Require().NoError(err)
 	suite.False(exists)
+}
 
-	exists, err = suite.svc.Exists("scenes", "mesa-az")
+// TestExists_SceneSlugHyphenatedNoCBSACity guards the adversarial round-2 fix: a
+// no-CBSA city whose NAME contains a hyphen ("Foo-Bar") must still pass the
+// existence probe. The fallback must match the slug form losslessly (LOWER +
+// REPLACE), not re-parse the slug — re-parsing would collapse "foo-bar" to
+// "foo bar" and 404 a scene that both lists and renders.
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugHyphenatedNoCBSACity() {
+	venues := []*catalogm.Venue{
+		{Name: "Hyphen Hall", Slug: stringPtr("hyphen-hall"), City: "Foo-Bar", State: "ZZ", Metro: seedMetro("Foo-Bar", "ZZ"), Verified: true},
+		{Name: "Dash Den", Slug: stringPtr("dash-den"), City: "Foo-Bar", State: "ZZ", Metro: seedMetro("Foo-Bar", "ZZ"), Verified: true},
+	}
+	for _, venue := range venues {
+		suite.Require().NoError(suite.db.Create(venue).Error)
+	}
+	suite.Require().Nil(venues[0].Metro, "Foo-Bar is not in any CBSA → fallback path")
+
+	exists, err := suite.svc.Exists("scenes", "foo-bar-zz")
 	suite.Require().NoError(err)
-	suite.False(exists)
+	suite.True(exists)
 }
 
 func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_UnsupportedEntityTypeIsMissing() {

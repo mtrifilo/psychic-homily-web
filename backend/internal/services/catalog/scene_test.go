@@ -11,8 +11,16 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/testutil"
 )
+
+// seedMetro resolves a (city, state) to its CBSA code for test fixtures, mirroring
+// the production write paths that set venues.metro / artists.metro via the
+// geocoder (PSY-1255 step C). Returns nil for a non-US / no-CBSA place.
+func seedMetro(city, state string) *string {
+	return geo.MetroPointer(geo.Default(), city, state, usCountry)
+}
 
 // =============================================================================
 // UNIT TESTS (No Database Required)
@@ -88,6 +96,7 @@ func (suite *SceneServiceIntegrationTestSuite) createVerifiedVenue(name, city, s
 		Name:     name,
 		City:     city,
 		State:    state,
+		Metro:    seedMetro(city, state),
 		Verified: true,
 	}
 	// Create as verified=true, then update to true (GORM bool gotcha: false is zero-value)
@@ -103,6 +112,7 @@ func (suite *SceneServiceIntegrationTestSuite) createUnverifiedVenue(name, city,
 		Name:  name,
 		City:  city,
 		State: state,
+		Metro: seedMetro(city, state),
 	}
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
@@ -118,10 +128,11 @@ func (suite *SceneServiceIntegrationTestSuite) createArtist(name string) *catalo
 	return suite.createArtistIn(name, "Phoenix", "AZ")
 }
 
-// createArtistIn seeds an artist with an explicit home city/state — used to seed
-// touring acts (city != the scene) for the PSY-1233 local-filter tests.
+// createArtistIn seeds an artist with an explicit home city/state (+ its derived
+// metro) — used to seed bands based elsewhere, who must NOT appear in this
+// scene's roster under the metro-keyed model (PSY-1255 step C).
 func (suite *SceneServiceIntegrationTestSuite) createArtistIn(name, city, state string) *catalogm.Artist {
-	artist := &catalogm.Artist{Name: name, City: stringPtr(city), State: stringPtr(state)}
+	artist := &catalogm.Artist{Name: name, City: stringPtr(city), State: stringPtr(state), Metro: seedMetro(city, state)}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
@@ -378,6 +389,106 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
 	// Chicago has 7, Phoenix has 5
 	suite.Equal("Chicago", scenes[0].City)
 	suite.Equal("Phoenix", scenes[1].City)
+}
+
+// TestListScenes_MetroRollup is the headline step-C behavior: two cities sharing
+// one CBSA (Minneapolis + Saint Paul → 33460) roll up to ONE scene displayed
+// under the principal city, and the roster is every band BASED in the metro —
+// including a suburb band that never played a local show — while a touring act
+// based in another metro is excluded even though it played here.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MetroRollup() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("First Avenue", "Minneapolis", "MN")
+	v2 := suite.createVerifiedVenue("Turf Club", "Saint Paul", "MN")
+
+	mpls := suite.createArtistIn("Minneapolis Band", "Minneapolis", "MN")
+	suite.createArtistIn("Bloomington Band", "Bloomington", "MN") // suburb of the same metro; never plays locally
+	tourer := suite.createArtistIn("Chicago Tourer", "Chicago", "IL")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("TC 1", v1.ID, mpls.ID, user.ID, future)
+	suite.createApprovedShow("TC 2", v2.ID, mpls.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("TC 3", v1.ID, tourer.ID, user.ID, future.AddDate(0, 0, 2)) // tourer plays here
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal("Minneapolis", scenes[0].City) // principal city of CBSA 33460
+	suite.Equal("MN", scenes[0].State)
+	suite.Equal("minneapolis-mn", scenes[0].Slug)
+	suite.Equal(2, scenes[0].VenueCount) // both cities rolled up
+
+	roster, total, err := suite.sceneService.GetActiveArtists("Minneapolis", "MN", 180, 50, 0)
+	suite.Require().NoError(err)
+	names := map[string]bool{}
+	for _, a := range roster {
+		names[a.Name] = true
+	}
+	suite.Equal(int64(2), total) // the two metro bands; NOT the Chicago tourer
+	suite.True(names["Minneapolis Band"])
+	suite.True(names["Bloomington Band"], "a metro-resident band with no local show is still rostered")
+	suite.False(names["Chicago Tourer"], "a touring act based in another metro is excluded")
+}
+
+// TestScene_NoCBSAFallback verifies a place with no Census CBSA keeps the literal
+// (city, state) keying, so non-US / no-CBSA scenes still work (the globe bets on
+// global growth — PSY-1255 step C).
+func (suite *SceneServiceIntegrationTestSuite) TestScene_NoCBSAFallback() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Club One", "Faketown", "ZZ")
+	v2 := suite.createVerifiedVenue("Club Two", "Faketown", "ZZ")
+	band := suite.createArtistIn("Faketown Band", "Faketown", "ZZ")
+	suite.Require().Nil(v1.Metro, "a no-CBSA place has a NULL metro")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("F1", v1.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("F2", v2.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("F3", v1.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal("Faketown", scenes[0].City)
+	suite.Equal("ZZ", scenes[0].State)
+
+	detail, err := suite.sceneService.GetSceneDetail("Faketown", "ZZ")
+	suite.Require().NoError(err)
+	suite.Equal(1, detail.Stats.ArtistCount)
+
+	roster, total, err := suite.sceneService.GetActiveArtists("Faketown", "ZZ", 180, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(roster, 1)
+	suite.Equal("Faketown Band", roster[0].Name)
+}
+
+// TestScene_NoCBSAFallback_MixedCase pins the adversarial-review fix: the
+// ListScenes fallback grouping and the detail/existence gate must match
+// case-insensitively, or a no-CBSA scene whose venues are stored with
+// inconsistent casing would LIST (case-insensitive group) but 404 on click
+// (case-sensitive gate). Two venues "Faketown"/"faketown" must be one scene that
+// resolves on its detail page.
+func (suite *SceneServiceIntegrationTestSuite) TestScene_NoCBSAFallback_MixedCase() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Club One", "Faketown", "ZZ")
+	v2 := suite.createVerifiedVenue("Club Two", "faketown", "ZZ") // same place, different casing
+	band := suite.createArtistIn("Mixed Case Band", "FAKETOWN", "ZZ")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("M1", v1.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("M2", v2.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("M3", v1.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal(2, scenes[0].VenueCount) // both venues rolled together despite casing
+
+	// The detail gate must AGREE — the listed scene must not 404 on click.
+	detail, err := suite.sceneService.GetSceneDetail(scenes[0].City, scenes[0].State)
+	suite.Require().NoError(err)
+	suite.Equal(2, detail.Stats.VenueCount)
+	suite.Equal(1, detail.Stats.ArtistCount) // the mixed-case-home band matches case-insensitively
 }
 
 // =============================================================================
@@ -695,13 +806,19 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_Period() {
 	suite.createApprovedShow("F4", v1.ID, recentArtist.ID, user.ID, future.AddDate(0, 0, 3))
 	suite.createApprovedShow("F5", v2.ID, recentArtist.ID, user.ID, future.AddDate(0, 0, 4))
 
-	// With 90-day period: should only include recentArtist
+	// Period is the ACTIVE WINDOW now, not a membership gate (PSY-1255 step C):
+	// the roster is every band BASED in the Phoenix metro, with the ones active in
+	// the window (or upcoming) flagged and sorted first. recentArtist has a show
+	// within 90 days (and upcoming) → active; oldArtist's only show was 100 days
+	// ago → inactive, but still part of the roster.
 	results, total, err := suite.sceneService.GetActiveArtists("Phoenix", "AZ", 90, 20, 0)
 	suite.Require().NoError(err)
-	// recentArtist has shows within 90 days; oldArtist does not
-	suite.Equal(int64(1), total)
-	suite.Len(results, 1)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(results, 2)
 	suite.Equal("Recent Artist", results[0].Name)
+	suite.True(results[0].IsActive, "recentArtist should be active")
+	suite.Equal("Old Artist", results[1].Name)
+	suite.False(results[1].IsActive, "oldArtist should be inactive but rostered")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_NotFound() {
@@ -728,10 +845,24 @@ func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_Success() {
 func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_MultiWordCity() {
 	suite.createVerifiedVenue("Test Venue", "New York", "NY")
 
+	// A multi-word slug resolves to its CBSA metro's PRINCIPAL city (PSY-1255
+	// step C): "new-york-ny" pins the NYC metro, whose principal city is the
+	// canonical GeoNames "New York City" — so a venue seeded as "New York" still
+	// resolves, and the scene displays under the canonical metro identity.
 	city, state, err := suite.sceneService.ParseSceneSlug("new-york-ny")
 	suite.Require().NoError(err)
-	suite.Equal("New York", city)
+	suite.Equal("New York City", city)
 	suite.Equal("NY", state)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_MemberSlugResolvesToPrincipal() {
+	// A suburb slug resolves to its metro's PRINCIPAL city (Tempe → Phoenix), so
+	// old member URLs land on the canonical metro scene instead of 404ing
+	// (PSY-1255 step C). Resolution is purely geographic — no venue seeding needed.
+	city, state, err := suite.sceneService.ParseSceneSlug("tempe-az")
+	suite.Require().NoError(err)
+	suite.Equal("Phoenix", city)
+	suite.Equal("AZ", state)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_NotFound() {

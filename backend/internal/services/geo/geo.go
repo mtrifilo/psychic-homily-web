@@ -73,6 +73,21 @@ type Metro struct {
 	Name     string
 }
 
+// MetroPrincipal describes a CBSA metro for display + keying: its principal
+// (highest-population) member city, that city's state, and the city's
+// coordinates — the representative name + point a scene is shown under once
+// scenes are keyed by metro (PSY-1255 step C). Found is the reverse of
+// ResolveMetro: ResolveMetro maps a place -> its CBSA; this maps a CBSA -> its
+// principal city.
+type MetroPrincipal struct {
+	CBSACode  string  // echo of the input code, e.g. "16980"
+	Name      string  // CBSA friendly title, e.g. "Chicago-Naperville-Elgin, IL-IN-WI"
+	City      string  // principal city name, e.g. "Chicago"
+	State     string  // principal city's 2-letter state, e.g. "IL"
+	Latitude  float64 // principal city centroid
+	Longitude float64
+}
+
 // Geocoder resolves a location to coordinates + timezone. It is an interface so
 // the data source stays swappable (info hiding) and callers can stub it in tests.
 type Geocoder interface {
@@ -97,6 +112,7 @@ type Geocoder interface {
 
 // cityRow is one populated place from GeoNames.
 type cityRow struct {
+	name    string // localized display name (e.g. "Los Angeles"); the principal-city label for a metro
 	country string // ISO 3166-1 alpha-2
 	admin1  string // for US rows this is the 2-letter state code
 	pop     int64
@@ -115,6 +131,7 @@ type cityRow struct {
 
 type offlineGeocoder struct {
 	byCity      map[string][]cityRow // key: foldKey(city name)
+	byMetro     map[string][]cityRow // key: CBSA code -> the metro's member cities (US only)
 	nameToISO   map[string]string    // key: foldKey(country name) -> ISO2
 	isoToName   map[string]string    // ISO2 -> canonical display name
 	isoCodes    map[string]bool      // valid ISO2 codes
@@ -168,6 +185,42 @@ func MetroPointer(g Geocoder, city, state, country string) *string {
 	return &m.CBSACode
 }
 
+// MetroPrincipalByCBSA returns the principal (highest-population) city of a CBSA
+// metro — its name, state, and coordinates — for displaying/keying a scene by
+// metro (PSY-1255 step C). ok is false for an unknown code (non-US, or a code
+// absent from the dataset). It uses the process-wide geocoder, mirroring
+// CountryToISO/CanonicalCountryName, because the principal-city pick needs the
+// full embedded population data, not a caller-stubbable subset.
+func MetroPrincipalByCBSA(cbsa string) (MetroPrincipal, bool) {
+	Default() // ensure the dataset is parsed
+	return defaultGeo.metroPrincipal(cbsa)
+}
+
+// metroPrincipal selects the highest-population member city of a CBSA. The
+// Census principal city of a metro is (by construction) its largest, so max
+// population is the right pick — and it sidesteps parsing the multi-city
+// cbsaName (where "Winston-Salem, NC" is one hyphenated city, not two).
+func (g *offlineGeocoder) metroPrincipal(cbsa string) (MetroPrincipal, bool) {
+	rows := g.byMetro[strings.TrimSpace(cbsa)]
+	if len(rows) == 0 {
+		return MetroPrincipal{}, false
+	}
+	best := rows[0]
+	for _, r := range rows[1:] {
+		if r.pop > best.pop {
+			best = r
+		}
+	}
+	return MetroPrincipal{
+		CBSACode:  best.cbsaCode,
+		Name:      best.cbsaName,
+		City:      best.name,
+		State:     best.admin1,
+		Latitude:  best.lat,
+		Longitude: best.lng,
+	}, true
+}
+
 // CountryToISO canonicalizes a country string — an ISO 3166-1 alpha-2 code, a
 // full name, or a known alias ("USA") — to its ISO2 code; ok is false for an
 // unrecognized value. It exists to compare country values from heterogeneous
@@ -210,6 +263,7 @@ func CanonicalCountryName(s string) (string, bool) {
 func newOfflineGeocoder() *offlineGeocoder {
 	g := &offlineGeocoder{
 		byCity:      make(map[string][]cityRow, 40000),
+		byMetro:     make(map[string][]cityRow, 1000),
 		nameToISO:   make(map[string]string, 512),
 		isoToName:   make(map[string]string, 256),
 		isoCodes:    make(map[string]bool, 256),
@@ -282,6 +336,7 @@ func (g *offlineGeocoder) loadCities() {
 			continue
 		}
 		row := cityRow{
+			name:    strings.TrimSpace(f[0]),
 			country: strings.ToUpper(strings.TrimSpace(f[2])),
 			admin1:  strings.TrimSpace(f[3]),
 			pop:     pop,
@@ -303,6 +358,12 @@ func (g *offlineGeocoder) loadCities() {
 		g.byCity[nameKey] = append(g.byCity[nameKey], row)
 		if asciiKey != nameKey {
 			g.byCity[asciiKey] = append(g.byCity[asciiKey], row)
+		}
+		// Reverse index: every CBSA member city, keyed by its code, so a metro
+		// can be resolved to its principal (highest-population) city for scene
+		// display/keying (PSY-1255 step C). Append once per row (not per name key).
+		if row.cbsaCode != "" {
+			g.byMetro[row.cbsaCode] = append(g.byMetro[row.cbsaCode], row)
 		}
 	}
 }

@@ -3091,9 +3091,9 @@ func (m *MockSceneService) GetSceneDetail(city string, state string) (*contracts
 	}
 	return nil, nil
 }
-func (m *MockSceneService) GetActiveArtists(city string, state string, periodDays int, limit int, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+func (m *MockSceneService) GetActiveArtists(city string, state string, activeWindowDays int, limit int, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 	if m.GetActiveArtistsFn != nil {
-		return m.GetActiveArtistsFn(city, state, periodDays, limit, offset)
+		return m.GetActiveArtistsFn(city, state, activeWindowDays, limit, offset)
 	}
 	return []*contracts.SceneArtistResponse{}, 0, nil
 }

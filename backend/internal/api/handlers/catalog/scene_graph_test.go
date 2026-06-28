@@ -52,18 +52,18 @@ func (s *SceneGraphIntegrationSuite) seedSceneVenue(name, city, state string) *c
 	return testhelpers.CreateVerifiedVenue(s.deps.DB, name, city, state)
 }
 
-// seedSceneArtist creates an artist LOCAL to the suite's default scene (Phoenix,
-// AZ) so it survives the PSY-1233 home-city filter on the scene graph. Use
-// seedSceneArtistIn for an artist based in another city (a touring act / a
-// different scene).
+// seedSceneArtist creates an artist BASED in the suite's default scene (the
+// Phoenix metro) so it appears in the metro-keyed scene roster/graph (PSY-1255
+// step C). Use seedSceneArtistIn for a band based in another metro.
 func (s *SceneGraphIntegrationSuite) seedSceneArtist(name string) *catalogm.Artist {
 	return s.seedSceneArtistIn(name, "Phoenix", "AZ")
 }
 
-// seedSceneArtistIn creates an artist with an explicit home city/state. Slug
-// doesn't matter for graph computation but the response payload surfaces it.
+// seedSceneArtistIn creates an artist with an explicit home city/state (+ its
+// derived metro). Slug doesn't matter for graph computation but the response
+// payload surfaces it.
 func (s *SceneGraphIntegrationSuite) seedSceneArtistIn(name, city, state string) *catalogm.Artist {
-	a := &catalogm.Artist{Name: name, City: testhelpers.StringPtr(city), State: testhelpers.StringPtr(state)}
+	a := &catalogm.Artist{Name: name, City: testhelpers.StringPtr(city), State: testhelpers.StringPtr(state), Metro: testhelpers.MetroFor(city, state)}
 	s.deps.DB.Create(a)
 	slug := fmt.Sprintf("artist-%d", a.ID)
 	s.deps.DB.Model(a).Update("slug", slug)

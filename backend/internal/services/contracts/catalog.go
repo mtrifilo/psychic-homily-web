@@ -644,7 +644,9 @@ type MergeArtistResult struct {
 // Scene types (computed city aggregations)
 // ──────────────────────────────────────────────
 
-// SceneListResponse represents a city scene in the list endpoint
+// SceneListResponse represents a scene in the list endpoint. Under metro keying
+// (PSY-1255 step C) City/State are the metro's PRINCIPAL city/state (or the
+// literal city for a non-US / no-CBSA fallback scene).
 type SceneListResponse struct {
 	City              string `json:"city"`
 	State             string `json:"state"`
@@ -653,15 +655,16 @@ type SceneListResponse struct {
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	TotalShowCount    int    `json:"total_show_count"`
 	// Latitude/Longitude position the scene on the geographic-discovery map
-	// (PSY-1212): the city's geocoded centroid, resolved from (city, state) via
-	// the same offline geocoder as ShowCityResponse (PSY-985/PSY-981) — so a city
+	// (PSY-1212): the metro principal city's centroid (or the fallback city's,
+	// geocoded the same way as ShowCityResponse — PSY-985/PSY-981), so a scene
 	// plots at the same point here and on the shows-by-city map. Omitted (nil) on
 	// a geocoder miss; the scene still lists, just unplaceable.
 	Latitude  *float64 `json:"latitude,omitempty"`
 	Longitude *float64 `json:"longitude,omitempty"`
 }
 
-// SceneDetailResponse represents the full computed scene for a city
+// SceneDetailResponse represents the full computed scene for a metro (or a
+// no-CBSA fallback city); City/State are the principal city/state.
 type SceneDetailResponse struct {
 	City        string     `json:"city"`
 	State       string     `json:"state"`
@@ -689,7 +692,10 @@ type ScenePulse struct {
 	ShowsByMonth          []int  `json:"shows_by_month"` // last 6 months
 }
 
-// SceneArtistResponse represents an artist in the active artists endpoint
+// SceneArtistResponse represents an artist in a scene's roster. Under the
+// metro-keyed model (PSY-1255 step C) the roster is every band BASED in the
+// metro; IsActive flags the ones with an upcoming show or one in the active
+// window (played anywhere), which the frontend highlights.
 type SceneArtistResponse struct {
 	ID        uint    `json:"id"`
 	Slug      string  `json:"slug"`
@@ -697,6 +703,7 @@ type SceneArtistResponse struct {
 	City      *string `json:"city"`
 	State     *string `json:"state"`
 	ShowCount int     `json:"show_count"`
+	IsActive  bool    `json:"is_active"`
 }
 
 // ──────────────────────────────────────────────
@@ -982,11 +989,18 @@ type ArtistServiceInterface interface {
 // Scene Service Interface
 // ──────────────────────────────────────────────
 
-// SceneServiceInterface defines the contract for computed city scene aggregations.
+// SceneServiceInterface defines the contract for computed scene aggregations.
+// Scenes are keyed by US Census CBSA metro (PSY-1255 step C); the (city, state)
+// args are the metro's PRINCIPAL city/state (or the literal city for a non-US /
+// no-CBSA fallback scene), as returned by ParseSceneSlug.
 type SceneServiceInterface interface {
 	ListScenes() ([]*SceneListResponse, error)
 	GetSceneDetail(city, state string) (*SceneDetailResponse, error)
-	GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
+	// GetActiveArtists returns the scene's full roster — every band based in the
+	// metro — with is_active flagged and sorted first. activeWindowDays is the
+	// recency window (a band is active if it has a show within it or upcoming);
+	// it is NOT a membership filter, so the returned total is the whole roster.
+	GetActiveArtists(city, state string, activeWindowDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
 	ParseSceneSlug(slug string) (string, string, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)

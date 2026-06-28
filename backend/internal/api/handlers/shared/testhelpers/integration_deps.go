@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
 	exploresvc "psychic-homily-backend/internal/services/explore"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	usersvc "psychic-homily-backend/internal/services/user"
@@ -203,12 +204,20 @@ func CreateAdminUser(db *gorm.DB) *authm.User {
 	return user
 }
 
+// MetroFor resolves a (city, state) to its CBSA code for fixtures, mirroring the
+// production venue/artist write paths that denormalize metro via the geocoder
+// (PSY-1255 step C). nil for a non-US / no-CBSA place.
+func MetroFor(city, state string) *string {
+	return geo.MetroPointer(geo.Default(), city, state, "US")
+}
+
 // CreateVerifiedVenue inserts a verified venue and returns it.
 func CreateVerifiedVenue(db *gorm.DB, name, city, state string) *catalogm.Venue {
 	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
+		Metro:    MetroFor(city, state),
 		Verified: true,
 	}
 	db.Create(venue)
@@ -221,6 +230,7 @@ func CreateUnverifiedVenue(db *gorm.DB, name, city, state string) *catalogm.Venu
 		Name:     name,
 		City:     city,
 		State:    state,
+		Metro:    MetroFor(city, state),
 		Verified: false,
 	}
 	db.Create(venue)
