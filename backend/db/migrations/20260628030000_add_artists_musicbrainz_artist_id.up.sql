@@ -3,8 +3,10 @@
 -- enrichMusicBrainz (the show-enrichment worker path) and the artist-location
 -- backfill both resolve an artist's MusicBrainz MBID and then discard it, so every
 -- later enrichment pass (location, links, cover-art, future discography) re-searches
--- MusicBrainz BY NAME at ~1 req/s — wasteful and homonym-prone. Storing the MBID
--- once lets those passes browse MusicBrainz by ID instead.
+-- MusicBrainz BY NAME at ~1 req/s — wasteful and homonym-prone. Storing the MBID the
+-- first time we resolve an artist lets later passes browse MusicBrainz by ID instead.
+-- (The two writers fill it forward-only; the pre-existing NULL-MBID backlog is the
+-- PSY-1250 sweep's job.)
 --
 -- Nullable + additive. Written fill-when-empty + exact-name-gated at the write sites
 -- (a set MBID is never overwritten; only an exact-name match stamps it, so a famous

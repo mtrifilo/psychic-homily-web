@@ -45,10 +45,16 @@ func TestEnrichmentService_ValidEnrichmentTypes(t *testing.T) {
 	assert.Equal(t, "all", validTypes[3])
 }
 
-// TestMBIDToStamp exercises the PSY-1249 fill-when-empty + exact-name gate in
-// isolation (the load-bearing decision; the surrounding GORM write is covered by
-// the integration suite). A wrong ID landing on an artist is the core risk, so the
-// namesake-rejection and never-overwrite cases are the ones that matter most.
+// TestMBIDToStamp exercises the PSY-1249 valid-UUID + fill-when-empty + exact-name
+// gate in isolation (the load-bearing decision; the surrounding GORM write is covered
+// by the integration suite). A wrong/malformed ID landing on an artist is the core
+// risk, so the validation, never-overwrite, and name-rejection cases matter most.
+//
+// NOTE the helper is a self-contained gate by design; some cases below exercise an
+// input the production caller (enrichMusicBrainz → SearchArtist, which pre-filters by
+// EqualFold) can't actually produce. They pin the helper's contract for the
+// un-pre-filtered reuse path (the raw SearchArtistCandidates list), not a reachable
+// enrichMusicBrainz state — each such case says so.
 func TestMBIDToStamp(t *testing.T) {
 	const validMBID = "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab"
 	sp := func(s string) *string { return &s }
@@ -72,9 +78,22 @@ func TestMBIDToStamp(t *testing.T) {
 			want:   validMBID,
 		},
 		{
-			name:   "name mismatch (a higher-scored famous namesake) stamps nothing",
+			// Helper-level defensive gate: a non-matching name is rejected. This exact
+			// input is UNREACHABLE via enrichMusicBrainz (SearchArtist already discards
+			// non-EqualFold names); it verifies the helper stays correct if reused from
+			// an un-pre-filtered path.
+			name:   "name mismatch is rejected (helper-level defense; SearchArtist pre-filters in prod)",
 			artist: catalogm.Artist{Name: "Crush"},
 			result: &MBLookupResult{MBID: validMBID, Name: "Crush the Korean Rapper"},
+			want:   "",
+		},
+		{
+			// Punctuation-only names both normalize to "" — the empty-name guard must
+			// reject rather than treat two different names as equal. (Mirrors
+			// matchMBLocation's want=="" guard so the identity gates can't drift.)
+			name:   "punctuation-only names that both normalize to empty are rejected",
+			artist: catalogm.Artist{Name: "!!!"},
+			result: &MBLookupResult{MBID: validMBID, Name: "+/-"},
 			want:   "",
 		},
 		{
@@ -99,6 +118,22 @@ func TestMBIDToStamp(t *testing.T) {
 			name:   "an empty MBID on the result stamps nothing",
 			artist: catalogm.Artist{Name: "Snail Mail"},
 			result: &MBLookupResult{MBID: "", Name: "Snail Mail"},
+			want:   "",
+		},
+		{
+			// Trust-boundary: a malformed (non-UUID) id from the MB API is declined,
+			// so it never enters the VARCHAR(36) identity column.
+			name:   "a malformed (non-UUID) MBID is rejected",
+			artist: catalogm.Artist{Name: "Snail Mail"},
+			result: &MBLookupResult{MBID: "not-a-uuid", Name: "Snail Mail"},
+			want:   "",
+		},
+		{
+			// An oversized id would otherwise raise "value too long for VARCHAR(36)"
+			// and abort the whole provenance Updates — rejected up front instead.
+			name:   "an oversized MBID is rejected",
+			artist: catalogm.Artist{Name: "Snail Mail"},
+			result: &MBLookupResult{MBID: validMBID + "-trailing-garbage", Name: "Snail Mail"},
 			want:   "",
 		},
 	}

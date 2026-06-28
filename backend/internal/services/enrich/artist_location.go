@@ -109,9 +109,14 @@ type Report struct {
 	FilledMusicBrainz int
 	Missed            int // no source yielded a usable location
 	ResolvedNoFill    int // a location was found but every matching field was already set
-	Fills             []Fill
-	Conflicts         []Conflict // sources disagreed on country — skipped for review
-	Errors            []string
+	// StampedMBID counts artists that got a musicbrainz_artist_id written this run
+	// (PSY-1249) — across BOTH location-fill rows and MBID-only rows. Surfaced in the
+	// dry-run summary so the operator's mandatory review actually sees the MBID writes
+	// (an MBID-only row otherwise lands silently in ResolvedNoFill).
+	StampedMBID int
+	Fills       []Fill
+	Conflicts   []Conflict // sources disagreed on country — skipped for review
+	Errors      []string
 }
 
 // BandcampLocationResolver fetches a band's self-reported location from a
@@ -215,6 +220,10 @@ func backfillArtistLocations(
 			// was already set.
 			report.ResolvedNoFill++
 			continue
+		}
+
+		if _, stamped := updates["musicbrainz_artist_id"]; stamped {
+			report.StampedMBID++
 		}
 
 		if len(filled) > 0 {
@@ -362,7 +371,12 @@ func matchMBLocation(candidates []pipeline.MBArtistResult, name string) (Resolve
 			continue
 		}
 		if loc, ok := locationFromMBResult(c); ok {
-			loc.MBID = c.ID // PSY-1249: carry the matched MB artist's MBID through to the write
+			// PSY-1249: carry the matched MB artist's MBID through to the write, but
+			// only if it's a canonical UUID — never let a malformed id into the
+			// identity column (the location still fills regardless).
+			if pipeline.IsValidMBID(c.ID) {
+				loc.MBID = c.ID
+			}
 			return loc, true
 		}
 	}
