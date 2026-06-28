@@ -137,6 +137,11 @@ export function ArtistSimilarSidebar({
   // the canvas uses (incl. the per-node edge cap), so the sidebar order matches the canvas's.
   // Null for 'relevant' (no DOI needed) or before the graph loads. Used ONLY to re-order the
   // already-built shown list below, never to change WHICH artists appear (keeps default opt-in).
+  // Note: the shown list is the center-adjacent subset, while DOI's degree/relevance terms are
+  // min-max-normalized over the WHOLE drawn graph (a superset). In the base ego graph these
+  // coincide (every node is center-adjacent), so the ranking is faithful; a future payload that
+  // included a node WITHOUT a center edge would have it influence the normalization without
+  // appearing in the list — re-scope DOI to the shown set then if that ever happens.
   const sidebarDoi = useMemo(() => {
     if (!graph || sortMode === 'relevant') return null
     const merged = mergeEgoGraphs(graph, NO_EXPANSIONS)

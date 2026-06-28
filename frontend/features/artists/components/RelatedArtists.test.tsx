@@ -233,9 +233,11 @@ describe('ArtistSimilarSidebar', () => {
     await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
 
     // DOI normalizes relevance PER edge type, so Creeping Death's shared_bills (the strongest of
-    // its type → 1.0) outranks Undeath's weaker similar tie (0.68/0.85) despite a lower raw score —
-    // the whole point of surfacing DOI instead of raw score: Creeping Death moves above Undeath.
-    // (Frozen Soul and Creeping Death tie on DOI here; the score tiebreak keeps Frozen Soul top.)
+    // its type → 1.0) beats Undeath's weaker similar tie (0.68/0.85 = 0.8); that per-type gap is
+    // THEN min-max-normalized across the scored set (graphDoi.ts), widening 1.0-vs-0.8 to the full
+    // relevance weight — so Creeping Death moves above Undeath despite a lower raw score (the whole
+    // point of surfacing DOI). (Frozen Soul and Creeping Death tie on DOI here; the score tiebreak
+    // keeps Frozen Soul top.)
     expect(artistOrder()).toEqual(['Frozen Soul', 'Creeping Death', 'Undeath'])
     // aria-live announcement of the re-rank.
     expect(
@@ -275,6 +277,54 @@ describe('ArtistSimilarSidebar', () => {
       <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
     )
     expect(screen.queryByLabelText('Sort')).not.toBeInTheDocument()
+  })
+
+  // The star fixture above (every neighbor degree 1) CANNOT distinguish popular from niche: the
+  // bias only moves DOI's importance term (in-subgraph degree), which degenerate-normalizes to a
+  // constant when all degrees are equal — so both modes produce the same order, and a swapped/
+  // broken SORT_MODE_BIAS would still pass. This fixture varies degree: "High Degree" (id 2) has
+  // cross-edges to two other neighbors (degree 3); "Low Degree" (id 3) has only its center edge
+  // (degree 1) with the SAME center-tie strength (0.8) → they differ ONLY in importance. The
+  // cross-edges are radio (not center edges), so the sidebar's score-sort never sees them — only
+  // DOI does, via the full merged graph. So popular (importance +) ranks High Degree up; niche
+  // (importance −) ranks it down. They must FLIP — which is the whole point of the two modes.
+  const hubGraphData: ArtistGraph = {
+    center: { id: 1, name: 'Gatecreeper', slug: 'gatecreeper', upcoming_show_count: 0 },
+    nodes: [
+      { id: 2, name: 'High Degree', slug: 'high-degree', upcoming_show_count: 0 },
+      { id: 3, name: 'Low Degree', slug: 'low-degree', upcoming_show_count: 0 },
+      { id: 4, name: 'Cross One', slug: 'cross-one', upcoming_show_count: 0 },
+      { id: 5, name: 'Cross Two', slug: 'cross-two', upcoming_show_count: 0 },
+    ],
+    links: [
+      { source_id: 1, target_id: 2, type: 'similar', score: 0.8, votes_up: 0, votes_down: 0 },
+      { source_id: 1, target_id: 3, type: 'similar', score: 0.8, votes_up: 0, votes_down: 0 },
+      { source_id: 1, target_id: 4, type: 'similar', score: 0.5, votes_up: 0, votes_down: 0 },
+      { source_id: 1, target_id: 5, type: 'similar', score: 0.5, votes_up: 0, votes_down: 0 },
+      // Cross-edges give "High Degree" (id 2) its extra in-subgraph degree.
+      { source_id: 2, target_id: 4, type: 'radio_cooccurrence', score: 0.5, votes_up: 0, votes_down: 0 },
+      { source_id: 2, target_id: 5, type: 'radio_cooccurrence', score: 0.5, votes_up: 0, votes_down: 0 },
+    ],
+    user_votes: {},
+  }
+
+  it('flips popular-first vs niche-first by in-subgraph degree (proves the bias mapping)', async () => {
+    const user = userEvent.setup()
+    mockUseArtistGraph.mockReturnValue({ data: hubGraphData, isLoading: false, error: null })
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    const isBefore = (a: string, b: string) =>
+      Boolean(
+        screen.getByText(a).compareDocumentPosition(screen.getByText(b)) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+
+    await user.selectOptions(screen.getByLabelText('Sort'), 'popular')
+    expect(isBefore('High Degree', 'Low Degree')).toBe(true) // popular favors the high-degree hub
+
+    await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
+    expect(isBefore('Low Degree', 'High Degree')).toBe(true) // niche favors the low-degree leaf
   })
 })
 
