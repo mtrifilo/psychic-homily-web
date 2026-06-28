@@ -1216,8 +1216,14 @@ func (s *RadioFetchService) runJanitorCycle() {
 
 	// Escalate stations stuck in a sustained total-fetch outage (PSY-1269). A healthy
 	// run advances last_playlist_fetch_at, so a watermark stale beyond the threshold
-	// means the station has imported nothing for that long.
-	outagesEscalated, err := s.radioService.EscalateStaleFetchOutages(radioFetchOutageEscalationThreshold, now)
+	// means the station has imported nothing for that long. Scale the threshold to the
+	// configured fetch cadence (3× the interval) so a widened RADIO_FETCH_INTERVAL_HOURS
+	// doesn't false-escalate healthy stations; the const is the floor.
+	outageThreshold := 3 * s.fetchInterval
+	if outageThreshold < radioFetchOutageEscalationThreshold {
+		outageThreshold = radioFetchOutageEscalationThreshold
+	}
+	outagesEscalated, err := s.radioService.EscalateStaleFetchOutages(outageThreshold, now)
 	if err != nil {
 		s.logger.Error("radio janitor: fetch-outage escalation failed", "error", err)
 	}

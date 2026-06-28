@@ -1063,23 +1063,33 @@ func (s *RadioService) escalatePermanentFailure(err error, stationID uint, categ
 	})
 }
 
-// radioFetchOutageEscalationThreshold is how stale a station's last_playlist_fetch_at
-// must be before the janitor escalates it as a sustained total-fetch outage. PSY-1241
-// holds the watermark stale across a wholly-failed run, and a healthy run always
-// advances it (success, empty, or no fetchable shows), so staleness beyond a few
-// fetch cycles (the loop runs ~every 6h) means the station has imported nothing for
-// that long. 18h ≈ 3 missed cycles — long enough to rule out a one-off blip. (PSY-1269)
+// radioFetchOutageEscalationThreshold is the FLOOR for how stale a station's
+// last_playlist_fetch_at must be before the janitor escalates it as a sustained
+// total-fetch outage. The janitor raises it to 3× the configured fetch interval when
+// that is larger (see runJanitorCycle) — RADIO_FETCH_INTERVAL_HOURS is operator-tunable,
+// so a const alone would false-escalate healthy stations once the interval is widened.
+// PSY-1241 holds the watermark stale across a wholly-failed run and a healthy run
+// always advances it (success, empty, or no fetchable shows), so staleness beyond ~3
+// fetch cycles means the station has imported nothing for that long. 18h ≈ 3 missed
+// cycles at the default 6h interval. (PSY-1269)
 const radioFetchOutageEscalationThreshold = 18 * time.Hour
+
+// radioFetchOutageCategory is the escalation category — the Sentry error_category tag
+// and a fingerprint component (escalatePermanentFailure) — for a sustained total-fetch
+// outage. A named const (vs a bare literal) keeps the production call and its test
+// assertion from drifting and silently fragmenting Sentry grouping. (PSY-1269)
+const radioFetchOutageCategory = "fetch_outage"
 
 // EscalateStaleFetchOutages escalates active stations whose last successful playlist
 // fetch (last_playlist_fetch_at) is older than `threshold` — a sustained total-fetch
 // outage (PSY-1269). It reuses the PSY-1241 held-watermark as the outage signal: a
 // healthy run always advances the watermark, so a stale one means every fetchable
-// show has been failing. Manual-source stations (no automated fetch) and never-fetched
-// stations (NULL watermark) are excluded. Escalations group per (station,
-// "fetch_outage") in Sentry (see escalatePermanentFailure), so a persistent outage is
-// one issue re-triggered each janitor cycle rather than nightly spam. Returns the
-// number escalated.
+// show has been failing. Excluded: manual-source stations (no automated fetch) and
+// never-fetched stations (NULL watermark) — a provider broken from day one surfaces
+// only via the per-cycle no-progress Warn log (advanceLastFetch), not this Sentry
+// escalation. Escalations group per (station, radioFetchOutageCategory) in Sentry, so
+// a persistent outage is one issue re-triggered each janitor cycle, not nightly spam.
+// Returns the number escalated.
 func (s *RadioService) EscalateStaleFetchOutages(threshold time.Duration, now time.Time) (int, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
@@ -1099,7 +1109,7 @@ func (s *RadioService) EscalateStaleFetchOutages(threshold time.Duration, now ti
 		s.escalatePermanentFailure(
 			fmt.Errorf("radio station %q has imported no new playlists for ~%s (last successful fetch %s)",
 				st.Slug, staleFor, st.LastPlaylistFetchAt.UTC().Format(time.RFC3339)),
-			st.ID, "fetch_outage")
+			st.ID, radioFetchOutageCategory)
 	}
 	return len(stations), nil
 }

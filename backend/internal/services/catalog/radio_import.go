@@ -358,8 +358,8 @@ func resolveFetchLookbackFloorDays() int {
 // errors every run still advances, so that one show's episodes older than the floor
 // are not recovered by the incremental path — e.g. a renamed/removed external_id
 // that 404s until an admin corrects it; recovery there is a manual backfill.
-// Per-show incremental recovery would need a per-show fetch timestamp (follow-up).
-// (PSY-1241)
+// Per-show incremental recovery would need a per-show fetch timestamp — carved out
+// to PSY-1272. (PSY-1241)
 func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) bool {
 	switch {
 	case fetchAttempts == 0:
@@ -379,8 +379,11 @@ func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, epi
 // fetchSince's catch-up branch recovers the gap on the next good run (PSY-1241) and
 // the janitor escalates if it stays stale (PSY-1269, EscalateStaleFetchOutages). A
 // no-progress run and a failed write are both logged, not swallowed — the no-progress
-// warning is the immediate per-cycle outage signal. All import paths (FetchNewEpisodes,
-// ImportStation) route through here so the watermark invariant can't drift. (PSY-1269)
+// warning is the immediate per-cycle outage signal. The two steady-state station-fetch
+// paths (FetchNewEpisodes, ImportStation) route through here. Scoped backfill imports
+// (importShowEpisodesWithProgress, roster create-on-first) deliberately do NOT advance
+// the station watermark — they import a bounded historical window and must not move the
+// incremental frontier. (PSY-1269)
 func (s *RadioService) advanceLastFetch(stationID uint, fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) {
 	if !shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, episodesImported) {
 		slog.Default().Warn("radio fetch: run made no progress; holding last_playlist_fetch_at stale",

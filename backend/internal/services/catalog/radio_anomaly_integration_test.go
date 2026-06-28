@@ -272,6 +272,19 @@ func (s *RadioSyncSuite) TestEscalateStaleFetchOutages() {
 
 	_ = s.seedStation(catalogm.PlaylistSourceWFMU) // never fetched (NULL watermark) → excluded
 
+	// Inactive (deactivated) station that is also stale → excluded by is_active=TRUE.
+	// Created directly (not seedStation) so is_active can be forced false past the
+	// gorm default:true (a struct zero-value would be omitted and default to true).
+	inactiveSrc := catalogm.PlaylistSourceNTS
+	inactive := catalogm.RadioStation{
+		Name: "Inactive Stale", Slug: "test-inactive-stale",
+		BroadcastType: catalogm.BroadcastTypeInternet, PlaylistSource: &inactiveSrc,
+	}
+	s.Require().NoError(s.db.Create(&inactive).Error)
+	s.Require().NoError(s.db.Model(&catalogm.RadioStation{}).Where("id = ?", inactive.ID).
+		Update("is_active", false).Error)
+	s.setLastFetch(inactive.ID, now.Add(-24*time.Hour))
+
 	type escalation struct {
 		stationID uint
 		category  string
@@ -284,8 +297,8 @@ func (s *RadioSyncSuite) TestEscalateStaleFetchOutages() {
 
 	count, err := s.svc.EscalateStaleFetchOutages(18*time.Hour, now)
 	s.Require().NoError(err)
-	s.Equal(1, count, "only the stale automated station is escalated")
+	s.Equal(1, count, "only the stale, active, automated station is escalated")
 	s.Require().Len(got, 1)
 	s.Equal(stale.ID, got[0].stationID)
-	s.Equal("fetch_outage", got[0].category)
+	s.Equal(radioFetchOutageCategory, got[0].category)
 }
