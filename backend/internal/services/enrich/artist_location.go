@@ -671,12 +671,15 @@ func (s *gormArtistStore) UpdateArtistLocation(id uint, fields map[string]interf
 }
 
 // StampLocationAttempted sets location_enrich_attempted_at = at for the given ids
-// (the sweep's no-result memo). A no-op on an empty slice.
+// (the sweep's no-result memo). A no-op on an empty slice. Uses Table (not Model) so
+// this bookkeeping write does NOT bump artists.updated_at — the memo marks "we tried",
+// not a content change, and it stamps the whole batch (incl. pure misses) every cycle
+// (matches the sibling image sweep's stampAttempted, imageenrich/enricher.go).
 func (s *gormArtistStore) StampLocationAttempted(ids []uint, at time.Time) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	return s.db.Model(&catalogm.Artist{}).
+	return s.db.Table("artists").
 		Where("id IN ?", ids).
 		Update("location_enrich_attempted_at", at).Error
 }

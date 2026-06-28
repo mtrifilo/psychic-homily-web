@@ -376,6 +376,34 @@ func TestBackfillArtistLocations_Memo(t *testing.T) {
 	})
 }
 
+// TestBackfillArtistLocations_CtxCancel pins the sweep's mid-batch shutdown behavior
+// (PSY-1250): with an already-cancelled ctx the whole batch is still stamped attempted
+// up front (poison-row safety), but the per-artist loop breaks before resolving any, so
+// nothing is written. The fake MB would resolve a city if the loop ran — proving the
+// break, not a missing match, is what prevents the write.
+func TestBackfillArtistLocations_CtxCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	store := &fakeStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Resolvable"},
+		{ID: 2, Name: "Resolvable"},
+	}}
+	mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		"Resolvable": {{ID: "11111111-1111-1111-1111-111111111111", Name: "Resolvable", BeginArea: &pipeline.MBArea{Name: "Austin", Type: "City"}, Country: "US"}},
+	}}
+	_, err := backfillArtistLocations(ctx, store, fakeBandcamp{}, mb, Options{ReattemptWindow: 720 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store.stamped) != 2 {
+		t.Fatalf("the whole batch should be stamped up front, got %v", store.stamped)
+	}
+	if len(store.updates) != 0 {
+		t.Fatalf("a cancelled ctx must process (write) no artists, got %v", store.updates)
+	}
+}
+
 // --- orchestrator fakes ---
 
 type fakeStore struct {

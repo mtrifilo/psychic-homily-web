@@ -79,11 +79,16 @@ func (s *ArtistLocationSweepIntegrationTestSuite) TestArtistsNeedingLocationMemo
 	s.Len(all, 4, "memo-agnostic selection returns every city-less row regardless of attempt time")
 }
 
-// Store-level: the bulk stamp writes the memo column; empty slice is a no-op.
+// Store-level: the bulk stamp writes the memo column WITHOUT bumping updated_at; empty
+// slice is a no-op. The no-bump is load-bearing — the memo marks "we tried", not a
+// content edit, and the sweep stamps the whole batch (incl. misses) every cycle.
 func (s *ArtistLocationSweepIntegrationTestSuite) TestStampLocationAttempted() {
 	a := &catalogm.Artist{Name: "Stamp Me"}
 	s.Require().NoError(s.db.Create(a).Error)
 	s.Nil(a.LocationEnrichAttemptedAt)
+
+	var before catalogm.Artist
+	s.Require().NoError(s.db.First(&before, a.ID).Error)
 
 	store := &gormArtistStore{db: s.db}
 	at := time.Now().Truncate(time.Second)
@@ -93,8 +98,35 @@ func (s *ArtistLocationSweepIntegrationTestSuite) TestStampLocationAttempted() {
 	s.Require().NoError(s.db.First(&reloaded, a.ID).Error)
 	s.Require().NotNil(reloaded.LocationEnrichAttemptedAt)
 	s.WithinDuration(at, *reloaded.LocationEnrichAttemptedAt, time.Second)
+	// The bookkeeping write must NOT bump updated_at (uses Table, not Model).
+	s.Equal(before.UpdatedAt.UnixMicro(), reloaded.UpdatedAt.UnixMicro(),
+		"StampLocationAttempted must not bump updated_at")
 
 	s.NoError(store.StampLocationAttempted(nil, at), "empty slice is a no-op")
+}
+
+// Store-level: NULLS-FIRST-then-stalest ordering under a LIMIT — the production
+// convergence property (a bounded nightly batch walks never-tried + stalest rows
+// before recently-checked ones).
+func (s *ArtistLocationSweepIntegrationTestSuite) TestArtistsNeedingLocationOrdering() {
+	older := time.Now().Add(-60 * 24 * time.Hour) // stale, beyond 30d
+	newer := time.Now().Add(-45 * 24 * time.Hour) // stale, beyond 30d but newer than older
+
+	never := &catalogm.Artist{Name: "A Never"}                                     // NULL → first
+	stalest := &catalogm.Artist{Name: "B Stalest", LocationEnrichAttemptedAt: &older}
+	stale := &catalogm.Artist{Name: "C Stale", LocationEnrichAttemptedAt: &newer}
+	// Create out of attempt-order to prove the ORDER BY (not insertion/id) decides.
+	for _, a := range []*catalogm.Artist{stale, stalest, never} {
+		s.Require().NoError(s.db.Create(a).Error)
+	}
+
+	store := &gormArtistStore{db: s.db}
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	got, err := store.ArtistsNeedingLocation(2, &cutoff) // batch of 2
+	s.Require().NoError(err)
+	s.Require().Len(got, 2, "LIMIT must bound the batch")
+	s.Equal("A Never", got[0].Name, "never-tried (NULLS FIRST) must come first")
+	s.Equal("B Stalest", got[1].Name, "stalest attempt must come before the newer one")
 }
 
 // Full cycle: the sweep fills a resolvable artist (city + PSY-1249 MBID), stamps the

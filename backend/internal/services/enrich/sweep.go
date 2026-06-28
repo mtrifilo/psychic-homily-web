@@ -3,8 +3,6 @@ package enrich
 import (
 	"context"
 	"log/slog"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -35,10 +33,18 @@ import (
 // dry-run review is the documented homonym backstop — so opt-in-per-environment
 // (enable on stage first, watch the report, then prod) is deliberate, matching the
 // sibling image sweep rather than the DISABLE_* workers. Links enrichment is a
-// separate follow-up; this sweep is location-only.
+// separate follow-up (PSY-1279); this sweep is location-only.
+//
+// Operator note: keep REATTEMPT_DAYS comfortably larger than INTERVAL_HOURS × the
+// number of ticks it takes to walk the locationless tail (tail size / batch) — a
+// re-attempt window shorter than that defeats the memo and re-queries the unenrichable
+// tail (the MB throttle still caps the absolute rate, but it wastes cycles).
 const (
-	defaultArtistLocationSweepInterval  = 24 * time.Hour
-	defaultArtistLocationSweepBatch     = 50
+	defaultArtistLocationSweepInterval = 24 * time.Hour
+	defaultArtistLocationSweepBatch    = 50
+	// 30d (vs the image sweep's 90d): an artist's MusicBrainz/Bandcamp location can be
+	// added/corrected sooner than a photo becomes available, so a tighter retry is worth
+	// the extra (throttle-capped) MB traffic. Tunable via ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS.
 	defaultArtistLocationSweepReattempt = 30 * 24 * time.Hour
 )
 
@@ -68,9 +74,9 @@ func NewArtistLocationSweep(database *gorm.DB, bandcamp BandcampLocationResolver
 		db:        database,
 		bandcamp:  bandcamp,
 		mb:        mb,
-		interval:  sweepEnvDuration("ARTIST_LOCATION_SWEEP_INTERVAL_HOURS", time.Hour, defaultArtistLocationSweepInterval),
-		batch:     sweepEnvInt("ARTIST_LOCATION_SWEEP_BATCH", defaultArtistLocationSweepBatch),
-		reattempt: sweepEnvDuration("ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultArtistLocationSweepReattempt),
+		interval:  shared.EnvPositiveDuration("ARTIST_LOCATION_SWEEP_INTERVAL_HOURS", time.Hour, defaultArtistLocationSweepInterval),
+		batch:     shared.EnvPositiveInt("ARTIST_LOCATION_SWEEP_BATCH", defaultArtistLocationSweepBatch),
+		reattempt: shared.EnvPositiveDuration("ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultArtistLocationSweepReattempt),
 		stopCh:    make(chan struct{}),
 		logger:    slog.Default(),
 	}
@@ -123,24 +129,4 @@ func (s *ArtistLocationSweep) runCycle(ctx context.Context) {
 		"missed", report.Missed,
 		"errors", len(report.Errors),
 	)
-}
-
-// --- env helpers ----------------------------------------------------------
-
-func sweepEnvInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return def
-}
-
-func sweepEnvDuration(key string, unit, def time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return time.Duration(n) * unit
-		}
-	}
-	return def
 }

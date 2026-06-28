@@ -188,16 +188,16 @@ func main() {
 	// Each service keeps its own cancel func; a nil cancel signals "not started"
 	// so the shutdown path can skip it without panicking.
 	var (
-		cleanupCancel           context.CancelFunc
-		reminderCancel          context.CancelFunc
-		enrichmentCancel        context.CancelFunc
-		autoPromotionCancel     context.CancelFunc
-		radioFetchCancel        context.CancelFunc
-		relDerivationCancel     context.CancelFunc
-		collectionDigestCancel  context.CancelFunc
-		imageEnrichSweepCancel  context.CancelFunc
-		imageEnrichOutboxCancel context.CancelFunc
-		artistLocSweepCancel    context.CancelFunc
+		cleanupCancel             context.CancelFunc
+		reminderCancel            context.CancelFunc
+		enrichmentCancel          context.CancelFunc
+		autoPromotionCancel       context.CancelFunc
+		radioFetchCancel          context.CancelFunc
+		relDerivationCancel       context.CancelFunc
+		collectionDigestCancel    context.CancelFunc
+		imageEnrichSweepCancel    context.CancelFunc
+		imageEnrichOutboxCancel   context.CancelFunc
+		artistLocationSweepCancel context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -295,9 +295,9 @@ func main() {
 	// (ENABLE_ARTIST_LOCATION_SWEEP=1 — e.g. stage first) rather than auto-starting on
 	// deploy. Mirrors the image-sweep posture.
 	if os.Getenv("ENABLE_ARTIST_LOCATION_SWEEP") == "1" {
-		var artistLocSweepCtx context.Context
-		artistLocSweepCtx, artistLocSweepCancel = context.WithCancel(context.Background())
-		sc.ArtistLocationSweep.Start(artistLocSweepCtx)
+		var artistLocationSweepCtx context.Context
+		artistLocationSweepCtx, artistLocationSweepCancel = context.WithCancel(context.Background())
+		sc.ArtistLocationSweep.Start(artistLocationSweepCtx)
 	} else {
 		log.Printf("artist location sweep disabled (set ENABLE_ARTIST_LOCATION_SWEEP=1 to enable)")
 	}
@@ -363,8 +363,8 @@ func main() {
 		imageEnrichOutboxCancel()
 		sc.ImageEnrichOutbox.Stop()
 	}
-	if artistLocSweepCancel != nil {
-		artistLocSweepCancel()
+	if artistLocationSweepCancel != nil {
+		artistLocationSweepCancel()
 		sc.ArtistLocationSweep.Stop()
 	}
 
