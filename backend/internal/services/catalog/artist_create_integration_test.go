@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -91,6 +93,53 @@ func (s *FindOrCreateArtistTestSuite) TestApplyRunsOnlyOnCreate() {
 	s.False(created2)
 	s.Require().NotNil(again.City)
 	s.Equal("Olympia", *again.City, "apply must not run on an existing artist")
+}
+
+// TestConcurrentCreateConverges: N goroutines find-or-create the SAME name at once.
+// The case-insensitive unique index (artists_lower_name_uniq) serializes the
+// inserts; the funnel's conflict-safe recovery makes the losers re-select and
+// return the winner. Invariant: exactly one row, exactly one created=true, and
+// every caller converges to the same id with no error.
+func (s *FindOrCreateArtistTestSuite) TestConcurrentCreateConverges() {
+	const n = 8
+	var wg sync.WaitGroup
+	ids := make([]uint, n)
+	errs := make([]error, n)
+	var createdCount int32
+
+	// Release all goroutines at once so their SELECTs run before any INSERT commits,
+	// reliably forcing the losers down the unique-violation recovery path (not just
+	// the SELECT-found path).
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			a, created, err := FindOrCreateArtistTx(s.db, "Concurrent Band", nil)
+			errs[i] = err
+			if err == nil {
+				ids[i] = a.ID
+			}
+			if created {
+				atomic.AddInt32(&createdCount, 1)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		s.Require().NoError(errs[i], "goroutine %d errored", i)
+	}
+	var count int64
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("LOWER(name) = LOWER(?)", "Concurrent Band").Count(&count).Error)
+	s.Equal(int64(1), count, "concurrent same-name creates must converge to one row")
+	for i := 1; i < n; i++ {
+		s.Equal(ids[0], ids[i], "all callers must return the same artist id")
+	}
+	s.Equal(int32(1), createdCount, "exactly one caller creates; the rest converge as found")
 }
 
 func (s *FindOrCreateArtistTestSuite) TestRejectsBlankName() {

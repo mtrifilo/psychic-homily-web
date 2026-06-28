@@ -1,0 +1,22 @@
+-- PSY-1256: enforce case-insensitive artist-name uniqueness at the DB.
+--
+-- catalog.FindOrCreateArtistTx dedups on LOWER(name)=LOWER(?), but nothing in the
+-- DB enforced it: the model's gorm:"uniqueIndex" tag on Name was never backed by a
+-- migration (no AutoMigrate runs in this codebase), so only a NON-unique
+-- idx_artists_name existed. A SELECT-then-INSERT race could therefore insert
+-- duplicate-name artists. This functional unique index matches the funnel's
+-- predicate exactly and makes its conflict-safe path (re-select on a 23505) real.
+--
+-- Functional LOWER(name) index, NOT citext: purely additive + reversible, matches
+-- the existing idx_artists_name_lower_prefix style, and the funnel + search already
+-- query LOWER(name). The plain (case-sensitive, non-unique) idx_artists_name is
+-- dropped as redundant — no production query does an exact-case `name = ?` lookup
+-- (search uses the trigram/prefix indexes; the funnel uses LOWER(name)).
+--
+-- No dedup step needed: verified ZERO case-insensitive duplicate names on stage
+-- (2059 artists) and prod (245) on 2026-06-28, so the unique index builds cleanly.
+-- Two DDL statements; golang-migrate wraps the file in a transaction, so the index
+-- is built NON-concurrently (CONCURRENTLY is illegal in a txn and unnecessary on a
+-- <=2k-row table — sub-second under the brief lock; zero users).
+CREATE UNIQUE INDEX artists_lower_name_uniq ON artists (LOWER(name));
+DROP INDEX IF EXISTS idx_artists_name;
