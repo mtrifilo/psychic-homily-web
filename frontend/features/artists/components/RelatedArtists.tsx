@@ -96,6 +96,27 @@ interface ArtistSimilarSidebarProps {
   onOpenGraph: () => void
 }
 
+// PSY-1280: the sidebar's accessible, motion-free counterpart to the canvas DOI ranking
+// (PSY-1273) + discovery-bias slider (PSY-1260), which are canvas-only and hidden for
+// prefers-reduced-motion users. The "Similar artists" list keeps its existing max-edge-score
+// order by default; choosing a Discovery mode re-orders it by the SAME Degree-of-Interest score
+// the canvas uses (computed here over the base ego graph), announced via aria-live. Discrete
+// modes — not a range slider — are the most screen-reader-friendly and keep the opt-in explicit
+// (default 'relevant' is unchanged until the user picks Discovery). Shown to ALL viewers, NOT
+// gated on reduced-motion like the canvas slider: a screen-reader/keyboard user need not have
+// prefers-reduced-motion set, so gating it there would exclude exactly the users it exists for.
+type SidebarSortMode = 'relevant' | 'popular' | 'niche'
+
+// Discovery modes → the PSY-1260 bias value (0 = Popular/high-degree-first, 1 = Niche/low-degree).
+const SORT_MODE_BIAS: Record<Exclude<SidebarSortMode, 'relevant'>, number> = {
+  popular: 0,
+  niche: 1,
+}
+
+// The sidebar shows the base ego graph only (no expand-on-demand), so DOI is computed with an
+// empty expansion set. Module const → stable identity for the DOI useMemo dep.
+const NO_EXPANSIONS: ReadonlyMap<number, ArtistGraph> = new Map()
+
 export function ArtistSimilarSidebar({
   artistId,
   artistSlug,
@@ -107,6 +128,20 @@ export function ArtistSimilarSidebar({
   })
   const { isAuthenticated } = useIsAuthenticated()
   const [showSuggest, setShowSuggest] = useState(false)
+  // PSY-1280: accessible DOI sort mode (default = the existing max-edge-score order) + an
+  // aria-live announcement that's empty until the user changes it (so mount stays silent).
+  const [sortMode, setSortMode] = useState<SidebarSortMode>('relevant')
+  const [sortAnnouncement, setSortAnnouncement] = useState('')
+
+  // DOI scores for the active Discovery mode, over the base ego graph — the SAME computeGraphDoi
+  // the canvas uses (incl. the per-node edge cap), so the sidebar order matches the canvas's.
+  // Null for 'relevant' (no DOI needed) or before the graph loads. Used ONLY to re-order the
+  // already-built shown list below, never to change WHICH artists appear (keeps default opt-in).
+  const sidebarDoi = useMemo(() => {
+    if (!graph || sortMode === 'relevant') return null
+    const merged = mergeEgoGraphs(graph, NO_EXPANSIONS)
+    return computeGraphDoi(merged, undefined, doiWeightsForBias(SORT_MODE_BIAS[sortMode])).doiByNodeId
+  }, [graph, sortMode])
 
   if (isLoading) return null
 
@@ -144,9 +179,18 @@ export function ArtistSimilarSidebar({
     sortedArtists = Array.from(artistLinks.values())
       .filter(a => a.links.length > 0)
       .sort((a, b) => {
+        // DOI order when a Discovery mode is active; otherwise the default max-edge-score order.
+        // DOI is only a re-order key over this already-filtered shown set — the artists shown are
+        // identical across modes, only the order changes (so the default ordering stays opt-in).
+        if (sidebarDoi) {
+          const ad = sidebarDoi.get(a.node.id) ?? -Infinity
+          const bd = sidebarDoi.get(b.node.id) ?? -Infinity
+          if (ad !== bd) return bd - ad
+        }
         const aScore = Math.max(...a.links.map(l => l.score))
         const bScore = Math.max(...b.links.map(l => l.score))
-        return bScore - aScore
+        if (bScore !== aScore) return bScore - aScore
+        return a.node.id - b.node.id // deterministic final tiebreak (stable order on score ties)
       })
   }
 
@@ -160,6 +204,39 @@ export function ArtistSimilarSidebar({
           ) : undefined
         }
       />
+      {/* PSY-1280: accessible, motion-free DOI sort. Shown once there's >1 artist to order;
+          re-orders the list below by the canvas's DOI ranking (popular- or niche-biased) and
+          announces the change via the sr-only live region. Default 'Most relevant' is unchanged. */}
+      {sortedArtists.length > 1 && (
+        <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
+          <label htmlFor={`similar-sort-${artistId}`} className="shrink-0 font-medium">
+            Sort
+          </label>
+          <select
+            id={`similar-sort-${artistId}`}
+            value={sortMode}
+            onChange={e => {
+              const mode = e.target.value as SidebarSortMode
+              setSortMode(mode)
+              setSortAnnouncement(
+                mode === 'relevant'
+                  ? 'Similar artists sorted by most relevant.'
+                  : `Similar artists sorted by discovery, ${mode}-first.`,
+              )
+            }}
+            className="bg-transparent border border-border rounded px-1.5 py-0.5 text-foreground cursor-pointer"
+          >
+            <option value="relevant">Most relevant</option>
+            <option value="popular">Discovery: popular-first</option>
+            <option value="niche">Discovery: niche-first</option>
+          </select>
+        </div>
+      )}
+      {/* sr-only live region announcing a re-rank (mirrors the graph dialog's PSY-361 region):
+          polite + atomic, empty on mount so nothing is announced until the user changes the sort. */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {sortAnnouncement}
+      </div>
       {sortedArtists.length > 0 ? (
         <div className="space-y-1">
           {sortedArtists.map(({ node, links }) => (

@@ -201,6 +201,81 @@ describe('ArtistSimilarSidebar', () => {
     const opts = mockUseArtistGraph.mock.calls[0]?.[0] as { types?: unknown } | undefined
     expect(opts?.types).toBeUndefined()
   })
+
+  // PSY-1280: accessible DOI sort. Default = max-edge-score order; a Discovery mode re-orders the
+  // list by the canvas's Degree-of-Interest ranking (motion-free DOM reflow), announced via aria-live.
+  // mockGraphData scores: Frozen Soul similar 0.85, Undeath similar 0.68, Creeping Death shared_bills 0.6.
+  // Document order of the unique artist-name nodes:
+  const artistOrder = (): string[] => {
+    const names = ['Frozen Soul', 'Undeath', 'Creeping Death']
+    return names
+      .map(n => ({ n, el: screen.getByText(n) }))
+      .sort((a, b) =>
+        a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+      )
+      .map(x => x.n)
+  }
+
+  it('defaults to the max-edge-score order with the sort control set to Most relevant', () => {
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    // Score order: 0.85 > 0.68 > 0.6.
+    expect(artistOrder()).toEqual(['Frozen Soul', 'Undeath', 'Creeping Death'])
+    expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('relevant')
+  })
+
+  it('re-orders by DOI and announces it when a Discovery mode is chosen', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
+
+    // DOI normalizes relevance PER edge type, so Creeping Death's shared_bills (the strongest of
+    // its type → 1.0) outranks Undeath's weaker similar tie (0.68/0.85) despite a lower raw score —
+    // the whole point of surfacing DOI instead of raw score: Creeping Death moves above Undeath.
+    // (Frozen Soul and Creeping Death tie on DOI here; the score tiebreak keeps Frozen Soul top.)
+    expect(artistOrder()).toEqual(['Frozen Soul', 'Creeping Death', 'Undeath'])
+    // aria-live announcement of the re-rank.
+    expect(
+      screen.getByText('Similar artists sorted by discovery, niche-first.')
+    ).toBeInTheDocument()
+    // AC: the SAME artists are shown across modes — DOI only re-orders, never adds/removes.
+    expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
+    expect(screen.getByText('Undeath')).toBeInTheDocument()
+    expect(screen.getByText('Creeping Death')).toBeInTheDocument()
+  })
+
+  it('restores the default order when switched back to Most relevant', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    await user.selectOptions(screen.getByLabelText('Sort'), 'popular')
+    expect(artistOrder()).toEqual(['Frozen Soul', 'Creeping Death', 'Undeath'])
+    await user.selectOptions(screen.getByLabelText('Sort'), 'relevant')
+    expect(artistOrder()).toEqual(['Frozen Soul', 'Undeath', 'Creeping Death'])
+    expect(
+      screen.getByText('Similar artists sorted by most relevant.')
+    ).toBeInTheDocument()
+  })
+
+  it('hides the sort control when there is at most one related artist', () => {
+    mockUseArtistGraph.mockReturnValue({
+      data: {
+        ...mockGraphData,
+        nodes: [mockGraphData.nodes[0]],
+        links: [mockGraphData.links[0]],
+      },
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    expect(screen.queryByLabelText('Sort')).not.toBeInTheDocument()
+  })
 })
 
 describe('ArtistGraphDialog', () => {
