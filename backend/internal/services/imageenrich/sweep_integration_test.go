@@ -49,13 +49,13 @@ func TestImageEnrichSweepIntegrationTestSuite(t *testing.T) {
 // given batch, and a 30-day re-attempt window. Returns the sweep plus pointers to
 // the captured id slices each enricher received.
 func (s *ImageEnrichSweepIntegrationTestSuite) newTestSweep(batch int) (*ImageEnrichmentSweep, *[]uint, *[]uint) {
-	sw := NewImageEnrichmentSweep(s.db, nil, "")
+	sw := NewImageEnrichmentSweep(s.db, NewEnricher(s.db, nil, ""))
 	sw.batch = batch
 	sw.reattempt = 30 * 24 * time.Hour
 
 	var gotPhotoIDs, gotCoverIDs []uint
-	sw.enrichPhotos = func(_ context.Context, ids []uint) error { gotPhotoIDs = append(gotPhotoIDs, ids...); return nil }
-	sw.enrichCovers = func(_ context.Context, ids []uint) error { gotCoverIDs = append(gotCoverIDs, ids...); return nil }
+	sw.enricher.EnrichPhotos = func(_ context.Context, ids []uint) error { gotPhotoIDs = append(gotPhotoIDs, ids...); return nil }
+	sw.enricher.EnrichCovers = func(_ context.Context, ids []uint) error { gotCoverIDs = append(gotCoverIDs, ids...); return nil }
 	return sw, &gotPhotoIDs, &gotCoverIDs
 }
 
@@ -89,7 +89,7 @@ func (s *ImageEnrichSweepIntegrationTestSuite) TestStampsBeforeEnrichEvenOnError
 	s.Require().NoError(s.db.Create(a).Error)
 
 	sw, _, _ := s.newTestSweep(50)
-	sw.enrichPhotos = func(_ context.Context, _ []uint) error { return errors.New("boom") }
+	sw.enricher.EnrichPhotos = func(_ context.Context, _ []uint) error { return errors.New("boom") }
 
 	sw.RunSweepNow(context.Background())
 
@@ -144,7 +144,7 @@ func (s *ImageEnrichSweepIntegrationTestSuite) TestStampsCoversBeforeEnrichEvenO
 	s.Require().NoError(s.db.Create(r).Error)
 
 	sw, _, _ := s.newTestSweep(50)
-	sw.enrichCovers = func(_ context.Context, _ []uint) error { return errors.New("boom") }
+	sw.enricher.EnrichCovers = func(_ context.Context, _ []uint) error { return errors.New("boom") }
 
 	sw.RunSweepNow(context.Background())
 	s.NotNil(s.reloadRelease(r).ImageEnrichAttemptedAt)

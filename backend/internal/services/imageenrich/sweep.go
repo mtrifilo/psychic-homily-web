@@ -1,9 +1,17 @@
-// Package imageenrich hosts the ongoing image-enrichment sweep. It sits above
+// Package imageenrich hosts the ongoing image-enrichment subsystem. It sits above
 // both catalog (the shipped fill-when-empty enrichers + provider clients) and
 // pipeline (the shared MusicBrainz client), so it depends on both without making
 // either depend on the other — keeping catalog free of a pipeline import (which
-// would cycle with pipeline's catalog-importing tests). Only the service
-// container depends on this package.
+// would cycle with pipeline's catalog-importing tests). Only the service container
+// depends on this package.
+//
+// Three pieces, two triggers, one engine:
+//   - Enricher (enricher.go) — the shared engine: runs the provider lookups + owns
+//     the ONE MusicBrainz client (PSY-1208). Both triggers hold the same instance.
+//   - ImageEnrichmentSweep (this file) — Phase-A trigger: a slow background ticker
+//     that sweeps still-imageless entities (backfill + safety net, PSY-1246).
+//   - ImageEnrichOutboxPoller (outbox.go) — Phase-B trigger: drains the on-create
+//     transactional outbox for prompt enrichment (PSY-1247).
 package imageenrich
 
 import (
@@ -17,35 +25,29 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/catalog"
-	"psychic-homily-backend/internal/services/mbadapter"
-	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/shared"
 )
 
 // Ongoing image-enrichment sweep (PSY-1246) — the Phase-A "safety net" of the
-// hybrid trigger model decided in PSY-1245. A slow background ticker runs the
-// shipped fill-when-empty enrichers (catalog.BackfillCommonsPhotos for artist
-// photos, catalog.BackfillCoverArt for release covers) over entities that still
-// have no image, so coverage stays current as the catalog grows regardless of how
-// an entity was added. (Phase B — prompt on-create enqueue — is PSY-1247.)
+// hybrid trigger model decided in PSY-1245. A slow background ticker runs the shared
+// Enricher over entities that still have no image, so coverage stays current as the
+// catalog grows regardless of how an entity was added. (Phase B — prompt on-create
+// enqueue — is PSY-1247, the outbox poller.)
 //
 // It does NOT change what users see: enrichment only populates data; prod display
 // stays gated on PSY-1242.
 //
 // Two design points carry the weight:
 //
-//   - SHARED MusicBrainz client (PSY-1208). Both enrichers hit MusicBrainz, which
-//     blocks for exceeding ~1 req/s/IP. The sweep MUST reuse the one process-wide
-//     *pipeline.MusicBrainzClient (injected) so all MB traffic stays under a single
-//     mutex-serialized throttle — a second client would double the rate and trip
-//     MB's sticky 503 penalty.
+//   - SHARED MusicBrainz client (PSY-1208), owned by the injected Enricher. MB
+//     blocks for exceeding ~1 req/s/IP, so all MB traffic (sweep + outbox +
+//     discovery) MUST go through one mutex-serialized throttle — a second client
+//     would double the rate and trip MB's sticky 503 penalty.
 //   - No-result memo. Fill-when-empty keys only on an empty image column, so the
-//     large imageless long tail (no provider match) would be re-queried every
-//     cycle. The sweep stamps image_enrich_attempted_at on each batch and skips
-//     rows attempted within the re-attempt window, so a bounded batch converges
-//     instead of re-hammering the providers.
-
+//     large imageless long tail (no provider match) would be re-queried every cycle.
+//     selectBatch filters on image_enrich_attempted_at and the sweep stamps it (via
+//     the Enricher) per batch, so a bounded batch converges instead of re-hammering
+//     the providers.
 const (
 	defaultImageEnrichSweepInterval = 24 * time.Hour
 	defaultImageEnrichSweepBatch    = 50
@@ -53,51 +55,36 @@ const (
 )
 
 // ImageEnrichmentSweep is a background ticker service (mirrors CleanupService /
-// EnrichmentWorker) that fills missing artist photos + release covers.
+// EnrichmentWorker) that fills missing artist photos + release covers via the
+// shared Enricher.
 type ImageEnrichmentSweep struct {
-	db           *gorm.DB
-	mb           *pipeline.MusicBrainzClient // shared (PSY-1208) — do not replace with a fresh client
-	discogsToken string
+	enricher *Enricher
+	db       *gorm.DB // for selectBatch (the Enricher owns the writes)
 
 	interval  time.Duration
 	batch     int
 	reattempt time.Duration
-
-	// enrichPhotos / enrichCovers run the actual provider lookups for a bounded id
-	// batch. They are fields so tests can substitute fakes and exercise the
-	// memo/selection logic without real MusicBrainz/Wikidata/Commons traffic.
-	enrichPhotos func(ctx context.Context, ids []uint) error
-	enrichCovers func(ctx context.Context, ids []uint) error
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
 }
 
-// NewImageEnrichmentSweep constructs the sweep. mbClient MUST be the shared
-// process-wide MusicBrainz client (PSY-1208) — passing a fresh one would double
-// the MB request rate. discogsToken may be empty (CAA-only covers).
-func NewImageEnrichmentSweep(database *gorm.DB, mbClient *pipeline.MusicBrainzClient, discogsToken string) *ImageEnrichmentSweep {
+// NewImageEnrichmentSweep constructs the sweep around the shared Enricher (so its
+// MB traffic stays under the one PSY-1208 throttle).
+func NewImageEnrichmentSweep(database *gorm.DB, enricher *Enricher) *ImageEnrichmentSweep {
 	if database == nil {
 		database = db.GetDB()
 	}
-	if mbClient == nil {
-		mbClient = pipeline.NewMusicBrainzClient()
+	return &ImageEnrichmentSweep{
+		enricher:  enricher,
+		db:        database,
+		interval:  sweepEnvDuration("IMAGE_ENRICH_SWEEP_INTERVAL_HOURS", time.Hour, defaultImageEnrichSweepInterval),
+		batch:     sweepEnvInt("IMAGE_ENRICH_SWEEP_BATCH", defaultImageEnrichSweepBatch),
+		reattempt: sweepEnvDuration("IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultImageEnrichReattempt),
+		stopCh:    make(chan struct{}),
+		logger:    slog.Default(),
 	}
-
-	s := &ImageEnrichmentSweep{
-		db:           database,
-		mb:           mbClient,
-		discogsToken: discogsToken,
-		interval:     sweepEnvDuration("IMAGE_ENRICH_SWEEP_INTERVAL_HOURS", time.Hour, defaultImageEnrichSweepInterval),
-		batch:        sweepEnvInt("IMAGE_ENRICH_SWEEP_BATCH", defaultImageEnrichSweepBatch),
-		reattempt:    sweepEnvDuration("IMAGE_ENRICH_SWEEP_REATTEMPT_DAYS", 24*time.Hour, defaultImageEnrichReattempt),
-		stopCh:       make(chan struct{}),
-		logger:       slog.Default(),
-	}
-	s.enrichPhotos = s.runPhotoEnricher
-	s.enrichCovers = s.runCoverEnricher
-	return s
 }
 
 // Start begins the background sweep. No startup cycle (runImmediately=false): a
@@ -125,23 +112,22 @@ func (s *ImageEnrichmentSweep) RunSweepNow(ctx context.Context) {
 	s.runCycle(ctx)
 }
 
-// runCycle sweeps photos then covers sequentially, so the two share the MB
-// throttle without overlapping.
+// runCycle sweeps photos then covers sequentially, so the two share the MB throttle
+// without overlapping.
 func (s *ImageEnrichmentSweep) runCycle(ctx context.Context) {
-	s.sweep(ctx, "artists", s.enrichPhotos)
+	s.sweep(ctx, "artists", s.enricher.EnrichPhotos)
 	if ctx.Err() != nil {
 		return
 	}
-	s.sweep(ctx, "releases", s.enrichCovers)
+	s.sweep(ctx, "releases", s.enricher.EnrichCovers)
 }
 
-// sweep selects a bounded, memo-filtered batch of image-less entities from
-// `table`, stamps their attempt timestamp, then runs `enrich` over those ids.
+// sweep selects a bounded, memo-filtered batch of image-less entities from `table`,
+// stamps their attempt timestamp, then runs `enrich` over those ids.
 //
 // Stamp-before-enrich is deliberate: a row is marked attempted even if the enrich
-// step errors, so a poison row can't wedge the sweep (it waits one re-attempt
-// window before a retry). Hard infra failures are rare and the window retries
-// them.
+// step errors, so a poison row can't wedge the sweep (it waits one re-attempt window
+// before a retry). Hard infra failures are rare and the window retries them.
 func (s *ImageEnrichmentSweep) sweep(ctx context.Context, table string, enrich func(context.Context, []uint) error) {
 	ids, err := s.selectBatch(ctx, table)
 	if err != nil {
@@ -152,7 +138,7 @@ func (s *ImageEnrichmentSweep) sweep(ctx context.Context, table string, enrich f
 		return
 	}
 
-	if err := s.stampAttempted(ctx, table, ids); err != nil {
+	if err := s.enricher.stampAttempted(ctx, table, ids); err != nil {
 		s.logger.Error("image-enrich sweep: stamp failed", "table", table, "error", err)
 		return
 	}
@@ -174,9 +160,8 @@ func imageColumn(table string) string {
 }
 
 // selectBatch returns up to `batch` entity ids that have no image and were not
-// attempted within the re-attempt window, oldest-attempt first (NULLs — never
-// tried — first) so brand-new and stalest rows are picked before recently
-// re-checked ones.
+// attempted within the re-attempt window, oldest-attempt first (NULLs — never tried
+// — first) so brand-new and stalest rows are picked before recently re-checked ones.
 func (s *ImageEnrichmentSweep) selectBatch(ctx context.Context, table string) ([]uint, error) {
 	cutoff := time.Now().Add(-s.reattempt)
 	col := imageColumn(table)
@@ -193,63 +178,6 @@ func (s *ImageEnrichmentSweep) selectBatch(ctx context.Context, table string) ([
 		Limit(s.batch).
 		Pluck("id", &ids).Error
 	return ids, err
-}
-
-// stampAttempted marks the batch as attempted now, so the no-result tail isn't
-// re-queried until the re-attempt window elapses. Uses Table (not Model) so the
-// bookkeeping write does not bump updated_at.
-func (s *ImageEnrichmentSweep) stampAttempted(ctx context.Context, table string, ids []uint) error {
-	return s.db.WithContext(ctx).
-		Table(table).
-		Where("id IN ?", ids).
-		Update("image_enrich_attempted_at", time.Now()).Error
-}
-
-// runPhotoEnricher resolves Commons photos for the given artist ids using the
-// shared MB client + fresh Wikidata/Commons clients (closed after the batch).
-func (s *ImageEnrichmentSweep) runPhotoEnricher(ctx context.Context, ids []uint) error {
-	wd := catalog.NewWikidataClient()
-	defer wd.Close()
-	commons := catalog.NewCommonsClient()
-	defer commons.Close()
-
-	report, err := catalog.BackfillCommonsPhotos(ctx, s.db, mbadapter.NewArtistAdapter(s.mb), wd, commons, catalog.CommonsEnrichOptions{IDs: ids})
-	if report != nil {
-		s.logger.Info("image-enrich sweep photos",
-			"scanned", report.ArtistsScanned, "matched", report.ArtistsMatched,
-			"skipped", report.ArtistsSkipped, "errors", report.ArtistErrors)
-	}
-	return err
-}
-
-// runCoverEnricher resolves CAA/Discogs covers for the given release ids using
-// the shared MB client + a fresh CAA client (+ Discogs when a token is set).
-func (s *ImageEnrichmentSweep) runCoverEnricher(ctx context.Context, ids []uint) error {
-	caa := catalog.NewCoverArtArchiveClient()
-	defer caa.Close()
-
-	opts := catalog.CoverArtEnrichOptions{IDs: ids}
-	var (
-		report *catalog.CoverArtEnrichReport
-		err    error
-	)
-	// Pass an untyped nil when no token — a typed (*catalog.DiscogsClient)(nil)
-	// stored in the interface is non-nil and would panic on first call (mirrors
-	// the cmd).
-	if s.discogsToken != "" {
-		discogs := catalog.NewDiscogsClient(s.discogsToken)
-		defer discogs.Close()
-		report, err = catalog.BackfillCoverArt(ctx, s.db, mbadapter.NewReleaseAdapter(s.mb), caa, discogs, opts)
-	} else {
-		report, err = catalog.BackfillCoverArt(ctx, s.db, mbadapter.NewReleaseAdapter(s.mb), caa, nil, opts)
-	}
-	if report != nil {
-		s.logger.Info("image-enrich sweep covers",
-			"scanned", report.ReleasesScanned,
-			"matched_caa", report.ReleasesMatchedCAA, "matched_discogs", report.ReleasesMatchedDiscogs,
-			"skipped", report.ReleasesSkipped, "errors", report.ReleaseErrors)
-	}
-	return err
 }
 
 // --- env helpers ----------------------------------------------------------

@@ -140,14 +140,13 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	enrichmentSvc := pipeline.NewEnrichmentService(database, artist, seatgeekClientID, mbClient)
 	enrichmentWorker := pipeline.NewEnrichmentWorker(enrichmentSvc)
 
-	// PSY-1246: ongoing image-enrichment sweep. Reuses the SAME shared MB client
-	// (mbClient) so its MusicBrainz traffic stays under the one ~1 req/s throttle.
-	imageEnrichSweep := imageenrich.NewImageEnrichmentSweep(database, mbClient, cfg.Discogs.Token)
-
-	// PSY-1247: the transactional-outbox poller — the prompt, on-create enrichment
-	// trigger. Shares the sweep as its enrichment engine so all MusicBrainz traffic
-	// stays under the one shared client's throttle (PSY-1208).
-	imageEnrichOutbox := imageenrich.NewImageEnrichOutboxPoller(database, imageEnrichSweep)
+	// PSY-1246/1247/1266: the image-enrichment subsystem. ONE shared Enricher (the
+	// engine — reuses the SAME mbClient so all MB traffic stays under the one ~1 req/s
+	// throttle, PSY-1208) drives both triggers: the Phase-A sweep (backfill ticker)
+	// and the Phase-B outbox poller (prompt on-create). Both hold the same Enricher.
+	imageEnricher := imageenrich.NewEnricher(database, mbClient, cfg.Discogs.Token)
+	imageEnrichSweep := imageenrich.NewImageEnrichmentSweep(database, imageEnricher)
+	imageEnrichOutbox := imageenrich.NewImageEnrichOutboxPoller(database, imageEnricher)
 
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
 	discovery.SetEnrichmentService(enrichmentSvc)
