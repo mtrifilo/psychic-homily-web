@@ -136,10 +136,12 @@ func main() {
 		artistModels = append(artistModels, artistModel)
 	}
 
-	// Use Upsert to handle duplicates gracefully
+	// Skip duplicates gracefully. Target-less ON CONFLICT DO NOTHING (no Columns) so
+	// it catches the case-INSENSITIVE artists_lower_name_uniq index (PSY-1256) — a
+	// named `(name)` arbiter would (a) no longer exist after that migration dropped
+	// artists_name_key and (b) miss case-variant dups.
 	artistResult := db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "name"}}, // Conflict on name field
-		DoNothing: true,                            // Skip if artist already exists
+		DoNothing: true,
 	}).Create(artistModels)
 
 	if artistResult.Error != nil {

@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -95,30 +97,47 @@ func (s *FindOrCreateArtistTestSuite) TestApplyRunsOnlyOnCreate() {
 	s.Equal("Olympia", *again.City, "apply must not run on an existing artist")
 }
 
-// TestConcurrentCreateConverges: N goroutines find-or-create the SAME name at once.
-// The case-insensitive unique index (artists_lower_name_uniq) serializes the
-// inserts; the funnel's conflict-safe recovery makes the losers re-select and
-// return the winner. Invariant: exactly one row, exactly one created=true, and
-// every caller converges to the same id with no error.
-func (s *FindOrCreateArtistTestSuite) TestConcurrentCreateConverges() {
-	const n = 8
+// caseVariants returns n case-variants of base that all LOWER() to the same key,
+// so a concurrent-create collision among them can ONLY be caught by the
+// case-insensitive index (artists_lower_name_uniq) — not by any case-sensitive one.
+func caseVariants(base string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		switch i % 3 {
+		case 0:
+			out[i] = base
+		case 1:
+			out[i] = strings.ToLower(base)
+		default:
+			out[i] = strings.ToUpper(base)
+		}
+	}
+	return out
+}
+
+// assertConverges releases len(names) goroutines simultaneously, each find-or-
+// creating its (case-variant) name via call, and asserts they converge: exactly one
+// row for the lowered key, exactly one created=true, every caller returns the same
+// id, none error. Looped by the callers so the unique-violation recovery path is hit
+// with overwhelming probability across the run (a single trial only hits it ~once).
+func (s *FindOrCreateArtistTestSuite) assertConverges(names []string, call func(name string) (*catalogm.Artist, bool, error)) {
+	n := len(names)
+	// n is small (6), well under the default connection pool, so no SetMaxOpenConns
+	// is needed here; raise the pool if this grows to dozens of goroutines.
 	var wg sync.WaitGroup
 	ids := make([]uint, n)
 	errs := make([]error, n)
 	var createdCount int32
 
-	// Release all goroutines at once so their SELECTs run before any INSERT commits,
-	// reliably forcing the losers down the unique-violation recovery path (not just
-	// the SELECT-found path).
 	start := make(chan struct{})
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			a, created, err := FindOrCreateArtistTx(s.db, "Concurrent Band", nil)
+			a, created, err := call(names[i])
 			errs[i] = err
-			if err == nil {
+			if err == nil && a != nil {
 				ids[i] = a.ID
 			}
 			if created {
@@ -130,16 +149,48 @@ func (s *FindOrCreateArtistTestSuite) TestConcurrentCreateConverges() {
 	wg.Wait()
 
 	for i := 0; i < n; i++ {
-		s.Require().NoError(errs[i], "goroutine %d errored", i)
+		s.Require().NoError(errs[i], "goroutine %d (name %q) errored", i, names[i])
 	}
 	var count int64
 	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
-		Where("LOWER(name) = LOWER(?)", "Concurrent Band").Count(&count).Error)
-	s.Equal(int64(1), count, "concurrent same-name creates must converge to one row")
+		Where("LOWER(name) = LOWER(?)", names[0]).Count(&count).Error)
+	s.Equal(int64(1), count, "concurrent case-variant creates must converge to one row")
 	for i := 1; i < n; i++ {
 		s.Equal(ids[0], ids[i], "all callers must return the same artist id")
 	}
-	s.Equal(int32(1), createdCount, "exactly one caller creates; the rest converge as found")
+	s.Equal(int32(1), createdCount, "exactly one caller creates; the rest converge")
+}
+
+// TestConcurrentCreateConverges: mixed-case concurrent creates converge to one row
+// via the funnel's recovery path, on the BASE *gorm.DB (standalone-tx insert; the
+// path admin/data-sync/seed use). Mixed case ensures the collision is caught by the
+// new case-insensitive index, not a case-sensitive one. Looped to reliably exercise
+// the unique-violation recovery branch.
+func (s *FindOrCreateArtistTestSuite) TestConcurrentCreateConverges() {
+	for trial := 0; trial < 8; trial++ {
+		names := caseVariants(fmt.Sprintf("Concurrent Band %d", trial), 6)
+		s.assertConverges(names, func(name string) (*catalogm.Artist, bool, error) {
+			return FindOrCreateArtistTx(s.db, name, nil)
+		})
+	}
+}
+
+// TestConcurrentCreateConvergesInCallerTx: same, but each call runs INSIDE a caller
+// transaction, so the recovery uses a SAVEPOINT (RollbackTo) and must leave the
+// caller tx healthy enough to commit — the show-import / discovery path. This is the
+// branch the savepoint design exists for.
+func (s *FindOrCreateArtistTestSuite) TestConcurrentCreateConvergesInCallerTx() {
+	for trial := 0; trial < 8; trial++ {
+		names := caseVariants(fmt.Sprintf("Concurrent TX Band %d", trial), 6)
+		s.assertConverges(names, func(name string) (a *catalogm.Artist, created bool, err error) {
+			err = s.db.Transaction(func(tx *gorm.DB) error {
+				var e error
+				a, created, e = FindOrCreateArtistTx(tx, name, nil)
+				return e
+			})
+			return a, created, err
+		})
+	}
 }
 
 func (s *FindOrCreateArtistTestSuite) TestRejectsBlankName() {

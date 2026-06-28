@@ -60,13 +60,19 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	artist.Slug = &slug
 
 	// Conflict-safe create (PSY-1256). The SELECT above and this INSERT are not
-	// atomic, so a concurrent same-name create can commit in between and our INSERT
-	// then trips the case-insensitive unique index (artists_lower_name_uniq). We run
-	// the INSERT in a SAVEPOINT (nested tx) because Postgres aborts the WHOLE
-	// transaction on any failed statement — without it, the recovery SELECT below
-	// (and the caller's eventual COMMIT) would fail on the poisoned tx. On a name
-	// collision we re-select and return the winner as created=false, so concurrent
-	// creators converge instead of erroring.
+	// atomic, so a concurrent create of a case-variant of the same name can commit in
+	// between and our INSERT then trips the case-insensitive unique index
+	// (artists_lower_name_uniq) — the funnel dedups on LOWER(name), so this is the
+	// race the index now closes (exact-case dups were already blocked by the old
+	// artists_name_key, dropped by this migration).
+	//
+	// The INSERT runs in a nested tx.Transaction: a SAVEPOINT when the caller already
+	// holds a transaction (show import, discovery), or a standalone BEGIN/COMMIT on a
+	// base *gorm.DB (admin create, data-sync, seed). Either way it CONTAINS a failed
+	// INSERT — Postgres aborts the whole transaction on any failed statement, so
+	// without this the recovery SELECT below (and the caller's eventual COMMIT) would
+	// fail on the poisoned tx. On a collision we re-select and return the winner as
+	// created=false, so concurrent creators converge instead of erroring.
 	createErr := tx.Transaction(func(itx *gorm.DB) error {
 		return itx.Create(&artist).Error
 	})

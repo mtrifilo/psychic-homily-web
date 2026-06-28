@@ -48,6 +48,9 @@ type Artist struct {
 	// Name uniqueness is enforced case-INSENSITIVELY by the functional unique index
 	// artists_lower_name_uniq (PSY-1256), not by this tag — no AutoMigrate runs, so
 	// the tag is documentation only and does NOT create a (case-sensitive) index.
+	// FOOTGUN: if AutoMigrate is ever introduced, this tag would create a conflicting
+	// case-sensitive unique index on name — drop the tag (or match the functional
+	// index) at that point.
 	Name             string  `gorm:"uniqueIndex"`
 	Slug             *string `gorm:"column:slug;uniqueIndex"`
 	State            *string `gorm:"column:state"`
