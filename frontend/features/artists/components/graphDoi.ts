@@ -32,9 +32,10 @@ import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import type { MergedEgoGraph } from './mergeEgoGraphs'
 
 /**
- * DOI term weights. Relevance-dominant by decision (PSY-1259 comment D): users expect
+ * DOI term DEFAULT weights. Relevance-dominant by decision (PSY-1259 comment D): users expect
  * "most-related first"; importance (centrality) breaks ties; proximity keeps nearby nodes
- * ahead of far ones. Fixed in v1 — the user-facing "popular ↔ niche" control is PSY-1260.
+ * ahead of far ones. These are the "Popular" end of the PSY-1260 discovery-bias slider — the
+ * default — which only moves the importance weight (see `doiWeightsForBias`).
  * Tuned visually; sum need not be 1 (ranking is scale-invariant), but kept at 1 for clarity.
  */
 export const DOI_WEIGHTS = {
@@ -47,6 +48,25 @@ export interface DoiWeights {
   importance: number
   relevance: number
   proximity: number
+}
+
+/**
+ * DOI weights for a "discovery bias" slider position (PSY-1260). `bias` ∈ [0,1]:
+ *   0 = Popular (the default — favors high-degree hubs; identical to DOI_WEIGHTS)
+ *   1 = Niche   (INVERTS the importance term so low-degree / serendipitous artists rank up)
+ * Only the importance weight moves (+importance → 0 → −importance, linearly); relevance +
+ * proximity stay fixed, so "most-related-first" still anchors the ranking — the slider re-orders
+ * within similar-relevance neighbors, it doesn't abandon relevance. This is the MusicLynx
+ * "diversity over accuracy" lever (docs/open-questions/graph-density-discovery-redesign.md §3.5),
+ * expressed through the EXISTING importance term rather than a new signal (niche = low degree).
+ */
+export function doiWeightsForBias(bias: number): DoiWeights {
+  const t = Math.min(1, Math.max(0, bias)) // clamp defensively
+  return {
+    importance: DOI_WEIGHTS.importance * (1 - 2 * t),
+    relevance: DOI_WEIGHTS.relevance,
+    proximity: DOI_WEIGHTS.proximity,
+  }
 }
 
 export interface GraphDoi {

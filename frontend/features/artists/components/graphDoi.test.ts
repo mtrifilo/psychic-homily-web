@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { computeGraphDoi, selectSuggestedExpansions, DOI_WEIGHTS } from './graphDoi'
+import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias, DOI_WEIGHTS } from './graphDoi'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
@@ -217,5 +217,52 @@ describe('selectSuggestedExpansions', () => {
 
   it('returns fewer than `max` when not enough candidates remain', () => {
     expect(selectSuggestedExpansions([2, 3], new Set([2]), 5)).toEqual([3])
+  })
+})
+
+// PSY-1260 — the discovery-bias slider supplies these weights to computeGraphDoi.
+describe('doiWeightsForBias', () => {
+  it('bias 0 (Popular) = the default weights — unchanged from PSY-1273', () => {
+    expect(doiWeightsForBias(0)).toEqual({
+      importance: DOI_WEIGHTS.importance,
+      relevance: DOI_WEIGHTS.relevance,
+      proximity: DOI_WEIGHTS.proximity,
+    })
+  })
+
+  it('moves ONLY the importance weight: 0 → +imp, 0.5 → 0, 1 → −imp', () => {
+    expect(doiWeightsForBias(0).importance).toBeCloseTo(DOI_WEIGHTS.importance)
+    expect(doiWeightsForBias(0.5).importance).toBeCloseTo(0)
+    expect(doiWeightsForBias(1).importance).toBeCloseTo(-DOI_WEIGHTS.importance)
+    // relevance + proximity never move
+    for (const t of [0, 0.5, 1]) {
+      expect(doiWeightsForBias(t).relevance).toBe(DOI_WEIGHTS.relevance)
+      expect(doiWeightsForBias(t).proximity).toBe(DOI_WEIGHTS.proximity)
+    }
+  })
+
+  it('clamps out-of-range bias', () => {
+    expect(doiWeightsForBias(-1).importance).toBeCloseTo(DOI_WEIGHTS.importance) // clamps to 0
+    expect(doiWeightsForBias(2).importance).toBeCloseTo(-DOI_WEIGHTS.importance) // clamps to 1
+  })
+})
+
+describe('computeGraphDoi — diversity bias re-ranks hub vs niche (PSY-1260)', () => {
+  // Node 2 is a hub (center + nodes 4,5 → degree 3); node 3 is a leaf (center only → degree 1).
+  // Both reach the center by an equal-strength `similar` tie, so relevance + proximity are equal —
+  // only degree (importance) separates them. The bias flips which one the importance term favors.
+  const merged = mergeEgoGraphs(
+    ego(1, [2, 3, 4, 5], [link(1, 2), link(1, 3), link(2, 4), link(2, 5)]),
+    noExpansions,
+  )
+
+  it('Popular (bias 0): the hub outranks the leaf', () => {
+    const { doiByNodeId } = computeGraphDoi(merged, undefined, doiWeightsForBias(0))
+    expect(doiByNodeId.get(2)!).toBeGreaterThan(doiByNodeId.get(3)!)
+  })
+
+  it('Niche (bias 1): the leaf outranks the hub (importance term inverted)', () => {
+    const { doiByNodeId } = computeGraphDoi(merged, undefined, doiWeightsForBias(1))
+    expect(doiByNodeId.get(3)!).toBeGreaterThan(doiByNodeId.get(2)!)
   })
 })

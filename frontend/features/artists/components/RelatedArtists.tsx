@@ -26,7 +26,7 @@ import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
-import { computeGraphDoi, selectSuggestedExpansions } from './graphDoi'
+import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import {
   MAX_TRAIL_SLOTS,
   pushTrail,
@@ -421,6 +421,11 @@ function RecenteringGraph({
   const [expansions, setExpansions] = useState<Map<number, ArtistGraph>>(new Map())
   const [expandingIds, setExpandingIds] = useState<Set<number>>(() => new Set())
 
+  // PSY-1260: discovery-bias slider value, 0 = Popular (default — DOI exactly as PSY-1273
+  // shipped) … 1 = Niche (boost low-degree/serendipitous artists). Per-viewing-session state;
+  // persists across re-centers, resets when the dialog unmounts. Feeds the DOI weights below.
+  const [diversityBias, setDiversityBias] = useState(0)
+
   // The exploration is scoped to the current (center, fetch-shape). Re-centering OR toggling
   // festival_cobill (which changes what the BASE fetch returns) invalidates the expansions:
   // their payloads were fetched for a different center, or without the now-wanted festival
@@ -507,11 +512,13 @@ function RecenteringGraph({
   // canvas: label collision priority (most-interesting names survive the cull) and the
   // suggested expansion directions. Scoped to `activeTypes` so it tracks the DRAWN graph —
   // toggling a relationship type off re-ranks (and stops scoring nodes whose only ties were
-  // hidden), keeping labels + suggestions consistent with what's on screen. Memoized on
-  // [merged, activeTypes] so it recomputes only when the graph or the toggles actually change.
+  // hidden), keeping labels + suggestions consistent with what's on screen.
+  // PSY-1260: the discovery-bias slider supplies the weights — dragging toward Niche flips the
+  // importance term so low-degree artists surface. Memoized on [merged, activeTypes,
+  // diversityBias] so it recomputes only when the graph, the toggles, or the bias change.
   const doi = useMemo(
-    () => (merged ? computeGraphDoi(merged, activeTypes) : null),
-    [merged, activeTypes]
+    () => (merged ? computeGraphDoi(merged, activeTypes, doiWeightsForBias(diversityBias)) : null),
+    [merged, activeTypes, diversityBias]
   )
 
   // The top ≤5 DOI-ranked nodes the user hasn't already expanded (or isn't mid-expanding) —
@@ -736,6 +743,39 @@ function RecenteringGraph({
             </button>
           )
         })}
+      </div>
+
+      {/* PSY-1260: discovery-bias slider — interpolates DOI's importance weight from Popular
+          (favor hubs, the default) to Niche (boost low-degree / serendipitous artists), re-ranking
+          the labels + suggested directions live. Native range input so it's keyboard- and
+          screen-reader-accessible; the canvas repaint rides the suggestedIds change (already in
+          ArtistGraph's resumeAnimation deps for this re-rank-without-graphData-change case). */}
+      <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
+        <label htmlFor="discovery-bias" className="shrink-0 font-medium">Discovery bias</label>
+        <span className="shrink-0" aria-hidden="true">Popular</span>
+        <input
+          id="discovery-bias"
+          type="range"
+          min={0}
+          max={1}
+          step={0.1}
+          value={diversityBias}
+          onChange={e => setDiversityBias(Number(e.target.value))}
+          aria-label="Discovery bias, from popular to niche"
+          aria-valuetext={
+            diversityBias === 0
+              ? 'Popular'
+              : diversityBias === 1
+                ? 'Niche'
+                : diversityBias < 0.5
+                  ? 'Leaning popular'
+                  : diversityBias > 0.5
+                    ? 'Leaning niche'
+                    : 'Balanced'
+          }
+          className="flex-1 max-w-[12rem] accent-indigo-500 cursor-pointer"
+        />
+        <span className="shrink-0" aria-hidden="true">Niche</span>
       </div>
 
       {/* PSY-1259: expansion status + escape hatch. Discloses how far the user has walked

@@ -178,3 +178,31 @@ describe('RecenteringGraph — DOI suggested expansion directions (PSY-1273)', (
     expect(suggestedIds()).toHaveLength(5)
   })
 })
+
+describe('RecenteringGraph — discovery-bias slider (PSY-1260)', () => {
+  // node 2 is a hub (center + 4 + 5 → degree 3), node 3 a leaf (center only → degree 1); both
+  // tied to the center by an equal `similar` edge, so only degree separates their DOI.
+  const hubGraph = ego(1, [2, 3, 4, 5], [link(1, 2), link(1, 3), link(2, 4), link(2, 5)])
+
+  beforeEach(() => {
+    vizProps = null
+    fetchCalls.length = 0
+    mockUseArtistGraph.mockReturnValue({ data: hubGraph, isFetching: false })
+  })
+
+  it('defaults to the Popular end (slider value 0)', () => {
+    renderDialog()
+    expect((screen.getByRole('slider') as HTMLInputElement).value).toBe('0')
+  })
+
+  it('dragging Popular → Niche flips the DOI so the leaf outranks the hub', () => {
+    renderDialog()
+    const doiPopular = vizProps.doiByNodeId as Map<number, number>
+    expect(doiPopular.get(2)!).toBeGreaterThan(doiPopular.get(3)!) // default: hub wins
+
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } }) // drag to Niche
+
+    const doiNiche = vizProps.doiByNodeId as Map<number, number>
+    expect(doiNiche.get(3)!).toBeGreaterThan(doiNiche.get(2)!) // niche: leaf surfaces above the hub
+  })
+})
