@@ -302,7 +302,14 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 			ArtistID:   artist.ID,
 		}
 
-		// Skip if already has MusicBrainz data
+		// Skip if already has MusicBrainz data. NOTE (PSY-1249): this means an artist
+		// already attributed to MusicBrainz by a PRIOR run is skipped before the MBID
+		// stamp below, so this path is forward-fill only — it never re-searches an
+		// already-MB-sourced artist just to backfill a NULL musicbrainz_artist_id
+		// (re-searching the whole MB-sourced population every run is exactly the waste
+		// PSY-1249 removes). The legacy NULL-MBID backlog is the Phase-A sweep's job
+		// (PSY-1250); the location backfill also stamps it opportunistically for any
+		// still-city-less MB-sourced artist.
 		if artist.DataSource != nil && *artist.DataSource == catalogm.DataSourceMusicBrainz {
 			enrichment.AlreadyHadMBID = true
 			enrichment.Found = true
@@ -335,11 +342,17 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 		mbSource := catalogm.DataSourceMusicBrainz
 		mbConfidence := float64(mbResult.Score) / 100.0
 		now := time.Now()
-		updateErr := s.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"data_source":       &mbSource,
 			"source_confidence": &mbConfidence,
 			"last_verified_at":  &now,
-		}).Error
+		}
+		// PSY-1249: persist the MBID we just resolved so downstream location/links/
+		// release passes browse MusicBrainz by ID instead of re-searching by name.
+		if mbid := mbidToStamp(artist, mbResult); mbid != "" {
+			updates["musicbrainz_artist_id"] = mbid
+		}
+		updateErr := s.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).Updates(updates).Error
 		if updateErr != nil {
 			s.logger.Warn("failed to update artist provenance",
 				"artist_id", artist.ID,
@@ -351,6 +364,39 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 	}
 
 	return results
+}
+
+// mbidToStamp returns the MusicBrainz MBID to persist onto an artist from a fresh
+// match, or "" to write nothing (PSY-1249). It is a SELF-CONTAINED identity gate —
+// correct no matter how the caller sourced mbResult — with three guards:
+//
+//   - Valid MBID: the id must be a canonical UUID (IsValidMBID), rejecting a
+//     malformed/oversized value before it reaches the VARCHAR(36) identity column.
+//   - Fill-when-empty: a set MBID is never overwritten.
+//   - Exact-name: the match's name must normalize-equal the artist's, with empty
+//     normalizations rejected (mirrors matchMBLocation so the two identity gates
+//     can't drift; NormalizeArtistName folds case AND punctuation, PSY-1191/1197).
+//
+// On the role of the name gate HERE: enrichMusicBrainz's only caller feeds the
+// result of SearchArtist, which ALREADY discards every candidate not EqualFold-equal
+// to the artist name (musicbrainz.go), so on THAT path the name check is
+// defense-in-depth, not the primary defense (the famous-namesake exclusion happens
+// upstream). It is load-bearing only if the helper is reused from a path that does
+// NOT pre-filter (e.g. the raw SearchArtistCandidates list) — which is why the gate
+// lives in the helper rather than trusting the caller's invariant. Provenance is
+// written by the caller regardless; only the durable IDENTITY key is gated here.
+func mbidToStamp(artist catalogm.Artist, mbResult *MBLookupResult) string {
+	if mbResult == nil || !IsValidMBID(mbResult.MBID) {
+		return ""
+	}
+	if artist.MusicBrainzArtistID != nil && *artist.MusicBrainzArtistID != "" {
+		return ""
+	}
+	want := NormalizeArtistName(artist.Name)
+	if want == "" || NormalizeArtistName(mbResult.Name) != want {
+		return ""
+	}
+	return mbResult.MBID
 }
 
 // enrichSeatGeek performs SeatGeek API cross-referencing for a show.
