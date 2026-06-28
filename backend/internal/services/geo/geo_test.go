@@ -139,9 +139,22 @@ func TestResolveMetro(t *testing.T) {
 		{"pasadena TX rolls up to Houston", "Pasadena", "TX", "", "26420", true},
 		{"santa monica (suburb) → LA", "Santa Monica", "CA", "", "31080", true},
 		{"brooklyn (borough) → NYC", "Brooklyn", "NY", "", "35620", true},
+		// NYC's consolidated GeoNames entry has no county FIPS; gen_cities.py maps
+		// it (and the common "New York" form) to the NYC metro — the largest scene.
+		{"new york city → NYC metro", "New York City", "NY", "", "35620", true},
+		{"new york (common form) → NYC metro", "New York", "NY", "", "35620", true},
 		{"oakland → SF", "Oakland", "CA", "", "41860", true},
 		{"chicago → Chicago CBSA", "Chicago", "IL", "", "16980", true},
 		{"phoenix → Phoenix CBSA", "Phoenix", "AZ", "", "38060", true},
+		// Unambiguous + US-dominant name resolves WITHOUT an explicit state.
+		{"chicago resolves without a state", "Chicago", "", "", "16980", true},
+		// REFUSE the population guess for a multi-state name with no pinning state
+		// (the PSY-1244 trap) — must return false, not "Houston".
+		{"bare pasadena (ambiguous) → refuse", "Pasadena", "", "", "", false},
+		{"bare springfield (ambiguous) → refuse", "Springfield", "", "", "", false},
+		// A state that pins NO namesake of the city must refuse, not fall back.
+		{"mismatched state → refuse", "Pasadena", "FL", "", "", false},
+		{"bogus state → refuse", "Pasadena", "ZZ", "", "", false},
 		// Non-US place: CBSA is US-only, so no metro (caller falls back to city).
 		{"london GB has no CBSA", "London", "", "GB", "", false},
 		{"unknown city → no metro", "Nowherecityville", "", "", "", false},

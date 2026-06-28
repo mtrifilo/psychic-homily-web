@@ -272,8 +272,8 @@ func (g *offlineGeocoder) loadCities() {
 			lng:     lng,
 			tz:      tz,
 		}
-		// CBSA columns are optional so an older 8-column extract still loads
-		// (without metro). Present only for US rows in the current dataset.
+		// CBSA columns are optional so an older extract without them (8 or 9
+		// fields) still loads (metro empty). Present only for US rows.
 		if len(f) >= 10 {
 			row.cbsaCode = strings.TrimSpace(f[8])
 			row.cbsaName = strings.TrimSpace(f[9])
@@ -307,13 +307,36 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 // ResolveMetro returns the US Census CBSA (metro/micro area) a (city, state,
 // country) belongs to, so suburbs and boroughs roll up to one metro key
 // (Brooklyn, NY → New York-Newark-Jersey City; Pasadena, CA → Los Angeles-Long
-// Beach-Anaheim). It selects the same place Resolve does (country/state filtered,
-// highest population), then returns that place's CBSA. ok is false for a non-US
-// place, a US place not in any CBSA, or a miss — callers fall back to the bare
-// city. The state matters: "Pasadena, CA" → Los Angeles, "Pasadena, TX" → Houston.
+// Beach-Anaheim). ok is false for a non-US place, a US place not in any CBSA, a
+// miss, OR an unpinned ambiguous name (see below).
+//
+// It REFUSES the population guess that sibling ResolveUSState refuses (the
+// PSY-1244 corruption class): a metro is returned only when the same-named place
+// is unambiguously pinned —
+//   - an explicit US state was given AND it matches the selected place's state
+//     (a non-matching state means the highest-population fallback fired → refuse);
+//   - or no state was given but the name is US-unambiguous (one US state, US-
+//     dominant) per ResolveUSState.
+//
+// So "Pasadena, CA" → Los Angeles and "Pasadena, TX" → Houston, but a bare
+// "Pasadena" (or a bogus state) → ok=false rather than a guessed metro. Callers
+// must pass the confident state derived through the artist-state pipeline, never
+// a raw user-entered city alone.
 func (g *offlineGeocoder) ResolveMetro(city, state, country string) (Metro, bool) {
 	best, ok := g.bestCity(city, state, country)
 	if !ok || best.cbsaCode == "" {
+		return Metro{}, false // miss, non-US, or US place not in any CBSA
+	}
+	if _, admin1 := g.resolveCountry(state, country); admin1 != "" {
+		// A US state was given — trust the metro only if it actually pinned THIS
+		// place. A mismatch means bestCity fell back to the highest-population
+		// namesake (admin1 is a preference, not a hard filter), so refuse.
+		if best.admin1 != admin1 {
+			return Metro{}, false
+		}
+	} else if _, status := g.ResolveUSState(city); status != USStateUnambiguous {
+		// No state to pin the namesake and the name isn't unambiguously one US
+		// state — refuse rather than guess the wrong same-named city's metro.
 		return Metro{}, false
 	}
 	return Metro{CBSACode: best.cbsaCode, Name: best.cbsaName}, true

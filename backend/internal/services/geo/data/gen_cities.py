@@ -36,6 +36,22 @@ STATE_FIPS = {
 }
 
 
+# Consolidated GeoNames entries the county-FIPS join can't reach, mapped by hand
+# to their CBSA. New York City is the one that matters: GeoNames stores it as ONE
+# row with an EMPTY admin2 (it spans five county-boroughs), so the join misses it;
+# and the common stored form "New York" isn't a GeoNames entry name at all
+# (alternatenames are dropped), so it resolves to nothing. We stamp the NYC metro
+# on the consolidated row AND emit a "New York" alias row pointing at it, so the
+# largest US scene resolves under either form. (The boroughs — Brooklyn, Queens,
+# Manhattan… — carry single-county FIPS and already resolve on their own.)
+# Keyed by (asciiname, admin1) -> (cbsa_code, [alias asciinames]). The CBSA name
+# is looked up from the crosswalk by code (NOT hardcoded) so it can't drift from
+# the boroughs' join-derived name when the Census delineation year is bumped.
+CONSOLIDATED = {
+    ('New York City', 'NY'): ('35620', ['New York']),
+}
+
+
 def load_crosswalk(xlsx_path):
     """5-digit county FIPS -> (cbsa_code, cbsa_title)."""
     df = pd.read_excel(xlsx_path, skiprows=2)  # 2 title rows precede the header
@@ -52,6 +68,9 @@ def load_crosswalk(xlsx_path):
 
 def main(cities_path, xlsx_path):
     xw = load_crosswalk(xlsx_path)
+    # CBSA code -> friendly name, for the CONSOLIDATED overrides (so a hand-mapped
+    # consolidated city gets the SAME name the county join gives its neighbors).
+    code_to_name = {code: name for code, name in xw.values()}
     with open(cities_path, encoding='utf-8') as f:
         for line in f:
             p = line.rstrip('\n').split('\t')
@@ -61,13 +80,24 @@ def main(cities_path, xlsx_path):
             admin1, admin2, pop = p[10], p[11], p[14]
             lat, lng, tz = p[4], p[5], p[17]
             cbsa_code = cbsa_name = ''
+            aliases = []
             if country == 'US':
                 sf = STATE_FIPS.get(admin1.upper())
                 if sf and admin2:
                     hit = xw.get(sf + admin2.zfill(3))
                     if hit:
                         cbsa_code, cbsa_name = hit
-            print('\t'.join([name, ascii_, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]))
+                if not cbsa_code:
+                    override = CONSOLIDATED.get((ascii_, admin1.upper()))
+                    if override:
+                        cbsa_code, aliases = override
+                        cbsa_name = code_to_name.get(cbsa_code, '')
+            row = [name, ascii_, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]
+            print('\t'.join(row))
+            # Emit alias rows (e.g. "New York" for the "New York City" entry) so a
+            # common stored form resolves to the same place + metro.
+            for alias in aliases:
+                print('\t'.join([alias, alias, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]))
 
 
 if __name__ == '__main__':

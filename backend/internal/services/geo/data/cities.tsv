@@ -31468,7 +31468,8 @@ Nanuet	Nanuet	US	NY	17882	41.08871	-74.01347	America/New_York	35620	New York-New
 New City	New City	US	NY	33559	41.1476	-73.98931	America/New_York	35620	New York-Newark-Jersey City, NY-NJ
 New Rochelle	New Rochelle	US	NY	79846	40.91149	-73.78235	America/New_York	35620	New York-Newark-Jersey City, NY-NJ
 New Springville	New Springville	US	NY	20756	40.59344	-74.1632	America/New_York	35620	New York-Newark-Jersey City, NY-NJ
-New York City	New York City	US	NY	8804190	40.71427	-74.00597	America/New_York		
+New York City	New York City	US	NY	8804190	40.71427	-74.00597	America/New_York	35620	New York-Newark-Jersey City, NY-NJ
+New York	New York	US	NY	8804190	40.71427	-74.00597	America/New_York	35620	New York-Newark-Jersey City, NY-NJ
 Newburgh	Newburgh	US	NY	28290	41.50343	-74.01042	America/New_York	28880	Kiryas Joel-Poughkeepsie-Newburgh, NY
 Niagara Falls	Niagara Falls	US	NY	48916	43.0945	-79.05671	America/New_York	15380	Buffalo-Cheektowaga, NY
 North Amityville	North Amityville	US	NY	17862	40.6976	-73.42512	America/New_York	35620	New York-Newark-Jersey City, NY-NJ
