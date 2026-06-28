@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -56,6 +57,13 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	if apply != nil {
 		apply(&artist)
 	}
+	// Denormalized CBSA metro for the scene rollup (PSY-1255 step B). Computed here
+	// in the single create funnel — AFTER apply set the location — so EVERY create
+	// caller (admin CreateArtist, data-sync importArtist, …) gets it; a caller that
+	// passes no location resolves to nil, which is correct. Foreground updates
+	// (UpdateArtist, the contribution-edit apply) recompute it; the reconciler
+	// (cmd/backfill-entity-metro) is the backstop for background location writers.
+	artist.Metro = geo.MetroPointer(geo.Default(), derefString(artist.City), derefString(artist.State), derefString(artist.Country))
 	slug := uniqueArtistSlugTx(tx, artist.Name)
 	artist.Slug = &slug
 

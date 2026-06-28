@@ -118,11 +118,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		a.State = req.State
 		a.City = req.City
 		a.Country = req.Country
-		// Denormalized CBSA metro for the scene rollup (PSY-1255 step B), derived
-		// from the create-time location (UpdateArtist keeps it fresh on edits). A
-		// background-enriched or state-corrected artist instead gets it from
-		// cmd/backfill-entity-metro, the reconciling backstop.
-		a.Metro = geo.MetroPointer(geo.Default(), derefString(req.City), derefString(req.State), derefString(req.Country))
+		// (metro is derived from this location by the create funnel — PSY-1255 step B.)
 		a.Description = req.Description
 		a.ImageURL = req.ImageURL
 		a.BandcampEmbedURL = req.BandcampEmbedURL

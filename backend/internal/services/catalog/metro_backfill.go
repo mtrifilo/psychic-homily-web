@@ -12,11 +12,13 @@ import (
 // PSY-1255 step B: reconcile the denormalized `metro` (CBSA code) column on
 // artists and venues. metro is DERIVED from (city, state, country) via
 // geo.ResolveMetro, so it must equal that derivation at all times for the scene
-// rollup to be correct. The service write paths set it alongside the geocoding
-// (artist create + UpdateArtist; venue create + UpdateVenue + the contribution-
-// edit apply + data-sync import), but the BACKGROUND location writers — the
-// artist location-enrichment fill and the offline state/location backfills
-// (step 0) — change an entity's location WITHOUT touching metro, so it drifts.
+// rollup to be correct. Every FOREGROUND service write path sets it alongside the
+// location: artists via the create funnel (FindOrCreateArtistTx, covering admin
+// create + data-sync import) + UpdateArtist + the contribution-edit apply; venues
+// via applyGeocoding (create + UpdateVenue) + the contribution-edit apply +
+// data-sync import. Only the BACKGROUND location writers — the artist location-
+// enrichment fill and the offline state/location backfills (step 0) — change an
+// entity's location WITHOUT touching metro, so it drifts.
 // This reconciler recomputes metro for EVERY row and writes only the ones that
 // differ — the backstop, run after a location/state backfill, and a no-op on a
 // clean second run.
