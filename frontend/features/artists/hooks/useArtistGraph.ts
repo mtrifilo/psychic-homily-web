@@ -6,10 +6,36 @@
  * TanStack Query hooks for fetching artist relationship graph data and voting.
  */
 
+import { useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type { ArtistGraph } from '../types'
+
+const GRAPH_STALE_TIME = 5 * 60 * 1000 // 5 minutes
+
+function graphEndpoint(artistId: number, types?: string[]): string {
+  const params = new URLSearchParams()
+  if (types && types.length > 0) {
+    params.set('types', types.join(','))
+  }
+  const queryString = params.toString()
+  return queryString
+    ? `${artistEndpoints.GRAPH(artistId)}?${queryString}`
+    : artistEndpoints.GRAPH(artistId)
+}
+
+// Single owner of the graph cache contract — key + queryFn + staleTime in one place — so the
+// reactive hook (useQuery) and the imperative expand fetcher (fetchQuery) can't drift on the
+// cache KEY or the fetch, which would split the cache and refetch already-loaded artists.
+function graphQueryOptions(artistId: number, types?: string[]) {
+  return {
+    queryKey: artistQueryKeys.graph(artistId, types),
+    queryFn: (): Promise<ArtistGraph> =>
+      apiRequest<ArtistGraph>(graphEndpoint(artistId, types), { method: 'GET' }),
+    staleTime: GRAPH_STALE_TIME,
+  }
+}
 
 interface UseArtistGraphOptions {
   artistId: number
@@ -24,23 +50,26 @@ interface UseArtistGraphOptions {
 export function useArtistGraph(options: UseArtistGraphOptions) {
   const { artistId, types, enabled = true } = options
 
-  const params = new URLSearchParams()
-  if (types && types.length > 0) {
-    params.set('types', types.join(','))
-  }
-  const queryString = params.toString()
-  const endpoint = queryString
-    ? `${artistEndpoints.GRAPH(artistId)}?${queryString}`
-    : artistEndpoints.GRAPH(artistId)
-
   return useQuery({
-    queryKey: artistQueryKeys.graph(artistId, types),
-    queryFn: async (): Promise<ArtistGraph> => {
-      return apiRequest<ArtistGraph>(endpoint, { method: 'GET' })
-    },
+    ...graphQueryOptions(artistId, types),
     enabled: enabled && artistId > 0,
-    staleTime: 5 * 60 * 1000, // 5 minutes
   })
+}
+
+/**
+ * Imperative ego-graph fetcher for expand-on-demand (PSY-1259). Returns a stable
+ * async function that fetches an arbitrary artist's graph on click. It shares
+ * `useArtistGraph`'s query options (key + staleTime), so an already-loaded artist (the
+ * base center, or a previously-expanded/-visited node) resolves instantly from cache
+ * rather than re-hitting the network.
+ */
+export function useFetchArtistGraph() {
+  const queryClient = useQueryClient()
+  return useCallback(
+    (artistId: number, types?: string[]): Promise<ArtistGraph> =>
+      queryClient.fetchQuery(graphQueryOptions(artistId, types)),
+    [queryClient],
+  )
 }
 
 interface VoteRelationshipParams {

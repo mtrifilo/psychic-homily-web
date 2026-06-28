@@ -152,4 +152,48 @@ describe('ArtistNodeTooltip (PSY-361)', () => {
     expect(style).toContain('translateX(calc(-100% - 8px))')
     expect(style).toContain('translateY(calc(-100% - 8px))')
   })
+
+  // PSY-1259: the tooltip is the DOM-accessible home of the expand/collapse + re-center
+  // actions (the canvas node click does expand on the visual layer; these are the
+  // keyboard/click-reachable twins, and re-center has no canvas gesture anymore).
+  describe('expand / re-center actions (PSY-1259)', () => {
+    it('omits both action buttons when no callbacks are wired (e.g. bill-composition graph)', () => {
+      renderWithProviders(
+        <ArtistNodeTooltip node={baseNode} position={{ x: 0, y: 0 }} {...handlers} />
+      )
+      expect(screen.queryByRole('button', { name: /expand neighbors|collapse neighbors/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /center on this artist/i })).not.toBeInTheDocument()
+      // The nav escape is unaffected.
+      expect(screen.getByRole('link', { name: /View artist page/i })).toBeInTheDocument()
+    })
+
+    it('renders an Expand button and fires onExpand on click', () => {
+      const onExpand = vi.fn()
+      renderWithProviders(
+        <ArtistNodeTooltip node={baseNode} position={{ x: 0, y: 0 }} {...handlers} onExpand={onExpand} />
+      )
+      const btn = screen.getByRole('button', { name: /\+ Expand neighbors/i })
+      fireEvent.click(btn)
+      expect(onExpand).toHaveBeenCalledTimes(1)
+    })
+
+    it('flips the label to Collapse when isExpanded', () => {
+      const onExpand = vi.fn()
+      renderWithProviders(
+        <ArtistNodeTooltip node={baseNode} position={{ x: 0, y: 0 }} {...handlers} onExpand={onExpand} isExpanded />
+      )
+      expect(screen.getByRole('button', { name: /− Collapse neighbors/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Expand neighbors/i })).not.toBeInTheDocument()
+    })
+
+    it('renders a Center-on-this-artist button and fires onRecenter on click', () => {
+      const onRecenter = vi.fn()
+      renderWithProviders(
+        <ArtistNodeTooltip node={baseNode} position={{ x: 0, y: 0 }} {...handlers} onRecenter={onRecenter} />
+      )
+      const btn = screen.getByRole('button', { name: /center on this artist/i })
+      fireEvent.click(btn)
+      expect(onRecenter).toHaveBeenCalledTimes(1)
+    })
+  })
 })

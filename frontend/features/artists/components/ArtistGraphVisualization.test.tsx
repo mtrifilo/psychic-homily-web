@@ -250,3 +250,41 @@ describe('ArtistGraphVisualization — hover-grace tooltip dismissal (PSY-1218)'
     expect(tooltipLink()).toBeInTheDocument()
   })
 })
+
+// PSY-1259: the node CLICK now expands (was re-center). Re-center moved to the tooltip
+// (covered in ArtistNodeTooltip.test.tsx); here we lock the click→expand wiring.
+describe('ArtistGraphVisualization — expand gesture (PSY-1259)', () => {
+  beforeEach(() => vi.useRealTimers())
+  afterEach(() => { forceGraphProps = null })
+
+  it('fires onExpand (not onRecenter) when a satellite node is clicked', () => {
+    const onExpand = vi.fn()
+    const onRecenter = vi.fn()
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onExpand={onExpand}
+        onRecenter={onRecenter}
+      />,
+    )
+    act(() => forceGraphProps.onNodeClick(satellite))
+    expect(onExpand).toHaveBeenCalledWith({ id: 2, slug: 'frozen-soul', name: 'Frozen Soul' })
+    expect(onRecenter).not.toHaveBeenCalled() // re-center is the tooltip action now, not the click
+  })
+
+  it('clicking the center node is a no-op (the ego anchor is already expanded)', () => {
+    const onExpand = vi.fn()
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onExpand={onExpand}
+      />,
+    )
+    act(() => forceGraphProps.onNodeClick(centerNode))
+    expect(onExpand).not.toHaveBeenCalled()
+  })
+})

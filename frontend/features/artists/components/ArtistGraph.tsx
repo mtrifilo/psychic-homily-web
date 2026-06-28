@@ -95,12 +95,29 @@ interface ArtistGraphProps {
   activeTypes: Set<string>
   containerWidth: number
   /**
-   * PSY-361: Re-center handler. Called when the user clicks a non-center
-   * node. The parent owns the traversal state + URL sync; this component
-   * just emits the click. Receives both id and slug so the parent doesn't
-   * need a separate slug→id resolution step on click.
+   * PSY-361: Re-center handler. Now fired from the node tooltip's "Center on
+   * this artist" action (PSY-1259 moved the node CLICK to expand). The parent
+   * owns the traversal state + URL sync; this component just emits the request.
    */
   onRecenter?: (node: { id: number; slug: string; name: string }) => void
+  /**
+   * PSY-1259: Expand-on-demand handler. Fired when the user clicks a non-center
+   * node (the new primary gesture). The parent fetches that node's neighbors and
+   * merges them into the graph — or, if the node is already expanded, collapses
+   * it. ArtistGraph stays dumb about which: it just emits the click and renders
+   * `expandedIds`/`expandingIds` state the parent passes back.
+   */
+  onExpand?: (node: { id: number; slug: string; name: string }) => void
+  /**
+   * PSY-1259: Shortest-path hop distance per node id (center = 0, its neighbors =
+   * 1, …). Drives the concentric-ring radial layout — each ring is one hop out.
+   * Absent (or all-1) renders the single-ring P0 ego layout unchanged.
+   */
+  hopByNodeId?: Map<number, number>
+  /** PSY-1259: node ids the user has expanded (rendered with an "opened" accent). */
+  expandedIds?: Set<number>
+  /** PSY-1259: node ids whose expansion fetch is in flight (rendered with a loading ring). */
+  expandingIds?: Set<number>
   /**
    * PSY-361: When true, an overlay spinner is shown over the graph while
    * the parent fetches the new center's payload. We deliberately do NOT
@@ -153,9 +170,30 @@ export interface ArtistNodeTooltipProps {
    */
   onMouseEnter: () => void
   onMouseLeave: () => void
+  /**
+   * PSY-1259: expand/collapse this node's neighbors. Optional — surfaces only when the
+   * host wires expand-on-demand (the bill-composition graph doesn't). `isExpanded` flips
+   * the label between expand and collapse. This is the keyboard/click-accessible twin of
+   * the canvas node-click gesture (the canvas itself isn't focusable).
+   */
+  onExpand?: () => void
+  isExpanded?: boolean
+  /**
+   * PSY-1259 / PSY-361: re-center the whole graph on this artist. Moved here from the node
+   * click (now expand). Optional for the same reason as onExpand.
+   */
+  onRecenter?: () => void
 }
 
-export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }: ArtistNodeTooltipProps) {
+export function ArtistNodeTooltip({
+  node,
+  position,
+  onMouseEnter,
+  onMouseLeave,
+  onExpand,
+  isExpanded = false,
+  onRecenter,
+}: ArtistNodeTooltipProps) {
   return (
     <div
       data-testid="artist-node-tooltip"
@@ -178,12 +216,34 @@ export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }
           {node.upcoming_show_count} upcoming {node.upcoming_show_count === 1 ? 'show' : 'shows'}
         </div>
       )}
-      <Link
-        href={`/artists/${node.slug}`}
-        className="mt-1.5 inline-block text-primary hover:underline pointer-events-auto"
-      >
-        View artist page &rarr;
-      </Link>
+      {/* PSY-1259 actions. Each is pointer-events-auto so it's clickable through the
+          hoverable tooltip (PSY-1218). Rendered only when the host wires the callback. */}
+      <div className="mt-1.5 flex flex-col gap-0.5 text-primary">
+        {onExpand && (
+          <button
+            type="button"
+            onClick={onExpand}
+            className="text-left hover:underline pointer-events-auto"
+          >
+            {isExpanded ? '− Collapse neighbors' : '+ Expand neighbors'}
+          </button>
+        )}
+        {onRecenter && (
+          <button
+            type="button"
+            onClick={onRecenter}
+            className="text-left hover:underline pointer-events-auto"
+          >
+            Center on this artist &rarr;
+          </button>
+        )}
+        <Link
+          href={`/artists/${node.slug}`}
+          className="hover:underline pointer-events-auto"
+        >
+          View artist page &rarr;
+        </Link>
+      </div>
     </div>
   )
 }
@@ -194,17 +254,18 @@ export function ArtistNodeTooltip({ node, position, onMouseEnter, onMouseLeave }
 const CENTER_NODE_RADIUS = 12
 const SATELLITE_NODE_RADIUS = 8
 
-// PSY-1257: radial ego layout. The center is pinned at the origin; every satellite is
-// pulled toward a single ring of this radius so the subject reads as the hub and the
-// neighbors spread evenly around it instead of clumping into the free-force hairball.
-// Depth-1 graph today, so all satellites share the one ring (the force gives every
-// satellite the same radius); P1 multi-hop expand-on-demand is where per-ring radii by
-// hop distance would slot in. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring —
-// higher snaps to the ring faster (less organic angular spread). Tuned visually on a
-// dense radio ego graph. EGO_CHARGE_STRENGTH stiffens the default node repulsion so the
-// satellites distribute EVENLY around the ring instead of bunching on one arc (left-side
-// label crowding without it) — the radial force fixes the radius, charge fixes the angle.
+// PSY-1257/1259: concentric-ring ego layout. The center is pinned at the origin; every
+// satellite is pulled toward the ring for its hop distance, so the subject reads as the hub
+// and each expand-on-demand step lands its new neighbors on the next ring out. Hop-1
+// neighbors sit at EGO_RING_RADIUS; each further hop adds RING_GAP (radius = EGO_RING_RADIUS
+// + (hop-1)*RING_GAP). With no expansions every satellite is hop 1 → the single-ring P0
+// layout. RADIAL_FORCE_STRENGTH is the per-tick pull toward the ring — higher snaps to the
+// ring faster (less organic angular spread). Tuned visually on a dense radio ego graph.
+// EGO_CHARGE_STRENGTH stiffens the default node repulsion so satellites distribute EVENLY
+// around their ring instead of bunching on one arc — the radial force fixes the radius,
+// charge fixes the angle.
 const EGO_RING_RADIUS = 165
+const RING_GAP = 135
 const RADIAL_FORCE_STRENGTH = 0.4
 const EGO_CHARGE_STRENGTH = -210
 
@@ -231,6 +292,10 @@ export function ArtistGraphVisualization({
   activeTypes,
   containerWidth,
   onRecenter,
+  onExpand,
+  hopByNodeId,
+  expandedIds,
+  expandingIds,
   isRecentering = false,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -399,10 +464,12 @@ export function ArtistGraphVisualization({
     fg.d3Force?.('radial', (alpha: number) => {
       for (const node of graphData.nodes) {
         if (node.isCenter) continue
+        const hop = hopByNodeId?.get(node.id) ?? 1
+        const targetRadius = EGO_RING_RADIUS + (hop - 1) * RING_GAP
         const x = node.x ?? 0
         const y = node.y ?? 0
         const dist = Math.hypot(x, y) || 1e-6
-        const k = ((EGO_RING_RADIUS - dist) * RADIAL_FORCE_STRENGTH * alpha) / dist
+        const k = ((targetRadius - dist) * RADIAL_FORCE_STRENGTH * alpha) / dist
         node.vx = (node.vx ?? 0) + x * k
         node.vy = (node.vy ?? 0) + y * k
       }
@@ -421,7 +488,11 @@ export function ArtistGraphVisualization({
     // time the layout must move), so an extra reheat on every filter toggle would just re-animate
     // the whole graph and fight the reduced-motion pause. Browser-verified: the ring forms on
     // first load and re-settles correctly on filter toggle without an explicit reheat.
-  }, [graphData])
+    //
+    // hopByNodeId is a dep because the radial closure reads it for the per-ring radius — an
+    // expand changes both graphData and hopByNodeId together, but keying on both keeps the
+    // registered closure honest rather than relying on graphData co-changing.
+  }, [graphData, hopByNodeId])
 
   // PSY-1220 parity with ForceGraphView's reheat-dismiss: a filter-toggle (graphData, via
   // activeTypes) or a resize (containerWidth) reheats/reframes the layout and pans nodes under an
@@ -484,6 +555,10 @@ export function ArtistGraphVisualization({
   //   (2) hover-focus (PSY-1210): nodeCanvasObject / linkColor / labels read focusedIds;
   //       force-graph's notifyRedraw only sets a flag the rAF loop consumes, and that
   //       loop can be idle/paused, so resumeAnimation is what guarantees the frame renders.
+  //   (3) expand loading ring (PSY-1259): expandingIds flips when a fetch starts/ends WITHOUT a
+  //       graphData change, so nodeCanvasObject's dashed ring needs this repaint kick to appear
+  //       (the merge that follows triggers its own redraw). Pass a referentially-stable Set from
+  //       the parent (memoized) so this doesn't fire every render.
   // Gated on !reducedMotion (PSY-1226): force-graph's rAF loop reschedules unconditionally,
   // so resumeAnimation here would keep the loop running forever and DEFEAT the reduced-motion
   // pauseAnimation above. For reduced-motion users we keep the static snapshot — the canvas is
@@ -492,7 +567,7 @@ export function ArtistGraphVisualization({
   // hover tooltip + hover-focus won't fire (both ride the paused loop's hit-testing).
   useEffect(() => {
     if (!reducedMotion) graphRef.current?.resumeAnimation()
-  }, [palette, hoveredNode, reducedMotion])
+  }, [palette, hoveredNode, reducedMotion, expandingIds])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is
@@ -510,16 +585,29 @@ export function ArtistGraphVisualization({
     return () => clearTimeout(timer)
   }, [data.center.id])
 
-  // PSY-361: clicking a non-center node re-centers the graph instead of
-  // navigating to the artist's full page. The "View artist page →" link
-  // inside the hover/long-press tooltip is the explicit nav escape.
-  // Clicking the center node is a no-op — there's nothing to re-center to.
+  // PSY-1259: re-frame after an expand/collapse so the newly-revealed outer ring fits in view
+  // (an expand grows the graph past the current viewport otherwise) and a collapse re-tightens.
+  // Keyed on expandedIds — which changes ONLY on expand/collapse, NOT on a filter toggle (those
+  // keep their framing, as above). Same 250ms settle delay + 500ms ease as the re-center reframe.
+  // On the empty initial set this is a harmless no-op duplicate of the center reframe.
+  useEffect(() => {
+    if (!graphRef.current) return
+    const timer = setTimeout(() => {
+      graphRef.current?.zoomToFit(500, 40)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [expandedIds])
+
+  // PSY-1259: clicking a non-center node EXPANDS it (fetch + merge its neighbors) — or
+  // collapses it if already expanded; the parent decides which from expandedIds. Re-center
+  // moved to the tooltip's "Center on this artist" action; "View artist page →" is the nav
+  // escape. Clicking the center is a no-op (it's the ego anchor, already "expanded").
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
       if (node.isCenter) return
-      onRecenter?.({ id: node.id, slug: node.slug, name: node.name })
+      onExpand?.({ id: node.id, slug: node.slug, name: node.name })
     },
-    [onRecenter]
+    [onExpand]
   )
 
   // Anchor the tooltip on the NODE (onNodeHover carries no MouseEvent) via the
@@ -624,11 +712,26 @@ export function ArtistGraphVisualization({
         ctx.lineWidth = 2
         ctx.stroke()
       } else {
-        ctx.fillStyle = 'rgba(63, 63, 70, 0.6)' // zinc-700/60
+        // PSY-1259: an expanded satellite reads as an "opened" hub (indigo accent, matching
+        // the center) so the user can see what they've walked into and what's collapsible.
+        const isExpanded = expandedIds?.has(node.id) ?? false
+        ctx.fillStyle = isExpanded ? 'rgba(99, 102, 241, 0.3)' : 'rgba(63, 63, 70, 0.6)' // indigo-500/30 vs zinc-700/60
         ctx.fill()
-        ctx.strokeStyle = 'rgba(161, 161, 170, 0.5)' // zinc-400/50
-        ctx.lineWidth = 1
+        ctx.strokeStyle = isExpanded ? '#818cf8' : 'rgba(161, 161, 170, 0.5)' // indigo-400 vs zinc-400/50
+        ctx.lineWidth = isExpanded ? 2 : 1
         ctx.stroke()
+
+        // PSY-1259: a dashed outer ring while this node's expansion fetch is in flight — a
+        // lightweight loading cue (fetches are usually fast/cached, so no animation needed).
+        if (expandingIds?.has(node.id)) {
+          ctx.beginPath()
+          ctx.arc(x, y, radius + 3, 0, 2 * Math.PI)
+          ctx.setLineDash([3, 3])
+          ctx.strokeStyle = '#818cf8'
+          ctx.lineWidth = 1.5
+          ctx.stroke()
+          ctx.setLineDash([])
+        }
       }
 
       // Show indicator for upcoming shows
@@ -641,7 +744,7 @@ export function ArtistGraphVisualization({
 
       ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
     },
-    [focusedIds]
+    [focusedIds, expandedIds, expandingIds]
   )
 
   // Degree (link count) per node id → which label wins a collision (shared with
@@ -780,9 +883,9 @@ export function ArtistGraphVisualization({
         // has no rich tooltip — otherwise hovering the center shows no name at low
         // zoom (PSY-1215). linkLabel (edge tooltip) is kept.
         nodeLabel={(node: GraphNode) => (node.isCenter ? node.name : '')}
-        // PSY-361 / PSY-369 spike: disable node drag to remove the
-        // tap-vs-drag ambiguity on touch devices. Tap = re-center,
-        // long-press = tooltip; nothing for drag to do.
+        // PSY-361 / PSY-369 spike: disable node drag to remove the tap-vs-drag ambiguity on
+        // touch devices. Tap = expand (PSY-1259), long-press = tooltip (which holds re-center +
+        // view-page); nothing for drag to do.
         enableNodeDrag={false}
         linkSource="source"
         linkTarget="target"
@@ -805,6 +908,19 @@ export function ArtistGraphVisualization({
           position={tooltipPos}
           onMouseEnter={handleTooltipEnter}
           onMouseLeave={handleTooltipLeave}
+          // PSY-1259: the DOM-accessible twins of the canvas gestures. Expand/collapse mirrors
+          // the node click; re-center is the action the click no longer performs.
+          onExpand={
+            onExpand
+              ? () => onExpand({ id: hoveredNode.id, slug: hoveredNode.slug, name: hoveredNode.name })
+              : undefined
+          }
+          isExpanded={expandedIds?.has(hoveredNode.id) ?? false}
+          onRecenter={
+            onRecenter
+              ? () => onRecenter({ id: hoveredNode.id, slug: hoveredNode.slug, name: hoveredNode.name })
+              : undefined
+          }
         />
       )}
 
