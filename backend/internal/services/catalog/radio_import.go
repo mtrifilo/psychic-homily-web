@@ -181,7 +181,9 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	// Advance the watermark through the shared gate (PSY-1269): a total failure here
 	// holds it stale too. This legacy full-import path is unwired in production today,
 	// but routing it through advanceLastFetch keeps the watermark invariant intact if
-	// it is ever re-exposed (it remains on the contracts.RadioService interface).
+	// it is ever re-exposed (it remains on the contracts.RadioService interface). Only
+	// the station roll-up is advanced — the per-show watermarks (PSY-1272) are left
+	// untouched, since this is a bounded historical import, not the incremental frontier.
 	s.advanceLastFetch(stationID, fetchAttempts, fetchSuccesses, episodesReturned, result.EpisodesImported)
 
 	return result, nil
@@ -250,11 +252,11 @@ func recordImportError(result *contracts.RadioImportResult, category, detail str
 
 // fetchLookbackFloorDays is the DEFAULT incremental-fetch lookback floor (days);
 // resolveFetchLookbackFloorDays applies the RADIO_FETCH_LOOKBACK_FLOOR_DAYS override.
-// The floor stops the forward-advancing per-station last_playlist_fetch_at (the fetch
-// loop runs every 6h) from overtaking a show that airs less often than that cadence —
-// without it such a show slips behind `since` and is skipped on every later run,
-// permanently (PSY-1230). The cold-start (first-fetch) window uses the same floor;
-// see fetchSince.
+// The floor stops the forward-advancing last_playlist_fetch_at watermark (the fetch loop
+// runs every 6h) from overtaking a show that airs less often than that cadence — without
+// it such a show slips behind `since` and is skipped on every later run, permanently
+// (PSY-1230). It applies to the per-show watermark each show is fetched against (PSY-1272).
+// The cold-start (first-fetch) window uses the same floor; see fetchSince.
 //
 // 45 days covers the longest REGULAR cadence on the roster with margin. The roster is
 // NTS-monthly-dominant (~92% monthly, dominant 28-day interval); the stage roster's
@@ -267,15 +269,15 @@ func recordImportError(result *contracts.RadioImportResult, category, detail str
 // if the roster's cadence tail grows (PSY-1268).
 const fetchLookbackFloorDays = 45
 
-// fetchSince computes the lower bound (`since`) for an incremental playlist fetch.
-// floorDays (from resolveFetchLookbackFloorDays) is the load-bearing fix: it stops
-// the forward-advancing per-station last_playlist_fetch_at from overtaking a show
-// that airs less often than the 6h fetch cadence (PSY-1230). The cold-start branch
-// (no prior last_playlist_fetch_at) uses the SAME floor — a first fetch must never
-// look back less than a subsequent one, or a monthly show's most recent episode
-// could be missed before the floor takes over; deep initial population (history
-// older than the floor) is the backfill path's job (ImportStation / discover
-// create-on-first), not this incremental one.
+// fetchSince computes the lower bound (`since`) for an incremental playlist fetch. It is
+// called PER SHOW with that show's own last_playlist_fetch_at watermark (PSY-1272).
+// floorDays (from resolveFetchLookbackFloorDays) is the load-bearing fix: it stops the
+// forward-advancing watermark from overtaking a show that airs less often than the 6h
+// fetch cadence (PSY-1230). The cold-start branch (no prior last_playlist_fetch_at) uses
+// the SAME floor — a first fetch must never look back less than a subsequent one, or a
+// monthly show's most recent episode could be missed before the floor takes over; deep
+// initial population (history older than the floor) is the backfill path's job
+// (ImportStation / discover create-on-first), not this incremental one.
 //
 // `since` is interpreted PER PROVIDER: WFMU compares it against an air_date
 // parsed at UTC midnight (radio_provider_wfmu.go), while NTS/KEXP compare it
@@ -288,9 +290,10 @@ const fetchLookbackFloorDays = 45
 // dedup no-op (importEpisode keys on (show_id, external_id)); only a
 // recently-aired, still-pending episode re-fetches its playlist, bounded by
 // RadioBackfillMaxAttempts. A genuinely older lastFetch — a re-enabled station,
-// or a multi-day provider outage during which shouldAdvanceLastFetch held the
-// timestamp back (PSY-1241) — widens the window further so recovery re-scans
-// back to the true gap.
+// a multi-day provider outage during which shouldAdvanceLastFetch held the
+// timestamp back (PSY-1241), or a single show held back by its OWN watermark
+// while its siblings advanced (PSY-1272) — widens the window further so recovery
+// re-scans back to the true gap.
 func fetchSince(lastFetch *time.Time, now time.Time, floorDays int) time.Time {
 	today := now.UTC().Truncate(24 * time.Hour)
 	floor := today.AddDate(0, 0, -floorDays)
@@ -353,13 +356,14 @@ func resolveFetchLookbackFloorDays() int {
 //     not a failure and advances.)
 //   - otherwise → advance.
 //
-// Scope: this gate is TOTAL-station only, because last_playlist_fetch_at is a
-// single per-station watermark. A station where most shows succeed but ONE show
-// errors every run still advances, so that one show's episodes older than the floor
-// are not recovered by the incremental path — e.g. a renamed/removed external_id
-// that 404s until an admin corrects it; recovery there is a manual backfill.
-// Per-show incremental recovery would need a per-show fetch timestamp — carved out
-// to PSY-1272. (PSY-1241)
+// Scope: this gate is granularity-agnostic — it takes counts, not a station, so the same
+// rule applies at two granularities. PSY-1241 applies it to the per-station roll-up
+// (advance unless EVERY fetchable show failed — the sustained-outage signal the PSY-1269
+// janitor reads). PSY-1272 ALSO applies it per show (attempts=successes=1, with that
+// show's own returned/imported counts) so a single persistently-failing show — e.g. a
+// renamed/removed external_id that 404s until an admin corrects it — holds only its OWN
+// watermark and recovers its gap via fetchSince's catch-up branch once it succeeds again,
+// without the rest of the station stalling. (PSY-1241/PSY-1272)
 func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) bool {
 	switch {
 	case fetchAttempts == 0:
@@ -373,34 +377,84 @@ func shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, epi
 	}
 }
 
-// advanceLastFetch is the single place an import run updates a station's
-// last_playlist_fetch_at watermark. It advances only when the run made progress
-// (shouldAdvanceLastFetch); a wholly-failed run holds the watermark stale so
-// fetchSince's catch-up branch recovers the gap on the next good run (PSY-1241) and
-// the janitor escalates if it stays stale (PSY-1269, EscalateStaleFetchOutages). A
-// no-progress run and a failed write are both logged, not swallowed — the no-progress
-// warning is the immediate per-cycle outage signal. The two steady-state station-fetch
-// paths (FetchNewEpisodes, ImportStation) route through here. Scoped backfill imports
+// advanceLastFetch advances a STATION's last_playlist_fetch_at — the total-station
+// roll-up watermark. It advances whenever the station as a whole made progress (≥1 show
+// fetched OK, or there was nothing fetchable) and holds stale only on a total-station
+// outage (every fetchable show failed), so the PSY-1269 janitor (EscalateStaleFetchOutages)
+// can escalate a sustained one. The per-SHOW incremental frontier is advanced separately
+// by advanceShowLastFetch (PSY-1272). The two steady-state station-fetch paths
+// (FetchNewEpisodes, ImportStation) route through here. Scoped backfill imports
 // (importShowEpisodesWithProgress, roster create-on-first) deliberately do NOT advance
-// the station watermark — they import a bounded historical window and must not move the
-// incremental frontier. (PSY-1269)
+// either watermark — they import a bounded historical window and must not move the
+// incremental frontier. (PSY-1241/PSY-1269)
 func (s *RadioService) advanceLastFetch(stationID uint, fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) {
+	s.advanceFetchWatermark(&catalogm.RadioStation{}, stationID,
+		fetchAttempts, fetchSuccesses, episodesReturned, episodesImported)
+}
+
+// advanceShowLastFetch advances a SHOW's last_playlist_fetch_at — the per-show incremental
+// frontier (PSY-1272). Same gate as the station roll-up, scoped to one show. The two ways a
+// show holds its watermark stale (so fetchSince's catch-up branch re-scans its true gap next
+// run): (1) its provider fetch errored — held simply by the caller NOT calling this (it skips
+// to the next show); (2) it fetched OK but every returned episode's ROW write failed
+// (importEpisode errored — a DB/infra issue). NOTE: a per-episode playlist FetchError does
+// NOT hold — the episode row IS created (so it counts as imported), and the post-air backfill
+// sweep re-fetches the playlist (PSY-1119/PSY-1154); the watermark tracks "episodes listed up
+// to here", not "playlists complete". This is what recovers a single persistently-failing
+// show, e.g. a renamed/removed external_id, once it is corrected — without the rest of the
+// station ever stalling for it. The sole caller passes fetchAttempts=fetchSuccesses=1 (the
+// fetch-error case already continued), so the gate's attempts==0 / successes==0 branches are
+// unreachable for a show — only the episodesReturned>0 && episodesImported==0 hold can fire.
+func (s *RadioService) advanceShowLastFetch(showID uint, fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) {
+	s.advanceFetchWatermark(&catalogm.RadioShow{}, showID,
+		fetchAttempts, fetchSuccesses, episodesReturned, episodesImported)
+}
+
+// advanceFetchWatermark is the shared gated update behind advanceLastFetch (station) and
+// advanceShowLastFetch (show): it stamps the entity's last_playlist_fetch_at to now ONLY
+// when the run made progress (shouldAdvanceLastFetch). It uses UpdateColumn so advancing
+// this operational watermark does NOT bump updated_at — that column is the
+// content-modification timestamp surfaced in the API, and a 6h fetch cycle must not make
+// every station/show look freshly edited. A no-progress run and a failed write are both
+// logged, not swallowed — the no-progress warning is the immediate per-cycle outage
+// signal. The log label is derived from the model (radioWatermarkEntity) so it can never
+// desync from the table actually written. model is a zero-valued GORM model whose table
+// the update targets.
+func (s *RadioService) advanceFetchWatermark(model interface{}, id uint, fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) {
+	entity := radioWatermarkEntity(model)
 	if !shouldAdvanceLastFetch(fetchAttempts, fetchSuccesses, episodesReturned, episodesImported) {
 		slog.Default().Warn("radio fetch: run made no progress; holding last_playlist_fetch_at stale",
-			"station_id", stationID,
+			entity+"_id", id,
 			"fetch_attempts", fetchAttempts, "fetch_successes", fetchSuccesses,
 			"episodes_returned", episodesReturned, "episodes_imported", episodesImported)
 		return
 	}
-	if err := s.db.Model(&catalogm.RadioStation{}).Where("id = ?", stationID).
-		Update("last_playlist_fetch_at", time.Now()).Error; err != nil {
+	if err := s.db.Model(model).Where("id = ?", id).
+		UpdateColumn("last_playlist_fetch_at", time.Now()).Error; err != nil {
 		slog.Default().Error("radio fetch: failed to advance last_playlist_fetch_at",
-			"station_id", stationID, "error", err)
+			entity+"_id", id, "error", err)
 	}
 }
 
-// FetchNewEpisodes does an incremental fetch since last_playlist_fetch_at,
-// floored so weekly shows aren't skipped (PSY-1230; see fetchSince).
+// radioWatermarkEntity returns the log label ("station"/"show") for a watermark model so
+// advanceFetchWatermark's log key is derived from the table it writes — never desynced from
+// a hand-passed string. An unrecognized model falls back to a generic label rather than
+// panicking; the only callers are the two advance* wrappers.
+func radioWatermarkEntity(model interface{}) string {
+	switch model.(type) {
+	case *catalogm.RadioStation:
+		return "station"
+	case *catalogm.RadioShow:
+		return "show"
+	default:
+		return "radio_entity"
+	}
+}
+
+// FetchNewEpisodes does an incremental fetch of every active show on the station, each
+// since its OWN last_playlist_fetch_at watermark (PSY-1272), floored so infrequent shows
+// aren't skipped (PSY-1230; see fetchSince). Each show advances its own watermark on
+// success; the station watermark is the total-station roll-up (the PSY-1269 outage signal).
 func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -421,7 +475,8 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 	}
 	defer closeProvider(provider)
 
-	since := fetchSince(station.LastPlaylistFetchAt, time.Now(), resolveFetchLookbackFloorDays())
+	now := time.Now()
+	floorDays := resolveFetchLookbackFloorDays()
 
 	result := &contracts.RadioImportResult{}
 
@@ -431,25 +486,36 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		return nil, fmt.Errorf("loading shows: %w", err)
 	}
 
-	// Track per-run fetch/import outcomes so a wholly-failed run doesn't advance the
-	// timestamp (see shouldAdvanceLastFetch). A show with no external id can't be
-	// fetched and is not counted as an attempt.
-	var fetchAttempts, fetchSuccesses, episodesReturned int
+	// Per-run STATION roll-up counts: they drive the station watermark, which is the
+	// PSY-1269 sustained-outage signal (it holds stale only when EVERY fetchable show
+	// failed). Each show ALSO carries its own watermark, advanced independently below, so
+	// one persistently-failing show holds only its own frontier (PSY-1272). A show with
+	// no external id can't be fetched and is not counted as an attempt.
+	var stationFetchAttempts, stationFetchSuccesses, stationEpisodesReturned int
 	for _, show := range shows {
 		if show.ExternalID == nil || *show.ExternalID == "" {
 			continue
 		}
 
-		fetchAttempts++
+		// `since` is PER SHOW (PSY-1272): a show held stale by its own prior failures
+		// widens its own window via fetchSince's catch-up branch, while its healthy
+		// siblings stay at the floor.
+		since := fetchSince(show.LastPlaylistFetchAt, now, floorDays)
+
+		stationFetchAttempts++
 		episodes, err := provider.FetchNewEpisodes(*show.ExternalID, since, time.Time{})
 		if err != nil {
+			// Fetch error → leave THIS show's watermark unadvanced (held stale) so the
+			// next good run re-scans its true gap; the failure is captured in the run
+			// errors. The station roll-up still advances if a sibling succeeds.
 			recordImportError(result, categorizeRunError(err),
 				fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err), nil)
 			continue
 		}
-		fetchSuccesses++
-		episodesReturned += len(episodes)
+		stationFetchSuccesses++
+		stationEpisodesReturned += len(episodes)
 
+		showEpisodesImported := 0
 		for _, ep := range episodes {
 			epResult, err := s.importEpisode(show.ID, ep, provider)
 			if err != nil {
@@ -459,14 +525,22 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 				continue
 			}
 			accumulateEpisodeResult(result, ep.ExternalID, epResult)
+			showEpisodesImported++
 		}
+
+		// Advance THIS show's watermark only when its own fetch made progress (it
+		// fetched OK and didn't return episodes that all failed to import). attempts and
+		// successes are both 1 here because the fetch-error path above already continued.
+		s.advanceShowLastFetch(show.ID, 1, 1, len(episodes), showEpisodesImported)
 	}
 
-	// Advance the last-fetch watermark only when the run made progress (a wholly
-	// failed run holds it stale so the next good run re-scans the true gap, PSY-1241).
-	// last_playlist_fetch_at is a "last successful progress" watermark, NOT "last
-	// attempt" — attempt history lives in radio_sync_runs.
-	s.advanceLastFetch(stationID, fetchAttempts, fetchSuccesses, episodesReturned, result.EpisodesImported)
+	// Advance the STATION roll-up watermark only when the run made progress. It holds
+	// stale only on a total-station outage (every fetchable show failed) so the next good
+	// run re-scans and the janitor escalates a sustained one (PSY-1241/PSY-1269);
+	// per-show recovery is the per-show watermarks above (PSY-1272). last_playlist_fetch_at
+	// is a "last successful progress" watermark, NOT "last attempt" — attempt history
+	// lives in radio_sync_runs.
+	s.advanceLastFetch(stationID, stationFetchAttempts, stationFetchSuccesses, stationEpisodesReturned, result.EpisodesImported)
 
 	return result, nil
 }
