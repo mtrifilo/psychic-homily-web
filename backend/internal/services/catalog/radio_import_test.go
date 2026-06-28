@@ -160,13 +160,21 @@ func TestFetchSince(t *testing.T) {
 		if got := fetchSince(nil, now, 90); !got.Equal(wide) {
 			t.Errorf("cold-start with floorDays=90: got %v, want %v", got, wide)
 		}
+		// The catch-up boundary moves with the param: a 60d-old lastFetch wins at the
+		// default 45d floor (tested above) but is INSIDE a 90d floor, so the floor wins.
+		old60 := now.AddDate(0, 0, -60)
+		if got := fetchSince(&old60, now, 90); !got.Equal(wide) {
+			t.Errorf("60d-old lastFetch under a 90d floor must clamp to the floor: got %v, want %v", got, wide)
+		}
 	})
 }
 
 // TestResolveFetchLookbackFloorDays covers the RADIO_FETCH_LOOKBACK_FLOOR_DAYS env
-// override (PSY-1268): a valid positive value wins; anything else (unset/empty, 0,
-// negative, garbage) falls back to the fetchLookbackFloorDays default — a 0/negative
-// floor would reintroduce the PSY-1230 permanent-skip bug.
+// override (PSY-1268): a positive value within [1, maxFetchLookbackFloorDays] wins;
+// anything else (unset/empty, 0, negative, over-max, garbage) falls back to the
+// fetchLookbackFloorDays default — a 0/negative floor would reintroduce the PSY-1230
+// permanent-skip bug and an over-max one would make KEXP page its whole archive. The
+// default VALUE itself is pinned to the literal in TestFetchSince.
 func TestResolveFetchLookbackFloorDays(t *testing.T) {
 	cases := []struct {
 		name, env string
@@ -174,6 +182,8 @@ func TestResolveFetchLookbackFloorDays(t *testing.T) {
 	}{
 		{"unset/empty uses default", "", fetchLookbackFloorDays},
 		{"valid override wins", "90", 90},
+		{"at the max wins", "365", maxFetchLookbackFloorDays},
+		{"over the max is ignored (KEXP archive-walk guard)", "100000", fetchLookbackFloorDays},
 		{"zero is ignored (no floor would reintroduce PSY-1230)", "0", fetchLookbackFloorDays},
 		{"negative is ignored", "-5", fetchLookbackFloorDays},
 		{"garbage is ignored", "soon", fetchLookbackFloorDays},

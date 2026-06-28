@@ -300,17 +300,35 @@ func fetchSince(lastFetch *time.Time, now time.Time, floorDays int) time.Time {
 	return floor
 }
 
+// maxFetchLookbackFloorDays caps the RADIO_FETCH_LOOKBACK_FLOOR_DAYS override. The
+// floor only needs to cover the longest regular cadence + publish-lag margin (the
+// roster tops out ~31d), so 365 is generous headroom. It also bounds the worst case
+// for KEXP, whose FetchNewEpisodes pages the whole [since, now] window with no
+// 422-style cap (unlike NTS) — so a fat-fingered huge floor would otherwise make it
+// page its entire archive every cycle. (PSY-1268)
+const maxFetchLookbackFloorDays = 365
+
 // resolveFetchLookbackFloorDays returns the incremental-fetch lookback floor in
 // days. RADIO_FETCH_LOOKBACK_FLOOR_DAYS overrides the fetchLookbackFloorDays default
 // so ops can widen the window without a deploy if the roster's regular-cadence tail
-// exceeds the measured default (PSY-1268). A non-positive or unparseable override is
-// ignored — a 0/negative floor would reintroduce the PSY-1230 permanent-skip bug.
+// exceeds the measured default (PSY-1268). It is read here (per fetch) rather than
+// resolved once in NewRadioFetchService like the loop-interval knobs, so the floor
+// logic stays self-contained in this file and an override takes effect on the next
+// cycle; the resolved value is echoed once in the service startup log. An
+// out-of-range (<=0 or >maxFetchLookbackFloorDays) or unparseable override is
+// ignored — a 0/negative floor would reintroduce the PSY-1230 permanent-skip bug and
+// a huge one would make KEXP page its whole archive — and logged so a bad override
+// doesn't silently fall back unnoticed.
 func resolveFetchLookbackFloorDays() int {
-	if envVal := os.Getenv("RADIO_FETCH_LOOKBACK_FLOOR_DAYS"); envVal != "" {
-		if days, err := strconv.Atoi(envVal); err == nil && days > 0 {
-			return days
-		}
+	envVal := os.Getenv("RADIO_FETCH_LOOKBACK_FLOOR_DAYS")
+	if envVal == "" {
+		return fetchLookbackFloorDays
 	}
+	if days, err := strconv.Atoi(envVal); err == nil && days > 0 && days <= maxFetchLookbackFloorDays {
+		return days
+	}
+	slog.Default().Warn("radio fetch: ignoring out-of-range RADIO_FETCH_LOOKBACK_FLOOR_DAYS; using default",
+		"value", envVal, "default", fetchLookbackFloorDays, "max", maxFetchLookbackFloorDays)
 	return fetchLookbackFloorDays
 }
 
