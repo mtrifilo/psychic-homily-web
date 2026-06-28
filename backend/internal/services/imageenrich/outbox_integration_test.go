@@ -33,6 +33,7 @@ func (s *ImageEnrichOutboxTestSuite) TearDownTest() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
 	_, _ = sqlDB.Exec("DELETE FROM image_enrich_queue")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
 }
 func TestImageEnrichOutboxTestSuite(t *testing.T) { suite.Run(t, new(ImageEnrichOutboxTestSuite)) }
 
@@ -56,6 +57,28 @@ func (s *ImageEnrichOutboxTestSuite) reload(id uint) catalogm.ImageEnrichQueueIt
 	var j catalogm.ImageEnrichQueueItem
 	s.Require().NoError(s.db.First(&j, id).Error)
 	return j
+}
+
+// TestDoesNotStampAttempted: the outbox marks its job done but must NOT stamp the
+// entity's image_enrich_attempted_at (PSY-1265). That memo is the sweep's; leaving it
+// NULL is what lets the sweep re-attempt an imageless (transient-miss or no-match)
+// new entity on its next cycle instead of suppressing it for the 90-day window.
+func (s *ImageEnrichOutboxTestSuite) TestDoesNotStampAttempted() {
+	artist := &catalogm.Artist{Name: "Imageless New Band"} // image_url + attempted_at both NULL
+	s.Require().NoError(s.db.Create(artist).Error)
+	job := s.seedJob(catalogm.ImageEnrichEntityArtist, artist.ID)
+
+	p, engine := s.newPoller(50)
+	// Enricher runs but finds no image (the no-match / transient case) — a no-op.
+	engine.enrichPhotos = func(_ context.Context, _ []uint) error { return nil }
+
+	p.RunNow(context.Background())
+
+	s.Equal(catalogm.ImageEnrichStatusDone, s.reload(job.ID).Status, "outbox marks its own job done")
+	var reloaded catalogm.Artist
+	s.Require().NoError(s.db.First(&reloaded, artist.ID).Error)
+	s.Nil(reloaded.ImageEnrichAttemptedAt,
+		"outbox must NOT stamp attempted_at; the sweep owns re-attempt of imageless entities")
 }
 
 // TestClaimsPendingAndMarksDone: a pending artist job and a release job are routed
