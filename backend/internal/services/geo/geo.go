@@ -37,7 +37,32 @@ type Result struct {
 	Latitude  float64
 	Longitude float64
 	Timezone  string // IANA name, e.g. "America/Phoenix", "Europe/London"
+	// State is the matched place's GeoNames admin1 code. For a US hit this is the
+	// 2-letter state code ("IL"); for a non-US hit it is GeoNames' admin1 (often
+	// numeric) and must NOT be treated as a US state — pair it with Country.
+	State string
+	// Country is the matched place's ISO 3166-1 alpha-2 code ("US").
+	Country string
 }
+
+// USStateStatus is the outcome of resolving a bare city name to a US state via
+// ResolveUSState. It distinguishes "one unambiguous US state" from the two cases
+// a caller must NOT guess past: a multi-state namesake, and a city that is not a
+// known US place at all.
+type USStateStatus int
+
+const (
+	// USStateNotFound: the city name matches no US place in the dataset (it is
+	// non-US, or absent entirely). The caller has no US state to write.
+	USStateNotFound USStateStatus = iota
+	// USStateUnambiguous: every US namesake of this city resolves to the SAME
+	// state — safe to write that state from the bare city name.
+	USStateUnambiguous
+	// USStateAmbiguous: the city name spans two or more US states (Pasadena CA/TX,
+	// Springfield, Bloomington). A bare-city guess would silently corrupt data
+	// (PSY-1244), so the caller must disambiguate from a stronger source instead.
+	USStateAmbiguous
+)
 
 // Geocoder resolves a location to coordinates + timezone. It is an interface so
 // the data source stays swappable (info hiding) and callers can stub it in tests.
@@ -45,6 +70,15 @@ type Geocoder interface {
 	// Resolve returns a Result and ok=true when the location is found. A miss
 	// (ok=false) is expected for obscure places; callers fall back accordingly.
 	Resolve(city, state, country string) (Result, bool)
+	// ResolveUSState maps a bare city name to its US state, but ONLY when the
+	// mapping is safe: the name's most-populous namesake worldwide is in the US,
+	// and all US namesakes share one state. It returns the 2-letter state with
+	// USStateUnambiguous; "" with USStateAmbiguous for a multi-state US namesake;
+	// or "" with USStateNotFound for an internationally dominant name (Cambridge,
+	// Paris) or an unknown city. It never falls back to a population guess — that
+	// guess was the PSY-1244 corruption bug — so the caller must disambiguate a
+	// non-Unambiguous result from a stronger source.
+	ResolveUSState(city string) (state string, status USStateStatus)
 }
 
 // cityRow is one populated place from GeoNames.
@@ -273,7 +307,77 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 			best = c
 		}
 	}
-	return Result{Latitude: best.lat, Longitude: best.lng, Timezone: best.tz}, true
+	return Result{
+		Latitude:  best.lat,
+		Longitude: best.lng,
+		Timezone:  best.tz,
+		State:     best.admin1,
+		Country:   best.country,
+	}, true
+}
+
+// ResolveUSState maps a bare city name to its US state, but only when that
+// mapping is safe on two counts: the name's most-populous namesake WORLDWIDE is
+// in the US, and all US namesakes share ONE state. See the Geocoder interface for
+// the contract and USStateStatus for the cases.
+//
+// Two refusals, both deliberate:
+//   - Internationally dominant name (Cambridge → UK, Paris → FR): a band tagged
+//     only by city, with no country, is more likely the bigger international
+//     place than the smaller US namesake — so return NotFound and let a stronger
+//     source (an explicit country, or MusicBrainz) decide, rather than stamping
+//     a US state on a probably-foreign band.
+//   - Multi-state US namesake (Portland OR/ME, Springfield): return Ambiguous,
+//     never the biggest one — refusing the highest-population guess is the whole
+//     point (it corrupted data in PSY-1244).
+//
+// "Unambiguous" is scoped to the embedded, population-filtered dataset; a tiny
+// same-name town it omits won't shift the answer, which is acceptable for the
+// scene use case (real metros).
+func (g *offlineGeocoder) ResolveUSState(city string) (string, USStateStatus) {
+	cityKey := foldKey(city)
+	if cityKey == "" {
+		return "", USStateNotFound
+	}
+	rows := g.byCity[cityKey]
+	if len(rows) == 0 {
+		return "", USStateNotFound
+	}
+
+	var dominant cityRow
+	usState := ""
+	multiState := false
+	for i, r := range rows {
+		// Most-populous namesake wins; a population TIE resolves toward the non-US
+		// row so the result is NotFound (defer to a stronger source) rather than a
+		// coin-flip on dataset order — safer at the exact boundary this guards.
+		switch {
+		case i == 0 || r.pop > dominant.pop:
+			dominant = r
+		case r.pop == dominant.pop && dominant.country == "US" && r.country != "US":
+			dominant = r
+		}
+		if r.country != "US" || r.admin1 == "" {
+			continue
+		}
+		switch {
+		case usState == "":
+			usState = r.admin1
+		case r.admin1 != usState:
+			multiState = true
+		}
+	}
+
+	if dominant.country != "US" {
+		return "", USStateNotFound // a bigger international namesake → don't assume US
+	}
+	if multiState {
+		return "", USStateAmbiguous // same name, two US states → don't guess
+	}
+	if usState == "" {
+		return "", USStateNotFound // dominant is US but carries no admin1 (rare)
+	}
+	return usState, USStateUnambiguous
 }
 
 // resolveCountry determines an ISO country code (and, for the US, a state admin1
@@ -368,6 +472,18 @@ func stripLeadingThe(s string) string {
 		return s[4:]
 	}
 	return s
+}
+
+// SamePlaceName reports whether two place names refer to the same place under the
+// geocoder's own folding (diacritics stripped, lowercased, punctuation/space
+// collapsed). Callers cross-checking a place name against another source — e.g.
+// confirming a MusicBrainz city equals an artist's stored city before trusting
+// its parent state — should use this so the comparison matches how Resolve keys
+// the dataset ("Montréal" == "Montreal", "St. Louis" == "saint louis"). Two empty
+// or blank names are NOT considered a match.
+func SamePlaceName(a, b string) bool {
+	ka, kb := foldKey(a), foldKey(b)
+	return ka != "" && ka == kb
 }
 
 // specialLetters maps the lowercase Latin letters that canonical decomposition

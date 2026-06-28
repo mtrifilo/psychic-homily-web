@@ -85,6 +85,46 @@ func TestLookupPointers(t *testing.T) {
 	})
 }
 
+// TestResolveUSState pins the unambiguous-vs-ambiguous contract that keeps the
+// PSY-1244 bug dead: a multi-state namesake must NOT resolve to any state.
+func TestResolveUSState(t *testing.T) {
+	g := Default()
+	tests := []struct {
+		name       string
+		city       string
+		wantState  string
+		wantStatus USStateStatus
+	}{
+		{"chicago is unambiguously IL", "Chicago", "IL", USStateUnambiguous},
+		{"los angeles is unambiguously CA", "Los Angeles", "CA", USStateUnambiguous},
+		{"case and space insensitive", "  chicago ", "IL", USStateUnambiguous},
+		// Portland spans OR and ME in the dataset (see TestResolve) — the exact
+		// namesake collision PSY-1244 mis-resolved to the bigger city.
+		{"portland is ambiguous (OR/ME)", "Portland", "", USStateAmbiguous},
+		// Cambridge is US-internally only MA, but the UK Cambridge is the bigger
+		// namesake — a band tagged just "Cambridge" must NOT be stamped MA (the
+		// empty-country international-city corruption an earlier draft allowed).
+		{"cambridge is internationally dominant (UK) → not found", "Cambridge", "", USStateNotFound},
+		// Paris resolves to one US state (TX) but is dominantly Paris, France.
+		{"paris is internationally dominant (FR) → not found", "Paris", "", USStateNotFound},
+		// A non-US city has no US state, even though GeoNames gives it an admin1.
+		{"tokyo is not a US place", "Tokyo", "", USStateNotFound},
+		{"unknown city is not found", "Nowherecityville", "", USStateNotFound},
+		{"empty city is not found", "", "", USStateNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, status := g.ResolveUSState(tt.city)
+			if status != tt.wantStatus {
+				t.Fatalf("ResolveUSState(%q) status=%d, want %d", tt.city, status, tt.wantStatus)
+			}
+			if state != tt.wantState {
+				t.Errorf("ResolveUSState(%q) state=%q, want %q", tt.city, state, tt.wantState)
+			}
+		})
+	}
+}
+
 func TestFoldKey(t *testing.T) {
 	cases := map[string]string{
 		"  Saint-Louis ": "saint louis",

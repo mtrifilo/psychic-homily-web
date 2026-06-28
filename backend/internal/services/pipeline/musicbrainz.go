@@ -67,6 +67,23 @@ type MBArtistURLRelations struct {
 	Relations []MBURLRelation `json:"relations"`
 }
 
+// MBAreaRelations is the response from the MusicBrainz area lookup endpoint with
+// `inc=area-rels`. Only the relations are decoded — enough to walk a City up to
+// its parent Subdivision (US state), the hierarchy the artist search omits.
+type MBAreaRelations struct {
+	Relations []MBAreaRelation `json:"relations"`
+}
+
+// MBAreaRelation is one relationship on an area. MusicBrainz models a city's
+// containing state as a `part of` relation whose linked Area is the parent
+// Subdivision; the Direction label varies by how the edit was entered, so a
+// caller identifies the parent by Area.Type ("Subdivision"), never Direction.
+type MBAreaRelation struct {
+	Type      string  `json:"type"`
+	Direction string  `json:"direction"`
+	Area      *MBArea `json:"area"`
+}
+
 // MBURLRelation is a single URL relationship on a MusicBrainz artist. The
 // caller anchors on the parsed host of URL.Resource (NOT the Type string),
 // because Spotify links arrive under several type labels ("free streaming",
@@ -210,6 +227,31 @@ func (c *MusicBrainzClient) LookupArtistURLRelations(ctx context.Context, mbid s
 	var result MBArtistURLRelations
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse musicbrainz url-rels response: %w", err)
+	}
+
+	return result.Relations, nil
+}
+
+// LookupAreaRelations fetches an area's relationships (inc=area-rels) so a caller
+// can walk from a City to its parent Subdivision — the US state the artist search
+// response leaves out when it tags a band by city alone (PSY-1255). Shares this
+// client's process-wide ~1 req/s throttle; areaID is path-escaped so a malformed
+// value cannot alter the request target.
+func (c *MusicBrainzClient) LookupAreaRelations(ctx context.Context, areaID string) ([]MBAreaRelation, error) {
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
+
+	lookupURL := fmt.Sprintf("%s/area/%s?inc=area-rels&fmt=json", c.baseURL, url.PathEscape(areaID))
+
+	body, err := c.doRequestCtx(ctx, lookupURL)
+	if err != nil {
+		return nil, fmt.Errorf("musicbrainz area-rels lookup failed: %w", err)
+	}
+
+	var result MBAreaRelations
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse musicbrainz area-rels response: %w", err)
 	}
 
 	return result.Relations, nil
