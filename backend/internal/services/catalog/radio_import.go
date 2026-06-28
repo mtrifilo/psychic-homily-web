@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -243,39 +245,34 @@ func recordImportError(result *contracts.RadioImportResult, category, detail str
 	})
 }
 
-const (
-	// fetchLookbackFloorDays floors how far back a SUBSEQUENT incremental fetch
-	// looks. `since` is computed once per STATION from its last_playlist_fetch_at,
-	// which advances on every run (the fetch loop runs every 6h) — so without a
-	// floor a show that airs less often than the station is fetched slips behind
-	// `since` and is skipped on every later run, permanently (PSY-1230).
-	//
-	// 45 days covers the longest REGULAR cadence on the roster with margin. The NTS
-	// roster is ~92% monthly-cadence (dominant 28-day interval, a thin tail to ~42d;
-	// measured against the stage roster, PSY-1241), so the prior 14-day value left
-	// those episodes with near-zero tolerance for publish lag — the gap between when
-	// an episode airs and when it (with its playlist) becomes listable. A wider
-	// floor mostly just re-lists already-complete episodes, which importEpisode
-	// dedups on (show_id, external_id) — a cheap no-op. The paging cost the 14-day
-	// value guarded against is negligible here: a monthly show is one NTS page
-	// regardless of the floor (the per-page early-exit stops after its 1–2 in-window
-	// episodes), and only the handful of daily shows page one or two deeper.
-	fetchLookbackFloorDays = 45
+// fetchLookbackFloorDays is the DEFAULT incremental-fetch lookback floor (days);
+// resolveFetchLookbackFloorDays applies the RADIO_FETCH_LOOKBACK_FLOOR_DAYS override.
+// The floor stops the forward-advancing per-station last_playlist_fetch_at (the fetch
+// loop runs every 6h) from overtaking a show that airs less often than that cadence —
+// without it such a show slips behind `since` and is skipped on every later run,
+// permanently (PSY-1230). The cold-start (first-fetch) window uses the same floor;
+// see fetchSince.
+//
+// 45 days covers the longest REGULAR cadence on the roster with margin. The roster is
+// NTS-monthly-dominant (~92% monthly, dominant 28-day interval); the stage roster's
+// max median inter-episode gap over shows with a real cadence signal is ~31d, none
+// > 45d (PSY-1241 measured, PSY-1268 re-confirmed). A wider floor mostly just
+// re-lists already-complete episodes, which importEpisode dedups on
+// (show_id, external_id) — a cheap no-op; the paging cost is negligible (a monthly
+// show is one NTS page regardless of the floor, and only the handful of daily shows
+// page one or two deeper). Env-tunable so the value can be widened without a deploy
+// if the roster's cadence tail grows (PSY-1268).
+const fetchLookbackFloorDays = 45
 
-	// coldStartLookbackDays is the first-fetch window for a station with no prior
-	// last_playlist_fetch_at. It matches the steady-state floor: a first fetch that
-	// looked back LESS than every subsequent fetch would be the one place a
-	// monthly show's most recent episode could be missed before the floor takes
-	// over. Deep initial population (history older than the floor) remains the
-	// backfill path's job (ImportStation / discover create-on-first), not this
-	// incremental one. (PSY-1241; was 7 = the pre-PSY-1230 default.)
-	coldStartLookbackDays = fetchLookbackFloorDays
-)
-
-// fetchSince computes the lower bound (`since`) for an incremental playlist
-// fetch. The floor (fetchLookbackFloorDays) is the load-bearing fix: it stops
-// the forward-advancing per-station last_playlist_fetch_at from overtaking a
-// weekly show's once-a-week episode (PSY-1230).
+// fetchSince computes the lower bound (`since`) for an incremental playlist fetch.
+// floorDays (from resolveFetchLookbackFloorDays) is the load-bearing fix: it stops
+// the forward-advancing per-station last_playlist_fetch_at from overtaking a show
+// that airs less often than the 6h fetch cadence (PSY-1230). The cold-start branch
+// (no prior last_playlist_fetch_at) uses the SAME floor — a first fetch must never
+// look back less than a subsequent one, or a monthly show's most recent episode
+// could be missed before the floor takes over; deep initial population (history
+// older than the floor) is the backfill path's job (ImportStation / discover
+// create-on-first), not this incremental one.
 //
 // `since` is interpreted PER PROVIDER: WFMU compares it against an air_date
 // parsed at UTC midnight (radio_provider_wfmu.go), while NTS/KEXP compare it
@@ -291,16 +288,30 @@ const (
 // or a multi-day provider outage during which shouldAdvanceLastFetch held the
 // timestamp back (PSY-1241) — widens the window further so recovery re-scans
 // back to the true gap.
-func fetchSince(lastFetch *time.Time, now time.Time) time.Time {
+func fetchSince(lastFetch *time.Time, now time.Time, floorDays int) time.Time {
 	today := now.UTC().Truncate(24 * time.Hour)
+	floor := today.AddDate(0, 0, -floorDays)
 	if lastFetch == nil {
-		return today.AddDate(0, 0, -coldStartLookbackDays)
+		return floor
 	}
-	floor := today.AddDate(0, 0, -fetchLookbackFloorDays)
 	if lastFetch.Before(floor) {
 		return *lastFetch
 	}
 	return floor
+}
+
+// resolveFetchLookbackFloorDays returns the incremental-fetch lookback floor in
+// days. RADIO_FETCH_LOOKBACK_FLOOR_DAYS overrides the fetchLookbackFloorDays default
+// so ops can widen the window without a deploy if the roster's regular-cadence tail
+// exceeds the measured default (PSY-1268). A non-positive or unparseable override is
+// ignored — a 0/negative floor would reintroduce the PSY-1230 permanent-skip bug.
+func resolveFetchLookbackFloorDays() int {
+	if envVal := os.Getenv("RADIO_FETCH_LOOKBACK_FLOOR_DAYS"); envVal != "" {
+		if days, err := strconv.Atoi(envVal); err == nil && days > 0 {
+			return days
+		}
+	}
+	return fetchLookbackFloorDays
 }
 
 // shouldAdvanceLastFetch reports whether an incremental fetch run earned a
@@ -363,7 +374,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 	}
 	defer closeProvider(provider)
 
-	since := fetchSince(station.LastPlaylistFetchAt, time.Now())
+	since := fetchSince(station.LastPlaylistFetchAt, time.Now(), resolveFetchLookbackFloorDays())
 
 	result := &contracts.RadioImportResult{}
 
