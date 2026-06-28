@@ -393,12 +393,18 @@ func (s *RadioService) advanceLastFetch(stationID uint, fetchAttempts, fetchSucc
 }
 
 // advanceShowLastFetch advances a SHOW's last_playlist_fetch_at — the per-show incremental
-// frontier (PSY-1272). Same gate as the station roll-up, scoped to one show: a show that
-// fetched OK but returned episodes that all failed to persist holds its watermark stale so
-// fetchSince's catch-up branch re-scans the true per-show gap next run. (A show whose
-// provider fetch errored is held simply by NOT calling this — the caller skips it.) This is
-// what recovers a single persistently-failing show, e.g. a renamed/removed external_id,
-// once it is corrected — without the rest of the station ever stalling for it.
+// frontier (PSY-1272). Same gate as the station roll-up, scoped to one show. The two ways a
+// show holds its watermark stale (so fetchSince's catch-up branch re-scans its true gap next
+// run): (1) its provider fetch errored — held simply by the caller NOT calling this (it skips
+// to the next show); (2) it fetched OK but every returned episode's ROW write failed
+// (importEpisode errored — a DB/infra issue). NOTE: a per-episode playlist FetchError does
+// NOT hold — the episode row IS created (so it counts as imported), and the post-air backfill
+// sweep re-fetches the playlist (PSY-1119/PSY-1154); the watermark tracks "episodes listed up
+// to here", not "playlists complete". This is what recovers a single persistently-failing
+// show, e.g. a renamed/removed external_id, once it is corrected — without the rest of the
+// station ever stalling for it. The sole caller passes fetchAttempts=fetchSuccesses=1 (the
+// fetch-error case already continued), so the gate's attempts==0 / successes==0 branches are
+// unreachable for a show — only the episodesReturned>0 && episodesImported==0 hold can fire.
 func (s *RadioService) advanceShowLastFetch(showID uint, fetchAttempts, fetchSuccesses, episodesReturned, episodesImported int) {
 	s.advanceFetchWatermark(&catalogm.RadioShow{}, showID,
 		fetchAttempts, fetchSuccesses, episodesReturned, episodesImported)

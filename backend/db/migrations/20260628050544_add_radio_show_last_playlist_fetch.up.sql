@@ -18,10 +18,17 @@
 ALTER TABLE radio_shows ADD COLUMN last_playlist_fetch_at TIMESTAMPTZ;
 
 -- Seed each existing show from its station's watermark so the first post-deploy fetch
--- doesn't re-scan the whole window, and a station whose watermark is currently held
--- stale by an in-flight outage (PSY-1241) keeps its catch-up window at deploy time.
--- A NULL station watermark leaves the show watermark NULL = cold-start (fetchSince then
--- falls back to the lookback floor, exactly as a never-fetched station does today).
+-- doesn't re-scan the whole window, and a station in a STATION-WIDE outage (its roll-up
+-- watermark held stale by PSY-1241) seeds all its shows stale so they keep that catch-up
+-- window at deploy. A NULL station watermark leaves the show watermark NULL = cold-start
+-- (fetchSince then falls back to the lookback floor, exactly as a never-fetched station
+-- does today).
+--
+-- Scope note (forward-only recovery): a show ALREADY broken at deploy while its siblings
+-- keep the station roll-up fresh inherits that fresh watermark here, so on recovery it
+-- widens only to the floor — its pre-floor pre-existing gap stays the manual-backfill's job
+-- (unchanged from before PSY-1272). Per-show recovery applies to breakages that open from
+-- deploy forward, where the show's OWN watermark is then held at its true last success.
 UPDATE radio_shows rs
    SET last_playlist_fetch_at = st.last_playlist_fetch_at
   FROM radio_stations st

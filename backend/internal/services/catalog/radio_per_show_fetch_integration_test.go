@@ -154,3 +154,134 @@ func (s *RadioSyncSuite) TestMigration_BackfillSeedsShowFromStation() {
 	}
 	s.Nil(s.showFetchAt(showC.ID), "a show under a NULL-watermark station must stay NULL (cold-start)")
 }
+
+// AC1 end-to-end: a show whose external_id is renamed/removed 404s for weeks (its watermark
+// holds stale), then an admin corrects the external_id and the very next incremental run must
+// re-scan back to the held gap and IMPORT the pre-floor episodes — no manual backfill. This
+// proves the full recovery LOOP through importEpisode, not just that `since` widens.
+func (s *RadioSyncSuite) TestFetch_PerShow_RecoversGapAfterCorrection() {
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+	// Broken long enough that its gap predates the 45-day floor.
+	stale := time.Now().Add(-70 * 24 * time.Hour)
+	show := s.seedActiveShow(st.ID, "recover-show-broken", &stale)
+
+	// An episode that aired during the broken window: older than the floor, newer than the
+	// held watermark — recoverable only because the held watermark widens `since` past the floor.
+	gapAirDate := time.Now().AddDate(0, 0, -55).Format("2006-01-02")
+	var recoverSince time.Time
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(ext string, since, _ time.Time) ([]RadioEpisodeImport, error) {
+				if ext == "recover-show-broken" {
+					return nil, fmt.Errorf("404 not found: renamed external_id")
+				}
+				recoverSince = since
+				return []RadioEpisodeImport{{ExternalID: "recover/gap-ep", ShowExternalID: ext, AirDate: gapAirDate}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return []RadioPlayImport{{Position: 1, ArtistName: "Artist"}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	// Run 1: still broken → watermark held, nothing imported.
+	_, err := s.svc.FetchNewEpisodes(st.ID)
+	s.Require().NoError(err)
+	heldWM := s.showFetchAt(show.ID)
+	s.Require().NotNil(heldWM)
+	s.True(heldWM.Before(time.Now().Add(-time.Hour)), "while broken the show holds its watermark stale; got %v", heldWM)
+
+	// Admin corrects the external_id (the show ROW persists; only the id field changes).
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", show.ID).
+		UpdateColumn("external_id", "recover-show").Error)
+
+	// Run 2: recovery.
+	_, err = s.svc.FetchNewEpisodes(st.ID)
+	s.Require().NoError(err)
+
+	floor := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -fetchLookbackFloorDays)
+	s.True(recoverSince.Before(floor),
+		"recovery `since` must widen past the floor to the held gap; got %v floor %v", recoverSince, floor)
+
+	var imported int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioEpisode{}).
+		Where("show_id = ? AND external_id = ?", show.ID, "recover/gap-ep").Count(&imported).Error)
+	s.Equal(int64(1), imported, "the pre-floor gap episode must be imported via the incremental path on recovery")
+
+	recoveredWM := s.showFetchAt(show.ID)
+	s.Require().NotNil(recoveredWM)
+	s.True(recoveredWM.After(time.Now().Add(-time.Hour)),
+		"after a successful recovery fetch the show advances its own watermark; got %v", recoveredWM)
+}
+
+// The per-show HOLD branch (episodesReturned>0 && episodesImported==0): a show fetches OK but
+// every returned episode's ROW write fails, so its watermark must be held stale (not advanced).
+// Forces the hard importEpisode error with an unparseable air_date that the date column rejects.
+func (s *RadioSyncSuite) TestFetch_PerShow_AllEpisodeWritesFail_HoldsWatermark() {
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+	stale := time.Now().Add(-60 * 24 * time.Hour)
+	show := s.seedActiveShow(st.ID, "writefail-show", &stale)
+
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				// Unparseable air_date → importEpisode's INSERT into the date column fails, so
+				// every returned episode hard-errors and none is imported (episodesReturned=1,
+				// episodesImported=0 → the gate holds the watermark).
+				return []RadioEpisodeImport{{ExternalID: "writefail/ep", AirDate: "not-a-date"}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	_, err := s.svc.FetchNewEpisodes(st.ID)
+	s.Require().NoError(err) // per-episode import errors are recorded, not surfaced as a hard error
+
+	// The bad-date episode must NOT have persisted (confirms the hard-error path was taken).
+	var imported int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioEpisode{}).
+		Where("show_id = ?", show.ID).Count(&imported).Error)
+	s.Equal(int64(0), imported, "the bad-date episode must fail to persist")
+
+	wm := s.showFetchAt(show.ID)
+	s.Require().NotNil(wm)
+	s.True(wm.Before(time.Now().Add(-time.Hour)),
+		"a show whose every episode row-write fails must HOLD its watermark stale; got %v", wm)
+}
+
+// Contract lock (PSY-1272): advancing the operational watermark uses UpdateColumn, so it must
+// NOT bump the show's content-modification updated_at (surfaced in the API). Guards against a
+// future revert to GORM Update, which auto-touches updated_at on every 6h fetch cycle.
+func (s *RadioSyncSuite) TestFetch_PerShow_AdvanceDoesNotBumpUpdatedAt() {
+	today := time.Now().Format("2006-01-02")
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+	stale := time.Now().Add(-60 * 24 * time.Hour)
+	show := s.seedActiveShow(st.ID, "noupdate-show", &stale)
+	// Backdate updated_at so a spurious bump on the watermark advance would be detectable.
+	oldUpdatedAt := time.Now().Add(-90 * 24 * time.Hour).UTC().Truncate(time.Second)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", show.ID).
+		UpdateColumn("updated_at", oldUpdatedAt).Error)
+
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{ExternalID: "noupdate/ep", AirDate: today}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				return []RadioPlayImport{{Position: 1, ArtistName: "Artist"}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	_, err := s.svc.FetchNewEpisodes(st.ID)
+	s.Require().NoError(err)
+
+	var got catalogm.RadioShow
+	s.Require().NoError(s.db.First(&got, show.ID).Error)
+	s.Require().NotNil(got.LastPlaylistFetchAt)
+	s.True(got.LastPlaylistFetchAt.After(time.Now().Add(-time.Hour)), "the watermark advances on a successful fetch")
+	s.WithinDuration(oldUpdatedAt, got.UpdatedAt.UTC(), time.Second,
+		"advancing the watermark must NOT bump updated_at; got %v want %v", got.UpdatedAt, oldUpdatedAt)
+}
