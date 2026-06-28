@@ -93,6 +93,16 @@ type Artist struct {
 	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
 	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
 
+	// MusicBrainzArtistID is the artist's MusicBrainz MBID (a 36-char UUID), resolved
+	// once during enrichment and stored so downstream location / links / release
+	// passes browse MusicBrainz BY ID instead of re-searching by name every run
+	// (PSY-1249). Written fill-when-empty + exact-name-gated at the write sites
+	// (enrichMusicBrainz, the artist-location backfill): a set value is never
+	// overwritten, and only an exact-name match stamps it so a famous namesake can't
+	// attach to the wrong artist. Internal lookup key — NOT mapped onto any API
+	// response (like Metro / BandcampEmbedSource / ImageEnrichAttemptedAt).
+	MusicBrainzArtistID *string `json:"-" gorm:"column:musicbrainz_artist_id;size:36"`
+
 	// Streaming-discovery review state — see StreamingDiscoveryStatus const block.
 	// Reason holds the admin's optional note on no_links_found / skipped outcomes.
 	StreamingDiscoveryStatus StreamingDiscoveryStatus `json:"streaming_discovery_status" gorm:"column:streaming_discovery_status;size:32;not null;default:unreviewed"`

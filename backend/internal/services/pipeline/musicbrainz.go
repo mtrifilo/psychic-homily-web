@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -104,6 +105,19 @@ type MBLookupResult struct {
 	Disambiguation string `json:"disambiguation,omitempty"`
 	Country        string `json:"country,omitempty"`
 	Type           string `json:"type,omitempty"`
+}
+
+// mbidPattern matches a canonical MusicBrainz identifier: a hex UUID (8-4-4-4-12).
+var mbidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// IsValidMBID reports whether s is a canonical 36-char MusicBrainz UUID. It is the
+// trust-boundary check before an MB-API-supplied id is written to an artist's
+// VARCHAR(36) identity column (PSY-1249): an oversized value would otherwise abort
+// the whole Updates statement, and a malformed-but-short value would enter a column
+// downstream passes trust as identity. MBIDs are always UUIDs, so a value that
+// fails this is an upstream anomaly we decline to store rather than guess at.
+func IsValidMBID(s string) bool {
+	return mbidPattern.MatchString(s)
 }
 
 // MusicBrainzClient provides rate-limited access to the MusicBrainz API.
