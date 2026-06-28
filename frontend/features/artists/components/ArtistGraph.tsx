@@ -14,6 +14,7 @@ import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type T
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
+import { pinEgoRingPositions } from './mergeEgoGraphs'
 import type { ArtistGraph as ArtistGraphData } from '../types'
 
 function GraphSkeleton() {
@@ -383,9 +384,6 @@ export function ArtistGraphVisualization({
       upcoming_show_count: data.center.upcoming_show_count,
       isCenter: true,
       val: 8,
-      // PSY-1275: pin the center at the origin (fx/fy) so the deterministic ring is geometric.
-      fx: 0,
-      fy: 0,
     })
 
     // Related nodes
@@ -446,28 +444,12 @@ export function ArtistGraphVisualization({
     // Filter nodes to only those with visible edges (always keep center)
     const filteredNodes = nodes.filter(n => n.isCenter || connectedIds.has(n.id))
 
-    // PSY-1275: compute + PIN each satellite at an even angle on its hop-ring. Setting BOTH the
-    // position (x/y) and the pin (fx/fy) here, on the freshly-created node objects, means
-    // react-force-graph initializes the sim already pinned — d3 never moves them, so the default
-    // link/charge forces can't collapse the ring (which is what bunched the dense radio graph; see
-    // the EGO_RING_RADIUS comment). The layout is fully deterministic: an even, well-spread ring.
-    // Grouped by hop so each concentric ring is evenly divided; the center stays at the origin.
-    const ringByHop = new Map<number, GraphNode[]>()
-    for (const n of filteredNodes) {
-      if (n.isCenter) continue
-      const hop = hopByNodeId?.get(n.id) ?? 1
-      const ring = ringByHop.get(hop)
-      if (ring) ring.push(n)
-      else ringByHop.set(hop, [n])
-    }
-    for (const [hop, ring] of ringByHop) {
-      const r = EGO_RING_RADIUS + (hop - 1) * RING_GAP
-      ring.forEach((n, i) => {
-        const angle = (2 * Math.PI * i) / ring.length
-        n.fx = n.x = r * Math.cos(angle)
-        n.fy = n.y = r * Math.sin(angle)
-      })
-    }
+    // PSY-1275: deterministically PIN the center at the origin and every satellite at an even
+    // angle on its hop-ring (fx/fy set on the freshly-created node objects, so react-force-graph
+    // initializes the sim already pinned and d3 never moves them — the default link/charge forces
+    // can't collapse the ring, which is what bunched the dense radio graph; see the EGO_RING_RADIUS
+    // comment). Extracted to a pure, unit-tested helper next to the other graph data logic.
+    pinEgoRingPositions(filteredNodes, hopByNodeId, EGO_RING_RADIUS, RING_GAP)
 
     return { nodes: filteredNodes, links, edgeCounts, cappedTypes }
   }, [data, activeTypes, hopByNodeId])
@@ -642,14 +624,17 @@ export function ArtistGraphVisualization({
     scheduleDismiss()
   }, [scheduleDismiss])
 
-  // PSY-1220: while the d3-force sim is live (onEngineTick), re-anchor the open tooltip to the
-  // hovered node's CURRENT position — the node drifts during the settle/reheat but onNodeHover
-  // doesn't re-fire for a stationary cursor, so the anchored tooltip would strand. Skip while the
-  // pointer is over the tooltip (overTooltipRef): re-anchoring then would slide the HOVERABLE
-  // tooltip (PSY-1218) out from under the cursor as it reaches for the "View artist page" link.
-  // onEngineTick stops once the sim cools, so this is free at rest; the hoveredNode guard makes it
-  // a no-op when nothing is hovered. A node that lost its settled coords (filtered out / refetched
-  // away) yields null → dismiss.
+  // PSY-1220/1275: re-anchor the open tooltip to the hovered node's CURRENT SCREEN position on
+  // each engine tick. Since PSY-1275 the nodes are PINNED (fx/fy), so they no longer settle-drift
+  // in WORLD space — but the tooltip is anchored in SCREEN space, and zoomToFit pans/zooms the
+  // CAMERA on mount and after a filter-toggle/resize reheat, which moves a fixed node's screen
+  // position. onNodeHover doesn't re-fire for a stationary cursor, so without this the tooltip
+  // would strand mid-transition. (It's still load-bearing — for the camera transition now, not the
+  // node drift it originally covered.) Skip while the pointer is over the tooltip (overTooltipRef):
+  // re-anchoring then would slide the HOVERABLE tooltip (PSY-1218) out from under the cursor as it
+  // reaches for the "View artist page" link. onEngineTick stops once the sim cools, so this is free
+  // at rest; the hoveredNode guard makes it a no-op when nothing is hovered. A node that lost its
+  // coords (filtered out / refetched away) yields null → dismiss.
   const handleEngineTick = useCallback(() => {
     if (!hoveredNode || overTooltipRef.current) return
     const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, hoveredNode)

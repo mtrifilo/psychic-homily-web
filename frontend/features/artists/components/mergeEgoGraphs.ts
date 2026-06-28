@@ -111,3 +111,65 @@ export function mergeEgoGraphs(
 
   return { center: base.center, nodes, links, hopByNodeId }
 }
+
+/**
+ * The subset of a force-graph render node this layout reads/writes. Structural (not the
+ * canvas's full `GraphNode`) so this stays a pure, canvas-free helper with no import back
+ * into the component — `GraphNode[]` is assignable to `PinnableNode[]` at the call site.
+ */
+export interface PinnableNode {
+  id: number
+  isCenter?: boolean
+  x?: number
+  y?: number
+  fx?: number
+  fy?: number
+}
+
+/**
+ * PSY-1275: deterministically PIN each render node onto its concentric hop-ring, mutating
+ * both the position (x/y) and the d3-force pin (fx/fy) in place. The center sits at the
+ * origin; every satellite is placed at an even angle on the ring for its hop distance
+ * (radius = ringRadius + (hop-1)*ringGap), so the subject reads as the hub and each
+ * expand-on-demand step lands its new neighbors evenly on the next ring out. Nodes are
+ * grouped by hop and divided evenly within each ring, in their incoming array order (so an
+ * expand preserves the existing ring's angular order and only the new outer ring is laid out).
+ *
+ * Pinning — rather than seating nodes with a radial force and letting charge spread the
+ * angle — is deliberate: d3's default link force (~30px target distance, cached at
+ * `initialize` so a runtime override doesn't take without a reheat) otherwise wins the
+ * tug-of-war on a dense radio ego graph and collapses the ring inward, bunching satellites
+ * near the center. A pinned node can't be moved by the link/charge forces, so the layout is
+ * fully deterministic and reduced-motion-safe. Pure + UI-free → unit-tested without the
+ * canvas like the other graph helpers; the ArtistGraph memo just calls it on its render nodes.
+ *
+ * Nodes with an unknown hop (absent from `hopByNodeId`) default to hop 1 — matching the
+ * memo's fallback for a freshly-fetched neighbor before its hop is assigned.
+ */
+export function pinEgoRingPositions(
+  nodes: PinnableNode[],
+  hopByNodeId: ReadonlyMap<number, number> | undefined,
+  ringRadius: number,
+  ringGap: number,
+): void {
+  const ringByHop = new Map<number, PinnableNode[]>()
+  for (const n of nodes) {
+    if (n.isCenter) {
+      n.fx = n.x = 0
+      n.fy = n.y = 0
+      continue
+    }
+    const hop = hopByNodeId?.get(n.id) ?? 1
+    const ring = ringByHop.get(hop)
+    if (ring) ring.push(n)
+    else ringByHop.set(hop, [n])
+  }
+  for (const [hop, ring] of ringByHop) {
+    const r = ringRadius + (hop - 1) * ringGap
+    ring.forEach((n, i) => {
+      const angle = (2 * Math.PI * i) / ring.length
+      n.fx = n.x = r * Math.cos(angle)
+      n.fy = n.y = r * Math.sin(angle)
+    })
+  }
+}

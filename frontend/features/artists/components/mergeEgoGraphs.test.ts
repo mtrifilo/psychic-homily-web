@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { mergeEgoGraphs } from './mergeEgoGraphs'
+import { mergeEgoGraphs, pinEgoRingPositions, type PinnableNode } from './mergeEgoGraphs'
 import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 
 // PSY-1259 — the pure merge + hop-assignment behind expand-on-demand. The canvas just
@@ -138,5 +138,62 @@ describe('mergeEgoGraphs', () => {
     const merged = mergeEgoGraphs(base, new Map([[2, exp2], [3, exp3]]))
     expect(merged.hopByNodeId.get(3)).toBe(2)
     expect(merged.hopByNodeId.get(4)).toBe(3)
+  })
+})
+
+// PSY-1275 — the deterministic pinned ring layout behind the crowding fix. The canvas memo
+// just calls this on its render nodes; it's the geometry, tested here without the canvas.
+// Constants mirror ArtistGraph.tsx's EGO_RING_RADIUS / RING_GAP.
+const RING_RADIUS = 130
+const RING_GAP = 120
+
+const pinnable = (id: number, isCenter = false): PinnableNode => ({ id, isCenter })
+const radius = (n: PinnableNode) => Math.hypot(n.fx ?? NaN, n.fy ?? NaN)
+
+describe('pinEgoRingPositions', () => {
+  it('pins the center at the origin (both position and force-pin)', () => {
+    const center = pinnable(1, true)
+    pinEgoRingPositions([center], new Map([[1, 0]]), RING_RADIUS, RING_GAP)
+    expect([center.fx, center.fy, center.x, center.y]).toEqual([0, 0, 0, 0])
+  })
+
+  it('spreads N hop-1 satellites evenly on the inner ring', () => {
+    const nodes = [pinnable(2), pinnable(3), pinnable(4), pinnable(5)]
+    const hopByNodeId = new Map([[2, 1], [3, 1], [4, 1], [5, 1]])
+    pinEgoRingPositions(nodes, hopByNodeId, RING_RADIUS, RING_GAP)
+
+    // All on the inner ring (radius 130)...
+    for (const n of nodes) expect(radius(n)).toBeCloseTo(RING_RADIUS, 6)
+    // ...at even 2π/N angles in array order: first at angle 0, then quarter-turns.
+    const expected = nodes.map((_, i) => (2 * Math.PI * i) / nodes.length)
+    for (let i = 0; i < nodes.length; i++) {
+      expect(Math.atan2(nodes[i].fy!, nodes[i].fx!)).toBeCloseTo(Math.atan2(Math.sin(expected[i]), Math.cos(expected[i])), 6)
+    }
+    // The first satellite sits at angle 0 → (130, 0).
+    expect(nodes[0].fx).toBeCloseTo(RING_RADIUS, 6)
+    expect(nodes[0].fy).toBeCloseTo(0, 6)
+  })
+
+  it('places a hop-2 node on the outer ring (radius + gap)', () => {
+    const hop1 = pinnable(2)
+    const hop2 = pinnable(3)
+    pinEgoRingPositions([hop1, hop2], new Map([[2, 1], [3, 2]]), RING_RADIUS, RING_GAP)
+    expect(radius(hop1)).toBeCloseTo(RING_RADIUS, 6)
+    expect(radius(hop2)).toBeCloseTo(RING_RADIUS + RING_GAP, 6) // 250
+  })
+
+  it('defaults an unknown-hop node to the inner (hop-1) ring', () => {
+    const orphan = pinnable(9)
+    pinEgoRingPositions([orphan], new Map(), RING_RADIUS, RING_GAP) // not in hopByNodeId
+    expect(radius(orphan)).toBeCloseTo(RING_RADIUS, 6)
+  })
+
+  it('sets x/y in lockstep with the fx/fy pin', () => {
+    const nodes = [pinnable(2), pinnable(3)]
+    pinEgoRingPositions(nodes, new Map([[2, 1], [3, 1]]), RING_RADIUS, RING_GAP)
+    for (const n of nodes) {
+      expect(n.x).toBe(n.fx)
+      expect(n.y).toBe(n.fy)
+    }
   })
 })
