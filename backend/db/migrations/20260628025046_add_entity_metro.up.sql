@@ -11,6 +11,9 @@ ALTER TABLE artists ADD COLUMN metro VARCHAR(10);
 ALTER TABLE venues  ADD COLUMN metro VARCHAR(10);
 
 -- Partial indexes: the scene roster query matches `metro = $cbsaCode`, which never
--- matches NULL, so excluding the (large) NULL tail keeps the index small.
+-- matches NULL, so excluding the (large) NULL tail keeps the index small. Inlined
+-- (not CONCURRENTLY) because this migration is multi-statement/transactional and
+-- artists/venues are small enough today that the build lock is negligible
+-- (mirrors PSY-413/PSY-886; revisit with CONCURRENTLY if these tables grow large).
 CREATE INDEX idx_artists_metro ON artists (metro) WHERE metro IS NOT NULL;
 CREATE INDEX idx_venues_metro  ON venues  (metro) WHERE metro IS NOT NULL;

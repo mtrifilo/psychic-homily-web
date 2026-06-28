@@ -51,17 +51,17 @@ type Artist struct {
 	// FOOTGUN: if AutoMigrate is ever introduced, this tag would create a conflicting
 	// case-sensitive unique index on name — drop the tag (or match the functional
 	// index) at that point.
-	Name             string  `gorm:"uniqueIndex"`
-	Slug             *string `gorm:"column:slug;uniqueIndex"`
-	State            *string `gorm:"column:state"`
-	City             *string `gorm:"column:city"`
-	Country          *string `gorm:"column:country;size:100"`
+	Name    string  `gorm:"uniqueIndex"`
+	Slug    *string `gorm:"column:slug;uniqueIndex"`
+	State   *string `gorm:"column:state"`
+	City    *string `gorm:"column:city"`
+	Country *string `gorm:"column:country;size:100"`
 	// Metro is the US Census CBSA code (e.g. "35620") the artist's home
 	// (city, state, country) rolls up to, for the Atlas scene rollup. DERIVED via
 	// geo.ResolveMetro and reconciled by cmd/backfill-entity-metro; NULL for
 	// non-US / not-in-CBSA / ambiguous-unpinned. An internal grouping key (the
 	// scene endpoints surface metros), so it is not exposed in the API. (PSY-1255 step B)
-	Metro *string `json:"-" gorm:"column:metro;size:10"`
+	Metro            *string `json:"-" gorm:"column:metro;size:10"`
 	BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
 	// BandcampEmbedSource is the provenance of BandcampEmbedURL — one of the
 	// BandcampEmbedSource* constants, or nil for legacy/unknown (PSY-1188).

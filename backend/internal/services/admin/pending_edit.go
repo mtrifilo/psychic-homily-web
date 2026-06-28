@@ -376,6 +376,12 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 				updates["latitude"] = lat
 				updates["longitude"] = lng
 				updates["timezone"] = tz
+				// metro is a sibling of the geocoding (PSY-1255 step B): keep it
+				// fresh when a contribution edit relocates the venue.
+				updates["metro"] = geo.MetroPointer(geo.Default(),
+					updatedString(updates, "city", current.City),
+					updatedString(updates, "state", current.State),
+					updatedString(updates, "country", currentCountry))
 			}
 		}
 	}

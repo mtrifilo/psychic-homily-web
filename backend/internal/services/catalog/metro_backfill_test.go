@@ -41,10 +41,10 @@ func mp(s string) *string { return &s }
 // keys on the city string, so the two Pasadenas are modeled as distinct cities.)
 func TestReconcileMetros(t *testing.T) {
 	store := &fakeMetroStore{rows: []metroRow{
-		{ID: 1, City: "PasadenaCA", State: "CA", Metro: nil},        // set → 31080
-		{ID: 2, City: "Chicago", State: "IL", Metro: mp("16980")},   // unchanged
+		{ID: 1, City: "PasadenaCA", State: "CA", Metro: nil},         // set → 31080
+		{ID: 2, City: "Chicago", State: "IL", Metro: mp("16980")},    // unchanged
 		{ID: 3, City: "PasadenaTX", State: "TX", Metro: mp("31080")}, // changed (stale LA) → 26420
-		{ID: 4, City: "Nowhere", State: "ZZ", Metro: mp("99999")},   // cleared (no longer resolves)
+		{ID: 4, City: "Nowhere", State: "ZZ", Metro: mp("99999")},    // cleared (no longer resolves)
 	}}
 	g := fakeMetroGeo{metros: map[string]string{"PasadenaCA": "31080", "Chicago": "16980", "PasadenaTX": "26420"}}
 
@@ -98,7 +98,7 @@ func TestMetroDecision(t *testing.T) {
 		wantDesiredNil bool
 	}{
 		{"null → set", "Chicago", nil, metroSet, false},
-		{"correct → unchanged", "Chicago", mp("16980"), metroUnchanged, false},
+		{"correct → unchanged (desired nil, not authoritative)", "Chicago", mp("16980"), metroUnchanged, true},
 		{"stale → changed", "Chicago", mp("99999"), metroChanged, false},
 		{"unresolvable but set → cleared", "Nowhere", mp("16980"), metroCleared, true},
 		{"unresolvable + null → unchanged", "Nowhere", nil, metroUnchanged, true},

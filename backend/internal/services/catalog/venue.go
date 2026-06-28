@@ -295,10 +295,13 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 		// Write unconditionally: on a geocode miss the pointers are nil and GORM's
 		// map Updates writes SQL NULL, so a relocated-but-unresolvable venue falls
 		// back to the legacy state->tz map instead of keeping the OLD location's
-		// stale timezone/coordinates (mirrors the create path's miss->NULL).
+		// stale timezone/coordinates (mirrors the create path's miss->NULL). metro
+		// is a sibling here — forward it too, or a relocated venue keeps the OLD
+		// metro's CBSA and is mis-rostered in the Atlas scene (PSY-1255 step B).
 		updates["latitude"] = effective.Latitude
 		updates["longitude"] = effective.Longitude
 		updates["timezone"] = effective.Timezone
+		updates["metro"] = effective.Metro
 	}
 
 	// Update the venue

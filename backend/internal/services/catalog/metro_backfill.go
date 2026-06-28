@@ -12,11 +12,14 @@ import (
 // PSY-1255 step B: reconcile the denormalized `metro` (CBSA code) column on
 // artists and venues. metro is DERIVED from (city, state, country) via
 // geo.ResolveMetro, so it must equal that derivation at all times for the scene
-// rollup to be correct. The create write paths set it, but enrichment fills and
-// state corrections (step 0) change an entity's location WITHOUT touching metro,
-// so it goes stale. This reconciler recomputes metro for every row and writes
-// only the ones that differ — the authoritative populator (run after a location
-// or state backfill) and a no-op on a clean second run.
+// rollup to be correct. The service write paths set it alongside the geocoding
+// (artist create + UpdateArtist; venue create + UpdateVenue + the contribution-
+// edit apply + data-sync import), but the BACKGROUND location writers — the
+// artist location-enrichment fill and the offline state/location backfills
+// (step 0) — change an entity's location WITHOUT touching metro, so it drifts.
+// This reconciler recomputes metro for EVERY row and writes only the ones that
+// differ — the backstop, run after a location/state backfill, and a no-op on a
+// clean second run.
 
 // MetroReport is the structured outcome of a reconcile run.
 type MetroReport struct {
@@ -105,12 +108,13 @@ const (
 // metroDecision computes the metro a row SHOULD have and classifies the change
 // versus what it currently has. geo.ResolveMetro already refuses to guess an
 // unpinned multi-state name, so a non-resolving location yields nil (→ cleared if
-// one was stored). Both nil, or equal codes, is metroUnchanged.
+// one was stored). Both nil, or equal codes, is metroUnchanged — for which it
+// returns a nil desired, since the caller must not write an unchanged row.
 func metroDecision(g geo.Geocoder, city, state, country string, current *string) (*string, metroAction) {
 	desired := geo.MetroPointer(g, city, state, country)
 	switch {
 	case strPtrEq(current, desired):
-		return desired, metroUnchanged
+		return nil, metroUnchanged
 	case current == nil:
 		return desired, metroSet
 	case desired == nil:
@@ -133,10 +137,12 @@ type gormArtistMetroStore struct{ db *gorm.DB }
 
 func (s *gormArtistMetroStore) LoadMetroRows() ([]metroRow, error) {
 	var artists []catalogm.Artist
-	// Only rows with a city can resolve a metro; a city-less row stays NULL and
-	// needn't be scanned.
+	// A city-less row can't gain a metro — BUT a row whose city was cleared after
+	// a metro was stamped MUST still be scanned so the now-stale metro gets cleared
+	// (else metroCleared is unreachable and the "every row reconciled" contract
+	// breaks). So: rows with a city OR an already-set metro.
 	if err := s.db.
-		Where("city IS NOT NULL AND TRIM(city) <> ''").
+		Where("(city IS NOT NULL AND TRIM(city) <> '') OR metro IS NOT NULL").
 		Order("id").Find(&artists).Error; err != nil {
 		return nil, err
 	}
