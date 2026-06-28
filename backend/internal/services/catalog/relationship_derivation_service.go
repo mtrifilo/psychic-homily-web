@@ -3,8 +3,6 @@ package catalog
 import (
 	"context"
 	"log/slog"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -32,12 +30,8 @@ type RelationshipDerivationService struct {
 // Env vars:
 //   - RELATIONSHIP_DERIVATION_INTERVAL_HOURS (default 24)
 func NewRelationshipDerivationService(relService *ArtistRelationshipService) *RelationshipDerivationService {
-	interval := DefaultDerivationInterval
-	if envVal := os.Getenv("RELATIONSHIP_DERIVATION_INTERVAL_HOURS"); envVal != "" {
-		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
-			interval = time.Duration(hours) * time.Hour
-		}
-	}
+	// PSY-1270: shared env helper (see env.go).
+	interval := envPositiveHours("RELATIONSHIP_DERIVATION_INTERVAL_HOURS", DefaultDerivationInterval)
 
 	return &RelationshipDerivationService{
 		relService: relService,

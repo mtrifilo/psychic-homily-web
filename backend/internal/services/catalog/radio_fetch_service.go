@@ -281,61 +281,26 @@ func NewRadioFetchService(
 	radioService *RadioService,
 	discordService contracts.DiscordServiceInterface,
 ) *RadioFetchService {
-	fetchInterval := DefaultRadioFetchInterval
-	if envVal := os.Getenv("RADIO_FETCH_INTERVAL_HOURS"); envVal != "" {
-		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
-			fetchInterval = time.Duration(hours) * time.Hour
-		}
-	}
+	// Loop intervals (hours; must be > 0, else the default). PSY-1270: see env.go.
+	fetchInterval := envPositiveHours("RADIO_FETCH_INTERVAL_HOURS", DefaultRadioFetchInterval)
+	affinityInterval := envPositiveHours("RADIO_AFFINITY_INTERVAL_HOURS", DefaultAffinityInterval)
+	rematchInterval := envPositiveHours("RADIO_REMATCH_INTERVAL_HOURS", DefaultReMatchInterval)
+	discoverInterval := envPositiveHours("RADIO_DISCOVER_INTERVAL_HOURS", DefaultDiscoverInterval)
+	backfillInterval := envPositiveHours("RADIO_BACKFILL_INTERVAL_HOURS", DefaultBackfillInterval)
 
-	affinityInterval := DefaultAffinityInterval
-	if envVal := os.Getenv("RADIO_AFFINITY_INTERVAL_HOURS"); envVal != "" {
-		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
-			affinityInterval = time.Duration(hours) * time.Hour
-		}
-	}
+	// Backfill lookbacks (days; 0 explicitly disables, so >= 0; a negative/unparseable
+	// value falls back to the default).
+	autoBackfillDays := envNonNegativeInt("RADIO_AUTO_BACKFILL_DAYS", DefaultAutoBackfillDays)
+	backfillLookbackDays := envNonNegativeInt("RADIO_BACKFILL_LOOKBACK_DAYS", DefaultBackfillLookbackDays)
+	janitorBackfillLookbackDays := envNonNegativeInt("RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS", DefaultJanitorBackfillLookbackDays)
 
-	rematchInterval := DefaultReMatchInterval
-	if envVal := os.Getenv("RADIO_REMATCH_INTERVAL_HOURS"); envVal != "" {
-		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
-			rematchInterval = time.Duration(hours) * time.Hour
-		}
-	}
-
-	discoverInterval := DefaultDiscoverInterval
-	if envVal := os.Getenv("RADIO_DISCOVER_INTERVAL_HOURS"); envVal != "" {
-		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
-			discoverInterval = time.Duration(hours) * time.Hour
-		}
-	}
-
-	// 0 explicitly disables auto-backfill. Negative values are silently treated
-	// as 0 (defensive). Default 90 if env unset or invalid.
-	autoBackfillDays := DefaultAutoBackfillDays
-	if envVal := os.Getenv("RADIO_AUTO_BACKFILL_DAYS"); envVal != "" {
-		if days, err := strconv.Atoi(envVal); err == nil && days >= 0 {
-			autoBackfillDays = days
-		}
-	}
-
-	backfillInterval := DefaultBackfillInterval
-	if envVal := os.Getenv("RADIO_BACKFILL_INTERVAL_HOURS"); envVal != "" {
-		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
-			backfillInterval = time.Duration(hours) * time.Hour
-		}
-	}
-
-	// 0 explicitly disables the post-air backfill loop. Negative → 0 (defensive).
-	// Default 7 if env unset or invalid.
-	backfillLookbackDays := DefaultBackfillLookbackDays
-	if envVal := os.Getenv("RADIO_BACKFILL_LOOKBACK_DAYS"); envVal != "" {
-		if days, err := strconv.Atoi(envVal); err == nil && days >= 0 {
-			backfillLookbackDays = days
-		}
-	}
+	// Dormancy window (days; must be > 0, else the default).
+	janitorDormantDays := envPositiveInt("RADIO_JANITOR_DORMANT_DAYS", DefaultJanitorDormantDays)
 
 	// Janitor cycle (PSY-1155). RADIO_JANITOR_INTERVAL_HOURS=0 (or negative) disables
-	// the whole nightly cycle; otherwise it sets the interval (default 24h).
+	// the whole nightly cycle; otherwise it sets the interval (default 24h). The
+	// enable/disable-on-0 semantics don't fit the envPositiveHours helper, so this one
+	// stays bespoke.
 	janitorEnabled := true
 	janitorInterval := DefaultJanitorInterval
 	if envVal := os.Getenv("RADIO_JANITOR_INTERVAL_HOURS"); envVal != "" {
@@ -348,22 +313,9 @@ func NewRadioFetchService(
 		}
 	}
 
-	janitorDormantDays := DefaultJanitorDormantDays
-	if envVal := os.Getenv("RADIO_JANITOR_DORMANT_DAYS"); envVal != "" {
-		if days, err := strconv.Atoi(envVal); err == nil && days > 0 {
-			janitorDormantDays = days
-		}
-	}
-
-	janitorBackfillLookbackDays := DefaultJanitorBackfillLookbackDays
-	if envVal := os.Getenv("RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS"); envVal != "" {
-		if days, err := strconv.Atoi(envVal); err == nil && days >= 0 {
-			janitorBackfillLookbackDays = days
-		}
-	}
-
 	// WFMU schedule scrape (PSY-1159). RADIO_SCHEDULE_INTERVAL_HOURS=0 (or negative)
-	// disables the cycle; otherwise it sets the interval (default 7 days).
+	// disables the cycle; otherwise it sets the interval (default 7 days). Same
+	// enable/disable-on-0 semantics as the janitor cycle, so it stays bespoke too.
 	scheduleEnabled := true
 	scheduleInterval := DefaultScheduleInterval
 	if envVal := os.Getenv("RADIO_SCHEDULE_INTERVAL_HOURS"); envVal != "" {
