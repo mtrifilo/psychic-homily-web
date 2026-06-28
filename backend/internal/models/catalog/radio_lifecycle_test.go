@@ -322,6 +322,25 @@ func TestCoversTime(t *testing.T) {
 		}
 	})
 
+	t.Run("End == Start is a full 24-hour window (the slotWindow convention)", func(t *testing.T) {
+		s := sched(RadioScheduleSlot{DayOfWeek: 0, Start: "03:00", End: "03:00"}) // Sun, degenerate
+		if !s.CoversTime(time.Date(2026, 6, 28, 3, 0, 0, 0, ny)) {
+			t.Error("Sunday 03:00 (start) must be covered")
+		}
+		if !s.CoversTime(time.Date(2026, 6, 28, 23, 59, 0, 0, ny)) {
+			t.Error("Sunday 23:59 must be covered by the 24h window")
+		}
+		if !s.CoversTime(time.Date(2026, 6, 29, 2, 59, 0, 0, ny)) {
+			t.Error("Monday 02:59 must be covered (the 24h window wraps to Mon 03:00)")
+		}
+		if s.CoversTime(time.Date(2026, 6, 29, 3, 0, 0, 0, ny)) {
+			t.Error("Monday 03:00 is the exclusive end of the 24h window → not covered")
+		}
+		if s.CoversTime(time.Date(2026, 6, 28, 2, 59, 0, 0, ny)) {
+			t.Error("Sunday 02:59 is before the window start → not covered")
+		}
+	})
+
 	t.Run("multiple slots: covered if ANY matches", func(t *testing.T) {
 		s := sched(
 			RadioScheduleSlot{DayOfWeek: 1, Start: "06:00", End: "10:00"}, // Mon (no match)

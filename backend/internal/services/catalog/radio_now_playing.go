@@ -264,8 +264,11 @@ func (s *RadioService) tryLiveNowPlaying(station *catalogm.RadioStation) *contra
 // on the NEW slot looks identical to a rebroadcast and is suppressed until the schedule
 // catches up (an admin-locked schedule that is wrong stays wrong until corrected). This is
 // inherent to schedule-based detection; we err toward suppressing a possibly-stale-scheduled
-// show rather than re-introducing the false-ON-AIR, and every suppression is logged (above)
-// so a wrongly-hidden live show is observable.
+// show rather than re-introducing the false-ON-AIR. The SOLE caller (tryLiveNowPlaying) logs
+// each suppression at INFO for traceability — note the log is the caller's, not this
+// predicate's (which returns only a bool), so any NEW caller must log too; and the signal is
+// noisy (every routine overnight rebroadcast logs), so a wrongly-suppressed moved show is not
+// trivially alertable from the log alone.
 func (s *RadioService) isWFMUFlagshipRebroadcast(station *catalogm.RadioStation, source, channel string, live *RadioLiveNowPlaying, now time.Time) bool {
 	if source != catalogm.PlaylistSourceWFMU || channel != wfmuLiveChannelMain {
 		return false

@@ -620,6 +620,14 @@ func parseHHMM(s string) (hour, minute int, ok bool) {
 // Start slot is therefore a degenerate full 24-hour window (a midnight-to-midnight airing) —
 // the convention both callers rely on. start/end hour+minute are the already-parsed slot
 // times (parseHHMM); DST is handled by time.Date in loc (never a fixed offset).
+//
+// LOAD-BEARING (two callers, OPPOSITE fail-safe directions — preserve the exact time.Date
+// behavior on any refactor): a wall-clock time in the once-a-year spring-forward gap
+// (02:00–02:59 in US zones) doesn't exist, so time.Date normalizes it, shifting that one
+// slot boundary by up to an hour. WindowForDate relies on the window only ever closing
+// EARLIER (so an episode is never falsely "live"); CoversTime relies on OVER-covering rather
+// than under-covering (so a genuinely-live show is never wrongly suppressed). A change tuned
+// to preserve one of these invariants can break the other.
 func slotWindow(day time.Time, sh, sm, eh, em int, loc *time.Location) (start, end time.Time) {
 	start = time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
 	end = time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
@@ -637,12 +645,19 @@ func slotWindow(day time.Time, sh, sm, eh, em int, loc *time.Location) (start, e
 // rebroadcast from a first airing is that the show's OWN schedule does not cover now.
 //
 // Each slot is (day_of_week, start, end) in s.Timezone; an end <= start wraps past midnight
-// (mirroring WindowForDate), so a slot that started on the PREVIOUS day can still cover an
+// (via the shared slotWindow), so a slot that started on the PREVIOUS day can still cover an
 // early-morning t — both the same-day and previous-day occurrences are checked (a slot is at
 // most 24h, so those two candidate start-days are sufficient). A slot whose times don't
-// parse is skipped (defensive; slots are HH:MM-validated at write). An unloadable timezone
-// returns false (fail safe: when in doubt, NOT "covered" → the caller does not suppress, so
-// a tz error never hides a genuinely-live show). Containment is [start, end).
+// parse is skipped (defensive; slots are HH:MM-validated at write). An End == Start slot is a
+// full 24-hour window (see slotWindow). Containment is [start, end).
+//
+// CAUTION on the unloadable-timezone branch (returns false): false means "not covered", and
+// the PSY-1253 caller SUPPRESSES on not-covered (isWFMUFlagshipRebroadcast returns
+// !CoversTime), so a bare false here would HIDE a live show — NOT a fail-safe-to-live. That
+// is acceptable only because that caller validates the timezone FIRST via ParseRadioSchedule
+// (which runs Validate → LoadLocation) and trusts-as-live on any parse error, so CoversTime
+// is never reached with an unloadable tz on that path. This branch therefore guards only
+// direct callers / tzdata skew (defense-in-depth), not the rebroadcast path.
 func (s *RadioSchedule) CoversTime(t time.Time) bool {
 	loc, err := time.LoadLocation(s.Timezone)
 	if err != nil {

@@ -622,6 +622,31 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMUEmptySlotsSchedul
 	suite.True(resp.OnAir)
 }
 
+// AC1 end-to-end: drive the REAL captured fixture through the REAL WFMU provider + parser into
+// GetStationNowPlaying (not a synthetic fakeLiveProvider), so the captured rebroadcast flows
+// through the actual program-code extraction → schedule cross-check → suppression. This closes
+// the parser↔suppressor seam: a drift in the extracted program code breaks THIS test, not just
+// a hand-copied "F4" constant in the synthetic suppression test.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_WFMURealFixtureRebroadcastSuppressedEndToEnd() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	suite.createWFMUShowWithSchedule(station.ID, "Freeform Jazz Dance", "freeform-jazz-dance", "F4", 6, "03:00", "06:00") // Saturday
+	suite.createWFMUShowWithSchedule(station.ID, "Thinking Hour", "thinking-hour", "T6", 0, "03:00", "06:00")             // Sunday
+	suite.radioService.nowFunc = suite.sundayEarlyAM
+
+	server := newWFMULiveServer(suite.T(), "wfmu_currentliveshows_rebroadcast.html")
+	defer server.Close()
+	suite.radioService.liveProviderFactory = func(string) (RadioLiveProvider, func(), bool) {
+		p := NewWFMUProviderWithClient(server.Client(), server.URL)
+		return p, p.Close, true
+	}
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLatestArchive, resp.Source,
+		"the REAL captured rebroadcast (F4 off its Saturday slot) must be suppressed end-to-end")
+	suite.False(resp.OnAir)
+}
+
 // --- caching -----------------------------------------------------------------
 
 func (suite *RadioNowPlayingIntegrationTestSuite) TestCache_NoPerRequestFanOut() {

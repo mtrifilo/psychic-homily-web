@@ -1520,7 +1520,12 @@ func parseWFMULiveStreamBlock(block *html.Node) (string, *RadioLiveNowPlaying) {
 						programCode = m[1]
 					}
 				}
-			case n.Data == "div" && getAttr(n, "class") == "linkssection":
+			case n.Data == "div" && hasClass(n, "linkssection"):
+				// Token-aware (not exact ==): this gate is load-bearing for the live/not-live
+				// verdict, so a future WFMU template that adds a class (class="linkssection
+				// live") must not silently flip a genuinely-live flagship show to "not on air"
+				// (PSY-1253). The subfield class checks above stay exact-match — a miss there
+				// only drops a subfield, not the verdict.
 				inLinks = true // descendants are the live-DJ links section
 			case n.Data == "a" && inLinks && episodeIDRegex.MatchString(getAttr(n, "href")):
 				hasPlaylistLink = true
