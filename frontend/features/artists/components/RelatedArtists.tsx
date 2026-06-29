@@ -1047,10 +1047,13 @@ function RelatedArtistRow({
     <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-muted/50 transition-colors group">
       <Link
         href={`/artists/${node.slug}`}
-        // PSY-1288: floor the name column at a readable min-width so a row with several long
-        // relationship badges can't squeeze it down to a single initial. The name still truncates
-        // for genuinely long names, but only after this floor — and the badge group below shrinks/
-        // wraps first (it no longer flex-shrink-0), so the name wins the space contest.
+        // PSY-1288: floor the name column at a readable min-width so the row's other items can't
+        // squeeze it down to a single initial. 7rem ≈ a short two-word name (e.g. "Slow Pulp") at
+        // text-sm; the sidebar is a fixed lg:w-80 (20rem) so this leaves ~10rem for the rest to use.
+        // The name still truncates for genuinely long names, but only past this floor — and every
+        // OTHER flexible item below now yields first (badges wrap, score truncates), so the name
+        // wins the space contest instead of losing it. (Re-tune this floor if the row font/padding
+        // or the sidebar width changes.)
         className="flex-1 min-w-[7rem] flex items-center gap-2"
       >
         <span className="text-sm font-medium truncate group-hover:text-foreground">
@@ -1059,7 +1062,7 @@ function RelatedArtistRow({
       </Link>
 
       {/* Relationship badges — wrap + shrink (PSY-1288) so a row with several long badges yields
-          space to the artist name instead of collapsing it; no badge is hidden, the group just
+          space to the floored name instead of collapsing it; no badge is hidden, the group just
           wraps to a second line when the row is tight. */}
       <div className="hidden sm:flex items-center justify-end gap-1 flex-wrap min-w-0 shrink">
         {links.map(link => {
@@ -1077,8 +1080,11 @@ function RelatedArtistRow({
         })}
       </div>
 
-      {/* Score */}
-      <span className="text-xs text-muted-foreground flex-shrink-0 hidden md:block">
+      {/* Score — also yields (min-w-0 truncate, no longer flex-shrink-0) so a long multi-type score
+          like "72% similar · 19x on radio across 3 stations" truncates rather than clipping off the
+          fixed 320px sidebar's right edge (PSY-1288). Only the small vote buttons below stay fixed,
+          so the floored name + votes always fit and everything else degrades gracefully. */}
+      <span className="text-xs text-muted-foreground min-w-0 shrink truncate hidden md:block">
         {getScoreDisplay()}
       </span>
 
