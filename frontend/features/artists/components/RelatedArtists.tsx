@@ -1047,15 +1047,21 @@ function RelatedArtistRow({
     <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-muted/50 transition-colors group">
       <Link
         href={`/artists/${node.slug}`}
-        className="flex-1 min-w-0 flex items-center gap-2"
+        // PSY-1288: floor the name column at a readable min-width so a row with several long
+        // relationship badges can't squeeze it down to a single initial. The name still truncates
+        // for genuinely long names, but only after this floor — and the badge group below shrinks/
+        // wraps first (it no longer flex-shrink-0), so the name wins the space contest.
+        className="flex-1 min-w-[7rem] flex items-center gap-2"
       >
         <span className="text-sm font-medium truncate group-hover:text-foreground">
           {node.name}
         </span>
       </Link>
 
-      {/* Relationship badges */}
-      <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+      {/* Relationship badges — wrap + shrink (PSY-1288) so a row with several long badges yields
+          space to the artist name instead of collapsing it; no badge is hidden, the group just
+          wraps to a second line when the row is tight. */}
+      <div className="hidden sm:flex items-center justify-end gap-1 flex-wrap min-w-0 shrink">
         {links.map(link => {
           const badge = RELATIONSHIP_BADGES[link.type]
           if (!badge) return null
