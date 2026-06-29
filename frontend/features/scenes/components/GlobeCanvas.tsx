@@ -66,18 +66,31 @@ export default function GlobeCanvas({
   // PSY-1284: heal a globe that comes back frozen after a client-side
   // navigation away from /atlas and back.
   //
-  // Next's Cache Components keeps the /atlas page's React tree (state + DOM)
-  // alive across client navigation rather than unmounting it. react-globe.gl's
-  // react-kapsule wrapper runs its destructor while the page is hidden — pausing
-  // the render loop, disposing OrbitControls + the WebGLRenderer, and emptying
-  // the three.js scene — but on return it does NOT re-run its init (its
-  // "already mounted" guard ref survived). The result is an inert, frozen globe:
-  // it shows the last frame but can't rotate, zoom, or be clicked.
+  // Next 16 Cache Components keeps the /atlas page's React tree (state + DOM)
+  // alive across client navigation rather than unmounting it — Activity-style:
+  // effect cleanups run on hide, effect setups re-run on show, and state/refs
+  // survive. While the page is hidden, react-globe.gl's react-kapsule wrapper
+  // runs the globe's destructor chain — pausing the render loop, disposing
+  // OrbitControls + the WebGLRenderer, and (via three-render-objects'
+  // `_destructor` → `emptyObject(scene)`) emptying the three.js scene — but on
+  // show it does NOT re-run init (react-kapsule's `useEffectOnce` guard ref
+  // survived the hide). The result is an inert, frozen globe: it shows the last
+  // frame but can't rotate, zoom, or be clicked.
   //
-  // The torn-down instance can't be revived through the public API (the scene
-  // graph teardown is too deep), so detect it — react-kapsule emptied the scene,
-  // so `scene().children` is empty — and force a brand-new <Globe> via a key
-  // change. A fresh init rebuilds the renderer, controls, loop, and scene.
+  // The torn-down instance can't be revived through react-globe.gl's public API
+  // (`resumeAnimation()` does not restart the loop, and the scene-graph teardown
+  // is too deep to rebuild by hand — both were tried), so detect it and force a
+  // brand-new <Globe> via a key change; a fresh init rebuilds the renderer,
+  // controls, loop, and scene. Because the effect setup re-runs on every show,
+  // this re-heals on every away→back cycle, not just the first.
+  //
+  // Detection signal: the emptied scene (`scene().children.length === 0`). This
+  // depends on three-render-objects' `_destructor` zeroing `scene.children`,
+  // pinned transitively via react-globe.gl 2.38. Fragility: if a future bump
+  // stops emptying the scene on teardown, `children` stays non-empty on a
+  // torn-down instance and this heal silently no-ops (PSY-1284 returns with no
+  // error) — re-verify the away→back interactivity on any react-globe.gl / three
+  // upgrade.
   const [rebuildNonce, setRebuildNonce] = useState(0)
   useEffect(() => {
     const globe = globeRef.current
@@ -99,8 +112,9 @@ export default function GlobeCanvas({
     } catch {
       // best effort — the context may already be lost
     }
-    // Defer the remount so it lands after this effect returns rather than
-    // synchronously (react-hooks/set-state-in-effect), matching AtlasGlobe.
+    // Defer the remount to a microtask so forceContextLoss() finishes and the
+    // setState lands after this effect returns rather than synchronously
+    // (react-hooks/set-state-in-effect); the cancelled guard mirrors AtlasGlobe.
     let cancelled = false
     Promise.resolve().then(() => {
       if (!cancelled) setRebuildNonce((nonce) => nonce + 1)
