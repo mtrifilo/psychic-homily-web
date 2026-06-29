@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
 import type { GlobePov, PlaceableScene } from './globeTypes'
 import {
@@ -63,6 +63,53 @@ export default function GlobeCanvas({
 }: GlobeCanvasProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
 
+  // PSY-1284: heal a globe that comes back frozen after a client-side
+  // navigation away from /atlas and back.
+  //
+  // Next's Cache Components keeps the /atlas page's React tree (state + DOM)
+  // alive across client navigation rather than unmounting it. react-globe.gl's
+  // react-kapsule wrapper runs its destructor while the page is hidden — pausing
+  // the render loop, disposing OrbitControls + the WebGLRenderer, and emptying
+  // the three.js scene — but on return it does NOT re-run its init (its
+  // "already mounted" guard ref survived). The result is an inert, frozen globe:
+  // it shows the last frame but can't rotate, zoom, or be clicked.
+  //
+  // The torn-down instance can't be revived through the public API (the scene
+  // graph teardown is too deep), so detect it — react-kapsule emptied the scene,
+  // so `scene().children` is empty — and force a brand-new <Globe> via a key
+  // change. A fresh init rebuilds the renderer, controls, loop, and scene.
+  const [rebuildNonce, setRebuildNonce] = useState(0)
+  useEffect(() => {
+    const globe = globeRef.current
+    if (!globe) return
+    let sceneEmptied = false
+    try {
+      sceneEmptied = globe.scene().children.length === 0
+    } catch {
+      sceneEmptied = false
+    }
+    if (!sceneEmptied) return
+    // Release the dead instance's WebGL context before building a fresh one so
+    // live contexts don't accumulate toward the browser's ~16 limit. Each keyed
+    // <Globe> owns a SEPARATE context, so losing the stale one is safe — unlike
+    // the shared-context teardown that an unconditional dispose-on-unmount would
+    // have broken (see PSY-1284 notes).
+    try {
+      globe.renderer().forceContextLoss()
+    } catch {
+      // best effort — the context may already be lost
+    }
+    // Defer the remount so it lands after this effect returns rather than
+    // synchronously (react-hooks/set-state-in-effect), matching AtlasGlobe.
+    let cancelled = false
+    Promise.resolve().then(() => {
+      if (!cancelled) setRebuildNonce((nonce) => nonce + 1)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // PSY-1223: zoom-gated labels. Track the label-visibility threshold (derived
   // from camera altitude) in state, seeded from the initial pov. onZoom fires
   // continuously as the camera moves, so update only when the discrete threshold
@@ -89,6 +136,7 @@ export default function GlobeCanvas({
   // could snap over a user's in-progress rotation.
   return (
     <Globe
+      key={rebuildNonce}
       ref={globeRef}
       width={width}
       height={height}
