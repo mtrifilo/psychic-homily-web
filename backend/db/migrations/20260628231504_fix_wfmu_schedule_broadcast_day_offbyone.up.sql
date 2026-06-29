@@ -43,8 +43,9 @@
 -- correct day. The EXISTS guard makes it a no-op for daytime-only shows and on environments
 -- that were never affected (fresh CI DB), so the rows-affected count equals the number of
 -- genuinely-corrected shows (14 on stage). The jsonb_typeof='number' guard leaves a non-numeric
--- day_of_week untouched, and the floor()/numeric cast tolerates a non-integer JSON number (e.g.
--- 6.0) instead of aborting — so one malformed slot can't fail the whole batch.
+-- day_of_week untouched, and the all-numeric arithmetic (floor + modulo-before-cast) tolerates a
+-- non-integer (6.0), out-of-int4-range, or even negative JSON number without aborting — so no one
+-- stored slot can fail the whole batch. (All real writers emit 0–6; this is pure defense.)
 UPDATE radio_shows rs
    SET schedule = jsonb_set(
            rs.schedule,
@@ -57,10 +58,14 @@ UPDATE radio_shows rs
                               THEN jsonb_set(
                                        arr.slot,
                                        '{day_of_week}',
-                                       -- floor((...)::numeric)::int, not a bare ::int: a JSON
-                                       -- number like 6.0 is typeof 'number' but '6.0'::int errors
-                                       -- and would abort the whole migration (block the deploy).
-                                       to_jsonb((floor((arr.slot ->> 'day_of_week')::numeric)::int + 1) % 7)
+                                       -- Keep ALL arithmetic in numeric and only cast the final
+                                       -- 0–6 result to int. A bare ::int on a JSON number that is
+                                       -- non-integer (6.0) or out of int4 range (e.g. 1e14) errors
+                                       -- and would abort the whole migration (blocking the deploy);
+                                       -- floor handles 6.0, the modulo reduces any magnitude before
+                                       -- the cast, and the (+7) %7 normalizes a (corrupt) negative
+                                       -- into 0–6 — so no stored value can fail the batch.
+                                       to_jsonb(((((floor((arr.slot ->> 'day_of_week')::numeric) + 1) % 7) + 7) % 7)::int)
                                    )
                               ELSE arr.slot
                           END
