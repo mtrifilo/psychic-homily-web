@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
 import type { GlobePov, PlaceableScene } from './globeTypes'
 import {
@@ -63,6 +63,67 @@ export default function GlobeCanvas({
 }: GlobeCanvasProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
 
+  // PSY-1284: heal a globe that comes back frozen after a client-side
+  // navigation away from /atlas and back.
+  //
+  // Next 16 Cache Components keeps the /atlas page's React tree (state + DOM)
+  // alive across client navigation rather than unmounting it — Activity-style:
+  // effect cleanups run on hide, effect setups re-run on show, and state/refs
+  // survive. While the page is hidden, react-globe.gl's react-kapsule wrapper
+  // runs the globe's destructor chain — pausing the render loop, disposing
+  // OrbitControls + the WebGLRenderer, and (via three-render-objects'
+  // `_destructor` → `emptyObject(scene)`) emptying the three.js scene — but on
+  // show it does NOT re-run init (react-kapsule's `useEffectOnce` guard ref
+  // survived the hide). The result is an inert, frozen globe: it shows the last
+  // frame but can't rotate, zoom, or be clicked.
+  //
+  // The torn-down instance can't be revived through react-globe.gl's public API
+  // (`resumeAnimation()` does not restart the loop, and the scene-graph teardown
+  // is too deep to rebuild by hand — both were tried), so detect it and force a
+  // brand-new <Globe> via a key change; a fresh init rebuilds the renderer,
+  // controls, loop, and scene. Because the effect setup re-runs on every show,
+  // this re-heals on every away→back cycle, not just the first.
+  //
+  // Detection signal: the emptied scene (`scene().children.length === 0`). This
+  // depends on three-render-objects' `_destructor` zeroing `scene.children`,
+  // pinned transitively via react-globe.gl 2.38. Fragility: if a future bump
+  // stops emptying the scene on teardown, `children` stays non-empty on a
+  // torn-down instance and this heal silently no-ops (PSY-1284 returns with no
+  // error) — re-verify the away→back interactivity on any react-globe.gl / three
+  // upgrade.
+  const [rebuildNonce, setRebuildNonce] = useState(0)
+  useEffect(() => {
+    const globe = globeRef.current
+    if (!globe) return
+    let sceneEmptied = false
+    try {
+      sceneEmptied = globe.scene().children.length === 0
+    } catch {
+      sceneEmptied = false
+    }
+    if (!sceneEmptied) return
+    // Release the dead instance's WebGL context before building a fresh one so
+    // live contexts don't accumulate toward the browser's ~16 limit. Each keyed
+    // <Globe> owns a SEPARATE context, so losing the stale one is safe — unlike
+    // the shared-context teardown that an unconditional dispose-on-unmount would
+    // have broken (see PSY-1284 notes).
+    try {
+      globe.renderer().forceContextLoss()
+    } catch {
+      // best effort — the context may already be lost
+    }
+    // Defer the remount to a microtask so forceContextLoss() finishes and the
+    // setState lands after this effect returns rather than synchronously
+    // (react-hooks/set-state-in-effect); the cancelled guard mirrors AtlasGlobe.
+    let cancelled = false
+    Promise.resolve().then(() => {
+      if (!cancelled) setRebuildNonce((nonce) => nonce + 1)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // PSY-1223: zoom-gated labels. Track the label-visibility threshold (derived
   // from camera altitude) in state, seeded from the initial pov. onZoom fires
   // continuously as the camera moves, so update only when the discrete threshold
@@ -89,6 +150,7 @@ export default function GlobeCanvas({
   // could snap over a user's in-progress rotation.
   return (
     <Globe
+      key={rebuildNonce}
       ref={globeRef}
       width={width}
       height={height}
