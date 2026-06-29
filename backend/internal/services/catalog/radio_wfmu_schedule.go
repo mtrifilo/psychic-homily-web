@@ -178,6 +178,35 @@ var dayNameToWeekday = map[string]int{
 	"THURSDAY": 4, "FRIDAY": 5, "SATURDAY": 6,
 }
 
+// wfmuBroadcastDayStartHM is WFMU's broadcast-day boundary as an "HH:MM" 24-hour
+// string. The /table grid is a single broadcast day running 6am→6am, so any slot
+// whose start time is earlier than this boundary sits in the post-midnight band
+// and airs the NEXT calendar day, not the day printed at the top of its column
+// (confirmed against WFMU's own "Playing Today", which lists the Sunday column's
+// post-midnight shows under Monday). The one-time correction of already-stored rows
+// applies the SAME rule — see the PSY-1283 migration
+// (db/migrations/*_fix_wfmu_schedule_broadcast_day_offbyone). PSY-1283.
+const wfmuBroadcastDayStartHM = "06:00"
+
+// calendarWeekdayForSlot maps a program cell's grid COLUMN day to the slot's real
+// CALENDAR airing weekday (0=Sunday..6=Saturday). On WFMU's broadcast-day grid a
+// slot starting before 06:00 airs the next calendar day — e.g. a 3-6am cell in the
+// Saturday column is a Sunday airing (columnWeekday+1) — while a start at/after 06:00
+// keeps the column's own day. This relies on WFMU placing a show's post-midnight
+// airing in the PREVIOUS calendar day's column: true for every observed pre-6am show
+// (all Mid-3am/3-6am, fully inside 00:00–06:00), and cross-checked on stage against
+// real radio_episodes.air_date weekdays — all 14 affected shows matched (PSY-1283). A
+// (so-far unseen) slot straddling 6am, e.g. 4–7am, would be shifted whole to the next
+// day, still correct for its start (it begins in the post-midnight band). `start` is
+// the zero-padded "HH:MM" from parseWFMUTimeRange, which compares lexicographically in
+// chronological order — the same idiom WindowForDate uses to order slots. PSY-1283.
+func calendarWeekdayForSlot(columnWeekday int, start string) int {
+	if start < wfmuBroadcastDayStartHM {
+		return (columnWeekday + 1) % 7
+	}
+	return columnWeekday
+}
+
 // parseWFMUScheduleTable reconstructs the grid and returns one entry per program code,
 // with a slot for each (day, time-range) cell, plus the count of program cells that were
 // SKIPPED (no code, no parseable time, or outside the day columns). A single malformed
@@ -253,11 +282,14 @@ func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped i
 	}
 
 	// Group slots by program code. Each cell yields one slot (normal) or several (a stacked
-	// two-show cell); all slots from a cell share the cell's weekday (its column).
+	// two-show cell). Every slot in a cell starts from the same grid column, but each maps to
+	// its OWN calendar airing day via calendarWeekdayForSlot below (a pre-6am slot airs the
+	// next day on the broadcast-day grid, PSY-1283), so a cell mixing pre/post-6am sub-slots
+	// can yield different days — do NOT collapse a cell back to a single per-column weekday.
 	byCode := map[string]*WFMUScheduleEntry{}
 	var order []string
 	for _, pc := range programCells {
-		weekday, ok := colToWeekday[pc.col]
+		columnWeekday, ok := colToWeekday[pc.col]
 		if !ok {
 			skipped++ // a program cell outside the 7 day columns (defensive)
 			continue
@@ -274,8 +306,12 @@ func parseWFMUScheduleTable(body []byte) (entries []WFMUScheduleEntry, skipped i
 				byCode[sl.code] = entry
 				order = append(order, sl.code)
 			}
+			// Store the slot's REAL calendar airing day, not the grid column day:
+			// a pre-6am slot belongs to the next calendar day (broadcast-day grid,
+			// PSY-1283). Each slot resolves independently of its cell-mates so a
+			// stacked cell mixing pre/post-6am sub-slots maps each correctly.
 			entry.Slots = append(entry.Slots, catalogm.RadioScheduleSlot{
-				DayOfWeek: weekday, Start: sl.start, End: sl.end,
+				DayOfWeek: calendarWeekdayForSlot(columnWeekday, sl.start), Start: sl.start, End: sl.end,
 			})
 		}
 	}
