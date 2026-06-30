@@ -145,6 +145,11 @@ describe('visibleLabelScenes — top-K quiet-season floor (PSY-1229)', () => {
     expect(visibleLabelScenes(few, 120)).toEqual(few)
   })
 
+  it('returns exactly K at the slice boundary (K scenes, none clearing)', () => {
+    const exactlyK = quiet.slice(0, LABEL_TOP_K_FLOOR)
+    expect(visibleLabelScenes(exactlyK, 120)).toHaveLength(LABEL_TOP_K_FLOOR)
+  })
+
   it('does NOT trigger when at least one scene clears the threshold (no re-clutter)', () => {
     // The calibrated sparse continental view must survive: one city clears 120,
     // so the floor stays out and no sub-threshold cities are pulled back in.
@@ -152,21 +157,24 @@ describe('visibleLabelScenes — top-K quiet-season floor (PSY-1229)', () => {
     expect(visibleLabelScenes([big, ...quiet], 120)).toEqual([big])
   })
 
-  it('respects an explicit topK (and topK=0 disables the floor)', () => {
-    expect(visibleLabelScenes(quiet, 120, 2).map((s) => s.city)).toEqual(['A', 'B'])
-    expect(visibleLabelScenes(quiet, 120, 0)).toEqual([])
-  })
-
-  it('does not floor a non-finite count in over a real scene', () => {
+  it('excludes non-finite counts from the floor (never floored in over a real scene)', () => {
     const withNaN = [
       { city: 'NaNville', upcoming_show_count: NaN },
       { city: 'Real1', upcoming_show_count: 30 },
       { city: 'Real2', upcoming_show_count: 20 },
     ]
-    expect(visibleLabelScenes(withNaN, 120, 2).map((s) => s.city)).toEqual([
+    expect(visibleLabelScenes(withNaN, 120).map((s) => s.city)).toEqual([
       'Real1',
       'Real2',
     ])
+  })
+
+  it('returns empty when every count is NaN (nothing clears the gate, nothing real to floor in)', () => {
+    const allNaN = [
+      { city: 'X', upcoming_show_count: NaN },
+      { city: 'Y', upcoming_show_count: NaN },
+    ]
+    expect(visibleLabelScenes(allNaN, 120)).toEqual([])
   })
 
   it('returns an empty array when there are no scenes at all', () => {
