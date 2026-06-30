@@ -38,15 +38,23 @@ import {
 } from './graphTraversalHistory'
 import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 
+// Per-relationship-type badge styling. PSY-1290: each type carries BOTH a light- and a dark-mode
+// palette. The original classes were dark-only (`bg-{hue}-900/30 text-{hue}-300`) — light text on a
+// dark wash, which is illegible in light mode (the wash composites to near-white and the light text
+// disappears). The `dark:` variants below are exactly those original (good) dark values, so dark mode
+// is unchanged; the base classes are the new light palette (deeper `-800` text on a `-100` tint) so
+// the badge is legible in light mode too. Hue per type matches the graph edge colors (teal=radio,
+// blue=shared-bills, …; see components/graph/edgeGrammar.ts) so a badge and its edge read as the
+// same relationship. Used in two places: the sidebar list rows AND the graph dialog's type toggles.
 const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> = {
-  similar: { label: 'Similar', className: 'bg-zinc-700/50 text-zinc-300 border-zinc-600' },
-  shared_bills: { label: 'Shared Bills', className: 'bg-blue-900/30 text-blue-300 border-blue-700/50' },
-  shared_label: { label: 'Shared Label', className: 'bg-purple-900/30 text-purple-300 border-purple-700/50' },
-  side_project: { label: 'Side Project', className: 'bg-green-900/30 text-green-300 border-green-700/50' },
-  member_of: { label: 'Member Of', className: 'bg-amber-900/30 text-amber-300 border-amber-700/50' },
-  radio_cooccurrence: { label: 'Radio Co-occurrence', className: 'bg-teal-900/30 text-teal-300 border-teal-700/50' },
+  similar: { label: 'Similar', className: 'bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-700/50 dark:text-zinc-300 dark:border-zinc-600' },
+  shared_bills: { label: 'Shared Bills', className: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700/50' },
+  shared_label: { label: 'Shared Label', className: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700/50' },
+  side_project: { label: 'Side Project', className: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/50' },
+  member_of: { label: 'Member Of', className: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700/50' },
+  radio_cooccurrence: { label: 'Radio Co-occurrence', className: 'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-700/50' },
   // PSY-363: festival_cobill — vermillion-ish styling for the list badge.
-  festival_cobill: { label: 'Festival co-lineup', className: 'bg-orange-900/30 text-orange-300 border-orange-700/50' },
+  festival_cobill: { label: 'Festival co-lineup', className: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700/50' },
 }
 
 const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'member_of', 'radio_cooccurrence', 'festival_cobill']
@@ -1123,8 +1131,11 @@ function VoteButton({ link, direction, userVotes, onVote, isPending }: VoteButto
       className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-colors ${
         isActive
           ? direction === 'up'
-            ? 'text-green-400 bg-green-900/20'
-            : 'text-red-400 bg-red-900/20'
+            // PSY-1290: theme-aware active states. The dark: values are the original (good) dark
+            // colors; the base values are the light-mode palette (deeper text on a light tint) so an
+            // active up/down vote is legible in light mode, where the old light-on-dark washed out.
+            ? 'text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/20'
+            : 'text-red-700 bg-red-100 dark:text-red-400 dark:bg-red-900/20'
           : 'text-muted-foreground hover:text-foreground'
       }`}
       title={direction === 'up' ? 'Upvote similarity' : 'Downvote similarity'}
