@@ -516,3 +516,103 @@ func (s *RadioAffinitySyncSuite) TestSync_UpdateFailureIsReported() {
 		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error)
 	s.InDelta(0.1, float64(rel.Score), 0.01)
 }
+
+// =============================================================================
+// ComputeBackboneSignificance (PSY-1261) — disparity-filter backbone precompute
+// =============================================================================
+
+func TestRadioService_NilDB_ComputeBackboneSignificance(t *testing.T) {
+	svc := &RadioService{db: nil}
+	assertNilDBError(t, func() error {
+		return svc.ComputeBackboneSignificance()
+	})
+}
+
+// insertAffinityOrdered inserts an affinity row, canonically ordering the pair (artist_a < artist_b).
+func (s *RadioAffinitySyncSuite) insertAffinityOrdered(aID, bID uint, count int) {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	s.insertAffinity(lo, hi, count, count, 1)
+}
+
+// backboneSig returns the stored disparity-filter significance for a pair (canonically ordered).
+func (s *RadioAffinitySyncSuite) backboneSig(aID, bID uint) *float64 {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	var aff catalogm.RadioArtistAffinity
+	s.Require().NoError(s.db.Where("artist_a_id = ? AND artist_b_id = ?", lo, hi).First(&aff).Error)
+	return aff.BackboneSignificance
+}
+
+func (s *RadioAffinitySyncSuite) TestBackbone_StarKeepsEveryLeafLink() {
+	hub := s.createArtist("Hub", "bb-hub")
+	l1 := s.createArtist("Leaf 1", "bb-l1")
+	l2 := s.createArtist("Leaf 2", "bb-l2")
+	l3 := s.createArtist("Leaf 3", "bb-l3")
+	s.insertAffinityOrdered(hub.ID, l1.ID, 5)
+	s.insertAffinityOrdered(hub.ID, l2.ID, 3)
+	s.insertAffinityOrdered(hub.ID, l3.ID, 2)
+
+	s.Require().NoError(s.svc.ComputeBackboneSignificance())
+
+	// Every leaf is degree-1, so every spoke is kept (significance 0) — niche preservation.
+	for _, leaf := range []*catalogm.Artist{l1, l2, l3} {
+		sig := s.backboneSig(hub.ID, leaf.ID)
+		s.Require().NotNil(sig)
+		s.Equal(0.0, *sig)
+	}
+}
+
+func (s *RadioAffinitySyncSuite) TestBackbone_TriangleEqualWeights() {
+	a := s.createArtist("Tri A", "bb-tri-a")
+	b := s.createArtist("Tri B", "bb-tri-b")
+	c := s.createArtist("Tri C", "bb-tri-c")
+	s.insertAffinityOrdered(a.ID, b.ID, 4)
+	s.insertAffinityOrdered(b.ID, c.ID, 4)
+	s.insertAffinityOrdered(a.ID, c.ID, 4)
+
+	s.Require().NoError(s.svc.ComputeBackboneSignificance())
+
+	// Each node degree 2, strength 8, p=0.5 → significance (1-0.5)^(2-1) = 0.5.
+	for _, pair := range [][2]*catalogm.Artist{{a, b}, {b, c}, {a, c}} {
+		sig := s.backboneSig(pair[0].ID, pair[1].ID)
+		s.Require().NotNil(sig)
+		s.InDelta(0.5, *sig, 1e-6)
+	}
+}
+
+func (s *RadioAffinitySyncSuite) TestBackbone_EmptyTableNoError() {
+	s.Require().NoError(s.svc.ComputeBackboneSignificance())
+}
+
+func (s *RadioAffinitySyncSuite) TestBackbone_AsymmetricMinPrunesWeakHubEdge() {
+	// Both endpoints of the tested edges are degree 2 (neither side trivially 0), so this exercises
+	// the min-over-endpoints path through the real SQL UPDATE — not just the symmetric 0/0.5 cases.
+	//   H–A(10), H–B(1); A also A–X(10); B also B–Y(1).
+	h := s.createArtist("BB Hub", "bb-asym-h")
+	a := s.createArtist("BB A", "bb-asym-a")
+	b := s.createArtist("BB B", "bb-asym-b")
+	x := s.createArtist("BB X", "bb-asym-x")
+	y := s.createArtist("BB Y", "bb-asym-y")
+	s.insertAffinityOrdered(h.ID, a.ID, 10)
+	s.insertAffinityOrdered(h.ID, b.ID, 1)
+	s.insertAffinityOrdered(a.ID, x.ID, 10)
+	s.insertAffinityOrdered(b.ID, y.ID, 1)
+
+	s.Require().NoError(s.svc.ComputeBackboneSignificance())
+
+	// H–A: min((1-10/11)^1 ≈ 0.0909 from H, (1-0.5)^1 = 0.5 from A) ≈ 0.0909 (the strong fraction).
+	hA := s.backboneSig(h.ID, a.ID)
+	s.Require().NotNil(hA)
+	s.InDelta(1.0-10.0/11.0, *hA, 1e-6)
+	// H–B: min((1-1/11)^1 ≈ 0.909 from H, 0.5 from B) = 0.5 (the weak edge — pruned at low alpha).
+	hB := s.backboneSig(h.ID, b.ID)
+	s.Require().NotNil(hB)
+	s.InDelta(0.5, *hB, 1e-6)
+	// The dominant edge is far more significant (smaller) — the filter's whole point.
+	s.Less(*hA, *hB)
+}
