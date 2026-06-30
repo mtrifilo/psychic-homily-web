@@ -829,6 +829,13 @@ func (s *RadioFetchService) runAffinityCycle() {
 
 	s.logger.Info("affinity computation complete", "duration", time.Since(start))
 
+	// PSY-1261: compute the disparity-filter backbone significance over the freshly-recomputed
+	// graph and store it on radio_artist_affinity. Non-fatal — the backbone is additive metadata
+	// (no endpoint reads it yet), so a failure here must not block the relationship sync below.
+	if err := s.radioService.ComputeBackboneSignificance(); err != nil {
+		s.logger.Error("backbone significance computation failed", "error", err)
+	}
+
 	// Sync affinity data to artist_relationships as radio_cooccurrence type
 	syncStart := time.Now()
 	s.logger.Info("starting affinity-to-relationship sync")

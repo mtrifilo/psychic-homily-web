@@ -286,6 +286,95 @@ func (s *RadioService) ComputeAffinity() error {
 	return nil
 }
 
+// backboneUpdateBatch is how many edges go into one `UPDATE ... FROM (VALUES ...)` statement, so the
+// backbone pass is a handful of queries instead of one round-trip per edge.
+const backboneUpdateBatch = 500
+
+// ComputeBackboneSignificance computes the disparity-filter significance (PSY-1261) for every radio
+// co-occurrence edge — over the FULL graph, which the per-node null model requires — and stores it
+// in radio_artist_affinity.backbone_significance. It runs in the nightly affinity cycle right AFTER
+// ComputeAffinity has repopulated the table. The stored value (the smaller of the two endpoints'
+// p-values; lower = stronger) is alpha-INDEPENDENT, so the backbone threshold stays tunable at
+// query time without a recompute. Weight = co_occurrence_count (the raw tie strength; the filter
+// normalizes per-node, so absolute scale is irrelevant). See catalog.DisparitySignificance.
+func (s *RadioService) ComputeBackboneSignificance() error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	type affinityEdge struct {
+		ArtistAID         uint
+		ArtistBID         uint
+		CoOccurrenceCount int
+	}
+	var rows []affinityEdge
+	if err := s.db.Table("radio_artist_affinity").
+		Select("artist_a_id, artist_b_id, co_occurrence_count").
+		Find(&rows).Error; err != nil {
+		return fmt.Errorf("loading affinity edges: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	edges := make([]WeightedEdge, 0, len(rows))
+	for _, r := range rows {
+		edges = append(edges, WeightedEdge{A: r.ArtistAID, B: r.ArtistBID, Weight: float64(r.CoOccurrenceCount)})
+	}
+	sigByEdge := DisparitySignificance(edges)
+
+	keys := make([]EdgeKey, 0, len(sigByEdge))
+	for k := range sigByEdge {
+		keys = append(keys, k)
+	}
+
+	// Batched `UPDATE ... FROM (VALUES ...)`. radio_artist_affinity is canonically ordered
+	// (artist_a_id < artist_b_id), matching EdgeKey's (min,max), so a,b map straight to the columns.
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < len(keys); i += backboneUpdateBatch {
+			end := i + backboneUpdateBatch
+			if end > len(keys) {
+				end = len(keys)
+			}
+			chunk := keys[i:end]
+
+			var sb strings.Builder
+			sb.WriteString("UPDATE radio_artist_affinity AS r SET backbone_significance = v.sig FROM (VALUES ")
+			args := make([]interface{}, 0, len(chunk)*3)
+			for j, k := range chunk {
+				if j > 0 {
+					sb.WriteString(",")
+				}
+				sb.WriteString("(?::bigint,?::bigint,?::real)")
+				args = append(args, k[0], k[1], sigByEdge[k])
+			}
+			sb.WriteString(") AS v(a, b, sig) WHERE r.artist_a_id = v.a AND r.artist_b_id = v.b")
+
+			if err := tx.Exec(sb.String(), args...).Error; err != nil {
+				return fmt.Errorf("updating backbone significance (batch at %d): %w", i, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	slog.Info("radio backbone significance computed",
+		"edges", len(edges),
+		"nodes", countNodes(edges))
+	return nil
+}
+
+// countNodes returns the number of distinct artists touched by the edge set (for logging).
+func countNodes(edges []WeightedEdge) int {
+	seen := make(map[uint]struct{}, len(edges))
+	for _, e := range edges {
+		seen[e.A] = struct{}{}
+		seen[e.B] = struct{}{}
+	}
+	return len(seen)
+}
+
 // SyncAffinityToRelationships syncs radio_artist_affinity rows into artist_relationships
 // as radio_cooccurrence relationships. Creates new, updates existing, and deletes stale relationships.
 func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityResult, error) {

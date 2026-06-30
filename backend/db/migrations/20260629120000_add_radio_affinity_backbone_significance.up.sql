@@ -1,0 +1,15 @@
+-- PSY-1261: disparity-filter backbone significance for the radio co-occurrence graph.
+--
+-- The radio_artist_affinity graph is dense + hub-driven. The disparity filter (Serrano et al.,
+-- PNAS 2009) tests each edge against a PER-NODE null model and keeps the statistically-significant
+-- "backbone", preserving a niche artist's few-but-meaningful links that a global weight cutoff
+-- would delete. This column stores each edge's significance — the SMALLER of its two endpoints'
+-- p-values, computed over the FULL graph (catalog.DisparitySignificance). LOWER = stronger; an
+-- edge is in the backbone at level alpha iff backbone_significance < alpha.
+--
+-- Storing the significance (not a boolean) keeps the alpha threshold TUNABLE at query time without
+-- a recompute. NULL = not yet computed (a fresh ComputeAffinity row before the backbone pass runs,
+-- or an isolated/degenerate edge); a degree-1 endpoint yields 0 (always kept — niche preservation).
+-- The precompute runs in the nightly affinity cycle, right after ComputeAffinity repopulates the
+-- table. No endpoint reads this yet (PSY-1261 is the backbone-compute phase; wiring is a follow-up).
+ALTER TABLE radio_artist_affinity ADD COLUMN backbone_significance REAL;

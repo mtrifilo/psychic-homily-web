@@ -984,6 +984,12 @@ type RadioArtistAffinity struct {
 	LastCoOccurrence  *string   `gorm:"column:last_co_occurrence;type:date"`
 	UpdatedAt         time.Time `gorm:"not null"`
 
+	// BackboneSignificance is the disparity-filter significance of this edge (PSY-1261) — the
+	// smaller of its two endpoints' p-values, computed over the full radio graph. LOWER = stronger;
+	// an edge is in the backbone at level alpha iff this is < alpha. NULL until the nightly backbone
+	// pass runs; 0 for an edge to a degree-1 node (always kept). See catalog.DisparitySignificance.
+	BackboneSignificance *float64 `gorm:"column:backbone_significance"`
+
 	// Relationships
 	ArtistA Artist `gorm:"foreignKey:ArtistAID"`
 	ArtistB Artist `gorm:"foreignKey:ArtistBID"`
