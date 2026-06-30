@@ -11,7 +11,13 @@ import "math"
 // weighted networks", PNAS 2009) instead tests each edge against a PER-NODE null model, so an
 // edge that is a large FRACTION of a node's connections survives even if its absolute weight is
 // small. This is the server-side, statistically-principled counterpart to the PSY-1258 client-side
-// top-k edge cap. See docs/open-questions/graph-density-discovery-redesign.md §3.3.2.
+// top-k edge cap.
+//
+// IMPORTANT tuning result (PSY-1261 stage analysis, consumer = PSY-1293): the disparity backbone is
+// a SCENE-scale sparsification tool. A single global alpha that makes the scene legible (≈0.10 on
+// the stage radio graph) EMPTIES mid-degree EGO graphs — it is far more aggressive than the top-k
+// cap for a per-artist view. So the per-artist ego endpoint must KEEP the PSY-1258 top-k floor; do
+// NOT replace it with a raw backbone filter. Apply the backbone to scene/station-scale views.
 
 // WeightedEdge is one undirected, positively-weighted edge for the disparity filter. For the radio
 // graph A/B are artist ids and Weight is the co-occurrence count (radio_artist_affinity).
@@ -84,7 +90,10 @@ func DisparitySignificance(edges []WeightedEdge) map[EdgeKey]float64 {
 		}
 		p := w / n.strength
 		if p >= 1 {
-			return 0 // carries (effectively) all the node's strength → fully significant
+			// fp guard: for degree>=2 with all-positive weights w < strength strictly, so this is
+			// unreachable in practice — it only defends against a rounding artifact producing a
+			// negative base for math.Pow (degree-1's "all the strength" case is handled above).
+			return 0
 		}
 		return math.Pow(1-p, float64(n.degree-1))
 	}

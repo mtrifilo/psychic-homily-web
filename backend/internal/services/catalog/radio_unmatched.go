@@ -297,6 +297,10 @@ const backboneUpdateBatch = 500
 // p-values; lower = stronger) is alpha-INDEPENDENT, so the backbone threshold stays tunable at
 // query time without a recompute. Weight = co_occurrence_count (the raw tie strength; the filter
 // normalizes per-node, so absolute scale is irrelevant). See catalog.DisparitySignificance.
+//
+// The column is currently WRITE-ONLY: its consumer — ego/scene graph rendering at a tunable alpha
+// (recommended scene-scale alpha 0.10) — is PSY-1293. Until that lands nothing reads it; this
+// precompute is cheap + non-fatal, so it's safe to run ahead of the consumer.
 func (s *RadioService) ComputeBackboneSignificance() error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")

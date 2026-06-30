@@ -4,11 +4,14 @@
 // size, niche-link survival, and a comparison against a naive global weight cutoff. It NEVER writes.
 // Use it to choose + justify the alpha the precompute job stores against (the AC evidence).
 //
+// Meaningful output requires SCENE-SCALE data: the local dev DB's radio graph is near-empty, so
+// run it against stage (or prod) — pull the read-only DATABASE_PUBLIC_URL into a temp env (see the
+// stage-ops convention) and pass it via --env. The tool only SELECTs; it never writes.
+//
 // Usage:
 //
-//	go run ./cmd/disparity-analysis --env .env.development      # local
-//	go run ./cmd/disparity-analysis --env /tmp/stage.env        # stage (read-only)
-//	go run ./cmd/disparity-analysis --env /tmp/stage.env --ego cola
+//	go run ./cmd/disparity-analysis --env /tmp/stage.env            # stage (read-only)
+//	go run ./cmd/disparity-analysis --env /tmp/stage.env --ego cola # + ego spot-check
 package main
 
 import (
@@ -34,7 +37,7 @@ var (
 	alphaCSV string
 )
 
-// alphaSweep is the default set of significance thresholds to report.
+// defaultAlphas is the default set of significance thresholds to report.
 var defaultAlphas = []float64{0.01, 0.05, 0.10, 0.20, 0.50}
 
 func main() {
@@ -102,8 +105,12 @@ func main() {
 	}
 }
 
-// nicheDegreeMax is the degree at/below which a node counts as "niche" for the survival check —
-// the low-connectivity artists whose few links a global weight cutoff would erase.
+// nicheDegreeMax is the degree at/below which a node counts as "niche" for the survival report —
+// the low-connectivity artists whose few links a global weight cutoff would erase. It's a
+// hand-picked REPORTING bucket (not a model parameter — the disparity filter itself has no degree
+// cutoff), chosen to spotlight the long tail; tune it freely to slice the survival numbers
+// differently. The headline niche-preservation claim (degree-1 links always survive) is independent
+// of this value.
 const nicheDegreeMax = 3
 
 func printGraphSummary(nodes, edges int, degree map[uint]int) {
