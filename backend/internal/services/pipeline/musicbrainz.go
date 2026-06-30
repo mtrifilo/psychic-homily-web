@@ -282,8 +282,15 @@ type MBReleaseGroupSearchResponse struct {
 // an album's editions) from a MusicBrainz search. ID is the MBID the Cover Art
 // Archive is keyed on (coverartarchive.org/release-group/{id}).
 type MBReleaseGroupResult struct {
-	ID               string           `json:"id"`
-	Title            string           `json:"title"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	PrimaryType string `json:"primary-type"` // "Album" | "EP" | "Single" | "Other" | "" (populated by the browse endpoint; the search path may leave it blank)
+	// SecondaryTypes flags a special album that ALSO carries a primary type: a Live /
+	// Compilation / Soundtrack / Remix / DJ-mix release-group is primary-type "Album"
+	// (or "EP") PLUS the secondary type. The discography importer (PSY-1282) keeps only
+	// the studio core, so it skips any release-group with a non-empty secondary list —
+	// the primary-type filter alone is NOT sufficient to exclude them.
+	SecondaryTypes   []string         `json:"secondary-types"`
 	FirstReleaseDate string           `json:"first-release-date"` // "YYYY" | "YYYY-MM" | "YYYY-MM-DD" | ""
 	ArtistCredit     []MBArtistCredit `json:"artist-credit"`
 }
@@ -341,6 +348,72 @@ func (c *MusicBrainzClient) SearchReleaseGroups(ctx context.Context, artist, tit
 // title/artist containing a quote can't break out of the quoted field query.
 func mbStripQuotes(s string) string {
 	return strings.ReplaceAll(s, `"`, " ")
+}
+
+// MBBrowseReleaseGroupsResponse is the MusicBrainz browse response: the count drives
+// pagination (browse caps 100 per page) and release-groups carries the page.
+type MBBrowseReleaseGroupsResponse struct {
+	Count         int                    `json:"release-group-count"`
+	ReleaseGroups []MBReleaseGroupResult `json:"release-groups"`
+}
+
+// browseReleaseGroupPageSize is MusicBrainz's max browse page.
+const browseReleaseGroupPageSize = 100
+
+// browseReleaseGroupMaxPages caps one browse at 2,000 release-groups — far above any
+// real artist's discography — so a bad/stale count field can't loop forever.
+const browseReleaseGroupMaxPages = 20
+
+// BrowseArtistReleaseGroups returns an artist's release-groups via the browse-by-MBID
+// endpoint (/release-group?artist={mbid}), paginated to completion and filtered to the
+// requested PRIMARY types (e.g. {"album":true,"ep":true}; nil/empty = all). It is the
+// discography importer's source (PSY-1282): browse-by-MBID is identity-verified — the
+// release-groups are THIS artist's, not a homonym's — so, unlike the title-search
+// path, no name gate is needed.
+//
+// The primary-type filter is applied CLIENT-side (the response carries primary-type)
+// rather than via the server `type` param, so the method neither depends on
+// MusicBrainz's multi-value type-filter syntax nor loses the per-result type it needs
+// for mapping. Shares the process-wide ~1 req/s throttle (PSY-1208). mbid is
+// query-escaped so a malformed value can't alter the request target; an invalid one
+// simply yields no results.
+func (c *MusicBrainzClient) BrowseArtistReleaseGroups(ctx context.Context, mbid string, primaryTypes map[string]bool) ([]MBReleaseGroupResult, error) {
+	if strings.TrimSpace(mbid) == "" {
+		return nil, nil
+	}
+
+	var out []MBReleaseGroupResult
+	offset := 0
+	for page := 0; page < browseReleaseGroupMaxPages; page++ {
+		if err := c.throttle(ctx); err != nil {
+			return nil, err
+		}
+		browseURL := fmt.Sprintf("%s/release-group?artist=%s&fmt=json&limit=%d&offset=%d",
+			c.baseURL, url.QueryEscape(mbid), browseReleaseGroupPageSize, offset)
+		body, err := c.doRequestCtx(ctx, browseURL)
+		if err != nil {
+			return nil, fmt.Errorf("musicbrainz release-group browse failed: %w", err)
+		}
+
+		var resp MBBrowseReleaseGroupsResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to parse musicbrainz browse response: %w", err)
+		}
+
+		for _, rg := range resp.ReleaseGroups {
+			if len(primaryTypes) == 0 || primaryTypes[strings.ToLower(rg.PrimaryType)] {
+				out = append(out, rg)
+			}
+		}
+
+		offset += len(resp.ReleaseGroups)
+		// Done when the whole set is walked, or a page came back empty (defensive: a
+		// stale/missing count must not wedge the loop).
+		if len(resp.ReleaseGroups) == 0 || offset >= resp.Count {
+			break
+		}
+	}
+	return out, nil
 }
 
 // throttle enforces the rate limit, interruptibly. It blocks until the next
