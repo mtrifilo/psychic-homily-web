@@ -466,12 +466,122 @@ func TestEnrichArtistLocationByID(t *testing.T) {
 
 // --- orchestrator fakes ---
 
+// PSY-1289: the --missing-mbid backfill gate. The key case is an artist that already
+// has a full location (so the city gate skips it) but no MBID — it must be selected
+// via the MBID gate and get its MBID stamped without touching the existing location.
+func TestBackfillArtistLocations_MissingMBIDMode(t *testing.T) {
+	const wantMBID = "22222222-2222-2222-2222-222222222222"
+	mb := &fakeMB{byName: map[string][]pipeline.MBArtistResult{
+		"Located No MBID": {{ID: wantMBID, Name: "Located No MBID", BeginArea: &pipeline.MBArea{Name: "Austin", Type: "City"}, Country: "US"}},
+		// A homonym: the exact-name MB match is a DIFFERENT-country band.
+		"Phoenix": {{ID: "44444444-4444-4444-4444-444444444444", Name: "Phoenix", Area: &pipeline.MBArea{Name: "France", Type: "Country"}}},
+		// Same-country as the artist's stored location, but its Bandcamp will disagree.
+		"Relocated": {{ID: "55555555-5555-5555-5555-555555555555", Name: "Relocated", BeginArea: &pipeline.MBArea{Name: "Los Angeles", Type: "City"}, Country: "US"}},
+	}}
+
+	t.Run("stamps the MBID on an already-located, MBID-less artist via the MBID gate", func(t *testing.T) {
+		austin, tx, us := "Austin", "TX", "United States"
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Located No MBID", City: &austin, State: &tx, Country: &us},
+		}}
+		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{MissingMBIDOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !store.missingMBIDCalled {
+			t.Fatalf("MissingMBIDOnly must select via the MBID gate, not the city gate")
+		}
+		if store.lastCutoff != nil {
+			t.Fatalf("the MBID backfill is a cmd mode; it must not pass a memo cutoff")
+		}
+		got := store.updates[1]
+		if got["musicbrainz_artist_id"] != wantMBID {
+			t.Fatalf("expected MBID stamped, got %+v", got)
+		}
+		for _, f := range []string{"city", "state", "country", "data_source"} {
+			if _, ok := got[f]; ok {
+				t.Fatalf("must not touch an existing location/provenance field %q, got %+v", f, got)
+			}
+		}
+		if report.StampedMBID != 1 {
+			t.Fatalf("StampedMBID = %d, want 1", report.StampedMBID)
+		}
+		if report.FilledMusicBrainz != 0 || report.FilledBandcamp != 0 {
+			t.Fatalf("no location fills expected, got mb=%d bc=%d", report.FilledMusicBrainz, report.FilledBandcamp)
+		}
+		if report.ResolvedNoFill != 1 {
+			t.Fatalf("ResolvedNoFill = %d, want 1 (MBID-only stamp)", report.ResolvedNoFill)
+		}
+	})
+
+	t.Run("an artist that already has an MBID is excluded by the gate", func(t *testing.T) {
+		existing := "33333333-3333-3333-3333-333333333333"
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Located No MBID", MusicBrainzArtistID: &existing},
+		}}
+		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{MissingMBIDOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.ArtistsScanned != 0 {
+			t.Fatalf("an artist with an MBID must be excluded, scanned=%d", report.ArtistsScanned)
+		}
+		if len(store.updates) != 0 {
+			t.Fatalf("no writes expected, got %v", store.updates)
+		}
+	})
+
+	// PSY-1289 homonym guard: the artist's KNOWN-correct stored location disambiguates
+	// the MB match even with no Bandcamp URL (the city-gated guard couldn't fire here).
+	t.Run("a stored-location vs MB country disagreement is a homonym → skip, no MBID", func(t *testing.T) {
+		phx, az, us := "Phoenix", "AZ", "US"
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Phoenix", City: &phx, State: &az, Country: &us}, // our Phoenix AZ band, no Bandcamp
+		}}
+		report, err := backfillArtistLocations(context.Background(), store, fakeBandcamp{}, mb, Options{MissingMBIDOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(report.Conflicts) != 1 || report.Conflicts[0].OtherSource != "stored" {
+			t.Fatalf("expected 1 stored-source conflict, got %+v", report.Conflicts)
+		}
+		if _, wrote := store.updates[1]; wrote {
+			t.Fatalf("a homonym must not be stamped, got %+v", store.updates[1])
+		}
+		if report.StampedMBID != 0 {
+			t.Fatalf("StampedMBID = %d, want 0 (homonym skipped)", report.StampedMBID)
+		}
+	})
+
+	// PSY-1289: when the stored location AGREES with MB, a disagreeing Bandcamp must not
+	// block the MBID — the known-correct stored location settles it (FM finding).
+	t.Run("stored agrees with MB → a disagreeing Bandcamp does not block the MBID", func(t *testing.T) {
+		la, ca, us := "Los Angeles", "CA", "US"
+		store := &fakeStore{artists: []catalogm.Artist{
+			{ID: 1, Name: "Relocated", City: &la, State: &ca, Country: &us,
+				Social: catalogm.Social{Bandcamp: strptr("https://reloc.bandcamp.com/")}},
+		}}
+		bc := fakeBandcamp{byURL: map[string]string{"https://reloc.bandcamp.com/": "Berlin, Germany"}}
+		report, err := backfillArtistLocations(context.Background(), store, bc, mb, Options{MissingMBIDOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(report.Conflicts) != 0 {
+			t.Fatalf("stored agrees with MB → no conflict expected, got %+v", report.Conflicts)
+		}
+		if store.updates[1]["musicbrainz_artist_id"] != "55555555-5555-5555-5555-555555555555" {
+			t.Fatalf("MBID should be stamped despite Bandcamp disagreement, got %+v", store.updates[1])
+		}
+	})
+}
+
 type fakeStore struct {
-	artists    []catalogm.Artist
-	updates    map[uint]map[string]interface{}
-	loadErr    error
-	lastCutoff *time.Time         // records the reattemptCutoff the orchestrator passed
-	stamped    map[uint]time.Time // ids marked via StampLocationAttempted
+	artists           []catalogm.Artist
+	updates           map[uint]map[string]interface{}
+	loadErr           error
+	lastCutoff        *time.Time         // records the reattemptCutoff the orchestrator passed
+	stamped           map[uint]time.Time // ids marked via StampLocationAttempted
+	missingMBIDCalled bool               // records that the MBID gate (PSY-1289) was used
 }
 
 func (f *fakeStore) ArtistsNeedingLocation(limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error) {
@@ -488,6 +598,25 @@ func (f *fakeStore) ArtistsNeedingLocation(limit int, reattemptCutoff *time.Time
 			continue
 		}
 		out = append(out, a)
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ArtistsMissingMBID(limit int) ([]catalogm.Artist, error) {
+	if f.loadErr != nil {
+		return nil, f.loadErr
+	}
+	f.missingMBIDCalled = true
+	var out []catalogm.Artist
+	for _, a := range f.artists {
+		// Mirror the real gate's TRIM semantics (musicbrainz_artist_id IS NULL OR
+		// TRIM(...) = '') so the fake can't mask a whitespace-MBID divergence.
+		if a.MusicBrainzArtistID == nil || strings.TrimSpace(*a.MusicBrainzArtistID) == "" {
+			out = append(out, a)
+		}
 	}
 	if limit > 0 && limit < len(out) {
 		out = out[:limit]

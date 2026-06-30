@@ -79,6 +79,40 @@ func (s *ArtistLocationSweepIntegrationTestSuite) TestArtistsNeedingLocationMemo
 	s.Len(all, 4, "memo-agnostic selection returns every city-less row regardless of attempt time")
 }
 
+// Store-level (PSY-1289): the MBID gate selects artists with no musicbrainz_artist_id
+// (NULL or TRIM-empty) and excludes those that have one — independent of location, so
+// it reaches the located-but-MBID-less rows the city gate can't.
+func (s *ArtistLocationSweepIntegrationTestSuite) TestArtistsMissingMBIDGate() {
+	mbid := "44444444-4444-4444-4444-444444444444"
+	seed := []*catalogm.Artist{
+		{Name: "No MBID No City"},                                // NULL MBID → in
+		{Name: "No MBID Has City", City: strptr("Phoenix")},      // located but MBID-less → in (the population this gate exists to reach)
+		{Name: "Blank MBID", MusicBrainzArtistID: strptr("   ")}, // TRIM-empty → in
+		{Name: "Has MBID", MusicBrainzArtistID: &mbid},           // has MBID → out
+	}
+	for _, a := range seed {
+		s.Require().NoError(s.db.Create(a).Error)
+	}
+
+	store := &gormArtistStore{db: s.db}
+	got, err := store.ArtistsMissingMBID(0)
+	s.Require().NoError(err)
+
+	names := map[string]bool{}
+	for _, a := range got {
+		names[a.Name] = true
+	}
+	s.True(names["No MBID No City"], "NULL-MBID artist should be selected")
+	s.True(names["No MBID Has City"], "located-but-MBID-less artist (the population this gate exists to reach) should be selected")
+	s.True(names["Blank MBID"], "TRIM-empty MBID should be selected")
+	s.False(names["Has MBID"], "artist with an MBID must be excluded")
+	s.Len(got, 3)
+
+	capped, err := store.ArtistsMissingMBID(2)
+	s.Require().NoError(err)
+	s.Len(capped, 2, "limit caps the batch")
+}
+
 // Store-level: the bulk stamp writes the memo column WITHOUT bumping updated_at; empty
 // slice is a no-op. The no-bump is load-bearing — the memo marks "we tried", not a
 // content edit, and the sweep stamps the whole batch (incl. misses) every cycle.
