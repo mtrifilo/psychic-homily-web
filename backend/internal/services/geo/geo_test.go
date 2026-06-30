@@ -143,6 +143,11 @@ func TestResolveMetro(t *testing.T) {
 		// it (and the common "New York" form) to the NYC metro — the largest scene.
 		{"new york city → NYC metro", "New York City", "NY", "", "35620", true},
 		{"new york (common form) → NYC metro", "New York", "NY", "", "35620", true},
+		// PSY-1276: "St. Paul" (abbreviated) must roll up to the Twin Cities CBSA
+		// like the dataset's full "Saint Paul" — before the foldKey fix it missed
+		// and orphaned into a phantom 0-roster scene.
+		{"st. paul (abbrev) → Twin Cities", "St. Paul", "MN", "", "33460", true},
+		{"saint paul (full) → Twin Cities", "Saint Paul", "MN", "", "33460", true},
 		{"oakland → SF", "Oakland", "CA", "", "41860", true},
 		{"chicago → Chicago CBSA", "Chicago", "IL", "", "16980", true},
 		{"phoenix → Phoenix CBSA", "Phoenix", "AZ", "", "38060", true},
@@ -223,7 +228,18 @@ func TestFoldKey(t *testing.T) {
 		"Zürich":         "zurich",
 		"São Paulo":      "sao paulo",
 		"Montréal":       "montreal",
-		"St. John's":     "st john s",
+		// PSY-1276: St./Ft./Mt. expand to Saint/Fort/Mount so a contributor's
+		// abbreviation folds to the same key as the dataset's full form.
+		"St. John's":   "saint john s",
+		"St. Paul":     "saint paul",
+		"Ft. Worth":    "fort worth",
+		"Mt. Pleasant": "mount pleasant",
+		"St Paul":      "saint paul", // period optional — foldKey drops it either way
+		// Whole-token only: a prefix that merely starts with the abbreviation is
+		// one token and must NOT expand.
+		"Stockton":   "stockton",
+		"Fortuna":    "fortuna",
+		"Montgomery": "montgomery",
 		// Decomposable diacritics NFKD splits into base+combining-mark, which the
 		// mark stripper removes (refutes the "ç/ñ get dropped" review concern).
 		"Korçë": "korce",

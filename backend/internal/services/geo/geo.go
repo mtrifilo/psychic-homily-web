@@ -621,7 +621,44 @@ func foldKey(s string) string {
 	if n := len(out); n > 0 && out[n-1] == ' ' {
 		out = out[:n-1] // trim a trailing separator-space
 	}
-	return out
+	return expandPlaceAbbreviations(out)
+}
+
+// placeAbbreviations expands the standard US/CA/UK place-name abbreviations to
+// their full forms so a contributor's "St. Paul" / "Ft. Worth" / "Mt. Pleasant"
+// folds to the SAME key as the dataset entry. The embedded dataset MIXES forms
+// (e.g. "Saint Paul" is stored full but "St. Louis" abbreviated), so running BOTH
+// the query and the dataset names through this — symmetrically, via foldKey — is
+// what makes either form resolve. Without it, "St. Paul, MN" missed the metro
+// and orphaned into a phantom 0-roster scene (PSY-1276). All "St"/"Ft"/"Mt"
+// tokens in the embedded dataset are Saint/Fort/Mount (verified; no Street/State
+// or "Ste"/Sainte rows), so the expansion is collision-free.
+var placeAbbreviations = map[string]string{
+	"st": "saint",
+	"ft": "fort",
+	"mt": "mount",
+}
+
+// expandPlaceAbbreviations rewrites any WHOLE token in a folded (lowercased,
+// single-space-separated) key that is a known place abbreviation. Whole-token
+// only, so a prefix like "Stockton" / "Fortuna" / "Montgomery" — one token —
+// never matches. Allocates only when a token actually matches.
+func expandPlaceAbbreviations(key string) string {
+	if key == "" {
+		return key
+	}
+	fields := strings.Split(key, " ")
+	changed := false
+	for i, f := range fields {
+		if rep, ok := placeAbbreviations[f]; ok {
+			fields[i] = rep
+			changed = true
+		}
+	}
+	if !changed {
+		return key
+	}
+	return strings.Join(fields, " ")
 }
 
 func stripLeadingThe(s string) string {
