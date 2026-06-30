@@ -60,6 +60,10 @@ export interface SceneArtist {
   // window (~6mo), played anywhere (PSY-1255 step C). The roster lists every
   // band BASED in the metro; the UI highlights the active ones.
   is_active: boolean
+  // The artist's embeddable Bandcamp /album|/track URL, null when the artist has
+  // none. The /atlas scene preview plays the first ACTIVE artist that has one as
+  // the scene's "instant payoff" track (PSY-1224).
+  bandcamp_embed_url?: string | null
 }
 
 export interface SceneArtistsResponse {

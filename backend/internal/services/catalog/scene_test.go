@@ -684,6 +684,49 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_Success() {
 	suite.Equal(1, results[2].ShowCount)
 }
 
+// PSY-1224: the roster carries each artist's bandcamp_embed_url so the /atlas
+// preview can play one as the scene's instant-payoff track. A set URL passes
+// through verbatim; an absent one stays nil (no synthesized URL).
+func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_IncludesBandcampEmbedURL() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+
+	const embedURL = "https://hasembed.bandcamp.com/album/debut"
+	withEmbed := &catalogm.Artist{
+		Name:             "Has Embed",
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr(embedURL),
+	}
+	suite.Require().NoError(suite.db.Create(withEmbed).Error)
+	withoutEmbed := suite.createArtistIn("No Embed", "Phoenix", "AZ")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("E1", v1.ID, withEmbed.ID, user.ID, future)
+	suite.createApprovedShow("E2", v2.ID, withoutEmbed.ID, user.ID, future)
+
+	results, _, err := suite.sceneService.GetActiveArtists("Phoenix", "AZ", 365, 20, 0)
+	suite.Require().NoError(err)
+
+	var hasEmbedFound, noEmbedFound bool
+	var hasEmbedURL, noEmbedURL *string
+	for _, r := range results {
+		switch r.Name {
+		case "Has Embed":
+			hasEmbedFound, hasEmbedURL = true, r.BandcampEmbedURL
+		case "No Embed":
+			noEmbedFound, noEmbedURL = true, r.BandcampEmbedURL
+		}
+	}
+	suite.Require().True(hasEmbedFound, "the artist with an embed is in the roster")
+	suite.Require().True(noEmbedFound, "the artist without an embed is in the roster")
+	suite.Require().NotNil(hasEmbedURL)
+	suite.Equal(embedURL, *hasEmbedURL)
+	suite.Nil(noEmbedURL, "an artist with no embed passes through as nil")
+}
+
 // PSY-1233: a scene's artists are its LOCAL artists (home city/state matches the
 // scene), not every touring act that played a venue there. Pins the filter across
 // GetActiveArtists (list + total) and the scene-detail artist count.

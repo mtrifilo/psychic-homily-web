@@ -429,13 +429,14 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 	}
 
 	type artistRow struct {
-		ID        uint    `gorm:"column:id"`
-		Slug      *string `gorm:"column:slug"`
-		Name      string  `gorm:"column:name"`
-		City      *string `gorm:"column:city"`
-		State     *string `gorm:"column:state"`
-		ShowCount int     `gorm:"column:show_count"`
-		IsActive  bool    `gorm:"column:is_active"`
+		ID               uint    `gorm:"column:id"`
+		Slug             *string `gorm:"column:slug"`
+		Name             string  `gorm:"column:name"`
+		City             *string `gorm:"column:city"`
+		State            *string `gorm:"column:state"`
+		ShowCount        int     `gorm:"column:show_count"`
+		IsActive         bool    `gorm:"column:is_active"`
+		BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
 	}
 
 	// Each roster artist's total approved show count + most-recent show date (any
@@ -449,6 +450,7 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 	var rows []artistRow
 	if err := s.db.Raw(`
 		SELECT a.id, a.slug, a.name, a.city, a.state,
+		       a.bandcamp_embed_url,
 		       COALESCE(ss.show_count, 0) AS show_count,
 		       COALESCE(ss.last_show >= ?, false) AS is_active
 		FROM artists a
@@ -475,13 +477,14 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 			slug = *r.Slug
 		}
 		results[i] = &contracts.SceneArtistResponse{
-			ID:        r.ID,
-			Slug:      slug,
-			Name:      r.Name,
-			City:      r.City,
-			State:     r.State,
-			ShowCount: r.ShowCount,
-			IsActive:  r.IsActive,
+			ID:               r.ID,
+			Slug:             slug,
+			Name:             r.Name,
+			City:             r.City,
+			State:            r.State,
+			ShowCount:        r.ShowCount,
+			IsActive:         r.IsActive,
+			BandcampEmbedURL: r.BandcampEmbedURL,
 		}
 	}
 
