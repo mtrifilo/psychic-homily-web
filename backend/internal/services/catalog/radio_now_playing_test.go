@@ -265,7 +265,14 @@ func (suite *RadioNowPlayingIntegrationTestSuite) createShow(stationID uint, nam
 }
 
 func (suite *RadioNowPlayingIntegrationTestSuite) createEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
-	ep := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate}
+	// Stamp a past air window so the episode passes the PSY-1285 air-window gate that
+	// latestEpisodeForShow now shares with the feed. Every now-playing archive fixture
+	// here is a past-aired episode, so a window a few days back is correct and
+	// clock-independent (air_date still drives latest-selection ordering).
+	now := time.Now().UTC()
+	starts := now.Add(-72 * time.Hour)
+	ends := now.Add(-71 * time.Hour)
+	ep := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
 	suite.Require().NoError(suite.db.Create(ep).Error)
 	return ep
 }
@@ -346,6 +353,43 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_FullPayloa
 	suite.Equal("matched-artist", *resp.RecentArtists[0].ArtistSlug)
 	suite.Equal("Opener", resp.RecentArtists[1].ArtistName)
 	suite.Nil(resp.RecentArtists[1].ArtistID)
+}
+
+// PSY-1285: mostActiveShow ranks by VISIBLE-aired episodes, so a show padded with
+// not-yet-aired / 0-track placeholder rows does not out-rank a show with real archived
+// content (which the old ungated COUNT would, yielding an empty now-playing payload).
+func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_PicksShowWithVisibleContent() {
+	station := suite.createStation("Pad FM", "pad-fm", catalogm.PlaylistSourceManual)
+	now := time.Now().UTC()
+	ptr := func(t time.Time) *time.Time { return &t }
+
+	// Padded show: MORE rows, but all not-yet-aired (future-windowed) → 0 visible.
+	// Distinct external_ids so they don't collide on the (show_id, air_date, external_id)
+	// unique index.
+	padded := suite.createShow(station.ID, "Padded Show", "padded-show", nil, nil)
+	for i := 0; i < 3; i++ {
+		ext := fmt.Sprintf("pad-%d", i)
+		ep := &catalogm.RadioEpisode{
+			ShowID:     padded.ID,
+			AirDate:    now.Format("2006-01-02"),
+			ExternalID: &ext,
+			StartsAt:   ptr(now.Add(time.Duration(i+1) * time.Hour)),
+			EndsAt:     ptr(now.Add(time.Duration(i+2) * time.Hour)),
+		}
+		suite.Require().NoError(suite.db.Create(ep).Error)
+	}
+	// Real show: FEWER rows but a genuinely aired episode (createEpisode stamps a past window).
+	realShow := suite.createShow(station.ID, "Real Show", "real-show", nil, nil)
+	ep := suite.createEpisode(realShow.ID, now.AddDate(0, 0, -1).Format("2006-01-02"))
+	suite.createPlay(ep.ID, 1, "Real Artist", "Real Song", nil)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLatestArchive, resp.Source)
+	suite.Require().NotNil(resp.Show)
+	suite.Equal("Real Show", resp.Show.Name, "the show with VISIBLE archived content is picked, not the row-padded one")
+	suite.Require().NotNil(resp.CurrentTrack)
+	suite.Equal("Real Artist", resp.CurrentTrack.ArtistName)
 }
 
 func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_EmptyStation() {

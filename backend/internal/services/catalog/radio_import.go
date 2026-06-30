@@ -1246,6 +1246,12 @@ func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 // episode is left untouched (dedup skip), so a routine re-list never re-fetches a
 // playlist that is already final or legitimately still in progress.
 func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
+	// Heal a missing frozen window AND enforce the PSY-1285 scheduled-never-unavailable
+	// invariant in a SINGLE update: both can change `status`, so the fields are collected
+	// here and status is computed once from the final window + state — no redundant second
+	// write on the heal+reset path.
+	updates := map[string]any{}
+
 	if existing.StartsAt == nil {
 		// Resolve a window (provider instants, or schedule-derived for a recent
 		// WFMU episode). When none can be resolved (no schedule yet, off-schedule,
@@ -1254,17 +1260,34 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 		// same as before window stamping (the prior `ep.StartsAt != nil` guard
 		// likewise never fired for a windowless WFMU row).
 		if startsAt, endsAt := s.episodeAirWindow(existing.ShowID, ep, now); startsAt != nil {
-			if err := s.db.Model(existing).Updates(map[string]any{
-				"starts_at": startsAt,
-				"ends_at":   endsAt,
-				"status":    catalogm.ComputeEpisodeStatus(startsAt, endsAt, existing.PlaylistState, now),
-			}).Error; err != nil {
-				return nil, fmt.Errorf("backfilling episode air window: %w", err)
-			}
-			// Keep the in-memory row consistent so the eligibility check below sees the
-			// healed window.
 			existing.StartsAt = startsAt
 			existing.EndsAt = endsAt
+			updates["starts_at"] = startsAt
+			updates["ends_at"] = endsAt
+		}
+	}
+
+	// PSY-1285: a windowless episode is settled to 'aired', so the backfill burns attempts
+	// on it → 'unavailable'; once it is given a FUTURE window (the heal above, or PSY-1283's
+	// schedule correction) it is 'scheduled' but its playlist_state would otherwise stay
+	// stuck 'unavailable'. Reset it so the post-air backfill can run once it actually airs —
+	// whether the window was just healed or was already present (so it also clears rows
+	// stranded before this fix). A no-op for aired/live episodes.
+	if newState, newAttempts := catalogm.NormalizeScheduledPlaylistState(
+		existing.StartsAt, existing.EndsAt, existing.PlaylistState, existing.PlaylistFetchAttempts, now,
+	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
+		existing.PlaylistState = newState
+		existing.PlaylistFetchAttempts = newAttempts
+		updates["playlist_state"] = newState
+		updates["playlist_fetch_attempts"] = newAttempts
+	}
+
+	if len(updates) > 0 {
+		newStatus := catalogm.ComputeEpisodeStatus(existing.StartsAt, existing.EndsAt, existing.PlaylistState, now)
+		updates["status"] = newStatus
+		existing.Status = newStatus
+		if err := s.db.Model(existing).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("healing/normalizing episode on re-list: %w", err)
 		}
 	}
 

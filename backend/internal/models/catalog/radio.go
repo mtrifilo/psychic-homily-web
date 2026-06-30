@@ -189,6 +189,36 @@ func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, a
 	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
 }
 
+// NormalizeScheduledPlaylistState enforces the invariant that a not-yet-aired
+// (scheduled) episode never carries a terminal/exhausted playlist state (PSY-1285).
+// A scheduled episode's playlist legitimately doesn't exist yet, so it must be
+// 'pending' with zero burned backfill attempts. The bad state arises because a
+// WINDOWLESS episode is settled to 'aired' (no window to wait through), so the
+// post-air backfill burns attempts on it → 'unavailable'; if it is later given a
+// FUTURE window — by PSY-1283's schedule correction or a heal-on-relist — it becomes
+// 'scheduled', but its playlist_state would otherwise stay stuck 'unavailable'.
+//
+// Returns the (possibly reset) state + attempts. It is a no-op for anything that is
+// NOT scheduled (an aired/live/windowless episode keeps its state — a windowless
+// 'aired' episode legitimately reaching 'unavailable' is PSY-1287's concern, not this
+// invariant). For a scheduled episode it clears ONLY the stranded/exhausted shape — a
+// terminal 'unavailable', or burned backfill attempts on a STILL-pending episode (which
+// a not-yet-aired episode can never have legitimately earned) — and leaves a scheduled
+// 'partial'/'complete' (and its play count + attempts) intact, since those carry real
+// plays and are not the AC#2 'unavailable' violation.
+func NormalizeScheduledPlaylistState(startsAt, endsAt *time.Time, playlistState string, attempts int, now time.Time) (state string, newAttempts int) {
+	if ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) != RadioEpisodeStatusScheduled {
+		return playlistState, attempts // not a not-yet-aired episode → leave untouched
+	}
+	if playlistState == RadioPlaylistStateUnavailable {
+		return RadioPlaylistStatePending, 0 // terminal give-up on a not-yet-aired episode (AC#2)
+	}
+	if playlistState == RadioPlaylistStatePending && attempts > 0 {
+		return RadioPlaylistStatePending, 0 // a pending scheduled episode can't have earned attempts
+	}
+	return playlistState, attempts // pending+0, or a 'partial'/'complete' carrying real plays
+}
+
 // Match-state constants (radio_plays.match_state). PSY-1131. Replaces the
 // implicit "artist_id IS NULL == unmatched" with an explicit state. no_match
 // (matcher ran, found nothing) is distinct from unmatched (matcher not yet run).

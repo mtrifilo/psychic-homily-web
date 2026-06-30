@@ -146,3 +146,34 @@ func (s *RadioSyncSuite) TestEpisodeAirWindow_Resolver() {
 		s.Nil(end)
 	})
 }
+
+// PSY-1285: a not-yet-aired (scheduled) episode that was stranded 'unavailable' with
+// burned backfill attempts — a windowless give-up that PSY-1283's schedule fix later
+// gave a FUTURE window — is reset to pending + 0 attempts on the next re-list, so its
+// post-air backfill can run once it actually airs. The reset fires even though the
+// window is already present (not only on the heal-from-nil path), which is how the
+// already-stranded stage rows recover.
+func (s *RadioSyncSuite) TestReimport_ResetsScheduledUnavailable() {
+	now := time.Now()
+	st := s.seedStation(catalogm.PlaylistSourceWFMU)
+	showExt := "SU"
+	show := s.seedShowFor(st.ID, "Soon", "soon", showExt)
+
+	futureStart := now.Add(3 * time.Hour)
+	futureEnd := now.Add(5 * time.Hour)
+	airDate := now.UTC().Format("2006-01-02")
+	existing := s.seedEpisodeFor(show.ID, "ep-soon", airDate,
+		catalogm.RadioPlaylistStateUnavailable, catalogm.RadioBackfillMaxAttempts, &futureStart, &futureEnd, now)
+	s.Require().Equal(catalogm.RadioEpisodeStatusScheduled, existing.Status, "fixture is a not-yet-aired episode")
+
+	// scheduled → ShouldBackfillPlaylist is false → the provider is never used.
+	_, err := s.svc.reimportExistingEpisode(&existing,
+		RadioEpisodeImport{ExternalID: "ep-soon", ShowExternalID: showExt, AirDate: airDate},
+		&mockPlaylistProvider{}, now)
+	s.Require().NoError(err)
+
+	got := s.reloadEpisode(existing.ID)
+	s.Equal(catalogm.RadioPlaylistStatePending, got.PlaylistState, "a scheduled episode must not stay 'unavailable'")
+	s.Equal(0, got.PlaylistFetchAttempts, "burned backfill attempts are cleared")
+	s.Equal(catalogm.RadioEpisodeStatusScheduled, got.Status, "still scheduled (not yet aired)")
+}
