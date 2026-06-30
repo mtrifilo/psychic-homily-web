@@ -489,6 +489,29 @@ func validCoverSourceURL(source, raw string) bool {
 	}
 }
 
+// SetReleaseCoverArtFromCAA writes a Cover Art Archive front-cover reference onto a
+// release through the SAME host-anchored validate-on-write gate the bulk enricher uses
+// (PSY-525/747/1113), so every cover-art writer — the enricher and the discography
+// importer (PSY-1282) — shares one self-defending boundary and one provenance value
+// (coverArtSourceCAA). Returns (false, nil) when a nil result or a URL that fails the
+// gate makes it a best-effort skip; (true, nil) on a successful write; (false, err) on
+// a DB error.
+func SetReleaseCoverArtFromCAA(db *gorm.DB, releaseID uint, cover *CoverArtResult) (bool, error) {
+	if cover == nil ||
+		!validCoverImageURL(coverArtSourceCAA, cover.ImageURL) ||
+		!validCoverSourceURL(coverArtSourceCAA, cover.SourceURL) {
+		return false, nil
+	}
+	if err := db.Model(&catalogm.Release{}).Where("id = ?", releaseID).Updates(map[string]interface{}{
+		"cover_art_url":        cover.ImageURL,
+		"cover_art_source":     coverArtSourceCAA,
+		"cover_art_source_url": cover.SourceURL,
+	}).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // isMusicBrainzWebURL reports whether raw is an https musicbrainz.org URL.
 func isMusicBrainzWebURL(raw string) bool {
 	u, err := url.Parse(strings.TrimSpace(raw))
