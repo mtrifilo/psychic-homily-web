@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { useSceneArtists } from '../hooks'
 import type { SceneListItem } from '../types'
 
@@ -19,6 +20,13 @@ export function ScenePreviewPanel({ scene, onClose }: ScenePreviewPanelProps) {
   const { data, isLoading } = useSceneArtists({ slug: scene.slug, limit: 6 })
   const artists = data?.artists ?? []
   const closeRef = useRef<HTMLButtonElement>(null)
+
+  // The "instant payoff": play the first ACTIVE local band that has an
+  // embeddable Bandcamp track, so a click on the globe yields something to HEAR
+  // immediately, not just a list (PSY-1224). The roster is active-first ordered,
+  // so this is the most prominent active band with a track. Rendered only when
+  // one exists — absence is the graceful empty state (no player).
+  const embedArtist = artists.find((a) => a.is_active && a.bandcamp_embed_url)
 
   // Keyboard a11y for the non-modal panel: focus the close control on open and
   // dismiss on Escape (every other dismissable surface in the app supports Esc).
@@ -57,6 +65,21 @@ export function ScenePreviewPanel({ scene, onClose }: ScenePreviewPanelProps) {
           <span aria-hidden>×</span>
         </button>
       </div>
+
+      {embedArtist?.bandcamp_embed_url && (
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Listen
+          </h3>
+          <div className="mt-2">
+            <MusicEmbed
+              bandcampAlbumUrl={embedArtist.bandcamp_embed_url}
+              artistName={embedArtist.name}
+              compact
+            />
+          </div>
+        </div>
+      )}
 
       <div>
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

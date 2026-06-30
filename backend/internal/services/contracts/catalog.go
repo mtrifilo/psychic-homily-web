@@ -704,6 +704,11 @@ type SceneArtistResponse struct {
 	State     *string `json:"state"`
 	ShowCount int     `json:"show_count"`
 	IsActive  bool    `json:"is_active"`
+	// BandcampEmbedURL is the artist's embeddable Bandcamp /album|/track URL
+	// (artists.bandcamp_embed_url, PSY-1187/1188/1189), nil when the artist has
+	// none. The /atlas scene preview plays the first active artist that has one
+	// as the scene's "instant payoff" track (PSY-1224).
+	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
 }
 
 // ──────────────────────────────────────────────
