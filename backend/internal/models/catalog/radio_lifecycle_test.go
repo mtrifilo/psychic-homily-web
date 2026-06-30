@@ -166,6 +166,10 @@ func TestNormalizeScheduledPlaylistState(t *testing.T) {
 		// it's not the AC#2 'unavailable' violation, so it must not be clobbered.
 		{"scheduled + partial → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStatePartial, 0, before, RadioPlaylistStatePartial, 0},
 		{"scheduled + complete → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStateComplete, 0, before, RadioPlaylistStateComplete, 0},
+		// Even with stray burned attempts, a partial/complete keeps its label + count — only
+		// a still-'pending' scheduled episode has its attempts cleared.
+		{"scheduled + complete w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStateComplete, 2, before, RadioPlaylistStateComplete, 2},
+		{"scheduled + partial w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, before, RadioPlaylistStatePartial, 1},
 		// Non-scheduled phases are left exactly as-is.
 		{"aired + unavailable → untouched (PSY-1287, not this invariant)", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, after, RadioPlaylistStateUnavailable, 5},
 		{"live + pending → untouched", ptr(start), ptr(end), RadioPlaylistStatePending, 0, during, RadioPlaylistStatePending, 0},

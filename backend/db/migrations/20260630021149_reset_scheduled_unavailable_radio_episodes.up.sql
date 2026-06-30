@@ -11,12 +11,14 @@
 -- forward immediately — the same posture as the PSY-1283 schedule correction — so the AC
 -- "a scheduled episode is never 'unavailable'" holds at deploy, not just for future episodes.
 --
--- Scope: episodes whose frozen window is still in the FUTURE (starts_at > now → genuinely
--- not-yet-aired) carrying a terminal 'unavailable' OR burned attempts. A WINDOWLESS
--- ('aired') episode that is 'unavailable' is the legitimate no-playlist case (PSY-1287),
--- NOT this invariant, and is left alone (starts_at IS NOT NULL excludes it). status is
--- recomputed on read, but the stored snapshot is set to 'scheduled' for consistency.
--- Idempotent: re-running, or running where no such row exists, updates 0 rows.
+-- Scope (mirrors NormalizeScheduledPlaylistState exactly): episodes whose frozen window is
+-- still in the FUTURE (starts_at > now → genuinely not-yet-aired) carrying a terminal
+-- 'unavailable', OR burned attempts on a still-'pending' row. A scheduled 'partial'/'complete'
+-- carries real plays and is left intact. A WINDOWLESS ('aired') episode that is 'unavailable'
+-- is the legitimate no-playlist case (PSY-1287), NOT this invariant, and is left alone
+-- (starts_at IS NOT NULL excludes it). status is recomputed on read, but the stored snapshot
+-- is set to 'scheduled' for consistency. Idempotent: re-running, or running where no such row
+-- exists, updates 0 rows.
 UPDATE radio_episodes
    SET playlist_state          = 'pending',
        playlist_fetch_attempts = 0,
@@ -24,4 +26,5 @@ UPDATE radio_episodes
        updated_at              = now()
  WHERE starts_at IS NOT NULL
    AND starts_at > now()
-   AND (playlist_state = 'unavailable' OR playlist_fetch_attempts > 0);
+   AND (playlist_state = 'unavailable'
+        OR (playlist_state = 'pending' AND playlist_fetch_attempts > 0));

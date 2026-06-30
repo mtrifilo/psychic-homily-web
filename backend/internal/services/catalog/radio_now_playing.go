@@ -462,9 +462,10 @@ func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPla
 	return resp, nil
 }
 
-// mostActiveShow picks the station's "current" show the way the frontend v1
-// heuristic did: most logged episodes, ties broken by lower id (stable).
-// Returns nil when the station has no shows.
+// mostActiveShow picks the station's "current" show: the show with the most
+// VISIBLE-aired episodes (per airedEpisodeVisibleSQL, PSY-1285 — NOT raw logged
+// episodes, so placeholder/not-yet-aired rows don't inflate the count), ties broken
+// by lower id (stable). Returns nil when the station has no shows.
 func (s *RadioService) mostActiveShow(stationID uint) (*catalogm.RadioShow, error) {
 	var shows []catalogm.RadioShow
 	// Rank by VISIBLE-aired episodes only (PSY-1285): count the same episodes

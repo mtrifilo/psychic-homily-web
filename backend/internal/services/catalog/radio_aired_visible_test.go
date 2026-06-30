@@ -19,10 +19,12 @@ func TestAiredEpisodeVisibleSQL(t *testing.T) {
 		if !strings.Contains(got, prefix+"starts_at") || !strings.Contains(got, prefix+"play_count") {
 			t.Errorf("airedEpisodeVisibleSQL(%q): missing prefix-qualified columns in %q", prefix, got)
 		}
-		// Every column reference must carry the prefix — a bare column would be ambiguous
-		// in the joined feed query (radio_episodes + radio_shows + radio_stations).
-		if strings.Count(got, "starts_at") != strings.Count(got, prefix+"starts_at") ||
-			strings.Count(got, "play_count") != strings.Count(got, prefix+"play_count") {
+		// For a non-empty prefix, every column reference must carry it — a bare column
+		// would be ambiguous in the joined feed query (radio_episodes + radio_shows +
+		// radio_stations). (The check is vacuous for the empty prefix, so only assert it
+		// when a prefix is set.)
+		if prefix != "" && (strings.Count(got, "starts_at") != strings.Count(got, prefix+"starts_at") ||
+			strings.Count(got, "play_count") != strings.Count(got, prefix+"play_count")) {
 			t.Errorf("airedEpisodeVisibleSQL(%q): an unqualified column slipped through: %q", prefix, got)
 		}
 	}

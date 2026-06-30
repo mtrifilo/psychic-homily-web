@@ -1212,7 +1212,10 @@ type episodeFeedScope func(*gorm.DB) *gorm.DB
 // binds the "now" instant. Every aired-only surface — the "Latest playlists" feed
 // (episodeRows), the shows-directory latest date (ListShows), the now-playing "Latest"
 // selector (latestEpisodeForShow), and the most-active-show pick (mostActiveShow) —
-// shares this, so they can never disagree on what is visible.
+// shares this single air-window definition. The first three also pair it with an
+// `air_date <= today` bound; mostActiveShow gates on the window alone, so the four
+// agree except for the practically-unreachable case of a windowless future-dated
+// episode that already carries plays.
 func airedEpisodeVisibleSQL(prefix string) string {
 	return fmt.Sprintf(
 		"((%[1]sstarts_at IS NOT NULL AND %[1]sstarts_at <= ?) OR (%[1]sstarts_at IS NULL AND %[1]splay_count > 0))",

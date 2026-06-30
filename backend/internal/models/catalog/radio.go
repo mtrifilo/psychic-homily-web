@@ -202,17 +202,21 @@ func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, a
 // NOT scheduled (an aired/live/windowless episode keeps its state — a windowless
 // 'aired' episode legitimately reaching 'unavailable' is PSY-1287's concern, not this
 // invariant). For a scheduled episode it clears ONLY the stranded/exhausted shape — a
-// terminal 'unavailable' or burned backfill attempts (which a not-yet-aired episode
-// can never have legitimately earned) — and leaves a scheduled 'partial'/'complete'
-// intact, since those carry real plays and are not the AC#2 'unavailable' violation.
+// terminal 'unavailable', or burned backfill attempts on a STILL-pending episode (which
+// a not-yet-aired episode can never have legitimately earned) — and leaves a scheduled
+// 'partial'/'complete' (and its play count + attempts) intact, since those carry real
+// plays and are not the AC#2 'unavailable' violation.
 func NormalizeScheduledPlaylistState(startsAt, endsAt *time.Time, playlistState string, attempts int, now time.Time) (state string, newAttempts int) {
 	if ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) != RadioEpisodeStatusScheduled {
 		return playlistState, attempts // not a not-yet-aired episode → leave untouched
 	}
-	if playlistState == RadioPlaylistStateUnavailable || attempts > 0 {
-		return RadioPlaylistStatePending, 0
+	if playlistState == RadioPlaylistStateUnavailable {
+		return RadioPlaylistStatePending, 0 // terminal give-up on a not-yet-aired episode (AC#2)
 	}
-	return playlistState, attempts // already-valid scheduled state (pending, or partial/complete)
+	if playlistState == RadioPlaylistStatePending && attempts > 0 {
+		return RadioPlaylistStatePending, 0 // a pending scheduled episode can't have earned attempts
+	}
+	return playlistState, attempts // pending+0, or a 'partial'/'complete' carrying real plays
 }
 
 // Match-state constants (radio_plays.match_state). PSY-1131. Replaces the
