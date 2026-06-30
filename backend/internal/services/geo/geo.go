@@ -582,8 +582,15 @@ func (g *offlineGeocoder) resolveCountry(state, country string) (iso, admin1 str
 // foldKey normalizes a place/country name for matching: strip diacritics via
 // canonical decomposition (so "Zürich"/"São Paulo"/"Kraków"/Turkish/Vietnamese
 // names fold to ASCII), lowercase, map the few non-decomposable Latin letters
-// (ß, œ, ø…) to ASCII, drop punctuation, and collapse whitespace — single pass.
-// Mirrors the NFKD+mark-strip approach radio matching uses in normalizeName.
+// (ß, œ, ø…) to ASCII, drop punctuation, collapse whitespace, and finally expand
+// the place abbreviations St./Ft./Mt. (see expandPlaceAbbreviations) — single
+// pass. Mirrors the NFKD+mark-strip approach radio matching uses in normalizeName.
+//
+// Used for BOTH city and country keys (byCity, nameToISO), at load time and at
+// query time — so the abbreviation expansion is symmetric across the dataset and
+// the query, which is the whole point (see expandPlaceAbbreviations). It is
+// collision-free for country names too (no country folds to a bare st/ft/mt
+// token; "St. Lucia"/"Kitts"/"Vincent" already store "Saint").
 func foldKey(s string) string {
 	// Per-call transformer: transform.Transformer is stateful and not safe for
 	// concurrent reuse (Resolve may run on many goroutines).
@@ -621,7 +628,57 @@ func foldKey(s string) string {
 	if n := len(out); n > 0 && out[n-1] == ' ' {
 		out = out[:n-1] // trim a trailing separator-space
 	}
-	return out
+	return expandPlaceAbbreviations(out)
+}
+
+// placeAbbreviations expands the standard US/CA/UK place-name abbreviations to
+// their full forms so a contributor's "St. Paul" / "Ft. Worth" / "Mt. Pleasant"
+// folds to the SAME key as the dataset entry.
+//
+// This MUST run inside foldKey rather than a query-side helper: foldKey keys both
+// the query AND the embedded city names (at load time), and the dataset stores
+// the two forms INCONSISTENTLY — "Saint Paul" is full but "St. Louis" is
+// abbreviated. Folding both sides through the same expansion is what makes either
+// input form resolve regardless of how a given row happens to be stored. Without
+// it, "St. Paul, MN" missed its metro and orphaned into a phantom 0-roster scene
+// (PSY-1276).
+//
+// Collision-free: every leading St/Ft/Mt token in the city-NAME column of
+// cities.tsv is a genuine Saint/Fort/Mount (verified across all rows — no
+// Street/State false-friends, no "Ste"/Sainte rows). CBSA *display* names like
+// "St. Louis, MO-IL" keep their abbreviation — they're returned verbatim, never
+// folded. One intended consequence: a bare, unpinned query whose name also
+// matches a far larger international "Saint X" (e.g. "St. Petersburg" → Russia)
+// now defers to that dominant namesake, consistent with the Cambridge/Paris
+// policy in ResolveUSState (a pinned state still resolves the US city correctly).
+var placeAbbreviations = map[string]string{
+	"st": "saint",
+	"ft": "fort",
+	"mt": "mount",
+}
+
+// expandPlaceAbbreviations rewrites any WHOLE token that is a known place
+// abbreviation. Whole-token only, so a prefix like "Stockton" / "Fortuna" /
+// "Montgomery" — one token — never matches. Allocates only when a token matches.
+//
+// Precondition: key is foldKey's normalized output (lowercase, single-space
+// separated, no leading/trailing space) — it's called only at the end of foldKey.
+func expandPlaceAbbreviations(key string) string {
+	if key == "" {
+		return key
+	}
+	fields := strings.Split(key, " ")
+	changed := false
+	for i, f := range fields {
+		if rep, ok := placeAbbreviations[f]; ok {
+			fields[i] = rep
+			changed = true
+		}
+	}
+	if !changed {
+		return key
+	}
+	return strings.Join(fields, " ")
 }
 
 func stripLeadingThe(s string) string {
