@@ -29,87 +29,19 @@ func NewReleaseService(database *gorm.DB) *ReleaseService {
 	}
 }
 
-// CreateRelease creates a new release
+// CreateRelease creates a new release. The interactive API path; it does no dedup
+// (the discography importer uses FindOrCreateReleaseByReleaseGroupMBID instead).
 func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Generate unique slug
-	baseSlug := utils.GenerateArtistSlug(req.Title)
-	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-		var count int64
-		s.db.Model(&catalogm.Release{}).Where("slug = ?", candidate).Count(&count)
-		return count > 0
-	})
-
-	// Determine release type, default to "lp"
-	releaseType := catalogm.ReleaseType(req.ReleaseType)
-	if releaseType == "" {
-		releaseType = catalogm.ReleaseTypeLP
-	}
-
-	// Create the release
-	release := &catalogm.Release{
-		Title:       req.Title,
-		Slug:        &slug,
-		ReleaseType: releaseType,
-		ReleaseYear: req.ReleaseYear,
-		ReleaseDate: req.ReleaseDate,
-		CoverArtURL: req.CoverArtURL,
-		Description: req.Description,
-	}
-
+	var release *catalogm.Release
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(release).Error; err != nil {
-			return fmt.Errorf("failed to create release: %w", err)
-		}
-
-		// Create artist_releases entries
-		for i, artistEntry := range req.Artists {
-			role := artistEntry.Role
-			if role == "" {
-				role = string(catalogm.ArtistReleaseRoleMain)
-			}
-			ar := &catalogm.ArtistRelease{
-				ArtistID:  artistEntry.ArtistID,
-				ReleaseID: release.ID,
-				Role:      catalogm.ArtistReleaseRole(role),
-				Position:  i,
-			}
-			if err := tx.Create(ar).Error; err != nil {
-				return fmt.Errorf("failed to create artist-release link: %w", err)
-			}
-		}
-
-		// Create external links
-		for _, linkEntry := range req.ExternalLinks {
-			link := &catalogm.ReleaseExternalLink{
-				ReleaseID: release.ID,
-				Platform:  linkEntry.Platform,
-				URL:       linkEntry.URL,
-			}
-			if err := tx.Create(link).Error; err != nil {
-				return fmt.Errorf("failed to create external link: %w", err)
-			}
-		}
-
-		// PSY-1189: keep the artist Bandcamp embed fresh — if this release carries
-		// an embeddable /album|/track Bandcamp link and a credited artist's embed
-		// is still NULL, fill it (release_derived). Same tx, so a failure rolls the
-		// whole create back. No-op when there's no Bandcamp link or no empty artist.
-		if err := fillReleaseDerivedEmbedsForRelease(tx, release.ID); err != nil {
-			return err
-		}
-
-		// PSY-1247: prompt on-create cover-art enrichment via the transactional
-		// outbox. Same tx as the release create (atomic), best-effort (never fails
-		// the create — see enqueueImageEnrich).
-		enqueueImageEnrich(tx, catalogm.ImageEnrichEntityRelease, release.ID)
-
-		return nil
+		var cerr error
+		release, cerr = createReleaseTx(tx, req, nil)
+		return cerr
 	})
-
 	if err != nil {
 		return nil, err
 	}

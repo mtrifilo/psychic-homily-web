@@ -3,6 +3,11 @@
 // response's area/begin-area/country (primary — curated origin) and the band's
 // self-reported location on its Bandcamp profile page (fallback).
 //
+// With --missing-mbid (PSY-1289) it instead gates on a missing
+// musicbrainz_artist_id (not a missing city), so it also backfills the IDENTITY
+// (MBID) of artists that already have a location — the rows the city-gated location
+// pipeline can never reach. Same resolver; the MBID is stamped fill-when-empty.
+//
 // FILL-WHEN-EMPTY: only an artist's NULL/blank location fields are touched; a
 // set field is never overwritten. Each fill stamps provenance
 // (data_source / source_confidence / last_verified_at), and an existing
@@ -15,6 +20,7 @@
 //	go run ./cmd/backfill-artist-location --verbose          # per-artist detail
 //	go run ./cmd/backfill-artist-location --limit 50         # cap artists scanned
 //	go run ./cmd/backfill-artist-location --bandcamp-only    # skip MusicBrainz
+//	go run ./cmd/backfill-artist-location --missing-mbid     # gate on missing MBID, not city (PSY-1289)
 //	go run ./cmd/backfill-artist-location --env .env.stage   # target a specific env
 //
 // Dry-run prints exactly what a live run would change and writes nothing. The
@@ -43,6 +49,7 @@ var (
 	confirm      bool
 	verbose      bool
 	bandcampOnly bool
+	missingMBID  bool
 	limit        int
 	envFile      string
 )
@@ -51,9 +58,16 @@ func main() {
 	flag.BoolVar(&confirm, "confirm", false, "Apply changes (default: dry-run only)")
 	flag.BoolVar(&verbose, "verbose", false, "Print per-artist detail")
 	flag.BoolVar(&bandcampOnly, "bandcamp-only", false, "Skip the MusicBrainz fallback")
+	flag.BoolVar(&missingMBID, "missing-mbid", false, "Gate on missing musicbrainz_artist_id instead of missing city (PSY-1289)")
 	flag.IntVar(&limit, "limit", 0, "Max artists to scan (0 = all)")
 	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
 	flag.Parse()
+
+	// MBIDs come only from MusicBrainz, so the MBID-backfill gate would scan and stamp
+	// nothing with the MB fallback disabled — fail fast rather than waste a run.
+	if missingMBID && bandcampOnly {
+		log.Fatal("--missing-mbid cannot be combined with --bandcamp-only (MBIDs come only from MusicBrainz)")
+	}
 
 	loadEnv()
 
@@ -70,10 +84,15 @@ func main() {
 	if confirm {
 		mode = "LIVE"
 	}
-	fmt.Printf("=== Artist Location Backfill (%s) — PSY-1234 ===\n", mode)
+	gate, ticket := "missing city (location)", "PSY-1234"
+	if missingMBID {
+		gate, ticket = "missing MBID", "PSY-1289"
+	}
+	fmt.Printf("=== Artist Backfill (%s) — %s ===\n", mode, ticket)
 	// Surface the resolved target so a mistargeted --confirm (e.g. prod via the
 	// wrong --env) is caught before any write. Credentials are redacted.
 	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
+	fmt.Printf("Gate:   %s\n", gate)
 	source := "MusicBrainz primary + Bandcamp fallback"
 	if bandcampOnly {
 		source = "Bandcamp only"
@@ -85,9 +104,10 @@ func main() {
 		catalog.NewBandcampProfileResolver(),
 		pipeline.NewMusicBrainzClient(),
 		enrich.Options{
-			DryRun:       !confirm,
-			Limit:        limit,
-			BandcampOnly: bandcampOnly,
+			DryRun:          !confirm,
+			Limit:           limit,
+			BandcampOnly:    bandcampOnly,
+			MissingMBIDOnly: missingMBID,
 		},
 	)
 	if err != nil {
@@ -138,12 +158,16 @@ func printReport(r *enrich.Report) {
 	}
 
 	if len(r.Conflicts) > 0 {
-		fmt.Println("--- Conflicts (sources disagree on country — skipped for review) ---")
+		fmt.Println("--- Conflicts (MB disagrees on country with another source — skipped for review) ---")
 		for _, c := range r.Conflicts {
-			fmt.Printf("  [conflict] artist %d %q  MB{%s/%s/%s} vs Bandcamp{%s/%s/%s}\n",
+			other := c.OtherSource
+			if other == "" {
+				other = "other"
+			}
+			fmt.Printf("  [conflict] artist %d %q  MB{%s/%s/%s} vs %s{%s/%s/%s}\n",
 				c.ArtistID, c.Name,
 				c.MB.City, c.MB.State, c.MB.Country,
-				c.Bandcamp.City, c.Bandcamp.State, c.Bandcamp.Country)
+				other, c.Other.City, c.Other.State, c.Other.Country)
 		}
 		fmt.Println()
 	}
@@ -157,13 +181,21 @@ func printReport(r *enrich.Report) {
 	}
 
 	fmt.Println("=== Summary ===")
-	fmt.Printf("Artists scanned (missing city):         %d\n", r.ArtistsScanned)
+	if missingMBID {
+		fmt.Printf("Artists scanned (missing MBID):         %d\n", r.ArtistsScanned)
+	} else {
+		fmt.Printf("Artists scanned (missing city):         %d\n", r.ArtistsScanned)
+	}
 	fmt.Printf("  filled from Bandcamp:                %d\n", r.FilledBandcamp)
 	fmt.Printf("  filled from MusicBrainz:             %d\n", r.FilledMusicBrainz)
 	fmt.Printf("  resolved but nothing empty to fill:  %d\n", r.ResolvedNoFill)
 	fmt.Printf("  MusicBrainz MBIDs stamped:           %d\n", r.StampedMBID)
 	fmt.Printf("  conflicts (skipped for review):      %d\n", len(r.Conflicts))
-	fmt.Printf("  missed (no source had a location):   %d\n", r.Missed)
+	if missingMBID {
+		fmt.Printf("  missed (no exact MB match → no MBID): %d\n", r.Missed)
+	} else {
+		fmt.Printf("  missed (no source had a location):   %d\n", r.Missed)
+	}
 	fmt.Printf("Errors:                                %d\n", len(r.Errors))
 	fmt.Println()
 

@@ -75,6 +75,14 @@ type Options struct {
 	DryRun       bool
 	Limit        int  // 0 = all artists needing location
 	BandcampOnly bool // skip the MusicBrainz fallback
+	// MissingMBIDOnly (PSY-1289) swaps the candidate gate from "missing city" to
+	// "missing musicbrainz_artist_id", so the manual backfill reaches already-located
+	// artists the location pipeline (cmd + sweep, both city-gated) never stamps an MBID
+	// for. The resolver is unchanged — it still fills location fill-when-empty as a side
+	// effect — but the run's purpose is the MBID, which only MusicBrainz supplies, so it
+	// is meaningless under BandcampOnly (the cmd rejects that combination) and is a
+	// one-shot cmd mode (leave ReattemptWindow zero; the location memo is city-specific).
+	MissingMBIDOnly bool
 	// ReattemptWindow turns on the no-result memo for the background sweep (PSY-1250).
 	// When > 0, the candidate query additionally skips artists whose
 	// location_enrich_attempted_at is within the window (so the locationless long tail
@@ -109,7 +117,13 @@ type Conflict struct {
 	ArtistID uint
 	Name     string
 	MB       ResolvedLocation
-	Bandcamp ResolvedLocation
+	// Other is the location MB's match disagreed with, and OtherSource names it: the
+	// artist's Bandcamp self-report (the original guard) or its already-stored location
+	// (PSY-1289's cross-check, the stronger disambiguator for the located-but-MBID-less
+	// population, which often has no Bandcamp URL). Surfaced so the dry-run review shows
+	// exactly which signal disagreed.
+	Other       ResolvedLocation
+	OtherSource string // "bandcamp" | "stored"
 }
 
 // Report is the structured outcome of a backfill run.
@@ -148,6 +162,9 @@ type artistStore interface {
 	// (sweep mode) additionally excludes artists stamped at or after it, oldest-attempt
 	// first; nil (manual cmd) keeps the original id-ordered, memo-agnostic selection.
 	ArtistsNeedingLocation(limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error)
+	// ArtistsMissingMBID loads artists with no musicbrainz_artist_id, id-ordered
+	// (PSY-1289 backfill gate — independent of location). limit <= 0 means all.
+	ArtistsMissingMBID(limit int) ([]catalogm.Artist, error)
 	UpdateArtistLocation(id uint, fields map[string]interface{}) error
 	// StampLocationAttempted marks ids as attempted (location_enrich_attempted_at = at)
 	// for the sweep's no-result memo.
@@ -242,7 +259,17 @@ func backfillArtistLocations(
 		cutoff = &c
 	}
 
-	artists, err := store.ArtistsNeedingLocation(opts.Limit, cutoff)
+	// Candidate gate. The default is "missing city"; MissingMBIDOnly (PSY-1289) swaps to
+	// "missing MBID" so the backfill can reach already-located artists. The memo
+	// (ReattemptWindow) is location-specific, so it never combines with MBID mode — the
+	// cmd leaves ReattemptWindow zero in that mode.
+	var artists []catalogm.Artist
+	var err error
+	if opts.MissingMBIDOnly {
+		artists, err = store.ArtistsMissingMBID(opts.Limit)
+	} else {
+		artists, err = store.ArtistsNeedingLocation(opts.Limit, cutoff)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("load artists: %w", err)
 	}
@@ -252,7 +279,11 @@ func backfillArtistLocations(
 	// Stamp-before-resolve (sweep mode only, never in a dry run): mark the whole batch
 	// attempted up front so a poison row that errors still waits one re-attempt window
 	// before a retry and can't wedge the sweep (mirrors the image sweep, PSY-1246).
-	if opts.ReattemptWindow > 0 && !opts.DryRun && len(artists) > 0 {
+	// Excluded in MBID mode: location_enrich_attempted_at is the LOCATION memo, and the
+	// MBID gate ignores the cutoff — stamping it on MBID-gated rows would lie to the
+	// location sweep. (No caller combines the two today; this enforces the invariant the
+	// Options doc states.)
+	if opts.ReattemptWindow > 0 && !opts.MissingMBIDOnly && !opts.DryRun && len(artists) > 0 {
 		ids := make([]uint, len(artists))
 		for i := range artists {
 			ids[i] = artists[i].ID
@@ -340,7 +371,14 @@ func backfillArtistLocations(
 		} else {
 			// Only the resolved MBID was stamped — no new location field. Not a
 			// location fill, but we still persist it (below) so the MBID isn't
-			// re-searched next pass.
+			// re-searched next pass. Record it as a reviewable Fill anyway (Fields =
+			// musicbrainz_artist_id, Location = the MB match) so the mandatory dry-run
+			// review can actually SEE which band's MBID is landing on the artist — the
+			// homonym backstop for the MBID-backfill population (PSY-1289). It still
+			// counts as ResolvedNoFill, not a location fill.
+			report.Fills = append(report.Fills, Fill{
+				ArtistID: a.ID, Name: a.Name, Source: source, Fields: []string{"musicbrainz_artist_id"}, Location: loc,
+			})
 			report.ResolvedNoFill++
 		}
 
@@ -391,11 +429,33 @@ func resolveLocation(
 		}
 	}
 
-	// Consult Bandcamp as the fallback (MB didn't resolve) OR for conflict
-	// detection (MB resolved WITH a comparable country). If MB resolved without an
-	// effective country, Bandcamp can't change the outcome — skip the HTTP fetch.
-	// Only artists whose social.bandcamp is set; any bandcamp URL works (the
-	// location is in the band header on band/album pages).
+	// Disambiguate the homonym-prone MB match against the artist's OWN already-stored
+	// location FIRST (PSY-1289). A set City/State/Country is known-correct — the reason
+	// the location pipeline left these rows alone — so it's a stronger signal than
+	// Bandcamp AND available even when there's no Bandcamp URL (the common case for the
+	// MBID-backfill population). If the artist already names a country (explicit or
+	// implied by a US state) and MB's match names a DIFFERENT one, it's a likely
+	// homonym: skip rather than stamp a wrong identity. If they agree (or MB carries no
+	// country), MB is trusted — so a noisy Bandcamp can't block a valid MBID. This is a
+	// strict safety add for BOTH gates (the city gate's candidates are city-less but may
+	// still carry a stored country/state).
+	if mbOK {
+		stored := storedLocation(a)
+		if storedISO, hasStored := effectiveCountryISO(stored); hasStored {
+			if mbISO, ok := effectiveCountryISO(mbLoc); ok && mbISO != storedISO {
+				return ResolvedLocation{}, "", &Conflict{
+					ArtistID: a.ID, Name: a.Name, MB: mbLoc, Other: stored, OtherSource: "stored",
+				}, mbErr
+			}
+			return mbLoc, DataSourceMusicBrainz, nil, mbErr
+		}
+	}
+
+	// No stored country to disambiguate: consult Bandcamp as the fallback (MB didn't
+	// resolve) OR for conflict detection (MB resolved WITH a comparable country). If MB
+	// resolved without an effective country, Bandcamp can't change the outcome — skip
+	// the HTTP fetch. Only artists whose social.bandcamp is set; any bandcamp URL works
+	// (the location is in the band header on band/album pages).
 	needBandcamp := !mbOK
 	if mbOK {
 		if _, ok := effectiveCountryISO(mbLoc); ok {
@@ -412,7 +472,7 @@ func resolveLocation(
 	case mbOK && bcOK:
 		if countriesConflict(mbLoc, bcLoc) {
 			return ResolvedLocation{}, "", &Conflict{
-				ArtistID: a.ID, Name: a.Name, MB: mbLoc, Bandcamp: bcLoc,
+				ArtistID: a.ID, Name: a.Name, MB: mbLoc, Other: bcLoc, OtherSource: "bandcamp",
 			}, mbErr
 		}
 		return mbLoc, DataSourceMusicBrainz, nil, mbErr // agree → MusicBrainz wins
@@ -451,6 +511,19 @@ func effectiveCountryISO(loc ResolvedLocation) (string, bool) {
 		return "US", true // State holds only US/DC abbrevs (utils.StateNameToAbbrev)
 	}
 	return "", false
+}
+
+// storedLocation lifts the artist's already-saved City/State/Country into a
+// ResolvedLocation so it can disambiguate an MB match (PSY-1289). Only State/Country
+// drive the country comparison; City is carried for the dry-run review display.
+func storedLocation(a *catalogm.Artist) ResolvedLocation {
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	return ResolvedLocation{City: deref(a.City), State: deref(a.State), Country: deref(a.Country)}
 }
 
 // matchMBLocation returns the location of the first candidate whose name matches
@@ -716,6 +789,26 @@ func (s *gormArtistStore) ArtistsNeedingLocation(limit int, reattemptCutoff *tim
 	} else {
 		q = q.Order("id")
 	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.Find(&artists).Error; err != nil {
+		return nil, err
+	}
+	return artists, nil
+}
+
+// ArtistsMissingMBID loads artists with no musicbrainz_artist_id — the PSY-1289
+// backfill gate, independent of location. The location pipeline (cmd + sweep) gates on
+// city, so it only stamps an MBID as a side effect of resolving a city-less artist;
+// already-located artists never get one. This gate reaches them. The '' check matches
+// IsValidMBID's reject of blanks and the fill-when-empty isEmptyPtr semantics, so the
+// SQL gate and the stamp logic agree on "missing". id-ordered; limit <= 0 means all.
+func (s *gormArtistStore) ArtistsMissingMBID(limit int) ([]catalogm.Artist, error) {
+	var artists []catalogm.Artist
+	q := s.db.
+		Where("musicbrainz_artist_id IS NULL OR TRIM(musicbrainz_artist_id) = ''").
+		Order("id")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
