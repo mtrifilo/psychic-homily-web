@@ -488,16 +488,19 @@ func (s *RadioService) mostActiveShow(stationID uint) (*catalogm.RadioShow, erro
 // or nil when the show has none. Aired-only (PSY-1205): the now-playing archive
 // fallback derives its "Latest playlist" date + deep-link from this, and a
 // future-dated placeholder would render "aired {future date}" and link to an
-// empty page. Bounding to the station's local today also keeps the live-show
-// artist-hop fallback off empty future rows. Live detection is unaffected — it
-// is computed from the provider/air window, never from this selection.
+// empty page. The day-granular date bound can't catch a same-day not-yet-aired
+// page, so it shares the feed/directory air-window gate (airedEpisodeVisibleSQL,
+// PSY-1285): the selection skips a not-yet-aired (future-windowed) row and a
+// windowless 0-track placeholder, which also keeps the live-show artist-hop
+// fallback off empty rows. Live detection is unaffected — it is computed from the
+// provider/air window, never from this selection.
 func (s *RadioService) latestEpisodeForShow(showID uint) (*catalogm.RadioEpisode, error) {
 	today, err := s.stationLocalTodayForShow(showID)
 	if err != nil {
 		return nil, err
 	}
 	var episodes []catalogm.RadioEpisode
-	err = s.db.Where("show_id = ? AND air_date <= ?", showID, today).
+	err = s.db.Where("show_id = ? AND air_date <= ? AND "+airedEpisodeVisibleSQL(""), showID, today, time.Now()).
 		Order("air_date DESC, id DESC").
 		Limit(1).
 		Find(&episodes).Error

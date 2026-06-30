@@ -265,7 +265,14 @@ func (suite *RadioNowPlayingIntegrationTestSuite) createShow(stationID uint, nam
 }
 
 func (suite *RadioNowPlayingIntegrationTestSuite) createEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
-	ep := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate}
+	// Stamp a past air window so the episode passes the PSY-1285 air-window gate that
+	// latestEpisodeForShow now shares with the feed. Every now-playing archive fixture
+	// here is a past-aired episode, so a window a few days back is correct and
+	// clock-independent (air_date still drives latest-selection ordering).
+	now := time.Now().UTC()
+	starts := now.Add(-72 * time.Hour)
+	ends := now.Add(-71 * time.Hour)
+	ep := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
 	suite.Require().NoError(suite.db.Create(ep).Error)
 	return ep
 }

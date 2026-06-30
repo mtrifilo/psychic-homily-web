@@ -164,6 +164,31 @@ func (suite *RadioServiceIntegrationTestSuite) createEpisode(showID uint, airDat
 	return ep
 }
 
+// createEpisodeWindowed seeds an episode with an explicit frozen air window and
+// play_count, for exercising the PSY-1285 air-window feed gate: a not-yet-aired
+// episode has starts > now; a windowless 0-track row passes nil window + 0 plays.
+func (suite *RadioServiceIntegrationTestSuite) createEpisodeWindowed(showID uint, airDate string, starts, ends *time.Time, playCount int) *catalogm.RadioEpisode {
+	ep := &catalogm.RadioEpisode{
+		ShowID:    showID,
+		AirDate:   airDate,
+		StartsAt:  starts,
+		EndsAt:    ends,
+		PlayCount: playCount,
+	}
+	suite.Require().NoError(suite.db.Create(ep).Error)
+	return ep
+}
+
+// createAiredEpisode seeds a 0-track episode whose window has already passed, so it
+// surfaces in the feed past the PSY-1285 air-window gate. For tests about feed
+// SCOPING / ordering (not the gate itself), where the episode just needs to appear.
+func (suite *RadioServiceIntegrationTestSuite) createAiredEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
+	now := time.Now().UTC()
+	starts := now.Add(-72 * time.Hour)
+	ends := now.Add(-71 * time.Hour)
+	return suite.createEpisodeWindowed(showID, airDate, &starts, &ends, 0)
+}
+
 func (suite *RadioServiceIntegrationTestSuite) createPlay(episodeID uint, position int, artistName string) *catalogm.RadioPlay {
 	play := &catalogm.RadioPlay{
 		EpisodeID:  episodeID,
@@ -1271,13 +1296,13 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 
 	station := suite.createStation("KSRT")
 	older := suite.createShow(station.ID, "Alpha Show")
-	suite.createEpisode(older.ID, now.AddDate(0, 0, -22).Format("2006-01-02"))
-	suite.createEpisode(older.ID, alphaLatest)
+	suite.createAiredEpisode(older.ID, now.AddDate(0, 0, -22).Format("2006-01-02"))
+	suite.createAiredEpisode(older.ID, alphaLatest)
 	fresh := suite.createShow(station.ID, "Zulu Show")
-	suite.createEpisode(fresh.ID, now.AddDate(0, 0, -14).Format("2006-01-02")) // newest
+	suite.createAiredEpisode(fresh.ID, now.AddDate(0, 0, -14).Format("2006-01-02")) // newest
 	suite.createShow(station.ID, "Mid Show")
 	retired := suite.createShow(station.ID, "Beta Retired")
-	suite.createEpisode(retired.ID, now.AddDate(0, 0, -16).Format("2006-01-02"))
+	suite.createAiredEpisode(retired.ID, now.AddDate(0, 0, -16).Format("2006-01-02"))
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).Update("is_active", false).Error)
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", older.ID).Update("schedule_display", "Mon 9pm-12am").Error)
 
@@ -1322,13 +1347,13 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateExclud
 
 	// Recent Show: latest aired = recent (yesterday).
 	recentShow := suite.createShow(station.ID, "Recent Show")
-	suite.createEpisode(recentShow.ID, recent)
+	suite.createAiredEpisode(recentShow.ID, recent)
 	// Stale Plus Future: an OLD aired episode + a far-future placeholder. Its
 	// latest AIRED date is `stale`; the old buggy MAX(air_date) would read
 	// `future` and sort this show ABOVE Recent Show — the precise sort-inversion
 	// this fix prevents.
 	stalePlusFuture := suite.createShow(station.ID, "Stale Plus Future")
-	suite.createEpisode(stalePlusFuture.ID, stale)
+	suite.createAiredEpisode(stalePlusFuture.ID, stale)
 	suite.createEpisode(stalePlusFuture.ID, future)
 	// Future Only: only a future episode → no aired latest date at all.
 	futureOnly := suite.createShow(station.ID, "Future Only")
@@ -1353,6 +1378,32 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateExclud
 	suite.Nil(shows[2].LatestAirDate, "a show with only future episodes has no latest playlist")
 }
 
+// TestListShows_LatestAirDateExcludesNotYetAired extends the aired-only latest-date
+// (PSY-1205) with PSY-1285's air-window precision: a TODAY-dated episode whose frozen
+// window is still in the future (a WFMU broadcast airing later today) must not become
+// a show's latest playlist date — the day-granular air_date <= today bound can't catch
+// a same-day not-yet-aired row, but the air window can.
+func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateExcludesNotYetAired() {
+	station := suite.createStation("KLATE")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
+	now := time.Now().UTC()
+	ptr := func(t time.Time) *time.Time { return &t }
+	aired := now.AddDate(0, 0, -1).Format("2006-01-02")
+	today := now.Format("2006-01-02")
+
+	show := suite.createShow(station.ID, "Airs Later Today")
+	suite.createEpisodeWindowed(show.ID, aired, ptr(now.Add(-26*time.Hour)), ptr(now.Add(-24*time.Hour)), 0)
+	suite.createEpisodeWindowed(show.ID, today, ptr(now.Add(2*time.Hour)), ptr(now.Add(4*time.Hour)), 0)
+
+	shows, err := suite.radioService.ListShows(station.ID, RadioShowSortLatest)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1)
+	suite.Require().NotNil(shows[0].LatestAirDate)
+	suite.Equal(aired, *shows[0].LatestAirDate, "latest is yesterday's aired episode, not today's not-yet-aired broadcast")
+	suite.Equal(int64(2), shows[0].EpisodeCount, "COUNT still includes the not-yet-aired episode")
+}
+
 // TestLatestEpisodeForShow_ExcludesFuture pins the now-playing archive fallback's
 // "latest playlist" selection to aired-only (PSY-1205): the station ON-AIR box
 // derives its "Latest: {date}" / "aired {date}" text + deep-link from this, and a
@@ -1365,7 +1416,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestLatestEpisodeForShow_Excludes
 	now := time.Now().UTC()
 	aired := now.AddDate(0, 0, -1).Format("2006-01-02")
 	future := now.AddDate(0, 0, 3).Format("2006-01-02")
-	suite.createEpisode(show.ID, aired)
+	suite.createAiredEpisode(show.ID, aired)
 	suite.createEpisode(show.ID, future)
 
 	ep, err := suite.radioService.latestEpisodeForShow(show.ID)
@@ -1487,9 +1538,9 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_StrictPerS
 	flagShow := suite.createShow(flagship.ID, "Flag Show")
 	sibShow := suite.createShow(sibling.ID, "Sib Show")
 	aloneShow := suite.createShow(standalone.ID, "Alone Show")
-	suite.createEpisode(flagShow.ID, "2026-06-08")
-	suite.createEpisode(sibShow.ID, "2026-06-09")
-	suite.createEpisode(aloneShow.ID, "2026-06-07")
+	suite.createAiredEpisode(flagShow.ID, "2026-06-08")
+	suite.createAiredEpisode(sibShow.ID, "2026-06-09")
+	suite.createAiredEpisode(aloneShow.ID, "2026-06-07")
 
 	// A flagship's feed contains ONLY its own episodes — never its network
 	// siblings' (PSY-1074 reversed the PSY-1048 flagship-aggregates rule).
@@ -1542,10 +1593,10 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_WFMUFamily
 	drummerShow := suite.createShow(drummer.ID, "Give the Drummer Radio")
 	rockSoulShow := suite.createShow(rockSoul.ID, "Rock'n'Soul Radio")
 	sheenaShow := suite.createShow(sheena.ID, "Sheena's Jungle Room")
-	suite.createEpisode(flagShow.ID, "2026-06-08")
-	suite.createEpisode(drummerShow.ID, "2026-06-09")
-	suite.createEpisode(rockSoulShow.ID, "2026-06-10")
-	suite.createEpisode(sheenaShow.ID, "2026-06-11")
+	suite.createAiredEpisode(flagShow.ID, "2026-06-08")
+	suite.createAiredEpisode(drummerShow.ID, "2026-06-09")
+	suite.createAiredEpisode(rockSoulShow.ID, "2026-06-10")
+	suite.createAiredEpisode(sheenaShow.ID, "2026-06-11")
 
 	// The flagship's feed contains ONLY its own episode — never the three
 	// sub-stream channels' (the PSY-1127 leak).
@@ -1582,9 +1633,9 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStati
 
 	activeShow := suite.createShow(active.ID, "Active Show")
 	dormantShow := suite.createShow(dormant.ID, "Dormant Show")
-	suite.createEpisode(activeShow.ID, "2026-06-08")
-	suite.createEpisode(activeShow.ID, "2026-06-09")
-	suite.createEpisode(dormantShow.ID, "2026-06-09")
+	suite.createAiredEpisode(activeShow.ID, "2026-06-08")
+	suite.createAiredEpisode(activeShow.ID, "2026-06-09")
+	suite.createAiredEpisode(dormantShow.ID, "2026-06-09")
 
 	rows, total, err := suite.radioService.GetRecentEpisodes(10, 0)
 	suite.Require().NoError(err)
@@ -1604,63 +1655,74 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStati
 	suite.Equal("2026-06-08", page2[0].AirDate)
 }
 
-// TestGetStationEpisodes_ExcludesFutureEpisodes pins the aired-only contract
-// (PSY-1204): the "Latest playlists" feed keeps everything dated today-or-earlier
-// (shows aired earlier today included) but drops future-dated rows. WFMU
-// publishes 0-track placeholder pages for upcoming broadcasts ahead of airtime;
-// those were sorting to the top of the feed. The bound is day-granular in the
-// station's local zone. Determinism: the seeded dates and the service's pinned
-// bound are two separate reads of the host process clock (no DB-vs-host skew),
-// and the ±2-day margin absorbs both the few-ms gap between those reads and any
-// UTC-midnight straddle. Do not narrow the margin to ±1.
-func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ExcludesFutureEpisodes() {
+// TestGetStationEpisodes_AirWindowGate pins the air-window aired-only contract
+// (PSY-1285, superseding PSY-1204's day-granular bound): the "Latest playlists"
+// feed shows an episode iff its frozen window has passed (starts_at <= now) OR it
+// already has plays — so a not-yet-aired (future-windowed) broadcast AND a
+// windowless 0-track placeholder are both hidden, while a windowed-aired episode
+// and any episode carrying a playlist surface. Determinism: explicit window
+// instants (not date strings) drive the gate, so no host-vs-DB midnight skew; the
+// date strings only feed the coarse pre-filter and stay clear of the boundary.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_AirWindowGate() {
 	station := suite.createStation("Aired FM")
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
 		Where("id = ?", station.ID).Update("timezone", "UTC").Error)
 	show := suite.createShow(station.ID, "Catch-Up Show")
 
 	now := time.Now().UTC()
-	past := now.AddDate(0, 0, -2).Format("2006-01-02")
-	today := now.Format("2006-01-02")
-	future := now.AddDate(0, 0, 2).Format("2006-01-02")
-	suite.createEpisode(show.ID, past)
-	suite.createEpisode(show.ID, today)
-	suite.createEpisode(show.ID, future)
+	ptr := func(t time.Time) *time.Time { return &t }
+	airedWindowed := now.AddDate(0, 0, -2).Format("2006-01-02")
+	withPlays := now.AddDate(0, 0, -4).Format("2006-01-02")
+	emptyWindowless := now.AddDate(0, 0, -3).Format("2006-01-02")
+	notYetAired := now.Format("2006-01-02")
+	futureDated := now.AddDate(0, 0, 2).Format("2006-01-02")
+
+	// SHOWN: window already passed, OR (windowless but) has a playlist.
+	suite.createEpisodeWindowed(show.ID, airedWindowed, ptr(now.Add(-50*time.Hour)), ptr(now.Add(-47*time.Hour)), 0)
+	suite.createEpisodeWindowed(show.ID, withPlays, nil, nil, 3)
+	// HIDDEN: not-yet-aired (future window), windowless 0-track, future-dated placeholder.
+	suite.createEpisodeWindowed(show.ID, notYetAired, ptr(now.Add(3*time.Hour)), ptr(now.Add(5*time.Hour)), 0)
+	suite.createEpisode(show.ID, emptyWindowless)
+	suite.createEpisode(show.ID, futureDated)
 
 	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 50, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(2), total, "future-dated episodes are excluded from the total")
+	suite.Equal(int64(2), total, "only aired-windowed + has-plays episodes count")
 	suite.Require().Len(rows, 2)
 
 	got := map[string]bool{}
 	for _, r := range rows {
 		got[r.AirDate] = true
 	}
-	suite.True(got[past], "a recently-aired show is included")
-	suite.True(got[today], "today's show (aired earlier today) is included")
-	suite.False(got[future], "a future-dated (not-yet-aired) show is excluded")
+	suite.True(got[airedWindowed], "an episode whose window has passed is included")
+	suite.True(got[withPlays], "a windowless episode with a playlist is included")
+	suite.False(got[notYetAired], "a not-yet-aired (future-windowed) episode is hidden")
+	suite.False(got[emptyWindowless], "a windowless 0-track placeholder is hidden")
+	suite.False(got[futureDated], "a future-dated placeholder is hidden")
 }
 
-// TestGetRecentEpisodes_ExcludesFutureEpisodes is the dial-wide-feed counterpart:
-// GetRecentEpisodes shares episodeRows with GetStationEpisodes, so the aired-only
-// bound must apply there too (PSY-1204). This station is left with the default
-// (NULL) timezone, so it also covers the COALESCE-to-UTC fallback path that the
-// common createStation case relies on.
-func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ExcludesFutureEpisodes() {
+// TestGetRecentEpisodes_AirWindowGate is the dial-wide-feed counterpart:
+// GetRecentEpisodes shares episodeRows with GetStationEpisodes, so the air-window
+// aired-only gate must apply there too (PSY-1285). This station is left with the
+// default (NULL) timezone, so it also covers the COALESCE-to-UTC fallback path that
+// the common createStation case relies on.
+func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_AirWindowGate() {
 	station := suite.createStation("Dial FM") // default timezone: NULL → UTC fallback
 	show := suite.createShow(station.ID, "Dial Show")
 
 	now := time.Now().UTC()
-	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	ptr := func(t time.Time) *time.Time { return &t }
+	aired := now.AddDate(0, 0, -2).Format("2006-01-02")
 	future := now.AddDate(0, 0, 2).Format("2006-01-02")
-	suite.createEpisode(show.ID, past)
+	// Aired (window passed) → surfaces; future-dated windowless placeholder → hidden.
+	suite.createEpisodeWindowed(show.ID, aired, ptr(now.Add(-50*time.Hour)), ptr(now.Add(-47*time.Hour)), 0)
 	suite.createEpisode(show.ID, future)
 
 	rows, total, err := suite.radioService.GetRecentEpisodes(50, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total, "future-dated episodes are excluded from the dial-wide total")
+	suite.Equal(int64(1), total, "the not-yet-aired placeholder is excluded from the dial-wide total")
 	suite.Require().Len(rows, 1)
-	suite.Equal(past, rows[0].AirDate, "only the aired episode surfaces; NULL tz falls back to UTC")
+	suite.Equal(aired, rows[0].AirDate, "only the aired episode surfaces; NULL tz falls back to UTC")
 }
 
 // TestGetStationEpisodes_ToleratesBadStationTimezone guards the crash-proof SQL
@@ -1677,9 +1739,12 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_ToleratesB
 	show := suite.createShow(station.ID, "Resilient Show")
 
 	now := time.Now().UTC()
+	ptr := func(t time.Time) *time.Time { return &t }
 	past := now.AddDate(0, 0, -2).Format("2006-01-02")
 	future := now.AddDate(0, 0, 2).Format("2006-01-02")
-	suite.createEpisode(show.ID, past)
+	// Aired-windowed so it passes the PSY-1285 air-window gate (the point here is the
+	// bad-timezone SQL doesn't error, not the gate itself); future stays hidden.
+	suite.createEpisodeWindowed(show.ID, past, ptr(now.Add(-50*time.Hour)), ptr(now.Add(-47*time.Hour)), 0)
 	suite.createEpisode(show.ID, future)
 
 	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 50, 0)
