@@ -22,6 +22,11 @@ func TestResolve(t *testing.T) {
 		{"portland maine", "Portland", "ME", "", "America/New_York", true},
 		{"paris france", "Paris", "", "France", "Europe/Paris", true},
 		{"paris texas", "Paris", "TX", "", "America/Chicago", true},
+		// PSY-1276: an abbreviated "St." resolves the same as the full form. When
+		// pinned by state the correct row wins even though the larger Russian
+		// "Saint Petersburg" now shares the folded key.
+		{"st. paul abbreviated → Chicago tz", "St. Paul", "MN", "", "America/Chicago", true},
+		{"st. petersburg FL pinned → New York tz", "St. Petersburg", "FL", "", "America/New_York", true},
 		{"berlin germany", "Berlin", "", "Germany", "Europe/Berlin", true},
 		{"amsterdam state-holds-country-code", "Amsterdam", "NL", "Netherlands", "Europe/Amsterdam", true},
 		{"montreal by country name", "Montreal", "QC", "Canada", "America/Toronto", true},
@@ -107,6 +112,11 @@ func TestResolveUSState(t *testing.T) {
 		{"cambridge is internationally dominant (UK) → not found", "Cambridge", "", USStateNotFound},
 		// Paris resolves to one US state (TX) but is dominantly Paris, France.
 		{"paris is internationally dominant (FR) → not found", "Paris", "", USStateNotFound},
+		// PSY-1276: once "St. Petersburg" folds together with the larger Russian
+		// "Saint Petersburg", a bare query is internationally dominant (like
+		// Cambridge/Paris) and must NOT be stamped FL — the fix removed an
+		// accidental pre-fix exception where the abbreviation isolated the FL row.
+		{"st. petersburg is internationally dominant (RU) → not found", "St. Petersburg", "", USStateNotFound},
 		// A non-US city has no US state, even though GeoNames gives it an admin1.
 		{"tokyo is not a US place", "Tokyo", "", USStateNotFound},
 		{"unknown city is not found", "Nowherecityville", "", USStateNotFound},
@@ -148,6 +158,18 @@ func TestResolveMetro(t *testing.T) {
 		// and orphaned into a phantom 0-roster scene.
 		{"st. paul (abbrev) → Twin Cities", "St. Paul", "MN", "", "33460", true},
 		{"saint paul (full) → Twin Cities", "Saint Paul", "MN", "", "33460", true},
+		// Other ticket-named abbreviated cities, pinned by state. Mixed storage:
+		// "St. Louis" is abbreviated in the dataset, "Fort Worth"/"Fort Lauderdale"
+		// are full — both forms resolve through the symmetric fold.
+		{"ft. worth → Dallas–Fort Worth", "Ft. Worth", "TX", "", "19100", true},
+		{"st. louis → St. Louis CBSA", "St. Louis", "MO", "", "41180", true},
+		{"ft. lauderdale → Miami CBSA", "Ft. Lauderdale", "FL", "", "33100", true},
+		{"st. petersburg FL (pinned) → Tampa CBSA", "St. Petersburg", "FL", "", "45300", true},
+		// Bare "St. Petersburg" (no state) now folds together with the far larger
+		// Russian "Saint Petersburg", so it's internationally dominant and REFUSES a
+		// US metro — consistent with the Cambridge/Paris policy below. (Pre-fix it
+		// accidentally resolved to FL because the abbreviation isolated it; PSY-1276.)
+		{"bare st. petersburg → refuse (Russia dominant)", "St. Petersburg", "", "", "", false},
 		{"oakland → SF", "Oakland", "CA", "", "41860", true},
 		{"chicago → Chicago CBSA", "Chicago", "IL", "", "16980", true},
 		{"phoenix → Phoenix CBSA", "Phoenix", "AZ", "", "38060", true},
@@ -230,6 +252,9 @@ func TestFoldKey(t *testing.T) {
 		"Montréal":       "montreal",
 		// PSY-1276: St./Ft./Mt. expand to Saint/Fort/Mount so a contributor's
 		// abbreviation folds to the same key as the dataset's full form.
+		// (St. John's: apostrophe → space, so "John's" → "john s"; the trailing
+		// "s" is not an abbreviation and stays — matches the dataset's "Saint
+		// John's" folding the same way.)
 		"St. John's":   "saint john s",
 		"St. Paul":     "saint paul",
 		"Ft. Worth":    "fort worth",
