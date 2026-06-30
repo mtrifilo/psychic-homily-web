@@ -595,10 +595,18 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 		// to one station, so the zone is shared); COUNT stays the full episode
 		// count. A show with only future episodes gets a NULL latest → sorts as
 		// "no playlists yet", which is correct.
+		//
+		// PSY-1285: the day-granular date bound still admits a TODAY-dated row that
+		// hasn't aired yet. Bound the latest-date to episodes that count as a visible
+		// aired playlist — the SAME gate the feed uses (airedEpisodeVisibleSQL) — so the
+		// directory's "latest playlist: <date>" can never point at an episode the feed
+		// won't list: a not-yet-aired (future-windowed) row AND a windowless 0-track
+		// placeholder are excluded. COUNT stays the full episode count.
 		today, err := s.stationLocalToday(shows[0].Station.Timezone)
 		if err != nil {
 			return nil, err
 		}
+		now := time.Now()
 		type countResult struct {
 			ShowID uint
 			Count  int64
@@ -606,7 +614,8 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 		}
 		var counts []countResult
 		if err := s.db.Model(&catalogm.RadioEpisode{}).
-			Select("show_id, COUNT(*) as count, MAX(air_date) FILTER (WHERE air_date <= ?) as latest", today).
+			Select(fmt.Sprintf(`show_id, COUNT(*) as count,
+				MAX(air_date) FILTER (WHERE air_date <= ? AND %s) as latest`, airedEpisodeVisibleSQL("")), today, now).
 			Where("show_id IN ?", showIDs).
 			Group("show_id").
 			Find(&counts).Error; err != nil {
@@ -1192,6 +1201,28 @@ func (s *RadioService) GetRecentEpisodes(limit, offset int) ([]*contracts.RadioS
 // duplicate alias here.
 type episodeFeedScope func(*gorm.DB) *gorm.DB
 
+// airedEpisodeVisibleSQL is the single definition of "this episode counts as a
+// visible aired playlist" (PSY-1285): a WINDOWED episode is visible iff its frozen
+// window has passed (starts_at <= now) — so a future-windowed (not-yet-aired) episode
+// is hidden even if it already captured an early play snapshot; a WINDOWLESS episode
+// (no derivable window) falls back to "has plays". So a not-yet-aired episode and a
+// windowless 0-track placeholder are both excluded, while a windowed-aired episode
+// (even 0-track) and a windowless episode carrying a playlist stay. `prefix` qualifies
+// the columns ("re." in the joined feed query, "" in a single-table query); the one ?
+// binds the "now" instant. Every aired-only surface — the "Latest playlists" feed
+// (episodeRows), the shows-directory latest date (ListShows), the now-playing "Latest"
+// selector (latestEpisodeForShow), and the most-active-show pick (mostActiveShow) —
+// shares this single air-window definition. The first three also pair it with an
+// `air_date <= today` bound; mostActiveShow gates on the window alone, so the four
+// agree except for the practically-unreachable case of a windowless future-dated
+// episode that already carries plays.
+func airedEpisodeVisibleSQL(prefix string) string {
+	return fmt.Sprintf(
+		"((%[1]sstarts_at IS NOT NULL AND %[1]sstarts_at <= ?) OR (%[1]sstarts_at IS NULL AND %[1]splay_count > 0))",
+		prefix,
+	)
+}
+
 // episodeRows is the shared core of the station-scoped and dial-wide feeds.
 func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
 	if s.db == nil {
@@ -1218,15 +1249,18 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 			Joins(`LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone, E' \t\n\r'))`).
 			// Aired-only: WFMU (and other providers) publish playlist pages for
 			// UPCOMING broadcasts ahead of airtime, which the importer ingests as
-			// future-dated, 0-track placeholder episodes (PSY-1204). The "Latest
-			// playlists" feed is a DAY-GRANULAR catch-up list: bound air_date at
-			// the station's local "today" so everything dated today-or-earlier
-			// stays (shows aired earlier today included — a same-day show not yet
-			// aired can also appear, which is acceptable for catch-up) and
-			// tomorrow-onward drops. The per-station-zone bound can't use the
-			// air_date index on the dial-wide feed — fine at this scale.
+			// future-dated, 0-track placeholder episodes (PSY-1204). The day-granular
+			// air_date bound below is a coarse pre-filter (it drops tomorrow-onward and
+			// lets the per-station zone bound use no air_date index — fine at this scale);
+			// the precise aired-only filter is the air-window gate after it (PSY-1285).
 			// air-time-precise "is it live right now" lives in ComputeEpisodeStatus.
 			Where("re.air_date <= (?::timestamptz AT TIME ZONE COALESCE(tzn.name, 'UTC'))::date", now).
+			// PSY-1285: air-window gate — keep this "Latest playlists" feed to episodes
+			// that have actually aired (the day-granular date bound above still admits a
+			// today-dated page WFMU pre-published for a broadcast airing LATER TODAY; the
+			// frozen air window from PSY-1238/1283 can exclude it). Shared with the
+			// directory + now-playing surfaces via airedEpisodeVisibleSQL.
+			Where(airedEpisodeVisibleSQL("re."), now).
 			Scopes(scope)
 	}
 

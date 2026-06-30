@@ -138,6 +138,55 @@ func TestShouldBackfillPlaylist(t *testing.T) {
 	}
 }
 
+// TestNormalizeScheduledPlaylistState pins the PSY-1285 invariant: a not-yet-aired
+// (scheduled) episode is never 'unavailable' and carries no burned backfill attempts;
+// every other phase (live/aired/windowless) is left untouched.
+func TestNormalizeScheduledPlaylistState(t *testing.T) {
+	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	during := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
+	before := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
+	after := time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC)
+	ptr := func(tm time.Time) *time.Time { return &tm }
+
+	cases := []struct {
+		name         string
+		starts, ends *time.Time
+		state        string
+		attempts     int
+		now          time.Time
+		wantState    string
+		wantAttempts int
+	}{
+		// Scheduled (now < starts): the invariant resets a stranded terminal state.
+		{"scheduled + unavailable → reset", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, before, RadioPlaylistStatePending, 0},
+		{"scheduled + pending w/ burned attempts → clear attempts", ptr(start), ptr(end), RadioPlaylistStatePending, 2, before, RadioPlaylistStatePending, 0},
+		{"scheduled + pending + 0 attempts → no-op", ptr(start), ptr(end), RadioPlaylistStatePending, 0, before, RadioPlaylistStatePending, 0},
+		// A scheduled episode that captured real plays keeps its completeness label —
+		// it's not the AC#2 'unavailable' violation, so it must not be clobbered.
+		{"scheduled + partial → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStatePartial, 0, before, RadioPlaylistStatePartial, 0},
+		{"scheduled + complete → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStateComplete, 0, before, RadioPlaylistStateComplete, 0},
+		// Even with stray burned attempts, a partial/complete keeps its label + count — only
+		// a still-'pending' scheduled episode has its attempts cleared.
+		{"scheduled + complete w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStateComplete, 2, before, RadioPlaylistStateComplete, 2},
+		{"scheduled + partial w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, before, RadioPlaylistStatePartial, 1},
+		// Non-scheduled phases are left exactly as-is.
+		{"aired + unavailable → untouched (PSY-1287, not this invariant)", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, after, RadioPlaylistStateUnavailable, 5},
+		{"live + pending → untouched", ptr(start), ptr(end), RadioPlaylistStatePending, 0, during, RadioPlaylistStatePending, 0},
+		{"windowless + unavailable → untouched (windowless is 'aired', never scheduled)", nil, nil, RadioPlaylistStateUnavailable, 5, during, RadioPlaylistStateUnavailable, 5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotState, gotAttempts := NormalizeScheduledPlaylistState(tc.starts, tc.ends, tc.state, tc.attempts, tc.now)
+			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
+				t.Errorf("NormalizeScheduledPlaylistState(%v,%v,%q,%d,%v) = (%q,%d), want (%q,%d)",
+					tc.starts, tc.ends, tc.state, tc.attempts, tc.now, gotState, gotAttempts, tc.wantState, tc.wantAttempts)
+			}
+		})
+	}
+}
+
 // TestWindowForDate locks the PSY-1238 schedule→air-window mapping: a WFMU
 // episode's frozen [starts_at, ends_at] is built from the matching weekday slot
 // in the schedule's timezone, with overnight wrap, DST-correct instants, and a
