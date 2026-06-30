@@ -63,11 +63,15 @@ export function sceneLabelSize(upcomingShowCount: number): number {
 // Both entry POVs land in the continental (>=1.5) bucket: the default 1.8 and the
 // geo-resolved 1.6 (AtlasGlobe). Calibrated against the 2026-06 catalog, where
 // Chicago (~283) and Minneapolis (~187) clear the continental 120 but the adjacent
-// St. Paul (~95) does not — that's the decluttered pair the AC names. Two known
-// limits, both deferred to PSY-1229: counts are SEASONAL so a fixed absolute
-// threshold can leave the continental view sparse in a quiet stretch (wants a top-K
-// floor); and the gate is by COUNT, not proximity, so two co-dense adjacent cities
-// both above the threshold would still overlap.
+// St. Paul (~95) does not — that's the decluttered pair the AC names.
+//
+// Two limits surfaced in the PSY-1223 review. PSY-1229 fixes the first with the
+// top-K floor below: counts are SEASONAL, so a fixed absolute threshold could
+// leave the continental view with ZERO labels in a quiet stretch. The second
+// (the gate is by COUNT, not proximity, so two co-dense adjacent cities both
+// above the threshold could still overlap) is deferred — the count gate handles
+// the real cases today; a per-frame projection-based declutter is the upgrade
+// only if real data proves it insufficient (PSY-1229 open question).
 export function labelMinCountForAltitude(altitude: number): number {
   if (altitude >= 1.5) return 120 // continental — only the very densest scenes
   if (altitude >= 1.0) return 40 // multi-region
@@ -75,19 +79,48 @@ export function labelMinCountForAltitude(altitude: number): number {
   return 0 // zoomed in — label everything
 }
 
+// Quiet-season floor (PSY-1229): when the absolute threshold clears NOTHING,
+// label this many of the densest scenes so a zoomed-out view is never empty.
+// Only the empty case falls back — a normal season keeps its calibrated, sparser
+// label set (so PSY-1223's 2-label continental view + the Minneapolis/St. Paul
+// declutter are preserved), which is why K can be generous. This exported
+// constant is the single tuning knob for the floor; fixed (not viewport-scaled).
+export const LABEL_TOP_K_FLOOR = 5
+
 /**
  * The subset of scenes that carry an always-on label at the given threshold
  * (from `labelMinCountForAltitude`). Scenes below it still render their dot and
  * hover tooltip — only the persistent label is withheld until you zoom in.
  *
- * Takes the discrete `minCount` (not raw altitude) so the caller can memoize on
- * the threshold and keep the array identity stable between threshold crossings —
- * react-globe.gl diffs labelsData by reference.
+ * Normally this is just the threshold gate (`count >= minCount`). The PSY-1229
+ * floor adds one safety net: if the threshold clears NOTHING (a seasonal dip
+ * where no city reaches the continental count), fall back to the
+ * `LABEL_TOP_K_FLOOR` densest so the zoomed-out view is never empty. The
+ * fallback fires ONLY on an empty result, so a normal season is untouched — the
+ * calibrated continental label set (and the Minneapolis/St. Paul declutter) is
+ * preserved.
+ *
+ * @param minCount the DISCRETE threshold from `labelMinCountForAltitude` (a step
+ *   value, NOT raw altitude). The caller memoizes on it to keep the returned
+ *   array's identity stable between threshold crossings — react-globe.gl diffs
+ *   labelsData by reference, so passing raw altitude would churn it every frame.
  */
 export function visibleLabelScenes<T extends { upcoming_show_count: number }>(
   scenes: readonly T[],
   minCount: number,
 ): T[] {
-  if (minCount <= 0) return scenes as T[]
-  return scenes.filter((s) => s.upcoming_show_count >= minCount)
+  // Every path returns a fresh array, so the result is always safe to mutate.
+  if (minCount <= 0) return scenes.slice()
+  // NaN counts fail `>= minCount` (NaN comparisons are always false), so a
+  // malformed scene is naturally excluded from the gate.
+  const qualifiers = scenes.filter((s) => s.upcoming_show_count >= minCount)
+  if (qualifiers.length > 0) return qualifiers
+  // The threshold cleared NOTHING (a seasonal dip) — fall back to the
+  // LABEL_TOP_K_FLOOR densest so the zoomed-out view is never empty. Firing only
+  // on empty keeps a normal season untouched (no re-clutter). Non-finite counts
+  // are excluded outright (never floored in), matching the size-scale guards.
+  return scenes
+    .filter((s) => Number.isFinite(s.upcoming_show_count))
+    .sort((a, b) => b.upcoming_show_count - a.upcoming_show_count)
+    .slice(0, LABEL_TOP_K_FLOOR)
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  LABEL_TOP_K_FLOOR,
   labelMinCountForAltitude,
   sceneDotRadius,
   sceneLabelSize,
@@ -111,10 +112,72 @@ describe('visibleLabelScenes', () => {
     // At the default continental zoom (altitude 1.8 → threshold 120), of the
     // ~10mi-apart Minneapolis/St. Paul pair only the denser Minneapolis keeps its
     // label, so the two are distinguishable without overlap. St. Paul's label
-    // returns as you zoom in (threshold drops).
+    // returns as you zoom in (threshold drops). The PSY-1229 floor must NOT
+    // disturb this: at least one scene clears the threshold, so no fallback.
     const continental = labelMinCountForAltitude(1.8)
     const labelled = visibleLabelScenes([minneapolis, stPaul], continental)
     expect(labelled).toEqual([minneapolis])
     expect(labelled).not.toContain(stPaul)
+  })
+})
+
+describe('visibleLabelScenes — top-K quiet-season floor (PSY-1229)', () => {
+  // A quiet stretch where seasonal counts have all dipped below the continental
+  // threshold (120). Before the floor this rendered ZERO labels (the bug).
+  const quiet = [
+    { city: 'A', upcoming_show_count: 90 },
+    { city: 'B', upcoming_show_count: 80 },
+    { city: 'C', upcoming_show_count: 70 },
+    { city: 'D', upcoming_show_count: 60 },
+    { city: 'E', upcoming_show_count: 50 },
+    { city: 'F', upcoming_show_count: 40 },
+    { city: 'G', upcoming_show_count: 30 },
+  ]
+
+  it('falls back to the top-K densest when nothing clears the threshold (never empty)', () => {
+    const labelled = visibleLabelScenes(quiet, 120)
+    expect(labelled).toHaveLength(LABEL_TOP_K_FLOOR)
+    expect(labelled.map((s) => s.city)).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
+
+  it('returns all scenes when fewer than K exist and none clear the threshold', () => {
+    const few = quiet.slice(0, 3)
+    expect(visibleLabelScenes(few, 120)).toEqual(few)
+  })
+
+  it('returns exactly K at the slice boundary (K scenes, none clearing)', () => {
+    const exactlyK = quiet.slice(0, LABEL_TOP_K_FLOOR)
+    expect(visibleLabelScenes(exactlyK, 120)).toHaveLength(LABEL_TOP_K_FLOOR)
+  })
+
+  it('does NOT trigger when at least one scene clears the threshold (no re-clutter)', () => {
+    // The calibrated sparse continental view must survive: one city clears 120,
+    // so the floor stays out and no sub-threshold cities are pulled back in.
+    const big = { city: 'Big', upcoming_show_count: 200 }
+    expect(visibleLabelScenes([big, ...quiet], 120)).toEqual([big])
+  })
+
+  it('excludes non-finite counts from the floor (never floored in over a real scene)', () => {
+    const withNaN = [
+      { city: 'NaNville', upcoming_show_count: NaN },
+      { city: 'Real1', upcoming_show_count: 30 },
+      { city: 'Real2', upcoming_show_count: 20 },
+    ]
+    expect(visibleLabelScenes(withNaN, 120).map((s) => s.city)).toEqual([
+      'Real1',
+      'Real2',
+    ])
+  })
+
+  it('returns empty when every count is NaN (nothing clears the gate, nothing real to floor in)', () => {
+    const allNaN = [
+      { city: 'X', upcoming_show_count: NaN },
+      { city: 'Y', upcoming_show_count: NaN },
+    ]
+    expect(visibleLabelScenes(allNaN, 120)).toEqual([])
+  })
+
+  it('returns an empty array when there are no scenes at all', () => {
+    expect(visibleLabelScenes([], 120)).toEqual([])
   })
 })
