@@ -40,12 +40,23 @@ import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 
 // Per-relationship-type badge styling. PSY-1290: each type carries BOTH a light- and a dark-mode
 // palette. The original classes were dark-only (`bg-{hue}-900/30 text-{hue}-300`) — light text on a
-// dark wash, which is illegible in light mode (the wash composites to near-white and the light text
-// disappears). The `dark:` variants below are exactly those original (good) dark values, so dark mode
-// is unchanged; the base classes are the new light palette (deeper `-800` text on a `-100` tint) so
-// the badge is legible in light mode too. Hue per type matches the graph edge colors (teal=radio,
-// blue=shared-bills, …; see components/graph/edgeGrammar.ts) so a badge and its edge read as the
-// same relationship. Used in two places: the sidebar list rows AND the graph dialog's type toggles.
+// dark wash, illegible in light mode (the wash composites to near-white and the light text vanishes).
+// The `dark:` variants below are exactly those original (good) dark values, so dark mode is unchanged;
+// the base classes are the new light palette (deeper `-800` text on a `-100` tint, `-300` border) so
+// the badge is legible in light mode too.
+//
+// These badge FILLS are a SEPARATE, hand-synced palette from the graph EDGE strokes (the `--edge-*`
+// CSS vars in globals.css + edgeGrammar.ts, WCAG-audited in PSY-1083) — they are NOT auto-coupled. A
+// badge needs a bg+text+border triple; an edge is a single stroke color, so they can't share a value.
+// The hues are CHOSEN to evoke the matching edge (teal=radio, blue=shared-bills, …) so a badge reads
+// as its edge, but they're picked by eye, not derived — e.g. festival_cobill is Tailwind `orange` here
+// while its edge is the Okabe-Ito vermillion `#d55e00`. If you re-tune an edge hue, update this map by
+// hand to keep the badge and its edge consistent.
+//
+// Adding a type: give it the light recipe `bg-{hue}-100 text-{hue}-800 border-{hue}-300` + the dark
+// recipe `dark:bg-{hue}-900/30 dark:text-{hue}-300 dark:border-{hue}-700/50`, and also add it to
+// ALL_TYPES (below) or its graph toggle won't render. Used in two places: the sidebar list rows AND
+// the graph dialog's type-filter toggles.
 const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> = {
   similar: { label: 'Similar', className: 'bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-700/50 dark:text-zinc-300 dark:border-zinc-600' },
   shared_bills: { label: 'Shared Bills', className: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700/50' },
@@ -833,7 +844,7 @@ function RecenteringGraph({
               onClick={() => onToggleType(type)}
               className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-opacity ${
                 badge.className
-              } ${isActive ? 'opacity-100' : 'opacity-40'}`}
+              } ${isActive ? 'opacity-100' : 'opacity-60'}`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-current' : 'bg-transparent border border-current'}`} />
               {badge.label}
@@ -1134,8 +1145,8 @@ function VoteButton({ link, direction, userVotes, onVote, isPending }: VoteButto
             // PSY-1290: theme-aware active states. The dark: values are the original (good) dark
             // colors; the base values are the light-mode palette (deeper text on a light tint) so an
             // active up/down vote is legible in light mode, where the old light-on-dark washed out.
-            ? 'text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/20'
-            : 'text-red-700 bg-red-100 dark:text-red-400 dark:bg-red-900/20'
+            ? 'text-green-800 bg-green-100 dark:text-green-400 dark:bg-green-900/20'
+            : 'text-red-800 bg-red-100 dark:text-red-400 dark:bg-red-900/20'
           : 'text-muted-foreground hover:text-foreground'
       }`}
       title={direction === 'up' ? 'Upvote similarity' : 'Downvote similarity'}

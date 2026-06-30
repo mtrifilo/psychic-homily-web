@@ -442,9 +442,10 @@ describe('ArtistGraphDialog — festival_cobill opt-in (PSY-954)', () => {
         onOpenChange={() => {}}
       />
     )
-    // Inactive toggles render at opacity-40; active at opacity-100.
+    // Inactive toggles render at opacity-60 (PSY-1290 bumped from 40 for light-mode legibility);
+    // active at opacity-100. Asserting the inactive value confirms the toggle is not active by default.
     const toggle = screen.getByRole('button', { name: /Festival co-lineup/ })
-    expect(toggle.className).toContain('opacity-40')
+    expect(toggle.className).toContain('opacity-60')
     expect(toggle.className).not.toContain('opacity-100')
   })
 
