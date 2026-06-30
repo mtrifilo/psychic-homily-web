@@ -35,7 +35,7 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
   },
 }))
 
-import { ScenePreviewPanel } from './ScenePreviewPanel'
+import { ScenePreviewPanel, EMBED_SEARCH_LIMIT } from './ScenePreviewPanel'
 
 const scene: SceneListItem = {
   city: 'Chicago',
@@ -69,6 +69,13 @@ describe('ScenePreviewPanel', () => {
     expect(
       screen.getByRole('link', { name: /open scene/i }),
     ).toHaveAttribute('href', '/scenes/chicago-il')
+    // Pins the roster fetch contract: this slug, and the WIDER embed-search
+    // limit (not the displayed count) so the player isn't capped to the shown
+    // few (PSY-1224 review).
+    expect(mockUseSceneArtists).toHaveBeenCalledWith({
+      slug: 'chicago-il',
+      limit: EMBED_SEARCH_LIMIT,
+    })
   })
 
   it('flags active roster members with an accessible "(active)" marker', () => {
@@ -177,6 +184,44 @@ describe('ScenePreviewPanel', () => {
         bandcampAlbumUrl: 'https://c.bandcamp.com/album/z',
       }),
     )
+  })
+
+  it('embeds a band ranked below the displayed list (wider fetch than display)', () => {
+    // Six active bands without embeds fill the visible list; a 7th active band
+    // with an embed must still be chosen for the player even though it's not
+    // shown — the whole point of fetching wider than we display.
+    const visible = Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1,
+      slug: `band-${i}`,
+      name: `Band ${i}`,
+      is_active: true,
+    }))
+    const deepCut = {
+      id: 99,
+      slug: 'deep-cut',
+      name: 'Deep Cut',
+      is_active: true,
+      bandcamp_embed_url: 'https://deep-cut.bandcamp.com/album/x',
+    }
+    mockUseSceneArtists.mockReturnValue({
+      data: { artists: [...visible, deepCut], total: 7 },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+
+    // The player uses the deep-roster band (its name shows in the embed)...
+    expect(mockMusicEmbed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artistName: 'Deep Cut',
+        bandcampAlbumUrl: 'https://deep-cut.bandcamp.com/album/x',
+      }),
+    )
+    expect(screen.getByTestId('music-embed')).toHaveTextContent('Deep Cut')
+    // ...but the displayed roster is capped — Deep Cut isn't a list entry.
+    expect(
+      screen.queryByRole('link', { name: 'Deep Cut' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Band 0' })).toBeInTheDocument()
   })
 
   it('shows no player when no active artist has an embed (graceful empty)', () => {
