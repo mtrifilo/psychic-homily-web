@@ -46,6 +46,15 @@ type Release struct {
 	ImageEnrichAttemptedAt *time.Time `json:"-" gorm:"column:image_enrich_attempted_at"`
 	Description            *string    `gorm:"column:description"`
 
+	// MusicBrainzReleaseGroupID is the release-GROUP MBID (a 36-char UUID) — the
+	// release subsystem's first EXACT dedup key (PSY-1281), the album-abstraction
+	// grain the discography importer (PSY-1282) browses and the Cover Art Archive is
+	// keyed on. Written fill-when-empty + exact: a set value is never overwritten,
+	// and only an RG-MBID match or an artist-anchored exact-title match stamps it. A
+	// partial-unique index enforces at most one release per RG-MBID (NULLs free).
+	// Internal lookup key, not mapped onto any API response.
+	MusicBrainzReleaseGroupID *string `json:"-" gorm:"column:musicbrainz_release_group_id;size:36"`
+
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
 	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`

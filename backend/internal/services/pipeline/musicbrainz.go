@@ -7,10 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"psychic-homily-backend/internal/utils"
 )
 
 const (
@@ -107,17 +108,13 @@ type MBLookupResult struct {
 	Type           string `json:"type,omitempty"`
 }
 
-// mbidPattern matches a canonical MusicBrainz identifier: a hex UUID (8-4-4-4-12).
-var mbidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
-// IsValidMBID reports whether s is a canonical 36-char MusicBrainz UUID. It is the
-// trust-boundary check before an MB-API-supplied id is written to an artist's
-// VARCHAR(36) identity column (PSY-1249): an oversized value would otherwise abort
-// the whole Updates statement, and a malformed-but-short value would enter a column
-// downstream passes trust as identity. MBIDs are always UUIDs, so a value that
-// fails this is an upstream anomaly we decline to store rather than guess at.
+// IsValidMBID reports whether s is a canonical 36-char MusicBrainz UUID — the
+// trust-boundary check before an MB-supplied id is stored. Delegates to the single
+// shared implementation in utils (PSY-1281 consolidated the regex there so the
+// pipeline and catalog copies can't drift); kept as a pipeline-level name because
+// MB-result validation reads naturally at this layer.
 func IsValidMBID(s string) bool {
-	return mbidPattern.MatchString(s)
+	return utils.IsValidMBID(s)
 }
 
 // MusicBrainzClient provides rate-limited access to the MusicBrainz API.
