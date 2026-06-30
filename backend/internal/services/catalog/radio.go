@@ -1202,16 +1202,22 @@ func (s *RadioService) GetRecentEpisodes(limit, offset int) ([]*contracts.RadioS
 type episodeFeedScope func(*gorm.DB) *gorm.DB
 
 // airedEpisodeVisibleSQL is the single definition of "this episode counts as a
-// visible aired playlist" (PSY-1285): its frozen window has passed (starts_at <= now)
-// OR it already carries plays — so a not-yet-aired (future-windowed) episode and a
+// visible aired playlist" (PSY-1285): a WINDOWED episode is visible iff its frozen
+// window has passed (starts_at <= now) — so a future-windowed (not-yet-aired) episode
+// is hidden even if it already captured an early play snapshot; a WINDOWLESS episode
+// (no derivable window) falls back to "has plays". So a not-yet-aired episode and a
 // windowless 0-track placeholder are both excluded, while a windowed-aired episode
-// (even 0-track) and anything with a playlist stay. `prefix` qualifies the columns
-// ("re." in the joined feed query, "" in a single-table query); the one ? binds the
-// "now" instant. Every aired-only surface — the "Latest playlists" feed (episodeRows),
-// the shows-directory latest date (ListShows), and the now-playing "Latest" selector
-// (latestEpisodeForShow) — shares this, so they can never disagree on what is visible.
+// (even 0-track) and a windowless episode carrying a playlist stay. `prefix` qualifies
+// the columns ("re." in the joined feed query, "" in a single-table query); the one ?
+// binds the "now" instant. Every aired-only surface — the "Latest playlists" feed
+// (episodeRows), the shows-directory latest date (ListShows), the now-playing "Latest"
+// selector (latestEpisodeForShow), and the most-active-show pick (mostActiveShow) —
+// shares this, so they can never disagree on what is visible.
 func airedEpisodeVisibleSQL(prefix string) string {
-	return fmt.Sprintf("((%[1]sstarts_at IS NOT NULL AND %[1]sstarts_at <= ?) OR %[1]splay_count > 0)", prefix)
+	return fmt.Sprintf(
+		"((%[1]sstarts_at IS NOT NULL AND %[1]sstarts_at <= ?) OR (%[1]sstarts_at IS NULL AND %[1]splay_count > 0))",
+		prefix,
+	)
 }
 
 // episodeRows is the shared core of the station-scoped and dial-wide feeds.

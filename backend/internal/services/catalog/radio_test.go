@@ -1680,8 +1680,10 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_AirWindowG
 	// SHOWN: window already passed, OR (windowless but) has a playlist.
 	suite.createEpisodeWindowed(show.ID, airedWindowed, ptr(now.Add(-50*time.Hour)), ptr(now.Add(-47*time.Hour)), 0)
 	suite.createEpisodeWindowed(show.ID, withPlays, nil, nil, 3)
-	// HIDDEN: not-yet-aired (future window), windowless 0-track, future-dated placeholder.
-	suite.createEpisodeWindowed(show.ID, notYetAired, ptr(now.Add(3*time.Hour)), ptr(now.Add(5*time.Hour)), 0)
+	// HIDDEN: not-yet-aired is gated by its FUTURE window even with an early play snapshot
+	// (a windowed episode is gated by its window, never by play_count); plus a windowless
+	// 0-track placeholder and a future-dated placeholder.
+	suite.createEpisodeWindowed(show.ID, notYetAired, ptr(now.Add(3*time.Hour)), ptr(now.Add(5*time.Hour)), 5)
 	suite.createEpisode(show.ID, emptyWindowless)
 	suite.createEpisode(show.ID, futureDated)
 
@@ -1696,7 +1698,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_AirWindowG
 	}
 	suite.True(got[airedWindowed], "an episode whose window has passed is included")
 	suite.True(got[withPlays], "a windowless episode with a playlist is included")
-	suite.False(got[notYetAired], "a not-yet-aired (future-windowed) episode is hidden")
+	suite.False(got[notYetAired], "a not-yet-aired (future-windowed) episode is hidden even with an early play snapshot")
 	suite.False(got[emptyWindowless], "a windowless 0-track placeholder is hidden")
 	suite.False(got[futureDated], "a future-dated placeholder is hidden")
 }

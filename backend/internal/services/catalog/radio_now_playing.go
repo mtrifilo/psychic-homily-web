@@ -467,13 +467,18 @@ func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPla
 // Returns nil when the station has no shows.
 func (s *RadioService) mostActiveShow(stationID uint) (*catalogm.RadioShow, error) {
 	var shows []catalogm.RadioShow
+	// Rank by VISIBLE-aired episodes only (PSY-1285): count the same episodes
+	// latestEpisodeForShow can actually select (airedEpisodeVisibleSQL), so the
+	// most-active pick and the latest-episode pick agree — otherwise a show with the
+	// most 0-track/not-yet-aired rows could be chosen and then yield an empty payload
+	// while a less-"active" show has real archived content.
 	err := s.db.Raw(`
 		SELECT rs.* FROM radio_shows rs
 		LEFT JOIN radio_episodes re ON re.show_id = rs.id
 		WHERE rs.station_id = ?
 		GROUP BY rs.id
-		ORDER BY COUNT(re.id) DESC, rs.id ASC
-		LIMIT 1`, stationID).Scan(&shows).Error
+		ORDER BY COUNT(re.id) FILTER (WHERE `+airedEpisodeVisibleSQL("re.")+`) DESC, rs.id ASC
+		LIMIT 1`, stationID, time.Now()).Scan(&shows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to pick now-playing show: %w", err)
 	}
