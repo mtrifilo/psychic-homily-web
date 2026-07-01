@@ -833,7 +833,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	// 5. Query in-scope relationships — both endpoints in the scene's artist set.
 	var links []sceneRelationshipRow
 	if !noEdgesByFilter {
-		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, resolvedTypes)
+		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, resolvedTypes, RadioBackboneAlpha())
 		if err != nil {
 			return nil, fmt.Errorf("failed to query scene relationships: %w", err)
 		}
@@ -1001,7 +1001,16 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 // DeriveSharedBills minShows default), so no `min_weight` query parameter is
 // needed at v1. Shared by the scene graph (PSY-367) and the festival graph
 // (PSY-1080).
-func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []string) ([]sceneRelationshipRow, error) {
+//
+// backboneAlpha applies the PSY-1293 disparity-filter backbone to the dense
+// radio_cooccurrence edges: when alpha > 0, a radio_cooccurrence edge is kept
+// only if its backbone_significance < alpha (NULL significance = not in the
+// backbone = dropped); non-radio relationship types are always kept. alpha <= 0
+// disables the filter entirely (all edges kept, the pre-PSY-1293 behavior) — the
+// festival graph passes 0 as the backbone is a scene-scale tool (see the ego
+// treatment in GetArtistGraph, which UNIONs the backbone rather than replacing
+// its top-k floor).
+func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []string, backboneAlpha float64) ([]sceneRelationshipRow, error) {
 	if len(artistIDs) < 2 {
 		return nil, nil
 	}
@@ -1011,6 +1020,10 @@ func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []strin
 		Where("source_artist_id IN ? AND target_artist_id IN ?", artistIDs, artistIDs)
 	if len(types) > 0 {
 		q = q.Where("relationship_type IN ?", types)
+	}
+	if backboneAlpha > 0 {
+		q = q.Where("relationship_type <> ? OR backbone_significance < ?",
+			catalogm.RelationshipTypeRadioCooccurrence, backboneAlpha)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, err

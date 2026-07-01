@@ -1,6 +1,29 @@
 package catalog
 
-import "math"
+import (
+	"math"
+	"os"
+	"strconv"
+)
+
+// RadioBackboneAlpha is the disparity-filter significance threshold for SCENE-scale graph
+// sparsification (PSY-1293). A radio co-occurrence edge is in the scene backbone iff its
+// backbone_significance < alpha. It is tunable via the RADIO_BACKBONE_ALPHA env var WITHOUT a
+// recompute, because the stored significance is alpha-independent (see disparity_filter.go above).
+// Default 0.10 — the scene-legible value chosen from the PSY-1261 stage tuning. A missing,
+// unparseable, or out-of-range (0,1] value falls back to the default.
+func RadioBackboneAlpha() float64 {
+	const defaultAlpha = 0.10
+	raw := os.Getenv("RADIO_BACKBONE_ALPHA")
+	if raw == "" {
+		return defaultAlpha
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v <= 0 || v > 1 {
+		return defaultAlpha
+	}
+	return v
+}
 
 // Disparity-filter backbone extraction (PSY-1261).
 //

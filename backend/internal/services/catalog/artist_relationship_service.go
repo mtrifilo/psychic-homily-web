@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -311,6 +312,13 @@ const festivalCobillCenterLimit = 30
 // names to surface in the edge's `detail` JSONB for tooltip rendering.
 const festivalCobillTopFestivalNames = 3
 
+// egoBackboneUnionLimit caps how many disparity-filter backbone radio edges (PSY-1293) are
+// UNIONed onto the center artist's top-k score-ranked edges. The top-k cap (Limit(30)) can drop
+// niche-but-significant radio co-occurrence links; the backbone surfaces them so a mid-degree ego
+// is never reduced to only its loudest neighbors. Capped (and taken strongest-first) so a hub can
+// never re-introduce the hairball the PSY-1258 cap exists to prevent; matches the 30-edge budget.
+const egoBackboneUnionLimit = 30
+
 // festivalCobillRow is the result of the festival co-occurrence query.
 // We capture both the canonical pair (artistA<artistB), the count, and
 // the start date of the most recent shared festival (for recency-weighted
@@ -409,6 +417,53 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 			return nil, fmt.Errorf("failed to compute festival co-lineup edges: %w", err)
 		}
 		festivalCobillLinks = links
+	}
+
+	// 2c. UNION the center artist's disparity-filter backbone radio edges (PSY-1293) onto the
+	// score-ranked top-k from step 2. The top-k cap can drop niche-but-significant radio
+	// co-occurrence links; the backbone (Serrano 2009, computed on the global co-occurrence graph)
+	// surfaces them so a mid-degree ego is never emptied of its meaningful neighbors. Only runs when
+	// radio co-occurrence is in scope (empty filter = all stored types, or an explicit request).
+	// Deduped against the top-k set by (source,target,type); bounded by egoBackboneUnionLimit and
+	// taken strongest-first so a hub can't re-introduce the hairball. Non-fatal: on error the ego
+	// degrades to just the top-k floor (never worse than pre-PSY-1293).
+	wantRadioCooccurrence := len(types) == 0
+	for _, t := range storedTypes {
+		if t == catalogm.RelationshipTypeRadioCooccurrence {
+			wantRadioCooccurrence = true
+			break
+		}
+	}
+	if wantRadioCooccurrence {
+		alpha := RadioBackboneAlpha()
+		var backboneRels []catalogm.ArtistRelationship
+		bbErr := s.db.Model(&catalogm.ArtistRelationship{}).
+			Where("(source_artist_id = ? OR target_artist_id = ?)", artistID, artistID).
+			Where("relationship_type = ?", catalogm.RelationshipTypeRadioCooccurrence).
+			Where("backbone_significance IS NOT NULL AND backbone_significance < ?", alpha).
+			Order("backbone_significance ASC").
+			Limit(egoBackboneUnionLimit).
+			Find(&backboneRels).Error
+		if bbErr != nil {
+			slog.Warn("artist graph: backbone union query failed; falling back to top-k floor",
+				"artist_id", artistID, "error", bbErr)
+		} else {
+			type relKey struct {
+				src, tgt uint
+				typ      string
+			}
+			seen := make(map[relKey]bool, len(rels))
+			for _, r := range rels {
+				seen[relKey{r.SourceArtistID, r.TargetArtistID, r.RelationshipType}] = true
+			}
+			for _, r := range backboneRels {
+				k := relKey{r.SourceArtistID, r.TargetArtistID, r.RelationshipType}
+				if !seen[k] {
+					rels = append(rels, r)
+					seen[k] = true
+				}
+			}
+		}
 	}
 
 	if len(rels) == 0 && len(festivalCobillLinks) == 0 {
