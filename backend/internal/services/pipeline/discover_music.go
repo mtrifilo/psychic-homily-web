@@ -402,6 +402,14 @@ func candidateNotes(cand MBArtistResult, regionMatch bool) string {
 	return strings.Join(parts, "; ")
 }
 
+// ClassifyPlatformURL host-anchors a MusicBrainz relation URL and, if it is a
+// Bandcamp artist subdomain/apex or an open.spotify.com artist page, returns the
+// platform tag and a canonicalized URL. Exported for MBID-keyed link backfill
+// (PSY-1279) and other url-rel consumers outside this package.
+func ClassifyPlatformURL(rawURL string) (platform, normalized string, ok bool) {
+	return classifyPlatformURL(rawURL)
+}
+
 // classifyPlatformURL host-anchors a MusicBrainz relation URL and, if it is a
 // Bandcamp artist subdomain/apex or an open.spotify.com artist page, returns the
 // platform tag and a CANONICALIZED URL. The host check is the identity signal —

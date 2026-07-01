@@ -849,3 +849,45 @@ func (s *gormArtistStore) ArtistByID(id uint) (*catalogm.Artist, error) {
 	}
 	return &a, nil
 }
+
+// ArtistsNeedingLinks loads MBID-bearing artists missing any of spotify, bandcamp, or
+// website — the links sweep candidate gate (PSY-1279). TRIM mirrors the in-memory
+// isEmptyPtr check. reattemptCutoff (sweep mode): when non-nil, also skip artists whose
+// links_enrich_attempted_at is at-or-after the cutoff and order by attempt time (NULLs
+// first). nil (a manual cmd) keeps id-ordered, memo-agnostic selection.
+func (s *gormArtistStore) ArtistsNeedingLinks(limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error) {
+	var artists []catalogm.Artist
+	q := s.db.Where("musicbrainz_artist_id IS NOT NULL AND TRIM(musicbrainz_artist_id) <> ''").
+		Where(`(
+			spotify IS NULL OR TRIM(spotify) = '' OR
+			bandcamp IS NULL OR TRIM(bandcamp) = '' OR
+			website IS NULL OR TRIM(website) = ''
+		)`)
+	if reattemptCutoff != nil {
+		q = q.
+			Where("links_enrich_attempted_at IS NULL OR links_enrich_attempted_at < ?", *reattemptCutoff).
+			Order("links_enrich_attempted_at ASC NULLS FIRST").
+			Order("id ASC")
+	} else {
+		q = q.Order("id")
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.Find(&artists).Error; err != nil {
+		return nil, err
+	}
+	return artists, nil
+}
+
+// StampLinksAttempted sets links_enrich_attempted_at = at for the given ids (the sweep's
+// no-result memo). A no-op on an empty slice. Uses Table (not Model) so this bookkeeping
+// write does NOT bump artists.updated_at.
+func (s *gormArtistStore) StampLinksAttempted(ids []uint, at time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.db.Table("artists").
+		Where("id IN ?", ids).
+		Update("links_enrich_attempted_at", at).Error
+}
