@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -48,6 +49,11 @@ type CoverArtFetcher interface {
 type Options struct {
 	DryRun bool
 	Limit  int // 0 = all artists with a stored MBID
+	// ReattemptWindow turns on the sync memo for the background sweep (PSY-1291). When > 0,
+	// only artists with discography_synced_at NULL or older than (now - window) are selected,
+	// ordered stalest-first; the batch is stamped up front (unless DryRun). Leave zero for the
+	// manual cmd (memo-agnostic, id-ordered selection).
+	ReattemptWindow time.Duration
 }
 
 // Plan records one would-import release-group for the dry-run review.
@@ -82,11 +88,32 @@ func BackfillArtistDiscography(db *gorm.DB, browser ReleaseGroupBrowser, coverar
 }
 
 func backfillArtistDiscography(ctx context.Context, db *gorm.DB, browser ReleaseGroupBrowser, coverart CoverArtFetcher, opts Options) (*Report, error) {
-	artists, err := loadArtistsWithMBID(db, opts.Limit)
+	now := time.Now()
+
+	var cutoff *time.Time
+	if opts.ReattemptWindow > 0 {
+		c := now.Add(-opts.ReattemptWindow)
+		cutoff = &c
+	}
+
+	artists, err := loadArtistsWithMBID(db, opts.Limit, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("load artists with MBID: %w", err)
 	}
 	report := &Report{ArtistsScanned: len(artists)}
+
+	// Stamp-before-resolve (sweep mode only, never in a dry run): mark the whole batch synced
+	// up front so a poison row that errors still waits one re-attempt window before a retry and
+	// can't wedge the sweep (mirrors the location + image sweeps, PSY-1250/1246).
+	if opts.ReattemptWindow > 0 && !opts.DryRun && len(artists) > 0 {
+		ids := make([]uint, len(artists))
+		for i := range artists {
+			ids[i] = artists[i].ID
+		}
+		if err := stampDiscographySynced(db, ids, now); err != nil {
+			return nil, fmt.Errorf("stamp discography synced: %w", err)
+		}
+	}
 
 	for i := range artists {
 		// Honor cancellation (server shutdown) between artists — a browse is ~1s under
@@ -174,13 +201,22 @@ func backfillArtistDiscography(ctx context.Context, db *gorm.DB, browser Release
 	return report, nil
 }
 
-// loadArtistsWithMBID selects artists that have a stored MBID (the importer's input);
-// id-ordered, limit <= 0 = all.
-func loadArtistsWithMBID(db *gorm.DB, limit int) ([]catalogm.Artist, error) {
+// loadArtistsWithMBID selects artists that have a stored MBID (the importer's input).
+// reattemptCutoff (sweep mode, PSY-1291): when non-nil, also skip artists whose
+// discography_synced_at is at-or-after the cutoff and order by sync time (NULLs — never
+// synced — first) so brand-new and stalest rows come before recently re-checked ones.
+// nil (the manual cmd) keeps the original id-ordered, memo-agnostic selection. limit <= 0 = all.
+func loadArtistsWithMBID(db *gorm.DB, limit int, reattemptCutoff *time.Time) ([]catalogm.Artist, error) {
 	var artists []catalogm.Artist
-	q := db.
-		Where("musicbrainz_artist_id IS NOT NULL AND TRIM(musicbrainz_artist_id) <> ''").
-		Order("id")
+	q := db.Where("musicbrainz_artist_id IS NOT NULL AND TRIM(musicbrainz_artist_id) <> ''")
+	if reattemptCutoff != nil {
+		q = q.
+			Where("discography_synced_at IS NULL OR discography_synced_at < ?", *reattemptCutoff).
+			Order("discography_synced_at ASC NULLS FIRST").
+			Order("id ASC")
+	} else {
+		q = q.Order("id")
+	}
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -188,6 +224,18 @@ func loadArtistsWithMBID(db *gorm.DB, limit int) ([]catalogm.Artist, error) {
 		return nil, err
 	}
 	return artists, nil
+}
+
+// stampDiscographySynced sets discography_synced_at = at for the given ids (the sweep's sync
+// memo). A no-op on an empty slice. Uses Table (not Model) so this bookkeeping write does NOT
+// bump artists.updated_at — the memo marks "we tried", not a content change.
+func stampDiscographySynced(db *gorm.DB, ids []uint, at time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return db.Table("artists").
+		Where("id IN ?", ids).
+		Update("discography_synced_at", at).Error
 }
 
 // releaseGroupExists reports whether a release already carries this RG-MBID (the
