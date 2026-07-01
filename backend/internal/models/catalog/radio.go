@@ -219,6 +219,39 @@ func NormalizeScheduledPlaylistState(startsAt, endsAt *time.Time, playlistState 
 	return playlistState, attempts // pending+0, or a 'partial'/'complete' carrying real plays
 }
 
+// NormalizeWindowHealPlaylistState clears a false playlist give-up from the windowless
+// era once a real air window is frozen (PSY-1287). A WFMU episode with no matching
+// schedule slot (PSY-1283 off-by-one) stayed windowless → immediately 'aired' → the
+// post-air backfill burned attempts on empty pre-air playlists → 'unavailable'. After
+// the schedule is corrected and a window is assigned on re-list, reset so backfill
+// runs at the correct lifecycle phase. Only when play_count==0 (no imported plays).
+func NormalizeWindowHealPlaylistState(hadWindow bool, startsAt *time.Time, playlistState string, attempts, playCount int) (state string, newAttempts int) {
+	if hadWindow || startsAt == nil || playCount != 0 {
+		return playlistState, attempts
+	}
+	if playlistState == RadioPlaylistStateUnavailable || attempts > 0 {
+		return RadioPlaylistStatePending, 0
+	}
+	return playlistState, attempts
+}
+
+// NormalizeStrandedWindowlessPlaylistState re-opens backfill for a windowless aired
+// episode that gave up with zero plays (PSY-1287). Lets the backfill candidate query
+// find the show again so a re-list can heal the window from a corrected schedule.
+// A windowless episode with real plays is left untouched.
+func NormalizeStrandedWindowlessPlaylistState(startsAt *time.Time, playlistState string, attempts, playCount int, now time.Time) (state string, newAttempts int) {
+	if startsAt != nil || playCount != 0 {
+		return playlistState, attempts
+	}
+	if playlistState != RadioPlaylistStateUnavailable {
+		return playlistState, attempts
+	}
+	if ComputeEpisodeStatus(nil, nil, RadioPlaylistStatePending, now) != RadioEpisodeStatusAired {
+		return playlistState, attempts
+	}
+	return RadioPlaylistStatePending, 0
+}
+
 // Match-state constants (radio_plays.match_state). PSY-1131. Replaces the
 // implicit "artist_id IS NULL == unmatched" with an explicit state. no_match
 // (matcher ran, found nothing) is distinct from unmatched (matcher not yet run).
