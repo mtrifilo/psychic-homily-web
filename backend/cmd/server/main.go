@@ -199,6 +199,7 @@ func main() {
 		imageEnrichOutboxCancel   context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
 		artistDiscographySweepCancel context.CancelFunc
+		artistLinksSweepCancel       context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -317,6 +318,19 @@ func main() {
 		log.Printf("artist discography sweep disabled (set ENABLE_ARTIST_DISCOGRAPHY_SWEEP=1 to enable)")
 	}
 
+	// Start artist-links sweep (PSY-1279: Phase-A background job filling missing
+	// spotify/bandcamp/website from MBID-keyed MusicBrainz url-rels, fill-when-empty,
+	// auto-applied via UpdateArtist). OPT-IN, default OFF — the name-search discovery
+	// + artist_link_suggestions queue remains for MBID-less artists; this sweep is the
+	// durable backstop once an MBID exists.
+	if os.Getenv("ENABLE_ARTIST_LINKS_SWEEP") == "1" {
+		var artistLinksSweepCtx context.Context
+		artistLinksSweepCtx, artistLinksSweepCancel = context.WithCancel(context.Background())
+		sc.ArtistLinksSweep.Start(artistLinksSweepCtx)
+	} else {
+		log.Printf("artist links sweep disabled (set ENABLE_ARTIST_LINKS_SWEEP=1 to enable)")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -385,6 +399,10 @@ func main() {
 	if artistDiscographySweepCancel != nil {
 		artistDiscographySweepCancel()
 		sc.ArtistDiscographySweep.Stop()
+	}
+	if artistLinksSweepCancel != nil {
+		artistLinksSweepCancel()
+		sc.ArtistLinksSweep.Stop()
 	}
 
 	// Graceful shutdown

@@ -100,6 +100,7 @@ type ServiceContainer struct {
 	ImageEnrichSweep    *imageenrich.ImageEnrichmentSweep
 	ArtistLocationSweep    *enrich.ArtistLocationSweep
 	ArtistDiscographySweep *discography.ArtistDiscographySweep
+	ArtistLinksSweep       *enrich.ArtistLinksSweep
 	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
 	AutoPromotion       *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
@@ -161,6 +162,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// PSY-1291: artist-discography sweep (Phase A). Reuses the SAME shared mbClient
 	// (PSY-1208) so MusicBrainz browse stays under the one ~1 req/s throttle.
 	artistDiscographySweep := discography.NewArtistDiscographySweep(database, mbClient, catalog.NewCoverArtArchiveClient())
+
+	// PSY-1279: artist-links sweep (Phase A). Reuses the SAME shared mbClient
+	// (PSY-1208); auto-applies fill-when-empty via ArtistService.UpdateArtist.
+	artistLinksSweep := enrich.NewArtistLinksSweep(database, mbClient, artist)
 
 	// PSY-1251 (Phase B): on-create location/MBID enrichment for interactively-created
 	// artists. NB the flag is shared with the Phase-A sweep on purpose — ENABLE_ARTIST_
@@ -301,6 +306,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ImageEnrichOutbox:   imageEnrichOutbox,
 		ArtistLocationSweep:    artistLocationSweep,
 		ArtistDiscographySweep: artistDiscographySweep,
+		ArtistLinksSweep:       artistLinksSweep,
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:    engagement.NewCollectionDigestService(database, email, cfg),
 	}
