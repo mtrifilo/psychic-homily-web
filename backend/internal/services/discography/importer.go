@@ -115,6 +115,46 @@ func backfillArtistDiscography(ctx context.Context, db *gorm.DB, browser Release
 		}
 	}
 
+	return importArtistsDiscography(ctx, db, browser, coverart, artists, opts.DryRun, report)
+}
+
+// ImportArtistDiscographyByID imports primary discography for one MBID-bearing artist
+// (PSY-1292 Phase B). Fire-and-forget callers use this after a first-time MBID stamp.
+// Stamps discography_synced_at on completion so the Phase-A sweep skips the row;
+// browse/create errors leave the memo unset so the sweep retries.
+func ImportArtistDiscographyByID(ctx context.Context, db *gorm.DB, browser ReleaseGroupBrowser, coverart CoverArtFetcher, artistID uint) (*Report, error) {
+	var a catalogm.Artist
+	if err := db.First(&a, artistID).Error; err != nil {
+		return nil, fmt.Errorf("load artist %d: %w", artistID, err)
+	}
+	if strings.TrimSpace(derefString(a.MusicBrainzArtistID)) == "" {
+		return &Report{}, nil
+	}
+	report, err := importArtistsDiscography(ctx, db, browser, coverart, []catalogm.Artist{a}, false, &Report{ArtistsScanned: 1})
+	if err != nil {
+		return report, err
+	}
+	// Stamp only on a clean run so the Phase-A sweep retries after browse/outage errors.
+	if len(report.Errors) == 0 {
+		if err := stampDiscographySynced(db, []uint{a.ID}, time.Now()); err != nil {
+			return report, fmt.Errorf("stamp discography synced: %w", err)
+		}
+	}
+	return report, nil
+}
+
+func importArtistsDiscography(
+	ctx context.Context,
+	db *gorm.DB,
+	browser ReleaseGroupBrowser,
+	coverart CoverArtFetcher,
+	artists []catalogm.Artist,
+	dryRun bool,
+	report *Report,
+) (*Report, error) {
+	if report == nil {
+		report = &Report{}
+	}
 	for i := range artists {
 		// Honor cancellation (server shutdown) between artists — a browse is ~1s under
 		// the MB throttle. The manual cmd uses a Background ctx.
@@ -161,7 +201,7 @@ func backfillArtistDiscography(ctx context.Context, db *gorm.DB, browser Release
 				Artists:     []contracts.CreateReleaseArtistEntry{{ArtistID: a.ID, Role: string(catalogm.ArtistReleaseRoleMain)}},
 			}
 
-			if opts.DryRun {
+			if dryRun {
 				action := "create"
 				if exists, _ := releaseGroupExists(db, rg.ID); exists {
 					action = "dedup"

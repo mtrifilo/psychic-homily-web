@@ -10,6 +10,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 func strptr(s string) *string { return &s }
@@ -415,6 +416,10 @@ func TestEnrichArtistLocationByID(t *testing.T) {
 	}}
 
 	t.Run("fills location + MBID and stamps the memo", func(t *testing.T) {
+		t.Cleanup(func() { shared.OnArtistMBIDStamped = nil })
+		var notified []uint
+		shared.OnArtistMBIDStamped = func(id uint) { notified = append(notified, id) }
+
 		store := &fakeStore{artists: []catalogm.Artist{{ID: 1, Name: "Snail Mail"}}}
 		if err := enrichArtistLocationByID(context.Background(), store, fakeBandcamp{}, mb, 1); err != nil {
 			t.Fatal(err)
@@ -427,6 +432,9 @@ func TestEnrichArtistLocationByID(t *testing.T) {
 		}
 		if _, ok := store.stamped[1]; !ok {
 			t.Fatalf("expected the sweep memo stamped so the sweep skips it")
+		}
+		if len(notified) != 1 || notified[0] != 1 {
+			t.Fatalf("expected MBID-stamp notify for artist 1, got %v", notified)
 		}
 	})
 

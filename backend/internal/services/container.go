@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -19,6 +20,7 @@ import (
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/ratelimit"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/sourceregistry"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/utils"
@@ -161,7 +163,24 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	// PSY-1291: artist-discography sweep (Phase A). Reuses the SAME shared mbClient
 	// (PSY-1208) so MusicBrainz browse stays under the one ~1 req/s throttle.
-	artistDiscographySweep := discography.NewArtistDiscographySweep(database, mbClient, catalog.NewCoverArtArchiveClient())
+	coverArtClient := catalog.NewCoverArtArchiveClient()
+	artistDiscographySweep := discography.NewArtistDiscographySweep(database, mbClient, coverArtClient)
+
+	// PSY-1292 (Phase B): eager discography import when musicbrainz_artist_id is first
+	// written. NB the flag is shared with the Phase-A sweep on purpose — ENABLE_ARTIST_
+	// DISCOGRAPHY_SWEEP is the discography-enrichment FEATURE switch, so =1 turns on BOTH
+	// the nightly sweep AND these per-MBID-stamp imports (off the request goroutine).
+	if os.Getenv("ENABLE_ARTIST_DISCOGRAPHY_SWEEP") == "1" {
+		shared.OnArtistMBIDStamped = func(artistID uint) {
+			shared.GoSafe(context.Background(), "artist_discography_on_mbid", func() {
+				if _, err := discography.ImportArtistDiscographyByID(
+					context.Background(), database, mbClient, coverArtClient, artistID,
+				); err != nil {
+					log.Printf("on-mbid discography import failed for artist %d: %v", artistID, err)
+				}
+			})
+		}
+	}
 
 	// PSY-1279: artist-links sweep (Phase A). Reuses the SAME shared mbClient
 	// (PSY-1208); auto-applies fill-when-empty via ArtistService.UpdateArtist.
