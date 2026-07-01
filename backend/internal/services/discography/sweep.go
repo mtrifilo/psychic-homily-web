@@ -29,7 +29,9 @@ import (
 // Default OFF (ENABLE_ARTIST_DISCOGRAPHY_SWEEP=1), unlike the default-on background
 // workers: releases are the highest flood-risk enrichment, so opt-in-per-environment
 // (enable on stage first, watch the report, then prod) is deliberate, matching the
-// sibling location + image sweeps rather than the DISABLE_* workers.
+// sibling location + image sweeps rather than the DISABLE_* workers. NB the same flag
+// is the discography-enrichment FEATURE switch: =1 also turns on PSY-1292's eager
+// on-MBID-stamp import (fire-and-forget), wired in the service container.
 //
 // Operator note: keep REATTEMPT_DAYS comfortably larger than INTERVAL_HOURS × the number
 // of ticks it takes to walk the MBID tail (tail size / batch) — a re-attempt window

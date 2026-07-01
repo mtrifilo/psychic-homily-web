@@ -22,6 +22,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -237,7 +238,14 @@ func enrichArtistLocationByID(ctx context.Context, store artistStore, bandcamp B
 	if updates == nil {
 		return nil
 	}
-	return store.UpdateArtistLocation(a.ID, updates)
+	_, mbidInUpdate := updates["musicbrainz_artist_id"]
+	if err := store.UpdateArtistLocation(a.ID, updates); err != nil {
+		return err
+	}
+	if mbidInUpdate && isEmptyPtr(a.MusicBrainzArtistID) {
+		shared.NotifyArtistMBIDStamped(a.ID)
+	}
+	return nil
 }
 
 // backfillArtistLocations is the store-agnostic core. now is stamped on every
@@ -387,6 +395,10 @@ func backfillArtistLocations(
 		}
 		if err := store.UpdateArtistLocation(a.ID, updates); err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("artist %d update: %v", a.ID, err))
+			continue
+		}
+		if _, stamped := updates["musicbrainz_artist_id"]; stamped && isEmptyPtr(a.MusicBrainzArtistID) {
+			shared.NotifyArtistMBIDStamped(a.ID)
 		}
 	}
 
