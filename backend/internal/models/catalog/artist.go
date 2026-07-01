@@ -112,6 +112,13 @@ type Artist struct {
 	// independently.
 	LocationEnrichAttemptedAt *time.Time `json:"-" gorm:"column:location_enrich_attempted_at"`
 
+	// DiscographySyncedAt records when the ongoing artist-DISCOGRAPHY sweep (PSY-1291) last
+	// browsed this artist's MusicBrainz release-groups, so it can skip rows synced within the
+	// re-attempt window instead of re-browsing the whole MBID catalog every cycle. NULL = never
+	// synced by the sweep. Internal: not mapped onto any API response. Mirrors
+	// LocationEnrichAttemptedAt; a separate column because the two sweeps converge independently.
+	DiscographySyncedAt *time.Time `json:"-" gorm:"column:discography_synced_at"`
+
 	// Streaming-discovery review state — see StreamingDiscoveryStatus const block.
 	// Reason holds the admin's optional note on no_links_found / skipped outcomes.
 	StreamingDiscoveryStatus StreamingDiscoveryStatus `json:"streaming_discovery_status" gorm:"column:streaming_discovery_status;size:32;not null;default:unreviewed"`

@@ -197,7 +197,8 @@ func main() {
 		collectionDigestCancel    context.CancelFunc
 		imageEnrichSweepCancel    context.CancelFunc
 		imageEnrichOutboxCancel   context.CancelFunc
-		artistLocationSweepCancel context.CancelFunc
+		artistLocationSweepCancel    context.CancelFunc
+		artistDiscographySweepCancel context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -302,6 +303,20 @@ func main() {
 		log.Printf("artist location sweep disabled (set ENABLE_ARTIST_LOCATION_SWEEP=1 to enable)")
 	}
 
+	// Start artist-discography sweep (PSY-1291: Phase-A background job importing primary
+	// discography for MBID-bearing artists via MusicBrainz browse + Cover Art Archive).
+	// OPT-IN, default OFF (inverted polarity vs the DISABLE_* services above): releases
+	// are the highest flood-risk enrichment, so this runs only where explicitly enabled
+	// (ENABLE_ARTIST_DISCOGRAPHY_SWEEP=1 — e.g. stage first) rather than auto-starting on
+	// deploy. Mirrors the location + image sweep posture.
+	if os.Getenv("ENABLE_ARTIST_DISCOGRAPHY_SWEEP") == "1" {
+		var artistDiscographySweepCtx context.Context
+		artistDiscographySweepCtx, artistDiscographySweepCancel = context.WithCancel(context.Background())
+		sc.ArtistDiscographySweep.Start(artistDiscographySweepCtx)
+	} else {
+		log.Printf("artist discography sweep disabled (set ENABLE_ARTIST_DISCOGRAPHY_SWEEP=1 to enable)")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -366,6 +381,10 @@ func main() {
 	if artistLocationSweepCancel != nil {
 		artistLocationSweepCancel()
 		sc.ArtistLocationSweep.Stop()
+	}
+	if artistDiscographySweepCancel != nil {
+		artistDiscographySweepCancel()
+		sc.ArtistDiscographySweep.Stop()
 	}
 
 	// Graceful shutdown
