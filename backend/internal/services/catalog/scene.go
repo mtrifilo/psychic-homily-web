@@ -101,14 +101,28 @@ func (sc sceneScope) venuePredicate(alias string) (string, []any) {
 // city/state match for a fallback scene — plus its positional bind args. The
 // city/state branch is case-insensitive + trimmed; an artist with a NULL/blank
 // home city is excluded (we can't claim they're based here). For a metro scene,
-// roster membership comes from the denormalized artists.metro column (backfilled
-// by cmd/backfill-entity-metro) and does NOT require a local show.
-func (sc sceneScope) artistPredicate(alias string) (string, []any) {
-	if sc.isMetro() {
-		return alias + ".metro = ?", []any{sc.metro}
+// roster membership is primarily artists.metro = CBSA (PSY-1255); PSY-1237 also
+// matches NULL-metro artists whose home (city, state) is any CBSA member place
+// from the geo dataset (Brooklyn↔New York City, Cambridge↔Boston, etc.).
+func (s *SceneService) artistPredicate(scope sceneScope, alias string) (string, []any) {
+	if scope.isMetro() {
+		pred := alias + ".metro = ?"
+		args := []any{scope.metro}
+		if members, ok := geo.MetroMemberPlaces(scope.metro); ok && len(members) > 0 {
+			orParts := make([]string, 0, len(members))
+			for _, m := range members {
+				orParts = append(orParts,
+					"(LOWER(TRIM("+alias+".city)) = LOWER(TRIM(?)) AND LOWER(TRIM("+alias+".state)) = LOWER(TRIM(?)))")
+				args = append(args, m.City, m.State)
+			}
+			nullMetro := alias + ".metro IS NULL AND " + alias + ".city IS NOT NULL AND " + alias + ".city <> '' AND " +
+				alias + ".state IS NOT NULL AND " + alias + ".state <> ''"
+			pred = "(" + pred + " OR (" + nullMetro + " AND (" + strings.Join(orParts, " OR ") + ")))"
+		}
+		return pred, args
 	}
 	return "LOWER(TRIM(" + alias + ".city)) = LOWER(TRIM(?)) AND LOWER(TRIM(" + alias + ".state)) = LOWER(TRIM(?))",
-		[]any{sc.city, sc.state}
+		[]any{scope.city, scope.state}
 }
 
 // verifiedVenueCount counts the scene's verified venues — the existence gate
@@ -242,7 +256,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	now := time.Now().UTC()
 	scope := s.scopeFor(city, state)
 	vp, vargs := scope.venuePredicate("v")
-	ap, aargs := scope.artistPredicate("a2")
+	ap, aargs := s.artistPredicate(scope, "a2")
 	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
 	// across queries) followed by extra args, in placeholder order.
 	venueArgs := func(extra ...any) []any { return append(append([]any{}, vargs...), extra...) }
@@ -419,7 +433,7 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 		return nil, 0, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 	activeCutoff := time.Now().UTC().AddDate(0, 0, -activeWindowDays)
 
 	// Total roster size = every band based in the metro.
@@ -575,7 +589,7 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 	}
 
 	scope := s.scopeFor(city, state)
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 
 	type genreRow struct {
 		TagID uint   `gorm:"column:tag_id"`
@@ -631,7 +645,7 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 	}
 
 	scope := s.scopeFor(city, state)
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 
 	type genreRow struct {
 		Count int `gorm:"column:count"`
@@ -945,7 +959,7 @@ func sortStringsAsc(s []string) {
 // follow-up so it aligns with the graph-density work (PSY-1257/1259) rather than
 // adding a silent cap here.
 func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, error) {
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 	vp, vargs := scope.venuePredicate("v")
 	const q = `
 		WITH scene_artists AS (
