@@ -616,3 +616,142 @@ func (s *RadioAffinitySyncSuite) TestBackbone_AsymmetricMinPrunesWeakHubEdge() {
 	// The dominant edge is far more significant (smaller) — the filter's whole point.
 	s.Less(*hA, *hB)
 }
+
+// ── PSY-1293: backbone_significance propagation (sync) + scene-graph query filter ──
+
+// insertAffinitySig inserts an affinity row with an explicit backbone_significance (canonical order).
+func (s *RadioAffinitySyncSuite) insertAffinitySig(aID, bID uint, count int, sig *float64) {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	aff := &catalogm.RadioArtistAffinity{
+		ArtistAID:            lo,
+		ArtistBID:            hi,
+		CoOccurrenceCount:    count,
+		ShowCount:            count,
+		StationCount:         1,
+		BackboneSignificance: sig,
+	}
+	s.Require().NoError(s.db.Create(aff).Error)
+}
+
+// relSig returns the stored backbone_significance of the radio_cooccurrence relationship for a pair.
+func (s *RadioAffinitySyncSuite) relSig(aID, bID uint) *float64 {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	var rel catalogm.ArtistRelationship
+	s.Require().NoError(s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
+		lo, hi, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error)
+	return rel.BackboneSignificance
+}
+
+// insertRelCanonical inserts an artist_relationships row honoring the source<target CHECK constraint.
+func (s *RadioAffinitySyncSuite) insertRelCanonical(aID, bID uint, typ string, score float32, sig *float64) {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	s.Require().NoError(s.db.Create(&catalogm.ArtistRelationship{
+		SourceArtistID:       lo,
+		TargetArtistID:       hi,
+		RelationshipType:     typ,
+		Score:                score,
+		AutoDerived:          true,
+		BackboneSignificance: sig,
+	}).Error)
+}
+
+func (s *RadioAffinitySyncSuite) TestSync_PropagatesBackboneSignificance_OnCreate() {
+	a := s.createArtist("Sig A", "bb-sync-sig-a")
+	b := s.createArtist("Sig B", "bb-sync-sig-b")
+	sig := 0.05
+	s.insertAffinitySig(a.ID, b.ID, 5, &sig)
+
+	result, err := s.svc.SyncAffinityToRelationships()
+	s.Require().NoError(err)
+	s.Equal(1, result.Created)
+
+	got := s.relSig(a.ID, b.ID)
+	s.Require().NotNil(got)
+	s.InDelta(0.05, *got, 1e-6)
+}
+
+func (s *RadioAffinitySyncSuite) TestSync_RefreshesBackboneSignificance_OnUpdate() {
+	a := s.createArtist("Upd A", "bb-sync-upd-a")
+	b := s.createArtist("Upd B", "bb-sync-upd-b")
+
+	// Pre-existing relationship carrying a STALE significance.
+	old := 0.9
+	s.insertRelCanonical(a.ID, b.ID, catalogm.RelationshipTypeRadioCooccurrence, 0.1, &old)
+
+	// Affinity now carries a fresh (stronger) significance.
+	fresh := 0.02
+	s.insertAffinitySig(a.ID, b.ID, 8, &fresh)
+
+	result, err := s.svc.SyncAffinityToRelationships()
+	s.Require().NoError(err)
+	s.Equal(1, result.Updated)
+
+	got := s.relSig(a.ID, b.ID)
+	s.Require().NotNil(got)
+	s.InDelta(0.02, *got, 1e-6)
+}
+
+func (s *RadioAffinitySyncSuite) TestSync_ClearsBackboneSignificance_WhenAffinityNil() {
+	a := s.createArtist("Clr A", "bb-sync-clr-a")
+	b := s.createArtist("Clr B", "bb-sync-clr-b")
+
+	// Pre-existing relationship WITH a significance...
+	old := 0.3
+	s.insertRelCanonical(a.ID, b.ID, catalogm.RelationshipTypeRadioCooccurrence, 0.1, &old)
+
+	// ...but the affinity's significance was not computed this cycle (nil).
+	s.insertAffinitySig(a.ID, b.ID, 4, nil)
+
+	result, err := s.svc.SyncAffinityToRelationships()
+	s.Require().NoError(err)
+	s.Equal(1, result.Updated)
+
+	// The nil pointer must clear the column back to NULL (map-update semantics), not leave it stale.
+	got := s.relSig(a.ID, b.ID)
+	s.Nil(got)
+}
+
+func (s *RadioAffinitySyncSuite) TestQueryRelationshipsAmongArtists_BackboneFilter() {
+	a := s.createArtist("Scene A", "bb-scene-a")
+	b := s.createArtist("Scene B", "bb-scene-b")
+	c := s.createArtist("Scene C", "bb-scene-c")
+	d := s.createArtist("Scene D", "bb-scene-d")
+	ids := []uint{a.ID, b.ID, c.ID, d.ID}
+
+	sig05 := 0.05
+	sig50 := 0.50
+	s.insertRelCanonical(a.ID, b.ID, catalogm.RelationshipTypeRadioCooccurrence, 0.2, &sig05) // < alpha → kept
+	s.insertRelCanonical(a.ID, c.ID, catalogm.RelationshipTypeRadioCooccurrence, 0.2, &sig50) // >= alpha → dropped
+	s.insertRelCanonical(a.ID, d.ID, catalogm.RelationshipTypeRadioCooccurrence, 0.2, nil)    // NULL → dropped
+	s.insertRelCanonical(b.ID, c.ID, catalogm.RelationshipTypeSimilar, 0.3, nil)              // non-radio → always kept
+
+	// alpha 0.10: only the backbone radio edge + the non-radio edge survive.
+	rows, err := queryRelationshipsAmongArtists(s.db, ids, nil, 0.10)
+	s.Require().NoError(err)
+	s.Require().Len(rows, 2)
+	radio, similar := 0, 0
+	for _, r := range rows {
+		switch r.RelationshipType {
+		case catalogm.RelationshipTypeRadioCooccurrence:
+			radio++
+		case catalogm.RelationshipTypeSimilar:
+			similar++
+		}
+	}
+	s.Equal(1, radio, "only the sig<alpha radio edge is kept")
+	s.Equal(1, similar, "non-radio edges are never filtered by the backbone")
+
+	// alpha 0 disables the filter entirely — every edge is returned (pre-PSY-1293 behavior).
+	all, err := queryRelationshipsAmongArtists(s.db, ids, nil, 0)
+	s.Require().NoError(err)
+	s.Len(all, 4)
+}

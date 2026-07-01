@@ -28,6 +28,13 @@ type ArtistRelationship struct {
 	Score            float32          `json:"score" gorm:"column:score;not null;default:0"`
 	AutoDerived      bool             `json:"auto_derived" gorm:"column:auto_derived;not null;default:false"`
 	Detail           *json.RawMessage `json:"detail,omitempty" gorm:"column:detail;type:jsonb"`
+
+	// BackboneSignificance is the disparity-filter significance (PSY-1261) of this edge,
+	// denormalized from radio_artist_affinity by SyncAffinityToRelationships (PSY-1293) for the
+	// radio_cooccurrence relationship type ONLY — it is NULL for every other type. Lower = stronger;
+	// an edge is in the scene backbone at level alpha iff backbone_significance < alpha. NULL = not
+	// in the scene backbone.
+	BackboneSignificance *float64 `json:"backbone_significance,omitempty" gorm:"column:backbone_significance"`
 	CreatedAt        time.Time        `json:"created_at" gorm:"not null"`
 	UpdatedAt        time.Time        `json:"updated_at" gorm:"not null"`
 
