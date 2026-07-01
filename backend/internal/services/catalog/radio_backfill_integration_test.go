@@ -39,7 +39,7 @@ func (s *RadioSyncSuite) seedEpisodeFor(showID uint, ext, airDate, state string,
 		PlaylistFetchAttempts: attempts,
 		StartsAt:              starts,
 		EndsAt:                ends,
-		Status:                catalogm.ComputeEpisodeStatus(starts, ends, state, now),
+		Status:                catalogm.ComputeEpisodeStatus(starts, ends, airDate, state, now),
 	}
 	s.Require().NoError(s.db.Create(&ep).Error)
 	return ep
@@ -117,6 +117,40 @@ func (s *RadioSyncSuite) TestRecordPlaylistOutcome_AiredEmpty_IncrementsThenUnav
 	s.Equal(catalogm.RadioBackfillMaxAttempts, got2.PlaylistFetchAttempts)
 }
 
+// PSY-1287: recordPlaylistOutcome must gate the attempt-burn on a WINDOWLESS episode's
+// air_date. A future-dated placeholder (not yet aired in the broadcaster's zone) must NOT
+// burn an attempt on an empty fetch and stays 'scheduled'; a past-aired windowless episode
+// still burns exactly as before. This guards the service-layer air_date wiring the isolated
+// model unit tests cannot — a mis-wired air_date argument would compile and pass those.
+func (s *RadioSyncSuite) TestRecordPlaylistOutcome_WindowlessAirDateGatesBurn() {
+	now := time.Now()
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Windowless Show", "windowless-show", "ext-wl")
+
+	// Windowless FUTURE placeholder (no window, air_date 2 days ahead): an empty post-fetch
+	// is a no-op — not yet aired, so no attempt is burned and it stays 'scheduled'.
+	future := now.AddDate(0, 0, 2).Format("2006-01-02")
+	futureEp := s.seedEpisodeFor(show.ID, "wl-future", future,
+		catalogm.RadioPlaylistStatePending, 0, nil, nil, now)
+	s.Require().Equal(catalogm.RadioEpisodeStatusScheduled, futureEp.Status, "seed sanity: windowless future is scheduled")
+	s.Require().NoError(s.svc.recordPlaylistOutcome(&futureEp, 0, true, now))
+	gotFuture := s.reloadEpisode(futureEp.ID)
+	s.Equal(catalogm.RadioPlaylistStatePending, gotFuture.PlaylistState, "not-yet-aired: state unchanged")
+	s.Equal(0, gotFuture.PlaylistFetchAttempts, "not-yet-aired: NO attempt burned (PSY-1287)")
+	s.Equal(catalogm.RadioEpisodeStatusScheduled, gotFuture.Status)
+
+	// Windowless PAST-aired episode (air_date 2 days ago): an empty post-fetch IS a failed
+	// attempt — it has aired, so the burn proceeds exactly as before.
+	past := now.AddDate(0, 0, -2).Format("2006-01-02")
+	pastEp := s.seedEpisodeFor(show.ID, "wl-past", past,
+		catalogm.RadioPlaylistStatePending, 0, nil, nil, now)
+	s.Require().Equal(catalogm.RadioEpisodeStatusAired, pastEp.Status, "seed sanity: windowless past is aired")
+	s.Require().NoError(s.svc.recordPlaylistOutcome(&pastEp, 0, true, now))
+	gotPast := s.reloadEpisode(pastEp.ID)
+	s.Equal(catalogm.RadioPlaylistStatePending, gotPast.PlaylistState)
+	s.Equal(1, gotPast.PlaylistFetchAttempts, "aired: attempt IS burned")
+}
+
 // ListBackfillCandidates returns exactly the shows with aired, still-incomplete
 // episodes within the lookback — grouped into one [min,max] air-date window each —
 // and excludes complete, live, exhausted, and out-of-window episodes.
@@ -154,6 +188,13 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_FiltersAndGroups() {
 	// showE: aired incomplete but beyond the 7-day lookback → excluded (SQL air_date filter).
 	showE := s.seedShowFor(st.ID, "Show E", "show-e", "ext-e")
 	s.seedEpisodeFor(showE.ID, "e-old", tenDaysAgo, catalogm.RadioPlaylistStatePending, 0, &wayOldStart, &wayOldEnd, now)
+
+	// showF: WINDOWLESS FUTURE-dated placeholder → excluded (Go air_date predicate: not yet
+	// aired in the broadcaster's timezone, PSY-1287). A windowless episode with no window must
+	// NOT be swept before its air_date passes, or the backfill burns attempts pre-broadcast.
+	twoDaysAhead := now.AddDate(0, 0, 2).Format("2006-01-02")
+	showF := s.seedShowFor(st.ID, "Show F", "show-f", "ext-f")
+	s.seedEpisodeFor(showF.ID, "f-future", twoDaysAhead, catalogm.RadioPlaylistStatePending, 0, nil, nil, now)
 
 	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, catalogm.RadioBackfillMaxAttempts, now)
 	s.Require().NoError(err)

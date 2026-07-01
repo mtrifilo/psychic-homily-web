@@ -816,10 +816,12 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 		return nil, 0, err
 	}
 
-	// Flag upcoming (not-yet-aired) episodes against the show's station-local
-	// today (PSY-1205). Windowless providers (WFMU) can't express "upcoming"
-	// through Status — a null air window settles to "aired" — so the per-show
-	// archive labels them from air_date instead.
+	// Flag upcoming (not-yet-aired) episodes against the show's station-local today
+	// (PSY-1205). This is a date-only signal, derived purely from air_date vs the
+	// station-local calendar day, kept independent of Status. (Status separately
+	// distinguishes scheduled/live/aired/archived; since PSY-1287 a windowless future
+	// episode is 'scheduled' there too, but IsUpcoming stays the authoritative
+	// air_date-vs-today label the per-show archive renders.)
 	today, err := s.stationLocalTodayForShow(showID)
 	if err != nil {
 		return nil, 0, err
@@ -841,7 +843,7 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 			EndsAt:          ep.EndsAt,
 			// Status is computed on read — "live" is a function of now, so a stored
 			// value would go stale the instant the window ends (the PSY-1128 bug).
-			Status: catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, ep.PlaylistState, now),
+			Status: catalogm.ComputeEpisodeStatus(ep.StartsAt, ep.EndsAt, ep.AirDate, ep.PlaylistState, now),
 			// air_date is a DATE; YYYY-MM-DD strings compare lexicographically.
 			IsUpcoming:    airDate > today,
 			PlayCount:     ep.PlayCount,

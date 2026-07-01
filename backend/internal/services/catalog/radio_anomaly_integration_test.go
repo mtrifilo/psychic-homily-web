@@ -73,7 +73,13 @@ func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_FlagsBelowBaseline() {
 // A normal-volume fetch (≈ the trailing baseline) is NOT flagged — no false positive on
 // the typical case. Exercises the real play-import path via a mock provider.
 func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_NormalVolumeNotFlagged() {
-	today := time.Now().Format("2006-01-02")
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	// An AIRED window (started 2h ago, ended 1h ago) so the first-import playlist fetch runs
+	// — a windowless episode dated today is now 'scheduled' until its broadcast day ends
+	// (PSY-1287), which would skip the fetch; this test is about anomaly detection, not
+	// windowless timing, so give it a real aired window (realistic for KEXP).
+	airedStart, airedEnd := now.Add(-2*time.Hour), now.Add(-1*time.Hour)
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
 	s.seedFetchRuns(st.ID, []int{48, 50, 52, 45, 51, 49}) // trailing mean ~49
 
@@ -84,7 +90,7 @@ func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_NormalVolumeNotFlagged() {
 	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
 		return &mockPlaylistProvider{
 			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
-				return []RadioEpisodeImport{{ExternalID: "vol-ep1", ShowExternalID: ext, AirDate: today}}, nil
+				return []RadioEpisodeImport{{ExternalID: "vol-ep1", ShowExternalID: ext, AirDate: today, StartsAt: &airedStart, EndsAt: &airedEnd}}, nil
 			},
 			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
 				plays := make([]RadioPlayImport, 0, 40)

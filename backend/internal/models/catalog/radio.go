@@ -92,9 +92,10 @@ const (
 // the value is a data-quality policy, not an operational cadence. The backfill
 // cadence (sweep interval, lookback window) IS env-tunable — see radio_fetch_service.go.
 //
-// Give-up budget: a windowless (WFMU) or start-only (NTS) episode is "aired" the
-// moment it has started (no live window guards it), so attempts begin accruing at the
-// first post-start fetch. The effective budget before 'unavailable' is therefore
+// Give-up budget: a start-only (NTS) episode is "aired" the moment it has started, and a
+// windowless (WFMU) episode is "aired" once its air_date has passed (PSY-1287 — NOT before,
+// or the budget would burn on a not-yet-broadcast placeholder), so attempts begin accruing
+// at the first post-air fetch. The effective budget before 'unavailable' is therefore
 // ~ maxAttempts × sweep-interval (default 5 × 1h = ~5h), which comfortably covers the
 // usual minutes-to-hours playlist-publish delay; a provider that publishes a playlist
 // slower than that budget can strand an episode at 'unavailable' until the janitor
@@ -102,27 +103,36 @@ const (
 const RadioBackfillMaxAttempts = 5
 
 // ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
-// window, playlist completeness, and the current time (PSY-1152).
+// window, air_date, playlist completeness, and the current time (PSY-1152/PSY-1287).
 //
 // "live" is computed here, never trusted as a durable stored value, because it
 // is a function of now — a stored "live" goes stale the instant the air window
 // ends, which is exactly the PSY-1128 false-ON-AIR bug. Callers compute it at
 // read time against the viewer's clock.
 //
-// A windowless episode (startsAt == nil — WFMU before PSY-1159, or any provider
-// that supplies no time) is NEVER "live": it is 'archived' once its playlist is
-// complete, else 'aired' (the conservative §9 decision-2 fallback). An episode
-// with a start but no end (e.g. NTS, which gives a broadcast start but no
-// duration) likewise can't be bounded as "live" and settles to aired/archived
-// once started.
-func ComputeEpisodeStatus(startsAt, endsAt *time.Time, playlistState string, now time.Time) string {
+// A windowless episode (startsAt == nil — a WFMU episode with no matching schedule
+// slot, or any provider that supplies no time) is NEVER "live". It is 'scheduled'
+// while its air_date day has not yet passed in the broadcaster's timezone (see
+// windowlessNotYetAired): a future-dated WFMU placeholder — the importer ingests
+// upcoming broadcasts ahead of airtime — must NOT count as aired, or the post-air
+// backfill burns its attempts to 'unavailable' before
+// it ever broadcasts, after which it is never re-fetched once it does air (PSY-1287).
+// Once the air_date has passed it is 'archived' if its playlist is complete, else
+// 'aired' (the conservative §9 decision-2 fallback). An episode with a start but no
+// end (e.g. NTS, which gives a broadcast start but no duration) likewise can't be
+// bounded as "live" and settles to aired/archived once started.
+func ComputeEpisodeStatus(startsAt, endsAt *time.Time, airDate, playlistState string, now time.Time) string {
 	settled := RadioEpisodeStatusAired
 	if playlistState == RadioPlaylistStateComplete {
 		settled = RadioEpisodeStatusArchived
 	}
 
 	if startsAt == nil {
-		return settled // windowless: never scheduled or live
+		// Windowless: never live; 'scheduled' until its air_date has passed, then settled.
+		if windowlessNotYetAired(airDate, now) {
+			return RadioEpisodeStatusScheduled
+		}
+		return settled
 	}
 	if now.Before(*startsAt) {
 		return RadioEpisodeStatusScheduled
@@ -132,6 +142,57 @@ func ComputeEpisodeStatus(startsAt, endsAt *time.Time, playlistState string, now
 		return RadioEpisodeStatusLive
 	}
 	return settled
+}
+
+// windowlessBroadcastZone is the IANA timezone whose CALENDAR DAY defines when a windowless
+// episode has aired. Windowless episodes are, by construction, WFMU's — it is the only
+// date-only provider (KEXP/NTS carry their own broadcast instants, so they are never
+// windowless) — and WFMU broadcasts from America/New_York, so its broadcast day is the
+// correct frame for "has this air_date passed". Anchoring on UTC instead would flip a date-D
+// episode to 'aired' at ~8pm ET on day D — BEFORE a late-evening ET show has even broadcast
+// (so the backfill could still burn attempts pre-air, the PSY-1287 strand), and well before
+// a morning ET show's broadcast day is over. If a future date-only provider in another zone
+// is ever added, this constant must become a per-episode station timezone.
+const windowlessBroadcastZone = "America/New_York"
+
+// windowlessBroadcastLoc is windowlessBroadcastZone loaded once at init (cf. hhmmPattern),
+// so the per-episode air-phase check doesn't reload the zone. Falls back to UTC if the zone
+// can't load (should never happen on a tzdata-backed build; keeps the model usable rather
+// than panicking at import).
+var windowlessBroadcastLoc = func() *time.Location {
+	loc, err := time.LoadLocation(windowlessBroadcastZone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}()
+
+// windowlessNotYetAired reports whether a WINDOWLESS episode's air_date DAY has not yet
+// passed in the broadcaster's timezone (windowlessBroadcastLoc) relative to now. A windowless
+// episode carries no air time, so its exact broadcast instant is unknown; it is treated as
+// not-yet-aired until its whole air_date day has ended in that zone (air_date >= today_local).
+// That is the conservative bound that never marks an episode aired before its broadcast day
+// is over, which is what stops the post-air backfill from burning attempts on a not-yet-aired
+// placeholder (PSY-1287). Anchoring on the broadcaster's day (not UTC) is load-bearing: a UTC
+// boundary flips a late-evening ET show to 'aired' before it broadcasts (re-stranding it) and
+// over-delays a morning ET show.
+//
+// The leading 10 chars of air_date are taken first so both the provider "2006-01-02" form and
+// a DB DATE round-trip ("2006-01-02T00:00:00Z") parse. An empty or unparseable air_date returns
+// false — the status-quo 'settled' fallback; an unrecognized date is not made MORE eligible.
+func windowlessNotYetAired(airDate string, now time.Time) bool {
+	if len(airDate) < 10 {
+		return false
+	}
+	day, err := time.Parse("2006-01-02", airDate[:10]) // parsed at UTC midnight
+	if err != nil {
+		return false
+	}
+	// "today" is the current date in the broadcaster's zone, expressed as UTC midnight to
+	// compare against `day` (also UTC midnight) as pure calendar dates.
+	local := now.In(windowlessBroadcastLoc)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	return !day.Before(today)
 }
 
 // ComputePlaylistState decides an episode's playlist_state after one playlist fetch
@@ -175,9 +236,9 @@ func ComputePlaylistState(isAired, hasPlays, fetchFailed bool, attempts, maxAtte
 // candidate query refine to it, so the in-flight re-fetch decision and the sweep
 // selection can never drift. An episode is eligible when it is still incomplete
 // (pending/partial — never complete/unavailable), has attempts left, and has aired
-// (a windowless episode counts as aired; scheduled/live episodes are skipped — their
-// playlist is legitimately not final yet).
-func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, attempts, maxAttempts int, now time.Time) bool {
+// (a windowless episode counts as aired only once its air_date has passed, PSY-1287;
+// scheduled/live episodes are skipped — their playlist is legitimately not final yet).
+func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, airDate, playlistState string, attempts, maxAttempts int, now time.Time) bool {
 	if playlistState != RadioPlaylistStatePending && playlistState != RadioPlaylistStatePartial {
 		return false
 	}
@@ -186,28 +247,30 @@ func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, a
 	}
 	// Pass pending so the result is the pure time-phase (scheduled/live/aired),
 	// never 'archived' — completeness is already handled by the state check above.
-	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
+	return ComputeEpisodeStatus(startsAt, endsAt, airDate, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
 }
 
 // NormalizeScheduledPlaylistState enforces the invariant that a not-yet-aired
 // (scheduled) episode never carries a terminal/exhausted playlist state (PSY-1285).
 // A scheduled episode's playlist legitimately doesn't exist yet, so it must be
-// 'pending' with zero burned backfill attempts. The bad state arises because a
-// WINDOWLESS episode is settled to 'aired' (no window to wait through), so the
-// post-air backfill burns attempts on it → 'unavailable'; if it is later given a
-// FUTURE window — by PSY-1283's schedule correction or a heal-on-relist — it becomes
-// 'scheduled', but its playlist_state would otherwise stay stuck 'unavailable'.
+// 'pending' with zero burned backfill attempts. The bad state arises when a post-air
+// backfill burns attempts on something it treated as aired → 'unavailable', which later
+// resolves as not-yet-aired: a windowless episode given a FUTURE window (PSY-1283's
+// schedule correction or a heal-on-relist), OR — since PSY-1287 — a windowless
+// FUTURE-dated episode (a placeholder for an upcoming broadcast) that ComputeEpisodeStatus
+// now correctly reports as 'scheduled' rather than 'aired'. Either way this resets it so
+// the post-air backfill can run once it actually airs.
 //
-// Returns the (possibly reset) state + attempts. It is a no-op for anything that is
-// NOT scheduled (an aired/live/windowless episode keeps its state — a windowless
-// 'aired' episode legitimately reaching 'unavailable' is PSY-1287's concern, not this
-// invariant). For a scheduled episode it clears ONLY the stranded/exhausted shape — a
-// terminal 'unavailable', or burned backfill attempts on a STILL-pending episode (which
-// a not-yet-aired episode can never have legitimately earned) — and leaves a scheduled
-// 'partial'/'complete' (and its play count + attempts) intact, since those carry real
-// plays and are not the AC#2 'unavailable' violation.
-func NormalizeScheduledPlaylistState(startsAt, endsAt *time.Time, playlistState string, attempts int, now time.Time) (state string, newAttempts int) {
-	if ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) != RadioEpisodeStatusScheduled {
+// Returns the (possibly reset) state + attempts. It is a no-op for anything that is NOT
+// scheduled (an aired/live episode keeps its state — a PAST-aired windowless episode
+// legitimately reaching 'unavailable' is PSY-1287's no-playlist case, not this invariant).
+// For a scheduled episode it clears ONLY the stranded/exhausted shape — a terminal
+// 'unavailable', or burned backfill attempts on a STILL-pending episode (which a not-yet-aired
+// episode can never have legitimately earned) — and leaves a scheduled 'partial'/'complete'
+// (and its play count + attempts) intact, since those carry real plays and are not the AC#2
+// 'unavailable' violation.
+func NormalizeScheduledPlaylistState(startsAt, endsAt *time.Time, airDate, playlistState string, attempts int, now time.Time) (state string, newAttempts int) {
+	if ComputeEpisodeStatus(startsAt, endsAt, airDate, RadioPlaylistStatePending, now) != RadioEpisodeStatusScheduled {
 		return playlistState, attempts // not a not-yet-aired episode → leave untouched
 	}
 	if playlistState == RadioPlaylistStateUnavailable {

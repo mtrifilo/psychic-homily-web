@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// Reference air_dates for the windowless (air_date-driven) status branch, relative to a
+// 2026-06-16 "today". Every test's `now` values fall on 2026-06-16 in the broadcaster's
+// zone (America/New_York, EDT) — except the explicit tz-anchor case — so these resolve to
+// today / yesterday / tomorrow there.
+const (
+	airDay     = "2026-06-16" // today
+	pastDate   = "2026-06-15" // before today → aired
+	futureDate = "2026-06-17" // after today → not yet aired
+)
+
 // TestComputeEpisodeStatus locks the episode lifecycle state machine (PSY-1152):
 // status derives from the FROZEN air window + playlist completeness + now, and a
 // windowless or unbounded episode is NEVER falsely "live" (the PSY-1128 bug).
@@ -20,34 +30,48 @@ func TestComputeEpisodeStatus(t *testing.T) {
 	cases := []struct {
 		name          string
 		starts, ends  *time.Time
+		airDate       string
 		playlistState string
 		now           time.Time
 		want          string
 	}{
-		// Bounded window (KEXP).
-		{"before window → scheduled", ptr(start), ptr(end), RadioPlaylistStatePending, before, RadioEpisodeStatusScheduled},
-		{"inside window → live", ptr(start), ptr(end), RadioPlaylistStatePending, during, RadioEpisodeStatusLive},
-		{"at start (inclusive) → live", ptr(start), ptr(end), RadioPlaylistStatePending, start, RadioEpisodeStatusLive},
-		{"at end (inclusive) → live", ptr(start), ptr(end), RadioPlaylistStatePending, end, RadioEpisodeStatusLive},
-		{"after window, pending → aired (the PSY-1128 fix: NOT live at 5:54pm)", ptr(start), ptr(end), RadioPlaylistStatePending, after, RadioEpisodeStatusAired},
-		{"after window, complete → archived", ptr(start), ptr(end), RadioPlaylistStateComplete, after, RadioEpisodeStatusArchived},
+		// Bounded window (KEXP) — the window drives status; air_date is not consulted.
+		{"before window → scheduled", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, before, RadioEpisodeStatusScheduled},
+		{"inside window → live", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, during, RadioEpisodeStatusLive},
+		{"at start (inclusive) → live", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, start, RadioEpisodeStatusLive},
+		{"at end (inclusive) → live", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, end, RadioEpisodeStatusLive},
+		{"after window, pending → aired (the PSY-1128 fix: NOT live at 5:54pm)", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, after, RadioEpisodeStatusAired},
+		{"after window, complete → archived", ptr(start), ptr(end), airDay, RadioPlaylistStateComplete, after, RadioEpisodeStatusArchived},
 
-		// Start but no end (NTS): never live; settles once started.
-		{"start-only, before → scheduled", ptr(start), nil, RadioPlaylistStatePending, before, RadioEpisodeStatusScheduled},
-		{"start-only, after start, pending → aired (never live without an end)", ptr(start), nil, RadioPlaylistStatePending, during, RadioEpisodeStatusAired},
-		{"start-only, after start, complete → archived", ptr(start), nil, RadioPlaylistStateComplete, after, RadioEpisodeStatusArchived},
+		// Start but no end (NTS): never live; settles once started (air_date not consulted).
+		{"start-only, before → scheduled", ptr(start), nil, airDay, RadioPlaylistStatePending, before, RadioEpisodeStatusScheduled},
+		{"start-only, after start, pending → aired (never live without an end)", ptr(start), nil, airDay, RadioPlaylistStatePending, during, RadioEpisodeStatusAired},
+		{"start-only, after start, complete → archived", ptr(start), nil, airDay, RadioPlaylistStateComplete, after, RadioEpisodeStatusArchived},
 
-		// Windowless (WFMU before PSY-1159, or any provider with no time): never live.
-		{"windowless, pending → aired", nil, nil, RadioPlaylistStatePending, during, RadioEpisodeStatusAired},
-		{"windowless, complete → archived", nil, nil, RadioPlaylistStateComplete, during, RadioEpisodeStatusArchived},
+		// Windowless (WFMU with no matching schedule slot): never live; air_date decides
+		// scheduled (not yet aired) vs aired/archived.
+		{"windowless, past air_date, pending → aired", nil, nil, pastDate, RadioPlaylistStatePending, during, RadioEpisodeStatusAired},
+		{"windowless, past air_date, complete → archived", nil, nil, pastDate, RadioPlaylistStateComplete, during, RadioEpisodeStatusArchived},
+		// PSY-1287: a windowless episode dated today or in the future is NOT yet aired — it
+		// is 'scheduled', so the post-air backfill never burns attempts before it broadcasts.
+		{"windowless, today air_date → scheduled (PSY-1287)", nil, nil, airDay, RadioPlaylistStatePending, during, RadioEpisodeStatusScheduled},
+		{"windowless, future air_date → scheduled (PSY-1287)", nil, nil, futureDate, RadioPlaylistStatePending, during, RadioEpisodeStatusScheduled},
+		// An empty/unparseable air_date falls back to the prior 'settled' behavior — an
+		// unrecognized date is not made MORE eligible.
+		{"windowless, empty air_date → aired (fallback)", nil, nil, "", RadioPlaylistStatePending, during, RadioEpisodeStatusAired},
+		// PSY-1287 timezone anchor: 2026-06-16 01:00 UTC is still 2026-06-15 21:00 ET, so a
+		// 2026-06-15 windowless episode's ET broadcast day is NOT over → scheduled. A UTC-anchored
+		// boundary would wrongly call it 'aired' (today_UTC has already rolled to the 16th), which
+		// would re-strand late-evening ET shows — the exact regression this anchor prevents.
+		{"windowless, ET broadcast day not yet over → scheduled (tz anchor)", nil, nil, "2026-06-15", RadioPlaylistStatePending, time.Date(2026, 6, 16, 1, 0, 0, 0, time.UTC), RadioEpisodeStatusScheduled},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ComputeEpisodeStatus(tc.starts, tc.ends, tc.playlistState, tc.now)
+			got := ComputeEpisodeStatus(tc.starts, tc.ends, tc.airDate, tc.playlistState, tc.now)
 			if got != tc.want {
-				t.Errorf("ComputeEpisodeStatus(%v, %v, %q, %v) = %q, want %q",
-					tc.starts, tc.ends, tc.playlistState, tc.now, got, tc.want)
+				t.Errorf("ComputeEpisodeStatus(%v, %v, %q, %q, %v) = %q, want %q",
+					tc.starts, tc.ends, tc.airDate, tc.playlistState, tc.now, got, tc.want)
 			}
 		})
 	}
@@ -112,27 +136,32 @@ func TestShouldBackfillPlaylist(t *testing.T) {
 	cases := []struct {
 		name         string
 		starts, ends *time.Time
+		airDate      string
 		state        string
 		attempts     int
 		now          time.Time
 		want         bool
 	}{
-		{"aired + pending + attempts left → eligible", ptr(start), ptr(end), RadioPlaylistStatePending, 0, after, true},
-		{"aired + partial + attempts left → eligible", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, after, true},
-		{"windowless + pending → eligible (counts as aired)", nil, nil, RadioPlaylistStatePending, 0, during, true},
-		{"live → NOT eligible (playlist not final)", ptr(start), ptr(end), RadioPlaylistStatePending, 0, during, false},
-		{"scheduled → NOT eligible (not aired)", ptr(start), ptr(end), RadioPlaylistStatePending, 0, before, false},
-		{"complete → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateComplete, 0, after, false},
-		{"unavailable → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 3, after, false},
-		{"attempts at cap → NOT eligible", ptr(start), ptr(end), RadioPlaylistStatePending, cap, after, false},
+		{"aired + pending + attempts left → eligible", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, 0, after, true},
+		{"aired + partial + attempts left → eligible", ptr(start), ptr(end), airDay, RadioPlaylistStatePartial, 1, after, true},
+		{"windowless past air_date + pending → eligible (counts as aired)", nil, nil, pastDate, RadioPlaylistStatePending, 0, during, true},
+		// PSY-1287: a not-yet-aired windowless episode (today/future) is NOT eligible — this
+		// is what stops the sweep from burning attempts before the broadcast.
+		{"windowless future air_date → NOT eligible (not yet aired, PSY-1287)", nil, nil, futureDate, RadioPlaylistStatePending, 0, during, false},
+		{"windowless today air_date → NOT eligible (not yet aired, PSY-1287)", nil, nil, airDay, RadioPlaylistStatePending, 0, during, false},
+		{"live → NOT eligible (playlist not final)", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, 0, during, false},
+		{"scheduled → NOT eligible (not aired)", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, 0, before, false},
+		{"complete → NOT eligible", ptr(start), ptr(end), airDay, RadioPlaylistStateComplete, 0, after, false},
+		{"unavailable → NOT eligible", ptr(start), ptr(end), airDay, RadioPlaylistStateUnavailable, 3, after, false},
+		{"attempts at cap → NOT eligible", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, cap, after, false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ShouldBackfillPlaylist(tc.starts, tc.ends, tc.state, tc.attempts, cap, tc.now)
+			got := ShouldBackfillPlaylist(tc.starts, tc.ends, tc.airDate, tc.state, tc.attempts, cap, tc.now)
 			if got != tc.want {
-				t.Errorf("ShouldBackfillPlaylist(%v, %v, %q, %d, %d, %v) = %v, want %v",
-					tc.starts, tc.ends, tc.state, tc.attempts, cap, tc.now, got, tc.want)
+				t.Errorf("ShouldBackfillPlaylist(%v, %v, %q, %q, %d, %d, %v) = %v, want %v",
+					tc.starts, tc.ends, tc.airDate, tc.state, tc.attempts, cap, tc.now, got, tc.want)
 			}
 		})
 	}
@@ -152,36 +181,43 @@ func TestNormalizeScheduledPlaylistState(t *testing.T) {
 	cases := []struct {
 		name         string
 		starts, ends *time.Time
+		airDate      string
 		state        string
 		attempts     int
 		now          time.Time
 		wantState    string
 		wantAttempts int
 	}{
-		// Scheduled (now < starts): the invariant resets a stranded terminal state.
-		{"scheduled + unavailable → reset", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, before, RadioPlaylistStatePending, 0},
-		{"scheduled + pending w/ burned attempts → clear attempts", ptr(start), ptr(end), RadioPlaylistStatePending, 2, before, RadioPlaylistStatePending, 0},
-		{"scheduled + pending + 0 attempts → no-op", ptr(start), ptr(end), RadioPlaylistStatePending, 0, before, RadioPlaylistStatePending, 0},
+		// Scheduled via a future WINDOW (now < starts): the invariant resets a stranded terminal state.
+		{"scheduled(window) + unavailable → reset", ptr(start), ptr(end), airDay, RadioPlaylistStateUnavailable, 5, before, RadioPlaylistStatePending, 0},
+		{"scheduled(window) + pending w/ burned attempts → clear attempts", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, 2, before, RadioPlaylistStatePending, 0},
+		{"scheduled(window) + pending + 0 attempts → no-op", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, 0, before, RadioPlaylistStatePending, 0},
+		// PSY-1287: a WINDOWLESS future-dated episode is now 'scheduled' too, so a give-up
+		// stranded on it is reset on re-list — the same rows the one-time migration corrects in bulk.
+		{"scheduled(windowless future) + unavailable → reset (PSY-1287)", nil, nil, futureDate, RadioPlaylistStateUnavailable, 5, during, RadioPlaylistStatePending, 0},
+		{"scheduled(windowless future) + pending w/ burned attempts → clear attempts", nil, nil, futureDate, RadioPlaylistStatePending, 3, during, RadioPlaylistStatePending, 0},
 		// A scheduled episode that captured real plays keeps its completeness label —
 		// it's not the AC#2 'unavailable' violation, so it must not be clobbered.
-		{"scheduled + partial → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStatePartial, 0, before, RadioPlaylistStatePartial, 0},
-		{"scheduled + complete → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStateComplete, 0, before, RadioPlaylistStateComplete, 0},
+		{"scheduled + partial → untouched (real plays)", ptr(start), ptr(end), airDay, RadioPlaylistStatePartial, 0, before, RadioPlaylistStatePartial, 0},
+		{"scheduled + complete → untouched (real plays)", ptr(start), ptr(end), airDay, RadioPlaylistStateComplete, 0, before, RadioPlaylistStateComplete, 0},
 		// Even with stray burned attempts, a partial/complete keeps its label + count — only
 		// a still-'pending' scheduled episode has its attempts cleared.
-		{"scheduled + complete w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStateComplete, 2, before, RadioPlaylistStateComplete, 2},
-		{"scheduled + partial w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, before, RadioPlaylistStatePartial, 1},
+		{"scheduled + complete w/ stray attempts → still untouched", ptr(start), ptr(end), airDay, RadioPlaylistStateComplete, 2, before, RadioPlaylistStateComplete, 2},
+		{"scheduled + partial w/ stray attempts → still untouched", ptr(start), ptr(end), airDay, RadioPlaylistStatePartial, 1, before, RadioPlaylistStatePartial, 1},
 		// Non-scheduled phases are left exactly as-is.
-		{"aired + unavailable → untouched (PSY-1287, not this invariant)", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, after, RadioPlaylistStateUnavailable, 5},
-		{"live + pending → untouched", ptr(start), ptr(end), RadioPlaylistStatePending, 0, during, RadioPlaylistStatePending, 0},
-		{"windowless + unavailable → untouched (windowless is 'aired', never scheduled)", nil, nil, RadioPlaylistStateUnavailable, 5, during, RadioPlaylistStateUnavailable, 5},
+		{"aired(window) + unavailable → untouched (PSY-1287 no-playlist case, not this invariant)", ptr(start), ptr(end), airDay, RadioPlaylistStateUnavailable, 5, after, RadioPlaylistStateUnavailable, 5},
+		{"live + pending → untouched", ptr(start), ptr(end), airDay, RadioPlaylistStatePending, 0, during, RadioPlaylistStatePending, 0},
+		// A PAST-aired windowless episode is 'aired', never scheduled → its 'unavailable' is the
+		// legitimate no-playlist case (PSY-1287) and is left alone.
+		{"windowless past air_date + unavailable → untouched", nil, nil, pastDate, RadioPlaylistStateUnavailable, 5, during, RadioPlaylistStateUnavailable, 5},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotState, gotAttempts := NormalizeScheduledPlaylistState(tc.starts, tc.ends, tc.state, tc.attempts, tc.now)
+			gotState, gotAttempts := NormalizeScheduledPlaylistState(tc.starts, tc.ends, tc.airDate, tc.state, tc.attempts, tc.now)
 			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
-				t.Errorf("NormalizeScheduledPlaylistState(%v,%v,%q,%d,%v) = (%q,%d), want (%q,%d)",
-					tc.starts, tc.ends, tc.state, tc.attempts, tc.now, gotState, gotAttempts, tc.wantState, tc.wantAttempts)
+				t.Errorf("NormalizeScheduledPlaylistState(%v,%v,%q,%q,%d,%v) = (%q,%d), want (%q,%d)",
+					tc.starts, tc.ends, tc.airDate, tc.state, tc.attempts, tc.now, gotState, gotAttempts, tc.wantState, tc.wantAttempts)
 			}
 		})
 	}

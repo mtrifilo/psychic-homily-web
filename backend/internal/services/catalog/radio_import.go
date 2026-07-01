@@ -936,7 +936,7 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 
 	byShow := make(map[uint]*BackfillCandidate)
 	for _, r := range rows {
-		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, r.PlaylistState, r.PlaylistFetchAttempts, maxAttempts, now) {
+		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, r.AirDate, r.PlaylistState, r.PlaylistFetchAttempts, maxAttempts, now) {
 			continue
 		}
 		d, perr := parseImportDate(r.AirDate)
@@ -1200,7 +1200,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		StartsAt:        startsAt,
 		EndsAt:          endsAt,
 		Status: catalogm.ComputeEpisodeStatus(
-			startsAt, endsAt, catalogm.RadioPlaylistStatePending, now,
+			startsAt, endsAt, ep.AirDate, catalogm.RadioPlaylistStatePending, now,
 		),
 	}
 
@@ -1215,6 +1215,15 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	// a return between janitor runs. No-op if the show is already active (or retired —
 	// retired is manual-only and intentionally NOT auto-reactivated).
 	s.reactivateShowIfDormant(showID, now)
+
+	// A not-yet-aired episode (a future-dated windowless placeholder, or a future window)
+	// has no playlist to fetch yet, so skip the doomed first-import fetch — it would log a
+	// spurious "playlist fetch failed" and stamp playlist_fetched_at on a 'scheduled' row
+	// (PSY-1287). This mirrors reimportExistingEpisode's ShouldBackfillPlaylist gate; the
+	// post-air backfill / janitor fetches it once it airs. The row is created either way.
+	if episode.Status == catalogm.RadioEpisodeStatusScheduled {
+		return &contracts.EpisodeImportResult{}, nil
+	}
 
 	return s.fetchImportAndRecordPlaylist(episode, ep.ExternalID, provider, now)
 }
@@ -1274,7 +1283,7 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 	// whether the window was just healed or was already present (so it also clears rows
 	// stranded before this fix). A no-op for aired/live episodes.
 	if newState, newAttempts := catalogm.NormalizeScheduledPlaylistState(
-		existing.StartsAt, existing.EndsAt, existing.PlaylistState, existing.PlaylistFetchAttempts, now,
+		existing.StartsAt, existing.EndsAt, existing.AirDate, existing.PlaylistState, existing.PlaylistFetchAttempts, now,
 	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
 		existing.PlaylistState = newState
 		existing.PlaylistFetchAttempts = newAttempts
@@ -1283,7 +1292,7 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 	}
 
 	if len(updates) > 0 {
-		newStatus := catalogm.ComputeEpisodeStatus(existing.StartsAt, existing.EndsAt, existing.PlaylistState, now)
+		newStatus := catalogm.ComputeEpisodeStatus(existing.StartsAt, existing.EndsAt, existing.AirDate, existing.PlaylistState, now)
 		updates["status"] = newStatus
 		existing.Status = newStatus
 		if err := s.db.Model(existing).Updates(updates).Error; err != nil {
@@ -1291,7 +1300,7 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 		}
 	}
 
-	if !catalogm.ShouldBackfillPlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState,
+	if !catalogm.ShouldBackfillPlaylist(existing.StartsAt, existing.EndsAt, existing.AirDate, existing.PlaylistState,
 		existing.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts, now) {
 		return &contracts.EpisodeImportResult{}, nil
 	}
@@ -1369,11 +1378,11 @@ func (s *RadioService) fetchImportAndRecordPlaylist(episode *catalogm.RadioEpiso
 // would zero/shrink play_count while the original rows persist, surfacing "0 plays" on
 // an episode that has tracks. max() + the empty-fetch skip make the count never decrease.
 func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, playsImported int, fetchFailed bool, now time.Time) error {
-	phase := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, catalogm.RadioPlaylistStatePending, now)
+	phase := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, episode.AirDate, catalogm.RadioPlaylistStatePending, now)
 	isAired := phase == catalogm.RadioEpisodeStatusAired
 	newState, newAttempts := catalogm.ComputePlaylistState(
 		isAired, playsImported > 0, fetchFailed, episode.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts)
-	newStatus := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, newState, now)
+	newStatus := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, episode.AirDate, newState, now)
 
 	updates := map[string]any{
 		"playlist_state":          newState,
