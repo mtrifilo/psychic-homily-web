@@ -1,0 +1,2 @@
+-- PSY-1287: no-op (intentional). Cannot safely distinguish false give-ups re-opened by
+-- this migration from legitimately-empty aired playlists that were already 'unavailable'.
