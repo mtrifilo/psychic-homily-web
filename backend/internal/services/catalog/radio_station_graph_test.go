@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -87,6 +88,7 @@ func (suite *RadioStationGraphTestSuite) cleanupTables() {
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 }
@@ -145,6 +147,36 @@ func recentDate(monthsAgo int) string {
 	return time.Now().UTC().AddDate(0, -monthsAgo, 0).Format("2006-01-02")
 }
 
+// insertBackboneRel seeds a global radio_cooccurrence row with backbone_significance
+// so the station graph's PSY-1295 filter can admit the edge (NULL / missing = dropped).
+func (suite *RadioStationGraphTestSuite) insertBackboneRel(aID, bID uint, sig float64) {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	s := sig
+	detail := json.RawMessage(`{"co_occurrence_count":2}`)
+	rel := &catalogm.ArtistRelationship{
+		SourceArtistID:       lo,
+		TargetArtistID:       hi,
+		RelationshipType:     catalogm.RelationshipTypeRadioCooccurrence,
+		Score:                0.5,
+		AutoDerived:          true,
+		Detail:               &detail,
+		BackboneSignificance: &s,
+	}
+	suite.Require().NoError(suite.db.Create(rel).Error)
+}
+
+// insertBackboneRelsAmong seeds backbone significance for every pair in the set.
+func (suite *RadioStationGraphTestSuite) insertBackboneRelsAmong(artistIDs []uint, sig float64) {
+	for i := 0; i < len(artistIDs); i++ {
+		for j := i + 1; j < len(artistIDs); j++ {
+			suite.insertBackboneRel(artistIDs[i], artistIDs[j], sig)
+		}
+	}
+}
+
 // =============================================================================
 // TESTS
 // =============================================================================
@@ -201,6 +233,8 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_BasicGraph() {
 	suite.createMatchedPlay(ep2.ID, 2, artistB)
 	suite.createMatchedPlay(ep2.ID, 3, artistC)
 
+	suite.insertBackboneRel(artistA.ID, artistB.ID, 0.05)
+
 	graph, err := suite.radioService.GetStationGraph(station.ID, "12m", 75)
 	suite.Require().NoError(err)
 
@@ -242,6 +276,39 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_BasicGraph() {
 	}
 }
 
+// TestGetStationGraph_BackboneFilter asserts PSY-1295: station-scoped edges are
+// filtered by the global backbone_significance on artist_relationships — only
+// pairs with significance < alpha survive; NULL or >= alpha are dropped.
+func (suite *RadioStationGraphTestSuite) TestGetStationGraph_BackboneFilter() {
+	station := suite.createStation("WFMU", "wfmu")
+	show := suite.createShow(station.ID, "Freeform Jazz Dance", "wfmu-fjd")
+
+	hub := suite.createArtist("Hub Artist")
+	leaf := suite.createArtist("Niche Leaf")
+	noise := suite.createArtist("Hub Noise")
+
+	for i := 0; i < 2; i++ {
+		ep := suite.createEpisode(show.ID, recentDate(i+1))
+		suite.createMatchedPlay(ep.ID, 1, hub)
+		suite.createMatchedPlay(ep.ID, 2, leaf)
+	}
+	for i := 0; i < 2; i++ {
+		ep := suite.createEpisode(show.ID, recentDate(i+3))
+		suite.createMatchedPlay(ep.ID, 1, hub)
+		suite.createMatchedPlay(ep.ID, 2, noise)
+	}
+
+	suite.insertBackboneRel(hub.ID, leaf.ID, 0.05)  // in backbone at default alpha 0.10
+	suite.insertBackboneRel(hub.ID, noise.ID, 0.50) // hub noise — dropped
+
+	graph, err := suite.radioService.GetStationGraph(station.ID, "12m", 75)
+	suite.Require().NoError(err)
+	suite.Equal(1, graph.Station.EdgeCount)
+	suite.Require().Len(graph.Links, 1)
+	suite.Equal(minUint(hub.ID, leaf.ID), graph.Links[0].SourceID)
+	suite.Equal(maxUint(hub.ID, leaf.ID), graph.Links[0].TargetID)
+}
+
 // TestGetStationGraph_StationScoped asserts that co-occurrence on another
 // station never leaks into this station's graph — the whole point of the
 // query-time derivation (the aggregate affinity table can't do this).
@@ -265,6 +332,8 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_StationScoped() {
 		suite.createMatchedPlay(epB.ID, 1, artist1)
 		suite.createMatchedPlay(epB.ID, 2, artist2)
 	}
+
+	suite.insertBackboneRel(artist1.ID, artist2.ID, 0.05)
 
 	// Station A: the single shared episode is below the threshold → no edge.
 	graphA, err := suite.radioService.GetStationGraph(stationA.ID, "12m", 75)
@@ -297,6 +366,8 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_WindowFilter() {
 		suite.createMatchedPlay(ep.ID, 1, artistA)
 		suite.createMatchedPlay(ep.ID, 2, artistB)
 	}
+
+	suite.insertBackboneRel(artistA.ID, artistB.ID, 0.05)
 
 	// Default (12m): everything is out of window.
 	graph12m, err := suite.radioService.GetStationGraph(station.ID, "", 75)
@@ -337,6 +408,8 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_LimitCapsNodes() {
 			suite.createMatchedPlay(ep.ID, 3, artistC)
 		}
 	}
+
+	suite.insertBackboneRel(artistA.ID, artistB.ID, 0.05)
 
 	graph, err := suite.radioService.GetStationGraph(station.ID, "12m", 2)
 	suite.Require().NoError(err)
@@ -383,6 +456,13 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_ClustersByShow() {
 		ep := suite.createEpisode(show2.ID, recentDate(i+1))
 		suite.createMatchedPlay(ep.ID, 1, popArtist)
 	}
+
+	allArtistIDs := make([]uint, 0, len(show1Artists)+1)
+	for _, a := range show1Artists {
+		allArtistIDs = append(allArtistIDs, a.ID)
+	}
+	allArtistIDs = append(allArtistIDs, popArtist.ID)
+	suite.insertBackboneRelsAmong(allArtistIDs, 0.05)
 
 	graph, err := suite.radioService.GetStationGraph(station.ID, "12m", 75)
 	suite.Require().NoError(err)
@@ -494,6 +574,12 @@ func (suite *RadioStationGraphTestSuite) TestGetStationGraph_QueryCost() {
 		}
 	}
 	suite.Require().NoError(suite.db.CreateInBatches(plays, 500).Error)
+
+	topArtistIDs := make([]uint, 75)
+	for i := 0; i < 75; i++ {
+		topArtistIDs[i] = artists[i].ID
+	}
+	suite.insertBackboneRelsAmong(topArtistIDs, 0.05)
 
 	start := time.Now()
 	graph, err := suite.radioService.GetStationGraph(station.ID, "12m", 75)
