@@ -1,6 +1,9 @@
 package geo
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolve(t *testing.T) {
 	g := Default()
@@ -241,6 +244,56 @@ func TestMetroPrincipalByCBSA(t *testing.T) {
 				t.Errorf("principal city must have coordinates, got (%v,%v)", mp.Latitude, mp.Longitude)
 			}
 		})
+	}
+}
+
+func TestMetroMemberPlaces(t *testing.T) {
+	t.Run("NYC includes Brooklyn and New York alias", func(t *testing.T) {
+		places, ok := MetroMemberPlaces("35620")
+		if !ok {
+			t.Fatal("expected NYC metro members")
+		}
+		if len(places) < 10 {
+			t.Fatalf("expected a substantial member list, got %d", len(places))
+		}
+		has := func(city, state string) bool {
+			for _, p := range places {
+				if strings.EqualFold(p.City, city) && strings.EqualFold(p.State, state) {
+					return true
+				}
+			}
+			return false
+		}
+		if !has("Brooklyn", "NY") {
+			t.Error("Brooklyn, NY missing from NYC metro members")
+		}
+		if !has("New York", "NY") {
+			t.Error("New York, NY alias missing from NYC metro members")
+		}
+		if !has("New York City", "NY") {
+			t.Error("New York City, NY missing from NYC metro members")
+		}
+	})
+	t.Run("unknown CBSA", func(t *testing.T) {
+		_, ok := MetroMemberPlaces("00000")
+		if ok {
+			t.Fatal("expected not found")
+		}
+	})
+}
+
+func TestPlaceMatchBindVariants(t *testing.T) {
+	variants := placeMatchBindVariants("Saint Paul")
+	has := func(want string) bool {
+		for _, v := range variants {
+			if v == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("Saint Paul") || !has("St. Paul") {
+		t.Fatalf("expected Saint/St. variants, got %v", variants)
 	}
 }
 
