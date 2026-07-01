@@ -53,6 +53,8 @@ const data: SceneGraphResponse = {
     state: 'AZ',
     artist_count: 12,
     edge_count: 4,
+    metro_roster_total: 12,
+    roster_truncated: false,
   },
   clusters: [{ id: 'v_1', label: 'Valley Bar', size: 6, color_index: 0 }],
   nodes: [

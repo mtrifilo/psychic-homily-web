@@ -384,3 +384,55 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_ExcludesTouringActs() {
 	s.Equal(0, graph.Scene.EdgeCount, "the local↔touring edge drops with the excluded touring node")
 	s.Empty(graph.Links)
 }
+
+// TestSceneGraph_RosterTruncation (PSY-1277): when the metro roster exceeds the
+// top-N cap, the response surfaces metro_roster_total + roster_truncated and keeps
+// artists ranked by approved show activity.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_RosterTruncation() {
+	v1 := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+
+	now := time.Now().UTC()
+	var busyID uint
+	for i := 0; i < 76; i++ {
+		a := s.seedSceneArtist(fmt.Sprintf("Roster Band %02d", i))
+		if i < 3 {
+			// Three approved shows — should outrank the 73 zero-show roster bands.
+			s.seedShowAtVenue(now.AddDate(0, -i-1, 0), v1, a.ID)
+			if i == 0 {
+				busyID = a.ID
+			}
+		}
+	}
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	s.Require().NoError(err)
+	s.Equal(76, graph.Scene.MetroRosterTotal)
+	s.True(graph.Scene.RosterTruncated)
+	s.Equal(75, graph.Scene.ArtistCount)
+	s.Len(graph.Nodes, 75)
+
+	foundBusy := false
+	for _, n := range graph.Nodes {
+		if n.ID == busyID {
+			foundBusy = true
+			break
+		}
+	}
+	s.True(foundBusy, "high-activity artist must survive the top-N cap")
+}
+
+// TestSceneGraph_RosterNotTruncatedWhenUnderCap asserts the truncation flag stays
+// false when the metro roster fits within the graph budget.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_RosterNotTruncatedWhenUnderCap() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+	a1 := s.seedSceneArtist("Gatecreeper")
+	a2 := s.seedSceneArtist("Sundressed")
+	s.seedShowAtVenue(time.Now().UTC().AddDate(0, -1, 0), venue, a1.ID, a2.ID)
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	s.Require().NoError(err)
+	s.False(graph.Scene.RosterTruncated)
+	s.Equal(graph.Scene.ArtistCount, graph.Scene.MetroRosterTotal)
+}

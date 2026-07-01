@@ -92,8 +92,13 @@ export interface SceneGraphInfo {
   slug: string
   city: string
   state: string
+  /** Artists in the graph response (top-N cap applied). */
   artist_count: number
   edge_count: number
+  /** Full based-in metro roster before the top-N cap (PSY-1277). */
+  metro_roster_total: number
+  /** True when metro_roster_total > artist_count. */
+  roster_truncated: boolean
 }
 
 export interface SceneGraphCluster {
