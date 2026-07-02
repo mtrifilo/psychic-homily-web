@@ -437,6 +437,8 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		"janitor_dormant_days", s.janitorDormantDays,
 		"schedule_enabled", s.scheduleEnabled,
 		"schedule_interval_hours", s.scheduleInterval.Hours(),
+		"substream_schedule_enabled", s.substreamScheduleEnabled,
+		"substream_schedule_interval_hours", s.substreamScheduleInterval.Hours(),
 	)
 }
 
