@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -723,6 +724,27 @@ const (
 	sceneClusterOtherLabel    = "Other"
 )
 
+// sceneGraphActiveWindowDays is the recency window used to rank the graph roster
+// active-first (upcoming OR a show in the last N days). Mirrors the scene-roster
+// default (GetActiveArtists' activeWindowDays default of 180) so the graph
+// surfaces the same "who's active here" bands the roster does. Fixed, not
+// caller-tunable — the graph doesn't need per-request windows, and a param would
+// churn the SceneService interface + its generated mock.
+const sceneGraphActiveWindowDays = 180
+
+// sceneGraphMaxNodes bounds the graph's node set. After the metro re-key
+// (PSY-1255 step C) the roster is every band BASED in the metro — unbounded and
+// mostly isolates — so both the payload and the source/target relationship scan
+// grew with the whole based-in catalog (PSY-1277). We keep the top-N by the same
+// active-first ranking the roster uses (see querySceneArtistsWithPrimaryVenue)
+// and surface a Truncated flag rather than a silent cap. 150 mirrors
+// festivalGraphMaxNodes and sits ~2x above today's densest roster (~70), so it's
+// a future-scale guard that does not change current output.
+//
+// A var (not const) purely so the integration test can lower it to exercise the
+// truncation path without seeding 150+ artists; production never mutates it.
+var sceneGraphMaxNodes = 150
+
 // allowedSceneEdgeTypes whitelists relationship types that the scene graph
 // surfaces. shared_bills + shared_label + member_of carry signal at scene scale;
 // `similar` is an editorial vote that doesn't compose well across many artists,
@@ -783,23 +805,48 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	resolvedTypes := resolveSceneEdgeTypes(types)
 	noEdgesByFilter := len(types) > 0 && len(resolvedTypes) == 0
 
-	// 1. Single CTE query — scene artists (bands based in the metro) + each one's
-	//    most-frequent venue ACROSS the metro. Tie-break: more recent show wins.
-	rows, err := s.querySceneArtistsWithPrimaryVenue(scope)
+	// 1a. Total roster size (every band based in the metro), independent of the
+	//     node cap — drives the TotalArtistCount / Truncated fields below.
+	ap, aargs := scope.artistPredicate("a")
+	var totalRoster int64
+	if err := s.db.Raw(`SELECT COUNT(*) FROM artists a WHERE `+ap, aargs...).Scan(&totalRoster).Error; err != nil {
+		return nil, fmt.Errorf("failed to count scene artists: %w", err)
+	}
+
+	// 1b. Single CTE query — the top-N scene artists (bands based in the metro,
+	//     ranked active-first) + each one's most-frequent venue ACROSS the metro.
+	//     Bounding here (before the relationship scan in step 5) keeps both the
+	//     payload and the source/target IN (...) scan bounded for a dense metro
+	//     (PSY-1277). Tie-break for the primary venue: more recent show wins.
+	rows, err := s.querySceneArtistsWithPrimaryVenue(scope, sceneGraphMaxNodes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query scene artists: %w", err)
 	}
 
+	truncated := int64(len(rows)) < totalRoster
 	resp := &contracts.SceneGraphResponse{
 		Scene: contracts.SceneGraphInfo{
-			Slug:        buildSceneSlug(city, state),
-			City:        city,
-			State:       state,
-			ArtistCount: len(rows),
+			Slug:             buildSceneSlug(city, state),
+			City:             city,
+			State:            state,
+			ArtistCount:      len(rows),
+			TotalArtistCount: int(totalRoster),
+			Truncated:        truncated,
 		},
 		Clusters: []contracts.SceneGraphCluster{},
 		Nodes:    []contracts.SceneGraphNode{},
 		Links:    []contracts.SceneGraphLink{},
+	}
+
+	// Surface what was dropped rather than capping silently (PSY-1277).
+	if truncated {
+		slog.Warn("scene graph roster truncated to node cap",
+			"scene", resp.Scene.Slug,
+			"total_artists", totalRoster,
+			"shown", len(rows),
+			"dropped", totalRoster-int64(len(rows)),
+			"cap", sceneGraphMaxNodes,
+		)
 	}
 
 	if len(rows) == 0 {
@@ -931,25 +978,49 @@ func sortStringsAsc(s []string) {
 	}
 }
 
-// querySceneArtistsWithPrimaryVenue runs the CTE that lists every band BASED in
-// the scene's metro (PSY-1255 step C) and resolves each one's
+// querySceneArtistsWithPrimaryVenue runs the CTE that lists the top-N bands
+// BASED in the scene's metro (PSY-1255 step C) and resolves each one's
 // most-frequently-played venue ACROSS the metro. LEFT JOINs the venue back so
 // the PrimaryVenueID/Name columns are nullable for any roster band that has
 // never played a metro venue (now expected — membership no longer requires a
 // local show; those bands cluster into "other").
 //
-// NOTE (known follow-up): the node set is the FULL metro roster (no LIMIT) —
-// larger than the old played-here set, so the graph + relationship scan for a
-// dense metro can return many (mostly isolate) nodes. Today's catalog keeps this
-// bounded; a principled top-N selection with a truncation flag is deferred to a
-// follow-up so it aligns with the graph-density work (PSY-1257/1259) rather than
-// adding a silent cap here.
-func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, error) {
+// The node set is bounded to the top `limit` bands (PSY-1277). Ranking mirrors
+// GetActiveArtists' roster order — active-first (an upcoming show or a show in
+// the last sceneGraphActiveWindowDays, from a per-artist approved-show
+// aggregate), then by total approved show count, then name — with a final
+// artist-id tie-break (which GetActiveArtists omits) so the truncation boundary
+// is deterministic across requests. This bounds BOTH the payload and the
+// downstream source/target relationship scan for a dense metro, and never drops
+// a live band in favor of a dormant one. The final row order stays
+// name-ascending (frontend order-independent; tests depend on it), so only the
+// SELECTED set changes, not the emitted order.
+//
+// Trade-off (intentional): an edge from a kept band to a dropped one is not
+// shown — but the dropped tail is the least-active isolates (ranks limit+1…),
+// exactly the clutter the graph-density work removes, so this loses little
+// graph signal. Truncation is surfaced by the caller (Truncated flag + log).
+func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope, limit int) ([]sceneArtistRow, error) {
 	ap, aargs := scope.artistPredicate("a")
 	vp, vargs := scope.venuePredicate("v")
 	const q = `
 		WITH scene_artists AS (
-			SELECT a.id AS artist_id FROM artists a WHERE %s
+			SELECT a.id AS artist_id
+			FROM artists a
+			LEFT JOIN (
+				SELECT sa.artist_id,
+				       COUNT(DISTINCT s.id) AS show_count,
+				       MAX(s.event_date) AS last_show
+				FROM show_artists sa
+				JOIN shows s ON s.id = sa.show_id
+				WHERE s.status = ?
+				GROUP BY sa.artist_id
+			) ss ON ss.artist_id = a.id
+			WHERE %s
+			ORDER BY COALESCE(ss.last_show >= ?, false) DESC,
+			         COALESCE(ss.show_count, 0) DESC,
+			         a.name ASC, a.id ASC
+			LIMIT ?
 		),
 		artist_venue_counts AS (
 			SELECT
@@ -983,9 +1054,14 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 		LEFT JOIN artist_venue_counts avc ON avc.artist_id = a.id AND avc.rn = 1
 		ORDER BY a.name ASC
 	`
-	// Placeholder order: roster predicate (scene_artists), then venue predicate
-	// + status (artist_venue_counts).
-	args := append(append([]any{}, aargs...), vargs...)
+	// Placeholder order follows the query text: the ranking aggregate's status,
+	// then the roster predicate (scene_artists WHERE), the active-window cutoff
+	// (ORDER BY), the LIMIT, then the venue predicate + status (artist_venue_counts).
+	activeCutoff := time.Now().UTC().AddDate(0, 0, -sceneGraphActiveWindowDays)
+	args := []any{catalogm.ShowStatusApproved}
+	args = append(args, aargs...)
+	args = append(args, activeCutoff, limit)
+	args = append(args, vargs...)
 	args = append(args, catalogm.ShowStatusApproved)
 	var rows []sceneArtistRow
 	if err := s.db.Raw(fmt.Sprintf(q, ap, vp), args...).Scan(&rows).Error; err != nil {
