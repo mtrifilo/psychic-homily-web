@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"math"
 	"math/rand"
 	"sort"
 )
@@ -151,7 +152,10 @@ func buildLeidenGraph(edges []WeightedEdge) (leidenGraph, []uint) {
 	collapsed := make(map[EdgeKey]float64, len(edges))
 	idSet := make(map[uint]struct{}, len(edges)*2)
 	for _, e := range edges {
-		if e.A == e.B || e.Weight <= 0 {
+		// !(w > 0) rather than w <= 0: it also rejects NaN, which would
+		// otherwise poison m2 and make every gain comparison false
+		// (adversarial finding).
+		if e.A == e.B || !(e.Weight > 0) || math.IsInf(e.Weight, 1) {
 			continue
 		}
 		collapsed[canonicalKey(e.A, e.B)] += e.Weight

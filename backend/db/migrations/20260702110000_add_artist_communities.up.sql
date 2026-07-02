@@ -1,8 +1,11 @@
 -- PSY-1262: persisted Leiden community partition over the artist-similarity
 -- graph. community_id is the dense per-partition index; the label table
 -- carries each community's display metadata ("Around {artist}"). Both are
--- rebuilt atomically by the nightly compute, so no FK from artists into
--- artist_communities (the partition swap would race it).
+-- rebuilt atomically by the nightly compute. No FK from artists.community_id
+-- into artist_communities: the swap assigns community_id before inserting the
+-- label rows, so a plain FK would fail deterministically on every rebuild
+-- (fixable with DEFERRABLE INITIALLY DEFERRED, but the bare column keeps the
+-- swap cheap and the reader joins defensively anyway).
 
 ALTER TABLE artists ADD COLUMN community_id INTEGER;
 

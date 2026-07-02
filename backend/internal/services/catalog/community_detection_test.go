@@ -170,6 +170,46 @@ func (s *CommunityDetectionSuite) TestCompute_Deterministic() {
 	}
 }
 
+// Degraded-input guard (adversarial round): when EVERY radio edge is
+// unstamped (NULL backbone significance — the backbone step failed this
+// cycle), the compute aborts and the previous partition stays live instead
+// of persisting a gutted reshuffle.
+func (s *CommunityDetectionSuite) TestCompute_AbortsWhenAllRadioUnstamped() {
+	// Seed a previous partition.
+	a := s.createArtist("Prev1")
+	b := s.createArtist("Prev2")
+	s.insertRelScore(a.ID, b.ID, catalogm.RelationshipTypeSharedBills, 0.9, nil)
+	_, err := s.svc.ComputeArtistCommunities()
+	s.Require().NoError(err)
+	prev := *s.communityOf(a.ID)
+
+	// Now the graph turns radio-only-unstamped: replace the bills edge with
+	// NULL-significance radio edges only.
+	s.Require().NoError(s.db.Exec("DELETE FROM artist_relationships").Error)
+	s.insertRelScore(a.ID, b.ID, catalogm.RelationshipTypeRadioCooccurrence, 0.9, nil)
+
+	_, err = s.svc.ComputeArtistCommunities()
+	s.Require().Error(err, "all-NULL radio input must abort")
+	s.Require().NotNil(s.communityOf(a.ID), "previous partition stays live")
+	s.Assert().Equal(prev, *s.communityOf(a.ID))
+}
+
+// Diff-based swap: an unchanged partition rewrites nothing (ClearedArtists
+// counts only departures).
+func (s *CommunityDetectionSuite) TestCompute_DiffSwapCountsOnlyDepartures() {
+	a := s.createArtist("Stay1")
+	b := s.createArtist("Stay2")
+	s.insertRelScore(a.ID, b.ID, catalogm.RelationshipTypeSharedBills, 0.9, nil)
+
+	_, err := s.svc.ComputeArtistCommunities()
+	s.Require().NoError(err)
+
+	result, err := s.svc.ComputeArtistCommunities()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(0), result.ClearedArtists, "no departures on an identical recompute")
+	s.Require().NotNil(s.communityOf(a.ID))
+}
+
 // No edges at all: valid empty partition, everything cleared.
 func (s *CommunityDetectionSuite) TestCompute_EmptyGraph() {
 	a := s.createArtist("Lonely")

@@ -225,6 +225,40 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_CommunityClusters() {
 	}
 }
 
+// TestSceneGraph_CommunityClusters_BelowFloorAndMissingLabel (PSY-1262
+// adversarial round): a community below sceneClusterMinSize rolls into
+// "other", and a first-class community whose label row is missing degrades
+// to the "Community %d" fallback instead of erroring.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_CommunityClusters_BelowFloorAndMissingLabel() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+	now := time.Now().UTC()
+
+	// Community 0: 6 members (first-class) but NO artist_communities row.
+	for i := 0; i < 6; i++ {
+		a := s.seedSceneArtist(fmt.Sprintf("Unlabeled-A%d", i))
+		s.seedShowAtVenue(now.AddDate(0, 0, -i), venue, a.ID)
+		s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).
+			Where("id = ?", a.ID).Update("community_id", 0).Error)
+	}
+	// Community 1: 2 members — below the floor, rolls into "other".
+	for i := 0; i < 2; i++ {
+		a := s.seedSceneArtist(fmt.Sprintf("Small-B%d", i))
+		s.seedShowAtVenue(now.AddDate(0, 0, -(i+10)), venue, a.ID)
+		s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).
+			Where("id = ?", a.ID).Update("community_id", 1).Error)
+	}
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "community")
+	s.Require().NoError(err)
+	s.Require().Len(graph.Clusters, 2)
+	s.Equal("c_0", graph.Clusters[0].ID)
+	s.Equal("Community 0", graph.Clusters[0].Label, "missing label row degrades to the fallback")
+	s.Equal(6, graph.Clusters[0].Size)
+	s.Equal("other", graph.Clusters[1].ID)
+	s.Equal(2, graph.Clusters[1].Size, "below-floor community rolls into other")
+}
+
 // TestSceneGraph_CommunityClusters_NoPartition: cluster_by=community before
 // any compute has run degrades to a single "other" cluster, not an error.
 func (s *SceneGraphIntegrationSuite) TestSceneGraph_CommunityClusters_NoPartition() {

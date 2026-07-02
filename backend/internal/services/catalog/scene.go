@@ -1291,27 +1291,49 @@ func buildSceneClusters(rows []sceneArtistRow) ([]contracts.SceneGraphCluster, m
 // with NULL community_id, or members of communities below the size floor —
 // rolls into "other". A never-computed partition therefore degrades to a
 // single "other" cluster rather than erroring.
+//
+// Deliberate semantics worth knowing (adversarial review, 2026-07-02):
+//   - Community identity is GLOBAL: the "Around {artist}" anchor is the
+//     community's globally strongest member and may be based OUTSIDE this
+//     scene — the same community carries the same label on every scene,
+//     which is the point of one global partition. Cluster Size is in-scene;
+//     artist_communities.member_count is global.
+//   - In-scene connectivity is NOT validated: the Leiden guarantee holds on
+//     the global input graph, but two in-scene members can be linked only
+//     through out-of-scene artists or non-scene edge types, so a colored
+//     cluster may render as visually separate islands (venue clusters make
+//     no connectivity claim either).
+//   - Assignments + labels are read in ONE statement so a request can't
+//     straddle the nightly partition swap and mislabel clusters (the swap is
+//     writer-atomic, but two separate reads would get two snapshots).
 func (s *SceneService) buildCommunityClusters(artistIDs []uint) ([]contracts.SceneGraphCluster, map[uint]string, error) {
 	type artistCommunityRow struct {
-		ID          uint `gorm:"column:id"`
-		CommunityID *int `gorm:"column:community_id"`
+		ID          uint    `gorm:"column:id"`
+		CommunityID *int    `gorm:"column:community_id"`
+		LabelName   *string `gorm:"column:label_name"`
 	}
 	var rows []artistCommunityRow
-	if err := s.db.Model(&catalogm.Artist{}).
-		Select("id, community_id").
-		Where("id IN ?", artistIDs).
+	if err := s.db.Table("artists a").
+		Select("a.id, a.community_id, la.name AS label_name").
+		Joins("LEFT JOIN artist_communities ac ON ac.id = a.community_id").
+		Joins("LEFT JOIN artists la ON la.id = ac.label_artist_id").
+		Where("a.id IN ?", artistIDs).
 		Scan(&rows).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to load community assignments: %w", err)
 	}
 
 	communityByArtist := make(map[uint]int, len(rows))
 	counts := make(map[int]int)
+	labelByCommunity := make(map[int]string)
 	for _, r := range rows {
 		if r.CommunityID == nil {
 			continue
 		}
 		communityByArtist[r.ID] = *r.CommunityID
 		counts[*r.CommunityID]++
+		if r.LabelName != nil {
+			labelByCommunity[*r.CommunityID] = "Around " + *r.LabelName
+		}
 	}
 
 	type communityCount struct {
@@ -1329,32 +1351,6 @@ func (s *SceneService) buildCommunityClusters(artistIDs []uint) ([]contracts.Sce
 		}
 		return ordered[i].communityID < ordered[j].communityID
 	})
-
-	// Labels for the communities that can go first-class.
-	labelByCommunity := make(map[int]string)
-	firstClassIDs := make([]int, 0, sceneClusterMaxFirstClass)
-	for _, cc := range ordered {
-		if cc.count >= sceneClusterMinSize && len(firstClassIDs) < sceneClusterMaxFirstClass {
-			firstClassIDs = append(firstClassIDs, cc.communityID)
-		}
-	}
-	if len(firstClassIDs) > 0 {
-		type labelRow struct {
-			CommunityID int    `gorm:"column:community_id"`
-			Name        string `gorm:"column:name"`
-		}
-		var labels []labelRow
-		if err := s.db.Table("artist_communities ac").
-			Select("ac.id AS community_id, a.name AS name").
-			Joins("JOIN artists a ON a.id = ac.label_artist_id").
-			Where("ac.id IN ?", firstClassIDs).
-			Scan(&labels).Error; err != nil {
-			return nil, nil, fmt.Errorf("failed to load community labels: %w", err)
-		}
-		for _, l := range labels {
-			labelByCommunity[l.CommunityID] = "Around " + l.Name
-		}
-	}
 
 	clusterIDByCommunity := make(map[int]string, len(ordered))
 	clusters := make([]contracts.SceneGraphCluster, 0, len(ordered)+1)
