@@ -104,11 +104,12 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // graphAvailable flips false and the overlay unmounts — without this reset
   // the user is stranded: body scroll stays locked, the inline copy stays
   // inert, and re-widening the window pops the overlay back open unprompted.
-  useEffect(() => {
-    if (isFullscreen && !graphAvailable) {
-      setIsFullscreen(false)
-    }
-  }, [isFullscreen, graphAvailable])
+  // Adjust-state-during-render (the React-documented alternative to a
+  // setState-in-effect): the reset applies before commit, so the scroll-lock
+  // effect keyed on isFullscreen cleans up in the same pass.
+  if (isFullscreen && !graphAvailable) {
+    setIsFullscreen(false)
+  }
 
   // Deliver the `#graph` deep-link: the anchor mounts only after two async
   // fetches (station, then graph), so the browser's native fragment scroll

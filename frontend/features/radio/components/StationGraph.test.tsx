@@ -124,38 +124,39 @@ import { StationGraph } from './StationGraph'
 // >= 640px graph gate — extended with fireResize() so tests can simulate the
 // viewport crossing the breakpoint AFTER mount (the overlay auto-close path).
 let mockContainerWidth = 1024
-let lastObserver: ImmediateResizeObserver | null = null
+let lastCallback: ResizeObserverCallback | null = null
 let lastTarget: Element | null = null
 
 function setMockContainerWidth(width: number) {
   mockContainerWidth = width
 }
 
+function emitResize(callback: ResizeObserverCallback, target: Element) {
+  callback(
+    [
+      {
+        target,
+        contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
+      } as ResizeObserverEntry,
+    ],
+    undefined as unknown as ResizeObserver,
+  )
+}
+
 function fireResize(width: number) {
   mockContainerWidth = width
-  lastObserver!.fire(lastTarget!)
+  emitResize(lastCallback!, lastTarget!)
 }
 
 class ImmediateResizeObserver {
   private callback: ResizeObserverCallback
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback
-    lastObserver = this
-  }
-  fire(target: Element): void {
-    this.callback(
-      [
-        {
-          target,
-          contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
-        } as ResizeObserverEntry,
-      ],
-      this as unknown as ResizeObserver,
-    )
+    lastCallback = callback
   }
   observe(target: Element): void {
     lastTarget = target
-    this.fire(target)
+    emitResize(this.callback, target)
   }
   unobserve(): void {}
   disconnect(): void {}
