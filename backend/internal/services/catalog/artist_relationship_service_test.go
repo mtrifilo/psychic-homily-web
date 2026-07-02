@@ -940,6 +940,38 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_C
 		"a niche node's only cross edge survives via the either-endpoint rule")
 }
 
+// GetRelatedArtists shares the batched vote path (PSY-1301) — assert its vote fields survive the
+// migration (a key-orientation regression here would otherwise ship green as all-zero tallies).
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelatedArtists_VoteCounts_Batched() {
+	center := suite.createArtist("Center")
+	other := suite.createArtist("Other")
+	_, err := suite.svc.CreateRelationship(center, other, "similar", false)
+	suite.Require().NoError(err)
+
+	u1 := suite.createUser("rvoter1")
+	u2 := suite.createUser("rvoter2")
+	lo, hi := min(center, other), max(center, other)
+	for _, v := range []struct {
+		user *authm.User
+		dir  int16
+	}{{u1, 1}, {u2, -1}} {
+		suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationshipVote{
+			SourceArtistID:   lo,
+			TargetArtistID:   hi,
+			RelationshipType: "similar",
+			UserID:           v.user.ID,
+			Direction:        v.dir,
+		}).Error)
+	}
+
+	related, err := suite.svc.GetRelatedArtists(center, "", 30)
+	suite.Require().NoError(err)
+	suite.Require().Len(related, 1)
+	suite.Assert().Equal(1, related[0].Upvotes)
+	suite.Assert().Equal(1, related[0].Downvotes)
+	suite.Assert().Greater(related[0].WilsonScore, 0.0)
+}
+
 // The batched vote-count path (PSY-1301) populates VotesUp/VotesDown on both center and cross edges.
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_VoteCounts_Batched() {
 	center := suite.createArtist("Center")

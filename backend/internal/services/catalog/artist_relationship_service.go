@@ -337,8 +337,10 @@ const egoBackboneUnionLimit = 30
 // other types stay unbounded — they are sparse by nature AND the client renders them uncapped
 // (edgeCap.ts caps only radio_cooccurrence), so any server truncation of them would be visible.
 // The either-endpoint rule mirrors the client's PSY-1258 cap semantics (a niche node's few
-// strong links survive a hub neighbor), and K=10 is a strict superset of the client's k=5, so
-// this bound never removes an edge the client would have drawn. Deliberately NOT a backbone
+// strong links survive a hub neighbor), and K=10 is a superset of the client's k=5 — up to
+// tie-ordering: the server breaks score ties by partner ID while the client breaks them by
+// payload order, so within a tie group straddling the boundary a same-score sibling may render
+// instead of the exact edge the uncapped payload would have picked. Deliberately NOT a backbone
 // alpha filter: the PSY-1261 tuning showed the scene-scale alpha empties mid-degree ego link
 // sets (Cola: 2/28 at alpha=0.10) — and those emptied links ARE these cross edges — plus a
 // NULL-significance deploy window would star-ify every ego. See disparity_filter.go.
@@ -609,24 +611,39 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 
 	// 7. Get cross-connections between related artists. Two queries by design
 	// (PSY-1301): non-radio types are fetched unbounded exactly as before (sparse
-	// by nature; the client renders them uncapped), while radio co-occurrence —
-	// the only type dense enough to blow up the payload — is bounded to the
-	// per-node top-K with either-endpoint semantics, a strict superset of the
-	// client's PSY-1258 render cap, so the visual result is unchanged. No
-	// backbone alpha here: see the egoCrossRadioPerNodeCap doc-comment.
+	// by nature; the client renders them uncapped, so any server truncation of
+	// them would be visible), while radio co-occurrence — the only type dense
+	// enough to blow up the payload — is bounded to the per-node top-K with
+	// either-endpoint semantics. No backbone alpha here: see the
+	// egoCrossRadioPerNodeCap doc-comment.
+	//
+	// Type-filter note: when only query-time types (festival_cobill) are
+	// requested, storedTypes is empty and this query returns every stored
+	// NON-radio cross type — a pre-existing leak (the client filters by active
+	// types anyway). Radio is the deliberate exception since PSY-1301: it only
+	// joins the cross set when wantRadioCooccurrence, narrowing that leak.
 	if len(relatedIDs) > 1 {
 		var crossRels []catalogm.ArtistRelationship
-		crossQuery := s.db.Model(&catalogm.ArtistRelationship{}).
-			Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs).
-			Where("relationship_type <> ?", catalogm.RelationshipTypeRadioCooccurrence)
 
-		if len(storedTypes) > 0 {
-			crossQuery = crossQuery.Where("relationship_type IN ?", storedTypes)
+		// Skip the non-radio query when radio is the ONLY requested stored
+		// type — `type <> radio AND type IN (radio)` can never match.
+		radioOnly := len(storedTypes) == 1 && storedTypes[0] == catalogm.RelationshipTypeRadioCooccurrence
+		if !radioOnly {
+			crossQuery := s.db.Model(&catalogm.ArtistRelationship{}).
+				Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs).
+				Where("relationship_type <> ?", catalogm.RelationshipTypeRadioCooccurrence)
+
+			if len(storedTypes) > 0 {
+				crossQuery = crossQuery.Where("relationship_type IN ?", storedTypes)
+			}
+
+			// Errors degrade to fewer cross edges (pre-existing behavior),
+			// but are logged so a half-empty graph is diagnosable.
+			if err := crossQuery.Find(&crossRels).Error; err != nil {
+				slog.Warn("artist graph: cross-edge query failed; rendering without non-radio cross edges",
+					"artist_id", artistID, "error", err)
+			}
 		}
-
-		// Errors on either query degrade to fewer cross edges, matching the
-		// pre-existing silent-skip behavior of this step.
-		_ = crossQuery.Find(&crossRels).Error
 
 		if wantRadioCooccurrence {
 			// Each edge is ranked once per ENDPOINT (the UNION ALL explode) —
@@ -634,11 +651,16 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 			// per canonical ROLE and miss half a node's edges. Ties broken by
 			// the partner ID so the kept set is deterministic across requests
 			// (score ties are common in the bucketed co-occurrence scores).
-			var radioCross []catalogm.ArtistRelationship
+			// total_count rides along on every row so cap truncation is
+			// observable without a second query (AC: flag or slog).
+			type radioCrossRow struct {
+				catalogm.ArtistRelationship
+				TotalCount int `gorm:"column:total_count"`
+			}
+			var radioRows []radioCrossRow
 			radioErr := s.db.Raw(`
 				WITH radio AS (
-					SELECT source_artist_id, target_artist_id, relationship_type, score, auto_derived, detail, created_at, updated_at, backbone_significance
-					FROM artist_relationships
+					SELECT * FROM artist_relationships
 					WHERE relationship_type = ?
 						AND source_artist_id IN ?
 						AND target_artist_id IN ?
@@ -652,7 +674,7 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 						SELECT source_artist_id, target_artist_id, score, target_artist_id AS node FROM radio
 					) exploded
 				)
-				SELECT r.* FROM radio r
+				SELECT r.*, (SELECT COUNT(*) FROM radio) AS total_count FROM radio r
 				WHERE EXISTS (
 					SELECT 1 FROM endpoint_ranks er
 					WHERE er.source_artist_id = r.source_artist_id
@@ -661,12 +683,19 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 				)`,
 				catalogm.RelationshipTypeRadioCooccurrence, relatedIDs, relatedIDs,
 				egoCrossRadioPerNodeCap).
-				Scan(&radioCross).Error
+				Scan(&radioRows).Error
 			if radioErr != nil {
 				slog.Warn("artist graph: radio cross-edge query failed; rendering without radio cross edges",
 					"artist_id", artistID, "error", radioErr)
 			}
-			crossRels = append(crossRels, radioCross...)
+			if len(radioRows) > 0 && radioRows[0].TotalCount > len(radioRows) {
+				slog.Info("artist graph: radio cross edges capped to per-node top-K",
+					"artist_id", artistID, "stored", radioRows[0].TotalCount,
+					"kept", len(radioRows), "per_node_cap", egoCrossRadioPerNodeCap)
+			}
+			for _, r := range radioRows {
+				crossRels = append(crossRels, r.ArtistRelationship)
+			}
 		}
 
 		for _, rel := range crossRels {
