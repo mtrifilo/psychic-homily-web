@@ -117,7 +117,7 @@ describe('formatLocalTimeRange', () => {
     expect(formatLocalTimeRange('not-a-date', 'also-not')).toBe('')
   })
 
-  it('returns "" for degenerate windows (inverted, zero-length, ≥24h)', () => {
+  it('returns "" for degenerate windows (inverted, zero-length, ≥12h)', () => {
     // inverted: end before start would otherwise render a confident "6–3 PM"
     expect(formatLocalTimeRange(localIso(2026, 6, 1, 18), localIso(2026, 6, 1, 15))).toBe('')
     expect(formatLocalTimeRange(localIso(2026, 6, 1, 9), localIso(2026, 6, 1, 9))).toBe('')
