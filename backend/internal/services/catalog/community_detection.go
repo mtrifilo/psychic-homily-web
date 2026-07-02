@@ -41,13 +41,13 @@ type CommunityComputeResult struct {
 	ClearedArtists int64
 }
 
-// ComputeArtistCommunities rebuilds the persisted community partition.
-// Callers treat errors as non-fatal (the previous partition simply stays
-// live, mirroring ComputeBackboneSignificance's posture in the cycle).
-func (s *RadioService) ComputeArtistCommunities() (CommunityComputeResult, error) {
-	var result CommunityComputeResult
+// LoadCommunityGraphEdges loads the exact filtered edge set the persisted
+// partition is computed on. Exported so tuning tools (cmd/community-gamma-sweep)
+// sweep the SAME graph the nightly compute uses — a duplicated loader would
+// drift. Read-only.
+func (s *RadioService) LoadCommunityGraphEdges() ([]WeightedEdge, error) {
 	if s.db == nil {
-		return result, fmt.Errorf("database not initialized")
+		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// ORDER BY closes a determinism hole: without it, Postgres scan order
@@ -68,7 +68,7 @@ func (s *RadioService) ComputeArtistCommunities() (CommunityComputeResult, error
 		Order("source_artist_id, target_artist_id, relationship_type").
 		Scan(&rows).Error
 	if err != nil {
-		return result, fmt.Errorf("failed to load similarity edges: %w", err)
+		return nil, fmt.Errorf("failed to load similarity edges: %w", err)
 	}
 
 	// Filter in Go so the excluded radio edges are countable: a radio edge
@@ -96,13 +96,25 @@ func (s *RadioService) ComputeArtistCommunities() (CommunityComputeResult, error
 		edges = append(edges, WeightedEdge{A: r.SourceArtistID, B: r.TargetArtistID, Weight: r.Score})
 	}
 	if radioSeen > 0 && radioNull == radioSeen {
-		return result, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"all %d radio edges have NULL backbone significance — backbone step likely failed this cycle; keeping previous partition",
 			radioSeen)
 	}
 	if radioNull > 0 {
 		slog.Warn("artist communities: unstamped radio edges excluded from partition input",
 			"null_significance", radioNull, "radio_total", radioSeen)
+	}
+	return edges, nil
+}
+
+// ComputeArtistCommunities rebuilds the persisted community partition.
+// Callers treat errors as non-fatal (the previous partition simply stays
+// live, mirroring ComputeBackboneSignificance's posture in the cycle).
+func (s *RadioService) ComputeArtistCommunities() (CommunityComputeResult, error) {
+	var result CommunityComputeResult
+	edges, err := s.LoadCommunityGraphEdges()
+	if err != nil {
+		return result, err
 	}
 
 	assignment := LeidenCommunities(edges, LeidenResolution, leidenSeed)
