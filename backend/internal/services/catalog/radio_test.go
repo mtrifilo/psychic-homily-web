@@ -673,7 +673,9 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_Windo
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
 		Where("id = ?", station.ID).Update("timezone", "America/New_York").Error)
 	show := suite.createShow(station.ID, "Evening Show")
-	now := time.Now().UTC()
+	// µs-truncated: compared with time.Equal after a Postgres round-trip (Linux
+	// clocks carry ns that timestamptz drops; macOS hides this locally).
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	starts := now.Add(-6 * time.Hour)
 	ends := now.Add(-3 * time.Hour)
 	airDate := now.AddDate(0, 0, -1).Format("2006-01-02")
@@ -1367,7 +1369,9 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 // windowless latest yields a nil window with the date still set; no episodes
 // yields nil everything.
 func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestEpisodeWindow() {
-	now := time.Now().UTC()
+	// µs-truncated: window values are compared with time.Equal after a Postgres
+	// round-trip (see TestGetEpisodeByShowAndDate_WindowAndTimezone).
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	station := suite.createStation("Window FM")
 
 	windowed := suite.createShow(station.ID, "Windowed Show")

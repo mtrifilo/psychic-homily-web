@@ -269,7 +269,10 @@ func (suite *RadioNowPlayingIntegrationTestSuite) createEpisode(showID uint, air
 	// latestEpisodeForShow now shares with the feed. Every now-playing archive fixture
 	// here is a past-aired episode, so a window a few days back is correct and
 	// clock-independent (air_date still drives latest-selection ordering).
-	now := time.Now().UTC()
+	// Truncated to Postgres timestamptz precision (µs): PSY-1306 compares these
+	// fixture values with time.Equal after a DB round-trip, and Linux clocks carry
+	// nanoseconds that Postgres drops (macOS clocks are µs, hiding this locally).
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	starts := now.Add(-72 * time.Hour)
 	ends := now.Add(-71 * time.Hour)
 	ep := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
