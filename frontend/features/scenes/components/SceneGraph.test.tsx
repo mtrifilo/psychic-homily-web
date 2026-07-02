@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { SceneGraphResponse } from '../types'
 
 // Mock the useSceneGraph hook before the SceneGraph component imports it.
@@ -92,48 +93,17 @@ vi.mock('./SceneGraphVisualization', () => ({
 
 import { SceneGraph } from './SceneGraph'
 
-// Same ResizeObserver shim pattern as BillComposition.test.tsx so we can
-// drive the >= 640px graph gate.
-let mockContainerWidth = 1024
-
-function setMockContainerWidth(width: number) {
-  mockContainerWidth = width
-}
-
-class ImmediateResizeObserver {
-  private callback: ResizeObserverCallback
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback
-  }
-  observe(target: Element): void {
-    this.callback(
-      [
-        {
-          target,
-          contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
-        } as ResizeObserverEntry,
-      ],
-      this as unknown as ResizeObserver,
-    )
-  }
-  unobserve(): void {}
-  disconnect(): void {}
-}
-
 describe('SceneGraph', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  // Shared immediate ResizeObserver shim so we can drive the >= 640px graph
+  // gate (test/mocks/resizeObserver.ts).
+  let resizeObserver: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    resizeObserver = installImmediateResizeObserver()
   })
 
   afterEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = originalResizeObserver
+    resizeObserver.restore()
   })
 
   it('renders the section header and counts', () => {
@@ -145,7 +115,7 @@ describe('SceneGraph', () => {
   })
 
   it('hides the canvas below the 640px breakpoint', () => {
-    setMockContainerWidth(500)
+    resizeObserver.setWidth(500)
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     // PSY-516: header copy is gated by `nodeCount === 0`, not by mobile gating,
     // so it may still render. The canvas + cluster legend must be absent.
@@ -216,7 +186,7 @@ describe('SceneGraph', () => {
     })
 
     it('does NOT render the Expand button below the 640px breakpoint (mobile gate inherited)', () => {
-      setMockContainerWidth(500)
+      resizeObserver.setWidth(500)
       renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
       // Mobile gate: graphAvailable === false → Expand button isn't rendered.
       expect(

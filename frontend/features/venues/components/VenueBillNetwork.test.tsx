@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { VenueBillNetworkResponse } from '../types'
 
 // Mock the useVenueBillNetwork hook before the component imports it.
@@ -93,42 +94,13 @@ vi.mock('./VenueBillNetworkAdapter', () => ({
 
 import { VenueBillNetwork } from './VenueBillNetwork'
 
-// Same ResizeObserver shim pattern as SceneGraph.test.tsx + BillComposition.test.tsx
-// so we can drive the >=640px graph gate.
-let mockContainerWidth = 1024
-
-function setMockContainerWidth(width: number) {
-  mockContainerWidth = width
-}
-
-class ImmediateResizeObserver {
-  private callback: ResizeObserverCallback
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback
-  }
-  observe(target: Element): void {
-    this.callback(
-      [
-        {
-          target,
-          contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
-        } as ResizeObserverEntry,
-      ],
-      this as unknown as ResizeObserver,
-    )
-  }
-  unobserve(): void {}
-  disconnect(): void {}
-}
-
 describe('VenueBillNetwork', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  let ro: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(async () => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    // Shared ResizeObserver shim (test/mocks/resizeObserver) so we can drive
+    // the >=640px graph gate.
+    ro = installImmediateResizeObserver(1024)
     // Reset the hook mock to the default mockData so individual tests can
     // override with `.mockReturnValue` without leaking to the next test.
     const hooks = await import('../hooks/useVenues')
@@ -141,9 +113,7 @@ describe('VenueBillNetwork', () => {
   })
 
   afterEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = originalResizeObserver
+    ro.restore()
   })
 
   it('renders the section header and counts', () => {
@@ -155,7 +125,7 @@ describe('VenueBillNetwork', () => {
   })
 
   it('hides the canvas below the 640px breakpoint', () => {
-    setMockContainerWidth(500)
+    ro.setWidth(500)
     const { container } = renderWithProviders(
       <VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />,
     )

@@ -23,20 +23,19 @@
  * so the graph slot collapses to a teaser message.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Maximize2, X } from 'lucide-react'
 import { useCollectionGraph } from '../hooks'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
+import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
   getEntityUrl,
 } from '../types'
-
-const GRAPH_BREAKPOINT_PX = 640
-const OVERLAY_VERTICAL_RESERVE_PX = 140
 
 /**
  * PSY-555: stable color-index per entity type, indexing into the cluster
@@ -66,52 +65,7 @@ interface CollectionGraphProps {
 export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps) {
   const router = useRouter()
   const { data, isLoading } = useCollectionGraph({ slug, enabled: Boolean(slug) })
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [overlayHeight, setOverlayHeight] = useState<number | null>(null)
-  const [overlayWidth, setOverlayWidth] = useState<number | null>(null)
-
-  // Callback ref + ResizeObserver. Same PSY-519 pattern as SceneGraph and
-  // RelatedArtists — useEffect with `[]` deps would only fire on the initial
-  // mount when ref.current is still null and never re-run.
-  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return
-    setContainerWidth(node.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  // Fullscreen overlay side effects (PSY-517 pattern).
-  useEffect(() => {
-    if (!isFullscreen) return
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    const updateDimensions = () => {
-      setOverlayWidth(window.innerWidth)
-      setOverlayHeight(Math.max(200, window.innerHeight - OVERLAY_VERTICAL_RESERVE_PX))
-    }
-    updateDimensions()
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsFullscreen(false)
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('resize', updateDimensions)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('resize', updateDimensions)
-    }
-  }, [isFullscreen])
+  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -165,14 +119,6 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     [router],
   )
 
-  const handleNodeClickOverlay = useCallback(
-    (node: GraphNode) => {
-      setIsFullscreen(false)
-      navigateToNode(node)
-    },
-    [navigateToNode],
-  )
-
   // PSY-555: subtitle reflects the multi-type breakdown. Uses
   // entity_counts when present, falling back to artist_count for
   // PSY-366-era response shapes.
@@ -200,6 +146,24 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   // Mobile gate: same 640px threshold as SceneGraph.
   const graphAvailable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
+  // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
+  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  const {
+    isFullscreen,
+    open: openFullscreen,
+    close: closeFullscreen,
+    overlayWidth,
+    overlayHeight,
+  } = useFullscreenGraphOverlay(graphAvailable)
+
+  const handleNodeClickOverlay = useCallback(
+    (node: GraphNode) => {
+      closeFullscreen()
+      navigateToNode(node)
+    },
+    [closeFullscreen, navigateToNode],
+  )
+
   const sectionHeader = (
     <div>
       <h2 className="text-lg font-semibold">Collection graph</h2>
@@ -224,7 +188,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   const expandButton = graphAvailable && !isFullscreen && data && nodeCount > 0 && (
     <button
       type="button"
-      onClick={() => setIsFullscreen(true)}
+      onClick={openFullscreen}
       className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
       aria-label="Expand collection graph to fullscreen"
     >
@@ -306,7 +270,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
             {sectionHeader}
             <button
               type="button"
-              onClick={() => setIsFullscreen(false)}
+              onClick={closeFullscreen}
               className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
               aria-label="Exit fullscreen collection graph"
             >

@@ -25,16 +25,16 @@
  * is therefore on the artist page, not duplicated here.
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { Maximize2, X } from 'lucide-react'
+import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useVenueBillNetwork } from '../hooks/useVenues'
 import type { VenueBillNetworkWindow } from '../types'
 import { SceneGraphVisualizationStyleAdapter } from './VenueBillNetworkAdapter'
 
-const GRAPH_BREAKPOINT_PX = 640
 const MIN_GRAPH_NODES = 3 // mirror SceneGraph — under 3 connected artists is too sparse
 const MIN_GRAPH_SHOWS = 10 // PSY-365 ticket: empty state for "<10 shows at the venue"
-const OVERLAY_VERTICAL_RESERVE_PX = 140 // matches SceneGraph
 
 // ------------------------------------------------------------------
 // Year picker bounds
@@ -54,10 +54,7 @@ interface VenueBillNetworkProps {
 export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkProps) {
   const [window, setWindowState] = useState<VenueBillNetworkWindow>('all')
   const [yearSelection, setYearSelection] = useState<number>(() => new Date().getFullYear())
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [overlayHeight, setOverlayHeight] = useState<number | null>(null)
-  const [overlayWidth, setOverlayWidth] = useState<number | null>(null)
+  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
   const { data, isLoading } = useVenueBillNetwork({
     venueIdOrSlug,
@@ -65,54 +62,6 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     year: window === 'year' ? yearSelection : undefined,
     enabled: Boolean(venueIdOrSlug),
   })
-
-  // Callback ref pattern (PSY-516 / PSY-519): a `useRef + useEffect[]` shape
-  // silently fails when the first render returns null (data still loading).
-  // The callback ref fires whenever the underlying DOM node mounts/unmounts,
-  // so we always measure the right node regardless of conditional returns.
-  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return
-    setContainerWidth(node.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  // Overlay-mode side effects (mirror SceneGraph): body scroll lock, Esc
-  // close, and live viewport-size listener for the canvas.
-  useEffect(() => {
-    if (!isFullscreen) return
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    const updateDimensions = () => {
-      setOverlayWidth(globalThis.window.innerWidth)
-      setOverlayHeight(
-        Math.max(200, globalThis.window.innerHeight - OVERLAY_VERTICAL_RESERVE_PX),
-      )
-    }
-    updateDimensions()
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsFullscreen(false)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    globalThis.window.addEventListener('resize', updateDimensions)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleKeyDown)
-      globalThis.window.removeEventListener('resize', updateDimensions)
-    }
-  }, [isFullscreen])
 
   // Pre-compute years for the picker. Stable across renders so the <select>
   // doesn't churn its option DOM on every parent re-render.
@@ -130,12 +79,9 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
 
-  if (isLoading) return null
-  if (!data) return null
-
-  const nodeCount = data.nodes.length
-  const edgeCount = data.venue.edge_count
-  const showCount = data.venue.show_count
+  const nodeCount = data?.nodes.length ?? 0
+  const edgeCount = data?.venue.edge_count ?? 0
+  const showCount = data?.venue.show_count ?? 0
 
   // Sparse-venue / sparse-window empty state. Two gates:
   //   1. Venue has < 10 approved shows in the active window — too thin for
@@ -149,6 +95,19 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // (pre-measurement) also gates off so we never flash an oversized canvas.
   const graphAvailable =
     !tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
+  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  const {
+    isFullscreen,
+    open: openFullscreen,
+    close: closeFullscreen,
+    overlayWidth,
+    overlayHeight,
+  } = useFullscreenGraphOverlay(graphAvailable)
+
+  if (isLoading) return null
+  if (!data) return null
 
   // Even when graphAvailable is false, keep the section header + filter
   // visible at desktop widths so the user understands WHY the graph isn't
@@ -227,7 +186,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   const expandButton = graphAvailable && !isFullscreen && (
     <button
       type="button"
-      onClick={() => setIsFullscreen(true)}
+      onClick={openFullscreen}
       className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
       aria-label="Expand venue bill network to fullscreen"
     >
@@ -298,7 +257,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
             {sectionHeader}
             <button
               type="button"
-              onClick={() => setIsFullscreen(false)}
+              onClick={closeFullscreen}
               className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
               aria-label="Exit fullscreen venue bill network"
             >
