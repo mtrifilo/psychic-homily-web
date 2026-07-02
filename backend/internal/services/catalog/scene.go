@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -865,7 +866,13 @@ type sceneRelationshipRow struct {
 //
 // types filters to the subset of allowed scene edge types (see
 // allowedSceneEdgeTypes); empty/nil means "all allowed types".
-func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contracts.SceneGraphResponse, error) {
+//
+// clusterBy selects the cluster signal (PSY-1262): "venue" (default) keeps
+// the PSY-367 most-played-venue clusters; "community" projects the persisted
+// Leiden similarity partition (artists.community_id, labeled "Around
+// {artist}"). Unknown values fall back to venue; artists without a community
+// (or when the partition has never been computed) roll into "other".
+func (s *SceneService) GetSceneGraph(city, state string, types []string, clusterBy string) (*contracts.SceneGraphResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -910,25 +917,37 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 		return resp, nil
 	}
 
-	// 2. Cluster pass — count artists per primary venue, identify first-class clusters
-	//    (size >= sceneClusterMinSize, capped at Okabe-Ito palette size), roll the
-	//    long tail into a single "other" cluster.
-	clusters, clusterIDByVenue := buildSceneClusters(rows)
-	resp.Clusters = clusters
-
-	// 3. Build node list with cluster assignment. Order by artist name for
-	//    determinism (frontend doesn't depend on order, but tests do).
+	// 2+3. Cluster pass + per-artist assignment. Venue mode counts artists per
+	//    primary venue (PSY-367); community mode projects the persisted Leiden
+	//    partition (PSY-1262). Both share the first-class rules: size >=
+	//    sceneClusterMinSize, capped at the Okabe-Ito palette, long tail rolls
+	//    into "other".
 	artistIDs := make([]uint, 0, len(rows))
-	clusterByArtist := make(map[uint]string, len(rows))
 	for _, r := range rows {
 		artistIDs = append(artistIDs, r.ArtistID)
-		clusterID := sceneClusterOtherID
-		if r.PrimaryVenueID != nil {
-			if cid, ok := clusterIDByVenue[*r.PrimaryVenueID]; ok {
-				clusterID = cid
-			}
+	}
+
+	var clusterByArtist map[uint]string
+	if clusterBy == "community" {
+		communityClusters, communityByArtist, err := s.buildCommunityClusters(artistIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build community clusters: %w", err)
 		}
-		clusterByArtist[r.ArtistID] = clusterID
+		resp.Clusters = communityClusters
+		clusterByArtist = communityByArtist
+	} else {
+		clusters, clusterIDByVenue := buildSceneClusters(rows)
+		resp.Clusters = clusters
+		clusterByArtist = make(map[uint]string, len(rows))
+		for _, r := range rows {
+			clusterID := sceneClusterOtherID
+			if r.PrimaryVenueID != nil {
+				if cid, ok := clusterIDByVenue[*r.PrimaryVenueID]; ok {
+					clusterID = cid
+				}
+			}
+			clusterByArtist[r.ArtistID] = clusterID
+		}
 	}
 
 	// 4. Batch query upcoming-show-count for every node (mirror GetArtistGraph §4).
@@ -1263,4 +1282,123 @@ func buildSceneClusters(rows []sceneArtistRow) ([]contracts.SceneGraphCluster, m
 	}
 
 	return clusters, clusterIDByVenue
+}
+
+// buildCommunityClusters projects the persisted Leiden partition (PSY-1262)
+// onto the scene's artist set: communities are counted by IN-SCENE members,
+// first-classed by the same size/palette rules as venue clusters, labeled
+// "Around {artist}" from artist_communities, and everything else — artists
+// with NULL community_id, or members of communities below the size floor —
+// rolls into "other". A never-computed partition therefore degrades to a
+// single "other" cluster rather than erroring.
+func (s *SceneService) buildCommunityClusters(artistIDs []uint) ([]contracts.SceneGraphCluster, map[uint]string, error) {
+	type artistCommunityRow struct {
+		ID          uint `gorm:"column:id"`
+		CommunityID *int `gorm:"column:community_id"`
+	}
+	var rows []artistCommunityRow
+	if err := s.db.Model(&catalogm.Artist{}).
+		Select("id, community_id").
+		Where("id IN ?", artistIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to load community assignments: %w", err)
+	}
+
+	communityByArtist := make(map[uint]int, len(rows))
+	counts := make(map[int]int)
+	for _, r := range rows {
+		if r.CommunityID == nil {
+			continue
+		}
+		communityByArtist[r.ID] = *r.CommunityID
+		counts[*r.CommunityID]++
+	}
+
+	type communityCount struct {
+		communityID int
+		count       int
+	}
+	ordered := make([]communityCount, 0, len(counts))
+	for c, n := range counts {
+		ordered = append(ordered, communityCount{communityID: c, count: n})
+	}
+	// Size desc, community id asc on ties — deterministic like the venue sort.
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].count != ordered[j].count {
+			return ordered[i].count > ordered[j].count
+		}
+		return ordered[i].communityID < ordered[j].communityID
+	})
+
+	// Labels for the communities that can go first-class.
+	labelByCommunity := make(map[int]string)
+	firstClassIDs := make([]int, 0, sceneClusterMaxFirstClass)
+	for _, cc := range ordered {
+		if cc.count >= sceneClusterMinSize && len(firstClassIDs) < sceneClusterMaxFirstClass {
+			firstClassIDs = append(firstClassIDs, cc.communityID)
+		}
+	}
+	if len(firstClassIDs) > 0 {
+		type labelRow struct {
+			CommunityID int    `gorm:"column:community_id"`
+			Name        string `gorm:"column:name"`
+		}
+		var labels []labelRow
+		if err := s.db.Table("artist_communities ac").
+			Select("ac.id AS community_id, a.name AS name").
+			Joins("JOIN artists a ON a.id = ac.label_artist_id").
+			Where("ac.id IN ?", firstClassIDs).
+			Scan(&labels).Error; err != nil {
+			return nil, nil, fmt.Errorf("failed to load community labels: %w", err)
+		}
+		for _, l := range labels {
+			labelByCommunity[l.CommunityID] = "Around " + l.Name
+		}
+	}
+
+	clusterIDByCommunity := make(map[int]string, len(ordered))
+	clusters := make([]contracts.SceneGraphCluster, 0, len(ordered)+1)
+	otherSize := 0
+	for _, cc := range ordered {
+		if cc.count >= sceneClusterMinSize && len(clusters) < sceneClusterMaxFirstClass {
+			cid := fmt.Sprintf("c_%d", cc.communityID)
+			clusterIDByCommunity[cc.communityID] = cid
+			label, ok := labelByCommunity[cc.communityID]
+			if !ok {
+				// Label row missing (partition/label drift) — degrade honestly.
+				label = fmt.Sprintf("Community %d", cc.communityID)
+			}
+			clusters = append(clusters, contracts.SceneGraphCluster{
+				ID:         cid,
+				Label:      label,
+				Size:       cc.count,
+				ColorIndex: len(clusters),
+			})
+			continue
+		}
+		clusterIDByCommunity[cc.communityID] = sceneClusterOtherID
+		otherSize += cc.count
+	}
+
+	clusterByArtist := make(map[uint]string, len(artistIDs))
+	for _, id := range artistIDs {
+		comm, ok := communityByArtist[id]
+		if !ok {
+			clusterByArtist[id] = sceneClusterOtherID
+			otherSize++
+			continue
+		}
+		clusterByArtist[id] = clusterIDByCommunity[comm]
+	}
+
+	if otherSize > 0 {
+		clusters = append(clusters, contracts.SceneGraphCluster{
+			ID:         sceneClusterOtherID,
+			Label:      sceneClusterOtherLabel,
+			Size:       otherSize,
+			ColorIndex: -1,
+		})
+	}
+
+	return clusters, clusterByArtist, nil
 }

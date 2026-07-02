@@ -1026,7 +1026,9 @@ type SceneServiceInterface interface {
 	ParseSceneSlug(slug string) (string, string, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
-	GetSceneGraph(city, state string, types []string) (*SceneGraphResponse, error)
+	// clusterBy selects the cluster signal: "venue" (default) or "community"
+	// (the persisted Leiden similarity partition, PSY-1262).
+	GetSceneGraph(city, state string, types []string, clusterBy string) (*SceneGraphResponse, error)
 	// GetSceneUpcomingShows returns the scene's next approved shows within
 	// windowDays, soonest first, capped at limit — the preview panel's "This
 	// week" row (PSY-1309). Metro-scoped like every other scene surface (a

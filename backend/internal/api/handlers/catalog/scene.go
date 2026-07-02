@@ -253,6 +253,11 @@ func (h *SceneHandler) GetSceneGenresHandler(ctx context.Context, req *GetSceneG
 type GetSceneGraphRequest struct {
 	Slug  string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
 	Types string `query:"types" doc:"Comma-separated relationship types (e.g. shared_bills,shared_label). Empty = all allowed types." example:"shared_bills,shared_label"`
+	// ClusterBy selects the cluster signal (PSY-1262): "venue" (default,
+	// each artist's most-played in-scene venue) or "community" (the nightly
+	// Leiden similarity partition, labeled "Around {artist}"). Huma-native
+	// enum tag — go-playground validate tags are dead in this repo.
+	ClusterBy string `query:"cluster_by" enum:"venue,community" default:"venue" doc:"Cluster signal: venue (default) or community (similarity partition)." example:"community"`
 }
 
 // GetSceneGraphResponse represents the response for the scene-scale graph.
@@ -268,7 +273,7 @@ func (h *SceneHandler) GetSceneGraphHandler(ctx context.Context, req *GetSceneGr
 		return nil, huma.Error404NotFound("Scene not found")
 	}
 
-	graph, err := h.sceneService.GetSceneGraph(city, state, parseTypesQueryParam(req.Types))
+	graph, err := h.sceneService.GetSceneGraph(city, state, parseTypesQueryParam(req.Types), req.ClusterBy)
 	if err != nil {
 		if mapped := shared.MapSceneError(err); mapped != nil {
 			return nil, mapped

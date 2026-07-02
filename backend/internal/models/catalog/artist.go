@@ -61,7 +61,13 @@ type Artist struct {
 	// geo.ResolveMetro and reconciled by cmd/backfill-entity-metro; NULL for
 	// non-US / not-in-CBSA / ambiguous-unpinned. An internal grouping key (the
 	// scene endpoints surface metros), so it is not exposed in the API. (PSY-1255 step B)
-	Metro            *string `json:"-" gorm:"column:metro;size:10"`
+	Metro *string `json:"-" gorm:"column:metro;size:10"`
+	// CommunityID is the artist's Leiden similarity-community index (PSY-1262),
+	// rebuilt atomically by the nightly compute over the artist-relationship
+	// graph; NULL = not in any community (isolated in the similarity graph, or
+	// the compute hasn't run). Internal grouping key — the scene graph projects
+	// it as clusters; not exposed directly in the API.
+	CommunityID      *int    `json:"-" gorm:"column:community_id"`
 	BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
 	// BandcampEmbedSource is the provenance of BandcampEmbedURL — one of the
 	// BandcampEmbedSource* constants, or nil for legacy/unknown (PSY-1188).
