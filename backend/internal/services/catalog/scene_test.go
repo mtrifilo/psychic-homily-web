@@ -190,8 +190,12 @@ func (suite *SceneServiceIntegrationTestSuite) createFestival(name, city, state 
 		EditionYear: 2026,
 		City:        stringPtr(city),
 		State:       stringPtr(state),
-		StartDate:   "2026-03-01",
-		EndDate:     "2026-03-03",
+		// Mirror the production write paths, which stamp the derived metro
+		// alongside the location (PSY-1278) — the scene festival_count is
+		// metro-keyed for metro scenes.
+		Metro:     seedMetro(city, state),
+		StartDate: "2026-03-01",
+		EndDate:   "2026-03-03",
 	}
 	err := suite.db.Create(festival).Error
 	suite.Require().NoError(err)
@@ -610,6 +614,20 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_FestivalCount(
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
 	suite.Require().NoError(err)
 	suite.Equal(2, detail.Stats.FestivalCount)
+}
+
+// TestGetSceneDetail_FestivalCountMetroRollup is the PSY-1278 payoff: a festival
+// held in a metro MEMBER city (Tempe → Phoenix CBSA) counts toward the metro's
+// scene, while a festival in another metro does not.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_FestivalCountMetroRollup() {
+	suite.seedSceneData()
+	suite.createFestival("M3F Fest", "Phoenix", "AZ")
+	suite.createFestival("Tempe Beach Fest", "Tempe", "AZ")   // Phoenix-CBSA member city
+	suite.createFestival("Denver Riot Fest", "Denver", "CO") // different metro entirely
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Equal(2, detail.Stats.FestivalCount, "principal-city + member-city festivals count; other metros don't")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseShowsByMonth() {

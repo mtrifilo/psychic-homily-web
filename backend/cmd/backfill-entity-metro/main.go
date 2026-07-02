@@ -74,12 +74,18 @@ func main() {
 	}
 	printReport("venues", venues)
 
+	festivals, err := catalog.ReconcileFestivalMetros(database, g, !confirm)
+	if err != nil {
+		log.Fatalf("festivals: %v", err)
+	}
+	printReport("festivals", festivals)
+
 	if !confirm {
 		fmt.Println("DRY RUN — no DB writes. Re-run with --confirm to apply.")
 	} else {
 		fmt.Println("LIVE — changes committed.")
 	}
-	if confirm && (len(artists.Errors) > 0 || len(venues.Errors) > 0) {
+	if confirm && (len(artists.Errors) > 0 || len(venues.Errors) > 0 || len(festivals.Errors) > 0) {
 		os.Exit(1)
 	}
 }

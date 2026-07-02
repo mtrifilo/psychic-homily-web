@@ -298,13 +298,19 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, fmt.Errorf("failed to count artists: %w", err)
 	}
 
-	// Festival count: festivals in the scene's principal city/state. Festivals
-	// carry no metro column yet, so a multi-city metro under-counts suburb
-	// festivals — acceptable for v1 (follow-up: add festivals.metro).
+	// Festival count: festivals held in the scene's metro (PSY-1278) — the
+	// denormalized festivals.metro column rolls member-city festivals up (a
+	// St. Paul festival counts toward the Minneapolis-principal Twin Cities
+	// scene). A no-CBSA fallback scene matches its literal city/state, same as
+	// the venue/artist predicates.
+	festivalQ := s.db.Model(&catalogm.Festival{})
+	if scope.isMetro() {
+		festivalQ = festivalQ.Where("metro = ?", scope.metro)
+	} else {
+		festivalQ = festivalQ.Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", scope.city, scope.state)
+	}
 	var festivalCount int64
-	if err := s.db.Model(&catalogm.Festival{}).
-		Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", city, state).
-		Count(&festivalCount).Error; err != nil {
+	if err := festivalQ.Count(&festivalCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count festivals: %w", err)
 	}
 
