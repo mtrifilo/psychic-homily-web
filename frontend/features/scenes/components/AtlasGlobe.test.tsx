@@ -29,6 +29,9 @@ const mockUseScenes = vi.fn()
 vi.mock('../hooks', () => ({
   useScenes: () => mockUseScenes(),
   useSceneArtists: () => ({ data: undefined, isLoading: false }),
+  // PSY-1309 added this hook to ScenePreviewPanel (rendered by the drift
+  // tests); an absent mock is undefined -> render crash.
+  useSceneShows: () => ({ data: undefined, isLoading: false }),
 }))
 
 // Stub the WebGL canvas for the desktop-branch tests (PSY-1308 Drift): it
