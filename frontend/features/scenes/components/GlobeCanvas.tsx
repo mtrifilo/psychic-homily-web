@@ -23,10 +23,25 @@ interface GlobeCanvasProps {
    */
   pov: GlobePov
   onSelect: (scene: PlaceableScene) => void
+  /**
+   * Imperative fly-the-camera seam (PSY-1308 Drift; reusable by scene search).
+   * A plain ref rather than forwardRef because ref-forwarding through
+   * next/dynamic is unreliable (PSY-1211) — GlobeCanvas fills it with a
+   * function that reads the live GlobeMethods ref LAZILY, so it stays valid
+   * across the PSY-1284 rebuild (which swaps the keyed <Globe> instance under
+   * the same globeRef).
+   */
+  flyToRef?: React.MutableRefObject<((scene: PlaceableScene) => void) | null>
 }
 
 const EARTH_TEXTURE =
   'https://unpkg.com/three-globe/example/img/earth-night.jpg'
+
+// Camera altitude a fly-to lands at — closer than the initial continental POV
+// (1.6–1.8) so arriving somewhere reads as a descent, but high enough that
+// neighbouring scenes stay in frame.
+const FLY_TO_ALTITUDE = 1.0
+const FLY_TO_MS = 1200
 
 // react-globe.gl's hover tooltip (pointLabel) is written to the DOM via
 // innerHTML, so any markup in the contributor-editable city/state must be
@@ -60,8 +75,33 @@ export default function GlobeCanvas({
   scenes,
   pov,
   onSelect,
+  flyToRef,
 }: GlobeCanvasProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
+
+  // Fill the parent's fly-to seam (PSY-1308). The closure reads globeRef at
+  // call time — never captured — so it aims whichever keyed <Globe> instance
+  // is live, including after a PSY-1284 rebuild. Honors prefers-reduced-motion
+  // with a jump cut instead of the 1.2s flight.
+  useEffect(() => {
+    if (!flyToRef) return
+    flyToRef.current = (scene: PlaceableScene) => {
+      const reduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      globeRef.current?.pointOfView(
+        {
+          lat: scene.latitude,
+          lng: scene.longitude,
+          altitude: FLY_TO_ALTITUDE,
+        },
+        reduced ? 0 : FLY_TO_MS,
+      )
+    }
+    return () => {
+      flyToRef.current = null
+    }
+  }, [flyToRef])
 
   // PSY-1284: heal a globe that comes back frozen after a client-side
   // navigation away from /atlas and back.
