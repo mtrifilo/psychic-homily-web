@@ -32,11 +32,15 @@ export function airDateCellText(
   opts: { withYear?: boolean } = {}
 ): { dateLine: string; timeBlock: string } {
   const timeBlock = formatLocalTimeRange(startsAt, endsAt)
-  const dateLine = timeBlock
+  const formatted = timeBlock
     ? formatLocalAirDate(startsAt, airDate, opts)
     : opts.withYear
       ? formatLocalAirDate(null, airDate, opts)
       : formatShortAirDate(airDate)
+  // Never render an empty date line: an unparsable air_date falls back to the
+  // raw string (visible + greppable) rather than a blank cell and an empty
+  // accessible name.
+  const dateLine = formatted || airDate
   return { dateLine, timeBlock }
 }
 

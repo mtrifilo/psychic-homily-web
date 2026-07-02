@@ -122,19 +122,6 @@ export function formatDurationMinutes(
  * Archive-table date: "Jun 9 2026" (mock register, no comma). Parses at local
  * midnight so a date-only string doesn't shift a day in negative-offset zones.
  */
-export function formatArchiveDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00')
-  if (isNaN(date.getTime())) return dateStr
-  const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  return `${monthDay} ${date.getFullYear()}`
-}
-
-/** Short "Jun 2" label for the prev/next episode nav brackets. */
-export function formatShortNavDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00')
-  if (isNaN(date.getTime())) return dateStr
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
 
 // ---------------------------------------------------------------------------
 // Prev/next episode neighbors
@@ -237,11 +224,36 @@ export function formatViewerAiredLine(
     weekday: 'short',
   })
   const stationRange = formatTimeRangeInZone(startsAt, endsAt, stationTimezone)
-  // Skip the aside when the station-local rendering adds nothing (viewer is
-  // in the station's zone — same clock, the paren would just repeat it).
+  // Skip the aside only when the viewer IS in the station's zone (zone
+  // equality, not clock equality — two zones sharing a UTC offset still get
+  // the aside, because the zone name itself is the information).
+  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const aside =
-    stationRange && !stationRange.startsWith(viewerRange)
-      ? ` (${stationRange})`
-      : ''
+    stationRange && stationTimezone !== viewerZone ? ` (${stationRange})` : ''
   return `${weekday} ${viewerRange} your time${aside}`
+}
+
+/**
+ * Window-aware verb for the detail page's aired line (PSY-1306): the
+ * day-granular is_upcoming can't see that a TODAY-dated episode's window is
+ * still in the future (or in progress) — pairing "aired" with an explicit
+ * future clock range would lie. Falls back to is_upcoming for windowless
+ * episodes (PSY-1205 semantics unchanged there).
+ */
+export function airedVerbForWindow(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
+  isUpcoming: boolean,
+  now: Date = new Date()
+): 'airs' | 'airing' | 'aired' {
+  if (startsAt) {
+    const start = new Date(startsAt)
+    if (!isNaN(start.getTime())) {
+      if (start > now) return 'airs'
+      const end = endsAt ? new Date(endsAt) : null
+      if (end && !isNaN(end.getTime()) && end > now) return 'airing'
+      return 'aired'
+    }
+  }
+  return isUpcoming ? 'airs' : 'aired'
 }

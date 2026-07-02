@@ -182,3 +182,9 @@ describe('formatLocalAirDate withYear', () => {
     expect(formatLocalAirDate(null, '2026-06-08', { withYear: true })).toBe('Jun 8 2026')
   })
 })
+
+describe('airDateCellText raw fallback (via formatLocalAirDate)', () => {
+  it('formatLocalAirDate returns "" for unparsable input (component falls back to raw)', () => {
+    expect(formatLocalAirDate('garbage', 'also-garbage')).toBe('')
+  })
+})

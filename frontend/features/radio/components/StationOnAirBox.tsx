@@ -43,20 +43,17 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
     showUrl && episode ? `${showUrl}/${episode.air_date}` : null
   // PSY-1306: "Latest playlist" renders viewer-local from the episode's
   // frozen window so it agrees with the playlists feed below it in the same
-  // column. Prefer the now-playing payload's own episode fields; fall back to
-  // the latest-episode hook (used for the deep-link) while the payload lacks
-  // them or for older cached responses.
+  // column. The time block comes ONLY from the archive payload's own window:
+  // on a LIVE payload (episode_air_date nil) the hook's latest episode is
+  // often the one airing RIGHT NOW, and "aired 3–6 PM" mid-broadcast would
+  // lie — the hook fallback stays date-only (the pre-PSY-1306 rendering).
   const latestSrc = data.episode_air_date
     ? {
         starts: data.episode_starts_at,
         ends: data.episode_ends_at,
         date: data.episode_air_date,
       }
-    : {
-        starts: episode?.starts_at ?? null,
-        ends: episode?.ends_at ?? null,
-        date: episode?.air_date ?? '',
-      }
+    : { starts: null, ends: null, date: episode?.air_date ?? '' }
   const latestCell = airDateCellText(latestSrc.starts, latestSrc.ends, latestSrc.date)
   const latestDate = latestCell.timeBlock
     ? `${latestCell.dateLine} · ${latestCell.timeBlock}`

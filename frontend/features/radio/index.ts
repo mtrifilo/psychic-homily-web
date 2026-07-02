@@ -113,10 +113,11 @@ export {
   formatPlayTime,
   formatTimeOfDay,
   formatDurationMinutes,
-  formatArchiveDate,
-  formatShortNavDate,
-  // PSY-1306: viewer-local "aired ..." body for the playlist detail page
+  // PSY-1306: viewer-local "aired ..." body + window-aware verb for the
+  // playlist detail page (station-dated formatters retired — every date
+  // rendering now composes from airDateCellText)
   formatViewerAiredLine,
+  airedVerbForWindow,
   walkEpisodeNeighbors,
 } from './lib/episodeArchive'
 export type { ArtistMatchStats, EpisodeNeighbors } from './lib/episodeArchive'

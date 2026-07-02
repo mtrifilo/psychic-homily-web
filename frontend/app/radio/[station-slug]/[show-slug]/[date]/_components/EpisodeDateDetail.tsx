@@ -10,6 +10,7 @@ import {
   formatDurationMinutes,
   formatTimeOfDay,
   formatViewerAiredLine,
+  airedVerbForWindow,
 } from '@/features/radio'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
@@ -82,7 +83,11 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     episode.ends_at,
     episode.station_timezone
   )
-  const airedVerb = episode.is_upcoming ? 'airs' : 'aired'
+  const airedVerb = airedVerbForWindow(
+    episode.starts_at,
+    episode.ends_at,
+    episode.is_upcoming
+  )
   const airedLine = viewerAired
     ? `${airedVerb} ${viewerAired}`
     : `${airedVerb} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`

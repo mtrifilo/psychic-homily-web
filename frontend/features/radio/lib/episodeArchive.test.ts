@@ -6,8 +6,6 @@ import {
   formatPlayTime,
   formatTimeOfDay,
   formatDurationMinutes,
-  formatArchiveDate,
-  formatShortNavDate,
   walkEpisodeNeighbors,
 } from './episodeArchive'
 import type { RadioEpisodeListItem, RadioEpisodesListResponse, RadioPlay } from '../types'
@@ -187,20 +185,6 @@ describe('formatDurationMinutes', () => {
   })
 })
 
-describe('formatArchiveDate / formatShortNavDate', () => {
-  it('formats archive dates without a comma', () => {
-    expect(formatArchiveDate('2026-06-09')).toBe('Jun 9 2026')
-  })
-
-  it('formats short nav dates as month + day', () => {
-    expect(formatShortNavDate('2026-05-26')).toBe('May 26')
-  })
-
-  it('passes through unparseable input', () => {
-    expect(formatArchiveDate('bogus')).toBe('bogus')
-    expect(formatShortNavDate('bogus')).toBe('bogus')
-  })
-})
 
 describe('walkEpisodeNeighbors', () => {
   const page = (episodes: RadioEpisodeListItem[], total: number): RadioEpisodesListResponse => ({
@@ -376,5 +360,28 @@ describe('formatViewerAiredLine (PSY-1306)', () => {
     expect(
       formatViewerAiredLine(localIso(2026, 5, 9, 18), localIso(2026, 5, 9, 15), 'America/Phoenix')
     ).toBeNull()
+  })
+})
+
+import { airedVerbForWindow } from './episodeArchive'
+
+describe('airedVerbForWindow (PSY-1306)', () => {
+  const now = new Date(2026, 5, 9, 16, 0) // Jun 9, 4 PM local
+
+  it('says airs before the window, airing inside it, aired after it', () => {
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 18), localIso(2026, 5, 9, 21), false, now)
+    ).toBe('airs')
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 15), localIso(2026, 5, 9, 18), false, now)
+    ).toBe('airing')
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 9), localIso(2026, 5, 9, 12), false, now)
+    ).toBe('aired')
+  })
+
+  it('falls back to is_upcoming for windowless episodes (PSY-1205 unchanged)', () => {
+    expect(airedVerbForWindow(null, null, true, now)).toBe('airs')
+    expect(airedVerbForWindow(null, null, false, now)).toBe('aired')
   })
 })

@@ -142,7 +142,14 @@ function setEpisode(episode: RadioEpisodeDetail | undefined, isLoading = false) 
   })
 }
 
-const latestEpisode = { air_date: '2026-06-08' } as RadioEpisodeDetail
+const latestEpisode = {
+  air_date: '2026-06-08',
+  // A window that would be "live now" — the hook-fallback arm must stay
+  // date-only regardless (see the live+windowed test below).
+  starts_at: localIso(2026, 5, 8, 15),
+  ends_at: localIso(2026, 5, 8, 18),
+  station_timezone: null,
+} as RadioEpisodeDetail
 
 describe('StationOnAirBox', () => {
   beforeEach(() => {
@@ -184,6 +191,17 @@ describe('StationOnAirBox', () => {
     expect(mockUseShowLatestEpisode).toHaveBeenCalledWith('night-owl')
     const playlistLink = screen.getByRole('link', { name: 'Open latest playlist →' })
     expect(playlistLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-08')
+  })
+
+  it('keeps the hook-fallback date-only even when its episode carries a window (PSY-1306)', () => {
+    // Live payload (episode_air_date null) + a windowed hook episode that may
+    // be airing RIGHT NOW: "aired ... 3–6 PM" mid-broadcast would lie, so the
+    // fallback arm never appends the time block.
+    setNowPlaying(makeLiveNowPlaying())
+    setEpisode(latestEpisode)
+    render(<StationOnAirBox station={makeStation()} />)
+    // exact match: no '· 3–6 PM' suffix on the aired caption
+    expect(screen.getByText('aired Jun 8').textContent).toBe('aired Jun 8')
   })
 
   it('renders Latest viewer-local with the time block for a windowed archive episode (PSY-1306)', () => {
