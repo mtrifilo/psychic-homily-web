@@ -93,6 +93,23 @@ type RadioPlaylistProvider interface {
 	FetchPlaylist(episodeExternalID string) ([]RadioPlayImport, error)
 }
 
+// ExhaustiveEpisodeLister is an optional provider capability: implementing it
+// asserts that FetchNewEpisodes returns EVERY episode the provider currently
+// publishes for the show within [since, until] — not a paginated/filtered
+// subset. Under that guarantee, a stored episode inside the window that is
+// absent from the fetch result has been retracted upstream, which authorizes
+// the retraction reconcile (PSY-1286) to delete its placeholder row. Providers
+// that page or filter their listings (KEXP, NTS) must NOT implement this —
+// absence from a partial listing means nothing.
+//
+// WFMU qualifies because its fetch scrapes the show's full archive page, the
+// same source that stops listing a playlist the moment WFMU deletes it.
+type ExhaustiveEpisodeLister interface {
+	// EpisodeListingIsExhaustive reports whether the provider's fetch result
+	// is a complete listing of the window (see interface doc).
+	EpisodeListingIsExhaustive() bool
+}
+
 const (
 	// radioLiveFetchTimeout bounds each live now-playing HTTP call. Live
 	// fetches sit (behind the TTL cache) on a page-view path, so they get a

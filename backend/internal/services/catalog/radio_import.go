@@ -528,6 +528,12 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 			showEpisodesImported++
 		}
 
+		// The successful fetch's listing doubles as the retraction signal
+		// (PSY-1286): for an exhaustive-listing provider (WFMU), a stored
+		// placeholder row inside this window that the listing no longer
+		// carries was deleted upstream — remove it. No-op for other providers.
+		s.reconcileRetractedEpisodes(show.ID, provider, episodes, since, now)
+
 		// Advance THIS show's watermark only when its own fetch made progress (it
 		// fetched OK and didn't return episodes that all failed to import). attempts and
 		// successes are both 1 here because the fetch-error path above already continued.
