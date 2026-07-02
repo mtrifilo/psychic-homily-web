@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { StationOnAirBox } from './StationOnAirBox'
+import { localIso } from '../lib/localIso.testutil'
 import type {
   RadioStationDetail,
   RadioEpisodeDetail,
@@ -105,6 +106,8 @@ function makeLiveNowPlaying(
     current_track: makeTrack(),
     recent_artists: [],
     episode_air_date: null,
+    episode_starts_at: null,
+    episode_ends_at: null,
     ...overrides,
   }
 }
@@ -116,6 +119,8 @@ function makeArchiveNowPlaying(
     source: 'latest_archive',
     on_air: false,
     episode_air_date: '2026-06-08',
+    episode_starts_at: null,
+    episode_ends_at: null,
     ...overrides,
   })
 }
@@ -179,6 +184,20 @@ describe('StationOnAirBox', () => {
     expect(mockUseShowLatestEpisode).toHaveBeenCalledWith('night-owl')
     const playlistLink = screen.getByRole('link', { name: 'Open latest playlist →' })
     expect(playlistLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-08')
+  })
+
+  it('renders Latest viewer-local with the time block for a windowed archive episode (PSY-1306)', () => {
+    // episode_air_date differs from the window's local day: discriminates the
+    // starts_at-derived date; the time block rides along inline.
+    setNowPlaying(
+      makeArchiveNowPlaying({
+        episode_air_date: '2026-06-08',
+        episode_starts_at: localIso(2026, 5, 9, 15),
+        episode_ends_at: localIso(2026, 5, 9, 18),
+      })
+    )
+    render(<StationOnAirBox station={makeStation()} />)
+    expect(screen.getByText('Latest: Jun 9 · 3–6 PM')).toBeInTheDocument()
   })
 
   it('labels the latest-archive fallback honestly (no on-air claim)', () => {

@@ -658,6 +658,35 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_Succe
 	suite.Equal("2026-01-15", resp.AirDate)
 	suite.Equal("Morning Show", resp.ShowName)
 	suite.Equal("KEXP", resp.StationName)
+	// PSY-1306: windowless episode + timezone-less station expose nils.
+	suite.Nil(resp.StartsAt)
+	suite.Nil(resp.EndsAt)
+	suite.Nil(resp.StationTimezone)
+}
+
+// TestGetEpisodeByShowAndDate_WindowAndTimezone pins the PSY-1306 detail
+// pass-through: the frozen air window and the station's IANA zone ride along
+// so the playlist page can render its "aired ..." line viewer-local with a
+// station-local aside.
+func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_WindowAndTimezone() {
+	station := suite.createStation("WFMU Detail")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).
+		Where("id = ?", station.ID).Update("timezone", "America/New_York").Error)
+	show := suite.createShow(station.ID, "Evening Show")
+	now := time.Now().UTC()
+	starts := now.Add(-6 * time.Hour)
+	ends := now.Add(-3 * time.Hour)
+	airDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+	suite.createEpisodeWindowed(show.ID, airDate, &starts, &ends, 5)
+
+	resp, err := suite.radioService.GetEpisodeByShowAndDate(show.ID, airDate)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.StartsAt)
+	suite.True(resp.StartsAt.Equal(starts))
+	suite.Require().NotNil(resp.EndsAt)
+	suite.True(resp.EndsAt.Equal(ends))
+	suite.Require().NotNil(resp.StationTimezone)
+	suite.Equal("America/New_York", *resp.StationTimezone)
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_NotFound() {
@@ -1329,6 +1358,59 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.Nil(byLatest[2].LatestAirDate)
 	suite.Equal("Beta Retired", byLatest[3].Name)
 	suite.False(byLatest[3].IsActive)
+}
+
+// TestListShows_LatestEpisodeWindow pins the PSY-1306 LAST-column window: each
+// show row carries the frozen air window of the SAME episode LatestAirDate
+// names (the feed's latest-first winner), not MAX(starts_at) — the fixture
+// gives an OLDER episode the newer starts_at so a naive MAX would fail. A
+// windowless latest yields a nil window with the date still set; no episodes
+// yields nil everything.
+func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestEpisodeWindow() {
+	now := time.Now().UTC()
+	station := suite.createStation("Window FM")
+
+	windowed := suite.createShow(station.ID, "Windowed Show")
+	// older episode deliberately carries the NEWEST starts_at…
+	oldStarts := now.Add(-5 * time.Hour)
+	oldEnds := now.Add(-4 * time.Hour)
+	suite.createEpisodeWindowed(windowed.ID, now.AddDate(0, 0, -10).Format("2006-01-02"), &oldStarts, &oldEnds, 9)
+	// …while the latest-by-date episode has an older window: DISTINCT ON must
+	// return THIS one.
+	latestStarts := now.Add(-80 * time.Hour)
+	latestEnds := now.Add(-77 * time.Hour)
+	latestDate := now.AddDate(0, 0, -2).Format("2006-01-02")
+	suite.createEpisodeWindowed(windowed.ID, latestDate, &latestStarts, &latestEnds, 12)
+
+	popup := suite.createShow(station.ID, "Popup Show")
+	suite.createEpisodeWindowed(popup.ID, now.AddDate(0, 0, -3).Format("2006-01-02"), nil, nil, 4)
+
+	empty := suite.createShow(station.ID, "Empty Show")
+
+	rows, err := suite.radioService.ListShows(station.ID, "")
+	suite.Require().NoError(err)
+	byID := map[uint]*contracts.RadioShowListResponse{}
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+
+	w := byID[windowed.ID]
+	suite.Require().NotNil(w.LatestAirDate)
+	suite.Equal(latestDate, *w.LatestAirDate)
+	suite.Require().NotNil(w.LatestStartsAt, "window must come from the latest-by-date episode")
+	suite.True(w.LatestStartsAt.Equal(latestStarts), "must be the latest episode's window, not MAX(starts_at)")
+	suite.Require().NotNil(w.LatestEndsAt)
+	suite.True(w.LatestEndsAt.Equal(latestEnds))
+
+	p := byID[popup.ID]
+	suite.Require().NotNil(p.LatestAirDate)
+	suite.Nil(p.LatestStartsAt, "windowless latest exposes a nil window")
+	suite.Nil(p.LatestEndsAt)
+
+	e := byID[empty.ID]
+	suite.Nil(e.LatestAirDate)
+	suite.Nil(e.LatestStartsAt)
+	suite.Nil(e.LatestEndsAt)
 }
 
 // TestListShows_LatestAirDateExcludesFuture pins the aired-only "latest playlist"

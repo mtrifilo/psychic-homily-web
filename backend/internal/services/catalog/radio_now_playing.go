@@ -450,6 +450,10 @@ func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPla
 	}
 	airDate := normalizeDate(episode.AirDate)
 	resp.EpisodeAirDate = &airDate
+	// PSY-1306: expose the episode's frozen air window so the ON AIR box can
+	// render its "Latest playlist" date viewer-local (nil when windowless).
+	resp.EpisodeStartsAt = episode.StartsAt
+	resp.EpisodeEndsAt = episode.EndsAt
 
 	rows, err := s.episodePlayRows(episode.ID)
 	if err != nil {

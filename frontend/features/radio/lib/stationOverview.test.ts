@@ -4,6 +4,7 @@ import {
   formatShortAirDate,
   formatLocalAirDate,
   formatLocalTimeRange,
+  formatTimeRangeInZone,
   formatStationLocation,
 } from './stationOverview'
 import type { RadioShowListItem } from '../types'
@@ -24,6 +25,8 @@ function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem
     
     schedule_display: null,
     latest_air_date: null,
+    latest_starts_at: null,
+    latest_ends_at: null,
     ...overrides,
   }
 }
@@ -141,5 +144,41 @@ describe('formatLocalAirDate', () => {
 
   it('falls back to air_date when starts_at is unparsable', () => {
     expect(formatLocalAirDate('garbage', '2026-07-01')).toBe('Jul 1')
+  })
+})
+
+describe('formatTimeRangeInZone', () => {
+  // America/Phoenix has no DST (fixed UTC-7), so explicit UTC instants make
+  // these deterministic on any machine in any timezone.
+  it('renders the range in the given IANA zone with its short name', () => {
+    expect(
+      formatTimeRangeInZone('2026-07-01T19:00:00Z', '2026-07-01T22:00:00Z', 'America/Phoenix')
+    ).toBe('12–3 PM MST')
+  })
+
+  it('carries both meridiems across zone-local midnight', () => {
+    // 04:00–07:00 UTC = 9 PM–12 AM in Phoenix
+    expect(
+      formatTimeRangeInZone('2026-07-02T04:00:00Z', '2026-07-02T07:00:00Z', 'America/Phoenix')
+    ).toBe('9 PM–12 AM MST')
+  })
+
+  it("returns '' for a missing/invalid zone or a degenerate window", () => {
+    expect(formatTimeRangeInZone('2026-07-01T19:00:00Z', '2026-07-01T22:00:00Z', null)).toBe('')
+    expect(
+      formatTimeRangeInZone('2026-07-01T19:00:00Z', '2026-07-01T22:00:00Z', 'Not/AZone')
+    ).toBe('')
+    expect(
+      formatTimeRangeInZone('2026-07-01T22:00:00Z', '2026-07-01T19:00:00Z', 'America/Phoenix')
+    ).toBe('')
+  })
+})
+
+describe('formatLocalAirDate withYear', () => {
+  it('appends the year on both the derived and fallback paths', () => {
+    expect(formatLocalAirDate(localIso(2026, 5, 9, 15), '2026-06-08', { withYear: true })).toBe(
+      'Jun 9 2026'
+    )
+    expect(formatLocalAirDate(null, '2026-06-08', { withYear: true })).toBe('Jun 8 2026')
   })
 })

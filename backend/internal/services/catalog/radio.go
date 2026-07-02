@@ -587,6 +587,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 
 	episodeCounts := make(map[uint]int64)
 	latestAirDates := make(map[uint]string)
+	latestWindows := make(map[uint][2]*time.Time)
 	if len(showIDs) > 0 {
 		// "latest playlist" is aired-only (PSY-1205): a future-dated placeholder
 		// (an upcoming WFMU broadcast, or a corrupt date) must not become a show's
@@ -628,6 +629,34 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 				latestAirDates[c.ShowID] = normalizeDate(*c.Latest)
 			}
 		}
+
+		// PSY-1306: the latest visible episode's frozen air window, so the
+		// directory's LAST column can render viewer-local and agree with the
+		// playlists feed. A separate DISTINCT ON query (not MAX aggregates —
+		// the MAX(starts_at) row need not be the MAX(air_date) row, and the
+		// feed's same-day tiebreak would be lost): per show, pick the same
+		// winner episodeLatestFirstOrderSQL ranks first among visible aired
+		// episodes. Windowless winners yield NULLs → the frontend falls back
+		// to the station-dated LatestAirDate.
+		type windowResult struct {
+			ShowID   uint       `gorm:"column:show_id"`
+			StartsAt *time.Time `gorm:"column:starts_at"`
+			EndsAt   *time.Time `gorm:"column:ends_at"`
+		}
+		var windows []windowResult
+		if err := s.db.Raw(fmt.Sprintf(
+			`SELECT DISTINCT ON (show_id) show_id, starts_at, ends_at
+			 FROM radio_episodes
+			 WHERE show_id IN ? AND air_date <= ? AND %s
+			 ORDER BY show_id, %s`,
+			airedEpisodeVisibleSQL(""), episodeLatestFirstOrderSQL("")),
+			showIDs, today, now).
+			Scan(&windows).Error; err != nil {
+			return nil, fmt.Errorf("failed to load latest episode windows: %w", err)
+		}
+		for _, w := range windows {
+			latestWindows[w.ShowID] = [2]*time.Time{w.StartsAt, w.EndsAt}
+		}
 	}
 
 	responses := make([]*contracts.RadioShowListResponse, len(shows))
@@ -636,6 +665,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 		if d, ok := latestAirDates[sh.ID]; ok {
 			latest = &d
 		}
+		window := latestWindows[sh.ID]
 		responses[i] = &contracts.RadioShowListResponse{
 			ID:              sh.ID,
 			StationID:       sh.StationID,
@@ -651,6 +681,8 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 			ScheduleLocked:  sh.ScheduleLocked,
 			EpisodeCount:    episodeCounts[sh.ID],
 			LatestAirDate:   latest,
+			LatestStartsAt:  window[0],
+			LatestEndsAt:    window[1],
 		}
 	}
 
@@ -1821,6 +1853,9 @@ func (s *RadioService) buildEpisodeDetailResponse(episode *catalogm.RadioEpisode
 		Title:           episode.Title,
 		AirDate:         normalizeDate(episode.AirDate),
 		AirTime:         episode.AirTime,
+		StartsAt:        episode.StartsAt,
+		EndsAt:          episode.EndsAt,
+		StationTimezone: episode.Show.Station.Timezone,
 		IsUpcoming:      normalizeDate(episode.AirDate) > today,
 		DurationMinutes: episode.DurationMinutes,
 		Description:     episode.Description,

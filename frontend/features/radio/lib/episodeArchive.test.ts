@@ -340,3 +340,41 @@ describe('walkEpisodeNeighbors', () => {
     expect(fetchPage).toHaveBeenCalledTimes(20)
   })
 })
+
+import { formatViewerAiredLine } from './episodeArchive'
+import { localIso } from './localIso.testutil'
+
+describe('formatViewerAiredLine (PSY-1306)', () => {
+  it('renders viewer weekday + range with a station-local aside', () => {
+    // Window: local Tue Jun 9, 3–6 PM (built from local constructors, so the
+    // viewer part is timezone-agnostic). Station zone chosen to DIFFER from
+    // the machine's so the aside isn't self-suppressed as redundant.
+    const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const stationZone =
+      viewerZone === 'Pacific/Kiritimati' ? 'America/Phoenix' : 'Pacific/Kiritimati'
+    const line = formatViewerAiredLine(
+      localIso(2026, 5, 9, 15),
+      localIso(2026, 5, 9, 18),
+      stationZone
+    )
+    expect(line).toMatch(/^Tue 3–6 PM your time \(/)
+    expect(line).toMatch(/\)$/)
+  })
+
+  it('skips the aside when the station-local rendering repeats the viewer one', () => {
+    const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const line = formatViewerAiredLine(
+      localIso(2026, 5, 9, 15),
+      localIso(2026, 5, 9, 18),
+      viewerZone
+    )
+    expect(line).toBe('Tue 3–6 PM your time')
+  })
+
+  it('returns null for windowless or degenerate windows (caller falls back)', () => {
+    expect(formatViewerAiredLine(null, null, 'America/Phoenix')).toBeNull()
+    expect(
+      formatViewerAiredLine(localIso(2026, 5, 9, 18), localIso(2026, 5, 9, 15), 'America/Phoenix')
+    ).toBeNull()
+  })
+})

@@ -9,6 +9,7 @@ import {
   computeArtistMatchStats,
   formatDurationMinutes,
   formatTimeOfDay,
+  formatViewerAiredLine,
 } from '@/features/radio'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
@@ -72,8 +73,19 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
   const duration = formatDurationMinutes(episode.duration_minutes)
   const airTime = formatTimeOfDay(episode.air_time)
   // A not-yet-aired episode reads "airs {day}", never "aired {day}" (PSY-1205) —
-  // its empty playlist is expected, not missing data.
-  const airedLine = `${episode.is_upcoming ? 'airs' : 'aired'} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
+  // its empty playlist is expected, not missing data. When the frozen air
+  // window exists, the body is viewer-local with a station-local aside
+  // (PSY-1306); the H1 above stays station-dated to match the URL segment.
+  // Windowless/degenerate windows fall back to the station air_time line.
+  const viewerAired = formatViewerAiredLine(
+    episode.starts_at,
+    episode.ends_at,
+    episode.station_timezone
+  )
+  const airedVerb = episode.is_upcoming ? 'airs' : 'aired'
+  const airedLine = viewerAired
+    ? `${airedVerb} ${viewerAired}`
+    : `${airedVerb} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
 
   const metaParts = [
     `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}`,

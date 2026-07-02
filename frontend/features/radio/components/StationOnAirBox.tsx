@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { BracketLink } from '@/components/shared'
 import { useStationNowPlaying } from '../hooks/useStationNowPlaying'
 import { useShowLatestEpisode } from '../hooks/useShowLatestEpisode'
-import { formatShortAirDate } from '../lib/stationOverview'
+import { airDateCellText } from './AirDateCell'
 import type { RadioStationDetail } from '../types'
 
 interface StationOnAirBoxProps {
@@ -41,9 +41,26 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
   const showUrl = data.show ? `/radio/${station.slug}/${data.show.slug}` : null
   const playlistUrl =
     showUrl && episode ? `${showUrl}/${episode.air_date}` : null
-  const latestDate = formatShortAirDate(
-    data.episode_air_date ?? episode?.air_date
-  )
+  // PSY-1306: "Latest playlist" renders viewer-local from the episode's
+  // frozen window so it agrees with the playlists feed below it in the same
+  // column. Prefer the now-playing payload's own episode fields; fall back to
+  // the latest-episode hook (used for the deep-link) while the payload lacks
+  // them or for older cached responses.
+  const latestSrc = data.episode_air_date
+    ? {
+        starts: data.episode_starts_at,
+        ends: data.episode_ends_at,
+        date: data.episode_air_date,
+      }
+    : {
+        starts: episode?.starts_at ?? null,
+        ends: episode?.ends_at ?? null,
+        date: episode?.air_date ?? '',
+      }
+  const latestCell = airDateCellText(latestSrc.starts, latestSrc.ends, latestSrc.date)
+  const latestDate = latestCell.timeBlock
+    ? `${latestCell.dateLine} · ${latestCell.timeBlock}`
+    : latestCell.dateLine
 
   return (
     <section

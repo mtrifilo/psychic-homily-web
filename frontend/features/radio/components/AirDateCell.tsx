@@ -10,6 +10,8 @@ interface AirDateCellContentProps {
   startsAt: string | null | undefined
   endsAt: string | null | undefined
   airDate: string
+  /** Year on the date line — archive surfaces span years (PSY-1306). */
+  withYear?: boolean
 }
 
 /**
@@ -26,12 +28,15 @@ interface AirDateCellContentProps {
 export function airDateCellText(
   startsAt: string | null | undefined,
   endsAt: string | null | undefined,
-  airDate: string
+  airDate: string,
+  opts: { withYear?: boolean } = {}
 ): { dateLine: string; timeBlock: string } {
   const timeBlock = formatLocalTimeRange(startsAt, endsAt)
   const dateLine = timeBlock
-    ? formatLocalAirDate(startsAt, airDate)
-    : formatShortAirDate(airDate)
+    ? formatLocalAirDate(startsAt, airDate, opts)
+    : opts.withYear
+      ? formatLocalAirDate(null, airDate, opts)
+      : formatShortAirDate(airDate)
   return { dateLine, timeBlock }
 }
 
@@ -47,8 +52,11 @@ export function AirDateCellContent({
   startsAt,
   endsAt,
   airDate,
+  withYear,
 }: AirDateCellContentProps) {
-  const { dateLine, timeBlock } = airDateCellText(startsAt, endsAt, airDate)
+  const { dateLine, timeBlock } = airDateCellText(startsAt, endsAt, airDate, {
+    withYear,
+  })
   return (
     <>
       <span className="block">{dateLine}</span>

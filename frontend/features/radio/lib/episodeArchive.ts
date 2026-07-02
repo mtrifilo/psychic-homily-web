@@ -14,6 +14,7 @@ import type {
   RadioPlay,
 } from '../types'
 import type { ArtistHop } from './stationOverview'
+import { formatLocalTimeRange, formatTimeRangeInZone } from './stationOverview'
 
 /**
  * Whether an episode is live RIGHT NOW: `now` falls within its frozen air
@@ -214,4 +215,33 @@ export async function walkEpisodeNeighbors(
   }
 
   return { newer: null, older: null }
+}
+
+/**
+ * Viewer-local "aired ..." body for the playlist detail page (PSY-1306):
+ * "Wed 6–9 AM your time (9 AM–12 PM EDT)" — weekday + range in the VIEWER's
+ * timezone from the frozen air window, with a station-local aside when the
+ * station's IANA zone is known and differs in rendering. Returns null when
+ * the window is missing/degenerate (caller falls back to the station-dated
+ * air_time line, exactly the pre-PSY-1306 rendering). The caller prefixes
+ * "aired"/"airs" (PSY-1205 upcoming semantics are unchanged).
+ */
+export function formatViewerAiredLine(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
+  stationTimezone: string | null | undefined
+): string | null {
+  const viewerRange = formatLocalTimeRange(startsAt, endsAt)
+  if (!viewerRange || !startsAt) return null
+  const weekday = new Date(startsAt).toLocaleDateString('en-US', {
+    weekday: 'short',
+  })
+  const stationRange = formatTimeRangeInZone(startsAt, endsAt, stationTimezone)
+  // Skip the aside when the station-local rendering adds nothing (viewer is
+  // in the station's zone — same clock, the paren would just repeat it).
+  const aside =
+    stationRange && !stationRange.startsWith(viewerRange)
+      ? ` (${stationRange})`
+      : ''
+  return `${weekday} ${viewerRange} your time${aside}`
 }

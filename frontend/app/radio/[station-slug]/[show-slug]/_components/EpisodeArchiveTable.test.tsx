@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { EpisodeArchiveTable } from './EpisodeArchiveTable'
 import type { RadioEpisodeListItem } from '@/features/radio'
+import { localIso } from '@/features/radio/lib/localIso.testutil'
 
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [key: string]: unknown }) => (
@@ -41,6 +42,36 @@ describe('EpisodeArchiveTable', () => {
     expect(dateLink).toHaveAttribute(
       'href',
       '/radio/wfmu/the-night-owl-show/2026-06-02'
+    )
+  })
+
+  it('renders viewer-local date + time block (with year) for windowed rows (PSY-1306)', () => {
+    // air_date differs from the window's local day: discriminates the
+    // starts_at-derived date (fallback would render Jun 8 2026).
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            air_date: '2026-06-08',
+            starts_at: localIso(2026, 5, 9, 15),
+            ends_at: localIso(2026, 5, 9, 18),
+            archive_url: 'https://example.com/ep.mp3',
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('Jun 9 2026')).toBeInTheDocument()
+    expect(screen.getByText('3–6 PM')).toBeInTheDocument()
+    expect(screen.queryByText('Jun 8 2026')).not.toBeInTheDocument()
+    // the [mp3] link announces the SAME viewer-local date the cell shows
+    expect(
+      screen.getByRole('link', { name: 'Listen to the Jun 9 2026 archive' })
+    ).toBeInTheDocument()
+    // the deep-link stays keyed on the station-dated air_date
+    expect(screen.getByText('Jun 9 2026').closest('a')).toHaveAttribute(
+      'href',
+      '/radio/wfmu/the-night-owl-show/2026-06-08'
     )
   })
 

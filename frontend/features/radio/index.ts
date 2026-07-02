@@ -82,7 +82,7 @@ export {
   AsHeardOn,
   NetworkTabBar,
   ArtistHops,
-  // PSY-1298: shared date + viewer-local time cell for playlists tables
+  // PSY-1298/1306: shared date + viewer-local time cell + its text composer
   AirDateCellContent,
   // PSY-1050: station-page rebuild (The Dial, Option A)
   StationOnAirBox,
@@ -92,6 +92,7 @@ export {
   // PSY-1299: station co-occurrence graph
   StationGraph,
 } from './components'
+export { airDateCellText } from './components/AirDateCell'
 
 // PSY-1016: station-overview derivation helpers
 // (pickNowPlayingShow stays un-exported here — only useStationOverview
@@ -114,6 +115,8 @@ export {
   formatDurationMinutes,
   formatArchiveDate,
   formatShortNavDate,
+  // PSY-1306: viewer-local "aired ..." body for the playlist detail page
+  formatViewerAiredLine,
   walkEpisodeNeighbors,
 } from './lib/episodeArchive'
 export type { ArtistMatchStats, EpisodeNeighbors } from './lib/episodeArchive'
