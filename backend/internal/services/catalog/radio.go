@@ -587,46 +587,66 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 
 	episodeCounts := make(map[uint]int64)
 	latestAirDates := make(map[uint]string)
+	latestWindows := make(map[uint][2]*time.Time)
 	if len(showIDs) > 0 {
-		// "latest playlist" is aired-only (PSY-1205): a future-dated placeholder
-		// (an upcoming WFMU broadcast, or a corrupt date) must not become a show's
-		// latest date and sort it to the top of the "sorted by latest playlist"
-		// directory. Bound MAX to the station's local today (all shows here belong
-		// to one station, so the zone is shared); COUNT stays the full episode
-		// count. A show with only future episodes gets a NULL latest → sorts as
-		// "no playlists yet", which is correct.
-		//
-		// PSY-1285: the day-granular date bound still admits a TODAY-dated row that
-		// hasn't aired yet. Bound the latest-date to episodes that count as a visible
-		// aired playlist — the SAME gate the feed uses (airedEpisodeVisibleSQL) — so the
-		// directory's "latest playlist: <date>" can never point at an episode the feed
-		// won't list: a not-yet-aired (future-windowed) row AND a windowless 0-track
-		// placeholder are excluded. COUNT stays the full episode count.
+		// ListShows is single-station by construction (WHERE station_id = ?),
+		// so the first show's zone speaks for every row — load-bearing if this
+		// ever grows cross-station.
 		today, err := s.stationLocalToday(shows[0].Station.Timezone)
 		if err != nil {
 			return nil, err
 		}
 		now := time.Now()
+		// COUNT stays the FULL episode count (upcoming placeholders included).
 		type countResult struct {
 			ShowID uint
 			Count  int64
-			Latest *string
 		}
 		var counts []countResult
 		if err := s.db.Model(&catalogm.RadioEpisode{}).
-			Select(fmt.Sprintf(`show_id, COUNT(*) as count,
-				MAX(air_date) FILTER (WHERE air_date <= ? AND %s) as latest`, airedEpisodeVisibleSQL("")), today, now).
+			Select(`show_id, COUNT(*) as count`).
 			Where("show_id IN ?", showIDs).
 			Group("show_id").
 			Find(&counts).Error; err != nil {
 			return nil, fmt.Errorf("failed to load episode counts: %w", err)
 		}
-
 		for _, c := range counts {
 			episodeCounts[c.ShowID] = c.Count
-			if c.Latest != nil {
-				latestAirDates[c.ShowID] = normalizeDate(*c.Latest)
+		}
+
+		// The "latest playlist" per show — date AND frozen air window from ONE
+		// row (DISTINCT ON), so they can never describe different episodes
+		// (PSY-1306). The row is the same winner the Latest-playlists feed
+		// ranks first: aired-only (PSY-1205) via the station-local-today bound
+		// plus the feed's visibility gate (PSY-1285, airedEpisodeVisibleSQL —
+		// excludes not-yet-aired windowed rows and windowless 0-track
+		// placeholders), ordered by episodeLatestFirstOrderSQL (same-day
+		// tiebreak included — a MAX(starts_at) aggregate would not preserve
+		// it). A show with only future/invisible episodes gets no row → nil
+		// latest, sorts as "no playlists yet". Windowless winners yield NULL
+		// window → the frontend falls back to the station-dated date.
+		type latestResult struct {
+			ShowID   uint       `gorm:"column:show_id"`
+			AirDate  *string    `gorm:"column:air_date"`
+			StartsAt *time.Time `gorm:"column:starts_at"`
+			EndsAt   *time.Time `gorm:"column:ends_at"`
+		}
+		var latests []latestResult
+		if err := s.db.Raw(fmt.Sprintf(
+			`SELECT DISTINCT ON (show_id) show_id, air_date, starts_at, ends_at
+			 FROM radio_episodes
+			 WHERE show_id IN ? AND air_date <= ? AND %s
+			 ORDER BY show_id, %s`,
+			airedEpisodeVisibleSQL(""), episodeLatestFirstOrderSQL("")),
+			showIDs, today, now).
+			Scan(&latests).Error; err != nil {
+			return nil, fmt.Errorf("failed to load latest episodes: %w", err)
+		}
+		for _, l := range latests {
+			if l.AirDate != nil {
+				latestAirDates[l.ShowID] = normalizeDate(*l.AirDate)
 			}
+			latestWindows[l.ShowID] = [2]*time.Time{l.StartsAt, l.EndsAt}
 		}
 	}
 
@@ -636,6 +656,7 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 		if d, ok := latestAirDates[sh.ID]; ok {
 			latest = &d
 		}
+		window := latestWindows[sh.ID]
 		responses[i] = &contracts.RadioShowListResponse{
 			ID:              sh.ID,
 			StationID:       sh.StationID,
@@ -651,6 +672,8 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 			ScheduleLocked:  sh.ScheduleLocked,
 			EpisodeCount:    episodeCounts[sh.ID],
 			LatestAirDate:   latest,
+			LatestStartsAt:  window[0],
+			LatestEndsAt:    window[1],
 		}
 	}
 
@@ -1821,6 +1844,9 @@ func (s *RadioService) buildEpisodeDetailResponse(episode *catalogm.RadioEpisode
 		Title:           episode.Title,
 		AirDate:         normalizeDate(episode.AirDate),
 		AirTime:         episode.AirTime,
+		StartsAt:        episode.StartsAt,
+		EndsAt:          episode.EndsAt,
+		StationTimezone: episode.Show.Station.Timezone,
 		IsUpcoming:      normalizeDate(episode.AirDate) > today,
 		DurationMinutes: episode.DurationMinutes,
 		Description:     episode.Description,

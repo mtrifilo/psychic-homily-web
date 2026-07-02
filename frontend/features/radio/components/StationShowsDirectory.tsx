@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BracketLink, DenseTable, SectionHeader } from '@/components/shared'
 import { useRadioShows } from '../hooks/useRadioShows'
-import { formatShortAirDate } from '../lib/stationOverview'
+import { airDateCellText } from './AirDateCell'
 import type { RadioShowListItem } from '../types'
 
 const COLLAPSED_ROW_COUNT = 10
@@ -102,7 +102,14 @@ function ShowRow({
   show: RadioShowListItem
   stationSlug: string
 }) {
-  const lastDate = formatShortAirDate(show.latest_air_date)
+  // PSY-1306: LAST renders viewer-local from the latest episode's window so
+  // it agrees with the playlists feed one section up; windowless/undated
+  // shows fall back to the station date (or '').
+  const lastDate = airDateCellText(
+    show.latest_starts_at,
+    show.latest_ends_at,
+    show.latest_air_date ?? ''
+  ).dateLine
   const genres = (show.genre_tags ?? []).slice(0, 3).join(' · ')
 
   return (

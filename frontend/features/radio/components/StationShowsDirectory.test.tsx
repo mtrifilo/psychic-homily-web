@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { StationShowsDirectory } from './StationShowsDirectory'
 import type { RadioShowListItem } from '../types'
+import { localIso } from '../lib/localIso.testutil'
 
 vi.mock('next/link', () => ({
   default: ({
@@ -38,6 +39,8 @@ function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem
     is_active: true,
     episode_count: 142,
     latest_air_date: '2026-06-09',
+    latest_starts_at: null,
+    latest_ends_at: null,
     ...overrides,
   }
 }
@@ -73,6 +76,21 @@ describe('StationShowsDirectory', () => {
     expect(screen.getByText('142')).toBeInTheDocument()
   })
 
+  it('renders LAST viewer-local from the latest episode window (PSY-1306)', () => {
+    // latest_air_date differs from the window's local day: discriminates the
+    // starts_at-derived date (a station-date fallback would render Jun 8).
+    setShows([
+      makeShow({
+        latest_air_date: '2026-06-08',
+        latest_starts_at: localIso(2026, 5, 9, 15),
+        latest_ends_at: localIso(2026, 5, 9, 18),
+      }),
+    ])
+    render(<StationShowsDirectory stationId={1} stationSlug="wfmu" />)
+    expect(screen.getByText('Jun 9')).toBeInTheDocument()
+    expect(screen.queryByText('Jun 8')).not.toBeInTheDocument()
+  })
+
   it('preserves the server order and dashes out missing LAST dates', () => {
     setShows([
       makeShow({ id: 1, name: 'Fresh Show', slug: 'fresh' }),
@@ -84,6 +102,8 @@ describe('StationShowsDirectory', () => {
         schedule_display: null,
         genre_tags: null,
         latest_air_date: null,
+        latest_starts_at: null,
+        latest_ends_at: null,
         episode_count: 0,
       }),
     ])

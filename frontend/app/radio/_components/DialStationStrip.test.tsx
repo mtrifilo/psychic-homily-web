@@ -95,6 +95,8 @@ function liveNowPlaying(overrides: Partial<RadioNowPlaying> = {}): RadioNowPlayi
       { artist_name: 'Mdou Moctar', artist_id: 4, artist_slug: 'mdou-moctar' },
     ],
     episode_air_date: null,
+    episode_starts_at: null,
+    episode_ends_at: null,
     ...overrides,
   }
 }
