@@ -130,6 +130,19 @@ export const LABEL_TOP_K_FLOOR = 5
  *   array's identity stable between threshold crossings — react-globe.gl diffs
  *   labelsData by reference, so passing raw altitude would churn it every frame.
  */
+/**
+ * The FE-owned "liveliest first" ordering rule. The scenes API deliberately has
+ * no ordering contract, so the frontend owns this — and owns it ONCE: search
+ * (AtlasSearch), label prominence (visibleLabelScenes), and the mobile list all
+ * sort with this comparator, so an evolution of the rule (e.g. a
+ * shows_this_week tie-break) can't leave the surfaces disagreeing.
+ */
+export function compareScenesByActivity<
+  T extends { upcoming_show_count: number },
+>(a: T, b: T): number {
+  return b.upcoming_show_count - a.upcoming_show_count
+}
+
 export function visibleLabelScenes<T extends { upcoming_show_count: number }>(
   scenes: readonly T[],
   minCount: number,
@@ -146,6 +159,6 @@ export function visibleLabelScenes<T extends { upcoming_show_count: number }>(
   // are excluded outright (never floored in), matching the size-scale guards.
   return scenes
     .filter((s) => Number.isFinite(s.upcoming_show_count))
-    .sort((a, b) => b.upcoming_show_count - a.upcoming_show_count)
+    .sort(compareScenesByActivity)
     .slice(0, LABEL_TOP_K_FLOOR)
 }
