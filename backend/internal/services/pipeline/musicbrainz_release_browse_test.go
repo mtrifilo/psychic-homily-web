@@ -88,6 +88,12 @@ func TestClassifyReleasePlatformURL(t *testing.T) {
 		{"bandcamp-in-path attack rejected", "https://evil.example.com/bandcamp.com/album/x", "", "", false},
 		{"non-http scheme rejected", "ftp://phoebe.bandcamp.com/album/punisher", "", "", false},
 		{"garbage rejected", "://not a url", "", "", false},
+		{"nested album substring rejected", "https://open.spotify.com/playlist/p/album/hidden", "", "", false},
+		{"dot-segment escape rejected", "https://open.spotify.com/album/../../evil", "", "", false},
+		{"encoded dot-segment escape rejected", "https://open.spotify.com/album/%2E%2E/%2E%2E/evil", "", "", false},
+		{"empty slug rejected", "https://x.bandcamp.com/album/", "", "", false},
+		{"spotify intl prefix accepted", "https://open.spotify.com/intl-pt/album/6Pp6qGEywDdofgFC1oFbSH", "spotify", "https://open.spotify.com/intl-pt/album/6Pp6qGEywDdofgFC1oFbSH", true},
+		{"bandcamp intl-like segment rejected", "https://x.bandcamp.com/intl-pt/album/y", "", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

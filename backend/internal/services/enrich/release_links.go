@@ -6,15 +6,21 @@
 // homonym-guarded) → release-group MBID (PSY-1281/1282, browse-by-artist-MBID) →
 // release url-rels (browse-by-RG-MBID here). Auto-apply is therefore consistent
 // with the PSY-1279 decision: the persisted MBID chain is the identity signal, and
-// URLs are host-anchored (pipeline.ClassifyReleasePlatformURL).
+// URLs are host-anchored (pipeline.ClassifyReleasePlatformURL). Only Official (or
+// status-less) MB releases may source a link — bootleg/promo-only release-groups
+// are reported, never written (the "curated core only" posture, PSY-1252).
 //
 // MusicBrainz hangs streaming/purchase links on RELEASES, not release-groups
 // (spiked 2026-07-01: RG-level url-rels 0/50, release-level 35/50 ≈ 70% coverage),
-// so the lookup browses releases by RG-MBID — one call per distinct RG.
+// so the lookup browses releases by RG-MBID — one browse (≤10 paginated calls)
+// per distinct RG.
 //
 // Writes go through ReleaseService.AddExternalLink, which also back-fills credited
 // artists' NULL bandcamp_embed_url in the same transaction (PSY-1189) — release
-// link enrichment compounds into artist embeds without extra code here.
+// link enrichment compounds into artist embeds without extra code here. Because a
+// full run is hours long and release_external_links has NO unique constraint, the
+// live path re-checks link absence immediately before each write (the candidate
+// snapshot alone would race an admin adding a link mid-run).
 package enrich
 
 import (
@@ -46,7 +52,7 @@ type releaseLinkWriter interface {
 // ReleaseLinksOptions configures one release-links backfill run.
 type ReleaseLinksOptions struct {
 	DryRun bool
-	Limit  int // 0 = all candidate releases
+	Limit  int // 0 = all candidate releases (counts real candidates, post-filter)
 }
 
 // ReleaseLinkFill records one link that would be / was written.
@@ -57,33 +63,46 @@ type ReleaseLinkFill struct {
 	URL          string
 }
 
-// ReleaseLinksReport is the structured outcome of a run.
+// ReleaseLinksReport is the structured outcome of a run. The counters reconcile:
+// ReleasesScanned = fills' releases + ReleasesNoLinks + ReleasesSkippedFailedRG
+// + releases that only appear in Errors (invalid MBID / browse or write failure).
 type ReleaseLinksReport struct {
-	ReleasesScanned int // candidate releases (have RG-MBID, missing ≥1 platform)
-	RGsBrowsed      int // distinct release-groups fetched from MusicBrainz
-	FilledBandcamp  int
-	FilledSpotify   int
-	ReleasesNoLinks int // browsed, but no usable url-rel for the missing platforms
-	Errors          []string
-	Fills           []ReleaseLinkFill
+	ReleasesScanned         int // candidate releases (have RG-MBID, missing ≥1 platform)
+	RGsBrowsed              int // distinct release-groups fetched from MusicBrainz
+	FilledBandcamp          int
+	FilledSpotify           int
+	ReleasesNoLinks         int // browsed, but no usable url-rel for the missing platforms
+	ReleasesSkippedFailedRG int // siblings of a release-group whose browse failed
+	Errors                  []string
+	Fills                   []ReleaseLinkFill
 }
 
 // releaseLinkCandidate is one release needing links, with its per-platform state.
 type releaseLinkCandidate struct {
-	release      catalogm.Release
-	hasBandcamp  bool
-	hasSpotify   bool
+	release     catalogm.Release
+	hasBandcamp bool
+	hasSpotify  bool
 }
 
-// releaseLinkStore abstracts candidate load for the backfill (fakeable in unit
-// tests; the gorm implementation is the production path).
+// releaseLinkStore abstracts candidate load + the pre-write re-check for the
+// backfill (fakeable in unit tests; the gorm implementation is the production
+// path).
 type releaseLinkStore interface {
+	// ReleaseLinkCandidates returns releases with an RG-MBID that are missing a
+	// bandcamp or spotify link. limit caps CANDIDATES (the missing-link filter
+	// runs in SQL, so a partially-filled catalog cannot exhaust the window with
+	// already-complete rows); limit <= 0 = all.
 	ReleaseLinkCandidates(limit int) ([]releaseLinkCandidate, error)
+	// ReleaseHasPlatformLink re-checks link presence immediately before a write —
+	// the candidate snapshot can be hours stale on a full run, and the table has
+	// no unique constraint to catch the race.
+	ReleaseHasPlatformLink(releaseID uint, platform string) (bool, error)
 }
 
 // BackfillReleaseLinks fills missing bandcamp/spotify external links for releases
-// with a release-group MBID, dry-run by default. One MusicBrainz browse per
-// distinct release-group; releases sharing an RG share the result.
+// with a release-group MBID, dry-run by default. One MusicBrainz browse (≤10
+// paginated calls) per distinct release-group; releases sharing an RG share the
+// result.
 func BackfillReleaseLinks(db *gorm.DB, mb MBReleaseURLRelBrowse, writer releaseLinkWriter, opts ReleaseLinksOptions) (*ReleaseLinksReport, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -104,8 +123,8 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 	report := &ReleaseLinksReport{ReleasesScanned: len(candidates)}
 	ctx := context.Background()
 
-	// One browse per distinct RG-MBID; nil marks a failed fetch so siblings of a
-	// failed RG don't re-browse (and don't count as "no links").
+	// One browse per distinct RG-MBID; failedRG marks a failed fetch so siblings
+	// of a failed RG don't re-browse (they're counted as skipped, not "no links").
 	relsByRG := make(map[string][]pipeline.MBReleaseResult)
 	failedRG := make(map[string]bool)
 
@@ -113,9 +132,20 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 		cand := &candidates[i]
 		rgMBID := stringValue(cand.release.MusicBrainzReleaseGroupID)
 
+		// The invariant "a malformed stored RG-MBID is never browsed" lives HERE,
+		// in the loop that owns the browse — not (only) in a store implementation —
+		// and is surfaced as an error: a corrupted key is a data-quality signal,
+		// not something to skip silently (mirrors the artist links backfill).
+		if !utils.IsValidMBID(rgMBID) {
+			report.Errors = append(report.Errors,
+				fmt.Sprintf("release %d %q: invalid stored RG-MBID %q — skipped", cand.release.ID, cand.release.Title, rgMBID))
+			continue
+		}
+
 		rels, ok := relsByRG[rgMBID]
 		if !ok {
 			if failedRG[rgMBID] {
+				report.ReleasesSkippedFailedRG++
 				continue
 			}
 			rels, err = mb.BrowseReleaseURLRelations(ctx, rgMBID)
@@ -133,7 +163,7 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 		if !cand.hasBandcamp {
 			if u, found := pickReleaseURL(rels, contracts.MusicPlatformBandcamp); found {
 				filled = true
-				if applyReleaseLink(report, writer, cand, contracts.MusicPlatformBandcamp, u, opts.DryRun) {
+				if applyReleaseLink(report, store, writer, cand, contracts.MusicPlatformBandcamp, u, opts.DryRun) {
 					report.FilledBandcamp++
 				}
 			}
@@ -141,7 +171,7 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 		if !cand.hasSpotify {
 			if u, found := pickReleaseURL(rels, contracts.MusicPlatformSpotify); found {
 				filled = true
-				if applyReleaseLink(report, writer, cand, contracts.MusicPlatformSpotify, u, opts.DryRun) {
+				if applyReleaseLink(report, store, writer, cand, contracts.MusicPlatformSpotify, u, opts.DryRun) {
 					report.FilledSpotify++
 				}
 			}
@@ -155,8 +185,20 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 
 // applyReleaseLink records the fill (and writes it on live runs). Returns true
 // when the fill counts toward the report (dry-run always; live only on success).
-func applyReleaseLink(report *ReleaseLinksReport, writer releaseLinkWriter, cand *releaseLinkCandidate, platform, u string, dryRun bool) bool {
+// Live writes re-check link absence first: the candidate snapshot can be hours
+// stale (admin adds a link mid-run, or a concurrent invocation), and the table
+// has no unique constraint — a stale write would create a duplicate platform row.
+func applyReleaseLink(report *ReleaseLinksReport, store releaseLinkStore, writer releaseLinkWriter, cand *releaseLinkCandidate, platform, u string, dryRun bool) bool {
 	if !dryRun {
+		exists, err := store.ReleaseHasPlatformLink(cand.release.ID, platform)
+		if err != nil {
+			report.Errors = append(report.Errors,
+				fmt.Sprintf("release %d %q %s pre-write check: %v", cand.release.ID, cand.release.Title, platform, err))
+			return false
+		}
+		if exists {
+			return false // filled by someone else since the snapshot — not an error
+		}
 		if _, err := writer.AddExternalLink(cand.release.ID, platform, u); err != nil {
 			report.Errors = append(report.Errors,
 				fmt.Sprintf("release %d %q %s write: %v", cand.release.ID, cand.release.Title, platform, err))
@@ -173,13 +215,21 @@ func applyReleaseLink(report *ReleaseLinksReport, writer releaseLinkWriter, cand
 }
 
 // pickReleaseURL chooses ONE canonical URL for a platform from a release-group's
-// browsed releases. Deterministic preference order:
+// browsed releases.
 //
-//  1. Official releases before any other status (bootlegs/promos carry junk).
-//  2. Within a status tier, /album/ URLs before /track/ (the album page is the
-//     embeddable unit; a lone track link is the fallback).
-//  3. MusicBrainz result order breaks remaining ties (stable across runs for the
-//     same data).
+// Status FLOOR: only releases MusicBrainz marks "Official" — or with no status
+// at all (MB status coverage is spotty; an unset status on an otherwise-normal
+// release is common) — may source an auto-applied link. Bootleg / Promotion /
+// Withdrawn / Pseudo-Release url-rels are never written, even when they are the
+// only option: an unofficial fan-upload page must not become the release's
+// canonical embed (and, via the PSY-1189 fill, the artist's site-wide embed).
+//
+// Within the allowed statuses, deterministic preference:
+//
+//  1. /album/ URLs before /track/ (the ticket's stated preference — the album
+//     page is the embeddable unit; a lone track link is the fallback).
+//  2. "Official" before status-less (explicit confirmation beats absence).
+//  3. MusicBrainz result order breaks remaining ties (stable across runs).
 //
 // Ended relations are skipped — MB marks delisted/dead links ended.
 func pickReleaseURL(releases []pipeline.MBReleaseResult, platform string) (string, bool) {
@@ -190,16 +240,19 @@ func pickReleaseURL(releases []pipeline.MBReleaseResult, platform string) (strin
 	}
 	var best *scored
 	better := func(a, b *scored) bool {
-		if a.official != b.official {
-			return a.official
-		}
 		if a.album != b.album {
 			return a.album
+		}
+		if a.official != b.official {
+			return a.official
 		}
 		return false // earlier result wins ties
 	}
 	for i := range releases {
 		rel := &releases[i]
+		if rel.Status != "Official" && rel.Status != "" {
+			continue // status floor: bootleg/promo/withdrawn never source a link
+		}
 		for j := range rel.Relations {
 			r := &rel.Relations[j]
 			if r.Ended {
@@ -231,15 +284,20 @@ type gormReleaseLinkStore struct {
 }
 
 // ReleaseLinkCandidates selects releases with a release-group MBID that are
-// missing a bandcamp or spotify external link; id-ordered, limit <= 0 = all.
-// Existing links are preloaded so the fill-when-empty check is per-platform
-// (release_external_links has NO unique constraint — application-level dedup is
-// the only dedup).
+// missing a bandcamp or spotify external link; id-ordered. The missing-link
+// filter runs in SQL (NOT EXISTS per platform) so a limit caps ACTUAL candidates
+// — otherwise a partially-filled catalog fills the limit window with
+// already-complete rows and the run reports "nothing to do" while eligible
+// releases sit past the window. Existing links are also preloaded so the
+// per-platform flags are computed from the same snapshot.
 func (s *gormReleaseLinkStore) ReleaseLinkCandidates(limit int) ([]releaseLinkCandidate, error) {
 	var releases []catalogm.Release
 	q := s.db.
 		Preload("ExternalLinks").
 		Where("musicbrainz_release_group_id IS NOT NULL AND TRIM(musicbrainz_release_group_id) <> ''").
+		Where(`(NOT EXISTS (SELECT 1 FROM release_external_links l WHERE l.release_id = releases.id AND LOWER(l.platform) = ?)
+		    OR NOT EXISTS (SELECT 1 FROM release_external_links l WHERE l.release_id = releases.id AND LOWER(l.platform) = ?))`,
+			contracts.MusicPlatformBandcamp, contracts.MusicPlatformSpotify).
 		Order("id")
 	if limit > 0 {
 		q = q.Limit(limit)
@@ -250,25 +308,30 @@ func (s *gormReleaseLinkStore) ReleaseLinkCandidates(limit int) ([]releaseLinkCa
 
 	candidates := make([]releaseLinkCandidate, 0, len(releases))
 	for i := range releases {
-		r := releases[i]
-		if !utils.IsValidMBID(stringValue(r.MusicBrainzReleaseGroupID)) {
-			continue // malformed stored key — never browse on it
-		}
-		cand := releaseLinkCandidate{release: r}
-		for _, l := range r.ExternalLinks {
-			switch l.Platform {
+		cand := releaseLinkCandidate{release: releases[i]}
+		for _, l := range releases[i].ExternalLinks {
+			// Case-insensitive to match the SQL filter — the API accepts platform
+			// strings verbatim, so a "Bandcamp" row must still count as present.
+			switch strings.ToLower(l.Platform) {
 			case contracts.MusicPlatformBandcamp:
 				cand.hasBandcamp = true
 			case contracts.MusicPlatformSpotify:
 				cand.hasSpotify = true
 			}
 		}
-		if cand.hasBandcamp && cand.hasSpotify {
-			continue // nothing to fill
-		}
 		candidates = append(candidates, cand)
 	}
 	return candidates, nil
+}
+
+// ReleaseHasPlatformLink reports whether the release currently has a link for
+// the platform (case-insensitive) — the pre-write TOCTOU re-check.
+func (s *gormReleaseLinkStore) ReleaseHasPlatformLink(releaseID uint, platform string) (bool, error) {
+	var count int64
+	err := s.db.Model(&catalogm.ReleaseExternalLink{}).
+		Where("release_id = ? AND LOWER(platform) = ?", releaseID, strings.ToLower(platform)).
+		Count(&count).Error
+	return count > 0, err
 }
 
 func stringValue(s *string) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -471,17 +472,34 @@ func ClassifyReleasePlatformURL(rawURL string) (platform, normalized string, ok 
 	if !isAllowedPlatformHost(host) {
 		return "", "", false
 	}
-	// The /album|/track path is the canonical embeddable unit on BOTH platforms
-	// (pattern: bandcamp embed provenance; frontend findBandcampEmbedUrl +
-	// parseSpotifyEmbed). Artist/profile/playlist URLs do not identify this
-	// release.
-	if !strings.Contains(u.Path, "/album/") && !strings.Contains(u.Path, "/track/") {
+	// The /album/{slug} | /track/{slug} path is the canonical embeddable unit on
+	// BOTH platforms (pattern: bandcamp embed provenance; frontend
+	// findBandcampEmbedUrl + parseSpotifyEmbed). The check is ANCHORED to the
+	// path's leading segments — a substring test would admit
+	// /playlist/x/album/y and dot-segment paths (/album/../../evil) that
+	// browser-resolve elsewhere on the platform host. path.Clean first collapses
+	// dot-segments so the anchored match runs on (and canonicalization stores)
+	// the resolved path.
+	cleaned := path.Clean(u.Path)
+	if !isReleaseUnitPath(cleaned, host == "open.spotify.com") {
 		return "", "", false
 	}
 	if host == "open.spotify.com" {
-		return contracts.MusicPlatformSpotify, canonicalPlatformURL(host, u.Path), true
+		return contracts.MusicPlatformSpotify, canonicalPlatformURL(host, cleaned), true
 	}
-	return contracts.MusicPlatformBandcamp, canonicalPlatformURL(host, u.Path), true
+	return contracts.MusicPlatformBandcamp, canonicalPlatformURL(host, cleaned), true
+}
+
+// isReleaseUnitPath reports whether an already-Cleaned path is an album/track
+// page: "/album/{slug}" or "/track/{slug}" as the LEADING segments, with a
+// non-empty slug. Spotify additionally serves locale-prefixed forms
+// ("/intl-pt/album/{id}"), which the frontend embed parser accepts.
+func isReleaseUnitPath(cleaned string, spotify bool) bool {
+	segs := strings.Split(strings.TrimPrefix(cleaned, "/"), "/")
+	if spotify && len(segs) > 0 && strings.HasPrefix(segs[0], "intl-") {
+		segs = segs[1:]
+	}
+	return len(segs) >= 2 && (segs[0] == "album" || segs[0] == "track") && segs[1] != ""
 }
 
 // SamePlatformArtistURL reports whether two URLs are the same Spotify-artist or

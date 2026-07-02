@@ -15,6 +15,11 @@ import (
 
 type fakeReleaseLinkStore struct {
 	candidates []releaseLinkCandidate
+	// nowLinked simulates links appearing AFTER the candidate snapshot (the
+	// TOCTOU window): "releaseID/platform" entries make the pre-write re-check
+	// report the link as present.
+	nowLinked map[string]bool
+	recheck   []string // every (releaseID/platform) the core re-checked before writing
 }
 
 func (f *fakeReleaseLinkStore) ReleaseLinkCandidates(limit int) ([]releaseLinkCandidate, error) {
@@ -24,10 +29,16 @@ func (f *fakeReleaseLinkStore) ReleaseLinkCandidates(limit int) ([]releaseLinkCa
 	return f.candidates, nil
 }
 
+func (f *fakeReleaseLinkStore) ReleaseHasPlatformLink(releaseID uint, platform string) (bool, error) {
+	key := fmt.Sprintf("%d/%s", releaseID, platform)
+	f.recheck = append(f.recheck, key)
+	return f.nowLinked[key], nil
+}
+
 type fakeReleaseBrowser struct {
-	byRG   map[string][]pipeline.MBReleaseResult
-	errRG  map[string]error
-	calls  []string
+	byRG  map[string][]pipeline.MBReleaseResult
+	errRG map[string]error
+	calls []string
 }
 
 func (f *fakeReleaseBrowser) BrowseReleaseURLRelations(_ context.Context, rgMBID string) ([]pipeline.MBReleaseResult, error) {
@@ -193,11 +204,8 @@ func TestBackfillReleaseLinks_WriteErrorReported(t *testing.T) {
 }
 
 func TestPickReleaseURL_PreferenceOrder(t *testing.T) {
-	t.Run("official beats non-official, album beats track", func(t *testing.T) {
+	t.Run("album beats track within allowed statuses", func(t *testing.T) {
 		rels := []pipeline.MBReleaseResult{
-			{Status: "Bootleg", Relations: []pipeline.MBURLRelation{
-				mbRel("https://x.bandcamp.com/album/bootleg-album", false),
-			}},
 			{Status: "Official", Relations: []pipeline.MBURLRelation{
 				mbRel("https://x.bandcamp.com/track/official-track", false),
 				mbRel("https://x.bandcamp.com/album/official-album", false),
@@ -206,6 +214,33 @@ func TestPickReleaseURL_PreferenceOrder(t *testing.T) {
 		u, ok := pickReleaseURL(rels, contracts.MusicPlatformBandcamp)
 		require.True(t, ok)
 		assert.Equal(t, "https://x.bandcamp.com/album/official-album", u)
+	})
+
+	t.Run("album is primary: a status-less album beats an Official track", func(t *testing.T) {
+		rels := []pipeline.MBReleaseResult{
+			{Status: "Official", Relations: []pipeline.MBURLRelation{
+				mbRel("https://x.bandcamp.com/track/official-track", false),
+			}},
+			{Status: "", Relations: []pipeline.MBURLRelation{
+				mbRel("https://x.bandcamp.com/album/statusless-album", false),
+			}},
+		}
+		u, ok := pickReleaseURL(rels, contracts.MusicPlatformBandcamp)
+		require.True(t, ok)
+		assert.Equal(t, "https://x.bandcamp.com/album/statusless-album", u)
+	})
+
+	t.Run("status floor: bootleg/promo-only RG yields nothing", func(t *testing.T) {
+		rels := []pipeline.MBReleaseResult{
+			{Status: "Bootleg", Relations: []pipeline.MBURLRelation{
+				mbRel("https://x.bandcamp.com/album/bootleg-album", false),
+			}},
+			{Status: "Promotion", Relations: []pipeline.MBURLRelation{
+				mbRel("https://x.bandcamp.com/album/promo-album", false),
+			}},
+		}
+		_, ok := pickReleaseURL(rels, contracts.MusicPlatformBandcamp)
+		assert.False(t, ok, "non-Official statuses are a floor, not a preference")
 	})
 
 	t.Run("ended relations skipped", func(t *testing.T) {
@@ -241,4 +276,81 @@ func TestPickReleaseURL_PreferenceOrder(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "https://x.bandcamp.com/album/first", u)
 	})
+}
+
+func TestBackfillReleaseLinks_PreWriteRecheckSkipsRacedLink(t *testing.T) {
+	store := &fakeReleaseLinkStore{
+		candidates: []releaseLinkCandidate{candidate(1, "Punisher", rgA, false, false)},
+		// bandcamp link appeared AFTER the snapshot (admin add / concurrent run)
+		nowLinked: map[string]bool{"1/bandcamp": true},
+	}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://phoebe.bandcamp.com/album/punisher", false),
+			mbRel("https://open.spotify.com/album/abc", false),
+		}}},
+	}}
+	writer := &fakeLinkWriter{}
+
+	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, report.FilledBandcamp, "raced link not double-written")
+	assert.Equal(t, 1, report.FilledSpotify)
+	require.Len(t, writer.writes, 1, "only the still-missing platform written")
+	assert.Contains(t, store.recheck, "1/bandcamp", "live path re-checked before write")
+	assert.Empty(t, report.Errors, "a raced fill is not an error")
+}
+
+func TestBackfillReleaseLinks_DryRunSkipsRecheck(t *testing.T) {
+	store := &fakeReleaseLinkStore{
+		candidates: []releaseLinkCandidate{candidate(1, "Punisher", rgA, false, false)},
+	}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://phoebe.bandcamp.com/album/punisher", false),
+		}}},
+	}}
+
+	report, err := backfillReleaseLinks(store, browser, nil, ReleaseLinksOptions{DryRun: true})
+	require.NoError(t, err)
+	assert.Equal(t, 1, report.FilledBandcamp)
+	assert.Empty(t, store.recheck, "dry-run does no pre-write re-checks")
+}
+
+func TestBackfillReleaseLinks_InvalidStoredMBIDNeverBrowsedAndSurfaced(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "Corrupted", "not-a-uuid", false, false),
+		candidate(2, "Healthy", rgA, false, false),
+	}}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://b.bandcamp.com/album/b", false),
+		}}},
+	}}
+	writer := &fakeLinkWriter{}
+
+	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{rgA}, browser.calls, "malformed RG-MBID never browsed")
+	require.Len(t, report.Errors, 1, "corrupted key surfaced, not silently skipped")
+	assert.Contains(t, report.Errors[0], "invalid stored RG-MBID")
+	assert.Equal(t, 1, report.FilledBandcamp, "healthy sibling unaffected")
+}
+
+func TestBackfillReleaseLinks_FailedRGSiblingsCounted(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "A", rgA, false, false),
+		candidate(2, "A sibling", rgA, false, false),
+		candidate(3, "A sibling 2", rgA, false, false),
+	}}
+	browser := &fakeReleaseBrowser{errRG: map[string]error{rgA: fmt.Errorf("mb down")}}
+
+	report, err := backfillReleaseLinks(store, browser, &fakeLinkWriter{}, ReleaseLinksOptions{})
+	require.NoError(t, err)
+
+	assert.Len(t, report.Errors, 1, "one error for the failed browse")
+	assert.Equal(t, 2, report.ReleasesSkippedFailedRG, "siblings appear in the report arithmetic")
+	assert.Equal(t, 0, report.ReleasesNoLinks)
 }
