@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -18,6 +19,7 @@ import {
   type GlobePov,
   type PlaceableScene,
 } from './globeTypes'
+import { pickDriftScene } from './drift'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 
 const GLOBE_BREAKPOINT_PX = 640
@@ -90,6 +92,24 @@ export function AtlasGlobe() {
   const [pov, setPov] = useState<GlobePov | null>(null)
   const [selected, setSelected] = useState<PlaceableScene | null>(null)
   const closePreview = useCallback(() => setSelected(null), [])
+
+  // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
+  // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
+  const flyToRef = useRef<((scene: PlaceableScene) => void) | null>(null)
+
+  // Drift (PSY-1308): fly to a weighted-random scene and open its preview —
+  // the radio.garden "balloon ride". The panel opens immediately so the
+  // Bandcamp embed loads during the flight; the pick excludes the scene
+  // already open so repeat drifts always land somewhere new.
+  const handleDrift = useCallback(() => {
+    // Plain read + set (NOT a functional updater): the pick is random and the
+    // fly is a side effect — inside an updater StrictMode's double-invoke
+    // would pick twice and fly twice.
+    const next = pickDriftScene(placeable, selected?.slug)
+    if (!next) return
+    flyToRef.current?.(next)
+    setSelected(next)
+  }, [placeable, selected])
 
   const measureRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return
@@ -178,7 +198,16 @@ export function AtlasGlobe() {
           scenes={placeable}
           pov={pov}
           onSelect={setSelected}
+          flyToRef={flyToRef}
         />
+        <button
+          type="button"
+          onClick={handleDrift}
+          aria-label="Drift to a random scene"
+          className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary"
+        >
+          Drift
+        </button>
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"
