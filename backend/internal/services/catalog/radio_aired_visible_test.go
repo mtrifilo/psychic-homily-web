@@ -29,3 +29,30 @@ func TestAiredEpisodeVisibleSQL(t *testing.T) {
 		}
 	}
 }
+
+// TestEpisodeLatestFirstOrderSQL pins the shared ORDER BY builder's shape
+// (PSY-1297): zero bind placeholders (call sites pass it straight to Order())
+// and the prefix interpolated onto every column so the joined feed query stays
+// unambiguous. A drift here (an accidental ?, or a dropped prefix) would
+// misbind args or reference the wrong table at runtime only.
+func TestEpisodeLatestFirstOrderSQL(t *testing.T) {
+	for _, prefix := range []string{"", "re."} {
+		got := episodeLatestFirstOrderSQL(prefix)
+		if strings.Contains(got, "?") {
+			t.Errorf("episodeLatestFirstOrderSQL(%q): want 0 bind placeholders, got %q", prefix, got)
+		}
+		for _, col := range []string{"air_date", "starts_at", "id"} {
+			if !strings.Contains(got, prefix+col) {
+				t.Errorf("episodeLatestFirstOrderSQL(%q): missing prefix-qualified %s in %q", prefix, col, got)
+			}
+		}
+		if prefix != "" && (strings.Count(got, "air_date") != strings.Count(got, prefix+"air_date") ||
+			strings.Count(got, "starts_at") != strings.Count(got, prefix+"starts_at") ||
+			strings.Count(got, "id ") != strings.Count(got, prefix+"id ")) {
+			t.Errorf("episodeLatestFirstOrderSQL(%q): an unqualified column slipped through: %q", prefix, got)
+		}
+		if !strings.Contains(got, "NULLS LAST") {
+			t.Errorf("episodeLatestFirstOrderSQL(%q): NULLS LAST is load-bearing (Postgres DESC default is NULLS FIRST): %q", prefix, got)
+		}
+	}
+}

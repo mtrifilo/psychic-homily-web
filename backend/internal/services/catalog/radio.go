@@ -795,11 +795,11 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	}
 
 	var episodes []catalogm.RadioEpisode
-	// id DESC tiebreak so "latest" (episodes[0], drives the show-page ON AIR
-	// strip's live derivation) is deterministic when two episodes share an
-	// air_date (PSY-1152) — matches the dial-wide feed's ordering.
+	// Shared feed ordering so "latest" (episodes[0], drives the show-page ON
+	// AIR strip's live derivation) is deterministic and agrees with the
+	// dial-wide feed when two episodes share an air_date (PSY-1152/PSY-1297).
 	err := s.db.Where("show_id = ?", showID).
-		Order("air_date DESC, id DESC").
+		Order(episodeLatestFirstOrderSQL("")).
 		Limit(limit).
 		Offset(offset).
 		Find(&episodes).Error
@@ -860,8 +860,15 @@ func (s *RadioService) GetEpisodeByShowAndDate(showID uint, airDate string) (*co
 	}
 
 	var episode catalogm.RadioEpisode
+	// Same-day siblings are legal ((show_id, air_date, external_id) index);
+	// day-keyed URLs can't address them individually, so resolve to the same
+	// same-day winner the list surfaces rank first (PSY-1297) rather than
+	// First's arbitrary pick. Time-varying by design: with an aired sibling
+	// and a pre-published later-today one, the same URL resolves to the aired
+	// row until the later window passes, then to the newly-aired row.
 	err := s.db.Preload("Show.Station").
 		Where("show_id = ? AND air_date = ?", showID, airDate).
+		Order(episodeLatestFirstOrderSQL("")).
 		First(&episode).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1223,6 +1230,40 @@ func airedEpisodeVisibleSQL(prefix string) string {
 	)
 }
 
+// episodeLatestFirstOrderSQL is the single definition of "latest first" for
+// episode lists (PSY-1297): newest calendar day; within a day, aired rows
+// before not-yet-aired ones, then the latest frozen air window (PSY-1238) — so
+// same-day rows read latest-aired-first instead of import-order. The
+// future-window sink (the CASE key) exists for the UNGATED per-show archive:
+// GetEpisodes shows upcoming rows by design (PSY-1205), and without the sink a
+// pre-published later-today row would deterministically beat the already-aired
+// one for episodes[0] (which drives the show page's "latest" pick — its
+// is_upcoming check is day-granular and can't skip a today-dated future row).
+// On the gated surfaces (episodeRows, latestEpisodeForShow) the sink is a
+// no-op (modulo app/DB clock skew): airedEpisodeVisibleSQL already excludes
+// future-windowed rows. Windowless rows (pop-ups/off-schedule airings the
+// window stamper deliberately skips, plus providers without times) fail the
+// CASE (NULL > now() is not true), so they group WITH aired rows — above
+// future-windowed ones — and NULLS LAST then sinks them within that group,
+// below the windowed-aired rows, rather than scrambling the top; id DESC stays
+// as the final deterministic tiebreaker. NOTE the ordering is a function of DB
+// now(), not just stored data: a same-day pre-published row jumps from the
+// sink to its aired slot the instant its window passes, so by-date resolution
+// and offset pagination can shift across that instant (accepted: once per
+// airing, today's rows only). Used by the "Latest playlists" feeds
+// (episodeRows), the per-show archive (GetEpisodes), the now-playing
+// latest-episode selector (latestEpisodeForShow), and the by-date detail
+// lookup (GetEpisodeByShowAndDate) so they all pick the same same-day winner.
+// `prefix` qualifies the columns ("re." in the joined feed query, "" in
+// single-table queries) and MUST be a compile-time literal — the result is
+// interpolated into ORDER BY unparameterized.
+func episodeLatestFirstOrderSQL(prefix string) string {
+	return fmt.Sprintf(
+		"%[1]sair_date DESC, CASE WHEN %[1]sstarts_at > now() THEN 1 ELSE 0 END, %[1]sstarts_at DESC NULLS LAST, %[1]sid DESC",
+		prefix,
+	)
+}
+
 // episodeRows is the shared core of the station-scoped and dial-wide feeds.
 func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
 	if s.db == nil {
@@ -1231,6 +1272,9 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 	// Pin one instant so the COUNT and the FIND (two separate statements) bound
 	// air_date against the same "now" — otherwise a station-local midnight tick
 	// between them could make total and the returned page disagree by a row.
+	// (The ORDER BY's future-window sink deliberately uses DB now() outside
+	// this pinned instant — ordering never affects row membership, so COUNT
+	// and FIND cannot disagree through it.)
 	now := time.Now().UTC()
 	base := func() *gorm.DB {
 		return s.db.Table("radio_episodes re").
@@ -1287,7 +1331,7 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 		Select(`re.id, re.title, re.air_date, re.play_count, re.archive_url,
 			rsh.id as show_id, rsh.name as show_name, rsh.slug as show_slug,
 			rst.id as station_id, rst.name as station_name, rst.slug as station_slug`).
-		Order("re.air_date DESC, re.id DESC").
+		Order(episodeLatestFirstOrderSQL("re.")).
 		Limit(limit).
 		Offset(offset).
 		Find(&rows).Error
