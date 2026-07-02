@@ -16,12 +16,15 @@
 //
 // Dry-run writes nothing and prints the planned fills. Fill-when-empty per
 // platform: a release that already has a bandcamp (or spotify) link keeps it.
-// Re-run behavior: filled releases drop out of the candidate set, but releases
-// whose RG carried NO usable url-rel (~30% by the spike) are re-browsed on every
-// run — there is no no-result memo yet (that lands with the sweep follow-up), so
-// budget the same time again for a mop-up run. MusicBrainz browse is ~1 req/s,
-// one browse (up to 10 paginated calls) per distinct release-group, so a full
-// run over the catalog is long — run detached.
+// Re-run behavior: a release drops out of the candidate set only when BOTH
+// platforms are linked — single-platform releases AND releases whose RG carried
+// no usable url-rel (~30% by the spike) are re-browsed on every run; there is no
+// no-result memo yet (that lands with the PSY-1316 sweep follow-up), so budget
+// comparable time for a mop-up run. MusicBrainz browse is ~1 req/s, one browse
+// (up to 10 paginated calls) per distinct release-group, so a full run over the
+// catalog is long — run detached, and never run two LIVE instances concurrently:
+// the pre-write re-check closes the stale-snapshot window, not a fully
+// concurrent race (no DB unique constraint yet, also PSY-1316).
 package main
 
 import (
@@ -119,16 +122,20 @@ func redactDBHost(raw string) string {
 }
 
 func printReport(r *enrich.ReleaseLinksReport) {
-	if verbose || !confirm {
-		fmt.Println("--- Planned fills ---")
-		if len(r.Fills) == 0 {
-			fmt.Println("  (none)")
-		}
-		for _, f := range r.Fills {
-			fmt.Printf("  [%s] release %d %q <- %s\n", f.Platform, f.ReleaseID, f.ReleaseTitle, f.URL)
-		}
-		fmt.Println()
+	// Fills print unconditionally: on a live run this is the audit trail of what
+	// was actually written (the rows carry no provenance column yet — PSY-1316).
+	header := "--- Planned fills ---"
+	if confirm {
+		header = "--- Fills written ---"
 	}
+	fmt.Println(header)
+	if len(r.Fills) == 0 {
+		fmt.Println("  (none)")
+	}
+	for _, f := range r.Fills {
+		fmt.Printf("  [%s] release %d %q <- %s\n", f.Platform, f.ReleaseID, f.ReleaseTitle, f.URL)
+	}
+	fmt.Println()
 
 	if len(r.Errors) > 0 {
 		fmt.Println("--- Errors ---")
@@ -145,6 +152,7 @@ func printReport(r *enrich.ReleaseLinksReport) {
 	fmt.Printf("  spotify links filled:                %d\n", r.FilledSpotify)
 	fmt.Printf("  releases with no usable url-rel:     %d\n", r.ReleasesNoLinks)
 	fmt.Printf("  releases skipped (RG browse failed): %d\n", r.ReleasesSkippedFailedRG)
+	fmt.Printf("  links raced (already present at write): %d\n", r.LinksRaced)
 	fmt.Printf("Errors:                                %d\n", len(r.Errors))
 	fmt.Println()
 

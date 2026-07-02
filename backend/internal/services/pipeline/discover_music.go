@@ -480,6 +480,13 @@ func ClassifyReleasePlatformURL(rawURL string) (platform, normalized string, ok 
 	// browser-resolve elsewhere on the platform host. path.Clean first collapses
 	// dot-segments so the anchored match runs on (and canonicalization stores)
 	// the resolved path.
+	// Backslashes never appear in legitimate platform paths, but browsers
+	// normalize \ → / per the WHATWG URL spec while Go's url.Parse/path.Clean
+	// treat them as ordinary bytes — so "/album/\..\..\evil" would pass a
+	// naive anchor here yet browser-resolve elsewhere on the host. Reject.
+	if strings.ContainsRune(u.Path, '\\') {
+		return "", "", false
+	}
 	cleaned := path.Clean(u.Path)
 	if !isReleaseUnitPath(cleaned, host == "open.spotify.com") {
 		return "", "", false
@@ -495,11 +502,37 @@ func ClassifyReleasePlatformURL(rawURL string) (platform, normalized string, ok 
 // non-empty slug. Spotify additionally serves locale-prefixed forms
 // ("/intl-pt/album/{id}"), which the frontend embed parser accepts.
 func isReleaseUnitPath(cleaned string, spotify bool) bool {
+	return releaseUnitKind(cleaned, spotify) != ""
+}
+
+// releaseUnitKind returns "album", "track", or "" for an already-Cleaned path,
+// judged by the LEADING segment (after an optional spotify locale prefix) — the
+// same anchoring the classifier gates on, so preference scoring can never
+// disagree with classification (a substring test would score "/track/y/album/z"
+// as an album).
+func releaseUnitKind(cleaned string, spotify bool) string {
 	segs := strings.Split(strings.TrimPrefix(cleaned, "/"), "/")
 	if spotify && len(segs) > 0 && strings.HasPrefix(segs[0], "intl-") {
 		segs = segs[1:]
 	}
-	return len(segs) >= 2 && (segs[0] == "album" || segs[0] == "track") && segs[1] != ""
+	if len(segs) < 2 || segs[1] == "" {
+		return ""
+	}
+	if segs[0] == "album" || segs[0] == "track" {
+		return segs[0]
+	}
+	return ""
+}
+
+// IsAlbumUnitURL reports whether an ALREADY-CLASSIFIED canonical release URL
+// (a ClassifyReleasePlatformURL output) is an album page rather than a track.
+// Exported for the release-links preference scoring.
+func IsAlbumUnitURL(normalized string) bool {
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return false
+	}
+	return releaseUnitKind(u.Path, strings.ToLower(u.Hostname()) == "open.spotify.com") == "album"
 }
 
 // SamePlatformArtistURL reports whether two URLs are the same Spotify-artist or

@@ -33,7 +33,6 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/pipeline"
-	"psychic-homily-backend/internal/utils"
 )
 
 // MBReleaseURLRelBrowse fetches url-relations for every release in a known
@@ -63,9 +62,10 @@ type ReleaseLinkFill struct {
 	URL          string
 }
 
-// ReleaseLinksReport is the structured outcome of a run. The counters reconcile:
-// ReleasesScanned = fills' releases + ReleasesNoLinks + ReleasesSkippedFailedRG
-// + releases that only appear in Errors (invalid MBID / browse or write failure).
+// ReleaseLinksReport is the structured outcome of a run. Every scanned release
+// lands in at least one bucket: Fills, ReleasesNoLinks, ReleasesSkippedFailedRG,
+// LinksRaced, or Errors (invalid MBID / browse or write failure) — the summary
+// reconciles against ReleasesScanned.
 type ReleaseLinksReport struct {
 	ReleasesScanned         int // candidate releases (have RG-MBID, missing ≥1 platform)
 	RGsBrowsed              int // distinct release-groups fetched from MusicBrainz
@@ -73,6 +73,7 @@ type ReleaseLinksReport struct {
 	FilledSpotify           int
 	ReleasesNoLinks         int // browsed, but no usable url-rel for the missing platforms
 	ReleasesSkippedFailedRG int // siblings of a release-group whose browse failed
+	LinksRaced              int // pre-write re-check found the link already present (filled mid-run by someone else)
 	Errors                  []string
 	Fills                   []ReleaseLinkFill
 }
@@ -107,10 +108,13 @@ func BackfillReleaseLinks(db *gorm.DB, mb MBReleaseURLRelBrowse, writer releaseL
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	return backfillReleaseLinks(&gormReleaseLinkStore{db: db}, mb, writer, opts)
+	return backfillReleaseLinks(context.Background(), &gormReleaseLinkStore{db: db}, mb, writer, opts)
 }
 
-func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writer releaseLinkWriter, opts ReleaseLinksOptions) (*ReleaseLinksReport, error) {
+// backfillReleaseLinks checks ctx per candidate (mirroring the artist links
+// backfill) so a future sweep caller can interrupt an hours-long MB walk; the
+// CLI wrapper passes context.Background().
+func backfillReleaseLinks(ctx context.Context, store releaseLinkStore, mb MBReleaseURLRelBrowse, writer releaseLinkWriter, opts ReleaseLinksOptions) (*ReleaseLinksReport, error) {
 	if mb == nil || (!opts.DryRun && writer == nil) {
 		return nil, fmt.Errorf("musicbrainz browser and (for live runs) link writer are required")
 	}
@@ -121,7 +125,6 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 	}
 
 	report := &ReleaseLinksReport{ReleasesScanned: len(candidates)}
-	ctx := context.Background()
 
 	// One browse per distinct RG-MBID; failedRG marks a failed fetch so siblings
 	// of a failed RG don't re-browse (they're counted as skipped, not "no links").
@@ -129,6 +132,9 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 	failedRG := make(map[string]bool)
 
 	for i := range candidates {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		cand := &candidates[i]
 		rgMBID := stringValue(cand.release.MusicBrainzReleaseGroupID)
 
@@ -136,7 +142,7 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 		// in the loop that owns the browse — not (only) in a store implementation —
 		// and is surfaced as an error: a corrupted key is a data-quality signal,
 		// not something to skip silently (mirrors the artist links backfill).
-		if !utils.IsValidMBID(rgMBID) {
+		if !pipeline.IsValidMBID(rgMBID) {
 			report.Errors = append(report.Errors,
 				fmt.Sprintf("release %d %q: invalid stored RG-MBID %q — skipped", cand.release.ID, cand.release.Title, rgMBID))
 			continue
@@ -159,24 +165,27 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 			report.RGsBrowsed++
 		}
 
-		filled := false
+		// found = a usable url-rel existed for a missing platform (the release
+		// does NOT belong in ReleasesNoLinks); whether the write then happened,
+		// raced, or errored is accounted separately.
+		found := false
 		if !cand.hasBandcamp {
-			if u, found := pickReleaseURL(rels, contracts.MusicPlatformBandcamp); found {
-				filled = true
+			if u, ok := pickReleaseURL(rels, contracts.MusicPlatformBandcamp); ok {
+				found = true
 				if applyReleaseLink(report, store, writer, cand, contracts.MusicPlatformBandcamp, u, opts.DryRun) {
 					report.FilledBandcamp++
 				}
 			}
 		}
 		if !cand.hasSpotify {
-			if u, found := pickReleaseURL(rels, contracts.MusicPlatformSpotify); found {
-				filled = true
+			if u, ok := pickReleaseURL(rels, contracts.MusicPlatformSpotify); ok {
+				found = true
 				if applyReleaseLink(report, store, writer, cand, contracts.MusicPlatformSpotify, u, opts.DryRun) {
 					report.FilledSpotify++
 				}
 			}
 		}
-		if !filled {
+		if !found {
 			report.ReleasesNoLinks++
 		}
 	}
@@ -186,8 +195,11 @@ func backfillReleaseLinks(store releaseLinkStore, mb MBReleaseURLRelBrowse, writ
 // applyReleaseLink records the fill (and writes it on live runs). Returns true
 // when the fill counts toward the report (dry-run always; live only on success).
 // Live writes re-check link absence first: the candidate snapshot can be hours
-// stale (admin adds a link mid-run, or a concurrent invocation), and the table
-// has no unique constraint — a stale write would create a duplicate platform row.
+// stale (an admin adds a link mid-run) and the table has no unique constraint —
+// a stale write would create a duplicate platform row. NOTE: this is a
+// check-then-act, not atomic with the INSERT — it closes the stale-snapshot
+// window, not a fully concurrent second live run (don't run two live instances
+// at once; a DB unique index is the PSY-1316 follow-up).
 func applyReleaseLink(report *ReleaseLinksReport, store releaseLinkStore, writer releaseLinkWriter, cand *releaseLinkCandidate, platform, u string, dryRun bool) bool {
 	if !dryRun {
 		exists, err := store.ReleaseHasPlatformLink(cand.release.ID, platform)
@@ -197,6 +209,7 @@ func applyReleaseLink(report *ReleaseLinksReport, store releaseLinkStore, writer
 			return false
 		}
 		if exists {
+			report.LinksRaced++
 			return false // filled by someone else since the snapshot — not an error
 		}
 		if _, err := writer.AddExternalLink(cand.release.ID, platform, u); err != nil {
@@ -265,7 +278,7 @@ func pickReleaseURL(releases []pipeline.MBReleaseResult, platform string) (strin
 			cand := &scored{
 				url:      normalized,
 				official: rel.Status == "Official",
-				album:    strings.Contains(normalized, "/album/"),
+				album:    pipeline.IsAlbumUnitURL(normalized),
 			}
 			if best == nil || better(cand, best) {
 				best = cand

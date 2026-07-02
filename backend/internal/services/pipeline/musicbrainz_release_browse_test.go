@@ -94,6 +94,7 @@ func TestClassifyReleasePlatformURL(t *testing.T) {
 		{"empty slug rejected", "https://x.bandcamp.com/album/", "", "", false},
 		{"spotify intl prefix accepted", "https://open.spotify.com/intl-pt/album/6Pp6qGEywDdofgFC1oFbSH", "spotify", "https://open.spotify.com/intl-pt/album/6Pp6qGEywDdofgFC1oFbSH", true},
 		{"bandcamp intl-like segment rejected", "https://x.bandcamp.com/intl-pt/album/y", "", "", false},
+		{"backslash path rejected", `https://open.spotify.com/album/\..\..\evil`, "", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,4 +104,14 @@ func TestClassifyReleasePlatformURL(t *testing.T) {
 			assert.Equal(t, tc.wantURL, u)
 		})
 	}
+}
+
+// IsAlbumUnitURL judges by the LEADING segment — a track URL with a trailing
+// "album" segment must not score as an album.
+func TestIsAlbumUnitURL(t *testing.T) {
+	assert.True(t, IsAlbumUnitURL("https://x.bandcamp.com/album/real-album"))
+	assert.True(t, IsAlbumUnitURL("https://open.spotify.com/intl-pt/album/abc"))
+	assert.False(t, IsAlbumUnitURL("https://x.bandcamp.com/track/y"))
+	assert.False(t, IsAlbumUnitURL("https://x.bandcamp.com/track/y/album/z"), "trailing album segment is not an album page")
+	assert.False(t, IsAlbumUnitURL("://garbage"))
 }

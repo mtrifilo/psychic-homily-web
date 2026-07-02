@@ -99,7 +99,7 @@ func TestBackfillReleaseLinks_FillsBothPlatformsAndSharesRGBrowse(t *testing.T) 
 	}}
 	writer := &fakeLinkWriter{}
 
-	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, report.ReleasesScanned)
@@ -126,7 +126,7 @@ func TestBackfillReleaseLinks_FillWhenEmptyPerPlatform(t *testing.T) {
 	}}
 	writer := &fakeLinkWriter{}
 
-	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, report.FilledBandcamp, "existing bandcamp link untouched")
@@ -146,7 +146,7 @@ func TestBackfillReleaseLinks_DryRunWritesNothing(t *testing.T) {
 	}}
 
 	// nil writer is allowed in dry-run and MUST never be called.
-	report, err := backfillReleaseLinks(store, browser, nil, ReleaseLinksOptions{DryRun: true})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, nil, ReleaseLinksOptions{DryRun: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, report.FilledBandcamp)
@@ -155,7 +155,7 @@ func TestBackfillReleaseLinks_DryRunWritesNothing(t *testing.T) {
 }
 
 func TestBackfillReleaseLinks_LiveRequiresWriter(t *testing.T) {
-	_, err := backfillReleaseLinks(&fakeReleaseLinkStore{}, &fakeReleaseBrowser{}, nil, ReleaseLinksOptions{})
+	_, err := backfillReleaseLinks(context.Background(), &fakeReleaseLinkStore{}, &fakeReleaseBrowser{}, nil, ReleaseLinksOptions{})
 	require.Error(t, err)
 }
 
@@ -175,7 +175,7 @@ func TestBackfillReleaseLinks_BrowseErrorSkipsSiblingsAndCounts(t *testing.T) {
 	}
 	writer := &fakeLinkWriter{}
 
-	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{rgA, rgB}, browser.calls, "failed RG browsed once, not per sibling")
@@ -195,7 +195,7 @@ func TestBackfillReleaseLinks_WriteErrorReported(t *testing.T) {
 	}}
 	writer := &fakeLinkWriter{failOn: contracts.MusicPlatformBandcamp}
 
-	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, report.FilledBandcamp, "failed write not counted")
@@ -292,7 +292,7 @@ func TestBackfillReleaseLinks_PreWriteRecheckSkipsRacedLink(t *testing.T) {
 	}}
 	writer := &fakeLinkWriter{}
 
-	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, report.FilledBandcamp, "raced link not double-written")
@@ -300,6 +300,7 @@ func TestBackfillReleaseLinks_PreWriteRecheckSkipsRacedLink(t *testing.T) {
 	require.Len(t, writer.writes, 1, "only the still-missing platform written")
 	assert.Contains(t, store.recheck, "1/bandcamp", "live path re-checked before write")
 	assert.Empty(t, report.Errors, "a raced fill is not an error")
+	assert.Equal(t, 1, report.LinksRaced, "raced link appears in the report arithmetic")
 }
 
 func TestBackfillReleaseLinks_DryRunSkipsRecheck(t *testing.T) {
@@ -312,7 +313,7 @@ func TestBackfillReleaseLinks_DryRunSkipsRecheck(t *testing.T) {
 		}}},
 	}}
 
-	report, err := backfillReleaseLinks(store, browser, nil, ReleaseLinksOptions{DryRun: true})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, nil, ReleaseLinksOptions{DryRun: true})
 	require.NoError(t, err)
 	assert.Equal(t, 1, report.FilledBandcamp)
 	assert.Empty(t, store.recheck, "dry-run does no pre-write re-checks")
@@ -330,7 +331,7 @@ func TestBackfillReleaseLinks_InvalidStoredMBIDNeverBrowsedAndSurfaced(t *testin
 	}}
 	writer := &fakeLinkWriter{}
 
-	report, err := backfillReleaseLinks(store, browser, writer, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{rgA}, browser.calls, "malformed RG-MBID never browsed")
@@ -347,7 +348,7 @@ func TestBackfillReleaseLinks_FailedRGSiblingsCounted(t *testing.T) {
 	}}
 	browser := &fakeReleaseBrowser{errRG: map[string]error{rgA: fmt.Errorf("mb down")}}
 
-	report, err := backfillReleaseLinks(store, browser, &fakeLinkWriter{}, ReleaseLinksOptions{})
+	report, err := backfillReleaseLinks(context.Background(), store, browser, &fakeLinkWriter{}, ReleaseLinksOptions{})
 	require.NoError(t, err)
 
 	assert.Len(t, report.Errors, 1, "one error for the failed browse")
