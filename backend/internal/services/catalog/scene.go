@@ -51,6 +51,11 @@ const (
 	// (PSY-1081) — same graph-density budget, not a silent cap: MetroRosterTotal +
 	// RosterTruncated surface the full roster size.
 	sceneGraphRosterLimit = 75
+
+	// sceneThisWeekDays is the "happening this week" window (PSY-1309): the
+	// ≤7-day slice of a scene's upcoming shows that drives the Atlas globe's
+	// pulse treatment and the preview panel's "This week" row.
+	sceneThisWeekDays = 7
 )
 
 // usCountry is the country passed to the geocoder when resolving a scene's
@@ -166,6 +171,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		VenueCount    int    `gorm:"column:venue_count"`
 		ShowCount     int    `gorm:"column:show_count"`
 		UpcomingCount int    `gorm:"column:upcoming_count"`
+		ThisWeekCount int    `gorm:"column:this_week_count"`
 	}
 
 	// Group verified venues by CBSA metro (or by (city,state) when the venue has
@@ -175,6 +181,11 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// share it; '' for a fallback group); MIN(city)/MIN(state) is the literal
 	// city/state of a fallback group (a metro group displays its principal city
 	// instead, so its MIN city is unused).
+	// this_week_count is the ≤sceneThisWeekDays slice of the upcoming set
+	// (PSY-1309): it drives the Atlas globe's "happening this week" pulse, so it
+	// must share the scene scoping of the other counts — one more FILTER
+	// aggregate in the same pass, not a new query.
+	weekAhead := now.AddDate(0, 0, sceneThisWeekDays)
 	var groups []groupRow
 	err := s.db.Raw(`
 		SELECT COALESCE(MAX(v.metro), '') AS metro,
@@ -182,7 +193,8 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		       MIN(v.state) AS state,
 		       COUNT(DISTINCT v.id) AS venue_count,
 		       COUNT(DISTINCT s.id) AS show_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count
+		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count,
+		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count
 		FROM venues v
 		LEFT JOIN show_venues sv ON sv.venue_id = v.id
 		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
@@ -192,7 +204,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		GROUP BY COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(TRIM(v.state)))
 		HAVING COUNT(DISTINCT v.id) >= ?
 		   AND COUNT(DISTINCT s.id) >= ?
-	`, now, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
+	`, now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
@@ -227,6 +239,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			VenueCount:        g.VenueCount,
 			UpcomingShowCount: g.UpcomingCount,
 			TotalShowCount:    g.ShowCount,
+			ShowsThisWeek:     g.ThisWeekCount,
 			Latitude:          lat,
 			Longitude:         lng,
 		})
@@ -418,6 +431,68 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			ShowsByMonth:          showsByMonth,
 		},
 	}, nil
+}
+
+// GetSceneUpcomingShows returns the scene's next approved shows within
+// windowDays, soonest first (id as the same-date tiebreak), capped at limit —
+// the Atlas preview panel's "This week" row (PSY-1309). Scoped by the scene's
+// venue predicate so a metro scene includes member-city shows (a Tempe show
+// counts toward Phoenix) — the literal-city upcoming-shows endpoint can't do
+// that. VenueName is the first venue on the bill (MIN by name: deterministic,
+// and multi-venue shows are rare).
+func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]contracts.SceneShowSummary, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	scope := s.scopeFor(city, state)
+	if n, err := s.verifiedVenueCount(scope); err != nil {
+		return nil, fmt.Errorf("failed to count venues: %w", err)
+	} else if n < sceneMinVenues {
+		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
+	}
+
+	vp, vargs := scope.venuePredicate("v")
+	now := time.Now().UTC()
+	windowEnd := now.AddDate(0, 0, windowDays)
+
+	type showRow struct {
+		ID        uint      `gorm:"column:id"`
+		Slug      string    `gorm:"column:slug"`
+		Title     string    `gorm:"column:title"`
+		EventDate time.Time `gorm:"column:event_date"`
+		VenueName string    `gorm:"column:venue_name"`
+	}
+	// Placeholder order: venue predicate, then status/window bounds.
+	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd, limit)
+	var rows []showRow
+	if err := s.db.Raw(`
+		SELECT s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, MIN(v.name) AS venue_name
+		FROM shows s
+		JOIN show_venues sv ON sv.show_id = s.id
+		JOIN venues v ON v.id = sv.venue_id
+		WHERE `+vp+`
+		  AND s.status = ?
+		  AND s.event_date >= ?
+		  AND s.event_date < ?
+		GROUP BY s.id, s.slug, s.title, s.event_date -- id is the PK; slug/title/date ride along
+		ORDER BY s.event_date ASC, s.id ASC
+		LIMIT ?
+	`, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get scene upcoming shows: %w", err)
+	}
+
+	results := make([]contracts.SceneShowSummary, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.SceneShowSummary{
+			ID:        r.ID,
+			Slug:      r.Slug,
+			Title:     r.Title,
+			EventDate: r.EventDate.UTC().Format("2006-01-02"),
+			VenueName: r.VenueName,
+		}
+	}
+	return results, nil
 }
 
 // GetActiveArtists returns the scene's roster — bands BASED in the metro — with

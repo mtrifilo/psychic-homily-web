@@ -654,6 +654,10 @@ type SceneListResponse struct {
 	VenueCount        int    `json:"venue_count"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	TotalShowCount    int    `json:"total_show_count"`
+	// ShowsThisWeek is the ≤7-day slice of UpcomingShowCount (PSY-1309) — the
+	// "happening this week" signal that drives the Atlas globe's pulse
+	// treatment. Same scene scoping as the other counts.
+	ShowsThisWeek int `json:"shows_this_week"`
 	// Latitude/Longitude position the scene on the geographic-discovery map
 	// (PSY-1212): the metro principal city's centroid (or the fallback city's,
 	// geocoded the same way as ShowCityResponse — PSY-985/PSY-981), so a scene
@@ -661,6 +665,17 @@ type SceneListResponse struct {
 	// a geocoder miss; the scene still lists, just unplaceable.
 	Latitude  *float64 `json:"latitude,omitempty"`
 	Longitude *float64 `json:"longitude,omitempty"`
+}
+
+// SceneShowSummary is one upcoming show in a scene's "This week" preview row
+// (PSY-1309) — deliberately thin (the Atlas preview panel needs a line, not the
+// full ShowResponse payload). VenueName is the first venue on the bill.
+type SceneShowSummary struct {
+	ID        uint   `json:"id"`
+	Slug      string `json:"slug,omitempty"` // canonical /shows/{slug} target; "" when the show has no slug (clients fall back to the id)
+	Title     string `json:"title"`
+	EventDate string `json:"event_date"` // ISO date (YYYY-MM-DD)
+	VenueName string `json:"venue_name,omitempty"`
 }
 
 // SceneDetailResponse represents the full computed scene for a metro (or a
@@ -754,10 +769,10 @@ type SceneGraphInfo struct {
 	Slug             string `json:"slug"`
 	City             string `json:"city"`
 	State            string `json:"state"`
-	ArtistCount      int    `json:"artist_count"`        // artists in the response (top-N cap applied)
-	EdgeCount        int    `json:"edge_count"`          // total edges in the response (post type-filter)
-	MetroRosterTotal int    `json:"metro_roster_total"`  // full based-in metro roster before top-N cap
-	RosterTruncated  bool   `json:"roster_truncated"`    // true when metro_roster_total > artist_count
+	ArtistCount      int    `json:"artist_count"`       // artists in the response (top-N cap applied)
+	EdgeCount        int    `json:"edge_count"`         // total edges in the response (post type-filter)
+	MetroRosterTotal int    `json:"metro_roster_total"` // full based-in metro roster before top-N cap
+	RosterTruncated  bool   `json:"roster_truncated"`   // true when metro_roster_total > artist_count
 }
 
 // SceneGraphCluster groups artists in the scene. v1 cluster signal is the
@@ -1012,4 +1027,10 @@ type SceneServiceInterface interface {
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	GetSceneGraph(city, state string, types []string) (*SceneGraphResponse, error)
+	// GetSceneUpcomingShows returns the scene's next approved shows within
+	// windowDays, soonest first, capped at limit — the preview panel's "This
+	// week" row (PSY-1309). Metro-scoped like every other scene surface (a
+	// Tempe show counts toward the Phoenix scene), which is why this isn't the
+	// literal-city shows endpoint.
+	GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]SceneShowSummary, error)
 }

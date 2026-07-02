@@ -3077,6 +3077,7 @@ type MockSceneService struct {
 	GetSceneGenreDistributionFn func(string, string) ([]contracts.GenreCount, error)
 	GetGenreDiversityIndexFn    func(string, string) (float64, error)
 	GetSceneGraphFn             func(string, string, []string) (*contracts.SceneGraphResponse, error)
+	GetSceneUpcomingShowsFn     func(string, string, int, int) ([]contracts.SceneShowSummary, error)
 }
 
 func (m *MockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -3118,6 +3119,12 @@ func (m *MockSceneService) GetGenreDiversityIndex(city string, state string) (fl
 func (m *MockSceneService) GetSceneGraph(city string, state string, types []string) (*contracts.SceneGraphResponse, error) {
 	if m.GetSceneGraphFn != nil {
 		return m.GetSceneGraphFn(city, state, types)
+	}
+	return nil, nil
+}
+func (m *MockSceneService) GetSceneUpcomingShows(city string, state string, windowDays int, limit int) ([]contracts.SceneShowSummary, error) {
+	if m.GetSceneUpcomingShowsFn != nil {
+		return m.GetSceneUpcomingShowsFn(city, state, windowDays, limit)
 	}
 	return nil, nil
 }

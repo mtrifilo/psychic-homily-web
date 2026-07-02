@@ -4,4 +4,5 @@ export {
   useSceneArtists,
   useSceneGenres,
   useSceneGraph,
+  useSceneShows,
 } from './useScenes'

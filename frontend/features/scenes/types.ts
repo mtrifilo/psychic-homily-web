@@ -12,6 +12,9 @@ export interface SceneListItem {
   venue_count: number
   upcoming_show_count: number
   total_show_count: number
+  // The ≤7-day slice of upcoming_show_count (PSY-1309) — drives the globe's
+  // "happening this week" pulse treatment.
+  shows_this_week: number
   // Geocoded city centroid for the /atlas map (PSY-1212). Absent (undefined)
   // or null when the geocoder couldn't place the city — such scenes can't be
   // plotted on the globe.
@@ -69,6 +72,22 @@ export interface SceneArtist {
 export interface SceneArtistsResponse {
   artists: SceneArtist[]
   total: number
+}
+
+// One upcoming show in the scene preview's "This week" row (PSY-1309) —
+// deliberately thin (a line, not the full show payload).
+export interface SceneShowSummary {
+  id: number
+  // Canonical /shows/{slug} target; absent when the show has no slug (fall
+  // back to the id — the detail route accepts either).
+  slug?: string
+  title: string
+  event_date: string // ISO date (YYYY-MM-DD)
+  venue_name?: string
+}
+
+export interface SceneShowsResponse {
+  shows: SceneShowSummary[]
 }
 
 export interface GenreCount {
