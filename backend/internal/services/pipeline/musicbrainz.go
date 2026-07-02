@@ -93,7 +93,10 @@ type MBAreaRelation struct {
 // label-independent identity check.
 type MBURLRelation struct {
 	Type string `json:"type"`
-	URL  struct {
+	// Ended marks a relationship MusicBrainz considers no longer current (dead
+	// link, delisted release). Enrichment writers skip ended relations.
+	Ended bool `json:"ended"`
+	URL   struct {
 		Resource string `json:"resource"`
 	} `json:"url"`
 }
@@ -410,6 +413,72 @@ func (c *MusicBrainzClient) BrowseArtistReleaseGroups(ctx context.Context, mbid 
 		// Done when the whole set is walked, or a page came back empty (defensive: a
 		// stale/missing count must not wedge the loop).
 		if len(resp.ReleaseGroups) == 0 || offset >= resp.Count {
+			break
+		}
+	}
+	return out, nil
+}
+
+// browseReleasePageSize is MusicBrainz's max browse page for releases.
+const browseReleasePageSize = 100
+
+// browseReleaseMaxPages caps one release browse at 1,000 releases per
+// release-group — a release-group rarely has more than a few dozen releases
+// (pressings/regions), so this is a defensive bound, not a working limit.
+const browseReleaseMaxPages = 10
+
+// MBBrowseReleasesResponse is the paginated response from the MusicBrainz
+// release browse endpoint (`/release?release-group={mbid}&inc=url-rels`).
+type MBBrowseReleasesResponse struct {
+	Count    int               `json:"release-count"`
+	Releases []MBReleaseResult `json:"releases"`
+}
+
+// MBReleaseResult is one release in a browse-by-release-group result. Only the
+// fields the link enrichment needs are decoded; Relations carries the url-rels.
+type MBReleaseResult struct {
+	ID        string          `json:"id"`
+	Title     string          `json:"title"`
+	Status    string          `json:"status"` // "Official", "Bootleg", …
+	Date      string          `json:"date"`
+	Relations []MBURLRelation `json:"relations"`
+}
+
+// BrowseReleaseURLRelations walks every release in a release-group (by RG-MBID)
+// with url-rels included — one identity-verified call chain, no name search.
+// MusicBrainz hangs streaming/purchase links on RELEASES, not release-groups
+// (spiked 2026-07-01: RG-level url-rels were 0/50; release-level 35/50), so link
+// enrichment must browse at this level. Rate-limited via the shared throttle;
+// interruptible via ctx.
+func (c *MusicBrainzClient) BrowseReleaseURLRelations(ctx context.Context, rgMBID string) ([]MBReleaseResult, error) {
+	if strings.TrimSpace(rgMBID) == "" {
+		return nil, nil
+	}
+
+	var out []MBReleaseResult
+	offset := 0
+	for page := 0; page < browseReleaseMaxPages; page++ {
+		if err := c.throttle(ctx); err != nil {
+			return nil, err
+		}
+		browseURL := fmt.Sprintf("%s/release?release-group=%s&inc=url-rels&fmt=json&limit=%d&offset=%d",
+			c.baseURL, url.QueryEscape(rgMBID), browseReleasePageSize, offset)
+		body, err := c.doRequestCtx(ctx, browseURL)
+		if err != nil {
+			return nil, fmt.Errorf("musicbrainz release browse failed: %w", err)
+		}
+
+		var resp MBBrowseReleasesResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to parse musicbrainz release browse response: %w", err)
+		}
+
+		out = append(out, resp.Releases...)
+
+		offset += len(resp.Releases)
+		// Done when the whole set is walked, or a page came back empty (defensive:
+		// a stale/missing count must not wedge the loop).
+		if len(resp.Releases) == 0 || offset >= resp.Count {
 			break
 		}
 	}

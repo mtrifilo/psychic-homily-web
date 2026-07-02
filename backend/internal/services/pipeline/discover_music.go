@@ -451,6 +451,39 @@ func classifyPlatformURL(rawURL string) (platform, normalized string, ok bool) {
 	return contracts.MusicPlatformBandcamp, canonicalPlatformURL(host, u.Path), true
 }
 
+// ClassifyReleasePlatformURL host-anchors a MusicBrainz relation URL and, if it
+// is a playable RELEASE unit — a Bandcamp /album/ or /track/ page, or a Spotify
+// /album/ or /track/ page — returns the platform tag and the canonicalized URL.
+// The artist-flavored classifyPlatformURL is the wrong gate for releases: it
+// accepts bare Bandcamp profiles (not embeddable as a release) and REJECTS
+// Spotify album URLs (it requires an /artist/ path). Host anchoring, not the MB
+// relation `type` string, remains the identity check — same rationale and
+// canonical form as classifyPlatformURL.
+func ClassifyReleasePlatformURL(rawURL string) (platform, normalized string, ok bool) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", "", false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	if !isAllowedPlatformHost(host) {
+		return "", "", false
+	}
+	// The /album|/track path is the canonical embeddable unit on BOTH platforms
+	// (pattern: bandcamp embed provenance; frontend findBandcampEmbedUrl +
+	// parseSpotifyEmbed). Artist/profile/playlist URLs do not identify this
+	// release.
+	if !strings.Contains(u.Path, "/album/") && !strings.Contains(u.Path, "/track/") {
+		return "", "", false
+	}
+	if host == "open.spotify.com" {
+		return contracts.MusicPlatformSpotify, canonicalPlatformURL(host, u.Path), true
+	}
+	return contracts.MusicPlatformBandcamp, canonicalPlatformURL(host, u.Path), true
+}
+
 // SamePlatformArtistURL reports whether two URLs are the same Spotify-artist or
 // Bandcamp link once reduced to canonical form (https, lowercased host, trimmed
 // path; userinfo/query/fragment dropped). It returns false unless BOTH are
