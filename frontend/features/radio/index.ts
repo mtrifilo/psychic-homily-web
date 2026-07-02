@@ -92,6 +92,8 @@ export {
 // consumes it; PSY-1075 narrowed the public surface.)
 export {
   formatShortAirDate,
+  formatLocalAirDate,
+  formatLocalTimeRange,
   formatStationLocation,
 } from './lib/stationOverview'
 export type { ArtistHop } from './lib/stationOverview'

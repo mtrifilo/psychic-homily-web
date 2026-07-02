@@ -277,9 +277,14 @@ type RadioEpisodeResponse struct {
 // attribution (PSY-1048). Station-scoped feeds are strictly per-station
 // (PSY-1074); the station_* fields exist for the dial-wide hub feed.
 type RadioStationEpisodeRow struct {
-	ID            uint                        `json:"id"`
-	Title         *string                     `json:"title"`
-	AirDate       string                      `json:"air_date"`
+	ID      uint    `json:"id"`
+	Title   *string `json:"title"`
+	AirDate string  `json:"air_date"`
+	// StartsAt/EndsAt are the frozen air window (PSY-1238), nullable —
+	// windowless rows (no-slot pop-ups, providers without times) carry nil.
+	// The frontend renders these in the VIEWER's timezone (PSY-1298).
+	StartsAt      *time.Time                  `json:"starts_at"`
+	EndsAt        *time.Time                  `json:"ends_at"`
 	PlayCount     int                         `json:"play_count"`
 	ArchiveURL    *string                     `json:"archive_url"`
 	ShowID        uint                        `json:"show_id"`

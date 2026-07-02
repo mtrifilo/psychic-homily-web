@@ -1673,6 +1673,15 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_SameDayOrd
 	gotIDs := []uint{rows[0].ID, rows[1].ID, rows[2].ID, rows[3].ID, rows[4].ID}
 	suite.Equal([]uint{newer.ID, evening.ID, midday.ID, morning.ID, popup.ID}, gotIDs,
 		"feed must order air_date DESC, then starts_at DESC NULLS LAST, not import order")
+
+	// PSY-1298: feed rows expose the frozen air window so the frontend can
+	// render viewer-local time blocks; windowless rows carry nil.
+	suite.Require().NotNil(rows[1].StartsAt)
+	suite.Require().NotNil(rows[1].EndsAt)
+	suite.True(rows[1].StartsAt.Equal(*eStarts), "starts_at must round-trip through the feed")
+	suite.True(rows[1].EndsAt.Equal(*eEnds), "ends_at must round-trip through the feed")
+	suite.Nil(rows[4].StartsAt, "windowless pop-up must expose a nil window")
+	suite.Nil(rows[4].EndsAt)
 }
 
 // TestGetEpisodes_SameDayAiredBeatsFutureWindow pins the future-window sink on

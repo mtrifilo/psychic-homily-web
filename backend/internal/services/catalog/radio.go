@@ -1314,21 +1314,23 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 	}
 
 	type row struct {
-		ID          uint    `gorm:"column:id"`
-		Title       *string `gorm:"column:title"`
-		AirDate     string  `gorm:"column:air_date"`
-		PlayCount   int     `gorm:"column:play_count"`
-		ArchiveURL  *string `gorm:"column:archive_url"`
-		ShowID      uint    `gorm:"column:show_id"`
-		ShowName    string  `gorm:"column:show_name"`
-		ShowSlug    string  `gorm:"column:show_slug"`
-		StationID   uint    `gorm:"column:station_id"`
-		StationName string  `gorm:"column:station_name"`
-		StationSlug string  `gorm:"column:station_slug"`
+		ID          uint       `gorm:"column:id"`
+		Title       *string    `gorm:"column:title"`
+		AirDate     string     `gorm:"column:air_date"`
+		StartsAt    *time.Time `gorm:"column:starts_at"`
+		EndsAt      *time.Time `gorm:"column:ends_at"`
+		PlayCount   int        `gorm:"column:play_count"`
+		ArchiveURL  *string    `gorm:"column:archive_url"`
+		ShowID      uint       `gorm:"column:show_id"`
+		ShowName    string     `gorm:"column:show_name"`
+		ShowSlug    string     `gorm:"column:show_slug"`
+		StationID   uint       `gorm:"column:station_id"`
+		StationName string     `gorm:"column:station_name"`
+		StationSlug string     `gorm:"column:station_slug"`
 	}
 	var rows []row
 	err := base().
-		Select(`re.id, re.title, re.air_date, re.play_count, re.archive_url,
+		Select(`re.id, re.title, re.air_date, re.starts_at, re.ends_at, re.play_count, re.archive_url,
 			rsh.id as show_id, rsh.name as show_name, rsh.slug as show_slug,
 			rst.id as station_id, rst.name as station_name, rst.slug as station_slug`).
 		Order(episodeLatestFirstOrderSQL("re.")).
@@ -1354,6 +1356,8 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 			ID:            r.ID,
 			Title:         r.Title,
 			AirDate:       normalizeDate(r.AirDate),
+			StartsAt:      r.StartsAt,
+			EndsAt:        r.EndsAt,
 			PlayCount:     r.PlayCount,
 			ArchiveURL:    r.ArchiveURL,
 			ShowID:        r.ShowID,

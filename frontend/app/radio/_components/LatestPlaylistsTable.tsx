@@ -3,7 +3,11 @@
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { DenseTable } from '@/components/shared/DenseTable'
-import { ArtistHops, formatShortAirDate } from '@/features/radio'
+import {
+  ArtistHops,
+  formatLocalAirDate,
+  formatLocalTimeRange,
+} from '@/features/radio'
 import type { RadioStationEpisodeRow } from '@/features/radio'
 
 interface LatestPlaylistsTableProps {
@@ -62,10 +66,21 @@ export function LatestPlaylistsTable({
         </tr>
       </thead>
       <tbody>
-        {rows.map(row => (
+        {rows.map(row => {
+          // PSY-1298: viewer-local date + air-time block, stacked — mirrors
+          // the station feed's treatment for consistency.
+          const timeBlock = formatLocalTimeRange(row.starts_at, row.ends_at)
+          return (
           <tr key={row.id}>
-            <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground">
-              {formatShortAirDate(row.air_date)}
+            <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
+              <span className="block">
+                {formatLocalAirDate(row.starts_at, row.air_date)}
+              </span>
+              {timeBlock && (
+                <span className="block text-[10px] text-muted-foreground/85">
+                  {timeBlock}
+                </span>
+              )}
             </td>
             <td className="max-w-[8rem] truncate font-mono text-xs uppercase text-muted-foreground">
               {row.station_name}
@@ -95,7 +110,8 @@ export function LatestPlaylistsTable({
               {row.play_count}
             </td>
           </tr>
-        ))}
+          )
+        })}
       </tbody>
     </DenseTable>
   )

@@ -61,6 +61,8 @@ function makeRow(overrides: Partial<RadioStationEpisodeRow> = {}): RadioStationE
     id: 1,
     title: null,
     air_date: '2026-06-09',
+    starts_at: null,
+    ends_at: null,
     play_count: 24,
     archive_url: null,
     show_id: 1,

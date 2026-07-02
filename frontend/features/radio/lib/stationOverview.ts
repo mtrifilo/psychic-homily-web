@@ -55,6 +55,61 @@ export function formatShortAirDate(dateStr: string | null | undefined): string {
 }
 
 /**
+ * Viewer-local date line for a feed row (PSY-1298): when the frozen air
+ * window exists, the date derives from starts_at in the VIEWER's timezone
+ * (fully viewer-local — an 11 PM ET Tuesday broadcast reads as Wednesday in
+ * Berlin, locked design decision); windowless rows fall back to the station
+ * air_date, date-only.
+ */
+export function formatLocalAirDate(
+  startsAt: string | null | undefined,
+  airDate: string | null | undefined
+): string {
+  if (startsAt) {
+    const date = new Date(startsAt)
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+  }
+  return formatShortAirDate(airDate)
+}
+
+/**
+ * One end of the air window as compact 12h: drop :00 minutes, always carry
+ * the meridiem ("9 PM", "6:30 PM", "12 PM" for noon, "12 AM" for midnight).
+ */
+function formatCompactTime(date: Date): { text: string; meridiem: string } {
+  const hours24 = date.getHours()
+  const minutes = date.getMinutes()
+  const meridiem = hours24 < 12 ? 'AM' : 'PM'
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12
+  const clock =
+    minutes === 0 ? `${hours12}` : `${hours12}:${String(minutes).padStart(2, '0')}`
+  return { text: `${clock} ${meridiem}`, meridiem }
+}
+
+/**
+ * Viewer-local air-time block (PSY-1298): "9–12 PM", "6:30–9 PM",
+ * "11 PM–2 AM" — compact 12h, minutes only when non-zero, single AM/PM
+ * suffix when both ends share it. Returns '' for a windowless row (the
+ * date-only rendering is the designed fallback) or an unparsable window.
+ */
+export function formatLocalTimeRange(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined
+): string {
+  if (!startsAt || !endsAt) return ''
+  const start = new Date(startsAt)
+  const end = new Date(endsAt)
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return ''
+  const s = formatCompactTime(start)
+  const e = formatCompactTime(end)
+  const startText =
+    s.meridiem === e.meridiem ? s.text.slice(0, -(s.meridiem.length + 1)) : s.text
+  return `${startText}–${e.text}`
+}
+
+/**
  * The single-station identity sub-line: "Seattle, WA" / "London, UK" etc.
  * Drops empty parts; returns "" when no location is known.
  */

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { BracketLink, DenseTable, SectionHeader } from '@/components/shared'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
-import { formatShortAirDate } from '../lib/stationOverview'
+import { formatLocalAirDate, formatLocalTimeRange } from '../lib/stationOverview'
 import type { RadioStationDetail, RadioStationEpisodeRow } from '../types'
 
 const INITIAL_LIMIT = 10
@@ -93,16 +93,27 @@ export function StationPlaylistsFeed({ station }: StationPlaylistsFeedProps) {
 function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
   const playlistUrl = `/radio/${row.station_slug}/${row.show_slug}/${row.air_date}`
   const showUrl = `/radio/${row.station_slug}/${row.show_slug}`
+  // PSY-1298: date + time render fully viewer-local from the frozen air
+  // window (stacked under the date, per the approved Figma frame); windowless
+  // rows fall back to the station air_date, date-only. The deep-link stays
+  // keyed on the station-dated air_date — the shown date can differ from the
+  // URL segment for far-from-ET viewers (accepted design tradeoff).
+  const timeBlock = formatLocalTimeRange(row.starts_at, row.ends_at)
 
   return (
     <tr>
-      <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground">
+      <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
         <Link
           href={playlistUrl}
           className="hover:text-foreground transition-colors"
           aria-label={`Playlist from ${row.air_date}`}
         >
-          {formatShortAirDate(row.air_date)}
+          <span className="block">{formatLocalAirDate(row.starts_at, row.air_date)}</span>
+          {timeBlock && (
+            <span className="block text-[10px] normal-case text-muted-foreground/85">
+              {timeBlock}
+            </span>
+          )}
         </Link>
       </td>
       <td>
