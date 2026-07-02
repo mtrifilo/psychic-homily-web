@@ -1718,11 +1718,15 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_SameDayAiredBeats
 }
 
 // TestGetEpisodeByShowAndDate_SameDaySiblingsResolveToListWinner pins the
-// PSY-1297 by-date resolution: with two same-day siblings, the day-keyed
-// lookup returns the same row the list surfaces rank first (aired beats
-// future-windowed via the sink), not First's arbitrary primary-key pick. Also
-// pins that GORM's First composes with the custom raw Order (First appends a
-// primary-key ASC key AFTER ours; unreachable behind id DESC).
+// PSY-1297 by-date resolution: with same-day siblings, the day-keyed lookup
+// returns the row the list surfaces rank first. The three-sibling insertion
+// order is chosen so every plausible mutant fails: future is the LOWEST id
+// (an unordered First — primary-key ASC, i.e. a revert of the Order call —
+// picks it), popup is the HIGHEST id (the old air_date DESC, id DESC clause
+// picks it), and a sink-less starts_at DESC also picks future. Only the full
+// shipped clause resolves to aired. Also exercises GORM's First composing
+// with the custom raw Order (First appends a primary-key ASC key AFTER ours;
+// unreachable behind id DESC).
 func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_SameDaySiblingsResolveToListWinner() {
 	station := suite.createStation("Lookup FM")
 	show := suite.createShow(station.ID, "Doubleheader")
@@ -1731,18 +1735,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_SameD
 	airDate := now.Format("2006-01-02")
 	extID := func(s string) *string { return &s }
 
-	airedStarts := now.Add(-4 * time.Hour)
-	airedEnds := now.Add(-3 * time.Hour)
-	aired := &catalogm.RadioEpisode{
-		ShowID: show.ID, AirDate: airDate,
-		StartsAt: &airedStarts, EndsAt: &airedEnds,
-		PlayCount: 7, ExternalID: extID("aired"),
-	}
-	suite.Require().NoError(suite.db.Create(aired).Error)
-	// Pre-published later-today sibling, inserted LAST (higher id) — the old
-	// unordered First (primary-key ASC) happened to pick aired; the ordered
-	// lookup must pick it deliberately, and starts_at DESC alone would have
-	// picked this future row instead.
+	// 1st insert (lowest id): pre-published later-today sibling.
 	futureStarts := now.Add(2 * time.Hour)
 	futureEnds := now.Add(3 * time.Hour)
 	future := &catalogm.RadioEpisode{
@@ -1751,11 +1744,26 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_SameD
 		ExternalID: extID("tonight"),
 	}
 	suite.Require().NoError(suite.db.Create(future).Error)
+	// 2nd insert: the aired windowed episode — the expected winner.
+	airedStarts := now.Add(-4 * time.Hour)
+	airedEnds := now.Add(-3 * time.Hour)
+	aired := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		StartsAt: &airedStarts, EndsAt: &airedEnds,
+		PlayCount: 7, ExternalID: extID("aired"),
+	}
+	suite.Require().NoError(suite.db.Create(aired).Error)
+	// 3rd insert (highest id): windowless pop-up with plays.
+	popup := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		PlayCount: 4, ExternalID: extID("popup"),
+	}
+	suite.Require().NoError(suite.db.Create(popup).Error)
 
 	got, err := suite.radioService.GetEpisodeByShowAndDate(show.ID, airDate)
 	suite.Require().NoError(err)
 	suite.Equal(aired.ID, got.ID,
-		"day-keyed lookup must resolve to the aired sibling (the list surfaces' same-day winner)")
+		"day-keyed lookup must resolve to the aired windowed sibling (the list surfaces' same-day winner)")
 }
 
 // TestLatestEpisodeForShow_SameDayWindowedBeatsWindowlessPopup pins the
