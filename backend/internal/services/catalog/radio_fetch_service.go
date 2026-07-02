@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -458,6 +462,11 @@ func (s *RadioFetchService) runScheduleCycle() {
 	}
 	defer closeProvider(provider)
 
+	// The sub-stream pass rides the same cycle but its pages are independent
+	// of the flagship grid — run it even when the /table scrape or apply
+	// early-returns below (deferred, so flagship-first ordering is kept).
+	defer s.runSubstreamScheduleCycle(provider)
+
 	sd, ok := provider.(scheduleDiscoverer)
 	if !ok {
 		s.logger.Error("radio schedule: WFMU provider does not support schedule discovery")
@@ -481,6 +490,40 @@ func (s *RadioFetchService) runScheduleCycle() {
 		"schedules_cleared", cleared,
 		"duration", time.Since(start),
 	)
+}
+
+// runSubstreamScheduleCycle scrapes each WFMU sub-stream's rolling-week
+// schedule page (PSY-1322) after the flagship grid pass. Per-station failures
+// are logged and the loop continues — one broken page never blocks the
+// siblings; an unseeded station (dev environments) logs quietly, not as an
+// error. Iteration order is fixed for deterministic logs.
+func (s *RadioFetchService) runSubstreamScheduleCycle(provider RadioPlaylistProvider) {
+	sd, ok := provider.(substreamScheduleDiscoverer)
+	if !ok {
+		s.logger.Error("radio schedule: WFMU provider does not support sub-stream schedule discovery")
+		return
+	}
+	for _, stationSlug := range slices.Sorted(maps.Keys(wfmuSubstreamSchedulePages)) {
+		pagePath := wfmuSubstreamSchedulePages[stationSlug]
+		start := time.Now()
+		matched, unmatched, cleared, skipped, err := s.radioService.applySubstreamScheduleForStation(sd, stationSlug, pagePath, start)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.logger.Info("radio substream schedule: station not seeded, skipped", "station", stationSlug)
+			continue
+		}
+		if err != nil {
+			s.logger.Error("radio substream schedule: cycle failed", "station", stationSlug, "error", err)
+			continue
+		}
+		s.logger.Info("radio substream schedule cycle complete",
+			"station", stationSlug,
+			"rows_skipped", skipped,
+			"schedules_written", matched,
+			"unmatched_codes", unmatched,
+			"schedules_cleared", cleared,
+			"duration", time.Since(start),
+		)
+	}
 }
 
 // runAffinityLoop runs the periodic affinity computation.
