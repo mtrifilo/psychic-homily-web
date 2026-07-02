@@ -14,7 +14,11 @@ import type {
   RadioPlay,
 } from '../types'
 import type { ArtistHop } from './stationOverview'
-import { formatLocalTimeRange, formatTimeRangeInZone } from './stationOverview'
+import {
+  formatLocalTimeRange,
+  formatTimeRangeInZone,
+  isValidWindow,
+} from './stationOverview'
 
 /**
  * Whether an episode is live RIGHT NOW: `now` falls within its frozen air
@@ -118,11 +122,6 @@ export function formatDurationMinutes(
   return `${hours}h ${mins}m`
 }
 
-/**
- * Archive-table date: "Jun 9 2026" (mock register, no comma). Parses at local
- * midnight so a date-only string doesn't shift a day in negative-offset zones.
- */
-
 // ---------------------------------------------------------------------------
 // Prev/next episode neighbors
 // ---------------------------------------------------------------------------
@@ -208,7 +207,9 @@ export async function walkEpisodeNeighbors(
  * Viewer-local "aired ..." body for the playlist detail page (PSY-1306):
  * "Wed 6–9 AM your time (9 AM–12 PM EDT)" — weekday + range in the VIEWER's
  * timezone from the frozen air window, with a station-local aside when the
- * station's IANA zone is known and differs in rendering. Returns null when
+ * station's IANA zone is known and is NOT the viewer's zone (zone identity —
+ * a same-offset zone still gets the aside, its name is the information).
+ * Returns null when
  * the window is missing/degenerate (caller falls back to the station-dated
  * air_time line, exactly the pre-PSY-1306 rendering). The caller prefixes
  * "aired"/"airs" (PSY-1205 upcoming semantics are unchanged).
@@ -246,14 +247,16 @@ export function airedVerbForWindow(
   isUpcoming: boolean,
   now: Date = new Date()
 ): 'airs' | 'airing' | 'aired' {
-  if (startsAt) {
+  // Same validity bar as every rendered time block (isValidWindow): a
+  // degenerate window must not drive the verb either — otherwise a corrupt
+  // wrong-day ends_at reads "airing" for weeks next to a line that rejected
+  // that very window.
+  if (isValidWindow(startsAt, endsAt) && startsAt && endsAt) {
     const start = new Date(startsAt)
-    if (!isNaN(start.getTime())) {
-      if (start > now) return 'airs'
-      const end = endsAt ? new Date(endsAt) : null
-      if (end && !isNaN(end.getTime()) && end > now) return 'airing'
-      return 'aired'
-    }
+    const end = new Date(endsAt)
+    if (start > now) return 'airs'
+    if (end > now) return 'airing'
+    return 'aired'
   }
   return isUpcoming ? 'airs' : 'aired'
 }

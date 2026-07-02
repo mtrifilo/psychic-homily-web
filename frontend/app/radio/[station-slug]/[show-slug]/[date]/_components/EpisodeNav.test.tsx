@@ -56,11 +56,25 @@ describe('EpisodeNav', () => {
       ends_at: localIso(2026, 5, 9, 18),
     }
     render(
-      <EpisodeNav neighbors={{ older: windowed, newer: null }} showUrl={SHOW_URL} />
+      <EpisodeNav
+        neighbors={{
+          older: windowed,
+          newer: {
+            ...makeEpisode(7, '2026-06-15'),
+            starts_at: localIso(2026, 5, 16, 9),
+            ends_at: localIso(2026, 5, 16, 12),
+          },
+        }}
+        showUrl={SHOW_URL}
+      />
     )
     expect(
       screen.getByRole('link', { name: 'Previous episode, Jun 9' })
     ).toHaveAttribute('href', `${SHOW_URL}/2026-06-08`)
+    // newer arm derives the same way (separately-written expression — pin it)
+    expect(
+      screen.getByRole('link', { name: 'Next episode, Jun 16' })
+    ).toHaveAttribute('href', `${SHOW_URL}/2026-06-15`)
   })
 
   it('disables the newer bracket at the newest episode', () => {

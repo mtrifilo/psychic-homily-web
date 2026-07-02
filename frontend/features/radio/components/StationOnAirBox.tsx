@@ -5,6 +5,7 @@ import { BracketLink } from '@/components/shared'
 import { useStationNowPlaying } from '../hooks/useStationNowPlaying'
 import { useShowLatestEpisode } from '../hooks/useShowLatestEpisode'
 import { airDateCellText } from './AirDateCell'
+import { isLiveNow } from '../lib/episodeArchive'
 import type { RadioStationDetail } from '../types'
 
 interface StationOnAirBoxProps {
@@ -43,14 +44,21 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
     showUrl && episode ? `${showUrl}/${episode.air_date}` : null
   // PSY-1306: "Latest playlist" renders viewer-local from the episode's
   // frozen window so it agrees with the playlists feed below it in the same
-  // column. The time block comes ONLY from the archive payload's own window:
-  // on a LIVE payload (episode_air_date nil) the hook's latest episode is
-  // often the one airing RIGHT NOW, and "aired 3–6 PM" mid-broadcast would
-  // lie — the hook fallback stays date-only (the pre-PSY-1306 rendering).
+  // column. "aired 3–6 PM" mid-broadcast would lie, so the time block is
+  // suppressed whenever the episode may be airing RIGHT NOW: the archive
+  // payload's own window when it is live (the visibility gate admits an
+  // episode the moment its window STARTS), and the hook fallback always (its
+  // latest episode is often the in-progress one, and old payloads carry no
+  // window to check). Date-only still reads "aired <today>" for an
+  // in-progress episode — accepted, pre-existing day-granular behavior.
+  const payloadWindowLive = isLiveNow(
+    data.episode_starts_at ?? null,
+    data.episode_ends_at ?? null
+  )
   const latestSrc = data.episode_air_date
     ? {
-        starts: data.episode_starts_at,
-        ends: data.episode_ends_at,
+        starts: payloadWindowLive ? null : data.episode_starts_at,
+        ends: payloadWindowLive ? null : data.episode_ends_at,
         date: data.episode_air_date,
       }
     : { starts: null, ends: null, date: episode?.air_date ?? '' }

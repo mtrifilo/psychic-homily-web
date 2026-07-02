@@ -114,8 +114,10 @@ export {
   formatTimeOfDay,
   formatDurationMinutes,
   // PSY-1306: viewer-local "aired ..." body + window-aware verb for the
-  // playlist detail page (station-dated formatters retired — every date
-  // rendering now composes from airDateCellText)
+  // playlist detail page. The retired station-dated formatters' surfaces
+  // (archive table, episode nav) now compose from airDateCellText; the
+  // deliberate station-dated holdouts are the detail H1 + SSR metadata
+  // (URL-keyed) and admin surfaces.
   formatViewerAiredLine,
   airedVerbForWindow,
   walkEpisodeNeighbors,

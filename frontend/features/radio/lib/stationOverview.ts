@@ -139,6 +139,19 @@ function parseWindow(
 }
 
 /**
+ * True when the frozen air window is present, parseable, and non-degenerate —
+ * the ONE definition of "trustworthy window" every consumer (time blocks,
+ * viewer-local dates, the detail page's airs/airing/aired verb) must share,
+ * so no surface can trust a window another surface rejects as corrupt.
+ */
+export function isValidWindow(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined
+): boolean {
+  return parseWindow(startsAt, endsAt) !== null
+}
+
+/**
  * Viewer-local air-time block (PSY-1298): "3–6 PM", "6:30–9 PM",
  * "9 PM–12 AM" — compact 12h, minutes only when non-zero, single AM/PM
  * suffix when both ends share it (a range crossing noon or midnight always

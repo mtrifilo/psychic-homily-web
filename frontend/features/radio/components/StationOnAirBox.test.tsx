@@ -193,6 +193,23 @@ describe('StationOnAirBox', () => {
     expect(playlistLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-08')
   })
 
+  it('suppresses the time block when the archive payload window is live right now (PSY-1306)', () => {
+    // the visibility gate admits an episode the moment its window STARTS, so
+    // the archive fallback mid-broadcast carries the in-progress window —
+    // "aired ... 3–6 PM" at 4 PM would lie
+    const starts = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const ends = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    setNowPlaying(
+      makeArchiveNowPlaying({
+        episode_air_date: '2026-06-08',
+        episode_starts_at: starts,
+        episode_ends_at: ends,
+      })
+    )
+    render(<StationOnAirBox station={makeStation()} />)
+    expect(screen.getByText('Latest: Jun 8').textContent).toBe('Latest: Jun 8')
+  })
+
   it('keeps the hook-fallback date-only even when its episode carries a window (PSY-1306)', () => {
     // Live payload (episode_air_date null) + a windowed hook episode that may
     // be airing RIGHT NOW: "aired ... 3–6 PM" mid-broadcast would lie, so the

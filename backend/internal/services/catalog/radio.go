@@ -589,6 +589,9 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 	latestAirDates := make(map[uint]string)
 	latestWindows := make(map[uint][2]*time.Time)
 	if len(showIDs) > 0 {
+		// ListShows is single-station by construction (WHERE station_id = ?),
+		// so the first show's zone speaks for every row — load-bearing if this
+		// ever grows cross-station.
 		today, err := s.stationLocalToday(shows[0].Station.Timezone)
 		if err != nil {
 			return nil, err

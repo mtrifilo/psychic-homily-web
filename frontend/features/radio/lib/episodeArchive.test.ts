@@ -345,7 +345,7 @@ describe('formatViewerAiredLine (PSY-1306)', () => {
     expect(line).toMatch(/\)$/)
   })
 
-  it('skips the aside when the station-local rendering repeats the viewer one', () => {
+  it('skips the aside when the viewer is in the station zone', () => {
     const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     const line = formatViewerAiredLine(
       localIso(2026, 5, 9, 15),
@@ -383,5 +383,17 @@ describe('airedVerbForWindow (PSY-1306)', () => {
   it('falls back to is_upcoming for windowless episodes (PSY-1205 unchanged)', () => {
     expect(airedVerbForWindow(null, null, true, now)).toBe('airs')
     expect(airedVerbForWindow(null, null, false, now)).toBe('aired')
+  })
+
+  it('ignores degenerate windows (same validity bar as the rendered line)', () => {
+    // wrong-day ends_at (≥12h span): raw end > now would read "airing" for
+    // weeks while the line renderer rejected the same window
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 9), localIso(2026, 5, 20, 12), false, now)
+    ).toBe('aired')
+    // inverted window with future start must not force "airs" on an aired row
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 10, 9), localIso(2026, 5, 9, 12), false, now)
+    ).toBe('aired')
   })
 })
