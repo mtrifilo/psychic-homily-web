@@ -94,8 +94,13 @@ function formatCompactTime(date: Date): { clock: string; meridiem: string } {
   return { clock, meridiem }
 }
 
-/** A frozen air window longer than this is corrupt data, not a radio slot. */
-const MAX_WINDOW_MS = 24 * 60 * 60 * 1000
+/**
+ * A frozen air window this long or longer is corrupt data, not a radio slot —
+ * real slots top out at a few hours. 12h (not 24h) so a wrong-day ends_at
+ * can't produce a same-meridiem cross-day range that reads inverted
+ * ("11–10 PM" for an 11 PM → next-day 10 PM window).
+ */
+const MAX_WINDOW_MS = 12 * 60 * 60 * 1000
 
 /**
  * Viewer-local air-time block (PSY-1298): "3–6 PM", "6:30–9 PM",
@@ -104,7 +109,7 @@ const MAX_WINDOW_MS = 24 * 60 * 60 * 1000
  * carries both, so "9–12 PM" is deliberately never produced — it would be
  * ambiguous). Returns '' for a windowless row (the date-only rendering is
  * the designed fallback), an unparsable window, or a degenerate one
- * (inverted / ≥24h) — corrupt data must not render as a confident range.
+ * (inverted / ≥12h) — corrupt data must not render as a confident range.
  */
 export function formatLocalTimeRange(
   startsAt: string | null | undefined,

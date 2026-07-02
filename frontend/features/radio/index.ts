@@ -91,14 +91,11 @@ export {
 
 // PSY-1016: station-overview derivation helpers
 // (pickNowPlayingShow stays un-exported here — only useStationOverview
-// consumes it; PSY-1075 narrowed the public surface. formatShortAirDate
-// dropped from the barrel in PSY-1298 — its remaining consumers live inside
-// this feature and import relatively.)
-export {
-  formatLocalAirDate,
-  formatLocalTimeRange,
-  formatStationLocation,
-} from './lib/stationOverview'
+// consumes it; PSY-1075 narrowed the public surface. formatShortAirDate and
+// the PSY-1298 viewer-local helpers stay OFF the barrel — external surfaces
+// consume the rendering via AirDateCellContent, and in-feature consumers
+// import relatively.)
+export { formatStationLocation } from './lib/stationOverview'
 export type { ArtistHop } from './lib/stationOverview'
 
 // PSY-1051: episode-archive derivation helpers + neighbors hook

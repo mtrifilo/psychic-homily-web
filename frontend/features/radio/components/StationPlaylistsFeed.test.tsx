@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { StationPlaylistsFeed } from './StationPlaylistsFeed'
 import type { RadioStationDetail, RadioStationEpisodeRow } from '../types'
+import { localIso } from '../lib/localIso.testutil'
 
 vi.mock('next/link', () => ({
   default: ({
@@ -109,12 +110,15 @@ describe('StationPlaylistsFeed', () => {
   })
 
   it('renders the viewer-local air-time block stacked under the date for windowed rows (PSY-1298)', () => {
-    // ISO built from local-time constructors so the expectation holds in any
-    // machine timezone (the component renders viewer-local by design).
-    const starts = new Date(2026, 5, 9, 15, 0)
-    const ends = new Date(2026, 5, 9, 18, 0)
+    // air_date deliberately differs from the window's local day so the
+    // assertion discriminates "date derives from starts_at" — a fallback to
+    // air_date would render Jun 8 and fail.
     setEpisodes([
-      makeRow({ starts_at: starts.toISOString(), ends_at: ends.toISOString() }),
+      makeRow({
+        air_date: '2026-06-08',
+        starts_at: localIso(2026, 5, 9, 15),
+        ends_at: localIso(2026, 5, 9, 18),
+      }),
     ])
     render(<StationPlaylistsFeed station={makeStation()} />)
 
@@ -124,7 +128,14 @@ describe('StationPlaylistsFeed', () => {
     expect(dateLink).toHaveTextContent('Jun 9')
     expect(dateLink).toHaveTextContent('3–6 PM')
     // deep-link stays station-dated even though the display is viewer-local
-    expect(dateLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-09')
+    expect(dateLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-08')
+  })
+
+  it('renders NO time line for windowless rows (locked decision 4)', () => {
+    setEpisodes([makeRow()]) // default fixture: null window
+    render(<StationPlaylistsFeed station={makeStation()} />)
+    const dateLink = screen.getByRole('link', { name: 'Playlist from Jun 9' })
+    expect(dateLink.textContent).toBe('Jun 9')
   })
 
   it('links matched preview artists and renders unmatched ones as plain text', () => {

@@ -65,7 +65,7 @@ export function LatestPlaylistsTable({
         {rows.map(row => (
           <tr key={row.id}>
             {/* PSY-1298: shared stacked viewer-local date + air-time cell —
-                one definition with the station feed so they cannot drift. */}
+                same AirDateCellContent the station feed renders. */}
             <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
               <AirDateCellContent
                 startsAt={row.starts_at}

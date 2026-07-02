@@ -7,6 +7,7 @@ import {
   formatStationLocation,
 } from './stationOverview'
 import type { RadioShowListItem } from '../types'
+import { localIso } from './localIso.testutil'
 
 function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem {
   return {
@@ -75,16 +76,6 @@ describe('formatStationLocation', () => {
   })
 })
 
-// PSY-1298 viewer-local helpers. Inputs are built FROM local-time Date
-// constructors so the expectations hold in any machine timezone — the
-// helpers render in the viewer's local zone by design.
-const localIso = (
-  y: number,
-  m: number,
-  d: number,
-  h: number,
-  min = 0
-): string => new Date(y, m, d, h, min).toISOString()
 
 describe('formatLocalTimeRange', () => {
   it('drops :00 minutes and shares a single meridiem', () => {
@@ -132,6 +123,9 @@ describe('formatLocalTimeRange', () => {
     expect(formatLocalTimeRange(localIso(2026, 6, 1, 9), localIso(2026, 6, 1, 9))).toBe('')
     // a 24h "window" is corrupt data, not a radio slot — "9–9 PM" would lie
     expect(formatLocalTimeRange(localIso(2026, 6, 1, 21), localIso(2026, 6, 2, 21))).toBe('')
+    // 12–24h band: a wrong-day ends_at (11 PM → next-day 10 PM, 23h) would
+    // render a shared-meridiem "11–10 PM" that reads inverted — must suppress
+    expect(formatLocalTimeRange(localIso(2026, 6, 1, 23), localIso(2026, 6, 2, 22))).toBe('')
   })
 })
 

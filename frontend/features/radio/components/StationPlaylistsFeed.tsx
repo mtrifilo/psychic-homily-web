@@ -5,8 +5,7 @@ import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { BracketLink, DenseTable, SectionHeader } from '@/components/shared'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
-import { AirDateCellContent } from './AirDateCell'
-import { formatLocalAirDate, formatLocalTimeRange } from '../lib/stationOverview'
+import { AirDateCellContent, airDateCellText } from './AirDateCell'
 import type { RadioStationDetail, RadioStationEpisodeRow } from '../types'
 
 const INITIAL_LIMIT = 10
@@ -99,10 +98,13 @@ function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
   // rows fall back to the station air_date, date-only. The deep-link stays
   // keyed on the station-dated air_date — the shown date can differ from the
   // URL segment for far-from-ET viewers (accepted design tradeoff). The
-  // aria-label derives from the SAME viewer-local rendering as the visible
-  // text (label-in-name: what a voice-control user says must match).
-  const dateLine = formatLocalAirDate(row.starts_at, row.air_date)
-  const timeBlock = formatLocalTimeRange(row.starts_at, row.ends_at)
+  // aria-label composes from the SAME airDateCellText the cell renders
+  // (label-in-name: what a voice-control user says must match what they see).
+  const { dateLine, timeBlock } = airDateCellText(
+    row.starts_at,
+    row.ends_at,
+    row.air_date
+  )
 
   return (
     <tr>

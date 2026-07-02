@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { LatestPlaylistsTable } from './LatestPlaylistsTable'
 import type { RadioStationEpisodeRow } from '@/features/radio'
+import { localIso } from '@/features/radio/lib/localIso.testutil'
 
 function makeRow(
   overrides: Partial<RadioStationEpisodeRow> = {}
@@ -66,17 +67,30 @@ describe('LatestPlaylistsTable', () => {
   })
 
   it('renders the viewer-local air-time block stacked under the date for windowed rows (PSY-1298)', () => {
-    const starts = new Date(2026, 5, 9, 15, 0)
-    const ends = new Date(2026, 5, 9, 18, 0)
+    // air_date differs from the window's local day so this discriminates the
+    // starts_at-derived date; a fallback to air_date would render Jun 8.
     render(
       <LatestPlaylistsTable
-        rows={[makeRow({ starts_at: starts.toISOString(), ends_at: ends.toISOString() })]}
+        rows={[
+          makeRow({
+            air_date: '2026-06-08',
+            starts_at: localIso(2026, 5, 9, 15),
+            ends_at: localIso(2026, 5, 9, 18),
+          }),
+        ]}
         isLoading={false}
         error={null}
       />
     )
     expect(screen.getByText('Jun 9')).toBeInTheDocument()
     expect(screen.getByText('3–6 PM')).toBeInTheDocument()
+    expect(screen.queryByText('Jun 8')).not.toBeInTheDocument()
+  })
+
+  it('renders NO time line for windowless rows (locked decision 4)', () => {
+    render(<LatestPlaylistsTable rows={[makeRow()]} isLoading={false} error={null} />)
+    const dateCell = screen.getByText('Jun 9').closest('td')
+    expect(dateCell?.textContent).toBe('Jun 9')
   })
 
   it('links matched preview artists and renders unmatched ones as plain text', () => {
