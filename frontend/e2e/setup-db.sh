@@ -62,15 +62,20 @@ echo "    Migrations completed successfully."
 
 echo "==> Seeding venues and artists..."
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
--- Minimal set of venues for E2E tests
-INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
+-- Minimal set of venues for E2E tests.
+-- metro (US Census CBSA code) mirrors what VenueService.applyGeocoding stamps
+-- on every production write path (PSY-1255 step B/C) — this raw-SQL seed
+-- bypasses the service, and scene existence is metro-keyed for a city that
+-- resolves a CBSA, so a NULL metro makes /scenes/phoenix-az 404 (PSY-1319).
+-- Codes verified via geo.ResolveMetro: Phoenix→38060, Tucson→46060.
+INSERT INTO venues (name, address, city, state, zipcode, metro, verified, created_at, updated_at, slug)
 VALUES
-  ('The Rebel Lounge', '2303 E Indian School Rd', 'Phoenix', 'AZ', '85016', true, NOW(), NOW(), 'the-rebel-lounge-phoenix-az'),
-  ('Crescent Ballroom', '308 N 2nd Ave', 'Phoenix', 'AZ', '85003', true, NOW(), NOW(), 'crescent-ballroom-phoenix-az'),
-  ('Valley Bar', '130 N Central Ave', 'Phoenix', 'AZ', '85004', true, NOW(), NOW(), 'valley-bar-phoenix-az'),
-  ('Club Congress', '311 E Congress St', 'Tucson', 'AZ', '85701', true, NOW(), NOW(), 'club-congress-tucson-az'),
-  ('191 Toole', '191 E Toole Ave', 'Tucson', 'AZ', '85701', true, NOW(), NOW(), '191-toole-tucson-az'),
-  ('Hotel Congress Plaza', '311 E Congress St', 'Tucson', 'AZ', '85701', true, NOW(), NOW(), 'hotel-congress-plaza-tucson-az')
+  ('The Rebel Lounge', '2303 E Indian School Rd', 'Phoenix', 'AZ', '85016', '38060', true, NOW(), NOW(), 'the-rebel-lounge-phoenix-az'),
+  ('Crescent Ballroom', '308 N 2nd Ave', 'Phoenix', 'AZ', '85003', '38060', true, NOW(), NOW(), 'crescent-ballroom-phoenix-az'),
+  ('Valley Bar', '130 N Central Ave', 'Phoenix', 'AZ', '85004', '38060', true, NOW(), NOW(), 'valley-bar-phoenix-az'),
+  ('Club Congress', '311 E Congress St', 'Tucson', 'AZ', '85701', '46060', true, NOW(), NOW(), 'club-congress-tucson-az'),
+  ('191 Toole', '191 E Toole Ave', 'Tucson', 'AZ', '85701', '46060', true, NOW(), NOW(), '191-toole-tucson-az'),
+  ('Hotel Congress Plaza', '311 E Congress St', 'Tucson', 'AZ', '85701', '46060', true, NOW(), NOW(), 'hotel-congress-plaza-tucson-az')
 ON CONFLICT DO NOTHING;
 
 -- Minimal set of artists for E2E tests
@@ -118,16 +123,18 @@ ON CONFLICT DO NOTHING;
 -- columns per the migration: name, slug, series_slug, edition_year, start_date,
 -- end_date. City/state = Phoenix, AZ matches the rest of the seed (and increments
 -- the phoenix-az scene's festival_count — a harmless side benefit, not relied on).
+-- metro mirrors the CreateFestival write path (PSY-1278): festival_count is
+-- metro-keyed, so the raw-SQL seed stamps it like the venues above (PSY-1319).
 INSERT INTO festivals (
   name, slug, series_slug, edition_year,
-  description, city, state, country,
+  description, city, state, country, metro,
   start_date, end_date, status,
   created_at, updated_at
 )
 VALUES (
   'E2E Test Fest 2026', 'e2e-test-fest-2026', 'e2e-test-fest', 2026,
   'Seeded festival fixture for content-detail E2E coverage (PSY-904).',
-  'Phoenix', 'AZ', 'US',
+  'Phoenix', 'AZ', 'US', '38060',
   '2026-09-18', '2026-09-20', 'confirmed',
   NOW(), NOW()
 )
