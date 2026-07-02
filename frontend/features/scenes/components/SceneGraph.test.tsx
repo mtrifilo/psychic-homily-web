@@ -106,7 +106,6 @@ describe('SceneGraph', () => {
     resizeObserver = installImmediateResizeObserver()
     // Re-seed the default result every test so an override in one test can't
     // leak into the next (no hidden test-order coupling).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useSceneGraph).mockImplementation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       () => ({ data: mockData, isLoading: false, error: null }) as any,
@@ -124,7 +123,7 @@ describe('SceneGraph', () => {
     expect(screen.getByText(/4 connections/)).toBeInTheDocument()
     expect(screen.getByText(/1 unconnected/)).toBeInTheDocument()
     // Untruncated roster → plain count, no "top N of M" hint (PSY-1296).
-    expect(screen.queryByText(/showing top/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/top \d+ of \d+/i)).not.toBeInTheDocument()
   })
 
   // PSY-1296: a graph capped by PSY-1277's top-N roster limit must say so —
@@ -152,7 +151,36 @@ describe('SceneGraph', () => {
     )
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
 
-    expect(screen.getByText(/showing top 4 of 90 artists/)).toBeInTheDocument()
+    // Sentence-cased in the visual header (the shared phrase is lowercase for
+    // mid-sentence aria-label use).
+    expect(screen.getByText(/Top 4 of 90 artists/)).toBeInTheDocument()
+  })
+
+  it('keeps the truncation hint in the fullscreen overlay header (shared element)', async () => {
+    vi.mocked(useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: {
+            ...mockData,
+            scene: {
+              ...mockData.scene,
+              metro_roster_total: 90,
+              roster_truncated: true,
+            },
+          },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+    await user.click(
+      screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+    )
+    const overlay = screen.getByTestId('scene-graph-overlay')
+    expect(within(overlay).getByText(/Top 4 of 90 artists/)).toBeInTheDocument()
   })
 
   it('hides the canvas below the 640px breakpoint', () => {

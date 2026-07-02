@@ -33,7 +33,7 @@ describe('sceneArtistCountPhrase (PSY-1296)', () => {
       sceneArtistCountPhrase(
         scene({ metro_roster_total: 90, roster_truncated: true }),
       ),
-    ).toBe('showing top 12 of 90 artists')
+    ).toBe('top 12 of 90 artists')
   })
 
   it('degrades to the plain count when the flag is set but the total is nonsense', () => {

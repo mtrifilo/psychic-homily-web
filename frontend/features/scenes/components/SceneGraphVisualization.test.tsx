@@ -51,9 +51,12 @@ const data: SceneGraphResponse = {
     slug: 'phoenix-az',
     city: 'Phoenix',
     state: 'AZ',
-    artist_count: 12,
-    edge_count: 4,
-    metro_roster_total: 12,
+    // artist_count mirrors nodes.length below — same backend contract the
+    // SceneGraph.test fixture honors (ArtistCount: len(rows)); edge_count
+    // mirrors the empty links list.
+    artist_count: 1,
+    edge_count: 0,
+    metro_roster_total: 1,
     roster_truncated: false,
   },
   clusters: [{ id: 'v_1', label: 'Valley Bar', size: 6, color_index: 0 }],
@@ -98,7 +101,7 @@ describe('SceneGraphVisualization', () => {
     const view = screen.getByTestId('force-graph-view')
     expect(view).toHaveAttribute(
       'aria-label',
-      'Scene relationship graph for Phoenix, AZ: 12 artists, 4 connections.'
+      'Scene relationship graph for Phoenix, AZ: 1 artist, 0 connections.'
     )
   })
 
@@ -121,7 +124,7 @@ describe('SceneGraphVisualization', () => {
     )
     expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
       'aria-label',
-      'Scene relationship graph for Phoenix, AZ: showing top 12 of 90 artists, 4 connections.'
+      'Scene relationship graph for Phoenix, AZ: top 1 of 90 artists, 0 connections.'
     )
   })
 
