@@ -141,7 +141,7 @@ func (s *SceneGraphIntegrationSuite) seedTypedRel(a, b uint, relType string) {
 // TestSceneGraph_NotFound: scene with no verified venues returns the same
 // "scene not found" error path as the other scene endpoints.
 func (s *SceneGraphIntegrationSuite) TestSceneGraph_NotFound() {
-	_, err := s.deps.SceneService.GetSceneGraph("Nowhere", "ZZ", nil)
+	_, err := s.deps.SceneService.GetSceneGraph("Nowhere", "ZZ", nil, "venue")
 	s.Require().Error(err)
 }
 
@@ -152,7 +152,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_NoArtists() {
 	s.seedSceneVenue("Empty Venue 1", "Phoenix", "AZ")
 	s.seedSceneVenue("Empty Venue 2", "Phoenix", "AZ")
 
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(0, graph.Scene.ArtistCount)
 	s.Equal(0, graph.Scene.EdgeCount)
@@ -169,6 +169,112 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_NoArtists() {
 
 // TestSceneGraph_IsolatedNodes: every artist plays a Phoenix show but none have
 // stored relationships. All nodes carry is_isolate=true; links is empty.
+// TestSceneGraph_CommunityClusters (PSY-1262): cluster_by=community projects
+// the persisted Leiden partition — first-class communities get "Around
+// {artist}" labels from artist_communities, artists without a community roll
+// into "other", and venue mode is untouched by the community columns.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_CommunityClusters() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+
+	now := time.Now().UTC()
+	// 6 artists in community 0 (first-class at sceneClusterMinSize=6), one
+	// unassigned artist (NULL community_id → "other").
+	commArtists := make([]*catalogm.Artist, 0, 6)
+	for i := 0; i < 6; i++ {
+		a := s.seedSceneArtist(fmt.Sprintf("Comm-A%d", i))
+		s.seedShowAtVenue(now.AddDate(0, 0, -i), venue, a.ID)
+		commArtists = append(commArtists, a)
+	}
+	loner := s.seedSceneArtist("No-Community")
+	s.seedShowAtVenue(now.AddDate(0, 0, -20), venue, loner.ID)
+
+	for _, a := range commArtists {
+		s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).
+			Where("id = ?", a.ID).Update("community_id", 0).Error)
+	}
+	s.Require().NoError(s.deps.DB.Exec(
+		"INSERT INTO artist_communities (id, label_artist_id, member_count) VALUES (0, ?, 6)",
+		commArtists[0].ID).Error)
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "community")
+	s.Require().NoError(err)
+	s.Require().Len(graph.Clusters, 2)
+
+	s.Equal("c_0", graph.Clusters[0].ID)
+	s.Equal("Around Comm-A0", graph.Clusters[0].Label)
+	s.Equal(6, graph.Clusters[0].Size)
+	s.Equal(0, graph.Clusters[0].ColorIndex)
+
+	s.Equal("other", graph.Clusters[1].ID)
+	s.Equal(1, graph.Clusters[1].Size)
+	s.Equal(-1, graph.Clusters[1].ColorIndex)
+
+	byName := map[string]string{}
+	for _, n := range graph.Nodes {
+		byName[n.Name] = n.ClusterID
+	}
+	s.Equal("c_0", byName["Comm-A0"])
+	s.Equal("other", byName["No-Community"])
+
+	// Venue mode ignores the community columns entirely.
+	venueGraph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
+	s.Require().NoError(err)
+	for _, cl := range venueGraph.Clusters {
+		s.NotContains(cl.ID, "c_", "venue mode must not emit community clusters")
+	}
+}
+
+// TestSceneGraph_CommunityClusters_BelowFloorAndMissingLabel (PSY-1262
+// adversarial round): a community below sceneClusterMinSize rolls into
+// "other", and a first-class community whose label row is missing degrades
+// to the "Community %d" fallback instead of erroring.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_CommunityClusters_BelowFloorAndMissingLabel() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+	now := time.Now().UTC()
+
+	// Community 0: 6 members (first-class) but NO artist_communities row.
+	for i := 0; i < 6; i++ {
+		a := s.seedSceneArtist(fmt.Sprintf("Unlabeled-A%d", i))
+		s.seedShowAtVenue(now.AddDate(0, 0, -i), venue, a.ID)
+		s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).
+			Where("id = ?", a.ID).Update("community_id", 0).Error)
+	}
+	// Community 1: 2 members — below the floor, rolls into "other".
+	for i := 0; i < 2; i++ {
+		a := s.seedSceneArtist(fmt.Sprintf("Small-B%d", i))
+		s.seedShowAtVenue(now.AddDate(0, 0, -(i+10)), venue, a.ID)
+		s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).
+			Where("id = ?", a.ID).Update("community_id", 1).Error)
+	}
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "community")
+	s.Require().NoError(err)
+	s.Require().Len(graph.Clusters, 2)
+	s.Equal("c_0", graph.Clusters[0].ID)
+	s.Equal("Community 0", graph.Clusters[0].Label, "missing label row degrades to the fallback")
+	s.Equal(6, graph.Clusters[0].Size)
+	s.Equal("other", graph.Clusters[1].ID)
+	s.Equal(2, graph.Clusters[1].Size, "below-floor community rolls into other")
+}
+
+// TestSceneGraph_CommunityClusters_NoPartition: cluster_by=community before
+// any compute has run degrades to a single "other" cluster, not an error.
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_CommunityClusters_NoPartition() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ")
+	now := time.Now().UTC()
+	a := s.seedSceneArtist("Unpartitioned")
+	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, a.ID)
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "community")
+	s.Require().NoError(err)
+	s.Require().Len(graph.Clusters, 1)
+	s.Equal("other", graph.Clusters[0].ID)
+	s.Equal(1, graph.Clusters[0].Size)
+}
+
 func (s *SceneGraphIntegrationSuite) TestSceneGraph_IsolatedNodes() {
 	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
 	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ") // second verified venue
@@ -181,7 +287,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_IsolatedNodes() {
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, a2.ID)
 	s.seedShowAtVenue(now.AddDate(0, -3, 0), venue, a3.ID)
 
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(3, graph.Scene.ArtistCount)
 	s.Equal(0, graph.Scene.EdgeCount)
@@ -225,7 +331,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_PrimaryVenueClusters() {
 	// Cross-cluster edge: Valley ↔ Crescent.
 	s.seedSharedBillsRel(valleyArtists[0].ID, crescentArtists[0].ID, 3)
 
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(12, graph.Scene.ArtistCount)
 	s.Equal(2, graph.Scene.EdgeCount)
@@ -282,7 +388,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_OtherClusterRollup() {
 		a := s.seedSceneArtist(fmt.Sprintf("Tiny-A%d", i))
 		s.seedShowAtVenue(now.AddDate(0, 0, -i), tiny, a.ID)
 	}
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(5, graph.Scene.ArtistCount)
 	s.Require().Len(graph.Clusters, 1)
@@ -312,7 +418,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_CrossSceneLeakagePrevented()
 	// Cross-scene shared_bills — should not appear in either scene's response.
 	s.seedSharedBillsRel(phxArtist.ID, tusArtist.ID, 3)
 
-	phxGraph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	phxGraph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(1, phxGraph.Scene.ArtistCount)
 	s.Equal(0, phxGraph.Scene.EdgeCount)
@@ -321,7 +427,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_CrossSceneLeakagePrevented()
 	s.Equal(phxArtist.ID, phxGraph.Nodes[0].ID)
 	s.True(phxGraph.Nodes[0].IsIsolate)
 
-	tusGraph, err := s.deps.SceneService.GetSceneGraph("Tucson", "AZ", nil)
+	tusGraph, err := s.deps.SceneService.GetSceneGraph("Tucson", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(1, tusGraph.Scene.ArtistCount)
 	s.Equal(0, tusGraph.Scene.EdgeCount)
@@ -343,18 +449,18 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_TypeFilter() {
 	s.seedTypedRel(a.ID, b.ID, catalogm.RelationshipTypeSharedBills)
 	s.seedTypedRel(a.ID, b.ID, catalogm.RelationshipTypeSharedLabel)
 
-	all, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	all, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(2, all.Scene.EdgeCount)
 
-	onlyShared, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{catalogm.RelationshipTypeSharedLabel})
+	onlyShared, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{catalogm.RelationshipTypeSharedLabel}, "venue")
 	s.Require().NoError(err)
 	s.Equal(1, onlyShared.Scene.EdgeCount)
 	s.Require().Len(onlyShared.Links, 1)
 	s.Equal(catalogm.RelationshipTypeSharedLabel, onlyShared.Links[0].Type)
 
 	// Unknown type silently drops to allowlist; result is zero edges, not an error.
-	bogus, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{"definitely_not_a_type"})
+	bogus, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{"definitely_not_a_type"}, "venue")
 	s.Require().NoError(err)
 	s.Equal(0, bogus.Scene.EdgeCount)
 }
@@ -376,7 +482,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_ExcludesTouringActs() {
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, local.ID, touring.ID)
 	s.seedSharedBillsRel(local.ID, touring.ID, 3)
 
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(1, graph.Scene.ArtistCount, "touring act is excluded from the scene graph")
 	s.Require().Len(graph.Nodes, 1)
@@ -405,7 +511,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_RosterTruncation() {
 		}
 	}
 
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.Equal(76, graph.Scene.MetroRosterTotal)
 	s.True(graph.Scene.RosterTruncated)
@@ -431,7 +537,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_RosterNotTruncatedWhenUnderC
 	a2 := s.seedSceneArtist("Sundressed")
 	s.seedShowAtVenue(time.Now().UTC().AddDate(0, -1, 0), venue, a1.ID, a2.ID)
 
-	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
 	s.Require().NoError(err)
 	s.False(graph.Scene.RosterTruncated)
 	s.Equal(graph.Scene.ArtistCount, graph.Scene.MetroRosterTotal)

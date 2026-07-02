@@ -256,7 +256,7 @@ func TestGetSceneGraph_Success(t *testing.T) {
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		GetSceneGraphFn: func(city, state string, types []string) (*contracts.SceneGraphResponse, error) {
+		GetSceneGraphFn: func(city, state string, types []string, clusterBy string) (*contracts.SceneGraphResponse, error) {
 			resp := &contracts.SceneGraphResponse{}
 			resp.Scene.City = city
 			resp.Scene.State = state
@@ -280,7 +280,7 @@ func TestGetSceneGraph_TypeFilterParsed(t *testing.T) {
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		GetSceneGraphFn: func(_, _ string, types []string) (*contracts.SceneGraphResponse, error) {
+		GetSceneGraphFn: func(_, _ string, types []string, _ string) (*contracts.SceneGraphResponse, error) {
 			capturedTypes = types
 			return &contracts.SceneGraphResponse{}, nil
 		},
@@ -313,7 +313,7 @@ func TestGetSceneGraph_SceneNotFound(t *testing.T) {
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Tiny", "XX", nil
 		},
-		GetSceneGraphFn: func(city, state string, _ []string) (*contracts.SceneGraphResponse, error) {
+		GetSceneGraphFn: func(city, state string, _ []string, _ string) (*contracts.SceneGraphResponse, error) {
 			return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 		},
 	}
@@ -327,7 +327,7 @@ func TestGetSceneGraph_ServiceError(t *testing.T) {
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		GetSceneGraphFn: func(_, _ string, _ []string) (*contracts.SceneGraphResponse, error) {
+		GetSceneGraphFn: func(_, _ string, _ []string, _ string) (*contracts.SceneGraphResponse, error) {
 			return nil, fmt.Errorf("database connection lost")
 		},
 	}

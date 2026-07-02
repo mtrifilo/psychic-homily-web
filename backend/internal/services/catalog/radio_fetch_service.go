@@ -853,6 +853,13 @@ func (s *RadioFetchService) runAffinityCycle() {
 		"failed", syncResult.Failed,
 		"duration", time.Since(syncStart),
 	)
+
+	// PSY-1262: rebuild the Leiden community partition over the freshly-synced
+	// relationship graph. Non-fatal like the backbone step — on failure the
+	// previous partition stays live (the swap is transactional).
+	if _, err := s.radioService.ComputeArtistCommunities(); err != nil {
+		s.logger.Error("artist community computation failed", "error", err)
+	}
 }
 
 // runReMatchCycle re-matches unmatched plays against current artists.
