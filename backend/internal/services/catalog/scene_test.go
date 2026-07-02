@@ -78,6 +78,9 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	// artist_relationships FKs artists with no ON DELETE CASCADE (migration
+	// 000052), so it must be cleared before artists (PSY-1277 graph tests seed it).
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
@@ -982,6 +985,116 @@ func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_IgnoresUnverif
 	suite.Contains(err.Error(), "scene not found")
 	suite.Empty(city)
 	suite.Empty(state)
+}
+
+// =============================================================================
+// GetSceneGraph Tests (PSY-367 graph + PSY-1277 node cap)
+// =============================================================================
+
+// seedSceneRelationship inserts a stored artist relationship, canonicalizing the
+// endpoint order to satisfy the CHECK(source_artist_id < target_artist_id)
+// constraint (migration 000052). Mirrors the festival-graph test helper.
+func (suite *SceneServiceIntegrationTestSuite) seedSceneRelationship(a, b uint, relType string, score float32) {
+	src, tgt := catalogm.CanonicalOrder(a, b)
+	rel := catalogm.ArtistRelationship{
+		SourceArtistID:   src,
+		TargetArtistID:   tgt,
+		RelationshipType: relType,
+		Score:            score,
+		AutoDerived:      true,
+	}
+	suite.Require().NoError(suite.db.Create(&rel).Error)
+}
+
+// TestGetSceneGraph_Success exercises the real scene-graph query end-to-end (the
+// service layer was previously only covered via the handler mock): a small
+// roster with one stored edge, no truncation.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGraph_Success() {
+	_, artists := suite.seedSceneData() // 3 Phoenix venues; Bands A/B/C, all with future shows
+	a, b, c := artists[0], artists[1], artists[2]
+
+	// One shared_bills edge A—B; Band C stays an isolate.
+	suite.seedSceneRelationship(a.ID, b.ID, "shared_bills", 0.9)
+
+	graph, err := suite.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	suite.Require().NoError(err)
+
+	// Whole roster fits under the cap → no truncation.
+	suite.Equal(3, graph.Scene.ArtistCount)
+	suite.Equal(3, graph.Scene.TotalArtistCount)
+	suite.False(graph.Scene.Truncated)
+	suite.Len(graph.Nodes, 3)
+
+	suite.Equal(1, graph.Scene.EdgeCount)
+	suite.Len(graph.Links, 1)
+	suite.Equal("shared_bills", graph.Links[0].Type)
+
+	isolate := map[uint]bool{}
+	for _, n := range graph.Nodes {
+		isolate[n.ID] = n.IsIsolate
+	}
+	suite.False(isolate[a.ID], "Band A has an edge")
+	suite.False(isolate[b.ID], "Band B has an edge")
+	suite.True(isolate[c.ID], "Band C is an isolate")
+}
+
+// TestGetSceneGraph_TruncatesToNodeCap is the core PSY-1277 behavior: when the
+// based-in roster exceeds the node cap, the graph keeps the top-ranked subset
+// (active-first, then by approved show count), flags Truncated, reports the full
+// roster size in TotalArtistCount, and — critically — bounds the relationship
+// scan to the kept set (an edge to a dropped band does not appear).
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGraph_TruncatesToNodeCap() {
+	// Lower the cap so we can exercise truncation without seeding 150+ bands.
+	original := sceneGraphMaxNodes
+	sceneGraphMaxNodes = 2
+	defer func() { sceneGraphMaxNodes = original }()
+
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+
+	// Three based-in bands, descending prominence under the roster ranking:
+	//   topActive — active (future show) + 2 approved shows  → rank 1
+	//   midActive — active (future show) + 1 approved show    → rank 2
+	//   dormant   — inactive (only a >180d-old show)          → rank 3, dropped at cap=2
+	// Names are deliberately A/B/C-ordered so the OUTPUT order (name ASC) can't
+	// masquerade as correct ranking — the selection is driven by activity, not name.
+	topActive := suite.createArtist("Aaa Top Active")
+	midActive := suite.createArtist("Bbb Mid Active")
+	dormant := suite.createArtist("Ccc Dormant")
+
+	future := time.Now().UTC().AddDate(0, 0, 10)
+	past := time.Now().UTC().AddDate(0, 0, -400) // beyond the 180d active window
+	suite.createApprovedShow("t1", v1.ID, topActive.ID, user.ID, future)
+	suite.createApprovedShow("t2", v1.ID, topActive.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("m1", v1.ID, midActive.ID, user.ID, future)
+	suite.createApprovedShow("d1", v1.ID, dormant.ID, user.ID, past)
+
+	// Edge among survivors (must appear) + edge to the dropped band (must not).
+	suite.seedSceneRelationship(topActive.ID, midActive.ID, "shared_bills", 0.9)
+	suite.seedSceneRelationship(topActive.ID, dormant.ID, "shared_bills", 0.9)
+
+	graph, err := suite.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	suite.Require().NoError(err)
+
+	// Full roster is 3; the cap surfaces the 2 most active and flags truncation.
+	suite.Equal(3, graph.Scene.TotalArtistCount, "full roster size is reported")
+	suite.Equal(2, graph.Scene.ArtistCount)
+	suite.True(graph.Scene.Truncated)
+	suite.Len(graph.Nodes, 2)
+
+	kept := map[uint]bool{}
+	for _, n := range graph.Nodes {
+		kept[n.ID] = true
+	}
+	suite.True(kept[topActive.ID], "most active band kept")
+	suite.True(kept[midActive.ID], "second most active band kept")
+	suite.False(kept[dormant.ID], "dormant band dropped at the cap")
+
+	// The relationship scan is bounded to the kept set: the survivor—survivor
+	// edge is present; the survivor—dropped edge is gone.
+	suite.Len(graph.Links, 1)
+	suite.Equal(1, graph.Scene.EdgeCount)
 }
 
 // =============================================================================

@@ -751,11 +751,23 @@ type SceneGraphResponse struct {
 
 // SceneGraphInfo holds scene metadata for the graph response.
 type SceneGraphInfo struct {
-	Slug        string `json:"slug"`
-	City        string `json:"city"`
-	State       string `json:"state"`
-	ArtistCount int    `json:"artist_count"` // total artists in the scene (includes isolates)
-	EdgeCount   int    `json:"edge_count"`   // total edges in the response (post type-filter)
+	Slug  string `json:"slug"`
+	City  string `json:"city"`
+	State string `json:"state"`
+	// ArtistCount is the number of artist nodes in THIS response (== len(nodes),
+	// includes isolates). When Truncated it is the top-ranked subset, so it is
+	// < TotalArtistCount (PSY-1277).
+	ArtistCount int `json:"artist_count"`
+	EdgeCount   int `json:"edge_count"` // total edges in the response (post type-filter)
+	// TotalArtistCount is the full based-in roster size (every band with
+	// artists.metro = this scene's CBSA) BEFORE the node cap. Equals ArtistCount
+	// unless Truncated. (PSY-1277)
+	TotalArtistCount int `json:"total_artist_count"`
+	// Truncated is true when the roster exceeded the node cap and the graph shows
+	// only the top-ranked subset (active-first, then by approved show count).
+	// Dropped node count = TotalArtistCount - ArtistCount. Surfaced so the client
+	// can label the view honestly instead of silently capping. (PSY-1277)
+	Truncated bool `json:"truncated"`
 }
 
 // SceneGraphCluster groups artists in the scene. v1 cluster signal is the
