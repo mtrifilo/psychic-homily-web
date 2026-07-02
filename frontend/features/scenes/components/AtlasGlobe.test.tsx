@@ -31,6 +31,11 @@ vi.mock('../hooks', () => ({
   useSceneArtists: () => ({ data: undefined, isLoading: false }),
 }))
 
+// AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 // Stub the WebGL canvas for the desktop-branch tests (PSY-1308 Drift): it
 // fills the flyToRef seam with a spy so the drift handler's camera call is
 // observable without three.js.

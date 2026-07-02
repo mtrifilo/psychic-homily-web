@@ -20,6 +20,7 @@ import {
   type PlaceableScene,
 } from './globeTypes'
 import { pickDriftScene } from './drift'
+import { AtlasSearch } from './AtlasSearch'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 
 const GLOBE_BREAKPOINT_PX = 640
@@ -110,6 +111,13 @@ export function AtlasGlobe() {
     flyToRef.current?.(next)
     setSelected(next)
   }, [placeable, selected])
+
+  // Search pick (PSY-1310): same fly + open as Drift, but for a scene the user
+  // asked for by name.
+  const handleSearchPick = useCallback((scene: PlaceableScene) => {
+    flyToRef.current?.(scene)
+    setSelected(scene)
+  }, [])
 
   const measureRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return
@@ -208,6 +216,7 @@ export function AtlasGlobe() {
         >
           Drift
         </button>
+        <AtlasSearch scenes={allScenes} onPick={handleSearchPick} />
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"
