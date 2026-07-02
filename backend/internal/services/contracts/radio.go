@@ -594,8 +594,12 @@ type RadioStatsResponse struct {
 // well so they land in the job error_log; the counts give callers a queryable
 // signal without parsing the log text.
 type RadioImportResult struct {
-	ShowsDiscovered    int      `json:"shows_discovered"`
-	EpisodesImported   int      `json:"episodes_imported"`
+	ShowsDiscovered  int `json:"shows_discovered"`
+	EpisodesImported int `json:"episodes_imported"`
+	// EpisodesRetracted counts placeholder rows the retraction reconcile
+	// deleted this run (PSY-1286) — the only path that destroys episode rows
+	// automatically, so the count belongs in the run result, not just logs.
+	EpisodesRetracted  int      `json:"episodes_retracted,omitempty"`
 	PlaysImported      int      `json:"plays_imported"`
 	PlaysMatched       int      `json:"plays_matched"`
 	EpisodeFetchErrors int      `json:"episode_fetch_errors,omitempty"`

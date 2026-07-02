@@ -532,7 +532,15 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		// (PSY-1286): for an exhaustive-listing provider (WFMU), a stored
 		// placeholder row inside this window that the listing no longer
 		// carries was deleted upstream — remove it. No-op for other providers.
-		s.reconcileRetractedEpisodes(show.ID, provider, episodes, since, now)
+		// Safe even on an all-imports-failed cycle: rows in `episodes` are
+		// excluded by external_id regardless of whether their import wrote.
+		// A reconcile error is a non-fatal run error, never an import failure.
+		retracted, rErr := s.reconcileRetractedEpisodes(show.ID, provider, episodes, since, now)
+		if rErr != nil {
+			recordImportError(result, categorizeRunError(rErr),
+				fmt.Sprintf("reconcile retracted episodes for show %s: %v", show.Name, rErr), nil)
+		}
+		result.EpisodesRetracted += retracted
 
 		// Advance THIS show's watermark only when its own fetch made progress (it
 		// fetched OK and didn't return episodes that all failed to import). attempts and

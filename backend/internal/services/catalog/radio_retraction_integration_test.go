@@ -73,8 +73,9 @@ func (s *RadioSyncSuite) TestRetractionReconcile_DeletesRetractedPlaceholderOnly
 	}
 	defer func() { s.svc.playlistProviderFactory = nil }()
 
-	_, err := s.svc.FetchNewEpisodes(st.ID)
+	result, err := s.svc.FetchNewEpisodes(st.ID)
 	s.Require().NoError(err)
+	s.Equal(1, result.EpisodesRetracted, "the run result must surface the deletion count")
 
 	s.False(s.episodeExists(stray.ID), "retracted trackless pending row must be deleted")
 	s.True(s.episodeExists(completed.ID), "a complete-playlist row is real regardless of the listing")
@@ -101,7 +102,8 @@ func (s *RadioSyncSuite) TestRetractionReconcile_BoundaryDaysUntouched() {
 
 	provider := &exhaustiveMockProvider{}
 	upstream := []RadioEpisodeImport{{ExternalID: "unrelated", ShowExternalID: "CK", AirDate: day(-2)}}
-	deleted := s.svc.reconcileRetractedEpisodes(show.ID, provider, upstream, since, now)
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, provider, upstream, since, now)
+	s.Require().NoError(err)
 
 	s.Equal(1, deleted)
 	s.True(s.episodeExists(onSinceDay.ID), "the since-boundary day is outside reconcile reach")
@@ -119,7 +121,8 @@ func (s *RadioSyncSuite) TestRetractionReconcile_NonExhaustiveProviderIsNoop() {
 
 	now := time.Now().UTC()
 	upstream := []RadioEpisodeImport{{ExternalID: "unrelated", ShowExternalID: "CK", AirDate: now.AddDate(0, 0, -2).Format("2006-01-02")}}
-	deleted := s.svc.reconcileRetractedEpisodes(show.ID, &mockPlaylistProvider{}, upstream, now.AddDate(0, 0, -7), now)
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, &mockPlaylistProvider{}, upstream, now.AddDate(0, 0, -7), now)
+	s.Require().NoError(err)
 
 	s.Equal(0, deleted)
 	s.True(s.episodeExists(stray.ID))
@@ -133,7 +136,8 @@ func (s *RadioSyncSuite) TestRetractionReconcile_EmptyListingSkips() {
 	stray := s.seedReconcileEpisode(show.ID, "400001", time.Now().UTC().AddDate(0, 0, -4).Format("2006-01-02"), catalogm.RadioPlaylistStatePending, 0)
 
 	now := time.Now().UTC()
-	deleted := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, nil, now.AddDate(0, 0, -7), now)
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, nil, now.AddDate(0, 0, -7), now)
+	s.Require().NoError(err)
 
 	s.Equal(0, deleted)
 	s.True(s.episodeExists(stray.ID))
@@ -148,8 +152,65 @@ func (s *RadioSyncSuite) TestRetractionReconcile_UnavailableStateDeletable() {
 
 	now := time.Now().UTC()
 	upstream := []RadioEpisodeImport{{ExternalID: "unrelated", ShowExternalID: "CK", AirDate: now.AddDate(0, 0, -2).Format("2006-01-02")}}
-	deleted := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, upstream, now.AddDate(0, 0, -7), now)
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, upstream, now.AddDate(0, 0, -7), now)
+	s.Require().NoError(err)
 
 	s.Equal(1, deleted)
 	s.False(s.episodeExists(stray.ID))
+}
+
+// A listing whose rows all lack external ids (a parser regression the
+// empty-listing guard can't see) authorizes nothing.
+func (s *RadioSyncSuite) TestRetractionReconcile_AllEmptyExternalIDsSkips() {
+	st := s.seedStation(catalogm.PlaylistSourceWFMU)
+	show := s.seedActiveShow(st.ID, "CK", nil)
+	stray := s.seedReconcileEpisode(show.ID, "600001", time.Now().UTC().AddDate(0, 0, -4).Format("2006-01-02"), catalogm.RadioPlaylistStatePending, 0)
+
+	now := time.Now().UTC()
+	upstream := []RadioEpisodeImport{{ExternalID: "", ShowExternalID: "CK", AirDate: now.AddDate(0, 0, -2).Format("2006-01-02")}}
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, upstream, now.AddDate(0, 0, -7), now)
+	s.Require().NoError(err)
+
+	s.Equal(0, deleted)
+	s.True(s.episodeExists(stray.ID))
+}
+
+// A degenerate window (since within ~2 days of now — e.g. a tiny lookback
+// floor) disables the reconcile rather than deleting on a window the parser
+// boundary rules can't vouch for.
+func (s *RadioSyncSuite) TestRetractionReconcile_DegenerateWindowSkips() {
+	st := s.seedStation(catalogm.PlaylistSourceWFMU)
+	show := s.seedActiveShow(st.ID, "CK", nil)
+	stray := s.seedReconcileEpisode(show.ID, "700001", time.Now().UTC().AddDate(0, 0, -2).Format("2006-01-02"), catalogm.RadioPlaylistStatePending, 0)
+
+	now := time.Now().UTC()
+	upstream := []RadioEpisodeImport{{ExternalID: "unrelated", ShowExternalID: "CK", AirDate: now.AddDate(0, 0, -1).Format("2006-01-02")}}
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, upstream, now.AddDate(0, 0, -2), now)
+	s.Require().NoError(err)
+
+	s.Equal(0, deleted)
+	s.True(s.episodeExists(stray.ID))
+}
+
+// More candidates than the per-run cap reads as parser breakage: nothing is
+// deleted, everything survives for a human to look at.
+func (s *RadioSyncSuite) TestRetractionReconcile_VolumeCapSkips() {
+	st := s.seedStation(catalogm.PlaylistSourceWFMU)
+	show := s.seedActiveShow(st.ID, "CK", nil)
+
+	now := time.Now().UTC()
+	strays := make([]catalogm.RadioEpisode, 0, retractionMaxDeletesPerShowRun+1)
+	for i := 0; i <= retractionMaxDeletesPerShowRun; i++ {
+		ext := "80000" + string(rune('1'+i))
+		strays = append(strays, s.seedReconcileEpisode(show.ID, ext, now.AddDate(0, 0, -3-i).Format("2006-01-02"), catalogm.RadioPlaylistStatePending, 0))
+	}
+
+	upstream := []RadioEpisodeImport{{ExternalID: "unrelated", ShowExternalID: "CK", AirDate: now.AddDate(0, 0, -2).Format("2006-01-02")}}
+	deleted, err := s.svc.reconcileRetractedEpisodes(show.ID, &exhaustiveMockProvider{}, upstream, now.AddDate(0, 0, -30), now)
+	s.Require().NoError(err)
+
+	s.Equal(0, deleted)
+	for _, ep := range strays {
+		s.True(s.episodeExists(ep.ID), "cap-skipped run must delete nothing")
+	}
 }
