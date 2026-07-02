@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
+  DOT_COLOR_BASE,
+  DOT_COLOR_HOVERED,
+  DOT_COLOR_SELECTED,
   LABEL_TOP_K_FLOOR,
   labelMinCountForAltitude,
+  sceneDotColor,
   sceneDotRadius,
   sceneLabelSize,
   visibleLabelScenes,
@@ -179,5 +183,33 @@ describe('visibleLabelScenes — top-K quiet-season floor (PSY-1229)', () => {
 
   it('returns an empty array when there are no scenes at all', () => {
     expect(visibleLabelScenes([], 120)).toEqual([])
+  })
+})
+
+describe('sceneDotColor (PSY-1312)', () => {
+  it('base color when nothing is hovered or selected', () => {
+    expect(sceneDotColor('phoenix-az', null, null)).toBe(DOT_COLOR_BASE)
+  })
+
+  it('hovered color for the hovered dot only', () => {
+    expect(sceneDotColor('phoenix-az', 'phoenix-az', null)).toBe(DOT_COLOR_HOVERED)
+    expect(sceneDotColor('mesa-az', 'phoenix-az', null)).toBe(DOT_COLOR_BASE)
+  })
+
+  it('selected color for the open-panel dot, persisting without hover', () => {
+    expect(sceneDotColor('phoenix-az', null, 'phoenix-az')).toBe(DOT_COLOR_SELECTED)
+  })
+
+  it('selected wins over hovered on the same dot (no flicker re-hovering the open scene)', () => {
+    expect(sceneDotColor('phoenix-az', 'phoenix-az', 'phoenix-az')).toBe(
+      DOT_COLOR_SELECTED,
+    )
+  })
+
+  it('hovered and selected can differ simultaneously', () => {
+    expect(sceneDotColor('mesa-az', 'mesa-az', 'phoenix-az')).toBe(DOT_COLOR_HOVERED)
+    expect(sceneDotColor('phoenix-az', 'mesa-az', 'phoenix-az')).toBe(
+      DOT_COLOR_SELECTED,
+    )
   })
 })

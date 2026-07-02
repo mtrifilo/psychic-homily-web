@@ -29,6 +29,9 @@ const mockUseScenes = vi.fn()
 vi.mock('../hooks', () => ({
   useScenes: () => mockUseScenes(),
   useSceneArtists: () => ({ data: undefined, isLoading: false }),
+  // The preview panel (opened by the drift tests) reads the scene's this-week
+  // shows (PSY-1309); a quiet week is the neutral default here.
+  useSceneShows: () => ({ data: { shows: [] }, isLoading: false }),
 }))
 
 // Stub the WebGL canvas for the desktop-branch tests (PSY-1308 Drift): it

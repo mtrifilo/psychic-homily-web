@@ -198,6 +198,7 @@ export function AtlasGlobe() {
           scenes={placeable}
           pov={pov}
           onSelect={setSelected}
+          selected={selected}
           flyToRef={flyToRef}
         />
         <button
