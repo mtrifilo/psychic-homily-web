@@ -51,14 +51,14 @@ export function MobileSceneList({
               <li key={s.slug}>
                 {/* h2-wrapped button = the WAI-ARIA APG accordion header
                     pattern: keeps the h1 → h2 → (preview's h3s) heading order
-                    and gives screen readers the scene name as a landmark.
+                    and makes each scene name a heading-navigation stop.
                     aria-controls only while the detail region exists — a
                     dangling id reference fails aria-valid-attr-value. */}
                 <h2>
                   <button
                     type="button"
-                  aria-expanded={expanded}
-                  aria-controls={expanded ? detailId : undefined}
+                    aria-expanded={expanded}
+                    aria-controls={expanded ? detailId : undefined}
                     onClick={(e) => {
                       // The whole <li> (row + freshly mounted preview), not
                       // the button: a tap near the bottom of the viewport

@@ -115,14 +115,6 @@ export function ScenePreviewContent({
         </h3>
         {isLoading ? (
           <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
-        ) : isError ? (
-          // A failed fetch must not read as an empty scene — on the mobile
-          // fetch-on-tap path (flaky cell networks) that would misreport a
-          // dense scene as dead. The shows section simply stays absent on its
-          // own error: a quiet week and a failed week-fetch are both quiet.
-          <p className="mt-2 text-sm text-muted-foreground">
-            Couldn’t load this scene’s artists. Try again shortly.
-          </p>
         ) : displayArtists.length > 0 ? (
           <ul className="mt-2 flex flex-col gap-1">
             {displayArtists.map((a) => (
@@ -144,6 +136,16 @@ export function ScenePreviewContent({
               </li>
             ))}
           </ul>
+        ) : isError ? (
+          // A failed fetch must not read as an empty scene — on the mobile
+          // fetch-on-tap path (flaky cell networks) that would misreport a
+          // dense scene as dead. Ordered AFTER the list branch so a cached
+          // roster survives a failed background refetch (data wins over
+          // error). The shows section simply stays absent on its own error: a
+          // quiet week and a failed week-fetch are both quiet.
+          <p className="mt-2 text-sm text-muted-foreground">
+            Couldn’t load this scene’s artists. Try again shortly.
+          </p>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
             No artists based here yet.
