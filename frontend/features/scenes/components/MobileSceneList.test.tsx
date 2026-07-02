@@ -116,9 +116,13 @@ describe('MobileSceneList', () => {
       limit: EMBED_SEARCH_LIMIT,
     })
     expect(mockUseSceneShows).toHaveBeenCalledWith('phoenix-az')
-    expect(
-      screen.getByRole('button', { name: /Phoenix, AZ/ }),
-    ).toHaveAttribute('aria-expanded', 'true')
+    const row = screen.getByRole('button', { name: /Phoenix, AZ/ })
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    // aria-controls must point at the MOUNTED detail region (a dangling id
+    // fails aria-valid-attr-value — the reason it's conditional).
+    const controls = row.getAttribute('aria-controls')
+    expect(controls).toBeTruthy()
+    expect(document.getElementById(controls!)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Band A' })).toHaveAttribute(
       'href',
       '/artists/band-a',
@@ -137,6 +141,8 @@ describe('MobileSceneList', () => {
 
     fireEvent.click(row)
     expect(row).toHaveAttribute('aria-expanded', 'false')
+    // No dangling aria-controls while the detail region is unmounted.
+    expect(row).not.toHaveAttribute('aria-controls')
     expect(
       screen.queryByRole('link', { name: /open scene/i }),
     ).not.toBeInTheDocument()
