@@ -31,24 +31,15 @@
  * and mobile already gates it off.
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
-import { Eye, EyeOff, Maximize2, X } from 'lucide-react'
-import { clusterColorCSS } from '@/components/graph/graphPalette'
+import { useState, useMemo } from 'react'
+import { Maximize2, X } from 'lucide-react'
+import { ClusterLegend } from '@/components/graph/ClusterLegend'
+import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useSceneGraph } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 
-const GRAPH_BREAKPOINT_PX = 640
 const MIN_GRAPH_NODES = 3
-
-// Overlay vertical reserve: header bar (~60px) + cluster pill row (~60px) +
-// padding/margins. Subtracted from window.innerHeight to give the canvas the
-// remaining vertical real estate. Tuned to keep the canvas full-bleed without
-// clipping the legend or the title bar.
-const OVERLAY_VERTICAL_RESERVE_PX = 140
-
-// PSY-1083: legend pills draw from the same `--chart-1..8` tokens the canvas
-// resolves (components/graph/graphPalette.ts). `clusterColorCSS` returns a
-// `var()` expression, so the pills track theme changes with no JS.
 
 interface SceneGraphProps {
   slug: string
@@ -59,71 +50,14 @@ interface SceneGraphProps {
 export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const { data, isLoading } = useSceneGraph({ slug, enabled: Boolean(slug) })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [overlayHeight, setOverlayHeight] = useState<number | null>(null)
-  const [overlayWidth, setOverlayWidth] = useState<number | null>(null)
-
-  // Callback ref instead of useRef + useEffect. Using useEffect with `[]` deps
-  // would only fire on the *initial* mount — and the initial mount often
-  // returns null (waiting for data), so containerRef.current is null and the
-  // effect bails. Subsequent renders that DO produce a DOM node never re-run
-  // the effect because the deps haven't changed. A callback ref fires whenever
-  // the underlying DOM node mounts/unmounts, so we always measure the right
-  // node. (This is the React 19 supported pattern; the cleanup return is
-  // honored automatically.)
-  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return
-    setContainerWidth(node.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  // Overlay-mode side effects: body scroll lock, Esc-to-close, and a live
-  // viewport-size listener that keeps the canvas full-bleed when the user
-  // resizes the window. All gated on `isFullscreen` so the listener +
-  // overflow style only exist while the overlay is open. We snapshot the
-  // previous body overflow value and restore it on close — blindly setting
-  // it to '' would clobber any inline value a parent layout had set.
-  useEffect(() => {
-    if (!isFullscreen) return
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    const updateDimensions = () => {
-      setOverlayWidth(window.innerWidth)
-      setOverlayHeight(Math.max(200, window.innerHeight - OVERLAY_VERTICAL_RESERVE_PX))
-    }
-    updateDimensions()
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsFullscreen(false)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('resize', updateDimensions)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('resize', updateDimensions)
-    }
-  }, [isFullscreen])
+  // Width measurement uses a callback ref, not useRef + useEffect — the full
+  // rationale lives in useContainerWidth.ts.
+  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
-
-  if (isLoading) return null
 
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.scene.edge_count ?? 0
@@ -133,6 +67,18 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // `containerWidth === null` (pre-measurement) also gates off.
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
+  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  const {
+    isFullscreen,
+    open: openFullscreen,
+    close: closeFullscreen,
+    overlayWidth,
+    overlayHeight,
+  } = useFullscreenGraphOverlay(graphAvailable)
+
+  if (isLoading) return null
 
   // Section is rendered (with the header) so users get scale info even when
   // the graph is unavailable (e.g. mobile). Empty state: scene has < 3
@@ -151,42 +97,14 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     })
   }
 
-  // Cluster legend pills — same markup inline and in the overlay so the
-  // toggle behavior, ARIA, and color mapping stay in one place.
-  const clusterLegend = data.clusters.length > 0 && (
-    <div className="flex flex-wrap gap-1.5">
-      {data.clusters.map(cluster => {
-        const hidden = hiddenClusters.has(cluster.id)
-        return (
-          <button
-            key={cluster.id}
-            onClick={() => toggleCluster(cluster.id)}
-            aria-pressed={!hidden}
-            className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-opacity ${
-              hidden ? 'opacity-40' : 'opacity-100'
-            }`}
-            style={{
-              borderColor: clusterColorCSS(cluster.color_index),
-              color: clusterColorCSS(cluster.color_index),
-            }}
-            title={hidden ? `Show ${cluster.label}` : `Hide ${cluster.label}`}
-          >
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: clusterColorCSS(cluster.color_index) }}
-            />
-            <span className="text-foreground/85">
-              {cluster.label} ({cluster.size})
-            </span>
-            {hidden ? (
-              <EyeOff className="h-3 w-3" aria-hidden="true" />
-            ) : (
-              <Eye className="h-3 w-3" aria-hidden="true" />
-            )}
-          </button>
-        )
-      })}
-    </div>
+  // Cluster legend pills — the shared component keeps toggle behavior, ARIA,
+  // and color mapping identical inline and in the overlay.
+  const clusterLegend = (
+    <ClusterLegend
+      clusters={data.clusters}
+      hiddenClusterIDs={hiddenClusters}
+      onToggle={toggleCluster}
+    />
   )
 
   // The Expand button lives inside the header's gap-2 row; it's only rendered
@@ -196,7 +114,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const expandButton = graphAvailable && !isFullscreen && (
     <button
       type="button"
-      onClick={() => setIsFullscreen(true)}
+      onClick={openFullscreen}
       className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
       aria-label="Expand scene graph to fullscreen"
     >
@@ -288,7 +206,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             {sceneHeader}
             <button
               type="button"
-              onClick={() => setIsFullscreen(false)}
+              onClick={closeFullscreen}
               className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
               aria-label="Exit fullscreen scene graph"
             >

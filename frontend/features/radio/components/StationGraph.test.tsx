@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { RadioStationGraphResponse } from '../types'
 
 // Mock the useStationGraph hook before StationGraph imports it.
@@ -120,62 +121,26 @@ vi.mock('./StationGraphVisualization', () => ({
 
 import { StationGraph } from './StationGraph'
 
-// Same ResizeObserver shim pattern as SceneGraph.test.tsx to drive the
-// >= 640px graph gate — extended with fireResize() so tests can simulate the
-// viewport crossing the breakpoint AFTER mount (the overlay auto-close path).
-let mockContainerWidth = 1024
-let lastCallback: ResizeObserverCallback | null = null
-let lastTarget: Element | null = null
+// Shared immediate ResizeObserver shim (PSY-1305): drives the >= 640px graph
+// gate on mount and fireResize() simulates the viewport crossing the
+// breakpoint AFTER mount (the overlay auto-close path).
+let ro: ReturnType<typeof installImmediateResizeObserver>
 
 function setMockContainerWidth(width: number) {
-  mockContainerWidth = width
-}
-
-function emitResize(callback: ResizeObserverCallback, target: Element) {
-  callback(
-    [
-      {
-        target,
-        contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
-      } as ResizeObserverEntry,
-    ],
-    undefined as unknown as ResizeObserver,
-  )
+  ro.setWidth(width)
 }
 
 function fireResize(width: number) {
-  mockContainerWidth = width
-  emitResize(lastCallback!, lastTarget!)
-}
-
-class ImmediateResizeObserver {
-  private callback: ResizeObserverCallback
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback
-    lastCallback = callback
-  }
-  observe(target: Element): void {
-    lastTarget = target
-    emitResize(this.callback, target)
-  }
-  unobserve(): void {}
-  disconnect(): void {}
+  ro.fireResize(width)
 }
 
 describe('StationGraph', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
-
   beforeEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    ro = installImmediateResizeObserver(1024)
   })
 
   afterEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = originalResizeObserver
+    ro.restore()
   })
 
   it('renders the section header and counts', () => {

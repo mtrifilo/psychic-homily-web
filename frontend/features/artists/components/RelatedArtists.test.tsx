@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { ArtistGraph } from '../types'
 
 // Default fixture — Gatecreeper with three related artists. Tests override
@@ -80,24 +81,10 @@ vi.mock('./ArtistGraph', () => ({
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 
 // ResizeObserver mock — the Dialog measures its content via ResizeObserver.
-class ImmediateResizeObserver {
-  private callback: ResizeObserverCallback
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback
-  }
-  observe(target: Element): void {
-    this.callback(
-      [{ target, contentRect: { width: 1024 } as DOMRectReadOnly } as ResizeObserverEntry],
-      this as unknown as ResizeObserver
-    )
-  }
-  unobserve(): void {}
-  disconnect(): void {}
-}
+// Shared immediate shim (PSY-1305).
 
 describe('ArtistSimilarSidebar', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  let ro: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
     mockUseArtistGraph.mockReturnValue({ data: mockGraphData, isLoading: false, error: null })
@@ -105,8 +92,11 @@ describe('ArtistSimilarSidebar', () => {
       user: { id: 1, is_admin: false },
       isAuthenticated: true,
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    ro = installImmediateResizeObserver()
+  })
+
+  afterEach(() => {
+    ro.restore()
   })
 
   it('returns null while loading', () => {
@@ -329,13 +319,15 @@ describe('ArtistSimilarSidebar', () => {
 })
 
 describe('ArtistGraphDialog', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  let ro: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
     mockUseArtistGraph.mockReturnValue({ data: mockGraphData, isLoading: false, error: null })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    ro = installImmediateResizeObserver()
+  })
+
+  afterEach(() => {
+    ro.restore()
   })
 
   it('renders nothing when open=false (Radix lazy mount)', () => {
@@ -384,14 +376,16 @@ describe('ArtistGraphDialog', () => {
 // request festival_cobill; the festival toggle always renders and turning it
 // on lazy-fetches with festival_cobill in `types`.
 describe('ArtistGraphDialog — festival_cobill opt-in (PSY-954)', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  let ro: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
     mockUseArtistGraph.mockClear()
     mockUseArtistGraph.mockReturnValue({ data: mockGraphData, isLoading: false, error: null })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    ro = installImmediateResizeObserver()
+  })
+
+  afterEach(() => {
+    ro.restore()
   })
 
   // Helper: pull the `types` arg out of the most recent useArtistGraph call
