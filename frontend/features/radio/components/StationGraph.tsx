@@ -14,9 +14,10 @@
  * the endpoint's window/limit params are not exposed in the UI yet.
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Eye, EyeOff, Maximize2, X } from 'lucide-react'
 import { clusterColorCSS } from '@/components/graph/graphPalette'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useStationGraph } from '../hooks/useStationGraph'
 import { StationGraphVisualization } from './StationGraphVisualization'
 
@@ -91,8 +92,6 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
 
-  if (isLoading) return null
-
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.station.edge_count ?? 0
   const hasEnoughForGraph = nodeCount >= MIN_GRAPH_NODES
@@ -101,9 +100,34 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
-  // Empty state: fewer than 3 artists with plays — render nothing rather
-  // than a confusing near-empty canvas.
-  if (!data || nodeCount === 0) return null
+  // If the viewport shrinks below the breakpoint while the overlay is open,
+  // graphAvailable flips false and the overlay unmounts — without this reset
+  // the user is stranded: body scroll stays locked, the inline copy stays
+  // inert, and re-widening the window pops the overlay back open unprompted.
+  useEffect(() => {
+    if (isFullscreen && !graphAvailable) {
+      setIsFullscreen(false)
+    }
+  }, [isFullscreen, graphAvailable])
+
+  // Deliver the `#graph` deep-link: the anchor mounts only after two async
+  // fetches (station, then graph), so the browser's native fragment scroll
+  // fires before the target exists. Scroll once when the data lands.
+  const hash = useUrlHash()
+  const scrolledToHash = useRef(false)
+  useEffect(() => {
+    if (hash !== GRAPH_HASH || scrolledToHash.current || !data) return
+    scrolledToHash.current = true
+    document.getElementById('graph')?.scrollIntoView()
+  }, [hash, data])
+
+  if (isLoading) return null
+
+  // Sparse state: a station needs at least MIN_GRAPH_NODES charted artists to
+  // be worth a graph section — below that, render nothing at all (a bare
+  // "2 artists" header with no canvas under it reads as broken). Note the
+  // graph QUERY still fetches; only the render is gated.
+  if (!data || nodeCount < MIN_GRAPH_NODES) return null
 
   const windowLabel = data.station.window === 'all_time' ? 'all time' : 'the last 12 months'
 
@@ -232,6 +256,8 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
 
       {isFullscreen && graphAvailable && (
         <div
+          // z-[60] sits above the cookie-consent banner (z-50) so first-time
+          // visitors don't see the banner painted over the canvas (PSY-518).
           role="dialog"
           aria-modal="true"
           aria-label={`Airplay graph for ${stationName}, fullscreen`}

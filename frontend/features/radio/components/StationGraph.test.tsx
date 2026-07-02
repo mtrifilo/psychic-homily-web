@@ -121,19 +121,28 @@ vi.mock('./StationGraphVisualization', () => ({
 import { StationGraph } from './StationGraph'
 
 // Same ResizeObserver shim pattern as SceneGraph.test.tsx to drive the
-// >= 640px graph gate.
+// >= 640px graph gate — extended with fireResize() so tests can simulate the
+// viewport crossing the breakpoint AFTER mount (the overlay auto-close path).
 let mockContainerWidth = 1024
+let lastObserver: ImmediateResizeObserver | null = null
+let lastTarget: Element | null = null
 
 function setMockContainerWidth(width: number) {
   mockContainerWidth = width
+}
+
+function fireResize(width: number) {
+  mockContainerWidth = width
+  lastObserver!.fire(lastTarget!)
 }
 
 class ImmediateResizeObserver {
   private callback: ResizeObserverCallback
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback
+    lastObserver = this
   }
-  observe(target: Element): void {
+  fire(target: Element): void {
     this.callback(
       [
         {
@@ -143,6 +152,10 @@ class ImmediateResizeObserver {
       ],
       this as unknown as ResizeObserver,
     )
+  }
+  observe(target: Element): void {
+    lastTarget = target
+    this.fire(target)
   }
   unobserve(): void {}
   disconnect(): void {}
@@ -210,6 +223,33 @@ describe('StationGraph', () => {
       'data-hidden-clusters',
       'rs_1',
     )
+  })
+
+  it('renders the id="graph" deep-link anchor', () => {
+    renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+    const anchor = document.getElementById('graph')
+    expect(anchor).toBeInTheDocument()
+    expect(anchor).toContainElement(screen.getByText('Airplay graph'))
+  })
+
+  it('renders nothing below MIN_GRAPH_NODES (no dangling header)', async () => {
+    const hooks = await import('../hooks/useStationGraph')
+    vi.mocked(hooks.useStationGraph).mockReturnValueOnce({
+      data: {
+        ...mockData,
+        station: { ...mockData.station, artist_count: 2, edge_count: 1 },
+        nodes: mockData.nodes.slice(0, 2),
+        links: mockData.links.slice(0, 1),
+        clusters: mockData.clusters.slice(0, 1),
+      },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    const { container } = renderWithProviders(
+      <StationGraph slug="kexp" stationName="KEXP" />,
+    )
+    expect(container.firstChild).toBeNull()
   })
 
   it('renders nothing when there are zero nodes', async () => {
@@ -323,6 +363,30 @@ describe('StationGraph', () => {
       expect(document.body.style.overflow).toBe('hidden')
 
       await user.keyboard('{Escape}')
+      expect(document.body.style.overflow).toBe('auto')
+
+      document.body.style.overflow = ''
+    })
+
+    it('auto-closes (and unlocks scroll) when the viewport drops below the breakpoint', async () => {
+      const user = userEvent.setup()
+      document.body.style.overflow = 'auto'
+
+      renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+      await user.click(
+        screen.getByRole('button', { name: /expand airplay graph to fullscreen/i }),
+      )
+      expect(screen.getByTestId('station-graph-overlay')).toBeInTheDocument()
+      expect(document.body.style.overflow).toBe('hidden')
+
+      // Shrink the observed container below 640px while the overlay is open.
+      const { act } = await import('@testing-library/react')
+      act(() => fireResize(500))
+
+      // Overlay is gone AND isFullscreen was reset: scroll restored, and the
+      // inline section is no longer inert (it would be if isFullscreen were
+      // still true with the overlay unmounted).
+      expect(screen.queryByTestId('station-graph-overlay')).not.toBeInTheDocument()
       expect(document.body.style.overflow).toBe('auto')
 
       document.body.style.overflow = ''

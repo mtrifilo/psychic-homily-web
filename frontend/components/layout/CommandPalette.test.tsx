@@ -590,6 +590,32 @@ describe('CommandPalette — contextual Explore graph entries (PSY-366)', () => 
     expect(screen.queryByText('Explore graph for this venue')).not.toBeInTheDocument()
     expect(screen.queryByText('Explore graph for this scene')).not.toBeInTheDocument()
   })
+
+  // PSY-1299: station pages carry an airplay graph; show pages + hub pages don't.
+  it.each([
+    ['/radio/kexp', true],
+    ['/radio/wfmu/channel/give-the-drummer', true],
+    ['/radio/kexp/the-morning-show', false], // show page
+    ['/radio/playlists', false], // hub page
+    ['/radio/new-releases', false], // hub page
+    ['/radio', false],
+  ])('station graph entry on %s → %s', (path, visible) => {
+    mockPathname = path
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    const entry = screen.queryByText('Explore graph for this station')
+    if (visible) {
+      expect(entry).toBeInTheDocument()
+    } else {
+      expect(entry).not.toBeInTheDocument()
+    }
+  })
 })
 
 // PSY-725: when every backing search endpoint fails, the hook flips its
