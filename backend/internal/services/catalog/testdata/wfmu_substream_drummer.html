@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<!-- Written 2020-2021 by Ken Garson (ken@kenzodb.com). Some contributions copyright 2020-2021 Ken Garson Systems LLC: https://kenzodb.com. v11/17/22 -->
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta name="viewport" content="width=device-width" />
+<title>
+Give the Drummer Radio on WFMU
+</title>
+<style type="text/css">
+/* v2/13/21 */
+body {
+font-family: Arial;
+background-color: white;
+}
+#listen_listennow a:link, #listen_listennow a:visited, .nowplaying_playlist_link a:link, .nowplaying_playlist_link a:visited {
+color: white;
+background-color: transparent;
+text-decoration: none;
+}
+a:hover {
+color: red;
+background-color: transparent;
+text-decoration: none;
+}
+a:active {
+color: black;
+background-color: transparent;
+text-decoration: none;
+}
+.button {
+font-size: 25px;
+background-color: #01505D;
+color: #fff;
+padding: 2px 8px;
+font-weight: bold;
+border-radius: 5px;
+margin-left: 10px;
+}
+.button_nohover {
+font-size: 18px;
+background-color: transparent;
+color: black;
+padding: 2px 8px;
+font-weight: bold;
+border-radius: 5px;
+}
+.button:hover {
+color: red;
+background-color: transparent;
+text-decoration: none;
+}
+.nowplaying {
+font-size: 15px;
+font-family: Arial;
+}
+figure {
+font-size: 18px;
+display: inline-block;
+border: 0px;
+margin: 20px; /* adjust as needed */
+background-color: white;
+}
+figure img {
+vertical-align: top;
+}
+figure figcaption {
+font-size: 18px;
+font-family: Arial;
+background-color: #fcfcb6;
+color: #fff;
+padding: 2px 8px;
+font-weight: bold;
+border-radius: 5px;
+}
+.body_wrapper {
+width: 100%;
+max-width: 800px;
+margin: 0 auto;
+background-color: white; /*mine*/
+}
+.listen_listennow {
+float: center;
+}
+span.listen_listenmethods {
+white-space: nowrap;
+}
+.nowplaying_playlist_link {
+float: center;
+}
+.nowplaying_program_title {
+float: center;
+font-size: 20px;
+font-style: bold;
+font-family: Arial;
+padding-left: 10px;
+}
+.nowplaying_live_song {
+float: right;
+text-align: right;
+font-size: 18px;
+font-style: italic;
+font-family: Arial;
+padding-right: 10px;
+}
+.upcoming_even_slot {
+float: center;
+font-family: Arial;
+background-color: white;
+}
+.upcoming_odd_slot {
+float: center;
+font-family: Arial;
+background-color: #ededed;
+}
+.upcoming_current_slot {
+float: center;
+font-family: Arial;
+background-color: #fcfcb6;
+font-weight: bold;
+}
+.nowplaying_heading, .upcoming_heading {
+float: center;
+font-size: 18px;
+font-style: bold;
+font-family: Arial;
+text-transform: uppercase;
+text-align: center;
+background-color: #fcfcb6;
+}
+div.upcoming_time {
+text-align: center;
+}
+.grid-container {
+display: grid;
+grid-template-columns: auto auto auto;
+padding: 0px;
+background-color: white;
+}
+.grid-item {
+padding: 10px;
+text-align: center;
+}
+#section_upcoming, #section_site_navigation {
+text-align: center;
+font-size: 15px;
+}
+#section_top > #block1 > img {
+padding-bottom: 10px;
+}
+table.main {
+margin-top: -15px;
+margin-bottom: -15px;
+}
+a:link {
+color: blue;
+background-color: transparent;
+text-decoration: none;
+}
+a:visited {
+color: blue;
+text-decoration: underline;
+}
+a:hover {
+color: red;
+background-color: transparent;
+text-decoration: underline;
+}
+a:active {
+color: red;
+text-decoration: underline;
+}
+div.upcoming_dow {
+font-size: 15px;
+color: white;
+font-weight: bold;
+text-align: center;
+}
+img.expander_arrow {
+height: 13px;
+}
+span.expander_section_with_desc, span.expander_section_without_desc {
+width: calc(100% - 29px);
+}
+span.expander_section_with_desc {
+margin-left: 1px;
+}
+span.expander_section_without_desc {
+margin-left: 19px;
+}
+@media only screen and (max-width: 480px), only screen and (max-device-width: 480px) {
+img.expander_arrow {
+height: 26px;
+}
+span.expander_section_with_desc, span.expander_section_without_desc {
+width: calc(100% - 43px);
+}
+span.expander_section_with_desc {
+margin-left: 1px;
+}
+span.expander_section_without_desc {
+margin-left: 33px;
+}
+.body_wrapper {
+width: 100%;
+}
+.nowplaying_program_title {
+font-size: 20px;
+font-weight: bold;
+}
+.nowplaying_live_song {
+font-size: 18px;
+}
+.button {
+font-size: 20px;
+}
+.button_nohover {
+font-size: 22px;
+}
+.nowplaying_heading, .upcoming_heading {
+font-size: 24px;
+}
+#section_upcoming, #section_site_navigation {
+font-size: 18px;
+}
+div.upcoming_time {
+font-size: 15px;
+}
+div.upcoming_dow {
+font-size: 20px;
+}
+.gtdr_tinyletter {
+font-size: 20px;
+font-weight: bold;
+}
+}
+</style>
+<script type="text/javascript" src="/libraries/jquery/jquery-3.7.1.min.js"></script>
+<script type="text/javascript" src="/js/kenzodb_chlnd_comp.1654479749.js"></script>
+<script type="text/javascript">
+$(function() {
+KDBchlnd.initialize({
+"poll_url": "channel_landing.php",
+"poll_freq_ms": 5000,
+"cid": 4,
+"hashes": {"nowplaying":"1a9dcf7c65118c27d773fb64aaca9f7a684f4969f7359c5b0c1c8b3b03a56be0","upcoming":"408abb7d4d5bcdbd6fea83358f34325de41006c44fedecc3484fc044071121b1","marathon_widget":"aea52d27230b89ca1b732866afbe137a98e65100049a56b3293def8d5fe7dda0","site_navigation":"bb0d393209324d05f58097480e366ba7c9ee51e97a164926598b6b344c0b59ca"}
+});
+});
+</script>
+<meta property="og:title" content="WFMU Give the Drummer Radio"/>
+<meta property="og:description" content="Give the Drummer Radio is a 24-hr radio/streaming music channel brought to you by the mighty WFMU. Created in 2010 by longtime WFMU DJ Doug Schulkind, the Drummer Stream is now home to more than two dozen broadcasts hosted remotely by music obsessives from around the U.S. and internationally."/>
+<meta property="og:image" content="https://wfmu.org/images/GTDRaltbanner1-1200x628.jpg"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="628"/>
+<meta property="og:url" content="https://wfmu.org/drummer"/>
+<meta property="og:type" content="music.radio_station"/>
+<meta name="twitter:title" content="WFMU Give the Drummer Radio"/>
+<meta name="twitter:description" content="Give the Drummer Radio is a 24-hr radio/streaming music channel brought to you by the mighty WFMU. Created in 2010 by longtime WFMU DJ Doug Schulkind, the Drummer Stream is now home to more than two dozen broadcasts hosted remotely by music obsessives from around the U.S. and internationally."/>
+<meta name="twitter:image" content="https://wfmu.org/images/GTDRaltbanner1-1200x628.jpg"/>
+<meta name="twitter:image:width" content="1200"/>
+<meta name="twitter:image:height" content="628"/>
+<meta name="twitter:card" content="summary_large_image"/>
+</head>
+<body>
+<div class="body_wrapper">
+<iframe src="https://www.wfmu.org/auth.php?a=iframe&amp;t=f&amp;r=https%3A%2F%2Fwww.wfmu.org%2Fdrummer"
+marginheight="0" frameborder="0" scrolling="no" id="kdb_login_iframe" title="WFMU login"
+width="100%"
+height="27"
+>
+<div align="right">
+<a href="http://www.wfmu.org/auth.php?a=login&amp;r=https%3A%2F%2Fwww.wfmu.org%2Fdrummer" target="_top">Login/Logout</a> |
+<a href="http://www.wfmu.org/auth.php?a=register&amp;r=https%3A%2F%2Fwww.wfmu.org%2Fdrummer" target="_top">Register</a> |
+Please enable inline frames!
+</div>
+</iframe>
+<script type="text/javascript">
+function kdb_login_iframeResize(id){
+var size_element; var e;
+try {
+size_element=document.getElementById(id).contentWindow.document.getElementById("kdb_login_text_size");
+document.getElementById(id).height= (size_element.clientHeight + 2) + "px";
+document.getElementById(id).width= (size_element.clientWidth + 17) + "px";
+} catch (e) {}
+}
+</script>
+<!--Generated by KenzoDB ( https://kenzodb.com ), written 2000-2026 by Ken Garson-->
+<div id="section_top">
+<div id="block1"><img style="display:block; width:100%; max-width:800px; margin-left: auto; margin-right: auto; height: auto;" src="https://wfmu.org/images/GTDRbanner210213-percep800.png" width="800" height="302" alt="WFMU Give the Drummer Radio"
+title="Give the Drummer Radio is a 24-hr radio/streaming music channel brought to you by the mighty WFMU. Created in 2010 by longtime WFMU DJ Doug Schulkind, the Drummer Stream is now home to more than two dozen broadcasts hosted remotely by music obsessives from around the U.S. and internationally."
+/></div>
+</div>
+<div id="section_marathon_widget">
+</div>
+<div id="section_listen">
+<div id="listen_listennow">
+<span class="button_nohover">
+LISTEN NOW:
+</span>
+<span class="listen_listenmethods">
+<a href="http://www.radiorethink.com/tuner/?stationCode=wfmugtd&amp;stream=hi" onclick="window.open(this.href,'kdbflashplayerwindow','width=425,height=800,scrollbars=no,resizable=yes,toolbar=no,directories=no,location=no,menubar=no,status=no'); return false;"><span class="button">Pop-up</span></a>
+<a href="http://www.wfmu.org/wfmu_drummer.pls" target="kdbflashplayerwindow"><span class="button">128k MP3</span></a>
+</span>
+</div>
+</div>
+<div id="section_nowplaying">
+<br/>
+<div class="nowplaying_playlist_link">
+<a href="/playlists/shows/165832"><span class="button">OPEN PLAYLIST
+AND CHAT</span></a>
+</div>
+<div class="nowplaying_pledge_link">
+</div>
+<br/>
+<div class="nowplaying_heading">
+NOW PLAYING:
+</div>
+<div class="nowplaying_program_title">
+&quot;Moondance&quot;
+by
+Irene Reid
+</div>
+<div class="nowplaying_live_song">
+on Testify! with Larry Grogan
+</div>
+<br/><br/>
+<hr/>
+</div>
+<div id="section_social">
+<table width="100%">
+<tbody>
+<tr>
+<td align="center" width="25%">
+<a href="https://twitter.com/GTDRadio" target="_blank" class="twitter-follow-button" data-show-count="false">Follow @GTDRadio</a>
+<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+</td>
+<td align="center" width="25%">
+<a href="https://www.facebook.com/groups/givethedrummerradio" target="_blank"><img src="https://wfmu.org/Gfx/playlist_images/DA/smallfb_6015009944928725.png" alt="Follow GTDRadio on Facebook" title="Follow GTDRadio on Facebook"/></a>
+</td>
+<td align="center" width="25%">
+<a href="https://www.instagram.com/gtdradio/" target="_blank"><img src="https://wfmu.org/Gfx/playlist_images/DA/smallinsta_6014993928318621_pp.png" alt="Instagram @GTDRadio" title="Instagram @GTDRadio" /></a>
+</td>
+</tr>
+<tr>
+<td align="center" width="100%" colspan="3">
+<span class="gtdr_tinyletter">
+<a href="https://buttondown.email/Drummer" target="_blank"><strong>Click here to subscribe to Give the Drummer Radio's daily email.</strong></a>
+</span>
+<br/>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="section_upcoming">
+<div class="upcoming_heading">
+Upcoming schedule:
+</div>
+<div class="upcoming_time">
+(<strong>Give the Drummer Radio</strong> time: <strong>Thursday 3:46pm EDT</strong>)
+</div>
+<table border="0" cellpadding="3" cellspacing="1" width="100%">
+<tbody>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Thursday</div>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+12-3pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_1" onclick="KDBchlnd.toggleExpander('1')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_1" onclick="KDBchlnd.toggleExpander('1')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/WQ" title="Browse playlists &amp; archives">Wound Liquor with Olleh</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_1">
+<i>Chatty, elderly, child-like man shares a bus seat with you.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_current_slot">
+<td width="80" style="white-space:nowrap">
+3-5pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_2" onclick="KDBchlnd.toggleExpander('2')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_2" onclick="KDBchlnd.toggleExpander('2')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/TG" title="Browse playlists &amp; archives">Testify! with Larry Grogan</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_2">
+<i>A roadmap that reveals the highways, byways, ley lines and subterranean tunnels connecting rock, soul, pop, folk rock, R&B, garage, punk, funk, jazz, world music, and soundtracks from the twilight of the 1950s to the dawn of the 1970s. Larry Grogan is a DJ, writer, podcaster, collector, and the man behind <a href="https://funky16corners.com/" target="_blank">Funky16Corners</a>.</i><br/>
+</span></span>
+[<a href="/playlists/shows/165832">Live playlist
+&amp; chat</a>]
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+5-7pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_3" onclick="KDBchlnd.toggleExpander('3')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_3" onclick="KDBchlnd.toggleExpander('3')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/D9" title="Browse playlists &amp; archives">Discotech Underground with Kip Brown</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_3">
+<i>Discotech Underground is actually two...two...two shows in one!<br />
+<br />
+The first half is a "Happy Hour" of sorts (because it's five o'clock somewhere, right?), spinning the kinds of sounds you might have heard at a real, authentic 1960's DISCOTECH as cool cats and swingin' chicks danced the night away in their mod threads and mini skirts to hard-driving sounds under the flashing lights! The only thing missing are the cage dancers...but we're working on it!<br />
+<br />
+The second half is for when you head home after a wild night, and ease in with the heady, trippy, mind-expanding sounds of a groovy free-form UNDERGROUND rock radio station that digs deep into their library and blows your mind all over again!</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+7-10pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_4" onclick="KDBchlnd.toggleExpander('4')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_4" onclick="KDBchlnd.toggleExpander('4')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+This week only:
+<a href="/playlists/D5" title="Browse playlists &amp; archives">dB's Analog Lounge</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_4">
+<i>It's the fire in the glass tube belly of the beast! Join dB in the Analog Lounge to hear a ton of new music, classic gems and weirdo favorites. A majority of vinyl, some CDs and the rare mp3 all get used to create the show. Kick your feet up and relax or run for your life - I don't care - just listen. The Analog Lounge is radio for radio people!</i><br/>
+</span></span>
+<span style="display: inline-block; vertical-align: top;" class="expander_section_without_desc">
+Special:
+dB's Analog Lounge fills in for Explorers Room
+<br/>
+</span>
+<br/>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+10pm-12am
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_5" onclick="KDBchlnd.toggleExpander('5')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_5" onclick="KDBchlnd.toggleExpander('5')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/UE" title="Browse playlists &amp; archives">The Cool Blue Flame with Little Danny</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_5">
+<i>Postwar atmospherica. <br />
+<br />
+Jazz modernism, mystical pop, electronic creaks & pulses, Latin rhythms, soundtrack & library moods, cinematic surf, exotica & instrumental curios, soul heartache, hypnotic blues & R&B, spoken trances, lonesome country & rock 'n' roll, strange scales, drones, haze.<br />
+<br />
+Plus experimental and ephemeral moving image flotsam live-screened every week on the Flame-O-Scope™.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Friday</div>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+9am-12pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_6" onclick="KDBchlnd.toggleExpander('6')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_6" onclick="KDBchlnd.toggleExpander('6')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/DS" title="Browse playlists &amp; archives">Give The Drummer Some with Doug Schulkind</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_6">
+<i>The finest in Micronesian doo-wop, Appalachian mambo, Turkish mariachi, pygmy yodeling of&nbsp;<BR>Baltimore, Portuguese juju, Cajun gamelan, tuba choirs from Mozambique, Inuit marching bands,&nbsp;<BR>Filipino free jazz, Egyptian kabuki theater, and throat singers of the Lower East Side.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+12-3pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_7" onclick="KDBchlnd.toggleExpander('7')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_7" onclick="KDBchlnd.toggleExpander('7')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/HD" title="Browse playlists &amp; archives">Hinky Dinky Time with Uncle Michael</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_7">
+<i>Turning over the toy box and jamming together the gloriously mismatched musical Lincoln Logs, Legos and Tinker Toys from Tin Pan Alley pluggers, pickled egg tavern weepers, lockstep soul ensembles, skinny-tie power poppers, Eurotrash ravers, moontanned art school rockers, drunken soccer anthems and anything else that seems like a good idea at the time. There are no guilty pleasures.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+5-7pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_8" onclick="KDBchlnd.toggleExpander('8')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_8" onclick="KDBchlnd.toggleExpander('8')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/BU" title="Browse playlists &amp; archives">Beachcomber's Buffet with Arlo</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_8">
+<i>flotsam & jetsam for moonshiners, tea drinkers, daydreamers & drifters</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+7-9pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_9" onclick="KDBchlnd.toggleExpander('9')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_9" onclick="KDBchlnd.toggleExpander('9')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/AX" title="Browse playlists &amp; archives">Acid Jazz Hands with Bronwyn Bishop</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_9">
+<i>Musical theater from off the beaten path. Obscure and unusual show tunes from within the canon and without, flops, failures, and the newest works from up-and-coming artists—plus tried-and-true hits. Also, occasional appearances from songs that are not show tunes (but only if they go really well with show tunes).</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+9-11pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_10" onclick="KDBchlnd.toggleExpander('10')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_10" onclick="KDBchlnd.toggleExpander('10')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/KT" title="Browse playlists &amp; archives">Tiger Tea with Kat</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_10">
+<i>Extra-strength katnip for kurious kritters. Music…or Noise? Beats, drones, murmurs, melodies, found sounds and things that go bleep in the night.</i><br/>
+</span></span>
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See event details" alt="See event details" id="expander_open_11" onclick="KDBchlnd.toggleExpander('11')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide event details" alt="See event details" id="expander_close_11" onclick="KDBchlnd.toggleExpander('11')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+Special:
+Debut episode
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_11">
+<i>Tune in for the debut premiere of Tiger Tea with Kat, now heard weekly on Give the Drummer Radio!</i>
+</span></span>
+</span>
+<br/>
+</span>
+</td>
+</tr>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Saturday</div>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+11am-2pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_12" onclick="KDBchlnd.toggleExpander('12')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_12" onclick="KDBchlnd.toggleExpander('12')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/BB" title="Browse playlists &amp; archives">Bob Brainen</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_12">
+<i>Disc jockey has a fondness for sound.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+2-5pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_13" onclick="KDBchlnd.toggleExpander('13')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_13" onclick="KDBchlnd.toggleExpander('13')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/FI" title="Browse playlists &amp; archives">Music For a Free World with Dave Sewelson</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_13">
+<i>Charles Mingus said jazz was a word invented to separate musicians from their money. Music for a Free World brings us together, drawing listeners to the healing power of smooth free jazz. Each week, surprise guests bring their own sides to spin and their instruments of choice to spontaneously jam.</i><br/>
+</span></span>
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See event details" alt="See event details" id="expander_open_14" onclick="KDBchlnd.toggleExpander('14')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide event details" alt="See event details" id="expander_close_14" onclick="KDBchlnd.toggleExpander('14')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+Special:
+Special Guest: Mara Rosenbloom
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_14">
+<i>Pianist, composer, and bandleader Mara Rosenbloom joins us to talk about the Brooklyn Free Spirit Festival upcoming in July at Ibeam.</i>
+</span></span>
+</span>
+<br/>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+7-10pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_15" onclick="KDBchlnd.toggleExpander('15')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_15" onclick="KDBchlnd.toggleExpander('15')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/OV" title="Browse playlists &amp; archives">Observations of Deviance with David Mittleman</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_15">
+<i>Observations of Deviance is a vinyl focused, free form program that harkens back to early days of underground FM radio. Your host, David Mittleman, hunts down the most exotic, unusual and off-the-beaten-track music from around the world in a number of genres: Spiritual Jazz, Free Improvisation, Experimental Electronics, Ethnographic Oddities and World-Wide Psychedelic Funk. You are guaranteed to hear sounds you’ve never heard before.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Sunday</div>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+9am-12pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_16" onclick="KDBchlnd.toggleExpander('16')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_16" onclick="KDBchlnd.toggleExpander('16')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/DO" title="Browse playlists &amp; archives">destination: OUT with Jeff Golick</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_16">
+<i>Three hours of adventurous jazz drawing on the <a href="http://destination-out.com/">Destination: Out</a> archives and other planes of there.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+12-3pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_17" onclick="KDBchlnd.toggleExpander('17')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_17" onclick="KDBchlnd.toggleExpander('17')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/PY" title="Browse playlists &amp; archives">Primal Ice Cream with Solo Mon</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_17">
+<i>Therapeutic sound and alternative healing clinic currently working out of an ice cream truck. It's not boring!</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+3-5pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_18" onclick="KDBchlnd.toggleExpander('18')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_18" onclick="KDBchlnd.toggleExpander('18')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/A2" title="Browse playlists &amp; archives">The Arbitrarium with Arb</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_18">
+<i>Haute speech for the counter couture.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+5-6pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_19" onclick="KDBchlnd.toggleExpander('19')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_19" onclick="KDBchlnd.toggleExpander('19')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/SQ" title="Browse playlists &amp; archives">A Rough Mix with Steinski</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_19">
+<i>A big record collection, a long memory, and a short fuse.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+6-9pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_20" onclick="KDBchlnd.toggleExpander('20')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_20" onclick="KDBchlnd.toggleExpander('20')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/LG" title="Browse playlists &amp; archives">The Laughing Clock with DJ Peter</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_20">
+<i>Obscure musical gems, avant experimentation, and classics worth rehearing. A conurbation of Leslie speakers, timbales, plungers, arch-tops, tablas, and squeaky reeds. Black ties, pork pies, Cuban boots, Nudie suits, bobbysocks, turtlenecks, and high-heeled sneakers. Jazz is the north star but it’s a wide universe, so says The Laughing Clock.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+9pm-12am
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_21" onclick="KDBchlnd.toggleExpander('21')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_21" onclick="KDBchlnd.toggleExpander('21')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/M9" title="Browse playlists &amp; archives">Magic Records with CalZone!</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_21">
+<i>I love all kinds of music that you may or may not dig. I find all of these selections to be magical for me. I play only live physical media and like to combine these different sounds into a format that I call "Magic Records" utilizing my patented CalGoRithm™ method. I hope you find some magic for yourself as well.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Monday</div>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+9am-12pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_22" onclick="KDBchlnd.toggleExpander('22')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_22" onclick="KDBchlnd.toggleExpander('22')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/WY" title="Browse playlists &amp; archives">Wreck Your Own Adventure with Wendy del Formaggio</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_22">
+<i>Innnteresting music for innnteresting people. Freeform rambles featuring haphazard segues, disjointed monologues, and self-effacing humor, broadcasting live from the Bellows Falls Yacht Club.<BR><br />
+<SMALL>Would you like to receive Wreck Your Own Adventure's weekly email newsletter? It's lo-fi, fun, and I don't steal your data. Sign up by contacting me <a href="https://wfmu.org/email.php?id=604&return=http%3A%2F%2Fwfmu.org%2Fplaylists%2FWY">here</a>.</SMALL></i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+12-3pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_23" onclick="KDBchlnd.toggleExpander('23')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_23" onclick="KDBchlnd.toggleExpander('23')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/IT" title="Browse playlists &amp; archives">Irene Trudel</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_23">
+<i>Music to laze around with, just like slipping into a warm, comfortable bath; bubbling with many stringed instruments and occasional live performances.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+3-6pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_24" onclick="KDBchlnd.toggleExpander('24')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_24" onclick="KDBchlnd.toggleExpander('24')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/L2" title="Browse playlists &amp; archives">My Life As A Mixtape with Billy Jam</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_24">
+<i>Drawing from a lifetime of radio DJ’ing and obsessive music & sound collecting DJ Billy Jam presents a unique, diverse, freeform mix of decades old and some brand new music that transcend rap/hip-hop but incorporate such other genres as punk, dance/EDM, funk, blues, soul, reggae, Afrobeat and experimental plus occasional interviews & live performances. Turn up the bass, join in the comments and/or leave a message on the "Mixtape" shout-out line.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+6-9pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_25" onclick="KDBchlnd.toggleExpander('25')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_25" onclick="KDBchlnd.toggleExpander('25')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/GL" title="Browse playlists &amp; archives">Global Grease with Kim Sorise</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_25">
+<i>Intrinsically curated, the music on this program—exclusively vinyl played on Technic 1200 M3D turntables—presents an illuminating collection of other-worldly grooves, beats, and sounds. Host Kim Sorise honors the jazz innovators, beat conductors, soul senders, and mind benders that traverse our musical and auditory landscapes. Grease for all. In music we trust.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+9-11pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_26" onclick="KDBchlnd.toggleExpander('26')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_26" onclick="KDBchlnd.toggleExpander('26')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+This week only:
+<a href="/playlists/D9" title="Browse playlists &amp; archives">Discotech Underground with Kip Brown</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_26">
+<i>Discotech Underground is actually two...two...two shows in one!<br />
+<br />
+The first half is a "Happy Hour" of sorts (because it's five o'clock somewhere, right?), spinning the kinds of sounds you might have heard at a real, authentic 1960's DISCOTECH as cool cats and swingin' chicks danced the night away in their mod threads and mini skirts to hard-driving sounds under the flashing lights! The only thing missing are the cage dancers...but we're working on it!<br />
+<br />
+The second half is for when you head home after a wild night, and ease in with the heady, trippy, mind-expanding sounds of a groovy free-form UNDERGROUND rock radio station that digs deep into their library and blows your mind all over again!</i><br/>
+</span></span>
+<span style="display: inline-block; vertical-align: top;" class="expander_section_without_desc">
+Special:
+Discotech Underground fills in for Big Planet Noise
+<br/>
+</span>
+<br/>
+</span>
+</td>
+</tr>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Tuesday</div>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+12-3pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_27" onclick="KDBchlnd.toggleExpander('27')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_27" onclick="KDBchlnd.toggleExpander('27')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/TC" title="Browse playlists &amp; archives">Tony Coulter</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_27">
+<i>I play rhinoceros and psychedelic fork.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+3-7pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_28" onclick="KDBchlnd.toggleExpander('28')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_28" onclick="KDBchlnd.toggleExpander('28')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/JQ" title="Browse playlists &amp; archives">Dark Night of the Soul with Julie</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_28">
+<i>Familiar & forgotten gems from 50-plus years of music on the darker side, shoegaze, synthpop, goth, psychedelia, darkwave, with unapologetic detours into 70s pop. In a dark night of the soul, it's always 3 o'clock in the morning.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+7-10pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_29" onclick="KDBchlnd.toggleExpander('29')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_29" onclick="KDBchlnd.toggleExpander('29')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/FN" title="Browse playlists &amp; archives">Five Miles To Midnight with The Knave</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_29">
+<i>Broadcasting live from Melbourne, Australia, it's a musical rollercoaster of Psychedelic Freak Outs, Funk & Disco Get Downs, Exotic Dances, Rock N Roll Gas Guzzlers, Hispanic Grooves, Indie & New Wave Haircuts, Gin Soaked Jazz, Spooky Guitar Twangers, Jumpin' Blues, Mid-Century Finger Snappers, Beats From the Streets, and Rhythms of the East. Guests are likely to drop by for live music, selections and recipes for good times. So tune in for an eclectic ride, a taste of the music being made in Australia and NZ, and stay connected across the oceans of sound</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+10pm-12am
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_30" onclick="KDBchlnd.toggleExpander('30')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_30" onclick="KDBchlnd.toggleExpander('30')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/LO" title="Browse playlists &amp; archives">The Long Way Home with Kris Holmes</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_30">
+<i>Twenty years of dusty fingers, frayed cuticles, & upper respiratory infections — from record digging and DJing around the globe — coalesces into a 2-hour journey through Rhythm & Blues, Soul, Funk, Jazz, Blues, Latin, Rock & Roll, and all points in between. Your speakers will be head-nodding, toe-tapping & even two-stepping to this vintage 45rpm party in no time. Hear favorite songs you didn't know were your favorites, aural treats & record-world problems from the vinyl side of life.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr bgcolor="#000000">
+<td colspan="2" align="left">
+<div class="upcoming_dow">Wednesday</div>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+12-3pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_31" onclick="KDBchlnd.toggleExpander('31')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_31" onclick="KDBchlnd.toggleExpander('31')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/MY" title="Browse playlists &amp; archives">100% Whatever with Mary Wing</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_31">
+<i>Music without words, words without music, and combinations therein. The freeform soundtrack for working, shirking, or twerking.<br></i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+3-5pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_32" onclick="KDBchlnd.toggleExpander('32')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_32" onclick="KDBchlnd.toggleExpander('32')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/YB" title="Browse playlists &amp; archives">Your Boy Black Helmet Radio with DJ Black Helmet</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_32">
+<i>Your Boy Black Helmet journeys through genres, sometimes words, different continents and at best time spaces, focusing mostly on jams that are righteous and ready for wave surfing. The crates are bountiful and we all should partake in the eternal harvest.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+5-7pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_33" onclick="KDBchlnd.toggleExpander('33')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_33" onclick="KDBchlnd.toggleExpander('33')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/RH" title="Browse playlists &amp; archives">Ridgewood Radio with David Weinstein</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_33">
+<i>Ridgewood Radio features concert recordings by adventurous bands and experimental musicians and restored archival tapes from private and institutional collections captured at venues large and small across the five boroughs of New York. It is produced by David Weinstein and <A HREF="http://www.outpostartistsresources.org/">Outpost Artists Resources</A> operating out of the Ridgewood section of Queens, NY, where you'll find more yellow bricks than on the road to Oz and the cemetery of your choice is never more than a few blocks from home.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_even_slot">
+<td width="80" style="white-space:nowrap">
+7-10pm
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_34" onclick="KDBchlnd.toggleExpander('34')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_34" onclick="KDBchlnd.toggleExpander('34')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/PG" title="Browse playlists &amp; archives">Bodega Pop with Gary Sullivan</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_34">
+<i>Sounds ripped from cassettes & CDs found in immigrant-run mom & pop stores. Deconstructed icons. Field recordings. Sonic mayhem from the far corners of the internet.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+<tr class="upcoming_odd_slot">
+<td width="80" style="white-space:nowrap">
+10pm-12am
+</td>
+<td align="left">
+<img src="/Gfx/expander-right-26x26.png" class="expander_arrow" title="See program details" alt="See program details" id="expander_open_35" onclick="KDBchlnd.toggleExpander('35')">
+<img src="/Gfx/expander-downfilled-26x26.png" class="expander_arrow" title="Hide program details" alt="Hide program details" id="expander_close_35" onclick="KDBchlnd.toggleExpander('35')" style="display:none">
+<span style="display: inline-block; vertical-align: top;" class="expander_section_with_desc">
+<a href="/playlists/AI" title="Browse playlists &amp; archives">If You Lose Your Horse with Sam Segal</a>
+<br/>
+<span style="display:inline-block; margin-left: 5px;">
+<span style="display:none;" id="expander_target_35">
+<i>A true disrupter within the freeform internet-radio market, If You Lose Your Horse creates a space for smart consumers to experience a game-changing digital audio brand.</i><br/>
+</span></span>
+</span>
+</td>
+</tr>
+</tbody>
+</table>
+<br/>
+<span style="white-space:nowrap">
+<a href="https://wfmu.org/table?period=7115">See full schedule</a>
+</span>
+<span style="white-space:nowrap">
+|
+<a href="https://www.wfmu.org/recentarchives.php#givethedrummerradio">Hear recent archives</a>
+</span>
+<span style="white-space:nowrap">
+|
+Questions? <a href="https://wfmu.org/email.php?id=511&return=https%3A%2F%2Fwww.wfmu.org%2Fdrummer">Email Drummer Stream</a>
+</span>
+</div>
+<div id="section_site_navigation">
+<br /><hr />
+<a href="/">Return to WFMU homepage
+<img src="https://wfmu.org/wp-content/themes/wfmu-theme/img/non-retina/logo.png" alt="WFMU.org" width="100" /></a>
+</div>
+<br/><br/>
+<hr/>
+<div align="center" style="font-size:13px"><address>
+Top image by Evan Crankshaw |
+<span style="white-space:nowrap; padding-right:0">Generated by <strong><a href="https://kenzodb.com/" style="text-decoration:none" target="_blank">KenzoDB</a></strong>,</span> <span style="white-space:nowrap">written 2000-2026 by <a href="https://kenzodb.com/contact" target="_blank">Ken Garson</a></span></address></div>
+</div>
+</body>
+</html>
