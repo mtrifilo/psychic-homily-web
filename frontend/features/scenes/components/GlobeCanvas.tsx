@@ -185,6 +185,21 @@ export default function GlobeCanvas({
     [scenes, labelMinCount],
   )
 
+  // PSY-1309: "happening this week" pulse — a slow propagating ring under each
+  // scene with a show in the next 7 days, so a live scene reads differently
+  // from a merely-catalogued one. prefers-reduced-motion suppresses the
+  // animation entirely (empty ringsData) rather than freezing a ring frame.
+  // Memoized by reference for the same geometry-churn reason as labelsData.
+  const pulseScenes = useMemo(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return []
+    }
+    return scenes.filter((s) => s.shows_this_week > 0)
+  }, [scenes])
+
   // `pov` is resolved once in AtlasGlobe BEFORE this canvas mounts, so the
   // camera is aimed exactly once via onGlobeReady — no post-mount re-aim that
   // could snap over a user's in-progress rotation.
@@ -208,9 +223,19 @@ export default function GlobeCanvas({
       pointResolution={18}
       pointLabel={(d) => {
         const s = d as PlaceableScene
-        return `${escapeHtml(s.city)}, ${escapeHtml(s.state)} · ${s.upcoming_show_count} upcoming`
+        const week = s.shows_this_week > 0 ? ` · ${s.shows_this_week} this week` : ''
+        return `${escapeHtml(s.city)}, ${escapeHtml(s.state)} · ${s.upcoming_show_count} upcoming${week}`
       }}
       onPointClick={(d) => onSelect(d as PlaceableScene)}
+      ringsData={pulseScenes}
+      ringLat="latitude"
+      ringLng="longitude"
+      ringAltitude={0.006}
+      ringMaxRadius={1.6}
+      ringPropagationSpeed={0.9}
+      ringRepeatPeriod={2600}
+      ringColor={() => (t: number) => `rgba(255, 122, 60, ${Math.max(0, 0.55 * (1 - t))})`}
+      ringResolution={48}
       labelsData={labelScenes}
       labelLat="latitude"
       labelLng="longitude"

@@ -29,6 +29,9 @@ const mockUseScenes = vi.fn()
 vi.mock('../hooks', () => ({
   useScenes: () => mockUseScenes(),
   useSceneArtists: () => ({ data: undefined, isLoading: false }),
+  // The preview panel (opened by the drift tests) reads the scene's this-week
+  // shows (PSY-1309); a quiet week is the neutral default here.
+  useSceneShows: () => ({ data: { shows: [] }, isLoading: false }),
 }))
 
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
@@ -92,6 +95,7 @@ const sampleData: SceneListResponse = {
       venue_count: 9,
       upcoming_show_count: 283,
       total_show_count: 337,
+      shows_this_week: 0,
       latitude: 41.88,
       longitude: -87.63,
     },
@@ -103,6 +107,7 @@ const sampleData: SceneListResponse = {
       venue_count: 2,
       upcoming_show_count: 3,
       total_show_count: 3,
+      shows_this_week: 0,
     },
   ],
   count: 2,

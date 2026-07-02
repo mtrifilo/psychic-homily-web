@@ -115,6 +115,19 @@ func (s *ArtistRelationshipService) GetRelatedArtists(artistID uint, relType str
 		return nil, fmt.Errorf("failed to get related artists: %w", err)
 	}
 
+	// Batched vote counts (PSY-1301) — every rel here has artistID as one
+	// endpoint, so the node set is the center plus each rel's other side.
+	voteIDs := make([]uint, 0, len(rels)+1)
+	voteIDs = append(voteIDs, artistID)
+	for _, rel := range rels {
+		if rel.SourceArtistID == artistID {
+			voteIDs = append(voteIDs, rel.TargetArtistID)
+		} else {
+			voteIDs = append(voteIDs, rel.SourceArtistID)
+		}
+	}
+	voteCounts := s.getVoteCountsAmong(voteIDs)
+
 	responses := make([]contracts.RelatedArtistResponse, 0, len(rels))
 	for _, rel := range rels {
 		// Determine the "other" artist
@@ -134,8 +147,7 @@ func (s *ArtistRelationshipService) GetRelatedArtists(artistID uint, relType str
 			slug = *artist.Slug
 		}
 
-		// Get vote counts
-		upvotes, downvotes := s.getVoteCounts(rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType)
+		votes := voteCounts[voteCountKey{rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType}]
 
 		resp := contracts.RelatedArtistResponse{
 			ArtistID:         otherID,
@@ -143,9 +155,9 @@ func (s *ArtistRelationshipService) GetRelatedArtists(artistID uint, relType str
 			Slug:             slug,
 			RelationshipType: rel.RelationshipType,
 			Score:            rel.Score,
-			Upvotes:          upvotes,
-			Downvotes:        downvotes,
-			WilsonScore:      rel.WilsonScore(upvotes, downvotes),
+			Upvotes:          votes.up,
+			Downvotes:        votes.down,
+			WilsonScore:      rel.WilsonScore(votes.up, votes.down),
 			AutoDerived:      rel.AutoDerived,
 		}
 
@@ -318,6 +330,21 @@ const festivalCobillTopFestivalNames = 3
 // is never reduced to only its loudest neighbors. Capped (and taken strongest-first) so a hub can
 // never re-introduce the hairball the PSY-1258 cap exists to prevent; matches the 30-edge budget.
 const egoBackboneUnionLimit = 30
+
+// egoCrossRadioPerNodeCap bounds step-7 RADIO cross edges to the top-K per node, kept when the
+// edge is top-K for EITHER endpoint (PSY-1301). Radio co-occurrence is the only cross-edge type
+// dense enough to need a server bound (a 30-60-node related set can store hundreds of pairs);
+// other types stay unbounded — they are sparse by nature AND the client renders them uncapped
+// (edgeCap.ts caps only radio_cooccurrence), so any server truncation of them would be visible.
+// The either-endpoint rule mirrors the client's PSY-1258 cap semantics (a niche node's few
+// strong links survive a hub neighbor), and K=10 is a superset of the client's k=5 — up to
+// tie-ordering: the server breaks score ties by partner ID while the client breaks them by
+// payload order, so within a tie group straddling the boundary a same-score sibling may render
+// instead of the exact edge the uncapped payload would have picked. Deliberately NOT a backbone
+// alpha filter: the PSY-1261 tuning showed the scene-scale alpha empties mid-degree ego link
+// sets (Cola: 2/28 at alpha=0.10) — and those emptied links ARE these cross edges — plus a
+// NULL-significance deploy window would star-ify every ego. See disparity_filter.go.
+const egoCrossRadioPerNodeCap = 10
 
 // festivalCobillRow is the result of the festival co-occurrence query.
 // We capture both the canonical pair (artistA<artistB), the count, and
@@ -552,9 +579,16 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 		})
 	}
 
+	// 5b. Batch the vote counts for every edge steps 6 + 7 can emit — one grouped
+	// query over the node set instead of two COUNTs per edge (PSY-1301). A dense
+	// ego (30-60 nodes after the PSY-1293 union) previously issued hundreds of
+	// sequential queries here.
+	voteIDs := append([]uint{artistID}, relatedIDs...)
+	voteCounts := s.getVoteCountsAmong(voteIDs)
+
 	// 6. Build links from center relationships
 	for _, rel := range rels {
-		upvotes, downvotes := s.getVoteCounts(rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType)
+		votes := voteCounts[voteCountKey{rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType}]
 
 		var detail interface{}
 		if rel.Detail != nil {
@@ -566,8 +600,8 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 			TargetID:  rel.TargetArtistID,
 			Type:      rel.RelationshipType,
 			Score:     float64(rel.Score),
-			VotesUp:   upvotes,
-			VotesDown: downvotes,
+			VotesUp:   votes.up,
+			VotesDown: votes.down,
 			Detail:    detail,
 		})
 	}
@@ -575,35 +609,112 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 	// 6b. Append the query-time festival_cobill center edges (PSY-363).
 	graph.Links = append(graph.Links, festivalCobillLinks...)
 
-	// 7. Get cross-connections between related artists
+	// 7. Get cross-connections between related artists. Two queries by design
+	// (PSY-1301): non-radio types are fetched unbounded exactly as before (sparse
+	// by nature; the client renders them uncapped, so any server truncation of
+	// them would be visible), while radio co-occurrence — the only type dense
+	// enough to blow up the payload — is bounded to the per-node top-K with
+	// either-endpoint semantics. No backbone alpha here: see the
+	// egoCrossRadioPerNodeCap doc-comment.
+	//
+	// Type-filter note: when only query-time types (festival_cobill) are
+	// requested, storedTypes is empty and this query returns every stored
+	// NON-radio cross type — a pre-existing leak (the client filters by active
+	// types anyway). Radio is the deliberate exception since PSY-1301: it only
+	// joins the cross set when wantRadioCooccurrence, narrowing that leak.
 	if len(relatedIDs) > 1 {
 		var crossRels []catalogm.ArtistRelationship
-		crossQuery := s.db.Model(&catalogm.ArtistRelationship{}).
-			Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs)
 
-		if len(storedTypes) > 0 {
-			crossQuery = crossQuery.Where("relationship_type IN ?", storedTypes)
+		// Skip the non-radio query when radio is the ONLY requested stored
+		// type — `type <> radio AND type IN (radio)` can never match.
+		radioOnly := len(storedTypes) == 1 && storedTypes[0] == catalogm.RelationshipTypeRadioCooccurrence
+		if !radioOnly {
+			crossQuery := s.db.Model(&catalogm.ArtistRelationship{}).
+				Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs).
+				Where("relationship_type <> ?", catalogm.RelationshipTypeRadioCooccurrence)
+
+			if len(storedTypes) > 0 {
+				crossQuery = crossQuery.Where("relationship_type IN ?", storedTypes)
+			}
+
+			// Errors degrade to fewer cross edges (pre-existing behavior),
+			// but are logged so a half-empty graph is diagnosable.
+			if err := crossQuery.Find(&crossRels).Error; err != nil {
+				slog.Warn("artist graph: cross-edge query failed; rendering without non-radio cross edges",
+					"artist_id", artistID, "error", err)
+			}
 		}
 
-		if err := crossQuery.Find(&crossRels).Error; err == nil {
-			for _, rel := range crossRels {
-				upvotes, downvotes := s.getVoteCounts(rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType)
-
-				var detail interface{}
-				if rel.Detail != nil {
-					_ = json.Unmarshal(*rel.Detail, &detail)
-				}
-
-				graph.Links = append(graph.Links, contracts.ArtistGraphLink{
-					SourceID:  rel.SourceArtistID,
-					TargetID:  rel.TargetArtistID,
-					Type:      rel.RelationshipType,
-					Score:     float64(rel.Score),
-					VotesUp:   upvotes,
-					VotesDown: downvotes,
-					Detail:    detail,
-				})
+		if wantRadioCooccurrence {
+			// Each edge is ranked once per ENDPOINT (the UNION ALL explode) —
+			// partitioning by the stored source/target columns alone would rank
+			// per canonical ROLE and miss half a node's edges. Ties broken by
+			// the partner ID so the kept set is deterministic across requests
+			// (score ties are common in the bucketed co-occurrence scores).
+			// total_count rides along on every row so cap truncation is
+			// observable without a second query (AC: flag or slog).
+			type radioCrossRow struct {
+				catalogm.ArtistRelationship
+				TotalCount int `gorm:"column:total_count"`
 			}
+			var radioRows []radioCrossRow
+			radioErr := s.db.Raw(`
+				WITH radio AS (
+					SELECT * FROM artist_relationships
+					WHERE relationship_type = ?
+						AND source_artist_id IN ?
+						AND target_artist_id IN ?
+				),
+				endpoint_ranks AS (
+					SELECT source_artist_id, target_artist_id,
+						ROW_NUMBER() OVER (PARTITION BY node ORDER BY score DESC, source_artist_id, target_artist_id) AS rn
+					FROM (
+						SELECT source_artist_id, target_artist_id, score, source_artist_id AS node FROM radio
+						UNION ALL
+						SELECT source_artist_id, target_artist_id, score, target_artist_id AS node FROM radio
+					) exploded
+				)
+				SELECT r.*, (SELECT COUNT(*) FROM radio) AS total_count FROM radio r
+				WHERE EXISTS (
+					SELECT 1 FROM endpoint_ranks er
+					WHERE er.source_artist_id = r.source_artist_id
+						AND er.target_artist_id = r.target_artist_id
+						AND er.rn <= ?
+				)`,
+				catalogm.RelationshipTypeRadioCooccurrence, relatedIDs, relatedIDs,
+				egoCrossRadioPerNodeCap).
+				Scan(&radioRows).Error
+			if radioErr != nil {
+				slog.Warn("artist graph: radio cross-edge query failed; rendering without radio cross edges",
+					"artist_id", artistID, "error", radioErr)
+			}
+			if len(radioRows) > 0 && radioRows[0].TotalCount > len(radioRows) {
+				slog.Info("artist graph: radio cross edges capped to per-node top-K",
+					"artist_id", artistID, "stored", radioRows[0].TotalCount,
+					"kept", len(radioRows), "per_node_cap", egoCrossRadioPerNodeCap)
+			}
+			for _, r := range radioRows {
+				crossRels = append(crossRels, r.ArtistRelationship)
+			}
+		}
+
+		for _, rel := range crossRels {
+			votes := voteCounts[voteCountKey{rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType}]
+
+			var detail interface{}
+			if rel.Detail != nil {
+				_ = json.Unmarshal(*rel.Detail, &detail)
+			}
+
+			graph.Links = append(graph.Links, contracts.ArtistGraphLink{
+				SourceID:  rel.SourceArtistID,
+				TargetID:  rel.TargetArtistID,
+				Type:      rel.RelationshipType,
+				Score:     float64(rel.Score),
+				VotesUp:   votes.up,
+				VotesDown: votes.down,
+				Detail:    detail,
+			})
 		}
 
 		// 7b. Festival co-lineup cross-edges between related artists (PSY-363).
@@ -1586,16 +1697,57 @@ func pairKey(a, b uint) string {
 // Helpers
 // ──────────────────────────────────────────────
 
-// getVoteCounts returns upvote and downvote counts for a relationship.
-func (s *ArtistRelationshipService) getVoteCounts(sourceID, targetID uint, relType string) (int, int) {
-	var upvotes, downvotes int64
-	s.db.Model(&catalogm.ArtistRelationshipVote{}).
-		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND direction = 1",
-			sourceID, targetID, relType).Count(&upvotes)
-	s.db.Model(&catalogm.ArtistRelationshipVote{}).
-		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND direction = -1",
-			sourceID, targetID, relType).Count(&downvotes)
-	return int(upvotes), int(downvotes)
+// voteCountKey identifies one relationship in a batched vote-count lookup.
+type voteCountKey struct {
+	sourceID uint
+	targetID uint
+	relType  string
+}
+
+// voteTally is the up/down pair for one relationship.
+type voteTally struct {
+	up   int
+	down int
+}
+
+// getVoteCountsAmong returns vote tallies for EVERY relationship whose two
+// endpoints are both in artistIDs, in a single grouped query (PSY-1301) —
+// the batch replacement for calling getVoteCounts per edge. Slightly
+// over-fetches (votes for relationships the caller won't emit), which is
+// harmless: lookups miss to a zero tally. Non-fatal like getVoteCounts:
+// votes are decorative on the graph, so an error degrades to zero counts.
+func (s *ArtistRelationshipService) getVoteCountsAmong(artistIDs []uint) map[voteCountKey]voteTally {
+	counts := make(map[voteCountKey]voteTally)
+	if len(artistIDs) == 0 {
+		return counts
+	}
+
+	// COUNT(*) FILTER — the repo idiom for tallying two directions in one row
+	// (see scene.go / admin analytics), one row per relationship.
+	type voteRow struct {
+		SourceArtistID   uint   `gorm:"column:source_artist_id"`
+		TargetArtistID   uint   `gorm:"column:target_artist_id"`
+		RelationshipType string `gorm:"column:relationship_type"`
+		Up               int    `gorm:"column:up"`
+		Down             int    `gorm:"column:down"`
+	}
+	var rows []voteRow
+	err := s.db.Model(&catalogm.ArtistRelationshipVote{}).
+		Select("source_artist_id, target_artist_id, relationship_type, " +
+			"COUNT(*) FILTER (WHERE direction = 1) AS up, " +
+			"COUNT(*) FILTER (WHERE direction = -1) AS down").
+		Where("source_artist_id IN ? AND target_artist_id IN ?", artistIDs, artistIDs).
+		Group("source_artist_id, target_artist_id, relationship_type").
+		Scan(&rows).Error
+	if err != nil {
+		slog.Warn("artist graph: batched vote-count query failed; rendering zero counts", "error", err)
+		return counts
+	}
+
+	for _, r := range rows {
+		counts[voteCountKey{r.SourceArtistID, r.TargetArtistID, r.RelationshipType}] = voteTally{up: r.Up, down: r.Down}
+	}
+	return counts
 }
 
 // recalculateScore recalculates the score for a relationship from vote counts.

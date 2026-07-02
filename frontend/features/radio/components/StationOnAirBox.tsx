@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { BracketLink } from '@/components/shared'
 import { useStationNowPlaying } from '../hooks/useStationNowPlaying'
 import { useShowLatestEpisode } from '../hooks/useShowLatestEpisode'
-import { formatShortAirDate } from '../lib/stationOverview'
+import { airDateCellText } from './AirDateCell'
+import { isLiveNow } from '../lib/episodeArchive'
 import type { RadioStationDetail } from '../types'
 
 interface StationOnAirBoxProps {
@@ -41,9 +42,30 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
   const showUrl = data.show ? `/radio/${station.slug}/${data.show.slug}` : null
   const playlistUrl =
     showUrl && episode ? `${showUrl}/${episode.air_date}` : null
-  const latestDate = formatShortAirDate(
-    data.episode_air_date ?? episode?.air_date
+  // PSY-1306: "Latest playlist" renders viewer-local from the episode's
+  // frozen window so it agrees with the playlists feed below it in the same
+  // column. "aired 3–6 PM" mid-broadcast would lie, so the time block is
+  // suppressed whenever the episode may be airing RIGHT NOW: the archive
+  // payload's own window when it is live (the visibility gate admits an
+  // episode the moment its window STARTS), and the hook fallback always (its
+  // latest episode is often the in-progress one, and old payloads carry no
+  // window to check). Date-only still reads "aired <today>" for an
+  // in-progress episode — accepted, pre-existing day-granular behavior.
+  const payloadWindowLive = isLiveNow(
+    data.episode_starts_at ?? null,
+    data.episode_ends_at ?? null
   )
+  const latestSrc = data.episode_air_date
+    ? {
+        starts: payloadWindowLive ? null : data.episode_starts_at,
+        ends: payloadWindowLive ? null : data.episode_ends_at,
+        date: data.episode_air_date,
+      }
+    : { starts: null, ends: null, date: episode?.air_date ?? '' }
+  const latestCell = airDateCellText(latestSrc.starts, latestSrc.ends, latestSrc.date)
+  const latestDate = latestCell.timeBlock
+    ? `${latestCell.dateLine} · ${latestCell.timeBlock}`
+    : latestCell.dateLine
 
   return (
     <section

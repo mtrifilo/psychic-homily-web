@@ -10,6 +10,7 @@ function scene(slug: string, upcoming: number): PlaceableScene {
     venue_count: 1,
     upcoming_show_count: upcoming,
     total_show_count: upcoming,
+    shows_this_week: 0,
     latitude: 33.4,
     longitude: -112.1,
   }

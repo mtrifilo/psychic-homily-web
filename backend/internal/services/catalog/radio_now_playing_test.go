@@ -269,7 +269,10 @@ func (suite *RadioNowPlayingIntegrationTestSuite) createEpisode(showID uint, air
 	// latestEpisodeForShow now shares with the feed. Every now-playing archive fixture
 	// here is a past-aired episode, so a window a few days back is correct and
 	// clock-independent (air_date still drives latest-selection ordering).
-	now := time.Now().UTC()
+	// Truncated to Postgres timestamptz precision (µs): PSY-1306 compares these
+	// fixture values with time.Equal after a DB round-trip, and Linux clocks carry
+	// nanoseconds that Postgres drops (macOS clocks are µs, hiding this locally).
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	starts := now.Add(-72 * time.Hour)
 	ends := now.Add(-71 * time.Hour)
 	ep := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
@@ -338,6 +341,12 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_FullPayloa
 	suite.Equal("Active Show", *resp.ShowName)
 	suite.Require().NotNil(resp.EpisodeAirDate)
 	suite.Equal(latestAired, *resp.EpisodeAirDate)
+	// PSY-1306: the fallback episode's frozen window rides along so the ON AIR
+	// box can render the "Latest playlist" date viewer-local.
+	suite.Require().NotNil(resp.EpisodeStartsAt)
+	suite.True(resp.EpisodeStartsAt.Equal(*latest.StartsAt))
+	suite.Require().NotNil(resp.EpisodeEndsAt)
+	suite.True(resp.EpisodeEndsAt.Equal(*latest.EndsAt))
 
 	// Current = the latest logged play (highest position).
 	suite.Require().NotNil(resp.CurrentTrack)
@@ -446,6 +455,8 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_MatchedShowAndArtist(
 	suite.Require().NotNil(resp.HostName)
 	suite.Equal("John Richards", *resp.HostName)
 	suite.Nil(resp.EpisodeAirDate, "live payloads carry no archive air date")
+	suite.Nil(resp.EpisodeStartsAt, "live payloads carry no archive window (PSY-1306)")
+	suite.Nil(resp.EpisodeEndsAt)
 
 	suite.Require().NotNil(resp.CurrentTrack)
 	suite.Equal("Diana Ross", resp.CurrentTrack.ArtistName)

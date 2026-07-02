@@ -6,8 +6,6 @@ import {
   formatPlayTime,
   formatTimeOfDay,
   formatDurationMinutes,
-  formatArchiveDate,
-  formatShortNavDate,
   walkEpisodeNeighbors,
 } from './episodeArchive'
 import type { RadioEpisodeListItem, RadioEpisodesListResponse, RadioPlay } from '../types'
@@ -187,20 +185,6 @@ describe('formatDurationMinutes', () => {
   })
 })
 
-describe('formatArchiveDate / formatShortNavDate', () => {
-  it('formats archive dates without a comma', () => {
-    expect(formatArchiveDate('2026-06-09')).toBe('Jun 9 2026')
-  })
-
-  it('formats short nav dates as month + day', () => {
-    expect(formatShortNavDate('2026-05-26')).toBe('May 26')
-  })
-
-  it('passes through unparseable input', () => {
-    expect(formatArchiveDate('bogus')).toBe('bogus')
-    expect(formatShortNavDate('bogus')).toBe('bogus')
-  })
-})
 
 describe('walkEpisodeNeighbors', () => {
   const page = (episodes: RadioEpisodeListItem[], total: number): RadioEpisodesListResponse => ({
@@ -338,5 +322,78 @@ describe('walkEpisodeNeighbors', () => {
 
     expect(result).toEqual({ newer: null, older: null })
     expect(fetchPage).toHaveBeenCalledTimes(20)
+  })
+})
+
+import { formatViewerAiredLine } from './episodeArchive'
+import { localIso } from './localIso.testutil'
+
+describe('formatViewerAiredLine (PSY-1306)', () => {
+  it('renders viewer weekday + range with a station-local aside', () => {
+    // Window: local Tue Jun 9, 3–6 PM (built from local constructors, so the
+    // viewer part is timezone-agnostic). Station zone chosen to DIFFER from
+    // the machine's so the aside isn't self-suppressed as redundant.
+    const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const stationZone =
+      viewerZone === 'Pacific/Kiritimati' ? 'America/Phoenix' : 'Pacific/Kiritimati'
+    const line = formatViewerAiredLine(
+      localIso(2026, 5, 9, 15),
+      localIso(2026, 5, 9, 18),
+      stationZone
+    )
+    expect(line).toMatch(/^Tue 3–6 PM your time \(/)
+    expect(line).toMatch(/\)$/)
+  })
+
+  it('skips the aside when the viewer is in the station zone', () => {
+    const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const line = formatViewerAiredLine(
+      localIso(2026, 5, 9, 15),
+      localIso(2026, 5, 9, 18),
+      viewerZone
+    )
+    expect(line).toBe('Tue 3–6 PM your time')
+  })
+
+  it('returns null for windowless or degenerate windows (caller falls back)', () => {
+    expect(formatViewerAiredLine(null, null, 'America/Phoenix')).toBeNull()
+    expect(
+      formatViewerAiredLine(localIso(2026, 5, 9, 18), localIso(2026, 5, 9, 15), 'America/Phoenix')
+    ).toBeNull()
+  })
+})
+
+import { airedVerbForWindow } from './episodeArchive'
+
+describe('airedVerbForWindow (PSY-1306)', () => {
+  const now = new Date(2026, 5, 9, 16, 0) // Jun 9, 4 PM local
+
+  it('says airs before the window, airing inside it, aired after it', () => {
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 18), localIso(2026, 5, 9, 21), false, now)
+    ).toBe('airs')
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 15), localIso(2026, 5, 9, 18), false, now)
+    ).toBe('airing')
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 9), localIso(2026, 5, 9, 12), false, now)
+    ).toBe('aired')
+  })
+
+  it('falls back to is_upcoming for windowless episodes (PSY-1205 unchanged)', () => {
+    expect(airedVerbForWindow(null, null, true, now)).toBe('airs')
+    expect(airedVerbForWindow(null, null, false, now)).toBe('aired')
+  })
+
+  it('ignores degenerate windows (same validity bar as the rendered line)', () => {
+    // wrong-day ends_at (≥12h span): raw end > now would read "airing" for
+    // weeks while the line renderer rejected the same window
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 9, 9), localIso(2026, 5, 20, 12), false, now)
+    ).toBe('aired')
+    // inverted window with future start must not force "airs" on an aired row
+    expect(
+      airedVerbForWindow(localIso(2026, 5, 10, 9), localIso(2026, 5, 9, 12), false, now)
+    ).toBe('aired')
   })
 })

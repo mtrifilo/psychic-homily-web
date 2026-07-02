@@ -35,6 +35,8 @@ describe('useStationNowPlaying', () => {
       current_track: null,
       recent_artists: [],
       episode_air_date: null,
+  episode_starts_at: null,
+  episode_ends_at: null,
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
 

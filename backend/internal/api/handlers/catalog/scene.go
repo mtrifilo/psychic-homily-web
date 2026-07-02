@@ -146,6 +146,58 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 }
 
 // ============================================================================
+// Get Scene Upcoming Shows (PSY-1309)
+// ============================================================================
+
+// GetSceneShowsRequest represents the request for a scene's next upcoming shows.
+type GetSceneShowsRequest struct {
+	Slug  string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
+	Days  int    `query:"days" default:"7" minimum:"1" maximum:"30" doc:"Window in days — shows with event_date inside [now, now+days)"`
+	Limit int    `query:"limit" default:"3" minimum:"1" maximum:"20" doc:"Maximum number of shows to return, soonest first"`
+}
+
+// GetSceneShowsResponse represents the response for a scene's upcoming shows.
+type GetSceneShowsResponse struct {
+	Body struct {
+		Shows []contracts.SceneShowSummary `json:"shows" doc:"The scene's next approved shows in the window, soonest first — metro-scoped (member-city shows included)"`
+	}
+}
+
+// GetSceneShowsHandler handles GET /scenes/{slug}/shows — the Atlas preview
+// panel's "This week" row. Metro-scoped (unlike the literal-city upcoming-shows
+// endpoint), so a Tempe show counts toward the Phoenix scene.
+func (h *SceneHandler) GetSceneShowsHandler(ctx context.Context, req *GetSceneShowsRequest) (*GetSceneShowsResponse, error) {
+	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
+	if err != nil {
+		return nil, huma.Error404NotFound("Scene not found")
+	}
+
+	days := req.Days
+	if days == 0 {
+		days = 7
+	}
+	limit := req.Limit
+	if limit == 0 {
+		limit = 3
+	}
+
+	shows, err := h.sceneService.GetSceneUpcomingShows(city, state, days, limit)
+	if err != nil {
+		if mapped := shared.MapSceneError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to get scene shows", err)
+	}
+	if shows == nil {
+		shows = []contracts.SceneShowSummary{}
+	}
+
+	resp := &GetSceneShowsResponse{}
+	resp.Body.Shows = shows
+	return resp, nil
+}
+
+// ============================================================================
 // Get Scene Genres
 // ============================================================================
 

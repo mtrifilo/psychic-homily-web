@@ -27,10 +27,10 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
+import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useShow } from '@/features/shows'
 import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
 
-const GRAPH_BREAKPOINT_PX = 640
 const GRAPH_HEIGHT_PX = 480
 const INTERSECTION_ROOT_MARGIN = '200px'
 
@@ -117,7 +117,6 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
   const [isMounted, setIsMounted] = useState(false)
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
   // Lazy-mount via IntersectionObserver. Pre-mount with a 200px root
   // margin so the data is in flight before the placeholder is fully
@@ -156,19 +155,9 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
     return () => observer.disconnect()
   }, [isMounted])
 
-  // Width measurement only kicks in after mount. Same callback-ref +
-  // ResizeObserver pattern as CollectionGraph / SceneGraph.
-  const measureRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return
-    setContainerWidth(node.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
+  // Width measurement only kicks in after mount; the shared callback-ref +
+  // ResizeObserver hook covers the null-on-first-render mount pattern.
+  const { refCallback: measureRefCallback, containerWidth } = useContainerWidth()
 
   const { data: showData } = useShow(isMounted ? billSlug : '')
   const headlinerId = showData?.artists.find(a => a.is_headliner)?.id

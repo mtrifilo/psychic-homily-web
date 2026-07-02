@@ -12,12 +12,13 @@
  * the legend/filter grammar matches the project's typed-edge palette (PSY-362).
  */
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { Network } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
+import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useArtistBillComposition } from '../hooks/useArtistBillComposition'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import type { BillCoArtist } from '../types'
@@ -34,7 +35,6 @@ interface BillCompositionProps {
   defaultCollapsed?: boolean
 }
 
-const GRAPH_BREAKPOINT_PX = 640
 const MIN_GRAPH_NODES = 3
 
 export function BillComposition({ artistId, defaultCollapsed = false }: BillCompositionProps) {
@@ -42,26 +42,8 @@ export function BillComposition({ artistId, defaultCollapsed = false }: BillComp
   const [months, setMonths] = useState<0 | 12>(0)
   const { data, isLoading } = useArtistBillComposition({ artistId, months, enabled: artistId > 0 })
   const [showGraph, setShowGraph] = useState(false)
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
-
-  // Callback ref instead of useRef + useEffect (PSY-519). Same fix that
-  // landed on SceneGraph.tsx (PSY-516/PSY-517): on first render this
-  // component returns `null` while TanStack Query is loading, so a ref-
-  // based useEffect with `[]` deps fires once with a null ref, bails, and
-  // never re-runs after the JSX mounts. A callback ref fires whenever the
-  // underlying DOM node mounts/unmounts, so we always measure the right
-  // node. Cleanup return is honored automatically (React 19).
-  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return
-    setContainerWidth(node.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
+  // Shared callback-ref measurement (PSY-1305; rationale in useContainerWidth.ts).
+  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
   if (isLoading) return null
   if (!data || data.below_threshold) return null

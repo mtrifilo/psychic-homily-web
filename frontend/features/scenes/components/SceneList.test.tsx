@@ -39,6 +39,7 @@ const sampleData: SceneListResponse = {
       venue_count: 12,
       upcoming_show_count: 45,
       total_show_count: 200,
+      shows_this_week: 0,
     },
     {
       city: 'Tucson',
@@ -47,6 +48,7 @@ const sampleData: SceneListResponse = {
       venue_count: 1,
       upcoming_show_count: 0,
       total_show_count: 1,
+      shows_this_week: 0,
     },
   ],
   count: 2,

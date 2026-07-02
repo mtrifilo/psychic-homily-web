@@ -18,6 +18,7 @@ const scenes: SceneListItem[] = [
     venue_count: 11,
     upcoming_show_count: 42,
     total_show_count: 180,
+    shows_this_week: 0,
     latitude: 33.448,
     longitude: -112.074,
   },
@@ -28,6 +29,7 @@ const scenes: SceneListItem[] = [
     venue_count: 9,
     upcoming_show_count: 283,
     total_show_count: 337,
+    shows_this_week: 0,
     latitude: 41.88,
     longitude: -87.63,
   },
@@ -39,6 +41,7 @@ const scenes: SceneListItem[] = [
     venue_count: 2,
     upcoming_show_count: 3,
     total_show_count: 3,
+    shows_this_week: 0,
   },
 ]
 

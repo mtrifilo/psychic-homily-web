@@ -10,6 +10,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -17,6 +18,11 @@ import (
 // FestivalService handles festival-related business logic
 type FestivalService struct {
 	db *gorm.DB
+	// geocoder derives the denormalized metro (CBSA) key from a festival's
+	// (city, state, country) on the write paths (PSY-1278) — the same offline
+	// geocoder VenueService/SceneService hold. Stateless; geo.Default() is safe
+	// to share.
+	geocoder geo.Geocoder
 }
 
 // NewFestivalService creates a new festival service
@@ -25,8 +31,22 @@ func NewFestivalService(database *gorm.DB) *FestivalService {
 		database = db.GetDB()
 	}
 	return &FestivalService{
-		db: database,
+		db:       database,
+		geocoder: geo.Default(),
 	}
+}
+
+// festivalMetro derives the CBSA metro pointer for a festival location whose
+// parts may be nil (festival city/state/country are all nullable). Mirrors
+// venue applyGeocoding's deref-then-resolve shape (PSY-1255 step B).
+func (s *FestivalService) festivalMetro(city, state, country *string) *string {
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	return geo.MetroPointer(s.geocoder, deref(city), deref(state), deref(country))
 }
 
 // CreateFestival creates a new festival
@@ -85,13 +105,16 @@ func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (
 		City:         req.City,
 		State:        req.State,
 		Country:      req.Country,
-		StartDate:    req.StartDate,
-		EndDate:      req.EndDate,
-		Website:      req.Website,
-		TicketURL:    req.TicketURL,
-		FlyerURL:     req.FlyerURL,
-		Status:       status,
-		Social:       req.Social,
+		// metro is derived from the location at every write (PSY-1278) — the
+		// reconcile backfill only backstops background writers.
+		Metro:     s.festivalMetro(req.City, req.State, req.Country),
+		StartDate: req.StartDate,
+		EndDate:   req.EndDate,
+		Website:   req.Website,
+		TicketURL: req.TicketURL,
+		FlyerURL:  req.FlyerURL,
+		Status:    status,
+		Social:    req.Social,
 	}
 
 	if err := s.db.Create(festival).Error; err != nil {
@@ -386,6 +409,25 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	}
 	if req.Country != nil {
 		updates["country"] = *req.Country
+	}
+	if req.City != nil || req.State != nil || req.Country != nil {
+		// Location changed: recompute metro from the EFFECTIVE post-update
+		// location (changed values overlaid on the stored ones) and forward it
+		// into the partial-updates map — else a relocated festival keeps the OLD
+		// metro's CBSA and mis-counts in the Atlas scene (PSY-1278, mirroring
+		// UpdateVenue's PSY-1255 step-B treatment). A non-resolving location
+		// writes SQL NULL, not the stale value.
+		effCity, effState, effCountry := festival.City, festival.State, festival.Country
+		if req.City != nil {
+			effCity = req.City
+		}
+		if req.State != nil {
+			effState = req.State
+		}
+		if req.Country != nil {
+			effCountry = req.Country
+		}
+		updates["metro"] = s.festivalMetro(effCity, effState, effCountry)
 	}
 	if req.StartDate != nil {
 		updates["start_date"] = *req.StartDate
