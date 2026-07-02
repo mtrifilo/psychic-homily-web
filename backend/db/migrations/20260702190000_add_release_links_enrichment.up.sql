@@ -25,10 +25,11 @@ CREATE INDEX idx_releases_links_enrich_pending
 --    artists.bandcamp_embed_source.
 ALTER TABLE release_external_links ADD COLUMN source VARCHAR(50);
 
--- 3) Close the concurrent-backfill duplicate race at the DB layer — but ONLY for
+-- 3) Close the concurrent-BACKFILL duplicate race at the DB layer — but ONLY for
 --    enrichment-sourced rows. PSY-1307's pre-write re-check is check-then-act, so
 --    two overlapping live runs could still double-insert. Scoping the unique
---    index to source='mb_backfill' closes that race completely while leaving
+--    index to source='mb_backfill' closes the backfill-vs-backfill race (the
+--    re-check still narrows the backfill-vs-MANUAL window — keep both) while leaving
 --    manual entry unconstrained (an admin may legitimately add two links on the
 --    same platform, e.g. a Bandcamp album page and a track page; stage has zero
 --    same-platform duplicates today, 2026-07-02).

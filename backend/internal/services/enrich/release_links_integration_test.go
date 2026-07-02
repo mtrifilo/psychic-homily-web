@@ -1,6 +1,7 @@
 package enrich
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -197,4 +199,55 @@ func (s *ReleaseLinksIntegrationTestSuite) TestSourceStampAndBackfillUniqueIndex
 	s.Require().NoError(err)
 	_, err = svc.AddExternalLink(r.ID, "bandcamp", "https://x.bandcamp.com/track/manual-2")
 	s.Require().NoError(err, "manual entry stays unconstrained")
+}
+
+// fakeReleaseLinksMB is a canned MB release browser for sweep integration tests.
+type fakeReleaseLinksMB struct {
+	byRG  map[string][]pipeline.MBReleaseResult
+	calls int
+}
+
+func (f *fakeReleaseLinksMB) BrowseReleaseURLRelations(_ context.Context, rgMBID string) ([]pipeline.MBReleaseResult, error) {
+	f.calls++
+	return f.byRG[rgMBID], nil
+}
+
+// PSY-1316 convergence, end-to-end through the REAL store and service (the two
+// halves the unit tests cover separately): cycle 1 fills the link, stamps the
+// memo, and cycle 2 must scan nothing — including the no-link release, which
+// converges purely via the memo.
+func (s *ReleaseLinksIntegrationTestSuite) TestSweepCycleFillsAndConverges() {
+	fillable := s.seedRelease("Fillable", "fillable", rgptr(1))
+	s.seedRelease("No Links In MB", "no-links", rgptr(2))
+
+	rel := pipeline.MBReleaseResult{Status: "Official"}
+	rel.Relations = []pipeline.MBURLRelation{{}}
+	rel.Relations[0].URL.Resource = "https://fillable.bandcamp.com/album/first"
+	mb := &fakeReleaseLinksMB{byRG: map[string][]pipeline.MBReleaseResult{
+		*rgptr(1): {rel},
+		*rgptr(2): {},
+	}}
+
+	sweep := NewReleaseLinksSweep(s.db, mb, catalog.NewReleaseService(s.db))
+	sweep.batch = 25
+	sweep.reattempt = 90 * 24 * time.Hour
+
+	sweep.RunSweepNow(context.Background())
+
+	// Cycle 1: link written with provenance, memo stamped on BOTH candidates.
+	var link catalogm.ReleaseExternalLink
+	s.Require().NoError(s.db.Where("release_id = ?", fillable.ID).First(&link).Error)
+	s.Equal("https://fillable.bandcamp.com/album/first", link.URL)
+	s.Require().NotNil(link.Source)
+	s.Equal("mb_backfill", *link.Source)
+	var reloaded catalogm.Release
+	s.Require().NoError(s.db.First(&reloaded, fillable.ID).Error)
+	s.NotNil(reloaded.LinksEnrichAttemptedAt, "memo stamped via the real store")
+	callsAfterFirst := mb.calls
+
+	// Cycle 2: nothing re-scanned — the stamp round-trips through the candidate
+	// filter (spotify is still missing on both, so WITHOUT the memo they'd both
+	// be re-browsed).
+	sweep.RunSweepNow(context.Background())
+	s.Equal(callsAfterFirst, mb.calls, "second cycle browses nothing — memo converged")
 }

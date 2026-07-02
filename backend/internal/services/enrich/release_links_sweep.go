@@ -30,6 +30,9 @@ const (
 	defaultReleaseLinksSweepInterval  = 24 * time.Hour
 	defaultReleaseLinksSweepBatch     = 25
 	defaultReleaseLinksSweepReattempt = 90 * 24 * time.Hour
+	// maxSweepErrorsLogged caps per-cycle error-detail lines (batch is 25, so a
+	// full-batch outage logs 10 details + a truncation notice, not 50 lines).
+	maxSweepErrorsLogged = 10
 )
 
 // ReleaseLinksSweep is a background ticker service that fills missing release
@@ -100,6 +103,17 @@ func (s *ReleaseLinksSweep) runCycle(ctx context.Context) {
 	}
 	if report.ReleasesScanned == 0 {
 		return
+	}
+	// Surface the error STRINGS, not just a count — in sweep mode this log is the
+	// only place invalid-MBID "repair me" flags and transient-outage detail reach
+	// a human (a stamped batch won't re-attempt for the full re-attempt window).
+	for i, e := range report.Errors {
+		if i >= maxSweepErrorsLogged {
+			s.logger.Warn("release links sweep: further errors truncated",
+				"logged", maxSweepErrorsLogged, "total", len(report.Errors))
+			break
+		}
+		s.logger.Warn("release links sweep error", "detail", e)
 	}
 	s.logger.Info("release links sweep batch done",
 		"scanned", report.ReleasesScanned,

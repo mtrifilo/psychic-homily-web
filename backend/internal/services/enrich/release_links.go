@@ -15,12 +15,15 @@
 // so the lookup browses releases by RG-MBID — one browse (≤10 paginated calls)
 // per distinct RG.
 //
-// Writes go through ReleaseService.AddExternalLink, which also back-fills credited
-// artists' NULL bandcamp_embed_url in the same transaction (PSY-1189) — release
-// link enrichment compounds into artist embeds without extra code here. Because a
-// full run is hours long and release_external_links has NO unique constraint, the
-// live path re-checks link absence immediately before each write (the candidate
-// snapshot alone would race an admin adding a link mid-run).
+// Writes go through ReleaseService.AddExternalLinkWithSource (source=mb_backfill,
+// the audit/mass-revert key), which also back-fills credited artists' NULL
+// bandcamp_embed_url in the same transaction (PSY-1189) — release link enrichment
+// compounds into artist embeds without extra code here. Duplicate protection is
+// two-layer: a partial unique index on (release_id, LOWER(platform)) WHERE
+// source='mb_backfill' closes the concurrent-BACKFILL race at the DB (surfacing
+// as LinksRaced), while the pre-write re-check narrows the backfill-vs-MANUAL
+// window (manual rows are NULL-source, outside the index — an admin may
+// legitimately hold multiple same-platform links).
 package enrich
 
 import (
@@ -112,8 +115,10 @@ type releaseLinkStore interface {
 	// sweep's no-result memo, written BEFORE resolving (poison-row safety).
 	StampLinksAttempted(releaseIDs []uint, at time.Time) error
 	// ReleaseHasPlatformLink re-checks link presence immediately before a write —
-	// the candidate snapshot can be hours stale on a full run, and the table has
-	// no unique constraint to catch the race.
+	// the candidate snapshot can be hours stale on a full run. It narrows the
+	// backfill-vs-manual window; backfill-vs-backfill is closed by the partial
+	// unique index (dup-key → LinksRaced). Do NOT remove this in favor of the
+	// index alone: manual rows are NULL-source and outside the index scope.
 	ReleaseHasPlatformLink(releaseID uint, platform string) (bool, error)
 }
 
@@ -152,9 +157,14 @@ func backfillReleaseLinks(ctx context.Context, store releaseLinkStore, mb MBRele
 
 	// Stamp-before-resolve (sweep mode): the whole batch consumes its re-attempt
 	// window up front, so a mid-cycle crash cannot re-browse the same rows every
-	// cycle forever. Invalid-MBID rows are stamped too — deliberately: they can
-	// never resolve, so burning their window keeps them out of future batches
-	// while the surfaced error (below) flags them for repair.
+	// cycle forever. ACCEPTED trade-off (mirrors PSY-1279): a transient MB
+	// failure or mid-cycle ctx-cancel also burns the batch's window — those rows
+	// self-heal next window, and the sweep logs the error strings so the outage
+	// is visible. Invalid-MBID rows are stamped too — deliberately, and
+	// DIFFERENTLY from the artist sweep (artist_links.go skips them pre-stamp):
+	// unstamped poison rows sort NULLS-FIRST at the head of every batch, so
+	// enough of them would livelock the sweep; burning their window keeps them
+	// out while the surfaced error flags them for repair.
 	if opts.ReattemptWindow > 0 && !opts.DryRun && len(candidates) > 0 {
 		ids := make([]uint, len(candidates))
 		for i := range candidates {
@@ -233,12 +243,13 @@ func backfillReleaseLinks(ctx context.Context, store releaseLinkStore, mb MBRele
 
 // applyReleaseLink records the fill (and writes it on live runs). Returns true
 // when the fill counts toward the report (dry-run always; live only on success).
-// Live writes re-check link absence first: the candidate snapshot can be hours
-// stale (an admin adds a link mid-run) and the table has no unique constraint —
-// a stale write would create a duplicate platform row. NOTE: this is a
-// check-then-act, not atomic with the INSERT — it closes the stale-snapshot
-// window, not a fully concurrent second live run (don't run two live instances
-// at once; a DB unique index is the PSY-1316 follow-up).
+// Live writes re-check link absence first (backfill-vs-manual window), then rely
+// on the backfill-scoped partial unique index for the backfill-vs-backfill race:
+// a dup-key from that index means a concurrent run won — counted LinksRaced, not
+// an error. CAVEAT (pattern: gorm translate error): the driver collapses EVERY
+// unique violation into the bare gorm.ErrDuplicatedKey, so if a future unique
+// index is added to release_external_links its violations would also land in
+// LinksRaced — revisit this classification then.
 func applyReleaseLink(report *ReleaseLinksReport, store releaseLinkStore, writer releaseLinkWriter, cand *releaseLinkCandidate, platform, u string, dryRun bool) bool {
 	if !dryRun {
 		exists, err := store.ReleaseHasPlatformLink(cand.release.ID, platform)
