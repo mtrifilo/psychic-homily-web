@@ -489,9 +489,10 @@ func (s *RadioService) mostActiveShow(stationID uint) (*catalogm.RadioShow, erro
 	return &shows[0], nil
 }
 
-// latestEpisodeForShow returns the show's most recent AIRED episode (air_date
-// DESC, matching GetEpisodes' ordering; id DESC as a stable same-day tiebreak),
-// or nil when the show has none. Aired-only (PSY-1205): the now-playing archive
+// latestEpisodeForShow returns the show's most recent AIRED episode (shared
+// feed ordering, episodeFeedOrderSQL — air window within a day, so it agrees
+// with GetEpisodes and the "Latest playlists" feeds), or nil when the show has
+// none. Aired-only (PSY-1205): the now-playing archive
 // fallback derives its "Latest playlist" date + deep-link from this, and a
 // future-dated placeholder would render "aired {future date}" and link to an
 // empty page. The day-granular date bound can't catch a same-day not-yet-aired
@@ -507,7 +508,7 @@ func (s *RadioService) latestEpisodeForShow(showID uint) (*catalogm.RadioEpisode
 	}
 	var episodes []catalogm.RadioEpisode
 	err = s.db.Where("show_id = ? AND air_date <= ? AND "+airedEpisodeVisibleSQL(""), showID, today, time.Now()).
-		Order("air_date DESC, id DESC").
+		Order(episodeFeedOrderSQL("")).
 		Limit(1).
 		Find(&episodes).Error
 	if err != nil {

@@ -795,11 +795,11 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	}
 
 	var episodes []catalogm.RadioEpisode
-	// id DESC tiebreak so "latest" (episodes[0], drives the show-page ON AIR
-	// strip's live derivation) is deterministic when two episodes share an
-	// air_date (PSY-1152) — matches the dial-wide feed's ordering.
+	// Shared feed ordering so "latest" (episodes[0], drives the show-page ON
+	// AIR strip's live derivation) is deterministic and agrees with the
+	// dial-wide feed when two episodes share an air_date (PSY-1152/PSY-1297).
 	err := s.db.Where("show_id = ?", showID).
-		Order("air_date DESC, id DESC").
+		Order(episodeFeedOrderSQL("")).
 		Limit(limit).
 		Offset(offset).
 		Find(&episodes).Error
@@ -1223,6 +1223,21 @@ func airedEpisodeVisibleSQL(prefix string) string {
 	)
 }
 
+// episodeFeedOrderSQL is the single definition of "latest first" for episode
+// lists (PSY-1297): newest calendar day, then the latest frozen air window
+// (PSY-1238) within it — so same-day rows read latest-aired-first instead of
+// import-order. NULLS LAST keeps windowless rows (pop-ups/off-schedule airings
+// the window stamper deliberately skips, plus providers without times) below
+// the windowed ones rather than scrambling the top; id DESC stays as the final
+// deterministic tiebreaker. Shared by the "Latest playlists" feeds
+// (episodeRows), the per-show archive (GetEpisodes), and the now-playing
+// latest-episode selector (latestEpisodeForShow) so "latest" agrees across
+// surfaces. `prefix` qualifies the columns ("re." in the joined feed query,
+// "" in single-table queries).
+func episodeFeedOrderSQL(prefix string) string {
+	return fmt.Sprintf("%[1]sair_date DESC, %[1]sstarts_at DESC NULLS LAST, %[1]sid DESC", prefix)
+}
+
 // episodeRows is the shared core of the station-scoped and dial-wide feeds.
 func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
 	if s.db == nil {
@@ -1287,7 +1302,7 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 		Select(`re.id, re.title, re.air_date, re.play_count, re.archive_url,
 			rsh.id as show_id, rsh.name as show_name, rsh.slug as show_slug,
 			rst.id as station_id, rst.name as station_name, rst.slug as station_slug`).
-		Order("re.air_date DESC, re.id DESC").
+		Order(episodeFeedOrderSQL("re.")).
 		Limit(limit).
 		Offset(offset).
 		Find(&rows).Error

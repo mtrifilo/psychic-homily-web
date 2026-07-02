@@ -1626,6 +1626,53 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_WFMUFamily
 	}
 }
 
+// TestGetStationEpisodes_SameDayOrderedByAirWindow pins the PSY-1297 feed
+// ordering: within one air_date, episodes sort by the frozen air window
+// (starts_at DESC — latest-aired first, catch-up semantics), NOT by insertion
+// order. Windowless rows (pop-ups/off-schedule airings the window stamper
+// deliberately skips) sort after the windowed ones via NULLS LAST, and a newer
+// air_date still dominates everything.
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_SameDayOrderedByAirWindow() {
+	station := suite.createStation("Order FM")
+	// One show per slot — same-day feed rows are distinct shows in reality, and
+	// the (show_id, air_date, external_id) unique index forbids same-show dupes.
+	morningShow := suite.createShow(station.ID, "Morning Show")
+	middayShow := suite.createShow(station.ID, "Midday Show")
+	eveningShow := suite.createShow(station.ID, "Evening Show")
+	popupShow := suite.createShow(station.ID, "Pop-up Show")
+	nextDayShow := suite.createShow(station.ID, "Next Day Show")
+
+	day := time.Now().UTC().AddDate(0, 0, -2)
+	airDate := day.Format("2006-01-02")
+	window := func(hour int) (*time.Time, *time.Time) {
+		starts := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, time.UTC)
+		ends := starts.Add(time.Hour)
+		return &starts, &ends
+	}
+
+	// Insertion order deliberately contradicts air order: morning first,
+	// evening second, midday third — id DESC alone would read
+	// midday, evening, morning.
+	mStarts, mEnds := window(6)
+	morning := suite.createEpisodeWindowed(morningShow.ID, airDate, mStarts, mEnds, 10)
+	eStarts, eEnds := window(21)
+	evening := suite.createEpisodeWindowed(eveningShow.ID, airDate, eStarts, eEnds, 10)
+	dStarts, dEnds := window(12)
+	midday := suite.createEpisodeWindowed(middayShow.ID, airDate, dStarts, dEnds, 10)
+	// Windowless pop-up on the same day; needs plays to be feed-visible (PSY-1285).
+	popup := suite.createEpisodeWindowed(popupShow.ID, airDate, nil, nil, 3)
+	// A newer calendar day beats every same-day window.
+	newer := suite.createAiredEpisode(nextDayShow.ID, day.AddDate(0, 0, 1).Format("2006-01-02"))
+
+	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(5), total)
+	suite.Require().Len(rows, 5)
+	gotIDs := []uint{rows[0].ID, rows[1].ID, rows[2].ID, rows[3].ID, rows[4].ID}
+	suite.Equal([]uint{newer.ID, evening.ID, midday.ID, morning.ID, popup.ID}, gotIDs,
+		"feed must order air_date DESC, then starts_at DESC NULLS LAST, not import order")
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStationsOnly() {
 	active := suite.createStation("Active FM")
 	dormant := suite.createStation("Dormant FM")
