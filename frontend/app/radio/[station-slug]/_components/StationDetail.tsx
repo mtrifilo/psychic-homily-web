@@ -14,6 +14,7 @@ import {
   useRadioStation,
   NetworkTabBar,
   StationOnAirBox,
+  StationGraph,
   StationPlaylistsFeed,
   StationShowsDirectory,
   StationSidebar,
@@ -179,6 +180,15 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
             <StationShowsDirectory
               stationId={station.id}
               stationSlug={station.slug}
+            />
+            {/* PSY-1299: within-station co-occurrence graph. Keyed by slug so
+                cluster-toggle state resets when NetworkTabBar navigates to a
+                sibling station — the "other" cluster id is shared across
+                stations and would otherwise carry a stale hide over. */}
+            <StationGraph
+              key={station.slug}
+              slug={station.slug}
+              stationName={station.name}
             />
           </div>
           <StationSidebar station={station} />

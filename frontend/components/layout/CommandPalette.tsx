@@ -337,6 +337,21 @@ export function CommandPalette() {
         keywords: ['graph', 'explore', 'network', 'visualize', 'co-bill'],
       })
     }
+    // PSY-1299: station pages are /radio/{slug} (flagship) or
+    // /radio/{slug}/channel/{sub} (network sub-channel); one extra segment
+    // without /channel/ is a SHOW page, and /radio/playlists +
+    // /radio/new-releases are hub pages — none of those carry a graph.
+    const stationMatch = pathname.match(/^(\/radio\/([^/]+)(?:\/channel\/[^/]+)?)$/)
+    if (
+      stationMatch &&
+      !['playlists', 'new-releases'].includes(stationMatch[2])
+    ) {
+      items.push({
+        label: 'Explore graph for this station',
+        href: `${stationMatch[1]}${GRAPH_HASH}`,
+        keywords: ['graph', 'explore', 'network', 'visualize', 'airplay', 'radio'],
+      })
+    }
     return items
   }, [pathname])
 

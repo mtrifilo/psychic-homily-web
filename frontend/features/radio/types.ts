@@ -501,3 +501,66 @@ export interface RadioNowPlaying {
   /** Air date (YYYY-MM-DD) of the fallback episode; null for live payloads. */
   episode_air_date: string | null
 }
+
+/**
+ * GET /radio-stations/{slug}/graph (PSY-1299; backend shipped in PSY-1295).
+ *
+ * Within-station artist co-occurrence subgraph: nodes are the station's
+ * top-N artists by play count, edges are same-episode co-occurrence pairs
+ * filtered through the global disparity-filter backbone. Field shapes are
+ * structural supersets of the shared `GraphNode` / `GraphLink` /
+ * `GraphCluster` interfaces in `components/graph/ForceGraphView`.
+ */
+export interface RadioStationGraphInfo {
+  id: number
+  slug: string
+  name: string
+  /** Nodes in the response (top-N cap applied server-side). */
+  artist_count: number
+  /** Co-occurrence pairs above the min threshold. */
+  edge_count: number
+  /** Active time window ('last_12m' is the server default). */
+  window: 'last_12m' | 'all_time'
+}
+
+/** Artists grouped by the station show they are most played on. */
+export interface RadioStationGraphCluster {
+  /** "rs_<show_id>" or "other". */
+  id: string
+  label: string
+  size: number
+  /** 0-7 = Okabe-Ito palette index; -1 = "other" (grey). */
+  color_index: number
+}
+
+export interface RadioStationGraphNode {
+  id: number
+  name: string
+  slug: string
+  city?: string
+  state?: string
+  upcoming_show_count: number
+  /** Matches RadioStationGraphCluster.id. */
+  cluster_id: string
+  is_isolate: boolean
+  /** Play count on this station within the active window. */
+  play_count: number
+}
+
+export interface RadioStationGraphLink {
+  source_id: number
+  target_id: number
+  /** Always 'radio_cooccurrence'. */
+  type: string
+  score: number
+  /** Carries co_occurrence_count and last_co_occurrence (YYYY-MM-DD). */
+  detail?: unknown
+  is_cross_cluster: boolean
+}
+
+export interface RadioStationGraphResponse {
+  station: RadioStationGraphInfo
+  clusters: RadioStationGraphCluster[]
+  nodes: RadioStationGraphNode[]
+  links: RadioStationGraphLink[]
+}
