@@ -417,6 +417,14 @@ export interface RadioStationEpisodeRow {
   id: number
   title: string | null
   air_date: string
+  /**
+   * Frozen air window (PSY-1238), ISO instants; null for windowless rows
+   * (no-slot pop-ups, providers without times). The feed renders these in the
+   * VIEWER's timezone — date AND time derive from starts_at when present
+   * (PSY-1298); windowless rows fall back to date-only air_date.
+   */
+  starts_at: string | null
+  ends_at: string | null
   play_count: number
   archive_url: string | null
   show_id: number

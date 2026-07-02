@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { BracketLink, DenseTable, SectionHeader } from '@/components/shared'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
-import { formatShortAirDate } from '../lib/stationOverview'
+import { AirDateCellContent, airDateCellText } from './AirDateCell'
 import type { RadioStationDetail, RadioStationEpisodeRow } from '../types'
 
 const INITIAL_LIMIT = 10
@@ -93,16 +93,32 @@ export function StationPlaylistsFeed({ station }: StationPlaylistsFeedProps) {
 function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
   const playlistUrl = `/radio/${row.station_slug}/${row.show_slug}/${row.air_date}`
   const showUrl = `/radio/${row.station_slug}/${row.show_slug}`
+  // PSY-1298: date + time render fully viewer-local from the frozen air
+  // window (stacked under the date, per the approved Figma frame); windowless
+  // rows fall back to the station air_date, date-only. The deep-link stays
+  // keyed on the station-dated air_date — the shown date can differ from the
+  // URL segment for far-from-ET viewers (accepted design tradeoff). The
+  // aria-label composes from the SAME airDateCellText the cell renders
+  // (label-in-name: what a voice-control user says must match what they see).
+  const { dateLine, timeBlock } = airDateCellText(
+    row.starts_at,
+    row.ends_at,
+    row.air_date
+  )
 
   return (
     <tr>
-      <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground">
+      <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
         <Link
           href={playlistUrl}
           className="hover:text-foreground transition-colors"
-          aria-label={`Playlist from ${row.air_date}`}
+          aria-label={`Playlist from ${dateLine}${timeBlock ? `, ${timeBlock}` : ''}`}
         >
-          {formatShortAirDate(row.air_date)}
+          <AirDateCellContent
+            startsAt={row.starts_at}
+            endsAt={row.ends_at}
+            airDate={row.air_date}
+          />
         </Link>
       </td>
       <td>

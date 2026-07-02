@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { DenseTable } from '@/components/shared/DenseTable'
-import { ArtistHops, formatShortAirDate } from '@/features/radio'
+import { AirDateCellContent, ArtistHops } from '@/features/radio'
 import type { RadioStationEpisodeRow } from '@/features/radio'
 
 interface LatestPlaylistsTableProps {
@@ -64,8 +64,14 @@ export function LatestPlaylistsTable({
       <tbody>
         {rows.map(row => (
           <tr key={row.id}>
-            <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground">
-              {formatShortAirDate(row.air_date)}
+            {/* PSY-1298: shared stacked viewer-local date + air-time cell —
+                same AirDateCellContent the station feed renders. */}
+            <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
+              <AirDateCellContent
+                startsAt={row.starts_at}
+                endsAt={row.ends_at}
+                airDate={row.air_date}
+              />
             </td>
             <td className="max-w-[8rem] truncate font-mono text-xs uppercase text-muted-foreground">
               {row.station_name}
