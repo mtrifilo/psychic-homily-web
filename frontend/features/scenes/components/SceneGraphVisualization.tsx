@@ -29,6 +29,7 @@ import { useRouter } from 'next/navigation'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import type { SceneGraphResponse } from '../types'
+import { sceneArtistCountPhrase } from './sceneGraphCopy'
 
 interface SceneGraphVisualizationProps {
   data: SceneGraphResponse
@@ -66,7 +67,10 @@ export function SceneGraphVisualization({
     [router],
   )
 
-  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${data.scene.artist_count} artists, ${data.scene.edge_count} connections.`
+  // PSY-1296: describe a capped graph honestly — assistive tech hears the
+  // exact phrase the visual header shows (shared sceneGraphCopy source), so
+  // the two surfaces can't state different numbers for the same graph.
+  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} connections.`
 
   return (
     <ForceGraphView

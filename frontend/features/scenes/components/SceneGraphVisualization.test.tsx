@@ -102,6 +102,29 @@ describe('SceneGraphVisualization', () => {
     )
   })
 
+  // PSY-1296: assistive tech must hear the same "top N of M" framing the
+  // visual header shows when the PSY-1277 roster cap truncated the node set.
+  it('describes a truncated graph honestly in the aria-label', () => {
+    render(
+      <SceneGraphVisualization
+        data={{
+          ...data,
+          scene: {
+            ...data.scene,
+            metro_roster_total: 90,
+            roster_truncated: true,
+          },
+        }}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'aria-label',
+      'Scene relationship graph for Phoenix, AZ: showing top 12 of 90 artists, 4 connections.'
+    )
+  })
+
   it('forwards graph payload, width, and hidden clusters to ForceGraphView', () => {
     const hidden = new Set(['v_1'])
     render(

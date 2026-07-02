@@ -11,9 +11,12 @@ const mockData: SceneGraphResponse = {
     slug: 'phoenix-az',
     city: 'Phoenix',
     state: 'AZ',
-    artist_count: 12,
+    // artist_count mirrors nodes.length below — the backend guarantees the
+    // two are equal (ArtistCount: len(rows)), and the header renders this
+    // contract field via sceneArtistCountPhrase (PSY-1296).
+    artist_count: 4,
     edge_count: 4,
-    metro_roster_total: 12,
+    metro_roster_total: 4,
     roster_truncated: false,
   },
   clusters: [
@@ -92,6 +95,7 @@ vi.mock('./SceneGraphVisualization', () => ({
 }))
 
 import { SceneGraph } from './SceneGraph'
+import { useSceneGraph } from '../hooks/useScenes'
 
 describe('SceneGraph', () => {
   // Shared immediate ResizeObserver shim so we can drive the >= 640px graph
@@ -100,6 +104,13 @@ describe('SceneGraph', () => {
 
   beforeEach(() => {
     resizeObserver = installImmediateResizeObserver()
+    // Re-seed the default result every test so an override in one test can't
+    // leak into the next (no hidden test-order coupling).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(useSceneGraph).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => ({ data: mockData, isLoading: false, error: null }) as any,
+    )
   })
 
   afterEach(() => {
@@ -112,6 +123,36 @@ describe('SceneGraph', () => {
     expect(screen.getByText(/4 artists/)).toBeInTheDocument()
     expect(screen.getByText(/4 connections/)).toBeInTheDocument()
     expect(screen.getByText(/1 unconnected/)).toBeInTheDocument()
+    // Untruncated roster → plain count, no "top N of M" hint (PSY-1296).
+    expect(screen.queryByText(/showing top/)).not.toBeInTheDocument()
+  })
+
+  // PSY-1296: a graph capped by PSY-1277's top-N roster limit must say so —
+  // a bare count on a capped graph reads as the whole scene.
+  it('shows the "top N of M" hint when the roster was truncated', () => {
+    // NOT mockReturnValueOnce: the container-width measurement re-renders the
+    // component, so the hook is called more than once per mount and the Once
+    // value would only cover the first (pre-measurement) render. beforeEach
+    // restores the default implementation for the next test.
+    vi.mocked(useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: {
+            ...mockData,
+            scene: {
+              ...mockData.scene,
+              metro_roster_total: 90,
+              roster_truncated: true,
+            },
+          },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
+    renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+    expect(screen.getByText(/showing top 4 of 90 artists/)).toBeInTheDocument()
   })
 
   it('hides the canvas below the 640px breakpoint', () => {
