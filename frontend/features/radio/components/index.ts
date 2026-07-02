@@ -9,3 +9,7 @@ export { StationOnAirBox } from './StationOnAirBox'
 export { StationPlaylistsFeed } from './StationPlaylistsFeed'
 export { StationShowsDirectory } from './StationShowsDirectory'
 export { StationSidebar } from './StationSidebar'
+// PSY-1299: station co-occurrence graph section (canvas via shared
+// ForceGraphView). StationGraphVisualization stays feature-internal, matching
+// the SceneGraphVisualization precedent.
+export { StationGraph } from './StationGraph'

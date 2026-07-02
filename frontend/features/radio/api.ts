@@ -25,6 +25,9 @@ export const radioEndpoints = {
     `${API_BASE_URL}/radio-stations/${slug}/top-artists`,
   STATION_TOP_LABELS: (slug: string) =>
     `${API_BASE_URL}/radio-stations/${slug}/top-labels`,
+  // PSY-1299: within-station co-occurrence subgraph (backbone-filtered per PSY-1295)
+  STATION_GRAPH: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/graph`,
 
   // Shows
   SHOWS: `${API_BASE_URL}/radio-shows`,
@@ -61,6 +64,8 @@ export const radioQueryKeys = {
     ['radio-stations', slug, 'top-artists', params] as const,
   stationTopLabels: (slug: string, params?: object) =>
     ['radio-stations', slug, 'top-labels', params] as const,
+  stationGraph: (slug: string) =>
+    ['radio-stations', slug, 'graph'] as const,
   // `sort` is omitted from the key object when absent: an explicit
   // `sort: undefined` property would break React Query's partial matching,
   // so invalidateQueries(shows(stationId)) — e.g. the admin radio mutations —
