@@ -31,10 +31,25 @@ interface GlobeCanvasProps {
    * is open.
    */
   selected?: PlaceableScene | null
+  /**
+   * Imperative fly-the-camera seam (PSY-1308 Drift; reusable by scene search).
+   * A plain ref rather than forwardRef because ref-forwarding through
+   * next/dynamic is unreliable (PSY-1211) — GlobeCanvas fills it with a
+   * function that reads the live GlobeMethods ref LAZILY, so it stays valid
+   * across the PSY-1284 rebuild (which swaps the keyed <Globe> instance under
+   * the same globeRef).
+   */
+  flyToRef?: React.MutableRefObject<((scene: PlaceableScene) => void) | null>
 }
 
 const EARTH_TEXTURE =
   'https://unpkg.com/three-globe/example/img/earth-night.jpg'
+
+// Camera altitude a fly-to lands at — closer than the initial continental POV
+// (1.6–1.8) so arriving somewhere reads as a descent, but high enough that
+// neighbouring scenes stay in frame.
+const FLY_TO_ALTITUDE = 1.0
+const FLY_TO_MS = 1200
 
 // react-globe.gl's hover tooltip (pointLabel) is written to the DOM via
 // innerHTML, so any markup in the contributor-editable city/state must be
@@ -69,6 +84,7 @@ export default function GlobeCanvas({
   pov,
   onSelect,
   selected = null,
+  flyToRef,
 }: GlobeCanvasProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
 
@@ -97,6 +113,30 @@ export default function GlobeCanvas({
     },
     [hoveredSlug],
   )
+
+  // Fill the parent's fly-to seam (PSY-1308). The closure reads globeRef at
+  // call time — never captured — so it aims whichever keyed <Globe> instance
+  // is live, including after a PSY-1284 rebuild. Honors prefers-reduced-motion
+  // with a jump cut instead of the 1.2s flight.
+  useEffect(() => {
+    if (!flyToRef) return
+    flyToRef.current = (scene: PlaceableScene) => {
+      const reduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      globeRef.current?.pointOfView(
+        {
+          lat: scene.latitude,
+          lng: scene.longitude,
+          altitude: FLY_TO_ALTITUDE,
+        },
+        reduced ? 0 : FLY_TO_MS,
+      )
+    }
+    return () => {
+      flyToRef.current = null
+    }
+  }, [flyToRef])
 
   // PSY-1284: heal a globe that comes back frozen after a client-side
   // navigation away from /atlas and back.
@@ -180,6 +220,21 @@ export default function GlobeCanvas({
     [scenes, labelMinCount],
   )
 
+  // PSY-1309: "happening this week" pulse — a slow propagating ring under each
+  // scene with a show in the next 7 days, so a live scene reads differently
+  // from a merely-catalogued one. prefers-reduced-motion suppresses the
+  // animation entirely (empty ringsData) rather than freezing a ring frame.
+  // Memoized by reference for the same geometry-churn reason as labelsData.
+  const pulseScenes = useMemo(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return []
+    }
+    return scenes.filter((s) => s.shows_this_week > 0)
+  }, [scenes])
+
   // `pov` is resolved once in AtlasGlobe BEFORE this canvas mounts, so the
   // camera is aimed exactly once via onGlobeReady — no post-mount re-aim that
   // could snap over a user's in-progress rotation.
@@ -212,10 +267,20 @@ export default function GlobeCanvas({
         pointResolution={18}
         pointLabel={(d) => {
           const s = d as PlaceableScene
-          return `${escapeHtml(s.city)}, ${escapeHtml(s.state)} · ${s.upcoming_show_count} upcoming`
+          const week = s.shows_this_week > 0 ? ` · ${s.shows_this_week} this week` : ''
+          return `${escapeHtml(s.city)}, ${escapeHtml(s.state)} · ${s.upcoming_show_count} upcoming${week}`
         }}
         onPointClick={(d) => onSelect(d as PlaceableScene)}
         onPointHover={handlePointHover}
+        ringsData={pulseScenes}
+        ringLat="latitude"
+        ringLng="longitude"
+        ringAltitude={0.006}
+        ringMaxRadius={1.6}
+        ringPropagationSpeed={0.9}
+        ringRepeatPeriod={2600}
+        ringColor={() => (t: number) => `rgba(255, 122, 60, ${Math.max(0, 0.55 * (1 - t))})`}
+        ringResolution={48}
         labelsData={labelScenes}
         labelLat="latitude"
         labelLng="longitude"

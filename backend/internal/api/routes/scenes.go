@@ -14,6 +14,7 @@ func setupSceneRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/scenes", sceneHandler.ListScenesHandler)
 	huma.Get(rc.API, "/scenes/{slug}", sceneHandler.GetSceneDetailHandler)
 	huma.Get(rc.API, "/scenes/{slug}/artists", sceneHandler.GetSceneActiveArtistsHandler)
+	huma.Get(rc.API, "/scenes/{slug}/shows", sceneHandler.GetSceneShowsHandler)
 	huma.Get(rc.API, "/scenes/{slug}/genres", sceneHandler.GetSceneGenresHandler)
 	huma.Get(rc.API, "/scenes/{slug}/graph", sceneHandler.GetSceneGraphHandler)
 }

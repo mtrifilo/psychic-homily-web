@@ -68,6 +68,14 @@ func ReconcileVenueMetros(db *gorm.DB, g geo.Geocoder, dryRun bool) (*MetroRepor
 	return reconcileMetros(&gormVenueMetroStore{db: db}, g, dryRun)
 }
 
+// ReconcileFestivalMetros recomputes and corrects festivals.metro (PSY-1278).
+func ReconcileFestivalMetros(db *gorm.DB, g geo.Geocoder, dryRun bool) (*MetroReport, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	return reconcileMetros(&gormFestivalMetroStore{db: db}, g, dryRun)
+}
+
 // reconcileMetros is the store-agnostic core: for each row, recompute the metro
 // and write only when it differs from what's stored. Idempotent.
 func reconcileMetros(store metroStore, g geo.Geocoder, dryRun bool) (*MetroReport, error) {
@@ -179,4 +187,28 @@ func (s *gormVenueMetroStore) LoadMetroRows() ([]metroRow, error) {
 
 func (s *gormVenueMetroStore) UpdateMetro(id uint, metro *string) error {
 	return s.db.Model(&catalogm.Venue{}).Where("id = ?", id).Update("metro", metro).Error
+}
+
+type gormFestivalMetroStore struct{ db *gorm.DB }
+
+func (s *gormFestivalMetroStore) LoadMetroRows() ([]metroRow, error) {
+	var festivals []catalogm.Festival
+	// Same shape as the artist store: festival city is nullable, and a row whose
+	// city was cleared after a metro was stamped must still be scanned so the
+	// stale metro gets cleared (see the artist store's rationale).
+	if err := s.db.
+		Where("(city IS NOT NULL AND TRIM(city) <> '') OR metro IS NOT NULL").
+		Order("id").Find(&festivals).Error; err != nil {
+		return nil, err
+	}
+	rows := make([]metroRow, len(festivals))
+	for i := range festivals {
+		f := &festivals[i]
+		rows[i] = metroRow{ID: f.ID, City: derefString(f.City), State: derefString(f.State), Country: derefString(f.Country), Metro: f.Metro}
+	}
+	return rows, nil
+}
+
+func (s *gormFestivalMetroStore) UpdateMetro(id uint, metro *string) error {
+	return s.db.Model(&catalogm.Festival{}).Where("id = ?", id).Update("metro", metro).Error
 }

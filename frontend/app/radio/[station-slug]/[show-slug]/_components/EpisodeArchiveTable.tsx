@@ -4,8 +4,9 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { DenseTable } from '@/components/shared/DenseTable'
 import {
+  AirDateCellContent,
+  airDateCellText,
   ArtistHops,
-  formatArchiveDate,
   isLiveNow,
   previewToHops,
 } from '@/features/radio'
@@ -50,17 +51,30 @@ export function EpisodeArchiveTable({
             ? undefined
             : `/radio/${stationSlug}/${showSlug}/${episode.air_date}`
           const isLive = isLiveNow(episode.starts_at, episode.ends_at)
+          // Same viewer-local date the cell shows — accessible names must not
+          // announce a different day than the rendered text (PSY-1306).
+          const cellDate = airDateCellText(episode.starts_at, episode.ends_at, episode.air_date, {
+            withYear: true,
+          }).dateLine
           const hops = previewToHops(episode.artist_preview)
 
           return (
             <tr key={episode.id} className="group">
-              <td className="whitespace-nowrap">
+              {/* PSY-1306: viewer-local date (+ air-time block) — the same
+                  AirDateCellContent treatment as the playlists feeds, with the
+                  year (archives span years). */}
+              <td className="whitespace-nowrap align-top">
                 <MaybeLink
                   href={episodeUrl}
                   linkedClassName="font-mono text-xs uppercase text-primary hover:text-primary/80 transition-colors"
                   plainClassName="font-mono text-xs uppercase text-muted-foreground"
                 >
-                  {formatArchiveDate(episode.air_date)}
+                  <AirDateCellContent
+                    startsAt={episode.starts_at}
+                    endsAt={episode.ends_at}
+                    airDate={episode.air_date}
+                    withYear
+                  />
                 </MaybeLink>
               </td>
               <td>
@@ -108,7 +122,7 @@ export function EpisodeArchiveTable({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:text-primary/80 transition-colors"
-                    aria-label={`Listen to the ${formatArchiveDate(episode.air_date)} archive`}
+                    aria-label={`Listen to the ${cellDate} archive`}
                   >
                     [ mp3 ]
                   </a>

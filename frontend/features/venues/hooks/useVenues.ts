@@ -221,5 +221,12 @@ export const useVenueBillNetwork = (options: UseVenueBillNetworkOptions) => {
         ? Boolean(venueIdOrSlug)
         : venueIdOrSlug > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes — match useSceneGraph
+    // Window/year changes swap the query key; without previous-data the
+    // section's counts collapse to 0 for the fetch duration, which reads as
+    // tooSparse and — since the filter row lives INSIDE the fullscreen
+    // overlay — would trip useFullscreenGraphOverlay's auto-close and kick
+    // the user out of fullscreen mid-interaction (PSY-1305 review finding).
+    // Matches the placeholderData the sibling venue hooks already use.
+    placeholderData: keepPreviousData,
   })
 }

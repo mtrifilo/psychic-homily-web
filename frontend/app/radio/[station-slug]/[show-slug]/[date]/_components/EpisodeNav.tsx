@@ -1,7 +1,7 @@
 'use client'
 
 import { BracketLink } from '@/components/shared/BracketLink'
-import { formatShortNavDate } from '@/features/radio'
+import { airDateCellText } from '@/features/radio'
 import type { EpisodeNeighbors } from '@/features/radio'
 
 interface EpisodeNavProps {
@@ -21,6 +21,14 @@ interface EpisodeNavProps {
 export function EpisodeNav({ neighbors, showUrl }: EpisodeNavProps) {
   const older = neighbors?.older ?? null
   const newer = neighbors?.newer ?? null
+  // PSY-1306: nav dates render viewer-local (same derivation as the feeds);
+  // hrefs stay keyed on the station-dated air_date.
+  const olderDate = older
+    ? airDateCellText(older.starts_at, older.ends_at, older.air_date).dateLine
+    : ''
+  const newerDate = newer
+    ? airDateCellText(newer.starts_at, newer.ends_at, newer.air_date).dateLine
+    : ''
 
   return (
     <nav
@@ -28,20 +36,20 @@ export function EpisodeNav({ neighbors, showUrl }: EpisodeNavProps) {
       className="flex items-center gap-3 font-mono text-xs"
     >
       <BracketLink
-        label={older ? `◀ ${formatShortNavDate(older.air_date)}` : '◀ older'}
+        label={older ? `◀ ${olderDate}` : '◀ older'}
         href={older ? `${showUrl}/${older.air_date}` : undefined}
         disabled={!older}
         ariaLabel={
-          older ? `Previous episode, ${formatShortNavDate(older.air_date)}` : 'No older episode'
+          older ? `Previous episode, ${olderDate}` : 'No older episode'
         }
         className="text-xs"
       />
       <BracketLink
-        label={newer ? `${formatShortNavDate(newer.air_date)} ▶` : 'newer ▶'}
+        label={newer ? `${newerDate} ▶` : 'newer ▶'}
         href={newer ? `${showUrl}/${newer.air_date}` : undefined}
         disabled={!newer}
         ariaLabel={
-          newer ? `Next episode, ${formatShortNavDate(newer.air_date)}` : 'No newer episode'
+          newer ? `Next episode, ${newerDate}` : 'No newer episode'
         }
         className="text-xs"
       />

@@ -9,6 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
 )
@@ -34,7 +35,9 @@ func (suite *FestivalServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	suite.festivalService = &FestivalService{db: suite.testDB.DB}
+	// geocoder mirrors NewFestivalService — the metro write paths (PSY-1278)
+	// derive festivals.metro through it.
+	suite.festivalService = &FestivalService{db: suite.testDB.DB, geocoder: geo.Default()}
 	suite.artistService = &ArtistService{db: suite.testDB.DB}
 	suite.venueService = &VenueService{db: suite.testDB.DB}
 }
@@ -417,6 +420,46 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_BasicFields
 	suite.Require().NoError(err)
 	suite.Equal("Updated Festival", resp.Name)
 	suite.Equal("confirmed", resp.Status)
+}
+
+// TestFestivalMetroWritePaths covers the PSY-1278 derived-metro stamps: create
+// sets it from the location, a relocating update recomputes it from the
+// EFFECTIVE merged location, and relocating to an unresolvable place clears it
+// to NULL (not the stale value). Asserted on the DB row — metro is an internal
+// derived key, not part of the response contract.
+func (suite *FestivalServiceIntegrationTestSuite) TestFestivalMetroWritePaths() {
+	created := suite.createBasicFestival("Metro Fest") // Phoenix, AZ
+
+	loadMetro := func() *string {
+		var f catalogm.Festival
+		suite.Require().NoError(suite.db.First(&f, created.ID).Error)
+		return f.Metro
+	}
+
+	// Create stamped the Phoenix CBSA.
+	phoenixMetro := loadMetro()
+	suite.Require().NotNil(phoenixMetro, "create must stamp metro for a resolvable US city")
+
+	// Relocate to another metro: state unchanged in the request, so the
+	// recompute must merge the changed city over the stored state.
+	newCity := "Tucson"
+	_, err := suite.festivalService.UpdateFestival(created.ID, &contracts.UpdateFestivalRequest{City: &newCity})
+	suite.Require().NoError(err)
+	tucsonMetro := loadMetro()
+	suite.Require().NotNil(tucsonMetro, "relocation must recompute metro")
+	suite.NotEqual(*phoenixMetro, *tucsonMetro, "Tucson is a different CBSA than Phoenix")
+
+	// Relocate to an unresolvable place: metro clears to NULL, not the stale value.
+	nowhere := "Nowheresville Xyzzy"
+	_, err = suite.festivalService.UpdateFestival(created.ID, &contracts.UpdateFestivalRequest{City: &nowhere})
+	suite.Require().NoError(err)
+	suite.Nil(loadMetro(), "unresolvable location must clear metro to NULL")
+
+	// A non-location update must NOT touch metro (no key in the updates map).
+	newName := "Renamed Metro Fest"
+	_, err = suite.festivalService.UpdateFestival(created.ID, &contracts.UpdateFestivalRequest{Name: &newName})
+	suite.Require().NoError(err)
+	suite.Nil(loadMetro(), "non-location update leaves metro untouched")
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_NameChangeRegeneratesSlug() {

@@ -33,6 +33,7 @@ describe('scene types contract', () => {
       venue_count: 12,
       upcoming_show_count: 45,
       total_show_count: 200,
+      shows_this_week: 0,
     }
     const response: SceneListResponse = { scenes: [item], count: 1 }
 

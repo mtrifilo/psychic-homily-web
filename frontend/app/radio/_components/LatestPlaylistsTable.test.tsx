@@ -87,6 +87,17 @@ describe('LatestPlaylistsTable', () => {
     expect(screen.queryByText('Jun 8')).not.toBeInTheDocument()
   })
 
+  it('falls back to the raw air_date string when the date is unparsable (never a blank cell)', () => {
+    render(
+      <LatestPlaylistsTable
+        rows={[makeRow({ air_date: 'not-a-date' })]}
+        isLoading={false}
+        error={null}
+      />
+    )
+    expect(screen.getByText('not-a-date')).toBeInTheDocument()
+  })
+
   it('renders NO time line for windowless rows (locked decision 4)', () => {
     render(<LatestPlaylistsTable rows={[makeRow()]} isLoading={false} error={null} />)
     const dateCell = screen.getByText('Jun 9').closest('td')

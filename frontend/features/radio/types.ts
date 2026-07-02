@@ -132,6 +132,13 @@ export interface RadioShowListItem {
   episode_count: number
   /** Air date (YYYY-MM-DD) of the show's most recent episode (PSY-1048). */
   latest_air_date: string | null
+  /**
+   * Frozen air window of that same latest visible episode (PSY-1306); null
+   * when the show has no episodes or its latest is windowless. The directory
+   * LAST column renders viewer-local from these, agreeing with the feed.
+   */
+  latest_starts_at: string | null
+  latest_ends_at: string | null
 }
 
 export interface RadioShowDetail {
@@ -206,6 +213,14 @@ export interface RadioEpisodeDetail {
   title: string | null
   air_date: string
   air_time: string | null
+  /**
+   * Frozen air window (PSY-1238) + the station's IANA zone (PSY-1306); the
+   * detail page renders its "aired ..." line viewer-local from the window,
+   * with a station-local aside via the timezone. All null-able.
+   */
+  starts_at: string | null
+  ends_at: string | null
+  station_timezone: string | null
   /** Not-yet-aired (air_date > station-local today), PSY-1205 — the detail page
    *  labels it "upcoming" instead of "aired {date}". */
   is_upcoming: boolean
@@ -508,6 +523,13 @@ export interface RadioNowPlaying {
   recent_artists: RadioEpisodePreviewArtist[]
   /** Air date (YYYY-MM-DD) of the fallback episode; null for live payloads. */
   episode_air_date: string | null
+  /**
+   * The archive episode's frozen air window (PSY-1306); null for live
+   * payloads and windowless episodes. The ON AIR box renders its "Latest
+   * playlist" date viewer-local from these.
+   */
+  episode_starts_at: string | null
+  episode_ends_at: string | null
 }
 
 /**

@@ -171,6 +171,9 @@ func TestRadioBackboneAlpha(t *testing.T) {
 		{name: "negative rejected", env: "-0.2", set: true, want: def},
 		{name: "above one rejected", env: "1.5", set: true, want: def},
 		{name: "garbage rejected", env: "nope", set: true, want: def},
+		// ParseFloat("NaN") succeeds and NaN fails both range checks — needs
+		// the explicit math.IsNaN reject (PSY-1301).
+		{name: "NaN rejected", env: "NaN", set: true, want: def},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

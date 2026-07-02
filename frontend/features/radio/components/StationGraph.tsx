@@ -14,19 +14,16 @@
  * the endpoint's window/limit params are not exposed in the UI yet.
  */
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Maximize2, X } from 'lucide-react'
-import { clusterColorCSS } from '@/components/graph/graphPalette'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Maximize2, X } from 'lucide-react'
+import { ClusterLegend } from '@/components/graph/ClusterLegend'
+import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useStationGraph } from '../hooks/useStationGraph'
 import { StationGraphVisualization } from './StationGraphVisualization'
 
-const GRAPH_BREAKPOINT_PX = 640
 const MIN_GRAPH_NODES = 3
-
-// Overlay vertical reserve: header bar + cluster pill row + padding, matching
-// the SceneGraph overlay tuning.
-const OVERLAY_VERTICAL_RESERVE_PX = 140
 
 interface StationGraphProps {
   slug: string
@@ -37,55 +34,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // The hook owns the empty-slug guard (enabled: Boolean(slug) internally).
   const { data, isLoading } = useStationGraph({ slug })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
-  const [containerWidth, setContainerWidth] = useState<number | null>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [overlayHeight, setOverlayHeight] = useState<number | null>(null)
-  const [overlayWidth, setOverlayWidth] = useState<number | null>(null)
-
-  // Callback ref (not useRef+useEffect): the initial mount often returns null
-  // while data loads, so an effect with [] deps would never measure the node
-  // that mounts later. See SceneGraph.tsx for the full rationale.
-  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return
-    setContainerWidth(node.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  // Overlay side effects: body scroll lock, Esc-to-close, live viewport-size
-  // tracking. Snapshot + restore the previous body overflow value.
-  useEffect(() => {
-    if (!isFullscreen) return
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    const updateDimensions = () => {
-      setOverlayWidth(window.innerWidth)
-      setOverlayHeight(Math.max(200, window.innerHeight - OVERLAY_VERTICAL_RESERVE_PX))
-    }
-    updateDimensions()
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsFullscreen(false)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('resize', updateDimensions)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('resize', updateDimensions)
-    }
-  }, [isFullscreen])
+  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -100,16 +49,15 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
-  // If the viewport shrinks below the breakpoint while the overlay is open,
-  // graphAvailable flips false and the overlay unmounts — without this reset
-  // the user is stranded: body scroll stays locked, the inline copy stays
-  // inert, and re-widening the window pops the overlay back open unprompted.
-  // Adjust-state-during-render (the React-documented alternative to a
-  // setState-in-effect): the reset applies before commit, so the scroll-lock
-  // effect keyed on isFullscreen cleans up in the same pass.
-  if (isFullscreen && !graphAvailable) {
-    setIsFullscreen(false)
-  }
+  // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
+  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  const {
+    isFullscreen,
+    open: openFullscreen,
+    close: closeFullscreen,
+    overlayWidth,
+    overlayHeight,
+  } = useFullscreenGraphOverlay(graphAvailable)
 
   // Deliver the `#graph` deep-link: the anchor mounts only after two async
   // fetches (station, then graph), so the browser's native fragment scroll
@@ -144,42 +92,14 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     })
   }
 
-  // Cluster legend pills — one per station show; same markup inline and in
-  // the overlay so toggle behavior, ARIA, and colors stay in one place.
-  const clusterLegend = data.clusters.length > 0 && (
-    <div className="flex flex-wrap gap-1.5">
-      {data.clusters.map(cluster => {
-        const hidden = hiddenClusters.has(cluster.id)
-        return (
-          <button
-            key={cluster.id}
-            onClick={() => toggleCluster(cluster.id)}
-            aria-pressed={!hidden}
-            className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-opacity ${
-              hidden ? 'opacity-40' : 'opacity-100'
-            }`}
-            style={{
-              borderColor: clusterColorCSS(cluster.color_index),
-              color: clusterColorCSS(cluster.color_index),
-            }}
-            title={hidden ? `Show ${cluster.label}` : `Hide ${cluster.label}`}
-          >
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: clusterColorCSS(cluster.color_index) }}
-            />
-            <span className="text-foreground/85">
-              {cluster.label} ({cluster.size})
-            </span>
-            {hidden ? (
-              <EyeOff className="h-3 w-3" aria-hidden="true" />
-            ) : (
-              <Eye className="h-3 w-3" aria-hidden="true" />
-            )}
-          </button>
-        )
-      })}
-    </div>
+  // Cluster legend pills — one per station show; the shared component keeps
+  // toggle behavior, ARIA, and colors identical inline and in the overlay.
+  const clusterLegend = (
+    <ClusterLegend
+      clusters={data.clusters}
+      hiddenClusterIDs={hiddenClusters}
+      onToggle={toggleCluster}
+    />
   )
 
   // Expand only renders when graphAvailable, which inherits the mobile gate —
@@ -187,7 +107,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   const expandButton = graphAvailable && !isFullscreen && (
     <button
       type="button"
-      onClick={() => setIsFullscreen(true)}
+      onClick={openFullscreen}
       className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
       aria-label="Expand airplay graph to fullscreen"
     >
@@ -269,7 +189,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
             {stationHeader}
             <button
               type="button"
-              onClick={() => setIsFullscreen(false)}
+              onClick={closeFullscreen}
               className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border/60 hover:bg-muted/50 transition-colors"
               aria-label="Exit fullscreen airplay graph"
             >

@@ -229,6 +229,12 @@ type RadioShowListResponse struct {
 	// LatestAirDate is the air date (YYYY-MM-DD) of the show's most recent
 	// episode, nil when the show has no episodes (PSY-1048).
 	LatestAirDate *string `json:"latest_air_date"`
+	// LatestStartsAt/LatestEndsAt are the frozen air window of that same
+	// latest visible episode (PSY-1306) — nil when the show has no episodes
+	// or the latest one is windowless. The frontend renders the directory's
+	// LAST column viewer-local from these, agreeing with the playlists feed.
+	LatestStartsAt *time.Time `json:"latest_starts_at"`
+	LatestEndsAt   *time.Time `json:"latest_ends_at"`
 }
 
 // ──────────────────────────────────────────────
@@ -307,6 +313,13 @@ type RadioEpisodeDetailResponse struct {
 	Title           *string             `json:"title"`
 	AirDate         string              `json:"air_date"`
 	AirTime         *string             `json:"air_time"`
+	// StartsAt/EndsAt are the frozen air window (PSY-1238), nil for windowless
+	// episodes; StationTimezone is the station's IANA zone (nil when unset).
+	// The detail page renders its "aired ..." line viewer-local from the
+	// window, with a station-local aside via the timezone (PSY-1306).
+	StartsAt        *time.Time          `json:"starts_at"`
+	EndsAt          *time.Time          `json:"ends_at"`
+	StationTimezone *string             `json:"station_timezone"`
 	// IsUpcoming marks a not-yet-aired episode (air_date > station-local today),
 	// PSY-1205 — the detail page labels it "upcoming" instead of "aired {date}".
 	IsUpcoming      bool                `json:"is_upcoming"`
@@ -424,6 +437,11 @@ type RadioNowPlayingResponse struct {
 	// EpisodeAirDate (YYYY-MM-DD) is the air date of the archived episode the
 	// payload was derived from; nil for live payloads.
 	EpisodeAirDate *string `json:"episode_air_date"`
+	// EpisodeStartsAt/EpisodeEndsAt are that episode's frozen air window
+	// (PSY-1306) — nil for live payloads and windowless episodes. The ON AIR
+	// box renders its "Latest playlist" date viewer-local from these.
+	EpisodeStartsAt *time.Time `json:"episode_starts_at"`
+	EpisodeEndsAt   *time.Time `json:"episode_ends_at"`
 }
 
 // ──────────────────────────────────────────────

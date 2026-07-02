@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { EpisodeNav } from './EpisodeNav'
 import type { EpisodeNeighbors, RadioEpisodeListItem } from '@/features/radio'
+import { localIso } from '@/features/radio/lib/localIso.testutil'
 
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [key: string]: unknown }) => (
@@ -44,6 +45,36 @@ describe('EpisodeNav', () => {
     expect(
       screen.getByRole('link', { name: 'Next episode, Jun 9' })
     ).toHaveAttribute('href', `${SHOW_URL}/2026-06-09`)
+  })
+
+  it('renders viewer-local neighbor dates from the air window (PSY-1306)', () => {
+    // air_date differs from the window's local day: discriminates the
+    // starts_at-derived label; hrefs stay station-dated.
+    const windowed = {
+      ...makeEpisode(5, '2026-06-08'),
+      starts_at: localIso(2026, 5, 9, 15),
+      ends_at: localIso(2026, 5, 9, 18),
+    }
+    render(
+      <EpisodeNav
+        neighbors={{
+          older: windowed,
+          newer: {
+            ...makeEpisode(7, '2026-06-15'),
+            starts_at: localIso(2026, 5, 16, 9),
+            ends_at: localIso(2026, 5, 16, 12),
+          },
+        }}
+        showUrl={SHOW_URL}
+      />
+    )
+    expect(
+      screen.getByRole('link', { name: 'Previous episode, Jun 9' })
+    ).toHaveAttribute('href', `${SHOW_URL}/2026-06-08`)
+    // newer arm derives the same way (separately-written expression — pin it)
+    expect(
+      screen.getByRole('link', { name: 'Next episode, Jun 16' })
+    ).toHaveAttribute('href', `${SHOW_URL}/2026-06-15`)
   })
 
   it('disables the newer bracket at the newest episode', () => {

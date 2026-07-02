@@ -190,8 +190,12 @@ func (suite *SceneServiceIntegrationTestSuite) createFestival(name, city, state 
 		EditionYear: 2026,
 		City:        stringPtr(city),
 		State:       stringPtr(state),
-		StartDate:   "2026-03-01",
-		EndDate:     "2026-03-03",
+		// Mirror the production write paths, which stamp the derived metro
+		// alongside the location (PSY-1278) — the scene festival_count is
+		// metro-keyed for metro scenes.
+		Metro:     seedMetro(city, state),
+		StartDate: "2026-03-01",
+		EndDate:   "2026-03-03",
 	}
 	err := suite.db.Create(festival).Error
 	suite.Require().NoError(err)
@@ -276,6 +280,65 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MeetsThreshold() {
 	suite.GreaterOrEqual(scene.VenueCount, 2)
 	suite.GreaterOrEqual(scene.TotalShowCount, 3)
 	suite.GreaterOrEqual(scene.UpcomingShowCount, 3)
+}
+
+// TestListScenes_ShowsThisWeek (PSY-1309): the ≤7-day slice counts only shows
+// inside [now, now+7d). Dates are owned by this test and kept WELL clear of the
+// window boundary — seedSceneData's first show sits at exactly now+7d, which
+// races the service's own clock (its weekAhead is computed milliseconds later).
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeek() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	a := suite.createArtist("Week Band")
+
+	now := time.Now().UTC()
+	// In-window: +2d and +3d. Out-of-window: +10/+11/+12d (they also carry the
+	// scene past the 3-show listing threshold).
+	suite.createApprovedShow("This Week 1", v1.ID, a.ID, user.ID, now.AddDate(0, 0, 2))
+	suite.createApprovedShow("This Week 2", v2.ID, a.ID, user.ID, now.AddDate(0, 0, 3))
+	suite.createApprovedShow("Later 1", v1.ID, a.ID, user.ID, now.AddDate(0, 0, 10))
+	suite.createApprovedShow("Later 2", v2.ID, a.ID, user.ID, now.AddDate(0, 0, 11))
+	suite.createApprovedShow("Later 3", v1.ID, a.ID, user.ID, now.AddDate(0, 0, 12))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal(2, scenes[0].ShowsThisWeek, "only the two <7d shows count")
+	suite.Equal(5, scenes[0].UpcomingShowCount, "this-week shows are also upcoming")
+}
+
+// TestGetSceneUpcomingShows (PSY-1309): soonest-first within the window,
+// limit-capped, metro-scoped (a member-city show counts), and windowed (a
+// beyond-window show doesn't).
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows() {
+	venues, artists := suite.seedSceneData() // Phoenix; its 5 shows sit at 7–11d (outside a 7d window)
+	user := suite.createUser()
+	tempe := suite.createVerifiedVenue("Yucca Tap Room", "Tempe", "AZ") // Phoenix-CBSA member city
+
+	now := time.Now().UTC()
+	suite.createApprovedShow("Day 3 Show", venues[0].ID, artists[0].ID, user.ID, now.AddDate(0, 0, 3))
+	suite.createApprovedShow("Day 1 Tempe Show", tempe.ID, artists[1].ID, user.ID, now.AddDate(0, 0, 1))
+	suite.createApprovedShow("Day 5 Show", venues[1].ID, artists[2].ID, user.ID, now.AddDate(0, 0, 5))
+
+	shows, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 7, 3)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 3)
+	// Soonest first — and the Tempe (member-city) show is included AND first.
+	suite.Equal("Day 1 Tempe Show", shows[0].Title)
+	suite.Equal("Yucca Tap Room", shows[0].VenueName)
+	suite.Equal("Day 3 Show", shows[1].Title)
+	suite.Equal("Day 5 Show", shows[2].Title)
+
+	// Limit caps the list (the 7–11d seed shows would qualify in a 30d window).
+	capped, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 30, 2)
+	suite.Require().NoError(err)
+	suite.Len(capped, 2)
+
+	// Unknown scene → typed not-found.
+	_, err = suite.sceneService.GetSceneUpcomingShows("Nowhere", "ZZ", 7, 3)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "scene not found")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_IncludesGeocodedCoords() {
@@ -610,6 +673,20 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_FestivalCount(
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
 	suite.Require().NoError(err)
 	suite.Equal(2, detail.Stats.FestivalCount)
+}
+
+// TestGetSceneDetail_FestivalCountMetroRollup is the PSY-1278 payoff: a festival
+// held in a metro MEMBER city (Tempe → Phoenix CBSA) counts toward the metro's
+// scene, while a festival in another metro does not.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_FestivalCountMetroRollup() {
+	suite.seedSceneData()
+	suite.createFestival("M3F Fest", "Phoenix", "AZ")
+	suite.createFestival("Tempe Beach Fest", "Tempe", "AZ")   // Phoenix-CBSA member city
+	suite.createFestival("Denver Riot Fest", "Denver", "CO") // different metro entirely
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Equal(2, detail.Stats.FestivalCount, "principal-city + member-city festivals count; other metros don't")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseShowsByMonth() {

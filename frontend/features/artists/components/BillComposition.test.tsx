@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { ArtistBillComposition } from '../types'
 
 // Above-threshold mock with two opens-with rows + one closes-with row.
@@ -70,48 +71,18 @@ vi.mock('./ArtistGraph', () => ({
 
 import { BillComposition } from './BillComposition'
 
-// Same pattern as RelatedArtists.test.tsx — drive container width through a
-// synchronous ResizeObserver so the >= 640px graph gate can be exercised.
-let mockContainerWidth = 1024
-
-function setMockContainerWidth(width: number) {
-  mockContainerWidth = width
-}
-
-class ImmediateResizeObserver {
-  private callback: ResizeObserverCallback
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback
-  }
-  observe(target: Element): void {
-    this.callback(
-      [
-        {
-          target,
-          contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
-        } as ResizeObserverEntry,
-      ],
-      this as unknown as ResizeObserver
-    )
-  }
-  unobserve(): void {}
-  disconnect(): void {}
-}
+// Shared immediate ResizeObserver shim (PSY-1305) — drive container width so
+// the >= 640px graph gate can be exercised.
 
 describe('BillComposition', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  let ro: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    ro = installImmediateResizeObserver()
   })
 
   afterEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = originalResizeObserver
+    ro.restore()
   })
 
   it('renders the section header and stats', () => {
@@ -144,7 +115,7 @@ describe('BillComposition', () => {
   })
 
   it('hides the Explore graph button below the 640px breakpoint', () => {
-    setMockContainerWidth(500)
+    ro.setWidth(500)
     renderWithProviders(<BillComposition artistId={1} />)
     expect(screen.queryByText('Explore graph')).not.toBeInTheDocument()
   })
@@ -206,18 +177,14 @@ describe('BillComposition', () => {
 })
 
 describe('BillComposition — defaultCollapsed (PSY-644)', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const originalResizeObserver = (window as any).ResizeObserver
+  let ro: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
-    setMockContainerWidth(1024)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = ImmediateResizeObserver
+    ro = installImmediateResizeObserver()
   })
 
   afterEach(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).ResizeObserver = originalResizeObserver
+    ro.restore()
   })
 
   it('renders only the header with a [Show] toggle when defaultCollapsed', () => {
