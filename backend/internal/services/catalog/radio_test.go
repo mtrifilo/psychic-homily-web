@@ -1661,7 +1661,9 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_SameDayOrd
 	midday := suite.createEpisodeWindowed(middayShow.ID, airDate, dStarts, dEnds, 10)
 	// Windowless pop-up on the same day; needs plays to be feed-visible (PSY-1285).
 	popup := suite.createEpisodeWindowed(popupShow.ID, airDate, nil, nil, 3)
-	// A newer calendar day beats every same-day window.
+	// A newer calendar day beats every same-day window. createAiredEpisode
+	// stamps starts_at = now-72h — deliberately OLDER than every same-day
+	// window above — which is what proves air_date dominates starts_at.
 	newer := suite.createAiredEpisode(nextDayShow.ID, day.AddDate(0, 0, 1).Format("2006-01-02"))
 
 	rows, total, err := suite.radioService.GetStationEpisodes(station.ID, 10, 0)
@@ -1671,6 +1673,83 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_SameDayOrd
 	gotIDs := []uint{rows[0].ID, rows[1].ID, rows[2].ID, rows[3].ID, rows[4].ID}
 	suite.Equal([]uint{newer.ID, evening.ID, midday.ID, morning.ID, popup.ID}, gotIDs,
 		"feed must order air_date DESC, then starts_at DESC NULLS LAST, not import order")
+}
+
+// TestGetEpisodes_SameDayAiredBeatsFutureWindow pins the future-window sink on
+// the UNGATED per-show archive (PSY-1297): GetEpisodes shows upcoming rows by
+// design (PSY-1205), so without the sink a pre-published later-today episode
+// (future starts_at = the largest timestamp) would deterministically become
+// episodes[0] — which drives the show page's "latest" pick, whose is_upcoming
+// check is day-granular and can't skip a today-dated future row.
+func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_SameDayAiredBeatsFutureWindow() {
+	station := suite.createStation("Archive FM")
+	show := suite.createShow(station.ID, "Twice A Day")
+
+	now := time.Now().UTC()
+	airDate := now.Format("2006-01-02")
+	extID := func(s string) *string { return &s }
+
+	// Pre-published placeholder for a slot later today, imported FIRST (lower id)...
+	futureStarts := now.Add(2 * time.Hour)
+	futureEnds := now.Add(3 * time.Hour)
+	future := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		StartsAt: &futureStarts, EndsAt: &futureEnds,
+		ExternalID: extID("tonight"),
+	}
+	suite.Require().NoError(suite.db.Create(future).Error)
+	// ...then the already-aired morning episode, imported after airing (higher id).
+	airedStarts := now.Add(-4 * time.Hour)
+	airedEnds := now.Add(-3 * time.Hour)
+	aired := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		StartsAt: &airedStarts, EndsAt: &airedEnds,
+		PlayCount: 12, ExternalID: extID("morning"),
+	}
+	suite.Require().NoError(suite.db.Create(aired).Error)
+
+	episodes, total, err := suite.radioService.GetEpisodes(show.ID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(episodes, 2)
+	suite.Equal(aired.ID, episodes[0].ID,
+		"same-day aired episode must outrank the not-yet-aired future window for episodes[0]")
+	suite.Equal(future.ID, episodes[1].ID)
+}
+
+// TestLatestEpisodeForShow_SameDayWindowedBeatsWindowlessPopup pins the
+// accepted PSY-1297 tradeoff on the LIMIT-1 now-playing selector: when a show
+// has, on one day, both a windowed slot episode and a windowless off-schedule
+// extra (imported later, higher id), NULLS LAST picks the windowed one — the
+// scheduled playlist is the archive fallback's "latest". The old id-DESC
+// ordering picked whichever imported last.
+func (suite *RadioServiceIntegrationTestSuite) TestLatestEpisodeForShow_SameDayWindowedBeatsWindowlessPopup() {
+	station := suite.createStation("Fallback FM")
+	show := suite.createShow(station.ID, "Slot And Popup")
+
+	day := time.Now().UTC().AddDate(0, 0, -1)
+	airDate := day.Format("2006-01-02")
+	extID := func(s string) *string { return &s }
+
+	starts := time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.UTC)
+	ends := starts.Add(time.Hour)
+	windowed := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		StartsAt: &starts, EndsAt: &ends,
+		PlayCount: 8, ExternalID: extID("slot"),
+	}
+	suite.Require().NoError(suite.db.Create(windowed).Error)
+	popup := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		PlayCount: 5, ExternalID: extID("popup"),
+	}
+	suite.Require().NoError(suite.db.Create(popup).Error)
+
+	got, err := suite.radioService.latestEpisodeForShow(show.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got)
+	suite.Equal(windowed.ID, got.ID,
+		"windowed slot episode wins over the same-day windowless pop-up (accepted PSY-1297 tradeoff)")
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStationsOnly() {

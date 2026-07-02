@@ -799,7 +799,7 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	// AIR strip's live derivation) is deterministic and agrees with the
 	// dial-wide feed when two episodes share an air_date (PSY-1152/PSY-1297).
 	err := s.db.Where("show_id = ?", showID).
-		Order(episodeFeedOrderSQL("")).
+		Order(episodeLatestFirstOrderSQL("")).
 		Limit(limit).
 		Offset(offset).
 		Find(&episodes).Error
@@ -860,8 +860,13 @@ func (s *RadioService) GetEpisodeByShowAndDate(showID uint, airDate string) (*co
 	}
 
 	var episode catalogm.RadioEpisode
+	// Same-day siblings are legal ((show_id, air_date, external_id) index);
+	// day-keyed URLs can't address them individually, so resolve to the same
+	// same-day winner the list surfaces rank first (PSY-1297) rather than
+	// First's arbitrary pick.
 	err := s.db.Preload("Show.Station").
 		Where("show_id = ? AND air_date = ?", showID, airDate).
+		Order(episodeLatestFirstOrderSQL("")).
 		First(&episode).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1223,19 +1228,32 @@ func airedEpisodeVisibleSQL(prefix string) string {
 	)
 }
 
-// episodeFeedOrderSQL is the single definition of "latest first" for episode
-// lists (PSY-1297): newest calendar day, then the latest frozen air window
-// (PSY-1238) within it — so same-day rows read latest-aired-first instead of
-// import-order. NULLS LAST keeps windowless rows (pop-ups/off-schedule airings
-// the window stamper deliberately skips, plus providers without times) below
-// the windowed ones rather than scrambling the top; id DESC stays as the final
-// deterministic tiebreaker. Shared by the "Latest playlists" feeds
-// (episodeRows), the per-show archive (GetEpisodes), and the now-playing
-// latest-episode selector (latestEpisodeForShow) so "latest" agrees across
-// surfaces. `prefix` qualifies the columns ("re." in the joined feed query,
-// "" in single-table queries).
-func episodeFeedOrderSQL(prefix string) string {
-	return fmt.Sprintf("%[1]sair_date DESC, %[1]sstarts_at DESC NULLS LAST, %[1]sid DESC", prefix)
+// episodeLatestFirstOrderSQL is the single definition of "latest first" for
+// episode lists (PSY-1297): newest calendar day; within a day, aired rows
+// before not-yet-aired ones, then the latest frozen air window (PSY-1238) — so
+// same-day rows read latest-aired-first instead of import-order. The
+// future-window sink (the CASE key) exists for the UNGATED per-show archive:
+// GetEpisodes shows upcoming rows by design (PSY-1205), and without the sink a
+// pre-published later-today row would deterministically beat the already-aired
+// one for episodes[0] (which drives the show page's "latest" pick — its
+// is_upcoming check is day-granular and can't skip a today-dated future row).
+// On the gated surfaces (episodeRows, latestEpisodeForShow) the sink is a
+// no-op: airedEpisodeVisibleSQL already excludes future-windowed rows. NULLS
+// LAST keeps windowless rows (pop-ups/off-schedule airings the window stamper
+// deliberately skips, plus providers without times) below the windowed ones
+// rather than scrambling the top; id DESC stays as the final deterministic
+// tiebreaker. Used by the "Latest playlists" feeds (episodeRows), the per-show
+// archive (GetEpisodes), the now-playing latest-episode selector
+// (latestEpisodeForShow), and the by-date detail lookup
+// (GetEpisodeByShowAndDate) so they all pick the same same-day winner.
+// `prefix` qualifies the columns ("re." in the joined feed query, "" in
+// single-table queries) and MUST be a compile-time literal — the result is
+// interpolated into ORDER BY unparameterized.
+func episodeLatestFirstOrderSQL(prefix string) string {
+	return fmt.Sprintf(
+		"%[1]sair_date DESC, CASE WHEN %[1]sstarts_at > now() THEN 1 ELSE 0 END, %[1]sstarts_at DESC NULLS LAST, %[1]sid DESC",
+		prefix,
+	)
 }
 
 // episodeRows is the shared core of the station-scoped and dial-wide feeds.
@@ -1302,7 +1320,7 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 		Select(`re.id, re.title, re.air_date, re.play_count, re.archive_url,
 			rsh.id as show_id, rsh.name as show_name, rsh.slug as show_slug,
 			rst.id as station_id, rst.name as station_name, rst.slug as station_slug`).
-		Order(episodeFeedOrderSQL("re.")).
+		Order(episodeLatestFirstOrderSQL("re.")).
 		Limit(limit).
 		Offset(offset).
 		Find(&rows).Error
