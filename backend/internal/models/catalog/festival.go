@@ -30,23 +30,29 @@ const (
 
 // Festival represents a music festival (distinct from a show — multi-day, tiered billing, multi-venue)
 type Festival struct {
-	ID           uint             `gorm:"primaryKey"`
-	Name         string           `gorm:"not null"`
-	Slug         string           `gorm:"not null;uniqueIndex"`
-	SeriesSlug   string           `gorm:"column:series_slug;not null"`
-	EditionYear  int              `gorm:"column:edition_year;not null"`
-	Description  *string          `gorm:"column:description"`
-	LocationName *string          `gorm:"column:location_name"`
-	City         *string          `gorm:"column:city"`
-	State        *string          `gorm:"column:state"`
-	Country      *string          `gorm:"column:country"`
-	StartDate    string           `gorm:"column:start_date;type:date;not null"`
-	EndDate      string           `gorm:"column:end_date;type:date;not null"`
-	Website      *string          `gorm:"column:website"`
-	TicketURL    *string          `gorm:"column:ticket_url"`
-	FlyerURL     *string          `gorm:"column:flyer_url"`
-	Status       FestivalStatus   `gorm:"column:status;not null;default:'announced'"`
-	Social       *json.RawMessage `gorm:"column:social;type:jsonb;default:'{}'"`
+	ID           uint    `gorm:"primaryKey"`
+	Name         string  `gorm:"not null"`
+	Slug         string  `gorm:"not null;uniqueIndex"`
+	SeriesSlug   string  `gorm:"column:series_slug;not null"`
+	EditionYear  int     `gorm:"column:edition_year;not null"`
+	Description  *string `gorm:"column:description"`
+	LocationName *string `gorm:"column:location_name"`
+	City         *string `gorm:"column:city"`
+	State        *string `gorm:"column:state"`
+	Country      *string `gorm:"column:country"`
+	// Metro is the derived US Census CBSA code the festival's (city, state,
+	// country) resolves to (PSY-1278, mirroring artists/venues from PSY-1255
+	// step B). Set on the write paths via geo.MetroPointer and reconciled by
+	// cmd/backfill-entity-metro; NULL when the location doesn't resolve. Keys
+	// the scene festival_count so member-city festivals count toward the metro.
+	Metro     *string          `gorm:"column:metro"`
+	StartDate string           `gorm:"column:start_date;type:date;not null"`
+	EndDate   string           `gorm:"column:end_date;type:date;not null"`
+	Website   *string          `gorm:"column:website"`
+	TicketURL *string          `gorm:"column:ticket_url"`
+	FlyerURL  *string          `gorm:"column:flyer_url"`
+	Status    FestivalStatus   `gorm:"column:status;not null;default:'announced'"`
+	Social    *json.RawMessage `gorm:"column:social;type:jsonb;default:'{}'"`
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
