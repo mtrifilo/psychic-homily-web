@@ -55,6 +55,12 @@ type Release struct {
 	// Internal lookup key, not mapped onto any API response.
 	MusicBrainzReleaseGroupID *string `json:"-" gorm:"column:musicbrainz_release_group_id;size:36"`
 
+	// LinksEnrichAttemptedAt is the release-links sweep's no-result memo
+	// (PSY-1316): stamped before each MB url-rel attempt so the no-link /
+	// single-platform tail isn't re-browsed every cycle. Mirrors
+	// artists.links_enrich_attempted_at.
+	LinksEnrichAttemptedAt *time.Time `json:"-" gorm:"column:links_enrich_attempted_at"`
+
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
 	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
@@ -88,10 +94,16 @@ func (ArtistRelease) TableName() string {
 
 // ReleaseExternalLink represents a link to an external platform for a release
 type ReleaseExternalLink struct {
-	ID        uint      `gorm:"primaryKey"`
-	ReleaseID uint      `gorm:"not null"`
-	Platform  string    `gorm:"not null"`
-	URL       string    `gorm:"not null"`
+	ID        uint   `gorm:"primaryKey"`
+	ReleaseID uint   `gorm:"not null"`
+	Platform  string `gorm:"not null"`
+	URL       string `gorm:"not null"`
+	// Source is the link's provenance: NULL/nil = manual (admin dialog, create
+	// funnel); "mb_backfill" = written by the MusicBrainz url-rel enrichment
+	// (PSY-1316) — auditable and mass-revertible, and covered by a partial
+	// unique index on (release_id, LOWER(platform)) that closes the
+	// concurrent-backfill duplicate race.
+	Source    *string   `gorm:"size:50"`
 	CreatedAt time.Time `gorm:"not null"`
 }
 

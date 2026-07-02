@@ -2,12 +2,15 @@ package enrich
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -76,7 +79,7 @@ func (s *ReleaseLinksIntegrationTestSuite) TestCandidateSelection() {
 		catalogm.ReleaseExternalLink{Platform: "discogs", URL: "https://www.discogs.com/release/1"})
 
 	store := &gormReleaseLinkStore{db: s.db}
-	got, err := store.ReleaseLinkCandidates(0)
+	got, err := store.ReleaseLinkCandidates(0, nil)
 	s.Require().NoError(err)
 
 	byID := map[uint]releaseLinkCandidate{}
@@ -112,7 +115,7 @@ func (s *ReleaseLinksIntegrationTestSuite) TestLimitCapsCandidatesNotRows() {
 	cand2 := s.seedRelease("Candidate 2", "cand2", rgptr(4))
 
 	store := &gormReleaseLinkStore{db: s.db}
-	got, err := store.ReleaseLinkCandidates(2)
+	got, err := store.ReleaseLinkCandidates(2, nil)
 	s.Require().NoError(err)
 	s.Require().Len(got, 2, "limit window holds candidates, not already-complete rows")
 	s.Equal(cand1.ID, got[0].release.ID)
@@ -132,4 +135,66 @@ func (s *ReleaseLinksIntegrationTestSuite) TestReleaseHasPlatformLink() {
 	has, err = store.ReleaseHasPlatformLink(r.ID, contracts.MusicPlatformSpotify)
 	s.Require().NoError(err)
 	s.False(has)
+}
+
+// PSY-1316: the sweep-mode memo filter — recently-attempted releases drop out,
+// stale/never-attempted stay, ordered NULLs-first.
+func (s *ReleaseLinksIntegrationTestSuite) TestCandidatesMemoFilter() {
+	recent := time.Now().Add(-1 * time.Hour)
+	stale := time.Now().Add(-100 * 24 * time.Hour)
+
+	never := s.seedRelease("Never Tried", "never", rgptr(1))
+	tried := s.seedRelease("Recently Tried", "recent", rgptr(2))
+	s.Require().NoError(s.db.Table("releases").Where("id = ?", tried.ID).
+		Update("links_enrich_attempted_at", recent).Error)
+	staleTried := s.seedRelease("Stale Tried", "stale", rgptr(3))
+	s.Require().NoError(s.db.Table("releases").Where("id = ?", staleTried.ID).
+		Update("links_enrich_attempted_at", stale).Error)
+
+	store := &gormReleaseLinkStore{db: s.db}
+	cutoff := time.Now().Add(-90 * 24 * time.Hour)
+	got, err := store.ReleaseLinkCandidates(0, &cutoff)
+	s.Require().NoError(err)
+
+	s.Require().Len(got, 2, "recently-attempted release excluded")
+	s.Equal(never.ID, got[0].release.ID, "NULLs first")
+	s.Equal(staleTried.ID, got[1].release.ID)
+}
+
+func (s *ReleaseLinksIntegrationTestSuite) TestStampLinksAttempted() {
+	r := s.seedRelease("Stampable", "stampable", rgptr(1))
+	store := &gormReleaseLinkStore{db: s.db}
+	at := time.Now()
+	s.Require().NoError(store.StampLinksAttempted([]uint{r.ID}, at))
+
+	var got catalogm.Release
+	s.Require().NoError(s.db.First(&got, r.ID).Error)
+	s.Require().NotNil(got.LinksEnrichAttemptedAt)
+	s.WithinDuration(at, *got.LinksEnrichAttemptedAt, time.Second)
+}
+
+// PSY-1316: enrichment writes carry source=mb_backfill; the partial unique index
+// rejects a second backfill row for the same (release, platform) but leaves
+// manual (NULL-source) rows unconstrained.
+func (s *ReleaseLinksIntegrationTestSuite) TestSourceStampAndBackfillUniqueIndex() {
+	r := s.seedRelease("Sourced", "sourced", rgptr(1))
+	svc := catalog.NewReleaseService(s.db)
+
+	_, err := svc.AddExternalLinkWithSource(r.ID, "bandcamp", "https://x.bandcamp.com/album/a", "mb_backfill")
+	s.Require().NoError(err)
+	var link catalogm.ReleaseExternalLink
+	s.Require().NoError(s.db.Where("release_id = ?", r.ID).First(&link).Error)
+	s.Require().NotNil(link.Source)
+	s.Equal("mb_backfill", *link.Source)
+
+	// second backfill row for the same platform → unique-index dup-key
+	_, err = svc.AddExternalLinkWithSource(r.ID, "bandcamp", "https://x.bandcamp.com/album/b", "mb_backfill")
+	s.Require().Error(err)
+	s.True(shared.IsDuplicateKey(err), "backfill-scoped unique index fires as a duplicate key")
+
+	// manual rows (NULL source) are NOT constrained — two same-platform manual adds succeed
+	_, err = svc.AddExternalLink(r.ID, "bandcamp", "https://x.bandcamp.com/album/manual-1")
+	s.Require().NoError(err)
+	_, err = svc.AddExternalLink(r.ID, "bandcamp", "https://x.bandcamp.com/track/manual-2")
+	s.Require().NoError(err, "manual entry stays unconstrained")
 }

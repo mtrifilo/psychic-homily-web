@@ -88,23 +88,24 @@ type ServiceContainer struct {
 	PasswordValidator *auth.PasswordValidator
 
 	// DB + Config composite services
-	Auth                *auth.AuthService
-	JWT                 *auth.JWTService
-	AppleAuth           *auth.AppleAuthService
-	Extraction          *pipeline.ExtractionService
-	WebAuthn            *auth.WebAuthnService // nil if init fails (passkeys optional)
-	Cleanup             *adminsvc.CleanupService
-	DataSync            *adminsvc.DataSyncService
-	Discovery           *pipeline.DiscoveryService
-	Reminder            *engagement.ReminderService
-	Enrichment          *pipeline.EnrichmentService
-	EnrichmentWorker    *pipeline.EnrichmentWorker
-	ImageEnrichSweep    *imageenrich.ImageEnrichmentSweep
+	Auth                   *auth.AuthService
+	JWT                    *auth.JWTService
+	AppleAuth              *auth.AppleAuthService
+	Extraction             *pipeline.ExtractionService
+	WebAuthn               *auth.WebAuthnService // nil if init fails (passkeys optional)
+	Cleanup                *adminsvc.CleanupService
+	DataSync               *adminsvc.DataSyncService
+	Discovery              *pipeline.DiscoveryService
+	Reminder               *engagement.ReminderService
+	Enrichment             *pipeline.EnrichmentService
+	EnrichmentWorker       *pipeline.EnrichmentWorker
+	ImageEnrichSweep       *imageenrich.ImageEnrichmentSweep
 	ArtistLocationSweep    *enrich.ArtistLocationSweep
 	ArtistDiscographySweep *discography.ArtistDiscographySweep
 	ArtistLinksSweep       *enrich.ArtistLinksSweep
+	ReleaseLinksSweep      *enrich.ReleaseLinksSweep
 	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
-	AutoPromotion       *adminsvc.AutoPromotionService
+	AutoPromotion          *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 }
@@ -219,6 +220,11 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	entityRequestSvc := community.NewEntityRequestService(database)
 	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc, festivalSvc, showSvc)
 
+	// PSY-1316: release-links sweep (Phase A). Same shared mbClient (PSY-1208);
+	// auto-applies fill-when-empty via ReleaseService.AddExternalLinkWithSource
+	// (source=mb_backfill).
+	releaseLinksSweep := enrich.NewReleaseLinksSweep(database, mbClient, releaseSvc)
+
 	// PSY-289: wire the comment notifier into the comment service so new
 	// comments fan out notification emails fire-and-forget.
 	commentSvc := engagement.NewCommentService(database, utils.NewMarkdownRenderer())
@@ -310,23 +316,24 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		PasswordValidator: auth.NewPasswordValidator(),
 
 		// DB + Config composite services
-		Auth:                auth.NewAuthService(database, cfg, userService),
-		JWT:                 jwtService,
-		AppleAuth:           auth.NewAppleAuthService(database, cfg, jwtService),
-		Extraction:          extraction,
-		WebAuthn:            webauthnService,
-		Cleanup:             adminsvc.NewCleanupService(database, userService),
-		DataSync:            adminsvc.NewDataSyncService(database),
-		Discovery:           discovery,
-		Reminder:            engagement.NewReminderService(database, email, cfg),
-		Enrichment:          enrichmentSvc,
-		EnrichmentWorker:    enrichmentWorker,
-		ImageEnrichSweep:    imageEnrichSweep,
-		ImageEnrichOutbox:   imageEnrichOutbox,
+		Auth:                   auth.NewAuthService(database, cfg, userService),
+		JWT:                    jwtService,
+		AppleAuth:              auth.NewAppleAuthService(database, cfg, jwtService),
+		Extraction:             extraction,
+		WebAuthn:               webauthnService,
+		Cleanup:                adminsvc.NewCleanupService(database, userService),
+		DataSync:               adminsvc.NewDataSyncService(database),
+		Discovery:              discovery,
+		Reminder:               engagement.NewReminderService(database, email, cfg),
+		Enrichment:             enrichmentSvc,
+		EnrichmentWorker:       enrichmentWorker,
+		ImageEnrichSweep:       imageEnrichSweep,
+		ImageEnrichOutbox:      imageEnrichOutbox,
 		ArtistLocationSweep:    artistLocationSweep,
 		ArtistDiscographySweep: artistDiscographySweep,
 		ArtistLinksSweep:       artistLinksSweep,
+		ReleaseLinksSweep:      releaseLinksSweep,
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
-		CollectionDigest:    engagement.NewCollectionDigestService(database, email, cfg),
+		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 	}
 }

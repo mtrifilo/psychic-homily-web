@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,13 +23,21 @@ type fakeReleaseLinkStore struct {
 	// report the link as present.
 	nowLinked map[string]bool
 	recheck   []string // every (releaseID/platform) the core re-checked before writing
+	stamped   []uint   // release ids stamped via StampLinksAttempted
+	gotCutoff *time.Time
 }
 
-func (f *fakeReleaseLinkStore) ReleaseLinkCandidates(limit int) ([]releaseLinkCandidate, error) {
+func (f *fakeReleaseLinkStore) ReleaseLinkCandidates(limit int, reattemptCutoff *time.Time) ([]releaseLinkCandidate, error) {
+	f.gotCutoff = reattemptCutoff
 	if limit > 0 && limit < len(f.candidates) {
 		return f.candidates[:limit], nil
 	}
 	return f.candidates, nil
+}
+
+func (f *fakeReleaseLinkStore) StampLinksAttempted(releaseIDs []uint, at time.Time) error {
+	f.stamped = append(f.stamped, releaseIDs...)
+	return nil
 }
 
 func (f *fakeReleaseLinkStore) ReleaseHasPlatformLink(releaseID uint, platform string) (bool, error) {
@@ -50,15 +61,21 @@ func (f *fakeReleaseBrowser) BrowseReleaseURLRelations(_ context.Context, rgMBID
 }
 
 type fakeLinkWriter struct {
-	writes []ReleaseLinkFill
-	failOn string // platform to fail on ("" = never)
+	writes  []ReleaseLinkFill
+	sources []string
+	failOn  string // platform to fail on ("" = never)
+	dupOn   string // platform to fail with a duplicate-key error ("" = never)
 }
 
-func (f *fakeLinkWriter) AddExternalLink(releaseID uint, platform, url string) (*contracts.ReleaseExternalLinkResponse, error) {
+func (f *fakeLinkWriter) AddExternalLinkWithSource(releaseID uint, platform, url, source string) (*contracts.ReleaseExternalLinkResponse, error) {
+	if platform == f.dupOn {
+		return nil, gorm.ErrDuplicatedKey
+	}
 	if platform == f.failOn {
 		return nil, fmt.Errorf("boom")
 	}
 	f.writes = append(f.writes, ReleaseLinkFill{ReleaseID: releaseID, Platform: platform, URL: url})
+	f.sources = append(f.sources, source)
 	return &contracts.ReleaseExternalLinkResponse{Platform: platform, URL: url}, nil
 }
 
@@ -354,4 +371,89 @@ func TestBackfillReleaseLinks_FailedRGSiblingsCounted(t *testing.T) {
 	assert.Len(t, report.Errors, 1, "one error for the failed browse")
 	assert.Equal(t, 2, report.ReleasesSkippedFailedRG, "siblings appear in the report arithmetic")
 	assert.Equal(t, 0, report.ReleasesNoLinks)
+}
+
+func TestBackfillReleaseLinks_SweepModeStampsBeforeResolveAndPassesCutoff(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "A", rgA, false, false),
+		candidate(2, "Corrupted", "not-a-uuid", false, false), // stamped anyway (never resolves)
+	}}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://a.bandcamp.com/album/a", false),
+		}}},
+	}}
+	writer := &fakeLinkWriter{}
+
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer,
+		ReleaseLinksOptions{ReattemptWindow: 90 * 24 * time.Hour})
+	require.NoError(t, err)
+
+	require.NotNil(t, store.gotCutoff, "sweep mode passes a re-attempt cutoff to the store")
+	assert.ElementsMatch(t, []uint{1, 2}, store.stamped, "whole batch stamped up front, incl. invalid-MBID rows")
+	assert.Equal(t, 1, report.FilledBandcamp)
+	assert.Len(t, report.Errors, 1, "invalid MBID still surfaced")
+}
+
+func TestBackfillReleaseLinks_ManualModeNoStampNoCutoff(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "A", rgA, false, false),
+	}}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://a.bandcamp.com/album/a", false),
+		}}},
+	}}
+
+	_, err := backfillReleaseLinks(context.Background(), store, browser, &fakeLinkWriter{}, ReleaseLinksOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, store.gotCutoff, "manual mode is memo-agnostic")
+	assert.Empty(t, store.stamped, "manual mode never stamps")
+}
+
+func TestBackfillReleaseLinks_DryRunSweepModeNeverStamps(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "A", rgA, false, false),
+	}}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{rgA: {}}}
+
+	_, err := backfillReleaseLinks(context.Background(), store, browser, nil,
+		ReleaseLinksOptions{DryRun: true, ReattemptWindow: time.Hour})
+	require.NoError(t, err)
+	assert.Empty(t, store.stamped, "dry-run writes nothing, including the memo")
+}
+
+func TestBackfillReleaseLinks_WritesCarryBackfillSource(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "A", rgA, false, false),
+	}}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://a.bandcamp.com/album/a", false),
+		}}},
+	}}
+	writer := &fakeLinkWriter{}
+
+	_, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
+	require.NoError(t, err)
+	require.Len(t, writer.sources, 1)
+	assert.Equal(t, "mb_backfill", writer.sources[0], "enrichment rows carry provenance")
+}
+
+func TestBackfillReleaseLinks_DuplicateKeyCountsAsRaced(t *testing.T) {
+	store := &fakeReleaseLinkStore{candidates: []releaseLinkCandidate{
+		candidate(1, "A", rgA, false, false),
+	}}
+	browser := &fakeReleaseBrowser{byRG: map[string][]pipeline.MBReleaseResult{
+		rgA: {{Status: "Official", Relations: []pipeline.MBURLRelation{
+			mbRel("https://a.bandcamp.com/album/a", false),
+		}}},
+	}}
+	writer := &fakeLinkWriter{dupOn: contracts.MusicPlatformBandcamp}
+
+	report, err := backfillReleaseLinks(context.Background(), store, browser, writer, ReleaseLinksOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, report.FilledBandcamp)
+	assert.Equal(t, 1, report.LinksRaced, "unique-index collision = concurrent run raced us, not an error")
+	assert.Empty(t, report.Errors)
 }
