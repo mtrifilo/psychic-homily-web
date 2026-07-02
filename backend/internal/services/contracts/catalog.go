@@ -751,11 +751,13 @@ type SceneGraphResponse struct {
 
 // SceneGraphInfo holds scene metadata for the graph response.
 type SceneGraphInfo struct {
-	Slug        string `json:"slug"`
-	City        string `json:"city"`
-	State       string `json:"state"`
-	ArtistCount int    `json:"artist_count"` // total artists in the scene (includes isolates)
-	EdgeCount   int    `json:"edge_count"`   // total edges in the response (post type-filter)
+	Slug             string `json:"slug"`
+	City             string `json:"city"`
+	State            string `json:"state"`
+	ArtistCount      int    `json:"artist_count"`        // artists in the response (top-N cap applied)
+	EdgeCount        int    `json:"edge_count"`          // total edges in the response (post type-filter)
+	MetroRosterTotal int    `json:"metro_roster_total"`  // full based-in metro roster before top-N cap
+	RosterTruncated  bool   `json:"roster_truncated"`    // true when metro_roster_total > artist_count
 }
 
 // SceneGraphCluster groups artists in the scene. v1 cluster signal is the
