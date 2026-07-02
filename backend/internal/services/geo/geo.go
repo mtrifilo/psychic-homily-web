@@ -196,6 +196,113 @@ func MetroPrincipalByCBSA(cbsa string) (MetroPrincipal, bool) {
 	return defaultGeo.metroPrincipal(cbsa)
 }
 
+// MetroPlace is a (city, state) home location within a US CBSA.
+type MetroPlace struct {
+	City  string
+	State string // 2-letter admin1 for US rows
+}
+
+// MetroMemberPlaces returns the distinct (city, state) places that belong to a US
+// CBSA, drawn from the embedded GeoNames/Census dataset (cities.tsv). Used by
+// scene roster matching (PSY-1237) so artists with NULL artists.metro but a home
+// city inside the metro still appear on the metro scene — Brooklyn and New York
+// City both roll up to CBSA 35620 without a hand-curated alias map. ok is false
+// when the CBSA is unknown or has no member rows in the dataset.
+func MetroMemberPlaces(cbsa string) ([]MetroPlace, bool) {
+	Default()
+	return defaultGeo.metroMemberPlaces(cbsa)
+}
+
+func (g *offlineGeocoder) metroMemberPlaces(cbsa string) ([]MetroPlace, bool) {
+	rows := g.byMetro[strings.TrimSpace(cbsa)]
+	if len(rows) == 0 {
+		return nil, false
+	}
+	type groupKey struct {
+		fold, admin1 string
+	}
+	groups := make(map[groupKey]map[string]struct{})
+	for _, r := range rows {
+		if r.name == "" || r.admin1 == "" {
+			continue
+		}
+		gk := groupKey{fold: foldKey(r.name), admin1: strings.ToUpper(r.admin1)}
+		if gk.fold == "" {
+			continue
+		}
+		if groups[gk] == nil {
+			groups[gk] = make(map[string]struct{})
+		}
+		for _, variant := range placeMatchBindVariants(r.name) {
+			groups[gk][variant] = struct{}{}
+		}
+	}
+	out := make([]MetroPlace, 0, len(groups))
+	for gk, names := range groups {
+		for name := range names {
+			out = append(out, MetroPlace{City: name, State: gk.admin1})
+		}
+	}
+	return out, true
+}
+
+// placeMatchBindVariants returns city spellings to bind in roster SQL equality
+// checks. Includes the canonical name plus abbreviation/full-form variants (St.↔Saint,
+// etc.) so contributor-entered homes match dataset names under LOWER(TRIM(...)).
+func placeMatchBindVariants(city string) []string {
+	city = strings.TrimSpace(city)
+	if city == "" {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		k := strings.ToLower(s)
+		if _, ok := seen[k]; ok {
+			return
+		}
+		seen[k] = struct{}{}
+		out = append(out, s)
+	}
+	add(city)
+	key := foldKey(city)
+	fields := strings.Fields(key)
+	if len(fields) < 2 {
+		return out
+	}
+	rest := titleWords(strings.Join(fields[1:], " "))
+	switch fields[0] {
+	case "saint":
+		add("Saint " + rest)
+		add("St. " + rest)
+		add("St " + rest)
+	case "fort":
+		add("Fort " + rest)
+		add("Ft. " + rest)
+		add("Ft " + rest)
+	case "mount":
+		add("Mount " + rest)
+		add("Mt. " + rest)
+		add("Mt " + rest)
+	}
+	return out
+}
+
+func titleWords(s string) string {
+	parts := strings.Fields(s)
+	for i, p := range parts {
+		if len(p) == 0 {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
 // metroPrincipal selects the highest-population member city of a CBSA. The
 // Census principal city of a metro is (by construction) its largest, so max
 // population is the right pick — and it sidesteps parsing the multi-city

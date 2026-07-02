@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -11,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/community"
+	"psychic-homily-backend/internal/services/discography"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/enrich"
 	exploresvc "psychic-homily-backend/internal/services/explore"
@@ -18,6 +20,7 @@ import (
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/ratelimit"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/sourceregistry"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/utils"
@@ -97,8 +100,10 @@ type ServiceContainer struct {
 	Enrichment          *pipeline.EnrichmentService
 	EnrichmentWorker    *pipeline.EnrichmentWorker
 	ImageEnrichSweep    *imageenrich.ImageEnrichmentSweep
-	ArtistLocationSweep *enrich.ArtistLocationSweep
-	ImageEnrichOutbox   *imageenrich.ImageEnrichOutboxPoller
+	ArtistLocationSweep    *enrich.ArtistLocationSweep
+	ArtistDiscographySweep *discography.ArtistDiscographySweep
+	ArtistLinksSweep       *enrich.ArtistLinksSweep
+	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
 	AutoPromotion       *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
@@ -155,6 +160,31 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// fresh Bandcamp resolver (stateless, no global rate limit) handles the fallback.
 	locationBandcamp := catalog.NewBandcampProfileResolver()
 	artistLocationSweep := enrich.NewArtistLocationSweep(database, locationBandcamp, mbClient)
+
+	// PSY-1291: artist-discography sweep (Phase A). Reuses the SAME shared mbClient
+	// (PSY-1208) so MusicBrainz browse stays under the one ~1 req/s throttle.
+	coverArtClient := catalog.NewCoverArtArchiveClient()
+	artistDiscographySweep := discography.NewArtistDiscographySweep(database, mbClient, coverArtClient)
+
+	// PSY-1292 (Phase B): eager discography import when musicbrainz_artist_id is first
+	// written. NB the flag is shared with the Phase-A sweep on purpose — ENABLE_ARTIST_
+	// DISCOGRAPHY_SWEEP is the discography-enrichment FEATURE switch, so =1 turns on BOTH
+	// the nightly sweep AND these per-MBID-stamp imports (off the request goroutine).
+	if os.Getenv("ENABLE_ARTIST_DISCOGRAPHY_SWEEP") == "1" {
+		shared.OnArtistMBIDStamped = func(artistID uint) {
+			shared.GoSafe(context.Background(), "artist_discography_on_mbid", func() {
+				if _, err := discography.ImportArtistDiscographyByID(
+					context.Background(), database, mbClient, coverArtClient, artistID,
+				); err != nil {
+					log.Printf("on-mbid discography import failed for artist %d: %v", artistID, err)
+				}
+			})
+		}
+	}
+
+	// PSY-1279: artist-links sweep (Phase A). Reuses the SAME shared mbClient
+	// (PSY-1208); auto-applies fill-when-empty via ArtistService.UpdateArtist.
+	artistLinksSweep := enrich.NewArtistLinksSweep(database, mbClient, artist)
 
 	// PSY-1251 (Phase B): on-create location/MBID enrichment for interactively-created
 	// artists. NB the flag is shared with the Phase-A sweep on purpose — ENABLE_ARTIST_
@@ -293,8 +323,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		EnrichmentWorker:    enrichmentWorker,
 		ImageEnrichSweep:    imageEnrichSweep,
 		ImageEnrichOutbox:   imageEnrichOutbox,
-		ArtistLocationSweep: artistLocationSweep,
-		AutoPromotion:       adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
+		ArtistLocationSweep:    artistLocationSweep,
+		ArtistDiscographySweep: artistDiscographySweep,
+		ArtistLinksSweep:       artistLinksSweep,
+		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:    engagement.NewCollectionDigestService(database, email, cfg),
 	}
 }

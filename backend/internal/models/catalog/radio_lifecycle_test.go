@@ -187,6 +187,55 @@ func TestNormalizeScheduledPlaylistState(t *testing.T) {
 	}
 }
 
+// TestNormalizeWindowHealPlaylistState pins PSY-1287: a false give-up from the
+// windowless era is cleared once a real air window is assigned.
+func TestNormalizeWindowHealPlaylistState(t *testing.T) {
+	start := time.Date(2026, 6, 28, 3, 0, 0, 0, time.UTC)
+	ptr := func(tm time.Time) *time.Time { return &tm }
+
+	cases := []struct {
+		name                 string
+		hadWindow            bool
+		starts               *time.Time
+		state                string
+		attempts, playCount  int
+		wantState            string
+		wantAttempts         int
+	}{
+		{"new window + unavailable + no plays → pending, 0", false, ptr(start), RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStatePending, 0},
+		{"new window + pending with attempts → pending, 0", false, ptr(start), RadioPlaylistStatePending, 2, 0, RadioPlaylistStatePending, 0},
+		{"already had window → untouched", true, ptr(start), RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStateUnavailable, 5},
+		{"still windowless → untouched", false, nil, RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStateUnavailable, 5},
+		{"new window but has plays → untouched", false, ptr(start), RadioPlaylistStateUnavailable, 5, 3, RadioPlaylistStateUnavailable, 5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotState, gotAttempts := NormalizeWindowHealPlaylistState(tc.hadWindow, tc.starts, tc.state, tc.attempts, tc.playCount)
+			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
+				t.Errorf("got (%q,%d), want (%q,%d)", gotState, gotAttempts, tc.wantState, tc.wantAttempts)
+			}
+		})
+	}
+}
+
+// TestNormalizeStrandedWindowlessPlaylistState pins PSY-1287 candidate reopening.
+func TestNormalizeStrandedWindowlessPlaylistState(t *testing.T) {
+	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 28, 9, 0, 0, 0, time.UTC)
+	ptr := func(tm time.Time) *time.Time { return &tm }
+
+	gotState, gotAttempts := NormalizeStrandedWindowlessPlaylistState(nil, RadioPlaylistStateUnavailable, 5, 0, now)
+	if gotState != RadioPlaylistStatePending || gotAttempts != 0 {
+		t.Errorf("windowless unavailable → (%q,%d), want (pending,0)", gotState, gotAttempts)
+	}
+
+	unchState, unchAttempts := NormalizeStrandedWindowlessPlaylistState(ptr(start), RadioPlaylistStateUnavailable, 5, 0, now)
+	if unchState != RadioPlaylistStateUnavailable || unchAttempts != 5 {
+		t.Errorf("windowed row untouched → (%q,%d)", unchState, unchAttempts)
+	}
+}
+
 // TestWindowForDate locks the PSY-1238 schedule→air-window mapping: a WFMU
 // episode's frozen [starts_at, ends_at] is built from the matching weekday slot
 // in the schedule's timezone, with overnight wrap, DST-correct instants, and a

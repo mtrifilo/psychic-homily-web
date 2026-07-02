@@ -102,14 +102,28 @@ func (sc sceneScope) venuePredicate(alias string) (string, []any) {
 // city/state match for a fallback scene — plus its positional bind args. The
 // city/state branch is case-insensitive + trimmed; an artist with a NULL/blank
 // home city is excluded (we can't claim they're based here). For a metro scene,
-// roster membership comes from the denormalized artists.metro column (backfilled
-// by cmd/backfill-entity-metro) and does NOT require a local show.
-func (sc sceneScope) artistPredicate(alias string) (string, []any) {
-	if sc.isMetro() {
-		return alias + ".metro = ?", []any{sc.metro}
+// roster membership is primarily artists.metro = CBSA (PSY-1255); PSY-1237 also
+// matches NULL-metro artists whose home (city, state) is any CBSA member place
+// from the geo dataset (Brooklyn↔New York City, Cambridge↔Boston, etc.).
+func (s *SceneService) artistPredicate(scope sceneScope, alias string) (string, []any) {
+	if scope.isMetro() {
+		pred := alias + ".metro = ?"
+		args := []any{scope.metro}
+		if members, ok := geo.MetroMemberPlaces(scope.metro); ok && len(members) > 0 {
+			orParts := make([]string, 0, len(members))
+			for _, m := range members {
+				orParts = append(orParts,
+					"(LOWER(TRIM("+alias+".city)) = LOWER(TRIM(?)) AND LOWER(TRIM("+alias+".state)) = LOWER(TRIM(?)))")
+				args = append(args, m.City, m.State)
+			}
+			nullMetro := alias + ".metro IS NULL AND " + alias + ".city IS NOT NULL AND " + alias + ".city <> '' AND " +
+				alias + ".state IS NOT NULL AND " + alias + ".state <> ''"
+			pred = "(" + pred + " OR (" + nullMetro + " AND (" + strings.Join(orParts, " OR ") + ")))"
+		}
+		return pred, args
 	}
 	return "LOWER(TRIM(" + alias + ".city)) = LOWER(TRIM(?)) AND LOWER(TRIM(" + alias + ".state)) = LOWER(TRIM(?))",
-		[]any{sc.city, sc.state}
+		[]any{scope.city, scope.state}
 }
 
 // verifiedVenueCount counts the scene's verified venues — the existence gate
@@ -243,7 +257,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	now := time.Now().UTC()
 	scope := s.scopeFor(city, state)
 	vp, vargs := scope.venuePredicate("v")
-	ap, aargs := scope.artistPredicate("a2")
+	ap, aargs := s.artistPredicate(scope, "a2")
 	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
 	// across queries) followed by extra args, in placeholder order.
 	venueArgs := func(extra ...any) []any { return append(append([]any{}, vargs...), extra...) }
@@ -420,7 +434,7 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 		return nil, 0, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 	activeCutoff := time.Now().UTC().AddDate(0, 0, -activeWindowDays)
 
 	// Total roster size = every band based in the metro.
@@ -576,7 +590,7 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 	}
 
 	scope := s.scopeFor(city, state)
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 
 	type genreRow struct {
 		TagID uint   `gorm:"column:tag_id"`
@@ -632,7 +646,7 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 	}
 
 	scope := s.scopeFor(city, state)
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 
 	type genreRow struct {
 		Count int `gorm:"column:count"`
@@ -807,7 +821,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 
 	// 1a. Total roster size (every band based in the metro), independent of the
 	//     node cap — drives the TotalArtistCount / Truncated fields below.
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 	var totalRoster int64
 	if err := s.db.Raw(`SELECT COUNT(*) FROM artists a WHERE `+ap, aargs...).Scan(&totalRoster).Error; err != nil {
 		return nil, fmt.Errorf("failed to count scene artists: %w", err)
@@ -880,7 +894,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	// 5. Query in-scope relationships — both endpoints in the scene's artist set.
 	var links []sceneRelationshipRow
 	if !noEdgesByFilter {
-		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, resolvedTypes)
+		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, resolvedTypes, RadioBackboneAlpha())
 		if err != nil {
 			return nil, fmt.Errorf("failed to query scene relationships: %w", err)
 		}
@@ -1001,7 +1015,7 @@ func sortStringsAsc(s []string) {
 // exactly the clutter the graph-density work removes, so this loses little
 // graph signal. Truncation is surfaced by the caller (Truncated flag + log).
 func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope, limit int) ([]sceneArtistRow, error) {
-	ap, aargs := scope.artistPredicate("a")
+	ap, aargs := s.artistPredicate(scope, "a")
 	vp, vargs := scope.venuePredicate("v")
 	const q = `
 		WITH scene_artists AS (
@@ -1077,7 +1091,16 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope, limit
 // DeriveSharedBills minShows default), so no `min_weight` query parameter is
 // needed at v1. Shared by the scene graph (PSY-367) and the festival graph
 // (PSY-1080).
-func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []string) ([]sceneRelationshipRow, error) {
+//
+// backboneAlpha applies the PSY-1293 disparity-filter backbone to the dense
+// radio_cooccurrence edges: when alpha > 0, a radio_cooccurrence edge is kept
+// only if its backbone_significance < alpha (NULL significance = not in the
+// backbone = dropped); non-radio relationship types are always kept. alpha <= 0
+// disables the filter entirely (all edges kept, the pre-PSY-1293 behavior) — the
+// festival graph passes 0 as the backbone is a scene-scale tool (see the ego
+// treatment in GetArtistGraph, which UNIONs the backbone rather than replacing
+// its top-k floor).
+func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []string, backboneAlpha float64) ([]sceneRelationshipRow, error) {
 	if len(artistIDs) < 2 {
 		return nil, nil
 	}
@@ -1087,6 +1110,10 @@ func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []strin
 		Where("source_artist_id IN ? AND target_artist_id IN ?", artistIDs, artistIDs)
 	if len(types) > 0 {
 		q = q.Where("relationship_type IN ?", types)
+	}
+	if backboneAlpha > 0 {
+		q = q.Where("relationship_type <> ? OR backbone_significance < ?",
+			catalogm.RelationshipTypeRadioCooccurrence, backboneAlpha)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, err

@@ -152,3 +152,38 @@ func TestDisparitySignificance_CanonicalKeyOrderIndependent(t *testing.T) {
 		}
 	}
 }
+
+// RadioBackboneAlpha (PSY-1293): env-tunable scene-scale threshold, default 0.10, ignoring
+// unparseable / out-of-(0,1] values.
+func TestRadioBackboneAlpha(t *testing.T) {
+	const def = 0.10
+	cases := []struct {
+		name string
+		env  string
+		set  bool
+		want float64
+	}{
+		{name: "unset default", set: false, want: def},
+		{name: "empty default", env: "", set: true, want: def},
+		{name: "valid mid", env: "0.05", set: true, want: 0.05},
+		{name: "valid one", env: "1", set: true, want: 1},
+		{name: "zero rejected", env: "0", set: true, want: def},
+		{name: "negative rejected", env: "-0.2", set: true, want: def},
+		{name: "above one rejected", env: "1.5", set: true, want: def},
+		{name: "garbage rejected", env: "nope", set: true, want: def},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.set {
+				t.Setenv("RADIO_BACKBONE_ALPHA", tc.env)
+			} else {
+				// Ensure a value leaking from the environment doesn't mask the default path.
+				t.Setenv("RADIO_BACKBONE_ALPHA", "")
+			}
+			got := RadioBackboneAlpha()
+			if math.Abs(got-tc.want) > eps {
+				t.Fatalf("RadioBackboneAlpha() = %v, want %v (env=%q set=%v)", got, tc.want, tc.env, tc.set)
+			}
+		})
+	}
+}

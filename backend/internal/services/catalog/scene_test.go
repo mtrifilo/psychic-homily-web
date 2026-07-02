@@ -141,6 +141,16 @@ func (suite *SceneServiceIntegrationTestSuite) createArtistIn(name, city, state 
 	return artist
 }
 
+// createArtistInNullMetro seeds an artist with home city/state but NO metro column —
+// the PSY-1237 tail that roster matching must cover via CBSA member places.
+func (suite *SceneServiceIntegrationTestSuite) createArtistInNullMetro(name, city, state string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name, City: stringPtr(city), State: stringPtr(state)}
+	err := suite.db.Create(artist).Error
+	suite.Require().NoError(err)
+	suite.Require().Nil(artist.Metro)
+	return artist
+}
+
 func (suite *SceneServiceIntegrationTestSuite) createUser() *authm.User {
 	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("scene-user-%d@test.com", time.Now().UnixNano())),
@@ -431,6 +441,54 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MetroRollup() {
 	suite.True(names["Minneapolis Band"])
 	suite.True(names["Bloomington Band"], "a metro-resident band with no local show is still rostered")
 	suite.False(names["Chicago Tourer"], "a touring act based in another metro is excluded")
+}
+
+// TestScene_MetroMemberNullMetroRostered (PSY-1237): a band based in a CBSA member
+// city but missing artists.metro still appears on the metro scene roster.
+func (suite *SceneServiceIntegrationTestSuite) TestScene_MetroMemberNullMetroRostered() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Brooklyn Bowl", "Brooklyn", "NY")
+	v2 := suite.createVerifiedVenue("Elsewhere", "Brooklyn", "NY")
+
+	headliner := suite.createArtistIn("NYC Headliner", "New York City", "NY")
+	suite.createArtistInNullMetro("Brooklyn Null Metro", "Brooklyn", "NY")
+	suite.createArtistIn("LA Tourer", "Los Angeles", "CA")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("BK 1", v1.ID, headliner.ID, user.ID, future)
+	suite.createApprovedShow("BK 2", v2.ID, headliner.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("BK 3", v1.ID, headliner.ID, user.ID, future.AddDate(0, 0, 2))
+
+	roster, total, err := suite.sceneService.GetActiveArtists("New York City", "NY", 180, 50, 0)
+	suite.Require().NoError(err)
+	names := map[string]bool{}
+	for _, a := range roster {
+		names[a.Name] = true
+	}
+	suite.Equal(int64(2), total, "NYC metro roster includes NULL-metro Brooklyn member")
+	suite.True(names["Brooklyn Null Metro"], "NULL-metro artist in a CBSA member city is rostered")
+	suite.True(names["NYC Headliner"])
+	suite.False(names["LA Tourer"])
+}
+
+// TestScene_MetroMemberAbbrevVariantNullMetro (PSY-1237): contributor "St. Paul" matches
+// dataset "Saint Paul" via placeMatchBindVariants in the NULL-metro OR branch.
+func (suite *SceneServiceIntegrationTestSuite) TestScene_MetroMemberAbbrevVariantNullMetro() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("First Avenue", "Minneapolis", "MN")
+	v2 := suite.createVerifiedVenue("Turf Club", "Saint Paul", "MN")
+
+	headliner := suite.createArtistIn("Mpls Headliner", "Minneapolis", "MN")
+	suite.createArtistInNullMetro("St Paul Null Metro", "St. Paul", "MN")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("TC 1", v1.ID, headliner.ID, user.ID, future)
+	suite.createApprovedShow("TC 2", v2.ID, headliner.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("TC 3", v1.ID, headliner.ID, user.ID, future.AddDate(0, 0, 2))
+
+	_, total, err := suite.sceneService.GetActiveArtists("Minneapolis", "MN", 180, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
 }
 
 // TestScene_NoCBSAFallback verifies a place with no Census CBSA keeps the literal

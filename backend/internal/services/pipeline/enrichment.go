@@ -14,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Default thresholds for artist matching
@@ -349,8 +350,10 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 		}
 		// PSY-1249: persist the MBID we just resolved so downstream location/links/
 		// release passes browse MusicBrainz by ID instead of re-searching by name.
+		mbidStamped := false
 		if mbid := mbidToStamp(artist, mbResult); mbid != "" {
 			updates["musicbrainz_artist_id"] = mbid
+			mbidStamped = true
 		}
 		updateErr := s.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).Updates(updates).Error
 		if updateErr != nil {
@@ -358,6 +361,8 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contr
 				"artist_id", artist.ID,
 				"error", updateErr,
 			)
+		} else if mbidStamped {
+			shared.NotifyArtistMBIDStamped(artist.ID)
 		}
 
 		results = append(results, enrichment)

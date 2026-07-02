@@ -782,6 +782,77 @@ func asInt(v interface{}) int {
 }
 
 // ──────────────────────────────────────────────
+// PSY-1293: ego-graph backbone UNION
+// ──────────────────────────────────────────────
+
+// insertRel inserts an artist_relationships row honoring the source<target CHECK constraint.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) insertRel(aID, bID uint, typ string, score float32, sig *float64) {
+	lo, hi := aID, bID
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationship{
+		SourceArtistID:       lo,
+		TargetArtistID:       hi,
+		RelationshipType:     typ,
+		Score:                score,
+		AutoDerived:          true,
+		BackboneSignificance: sig,
+	}).Error)
+}
+
+// A mid-degree ego whose backbone-significant radio link ranks below the top-k score cut still keeps
+// that link (UNION), while a non-significant edge below the cut stays dropped.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_BackboneUnion_SurfacesNicheEdgeBeyondTopK() {
+	center := suite.createArtist("Center")
+
+	// Fill the top-k (30) with high-score, NON-significant radio edges.
+	for i := 0; i < 30; i++ {
+		n := suite.createArtist(fmt.Sprintf("Top %d", i))
+		suite.insertRel(center, n, catalogm.RelationshipTypeRadioCooccurrence, 0.9, nil)
+	}
+	// Niche edge: low score (cut by top-k) but backbone-significant (< 0.10 default alpha) → UNIONed.
+	niche := suite.createArtist("Niche")
+	nicheSig := 0.02
+	suite.insertRel(center, niche, catalogm.RelationshipTypeRadioCooccurrence, 0.01, &nicheSig)
+	// Noise edge: low score AND not backbone-significant (>= alpha) → stays cut.
+	noise := suite.createArtist("Noise")
+	noiseSig := 0.50
+	suite.insertRel(center, noise, catalogm.RelationshipTypeRadioCooccurrence, 0.02, &noiseSig)
+
+	graph, err := suite.svc.GetArtistGraph(center, nil, 0)
+	suite.Require().NoError(err)
+
+	// 30 top-k + 1 unioned niche = 31; noise excluded.
+	suite.Assert().Len(graph.Nodes, 31)
+	ids := map[uint]bool{}
+	for _, n := range graph.Nodes {
+		ids[n.ID] = true
+	}
+	suite.Assert().True(ids[niche], "backbone-significant niche edge is unioned in beyond the top-k cap")
+	suite.Assert().False(ids[noise], "non-significant edge stays cut by the top-k cap")
+}
+
+// The backbone UNION must not fire when radio_cooccurrence is filtered out of the requested types.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_BackboneUnion_SkippedWhenRadioFilteredOut() {
+	center := suite.createArtist("Center")
+
+	// A backbone-significant radio edge that WOULD be unioned if radio were in scope.
+	radioN := suite.createArtist("Radio N")
+	sig := 0.02
+	suite.insertRel(center, radioN, catalogm.RelationshipTypeRadioCooccurrence, 0.01, &sig)
+	// A similar edge — the only requested type.
+	similarN := suite.createArtist("Similar N")
+	suite.insertRel(center, similarN, catalogm.RelationshipTypeSimilar, 0.5, nil)
+
+	graph, err := suite.svc.GetArtistGraph(center, []string{"similar"}, 0)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(graph.Nodes, 1)
+	suite.Assert().Equal("similar", graph.Links[0].Type)
+}
+
+// ──────────────────────────────────────────────
 // Run all integration tests
 // ──────────────────────────────────────────────
 

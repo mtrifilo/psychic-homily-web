@@ -17,6 +17,15 @@ package catalog
 // a schema change (station dimension on the affinity PK). Restricting the
 // query-time self-join to the top-N matched artists bounds the pair space at
 // N(N-1)/2, which keeps the derivation cheap enough to run per request.
+//
+// Backbone sparsification (PSY-1295, deferred from PSY-1293): after the
+// station-scoped co-occurrence pairs are derived, each edge is filtered by the
+// GLOBAL disparity-filter significance already stored on artist_relationships
+// (option 2 from the ticket — station-agnostic, cheap, consistent with the
+// scene graph). An edge is kept iff backbone_significance < RADIO_BACKBONE_ALPHA;
+// NULL or missing significance = not in the backbone = dropped. Station-local
+// disparity (option 1) was rejected because it would disagree with the scene
+// graph's global backbone and niche-link preservation is already the filter's job.
 
 import (
 	"errors"
@@ -150,6 +159,10 @@ func (s *RadioService) GetStationGraph(stationID uint, window string, limit int)
 	edges, err := s.queryStationGraphEdges(stationID, artistIDs, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query station graph edges: %w", err)
+	}
+	edges, err = filterStationEdgesByBackbone(s.db, edges, RadioBackboneAlpha())
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter station graph edges by backbone: %w", err)
 	}
 
 	connected := make(map[uint]bool, len(rows))
@@ -333,6 +346,55 @@ func (s *RadioService) queryStationGraphEdges(stationID uint, artistIDs []uint, 
 		return nil, err
 	}
 	return rows, nil
+}
+
+// filterStationEdgesByBackbone applies the PSY-1295 global disparity-filter backbone
+// to station-scoped co-occurrence pairs (see file header). alpha <= 0 disables the
+// filter (all edges kept). Pairs with no artist_relationships row, or with NULL
+// backbone_significance, are dropped — same semantics as queryRelationshipsAmongArtists.
+func filterStationEdgesByBackbone(db *gorm.DB, edges []stationGraphEdgeRow, alpha float64) ([]stationGraphEdgeRow, error) {
+	if alpha <= 0 || len(edges) == 0 {
+		return edges, nil
+	}
+
+	idSet := make(map[uint]struct{}, len(edges)*2)
+	for _, e := range edges {
+		idSet[e.ArtistAID] = struct{}{}
+		idSet[e.ArtistBID] = struct{}{}
+	}
+	ids := make([]uint, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+
+	type relSigRow struct {
+		SourceArtistID       uint     `gorm:"column:source_artist_id"`
+		TargetArtistID       uint     `gorm:"column:target_artist_id"`
+		BackboneSignificance *float64 `gorm:"column:backbone_significance"`
+	}
+	var rels []relSigRow
+	if err := db.Table("artist_relationships").
+		Select("source_artist_id, target_artist_id, backbone_significance").
+		Where("relationship_type = ?", catalogm.RelationshipTypeRadioCooccurrence).
+		Where("source_artist_id IN ? AND target_artist_id IN ?", ids, ids).
+		Scan(&rels).Error; err != nil {
+		return nil, err
+	}
+
+	sigByPair := make(map[[2]uint]*float64, len(rels))
+	for _, r := range rels {
+		sigByPair[[2]uint{r.SourceArtistID, r.TargetArtistID}] = r.BackboneSignificance
+	}
+
+	out := make([]stationGraphEdgeRow, 0, len(edges))
+	for _, e := range edges {
+		sig, ok := sigByPair[[2]uint{e.ArtistAID, e.ArtistBID}]
+		if !ok || sig == nil || *sig >= alpha {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // buildStationGraphClusters converts the per-artist primary-show rows into a

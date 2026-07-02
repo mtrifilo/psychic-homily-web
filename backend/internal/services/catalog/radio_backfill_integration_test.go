@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -164,6 +165,79 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_FiltersAndGroups() {
 	s.Equal(st.ID, c.StationID)
 	s.Equal(twoDaysAgo, c.Since.Format("2006-01-02"), "window starts at the earliest incomplete episode")
 	s.Equal(today, c.Until.Format("2006-01-02"), "window ends at the latest incomplete episode")
+}
+
+// PSY-1287: a windowless aired episode that falsely gave up ('unavailable') is still
+// discovered as a backfill candidate so a re-list can heal the window and fetch.
+func (s *RadioSyncSuite) TestListBackfillCandidates_IncludesStrandedWindowlessUnavailable() {
+	now := time.Now()
+	airDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Stranded F4", "stranded-f4", "ext-f4")
+	s.seedEpisodeFor(show.ID, "ep-stranded", airDate, catalogm.RadioPlaylistStateUnavailable,
+		catalogm.RadioBackfillMaxAttempts, nil, nil, now)
+
+	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, catalogm.RadioBackfillMaxAttempts, now)
+	s.Require().NoError(err)
+	s.Require().Len(candidates, 1)
+	s.Equal(show.ID, candidates[0].ShowID)
+}
+
+// End-to-end PSY-1287 (F4 shape): windowless + unavailable after a false give-up,
+// corrected Sunday schedule → backfill heals the window and imports the playlist.
+func (s *RadioSyncSuite) TestBackfillCycle_HealsWindowlessUnavailableAfterScheduleFix() {
+	ny, err := time.LoadLocation("America/New_York")
+	s.Require().NoError(err)
+	// Sunday 2026-06-28 noon ET — well after the 3-6am air window.
+	now := time.Date(2026, 6, 28, 12, 0, 0, 0, ny)
+	airDate := "2026-06-28"
+	showExt, epExt := "F4", "ep-f4-jun28"
+
+	schedRaw, _ := json.Marshal(catalogm.RadioSchedule{
+		Timezone: "America/New_York",
+		Slots:    []catalogm.RadioScheduleSlot{{DayOfWeek: 0, Start: "03:00", End: "06:00"}},
+	})
+	schedule := json.RawMessage(schedRaw)
+
+	st := s.seedStation(catalogm.PlaylistSourceWFMU)
+	show := s.seedShowWithSchedule(st.ID, "Freeform Jazz Dance", "freeform-jazz-dance", showExt, &schedule)
+	ep := s.seedEpisodeFor(show.ID, epExt, airDate, catalogm.RadioPlaylistStateUnavailable,
+		catalogm.RadioBackfillMaxAttempts, nil, nil, now)
+
+	var fetchPlaylistCalls int
+	track := "Groovy Track"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{
+					ExternalID:     epExt,
+					ShowExternalID: showExt,
+					AirDate:        airDate,
+				}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				fetchPlaylistCalls++
+				return []RadioPlayImport{{Position: 1, ArtistName: "Jazz Dancer", TrackTitle: &track}}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	fetchSvc := &RadioFetchService{
+		radioService:         s.svc,
+		stopCh:               make(chan struct{}),
+		logger:               slog.Default(),
+		backfillInterval:     time.Hour,
+		backfillLookbackDays: 7,
+	}
+	fetchSvc.RunBackfillCycleNow()
+
+	s.Positive(fetchPlaylistCalls, "stranded windowless episode must be re-fetched after schedule heal")
+	got := s.reloadEpisode(ep.ID)
+	s.Require().NotNil(got.StartsAt, "window should be healed from the corrected schedule")
+	s.Equal(catalogm.RadioPlaylistStateComplete, got.PlaylistState)
+	s.Positive(got.PlayCount)
 }
 
 // A successful but EMPTY post-air re-fetch of an episode that already has plays must

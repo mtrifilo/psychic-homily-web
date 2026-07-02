@@ -919,15 +919,18 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 		EndsAt                *time.Time
 		PlaylistState         string
 		PlaylistFetchAttempts int
+		PlayCount             int
 	}
 	var rows []candidateRow
 	err := s.db.Model(&catalogm.RadioEpisode{}).
 		Select("radio_episodes.show_id, radio_shows.station_id, radio_episodes.air_date, "+
 			"radio_episodes.starts_at, radio_episodes.ends_at, radio_episodes.playlist_state, "+
-			"radio_episodes.playlist_fetch_attempts").
+			"radio_episodes.playlist_fetch_attempts, radio_episodes.play_count").
 		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
-		Where("radio_episodes.playlist_state IN ?", []string{catalogm.RadioPlaylistStatePending, catalogm.RadioPlaylistStatePartial}).
-		Where("radio_episodes.playlist_fetch_attempts < ?", maxAttempts).
+		Where(`(
+			(radio_episodes.playlist_state IN ? AND radio_episodes.playlist_fetch_attempts < ?)
+			OR (radio_episodes.playlist_state = ? AND radio_episodes.starts_at IS NULL AND radio_episodes.play_count = 0)
+		)`, []string{catalogm.RadioPlaylistStatePending, catalogm.RadioPlaylistStatePartial}, maxAttempts, catalogm.RadioPlaylistStateUnavailable).
 		Where("radio_episodes.air_date >= ?", cutoff).
 		Scan(&rows).Error
 	if err != nil {
@@ -936,7 +939,13 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 
 	byShow := make(map[uint]*BackfillCandidate)
 	for _, r := range rows {
-		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, r.PlaylistState, r.PlaylistFetchAttempts, maxAttempts, now) {
+		state, attempts := r.PlaylistState, r.PlaylistFetchAttempts
+		if normState, normAttempts := catalogm.NormalizeStrandedWindowlessPlaylistState(
+			r.StartsAt, r.PlaylistState, r.PlaylistFetchAttempts, r.PlayCount, now,
+		); normState != state || normAttempts != attempts {
+			state, attempts = normState, normAttempts
+		}
+		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, state, attempts, maxAttempts, now) {
 			continue
 		}
 		d, perr := parseImportDate(r.AirDate)
@@ -1251,6 +1260,7 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 	// here and status is computed once from the final window + state — no redundant second
 	// write on the heal+reset path.
 	updates := map[string]any{}
+	hadWindow := existing.StartsAt != nil
 
 	if existing.StartsAt == nil {
 		// Resolve a window (provider instants, or schedule-derived for a recent
@@ -1275,6 +1285,17 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 	// stranded before this fix). A no-op for aired/live episodes.
 	if newState, newAttempts := catalogm.NormalizeScheduledPlaylistState(
 		existing.StartsAt, existing.EndsAt, existing.PlaylistState, existing.PlaylistFetchAttempts, now,
+	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
+		existing.PlaylistState = newState
+		existing.PlaylistFetchAttempts = newAttempts
+		updates["playlist_state"] = newState
+		updates["playlist_fetch_attempts"] = newAttempts
+	}
+
+	// PSY-1287: once a windowless false give-up gets a real air window (schedule heal),
+	// clear the exhausted playlist state so post-air backfill can run at the right phase.
+	if newState, newAttempts := catalogm.NormalizeWindowHealPlaylistState(
+		hadWindow, existing.StartsAt, existing.PlaylistState, existing.PlaylistFetchAttempts, existing.PlayCount,
 	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
 		existing.PlaylistState = newState
 		existing.PlaylistFetchAttempts = newAttempts

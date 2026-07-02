@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
@@ -127,6 +128,25 @@ func (s *DiscographyImporterTestSuite) TestCreatesMapsAndSetsCoverArt() {
 	var links int64
 	s.Require().NoError(s.db.Table("artist_releases").Where("artist_id = ?", artistID).Count(&links).Error)
 	s.Equal(int64(2), links)
+}
+
+func (s *DiscographyImporterTestSuite) TestImportArtistDiscographyByID() {
+	artistID := s.seedArtist("Sleep", artistMBID)
+	browser, cover := s.sleepDiscographyBrowser(), s.coverForAlbum()
+
+	rep, err := ImportArtistDiscographyByID(context.Background(), s.db, browser, cover, artistID)
+	s.Require().NoError(err)
+	s.Equal(2, rep.Created)
+	s.Equal(0, len(rep.Errors))
+
+	var synced *time.Time
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).Where("id = ?", artistID).Pluck("discography_synced_at", &synced).Error)
+	s.NotNil(synced, "eager import must stamp discography_synced_at on success")
+
+	rep2, err := ImportArtistDiscographyByID(context.Background(), s.db, browser, cover, artistID)
+	s.Require().NoError(err)
+	s.Equal(0, rep2.Created)
+	s.Equal(2, rep2.Deduped)
 }
 
 // Re-running is idempotent: every release-group dedups, no duplicate rows.

@@ -163,7 +163,9 @@ func (s *FestivalService) GetFestivalGraph(festivalID uint, types []string) (*co
 	// 4. Stored typed edges — both endpoints on the lineup.
 	var storedLinks []sceneRelationshipRow
 	if !noEdgesByFilter && len(storedTypes) > 0 {
-		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, storedTypes)
+		// backboneAlpha=0: the disparity-filter backbone is scene-scale (PSY-1293); the festival
+		// co-lineup graph keeps all its stored edges. A per-festival backbone is a possible follow-up.
+		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, storedTypes, 0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query lineup relationships: %w", err)
 		}

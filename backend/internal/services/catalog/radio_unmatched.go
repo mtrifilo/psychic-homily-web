@@ -440,6 +440,10 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 				Score:            score,
 				AutoDerived:      true,
 				Detail:           &detailRaw,
+				// Denormalize the disparity-filter significance (PSY-1293) so the scene + ego graph
+				// endpoints can filter on it at query time. nil (significance not yet computed for
+				// this edge) persists as NULL = not in the scene backbone.
+				BackboneSignificance: aff.BackboneSignificance,
 			}
 			if createErr := s.db.Create(rel).Error; createErr != nil {
 				slog.Error("radio affinity sync: failed to create relationship",
@@ -454,6 +458,9 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 			if updateErr := s.db.Model(&existing).Updates(map[string]interface{}{
 				"score":  score,
 				"detail": &detailRaw,
+				// Re-sync the disparity-filter significance (PSY-1293); a nil pointer (significance
+				// not computed this cycle) clears the column back to NULL via the map update.
+				"backbone_significance": aff.BackboneSignificance,
 			}).Error; updateErr != nil {
 				slog.Error("radio affinity sync: failed to update relationship",
 					"source_artist_id", aff.ArtistAID,
