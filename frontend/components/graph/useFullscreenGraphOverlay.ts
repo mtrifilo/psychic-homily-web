@@ -21,9 +21,28 @@
  *     adjust-state-during-render pattern (the react-hooks lint errors on the
  *     setState-in-effect form).
  *
- * Callers own all policy: when the overlay is offered, what renders inside
- * it, headers/legends/captions. The overlay element itself stays in the
- * caller (z-[60] shell, aria labels) — this hook is the lifecycle only.
+ * Caller checklist (this hook is the lifecycle only — the caller owns):
+ *   - the overlay shell: `role="dialog"`, `aria-modal="true"`, an aria-label,
+ *     and `z-[60]` (above the z-50 cookie-consent banner, PSY-518);
+ *   - the INLINE copy must get `aria-hidden={isFullscreen || undefined}` +
+ *     `inert={isFullscreen || undefined}` so assistive tech sees one graph
+ *     surface while the overlay is open (PSY-517);
+ *   - gate the overlay render on `available` too (the hook resets state, but
+ *     the render guard is the caller's);
+ *   - `overlayWidth`/`overlayHeight` are null until the first post-open
+ *     commit and go stale after close — only read them under `isFullscreen`,
+ *     guarded non-null. `open()` while `!available` is a no-op by design.
+ *
+ * CONTRACT for `available`: it must not flip false on fetch transients while
+ * the overlay is open — auto-close is one-way. If the overlay hosts controls
+ * that refetch the section's own data (query-key changes), the data hook
+ * needs `placeholderData: keepPreviousData` so counts don't collapse to zero
+ * mid-fetch (see useVenueBillNetwork, the PSY-1305 review finding).
+ *
+ * The Expand/Exit trigger buttons stay hand-rolled in each caller
+ * (deliberate: they pre-date ui/Button adoption and are visually synced
+ * across all graph surfaces; switching is a coordinated four-surface change
+ * out of PSY-1305's behavior-preserving scope).
  */
 
 import { useState, useEffect, useCallback } from 'react'

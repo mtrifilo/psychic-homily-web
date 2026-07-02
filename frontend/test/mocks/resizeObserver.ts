@@ -1,13 +1,18 @@
 /**
- * Immediate ResizeObserver test shim (PSY-1305) — extracted from the six
- * per-file copies (SceneGraph / CollectionGraph / VenueBillNetwork /
- * BillComposition / RelatedArtists / StationGraph tests).
+ * Immediate ResizeObserver test shim (PSY-1305) — extracted from the
+ * per-file copies in the SceneGraph / VenueBillNetwork / BillComposition /
+ * RelatedArtists / StationGraph tests. AtlasGlobe.test.tsx deliberately
+ * keeps its own shim: the globe consumes HEIGHT, which this shim does not
+ * emit.
  *
  * `observe()` fires the callback synchronously with a mock width so
  * components using the callback-ref measurement pattern (useContainerWidth)
  * see a measured container on mount. `fireResize()` re-fires the LAST
  * observer with a new width, simulating the viewport crossing a breakpoint
- * after mount (e.g. the overlay auto-close path).
+ * after mount (e.g. the overlay auto-close path). Last-writer-wins: with
+ * multiple observed nodes in one render tree, fireResize targets only the
+ * most recently observed one — fine for single-graph tests, broadcast would
+ * be needed for multi-graph fixtures.
  *
  * Usage:
  *   const ro = installImmediateResizeObserver()   // in beforeEach

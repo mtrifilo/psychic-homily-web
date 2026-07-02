@@ -33,6 +33,11 @@ export function useContainerWidth(): {
 
   const refCallback = useCallback((node: HTMLDivElement | null) => {
     if (!node) return
+    // Known quirk, faithfully inherited from the original copies: the initial
+    // measure is border-box (getBoundingClientRect) while observer updates
+    // are content-box (contentRect) — on a padded container near the 640px
+    // gate the first resize event can shift the value without a layout
+    // change. All current consumers measure unpadded wrappers.
     setContainerWidth(node.getBoundingClientRect().width)
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
@@ -40,7 +45,12 @@ export function useContainerWidth(): {
       }
     })
     observer.observe(node)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      // Back to "unmeasured" so a consumer that unmounts just the measured
+      // div (none today) can't keep a stale width driving its gates.
+      setContainerWidth(null)
+    }
   }, [])
 
   return { refCallback, containerWidth }
