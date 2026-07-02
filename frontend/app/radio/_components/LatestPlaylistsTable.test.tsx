@@ -65,6 +65,20 @@ describe('LatestPlaylistsTable', () => {
     expect(showLink).toHaveAttribute('href', '/radio/wfmu/night-owl')
   })
 
+  it('renders the viewer-local air-time block stacked under the date for windowed rows (PSY-1298)', () => {
+    const starts = new Date(2026, 5, 9, 15, 0)
+    const ends = new Date(2026, 5, 9, 18, 0)
+    render(
+      <LatestPlaylistsTable
+        rows={[makeRow({ starts_at: starts.toISOString(), ends_at: ends.toISOString() })]}
+        isLoading={false}
+        error={null}
+      />
+    )
+    expect(screen.getByText('Jun 9')).toBeInTheDocument()
+    expect(screen.getByText('3–6 PM')).toBeInTheDocument()
+  })
+
   it('links matched preview artists and renders unmatched ones as plain text', () => {
     render(
       <LatestPlaylistsTable rows={[makeRow()]} isLoading={false} error={null} />

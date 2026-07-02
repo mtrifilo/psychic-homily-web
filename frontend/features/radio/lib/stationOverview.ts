@@ -54,6 +54,11 @@ export function formatShortAirDate(dateStr: string | null | undefined): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/** The one definition of the "Jul 1" short-date rendering both paths share. */
+function shortDate(date: Date): string {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 /**
  * Viewer-local date line for a feed row (PSY-1298): when the frozen air
  * window exists, the date derives from starts_at in the VIEWER's timezone
@@ -68,31 +73,38 @@ export function formatLocalAirDate(
   if (startsAt) {
     const date = new Date(startsAt)
     if (!isNaN(date.getTime())) {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      return shortDate(date)
     }
   }
   return formatShortAirDate(airDate)
 }
 
 /**
- * One end of the air window as compact 12h: drop :00 minutes, always carry
- * the meridiem ("9 PM", "6:30 PM", "12 PM" for noon, "12 AM" for midnight).
+ * One end of the air window as compact 12h: drop :00 minutes ("9", "6:30",
+ * "12" for noon/midnight), meridiem carried separately so the range renderer
+ * decides whether to show it once or twice.
  */
-function formatCompactTime(date: Date): { text: string; meridiem: string } {
+function formatCompactTime(date: Date): { clock: string; meridiem: string } {
   const hours24 = date.getHours()
   const minutes = date.getMinutes()
   const meridiem = hours24 < 12 ? 'AM' : 'PM'
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12
   const clock =
     minutes === 0 ? `${hours12}` : `${hours12}:${String(minutes).padStart(2, '0')}`
-  return { text: `${clock} ${meridiem}`, meridiem }
+  return { clock, meridiem }
 }
 
+/** A frozen air window longer than this is corrupt data, not a radio slot. */
+const MAX_WINDOW_MS = 24 * 60 * 60 * 1000
+
 /**
- * Viewer-local air-time block (PSY-1298): "9–12 PM", "6:30–9 PM",
- * "11 PM–2 AM" — compact 12h, minutes only when non-zero, single AM/PM
- * suffix when both ends share it. Returns '' for a windowless row (the
- * date-only rendering is the designed fallback) or an unparsable window.
+ * Viewer-local air-time block (PSY-1298): "3–6 PM", "6:30–9 PM",
+ * "9 PM–12 AM" — compact 12h, minutes only when non-zero, single AM/PM
+ * suffix when both ends share it (a range crossing noon or midnight always
+ * carries both, so "9–12 PM" is deliberately never produced — it would be
+ * ambiguous). Returns '' for a windowless row (the date-only rendering is
+ * the designed fallback), an unparsable window, or a degenerate one
+ * (inverted / ≥24h) — corrupt data must not render as a confident range.
  */
 export function formatLocalTimeRange(
   startsAt: string | null | undefined,
@@ -102,11 +114,12 @@ export function formatLocalTimeRange(
   const start = new Date(startsAt)
   const end = new Date(endsAt)
   if (isNaN(start.getTime()) || isNaN(end.getTime())) return ''
+  const span = end.getTime() - start.getTime()
+  if (span <= 0 || span >= MAX_WINDOW_MS) return ''
   const s = formatCompactTime(start)
   const e = formatCompactTime(end)
-  const startText =
-    s.meridiem === e.meridiem ? s.text.slice(0, -(s.meridiem.length + 1)) : s.text
-  return `${startText}–${e.text}`
+  const startText = s.meridiem === e.meridiem ? s.clock : `${s.clock} ${s.meridiem}`
+  return `${startText}–${e.clock} ${e.meridiem}`
 }
 
 /**

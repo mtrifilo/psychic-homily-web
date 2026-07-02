@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { BracketLink, DenseTable, SectionHeader } from '@/components/shared'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
+import { AirDateCellContent } from './AirDateCell'
 import { formatLocalAirDate, formatLocalTimeRange } from '../lib/stationOverview'
 import type { RadioStationDetail, RadioStationEpisodeRow } from '../types'
 
@@ -97,7 +98,10 @@ function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
   // window (stacked under the date, per the approved Figma frame); windowless
   // rows fall back to the station air_date, date-only. The deep-link stays
   // keyed on the station-dated air_date — the shown date can differ from the
-  // URL segment for far-from-ET viewers (accepted design tradeoff).
+  // URL segment for far-from-ET viewers (accepted design tradeoff). The
+  // aria-label derives from the SAME viewer-local rendering as the visible
+  // text (label-in-name: what a voice-control user says must match).
+  const dateLine = formatLocalAirDate(row.starts_at, row.air_date)
   const timeBlock = formatLocalTimeRange(row.starts_at, row.ends_at)
 
   return (
@@ -106,14 +110,13 @@ function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
         <Link
           href={playlistUrl}
           className="hover:text-foreground transition-colors"
-          aria-label={`Playlist from ${row.air_date}`}
+          aria-label={`Playlist from ${dateLine}${timeBlock ? `, ${timeBlock}` : ''}`}
         >
-          <span className="block">{formatLocalAirDate(row.starts_at, row.air_date)}</span>
-          {timeBlock && (
-            <span className="block text-[10px] normal-case text-muted-foreground/85">
-              {timeBlock}
-            </span>
-          )}
+          <AirDateCellContent
+            startsAt={row.starts_at}
+            endsAt={row.ends_at}
+            airDate={row.air_date}
+          />
         </Link>
       </td>
       <td>

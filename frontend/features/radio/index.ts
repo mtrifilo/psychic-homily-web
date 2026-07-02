@@ -80,6 +80,8 @@ export {
   AsHeardOn,
   NetworkTabBar,
   ArtistHops,
+  // PSY-1298: shared date + viewer-local time cell for playlists tables
+  AirDateCellContent,
   // PSY-1050: station-page rebuild (The Dial, Option A)
   StationOnAirBox,
   StationPlaylistsFeed,
@@ -89,9 +91,10 @@ export {
 
 // PSY-1016: station-overview derivation helpers
 // (pickNowPlayingShow stays un-exported here — only useStationOverview
-// consumes it; PSY-1075 narrowed the public surface.)
+// consumes it; PSY-1075 narrowed the public surface. formatShortAirDate
+// dropped from the barrel in PSY-1298 — its remaining consumers live inside
+// this feature and import relatively.)
 export {
-  formatShortAirDate,
   formatLocalAirDate,
   formatLocalTimeRange,
   formatStationLocation,

@@ -99,11 +99,32 @@ describe('StationPlaylistsFeed', () => {
     const showLink = screen.getByRole('link', { name: 'The Night Owl Show' })
     expect(showLink).toHaveAttribute('href', '/radio/wfmu/night-owl')
 
-    const dateLink = screen.getByRole('link', { name: 'Playlist from 2026-06-09' })
+    // aria-label matches the visible viewer-local rendering (label-in-name,
+    // PSY-1298) while the href stays keyed on the station-dated air_date.
+    const dateLink = screen.getByRole('link', { name: 'Playlist from Jun 9' })
     expect(dateLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-09')
     expect(dateLink).toHaveTextContent('Jun 9')
 
     expect(screen.getByText('24')).toBeInTheDocument()
+  })
+
+  it('renders the viewer-local air-time block stacked under the date for windowed rows (PSY-1298)', () => {
+    // ISO built from local-time constructors so the expectation holds in any
+    // machine timezone (the component renders viewer-local by design).
+    const starts = new Date(2026, 5, 9, 15, 0)
+    const ends = new Date(2026, 5, 9, 18, 0)
+    setEpisodes([
+      makeRow({ starts_at: starts.toISOString(), ends_at: ends.toISOString() }),
+    ])
+    render(<StationPlaylistsFeed station={makeStation()} />)
+
+    const dateLink = screen.getByRole('link', {
+      name: 'Playlist from Jun 9, 3–6 PM',
+    })
+    expect(dateLink).toHaveTextContent('Jun 9')
+    expect(dateLink).toHaveTextContent('3–6 PM')
+    // deep-link stays station-dated even though the display is viewer-local
+    expect(dateLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-09')
   })
 
   it('links matched preview artists and renders unmatched ones as plain text', () => {

@@ -125,6 +125,14 @@ describe('formatLocalTimeRange', () => {
     expect(formatLocalTimeRange(localIso(2026, 6, 1, 9), null)).toBe('')
     expect(formatLocalTimeRange('not-a-date', 'also-not')).toBe('')
   })
+
+  it('returns "" for degenerate windows (inverted, zero-length, ≥24h)', () => {
+    // inverted: end before start would otherwise render a confident "6–3 PM"
+    expect(formatLocalTimeRange(localIso(2026, 6, 1, 18), localIso(2026, 6, 1, 15))).toBe('')
+    expect(formatLocalTimeRange(localIso(2026, 6, 1, 9), localIso(2026, 6, 1, 9))).toBe('')
+    // a 24h "window" is corrupt data, not a radio slot — "9–9 PM" would lie
+    expect(formatLocalTimeRange(localIso(2026, 6, 1, 21), localIso(2026, 6, 2, 21))).toBe('')
+  })
 })
 
 describe('formatLocalAirDate', () => {
