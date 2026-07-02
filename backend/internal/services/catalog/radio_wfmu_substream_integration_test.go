@@ -7,9 +7,19 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
-// PSY-1322 ApplyWFMUSubstreamSchedule: the partial-today merge rule, guarded
-// clearing, lock skipping, and station scoping. Runs on the RadioSyncSuite
-// testcontainers Postgres.
+// PSY-1322 ApplyWFMUSubstreamSchedule: the authoritative-days merge rule,
+// guarded clearing, lock skipping, station scoping, and write idempotency.
+// Runs on the RadioSyncSuite testcontainers Postgres.
+
+// authDaysExcept returns the authoritative-days set a healthy scrape yields:
+// every weekday except the listed (partial or header-broken) days.
+func authDaysExcept(days ...int) map[int]bool {
+	m := map[int]bool{0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true}
+	for _, d := range days {
+		delete(m, d)
+	}
+	return m
+}
 
 func (s *RadioSyncSuite) seedSubstreamStation(slug string) catalogm.RadioStation {
 	src := catalogm.PlaylistSourceWFMU
@@ -66,12 +76,14 @@ func (s *RadioSyncSuite) fillerEntries(stationID uint, n int, day int) []WFMUSch
 	return entries
 }
 
-// The partial-today rule end-to-end: full-day slots come from the scrape, the
-// scrape day's slots are preserved from the existing schedule, and a show
-// whose only airing is the scrape day survives being absent from the scrape.
+// The authoritative-days rule end-to-end: authoritative-day slots come from
+// the scrape, the scrape day's slots are preserved from the existing
+// schedule, and a show whose only airing is the scrape day survives being
+// absent from the scrape.
 func (s *RadioSyncSuite) TestSubstreamApply_PartialTodayMerge() {
 	st := s.seedSubstreamStation("test-sub-drummer")
 	const today = 4 // the excluded weekday
+	auth := authDaysExcept(today)
 
 	// Show A: existing schedule has a today slot + a stale Monday slot; the
 	// scrape says its Monday slot moved to Tuesday. Expect: today preserved,
@@ -104,24 +116,55 @@ func (s *RadioSyncSuite) TestSubstreamApply_PartialTodayMerge() {
 			{DayOfWeek: today, Start: "13:00", End: "16:00"},
 		}})
 
-	matched, unmatched, cleared, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-drummer", entries, today)
+	matched, unmatched, cleared, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-drummer", entries, auth)
 	s.Require().NoError(err)
 	s.Equal(0, unmatched)
 	s.Equal(1, cleared, "only the fully-dropped show clears")
-	s.GreaterOrEqual(matched, wfmuSubstreamClearMinEntries+1)
+	s.Equal(wfmuSubstreamClearMinEntries+1, matched, "fillers + Show A; the untouched Show B is not a write")
 
 	aGot := s.loadSchedule(a.ID)
 	s.Require().NotNil(aGot)
 	s.ElementsMatch([]catalogm.RadioScheduleSlot{
 		{DayOfWeek: today, Start: "12:00", End: "15:00"}, // preserved, NOT the scrape's 13:00
-		{DayOfWeek: 2, Start: "09:00", End: "12:00"},     // scraped full day
+		{DayOfWeek: 2, Start: "09:00", End: "12:00"},     // scraped authoritative day
 	}, aGot.Slots)
 
 	bGot := s.loadSchedule(b.ID)
 	s.Require().NotNil(bGot, "a today-only show must survive the day it airs")
 	s.Equal(bSched.Slots, bGot.Slots)
 
-	s.Nil(s.loadSchedule(c.ID), "a show absent from every full day is cleared")
+	s.Nil(s.loadSchedule(c.ID), "a show absent from every authoritative day is cleared")
+
+	// Idempotency: re-applying the same scrape writes nothing (no updated_at
+	// churn) and clears nothing new.
+	matched2, _, cleared2, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-drummer", entries, auth)
+	s.Require().NoError(err)
+	s.Equal(0, matched2, "steady state must be write-free")
+	s.Equal(0, cleared2)
+}
+
+// A weekday whose header failed to parse is NOT authoritative: shows airing
+// only that day keep their slots even when the scrape (which dropped the
+// day's rows) says nothing about them — the mass-clear the panel flagged.
+func (s *RadioSyncSuite) TestSubstreamApply_BrokenDayNotCleared() {
+	st := s.seedSubstreamStation("test-sub-brokenday")
+	const today, brokenDay = 4, 6
+
+	satOnly := s.seedSubstreamShow(st.ID, "SO", &catalogm.RadioSchedule{
+		Timezone: wfmuScheduleTimezone,
+		Slots:    []catalogm.RadioScheduleSlot{{DayOfWeek: brokenDay, Start: "10:00", End: "12:00"}},
+	}, false)
+
+	// Enough recognized shows that clears WOULD be allowed — the protection
+	// must come from the day's non-authoritativeness, not the floor.
+	entries := s.fillerEntries(st.ID, wfmuSubstreamClearMinEntries, 3)
+
+	_, _, cleared, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-brokenday", entries, authDaysExcept(today, brokenDay))
+	s.Require().NoError(err)
+	s.Equal(0, cleared)
+	got := s.loadSchedule(satOnly.ID)
+	s.Require().NotNil(got, "a show airing only on the unparsed day must keep its schedule")
+	s.Equal([]catalogm.RadioScheduleSlot{{DayOfWeek: brokenDay, Start: "10:00", End: "12:00"}}, got.Slots)
 }
 
 // Below the recognized floor nothing clears (suspect parse), but writes for
@@ -140,7 +183,7 @@ func (s *RadioSyncSuite) TestSubstreamApply_FloorDisablesClearsOnly() {
 		{DayOfWeek: 5, Start: "18:00", End: "20:00"},
 	}}}
 
-	matched, _, cleared, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-sheena", entries, today)
+	matched, _, cleared, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-sheena", entries, authDaysExcept(today))
 	s.Require().NoError(err)
 	s.Equal(0, cleared, "one recognized show is far below the floor — no clears")
 	s.Equal(1, matched)
@@ -169,7 +212,7 @@ func (s *RadioSyncSuite) TestSubstreamApply_LockAndStationScoping() {
 		{Code: "MM", Name: "Shared Code", Slots: []catalogm.RadioScheduleSlot{{DayOfWeek: 3, Start: "08:00", End: "10:00"}}},
 	}
 
-	_, _, _, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-rocknsoul", entries, today)
+	_, _, _, err := s.svc.ApplyWFMUSubstreamSchedule("test-sub-rocknsoul", entries, authDaysExcept(today))
 	s.Require().NoError(err)
 
 	lockedGot := s.loadSchedule(locked.ID)

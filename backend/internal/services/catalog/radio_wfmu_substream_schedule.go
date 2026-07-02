@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,14 +31,20 @@ import (
 // (wfmu.org/table?channel=drummer serves the flagship page verbatim — the
 // query string is ignored upstream; these list pages are the real source.)
 //
-// THE PARTIAL-TODAY RULE (load-bearing): the listing starts TODAY in the
+// THE AUTHORITATIVE-DAYS RULE (load-bearing): the listing starts TODAY in the
 // stream's local time and today's group carries only the not-yet-aired slots;
 // a weekly show that already aired today appears NOWHERE in the rolling
 // window (its next occurrence sits just past the last full day). So a
-// weekday's slots are authoritative only when that weekday is a FULL day of
-// the listing — every weekday except the scrape day. The apply step updates
-// the six full weekdays and PRESERVES each show's existing scrape-day slots
-// untouched; a daily-or-faster cadence converges on the whole week.
+// weekday's slots are authoritative only when (a) that weekday is a FULL day
+// of the listing — every weekday except the scrape day — AND (b) its day
+// header actually parsed (a header WFMU reformats would otherwise silently
+// drop its whole day, and the shows airing only that day with it). The apply
+// step updates only the authoritative weekdays and PRESERVES each show's
+// existing slots on every other weekday; the sub-stream ticker runs daily
+// (DefaultSubstreamScheduleInterval) so the excluded day rotates and the
+// week converges within one cycle of runs. These pages only run through the
+// scheduled ticker — the manual/backfill import paths deliberately don't
+// touch schedules.
 
 // wfmuSubstreamSchedulePages routes each sub-stream station slug (seeded in
 // seeddata/radio.go) to its wfmu.org schedule-page path. In-code constants
@@ -53,14 +62,23 @@ var wfmuSubstreamSchedulePages = map[string]string{
 // flagship grid's ~60+, so a third of a healthy lineup is ~10).
 const wfmuSubstreamClearMinEntries = 10
 
+// wfmuSubstreamMaxSlotsPerShow caps a single show's merged slot count. A real
+// sub-stream show airs a handful of times a week; a defaced/looping page
+// repeating one playlist link thousands of times must not write an
+// arbitrarily large schedule JSONB that every downstream consumer then
+// iterates.
+const wfmuSubstreamMaxSlotsPerShow = 32
+
 // DiscoverSubstreamSchedule fetches one sub-stream schedule page (a path
 // under wfmu.org, from wfmuSubstreamSchedulePages) and parses its rolling
-// 7-day listing into per-show slots. WFMU-specific, like DiscoverSchedule.
-func (p *WFMUProvider) DiscoverSubstreamSchedule(pagePath string) (entries []WFMUScheduleEntry, skipped int, err error) {
+// 7-day listing into per-show slots plus the set of weekdays whose day header
+// parsed (the apply's authoritative-days input). WFMU-specific, like
+// DiscoverSchedule.
+func (p *WFMUProvider) DiscoverSubstreamSchedule(pagePath string) (entries []WFMUScheduleEntry, daysSeen map[int]bool, skipped int, err error) {
 	<-p.rateLimiter.C
 	body, err := p.doGet(fmt.Sprintf("%s/%s", p.baseURL, pagePath))
 	if err != nil {
-		return nil, 0, fmt.Errorf("fetching sub-stream schedule %s: %w", pagePath, err)
+		return nil, nil, 0, fmt.Errorf("fetching sub-stream schedule %s: %w", pagePath, err)
 	}
 	return parseWFMUSubstreamSchedule(body)
 }
@@ -69,26 +87,34 @@ func (p *WFMUProvider) DiscoverSubstreamSchedule(pagePath string) (entries []WFM
 // needs for sub-streams, mirroring scheduleDiscoverer so tests can drive the
 // cycle with a mock provider.
 type substreamScheduleDiscoverer interface {
-	DiscoverSubstreamSchedule(pagePath string) ([]WFMUScheduleEntry, int, error)
+	DiscoverSubstreamSchedule(pagePath string) ([]WFMUScheduleEntry, map[int]bool, int, error)
 }
 
 // parseWFMUSubstreamSchedule walks the rolling-week listing: a <div
 // class="upcoming_dow"> row sets the current weekday; each subsequent row
 // whose first cell parses as a time range and which carries a
 // /playlists/{CODE} link becomes one slot for that weekday. Rows before the
-// first day header (the "now playing" chrome) are ignored; a slot-shaped row
-// that fails time parsing or has no program code is counted in skipped, so a
-// markup change doesn't look identical to a healthy run. Entries are keyed by
-// code (a show airing several days accumulates several slots), unsorted.
-func parseWFMUSubstreamSchedule(body []byte) (entries []WFMUScheduleEntry, skipped int, err error) {
+// first day header (the "now playing" chrome) are ignored.
+//
+// daysSeen is the set of weekdays whose header text parsed — the apply trusts
+// ONLY those days, so a reformatted header ("THURSDAY, JULY 9") degrades that
+// day to preserved-not-updated instead of silently clearing its shows.
+// skipped counts the drift signals a partial markup change leaves behind:
+// unparseable day headers, slot rows orphaned under one, rows whose cell
+// carries a program link but whose time cell no longer parses, and slot rows
+// with a parseable time but no recognizable program link. A healthy page
+// yields skipped == 0; drift shows up as a nonzero count in the cycle log.
+func parseWFMUSubstreamSchedule(body []byte) (entries []WFMUScheduleEntry, daysSeen map[int]bool, skipped int, err error) {
 	doc, err := html.Parse(strings.NewReader(string(body)))
 	if err != nil {
-		return nil, 0, fmt.Errorf("parsing sub-stream schedule HTML: %w", err)
+		return nil, nil, 0, fmt.Errorf("parsing sub-stream schedule HTML: %w", err)
 	}
 
 	byCode := map[string]*WFMUScheduleEntry{}
 	order := []string{}
+	daysSeen = map[int]bool{}
 	currentDay := -1
+	headerSeen := false
 
 	var rows []*html.Node
 	var collect func(*html.Node)
@@ -108,6 +134,7 @@ func parseWFMUSubstreamSchedule(body []byte) (entries []WFMUScheduleEntry, skipp
 			return n.Type == html.ElementNode && n.Data == "div" &&
 				strings.Contains(attrVal(n, "class"), "upcoming_dow")
 		}); dow != nil {
+			headerSeen = true
 			day, ok := dayNameToWeekday[strings.ToUpper(strings.TrimSpace(textContent(dow)))]
 			if !ok {
 				currentDay = -1 // unrecognized header — don't attribute slots to a stale day
@@ -115,21 +142,32 @@ func parseWFMUSubstreamSchedule(body []byte) (entries []WFMUScheduleEntry, skipp
 				continue
 			}
 			currentDay = day
+			daysSeen[day] = true
 			continue
-		}
-		if currentDay < 0 {
-			continue // pre-header chrome (page banner, "now playing" block)
 		}
 
 		cells := cellChildren(row)
 		if len(cells) < 2 {
 			continue // spacer/border rows inside the table
 		}
-		start, end, ok := parseWFMUTimeRange(strings.TrimSpace(textContent(cells[0])))
-		if !ok {
-			continue // not a slot row (nested layout rows land here too)
-		}
+		start, end, timeOK := parseWFMUTimeRange(strings.TrimSpace(textContent(cells[0])))
 		code, name := extractSubstreamProgramLink(cells[1])
+		if !timeOK {
+			// A program link without a parseable time cell is the signature
+			// of a time-format change — count it. Layout rows with neither
+			// stay silent (they're everywhere in WFMU's table-soup markup).
+			if code != "" {
+				skipped++
+			}
+			continue
+		}
+		if !headerSeen {
+			continue // pre-header chrome (page banner, "now playing" block)
+		}
+		if currentDay < 0 {
+			skipped++ // a real slot row orphaned under an unrecognized header
+			continue
+		}
 		if code == "" {
 			skipped++ // slot-shaped row with no recognizable program link
 			continue
@@ -147,7 +185,7 @@ func parseWFMUSubstreamSchedule(body []byte) (entries []WFMUScheduleEntry, skipp
 	for _, code := range order {
 		entries = append(entries, *byCode[code])
 	}
-	return entries, skipped, nil
+	return entries, daysSeen, skipped, nil
 }
 
 // attrVal returns an attribute's value ("" when absent).
@@ -180,10 +218,10 @@ func extractSubstreamProgramLink(cell *html.Node) (code, name string) {
 }
 
 // wfmuLocalWeekday returns the current weekday in WFMU's schedule timezone —
-// the scrape day whose listing group is partial (see the partial-today rule).
-// The UTC fallback mirrors wfmuTodayCap's defensive posture: production always
-// has the IANA db; being wrong here only widens the preserved weekday by the
-// UTC/ET gap for a few hours, it never corrupts a slot.
+// the scrape day whose listing group is partial (see the authoritative-days
+// rule). The UTC fallback mirrors wfmuTodayCap's defensive posture: production
+// always has the IANA db; being wrong here only widens the preserved weekday
+// by the UTC/ET gap for a few hours, it never corrupts a slot.
 func wfmuLocalWeekday(now time.Time) int {
 	loc, err := time.LoadLocation(wfmuScheduleTimezone)
 	if err != nil {
@@ -192,18 +230,39 @@ func wfmuLocalWeekday(now time.Time) int {
 	return int(now.In(loc).Weekday())
 }
 
+// slotSetsEqual reports whether two slot sets carry the same airings,
+// order-independently (scrape order and stored order legitimately differ).
+func slotSetsEqual(a, b []catalogm.RadioScheduleSlot) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	key := func(s catalogm.RadioScheduleSlot) string {
+		return fmt.Sprintf("%d|%s|%s", s.DayOfWeek, s.Start, s.End)
+	}
+	ka := make([]string, len(a))
+	kb := make([]string, len(b))
+	for i := range a {
+		ka[i], kb[i] = key(a[i]), key(b[i])
+	}
+	sort.Strings(ka)
+	sort.Strings(kb)
+	return slices.Equal(ka, kb)
+}
+
 // ApplyWFMUSubstreamSchedule writes the parsed rolling-week entries onto the
 // station's shows (matched exact-by-code within THAT station — the PSY-1127
-// family scoping; a code never updates a sibling station's row). It differs
-// from the flagship ApplyWFMUSchedule in one way: the partial-today rule.
-// excludeWeekday (the scrape day) is never trusted from this scrape — each
-// show's new schedule is the scraped slots for the six full weekdays plus its
-// EXISTING slots on excludeWeekday, preserved verbatim. Clearing therefore
-// also happens per-show through the same merge: a show whose merged slot set
-// comes out empty (dropped from all full days, nothing preserved) has its
-// schedule nulled — gated on the recognized-shows floor, and always skipping
-// schedule_locked shows (admin-curated, PSY-1186).
-func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []WFMUScheduleEntry, excludeWeekday int) (matched, unmatched, cleared int, err error) {
+// family scoping; a code never updates a sibling station's row; the
+// (station_id, external_id) unique index guarantees at most one row per code).
+// It differs from the flagship ApplyWFMUSchedule in one way: the
+// authoritative-days rule. Only weekdays in authoritativeDays are trusted from
+// this scrape — each show's new schedule is the scraped slots on those days
+// plus its EXISTING slots on every other day, preserved verbatim. Clearing
+// rides the same merge: a show whose merged slot set comes out empty (dropped
+// from every authoritative day, nothing preserved elsewhere) has its schedule
+// nulled — gated on the recognized-shows floor, and always skipping
+// schedule_locked shows (admin-curated, PSY-1186). An unchanged merged set is
+// NOT rewritten (no updated_at churn; matched counts real writes only).
+func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []WFMUScheduleEntry, authoritativeDays map[int]bool) (matched, unmatched, cleared int, err error) {
 	if s.db == nil {
 		return 0, 0, 0, fmt.Errorf("database not initialized")
 	}
@@ -241,7 +300,8 @@ func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []
 			"station", stationSlug, "recognized", recognized, "min", wfmuSubstreamClearMinEntries)
 	}
 
-	for code, show := range showByCode {
+	for _, code := range slices.Sorted(maps.Keys(showByCode)) {
+		show := showByCode[code]
 		if show.ScheduleLocked {
 			if _, inScrape := scraped[code]; inScrape {
 				lockedSkipped++
@@ -249,16 +309,18 @@ func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []
 			continue
 		}
 
-		// Merge: full-day slots from the scrape + the show's existing
-		// scrape-day slots. A show absent from the scrape contributes only
-		// its preserved slots — which is exactly how a today-only show
-		// survives the day it airs.
+		// Merge: authoritative-day slots from the scrape + the show's
+		// existing slots on every non-authoritative day. A show absent from
+		// the scrape contributes only its preserved slots — which is exactly
+		// how a today-only show survives the day it airs, and how a
+		// broken-day-header show keeps that day's slots.
 		newSlots := make([]catalogm.RadioScheduleSlot, 0, 8)
 		for _, sl := range scraped[code] {
-			if sl.DayOfWeek != excludeWeekday {
+			if authoritativeDays[sl.DayOfWeek] {
 				newSlots = append(newSlots, sl)
 			}
 		}
+		var existingSlots []catalogm.RadioScheduleSlot
 		hadSchedule := show.Schedule != nil
 		if hadSchedule {
 			existing, pErr := catalogm.ParseRadioSchedule(show.Schedule)
@@ -266,8 +328,9 @@ func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []
 				slog.Warn("wfmu substream schedule: existing schedule unparseable, treating as empty",
 					"station", stationSlug, "code", code, "show_id", show.ID, "error", pErr)
 			} else if existing != nil {
+				existingSlots = existing.Slots
 				for _, sl := range existing.Slots {
-					if sl.DayOfWeek == excludeWeekday {
+					if !authoritativeDays[sl.DayOfWeek] {
 						newSlots = append(newSlots, sl)
 					}
 				}
@@ -286,8 +349,16 @@ func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []
 				continue
 			}
 			cleared++
-			slog.Info("wfmu substream schedule: cleared schedule for show absent from all full days",
+			slog.Info("wfmu substream schedule: cleared schedule for show absent from all authoritative days",
 				"station", stationSlug, "code", code, "show_id", show.ID)
+			continue
+		}
+		if hadSchedule && slotSetsEqual(newSlots, existingSlots) {
+			continue // steady state — no write, no updated_at churn
+		}
+		if len(newSlots) > wfmuSubstreamMaxSlotsPerShow {
+			slog.Warn("wfmu substream schedule: merged slot count over cap, skipped (suspect page)",
+				"station", stationSlug, "code", code, "slots", len(newSlots), "cap", wfmuSubstreamMaxSlotsPerShow)
 			continue
 		}
 
@@ -321,14 +392,24 @@ func (s *RadioService) ApplyWFMUSubstreamSchedule(stationSlug string, entries []
 }
 
 // applySubstreamScheduleForStation is the per-station unit the schedule cycle
-// loops over: discover the page, apply with the partial-today rule. A station
-// not seeded in this environment surfaces as gorm.ErrRecordNotFound (the apply
+// loops over: discover the page, then apply with the authoritative-days rule.
+// The scrape day is read from the clock AFTER the fetch returns — computing it
+// before could straddle ET midnight during the rate-limiter wait + HTTP call
+// and mark the page's new partial "today" as authoritative. A station not
+// seeded in this environment surfaces as gorm.ErrRecordNotFound (the apply
 // wraps it with %w) — the cycle logs that quietly instead of as an error.
-func (s *RadioService) applySubstreamScheduleForStation(sd substreamScheduleDiscoverer, stationSlug, pagePath string, now time.Time) (matched, unmatched, cleared, skipped int, err error) {
-	entries, skipped, err := sd.DiscoverSubstreamSchedule(pagePath)
+func (s *RadioService) applySubstreamScheduleForStation(sd substreamScheduleDiscoverer, stationSlug, pagePath string) (matched, unmatched, cleared, skipped int, err error) {
+	entries, daysSeen, skipped, err := sd.DiscoverSubstreamSchedule(pagePath)
 	if err != nil {
 		return 0, 0, 0, skipped, err
 	}
-	matched, unmatched, cleared, err = s.ApplyWFMUSubstreamSchedule(stationSlug, entries, wfmuLocalWeekday(now))
+	today := wfmuLocalWeekday(time.Now())
+	authoritative := make(map[int]bool, len(daysSeen))
+	for day := range daysSeen {
+		if day != today {
+			authoritative[day] = true
+		}
+	}
+	matched, unmatched, cleared, err = s.ApplyWFMUSubstreamSchedule(stationSlug, entries, authoritative)
 	return matched, unmatched, cleared, skipped, err
 }

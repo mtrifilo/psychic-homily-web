@@ -86,6 +86,14 @@ const DefaultJanitorBackfillLookbackDays = 30
 // on WFMU (PSY-1159). RADIO_SCHEDULE_INTERVAL_HOURS=0 (or negative) disables the cycle.
 const DefaultScheduleInterval = 7 * 24 * time.Hour
 
+// Default WFMU sub-stream schedule-scrape interval (daily). Unlike the seasonal
+// /table grid, the sub-stream pass MUST run daily-or-faster: its source pages are
+// rolling windows whose scrape-day group is partial, so each run trusts only the
+// six full weekdays and preserves the scrape day — a weekly cadence would land on
+// the SAME weekday every run and freeze that day's slots forever (PSY-1322
+// adversarial finding). RADIO_SUBSTREAM_SCHEDULE_INTERVAL_HOURS=0 disables it.
+const DefaultSubstreamScheduleInterval = 24 * time.Hour
+
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
 // model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
 // §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
@@ -247,6 +255,13 @@ type RadioFetchService struct {
 	scheduleEnabled  bool
 	scheduleInterval time.Duration
 
+	// substreamSchedule* drive the WFMU sub-stream schedule scrape (PSY-1322) —
+	// a SEPARATE, faster ticker than the flagship grid scrape, because the
+	// partial-today merge only converges when the excluded weekday rotates
+	// (see DefaultSubstreamScheduleInterval).
+	substreamScheduleEnabled  bool
+	substreamScheduleInterval time.Duration
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
@@ -332,6 +347,21 @@ func NewRadioFetchService(
 		}
 	}
 
+	// WFMU sub-stream schedule scrape (PSY-1322). Same enable/disable-on-0
+	// semantics; deliberately its own knob — see DefaultSubstreamScheduleInterval
+	// for why this cadence must stay daily-or-faster.
+	substreamScheduleEnabled := true
+	substreamScheduleInterval := DefaultSubstreamScheduleInterval
+	if envVal := os.Getenv("RADIO_SUBSTREAM_SCHEDULE_INTERVAL_HOURS"); envVal != "" {
+		if hours, err := strconv.Atoi(envVal); err == nil {
+			if hours <= 0 {
+				substreamScheduleEnabled = false
+			} else {
+				substreamScheduleInterval = time.Duration(hours) * time.Hour
+			}
+		}
+	}
+
 	return &RadioFetchService{
 		radioService:                radioService,
 		discordService:              discordService,
@@ -348,6 +378,8 @@ func NewRadioFetchService(
 		janitorBackfillLookbackDays: janitorBackfillLookbackDays,
 		scheduleEnabled:             scheduleEnabled,
 		scheduleInterval:            scheduleInterval,
+		substreamScheduleEnabled:    substreamScheduleEnabled,
+		substreamScheduleInterval:   substreamScheduleInterval,
 		stopCh:                      make(chan struct{}),
 		logger:                      slog.Default(),
 	}
@@ -383,6 +415,13 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 	if s.scheduleEnabled {
 		s.wg.Add(1)
 		go s.runScheduleLoop(ctx)
+	}
+
+	// WFMU sub-stream schedule scrape (PSY-1322). Skipped when disabled
+	// (RADIO_SUBSTREAM_SCHEDULE_INTERVAL_HOURS=0).
+	if s.substreamScheduleEnabled {
+		s.wg.Add(1)
+		go s.runSubstreamScheduleLoop(ctx)
 	}
 
 	s.logger.Info("radio fetch service started",
@@ -462,11 +501,6 @@ func (s *RadioFetchService) runScheduleCycle() {
 	}
 	defer closeProvider(provider)
 
-	// The sub-stream pass rides the same cycle but its pages are independent
-	// of the flagship grid — run it even when the /table scrape or apply
-	// early-returns below (deferred, so flagship-first ordering is kept).
-	defer s.runSubstreamScheduleCycle(provider)
-
 	sd, ok := provider.(scheduleDiscoverer)
 	if !ok {
 		s.logger.Error("radio schedule: WFMU provider does not support schedule discovery")
@@ -492,21 +526,40 @@ func (s *RadioFetchService) runScheduleCycle() {
 	)
 }
 
+// runSubstreamScheduleLoop runs the periodic WFMU sub-stream schedule scrape
+// (PSY-1322) on its OWN daily ticker — not the weekly flagship cycle, whose
+// fixed weekday would freeze the partial-today exclusion on one day forever.
+// runImmediately=true for the same reason the flagship loop uses it: a fresh
+// deploy should populate windows without waiting a full interval.
+func (s *RadioFetchService) runSubstreamScheduleLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "radio_substream_schedule", s.substreamScheduleInterval, s.stopCh, true, func(_ context.Context) {
+		s.runSubstreamScheduleCycle()
+	})
+}
+
 // runSubstreamScheduleCycle scrapes each WFMU sub-stream's rolling-week
-// schedule page (PSY-1322) after the flagship grid pass. Per-station failures
-// are logged and the loop continues — one broken page never blocks the
-// siblings; an unseeded station (dev environments) logs quietly, not as an
-// error. Iteration order is fixed for deterministic logs.
-func (s *RadioFetchService) runSubstreamScheduleCycle(provider RadioPlaylistProvider) {
+// schedule page (PSY-1322). Per-station failures are logged and the loop
+// continues — one broken page never blocks the siblings; an unseeded station
+// (dev environments) logs quietly, not as an error. Iteration order is fixed
+// for deterministic logs.
+func (s *RadioFetchService) runSubstreamScheduleCycle() {
+	provider, err := s.radioService.getProvider(catalogm.PlaylistSourceWFMU)
+	if err != nil {
+		s.logger.Error("radio substream schedule: get WFMU provider failed", "error", err)
+		return
+	}
+	defer closeProvider(provider)
+
 	sd, ok := provider.(substreamScheduleDiscoverer)
 	if !ok {
-		s.logger.Error("radio schedule: WFMU provider does not support sub-stream schedule discovery")
+		s.logger.Error("radio substream schedule: WFMU provider does not support sub-stream schedule discovery")
 		return
 	}
 	for _, stationSlug := range slices.Sorted(maps.Keys(wfmuSubstreamSchedulePages)) {
 		pagePath := wfmuSubstreamSchedulePages[stationSlug]
 		start := time.Now()
-		matched, unmatched, cleared, skipped, err := s.radioService.applySubstreamScheduleForStation(sd, stationSlug, pagePath, start)
+		matched, unmatched, cleared, skipped, err := s.radioService.applySubstreamScheduleForStation(sd, stationSlug, pagePath)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			s.logger.Info("radio substream schedule: station not seeded, skipped", "station", stationSlug)
 			continue

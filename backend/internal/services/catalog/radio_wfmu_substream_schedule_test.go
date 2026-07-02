@@ -15,12 +15,15 @@ func TestParseWFMUSubstreamSchedule_Fixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	entries, skipped, err := parseWFMUSubstreamSchedule(body)
+	entries, daysSeen, skipped, err := parseWFMUSubstreamSchedule(body)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if skipped != 0 {
 		t.Errorf("skipped = %d, want 0 (every slot row in the snapshot is well-formed)", skipped)
+	}
+	if len(daysSeen) != 7 {
+		t.Errorf("daysSeen = %v, want all 7 weekdays", daysSeen)
 	}
 
 	// Ground truth extracted from the snapshot by independent regex: 33 slot
@@ -71,16 +74,67 @@ func TestParseWFMUSubstreamSchedule_Fixture(t *testing.T) {
 	}
 }
 
-// A page whose markup shifted enough that no day headers or no slot rows
-// parse must come back empty (the apply's recognized-floor then disables
-// everything) rather than erroring or attributing slots to a stale day.
+// A page whose markup shifted enough that no day headers parse must come back
+// empty (the apply's recognized-floor then disables everything) rather than
+// erroring or attributing slots to a stale day.
 func TestParseWFMUSubstreamSchedule_UnrecognizableMarkup(t *testing.T) {
-	entries, _, err := parseWFMUSubstreamSchedule([]byte("<html><body><table><tr><td>12-3pm</td><td><a href=\"/playlists/ZZ\">Show</a></td></tr></table></body></html>"))
+	entries, daysSeen, _, err := parseWFMUSubstreamSchedule([]byte("<html><body><table><tr><td>12-3pm</td><td><a href=\"/playlists/ZZ\">Show</a></td></tr></table></body></html>"))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("slot rows before any day header must be ignored, got %d entries", len(entries))
+	}
+	if len(daysSeen) != 0 {
+		t.Errorf("daysSeen = %v, want empty", daysSeen)
+	}
+}
+
+// A reformatted day header degrades that day, not the page: the day is absent
+// from daysSeen (so the apply preserves it), its orphaned slot rows count as
+// skipped, and the surrounding days still parse.
+func TestParseWFMUSubstreamSchedule_BrokenDayHeader(t *testing.T) {
+	page := `<html><body><table>
+<tr><td colspan="2"><div class="upcoming_dow">Friday</div></td></tr>
+<tr><td>9am-12pm</td><td><a href="/playlists/AA">Show A</a></td></tr>
+<tr><td colspan="2"><div class="upcoming_dow">SATURDAY, JULY 11</div></td></tr>
+<tr><td>12-3pm</td><td><a href="/playlists/BB">Show B</a></td></tr>
+<tr><td colspan="2"><div class="upcoming_dow">Sunday</div></td></tr>
+<tr><td>3-6pm</td><td><a href="/playlists/CC">Show C</a></td></tr>
+</table></body></html>`
+	entries, daysSeen, skipped, err := parseWFMUSubstreamSchedule([]byte(page))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if daysSeen[6] || !daysSeen[5] || !daysSeen[0] {
+		t.Errorf("daysSeen = %v, want Friday+Sunday only", daysSeen)
+	}
+	if skipped != 2 {
+		t.Errorf("skipped = %d, want 2 (the broken header + its orphaned slot row)", skipped)
+	}
+	if len(entries) != 2 {
+		t.Errorf("entries = %d, want 2 (Show B's day is untrusted)", len(entries))
+	}
+}
+
+// A time-format change is a counted drift signal, not a silent empty parse:
+// rows that still carry a program link but whose time cell no longer parses
+// increment skipped.
+func TestParseWFMUSubstreamSchedule_TimeFormatDriftCounted(t *testing.T) {
+	page := `<html><body><table>
+<tr><td colspan="2"><div class="upcoming_dow">Monday</div></td></tr>
+<tr><td>21:00&#8211;23:00</td><td><a href="/playlists/AA">Show A</a></td></tr>
+<tr><td>9-11pm</td><td><a href="/playlists/BB">Show B</a></td></tr>
+</table></body></html>`
+	entries, _, skipped, err := parseWFMUSubstreamSchedule([]byte(page))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (the 24h/en-dash row)", skipped)
+	}
+	if len(entries) != 1 || entries[0].Code != "BB" {
+		t.Errorf("entries = %+v, want just BB", entries)
 	}
 }
 
