@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
 import type { GlobePov, PlaceableScene } from './globeTypes'
 import {
+  DOT_HOVER_RADIUS_SCALE,
   labelMinCountForAltitude,
+  sceneDotColor,
   sceneDotRadius,
   sceneLabelSize,
   visibleLabelScenes,
@@ -23,6 +25,12 @@ interface GlobeCanvasProps {
    */
   pov: GlobePov
   onSelect: (scene: PlaceableScene) => void
+  /**
+   * The scene whose preview panel is open (PSY-1312): its dot stays visually
+   * distinct so you can see which dot you're reading about. null when no panel
+   * is open.
+   */
+  selected?: PlaceableScene | null
 }
 
 const EARTH_TEXTURE =
@@ -60,8 +68,35 @@ export default function GlobeCanvas({
   scenes,
   pov,
   onSelect,
+  selected = null,
 }: GlobeCanvasProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
+
+  // PSY-1312: hover affordance. Tracking the hovered slug in STATE (not a ref)
+  // is deliberate — the color/radius accessors below close over it, and the
+  // state change gives them new identities, which is exactly what makes
+  // react-globe.gl re-evaluate the points layer. The dot set is small (one per
+  // scene), so the re-evaluation is cheap; onPointHover only fires on
+  // enter/leave, not per-frame.
+  const [hoveredSlug, setHoveredSlug] = useState<string | null>(null)
+  const selectedSlug = selected?.slug ?? null
+
+  const handlePointHover = useCallback((point: object | null) => {
+    setHoveredSlug(point ? (point as PlaceableScene).slug : null)
+  }, [])
+
+  const pointColor = useCallback(
+    (d: object) => sceneDotColor((d as PlaceableScene).slug, hoveredSlug, selectedSlug),
+    [hoveredSlug, selectedSlug],
+  )
+  const pointRadius = useCallback(
+    (d: object) => {
+      const s = d as PlaceableScene
+      const base = sceneDotRadius(s.upcoming_show_count)
+      return s.slug === hoveredSlug ? base * DOT_HOVER_RADIUS_SCALE : base
+    },
+    [hoveredSlug],
+  )
 
   // PSY-1284: heal a globe that comes back frozen after a client-side
   // navigation away from /atlas and back.
@@ -148,40 +183,51 @@ export default function GlobeCanvas({
   // `pov` is resolved once in AtlasGlobe BEFORE this canvas mounts, so the
   // camera is aimed exactly once via onGlobeReady — no post-mount re-aim that
   // could snap over a user's in-progress rotation.
+  //
+  // The wrapping div exists only for the hover cursor (PSY-1312): react-globe.gl
+  // renders into a canvas with no per-object cursor, so the pointer cursor is
+  // applied to the container while a dot is hovered. Sized to the canvas, so it
+  // is layout-neutral.
   return (
-    <Globe
-      key={rebuildNonce}
-      ref={globeRef}
-      width={width}
-      height={height}
-      globeImageUrl={EARTH_TEXTURE}
-      backgroundColor="rgba(0,0,0,0)"
-      showAtmosphere
-      atmosphereColor="#4aa3ff"
-      atmosphereAltitude={0.18}
-      pointsData={scenes}
-      pointLat="latitude"
-      pointLng="longitude"
-      pointAltitude={0.008}
-      pointColor={() => '#ff7a3c'}
-      pointRadius={(d) => sceneDotRadius((d as PlaceableScene).upcoming_show_count)}
-      pointResolution={18}
-      pointLabel={(d) => {
-        const s = d as PlaceableScene
-        return `${escapeHtml(s.city)}, ${escapeHtml(s.state)} · ${s.upcoming_show_count} upcoming`
-      }}
-      onPointClick={(d) => onSelect(d as PlaceableScene)}
-      labelsData={labelScenes}
-      labelLat="latitude"
-      labelLng="longitude"
-      labelText={(d) => (d as PlaceableScene).city}
-      labelSize={(d) => sceneLabelSize((d as PlaceableScene).upcoming_show_count)}
-      labelDotRadius={0.18}
-      labelColor={() => '#ffe6c2'}
-      labelResolution={2}
-      labelsTransitionDuration={300}
-      onZoom={handleZoom}
-      onGlobeReady={() => globeRef.current?.pointOfView(pov, 0)}
-    />
+    <div
+      style={{ width, height, cursor: hoveredSlug ? 'pointer' : undefined }}
+      data-testid="globe-cursor-wrap"
+    >
+      <Globe
+        key={rebuildNonce}
+        ref={globeRef}
+        width={width}
+        height={height}
+        globeImageUrl={EARTH_TEXTURE}
+        backgroundColor="rgba(0,0,0,0)"
+        showAtmosphere
+        atmosphereColor="#4aa3ff"
+        atmosphereAltitude={0.18}
+        pointsData={scenes}
+        pointLat="latitude"
+        pointLng="longitude"
+        pointAltitude={0.008}
+        pointColor={pointColor}
+        pointRadius={pointRadius}
+        pointResolution={18}
+        pointLabel={(d) => {
+          const s = d as PlaceableScene
+          return `${escapeHtml(s.city)}, ${escapeHtml(s.state)} · ${s.upcoming_show_count} upcoming`
+        }}
+        onPointClick={(d) => onSelect(d as PlaceableScene)}
+        onPointHover={handlePointHover}
+        labelsData={labelScenes}
+        labelLat="latitude"
+        labelLng="longitude"
+        labelText={(d) => (d as PlaceableScene).city}
+        labelSize={(d) => sceneLabelSize((d as PlaceableScene).upcoming_show_count)}
+        labelDotRadius={0.18}
+        labelColor={() => '#ffe6c2'}
+        labelResolution={2}
+        labelsTransitionDuration={300}
+        onZoom={handleZoom}
+        onGlobeReady={() => globeRef.current?.pointOfView(pov, 0)}
+      />
+    </div>
   )
 }

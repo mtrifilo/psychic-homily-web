@@ -35,6 +35,31 @@ export function sceneDotRadius(upcomingShowCount: number): number {
   return DOT_BASE_RADIUS + Math.min(Math.sqrt(count) / DOT_SQRT_DIVISOR, DOT_VARIABLE_MAX)
 }
 
+// ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────
+// Uniform orange gave the dots no affordance feedback: nothing signalled
+// clickability until you clicked, and with the preview panel open you couldn't
+// see WHICH dot you were reading about. Three states, one place:
+//   selected → cream (matches the label color, persistent while the panel is open)
+//   hovered  → brightened orange (+ pointer cursor + slight radius bump)
+//   base     → the shipped dot orange
+// Selected wins over hovered so re-hovering the open scene doesn't flicker.
+export const DOT_COLOR_BASE = '#ff7a3c'
+export const DOT_COLOR_HOVERED = '#ffb066'
+export const DOT_COLOR_SELECTED = '#ffe6c2'
+// Radius bump on hover — kept small so the merged point geometry rebuild (the
+// accessors re-evaluate on hover change) never visibly pops neighbours.
+export const DOT_HOVER_RADIUS_SCALE = 1.2
+
+export function sceneDotColor(
+  slug: string,
+  hoveredSlug: string | null,
+  selectedSlug: string | null,
+): string {
+  if (selectedSlug !== null && slug === selectedSlug) return DOT_COLOR_SELECTED
+  if (hoveredSlug !== null && slug === hoveredSlug) return DOT_COLOR_HOVERED
+  return DOT_COLOR_BASE
+}
+
 // ── Label text size ───────────────────────────────────────────────────────
 // Same shape as the dot, capped so dense-scene labels stay readable without
 // dominating the map.

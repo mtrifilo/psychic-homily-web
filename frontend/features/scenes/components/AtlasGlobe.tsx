@@ -178,6 +178,7 @@ export function AtlasGlobe() {
           scenes={placeable}
           pov={pov}
           onSelect={setSelected}
+          selected={selected}
         />
         {unplaceableCount > 0 && (
           <Link
