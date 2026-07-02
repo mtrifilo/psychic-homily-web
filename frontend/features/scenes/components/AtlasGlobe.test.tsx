@@ -132,7 +132,7 @@ describe('AtlasGlobe', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists all scenes as links on small screens (mobile gate)', () => {
+  it('lists all scenes as expandable rows on small screens (mobile gate)', () => {
     mockUseScenes.mockReturnValue({
       data: sampleData,
       isLoading: false,
@@ -140,13 +140,15 @@ describe('AtlasGlobe', () => {
     })
     renderWithProviders(<AtlasGlobe />)
 
+    // Rows are collapsed accordion buttons (PSY-1311) — expansion behavior is
+    // covered by MobileSceneList.test.tsx.
     expect(
-      screen.getByRole('link', { name: /Chicago, IL/ }),
-    ).toHaveAttribute('href', '/scenes/chicago-il')
+      screen.getByRole('button', { name: /Chicago, IL/ }),
+    ).toHaveAttribute('aria-expanded', 'false')
     // The unplaceable scene still appears in the mobile list.
     expect(
-      screen.getByRole('link', { name: /Faketown, ZZ/ }),
-    ).toHaveAttribute('href', '/scenes/faketown-zz')
+      screen.getByRole('button', { name: /Faketown, ZZ/ }),
+    ).toBeInTheDocument()
   })
 
   it('shows an error state when the scenes query fails', () => {

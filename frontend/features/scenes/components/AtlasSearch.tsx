@@ -13,6 +13,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { isPlaceableScene, type PlaceableScene } from './globeTypes'
+import { compareScenesByActivity } from './globeScale'
 import type { SceneListItem } from '../types'
 
 interface AtlasSearchProps {
@@ -41,9 +42,7 @@ export function AtlasSearch({ scenes, onPick }: AtlasSearchProps) {
 
   // Most-active-first so the list leads with the liveliest scenes before any
   // query is typed; cmdk's built-in filter takes over as the user types.
-  const sorted = [...scenes].sort(
-    (a, b) => b.upcoming_show_count - a.upcoming_show_count,
-  )
+  const sorted = [...scenes].sort(compareScenesByActivity)
 
   const handleSelect = useCallback(
     (scene: SceneListItem) => {

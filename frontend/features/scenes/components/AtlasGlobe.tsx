@@ -22,6 +22,7 @@ import {
 import { pickDriftScene } from './drift'
 import { AtlasSearch } from './AtlasSearch'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
+import { MobileSceneList } from './MobileSceneList'
 
 const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
@@ -261,47 +262,6 @@ function CenterMessage({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full w-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
       {children}
-    </div>
-  )
-}
-
-// <640px: the WebGL globe + canvas gestures aren't usable (PSY-511/1086 gate),
-// so serve the scenes as a simple list — still the geographic-discovery payoff,
-// just not spatial. Lists ALL scenes (incl. ones the globe can't place).
-function MobileSceneList({
-  scenes,
-  loading,
-}: {
-  scenes: SceneListItem[]
-  loading: boolean
-}) {
-  return (
-    <div className="h-full w-full overflow-y-auto bg-background p-4">
-      <h1 className="text-lg font-semibold">Scenes</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        The globe is best on a larger screen. Browse the scenes below.
-      </p>
-      {loading ? (
-        <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
-      ) : (
-        <ul className="mt-4 flex flex-col divide-y divide-border">
-          {scenes.map((s) => (
-            <li key={s.slug}>
-              <Link
-                href={`/scenes/${s.slug}`}
-                className="flex items-center justify-between gap-3 py-3"
-              >
-                <span className="font-medium">
-                  {s.city}, {s.state}
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {s.upcoming_show_count} upcoming
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }

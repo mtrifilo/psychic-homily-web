@@ -38,7 +38,8 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
   },
 }))
 
-import { ScenePreviewPanel, EMBED_SEARCH_LIMIT } from './ScenePreviewPanel'
+import { ScenePreviewPanel } from './ScenePreviewPanel'
+import { EMBED_SEARCH_LIMIT } from './ScenePreviewContent'
 
 const scene: SceneListItem = {
   city: 'Chicago',

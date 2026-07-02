@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  compareScenesByActivity,
   DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
@@ -211,5 +212,37 @@ describe('sceneDotColor (PSY-1312)', () => {
     expect(sceneDotColor('phoenix-az', 'mesa-az', 'phoenix-az')).toBe(
       DOT_COLOR_SELECTED,
     )
+  })
+})
+
+describe('compareScenesByActivity', () => {
+  it('orders liveliest first', () => {
+    const scenes = [
+      { upcoming_show_count: 3 },
+      { upcoming_show_count: 283 },
+      { upcoming_show_count: 41 },
+    ]
+    expect(
+      scenes.sort(compareScenesByActivity).map((s) => s.upcoming_show_count),
+    ).toEqual([283, 41, 3])
+  })
+
+  it('sorts non-finite counts last with a total order (no NaN comparator poisoning)', () => {
+    const scenes = [
+      { upcoming_show_count: NaN },
+      { upcoming_show_count: 3 },
+      { upcoming_show_count: Number.NaN },
+      { upcoming_show_count: 41 },
+    ]
+    expect(
+      scenes.sort(compareScenesByActivity).map((s) => s.upcoming_show_count),
+    ).toEqual([41, 3, NaN, NaN])
+    // Two malformed rows compare equal, not NaN (-Infinity − -Infinity trap).
+    expect(
+      compareScenesByActivity(
+        { upcoming_show_count: NaN },
+        { upcoming_show_count: NaN },
+      ),
+    ).toBe(0)
   })
 })
