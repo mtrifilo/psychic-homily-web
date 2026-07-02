@@ -19,7 +19,10 @@ func RadioBackboneAlpha() float64 {
 		return defaultAlpha
 	}
 	v, err := strconv.ParseFloat(raw, 64)
-	if err != nil || v <= 0 || v > 1 {
+	// NaN needs an explicit check: ParseFloat("NaN") succeeds, and NaN fails
+	// BOTH range comparisons below, so it would slip through and silently
+	// disable every `< alpha` filter (PSY-1301).
+	if err != nil || math.IsNaN(v) || v <= 0 || v > 1 {
 		return defaultAlpha
 	}
 	return v
