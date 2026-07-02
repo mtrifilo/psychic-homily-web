@@ -15,24 +15,29 @@
 // so the lookup browses releases by RG-MBID — one browse (≤10 paginated calls)
 // per distinct RG.
 //
-// Writes go through ReleaseService.AddExternalLink, which also back-fills credited
-// artists' NULL bandcamp_embed_url in the same transaction (PSY-1189) — release
-// link enrichment compounds into artist embeds without extra code here. Because a
-// full run is hours long and release_external_links has NO unique constraint, the
-// live path re-checks link absence immediately before each write (the candidate
-// snapshot alone would race an admin adding a link mid-run).
+// Writes go through ReleaseService.AddExternalLinkWithSource (source=mb_backfill,
+// the audit/mass-revert key), which also back-fills credited artists' NULL
+// bandcamp_embed_url in the same transaction (PSY-1189) — release link enrichment
+// compounds into artist embeds without extra code here. Duplicate protection is
+// two-layer: a partial unique index on (release_id, LOWER(platform)) WHERE
+// source='mb_backfill' closes the concurrent-BACKFILL race at the DB (surfacing
+// as LinksRaced), while the pre-write re-check narrows the backfill-vs-MANUAL
+// window (manual rows are NULL-source, outside the index — an admin may
+// legitimately hold multiple same-platform links).
 package enrich
 
 import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // MBReleaseURLRelBrowse fetches url-relations for every release in a known
@@ -45,13 +50,25 @@ type MBReleaseURLRelBrowse interface {
 // (transactional with the PSY-1189 artist-embed fill). Satisfied by
 // *catalog.ReleaseService.
 type releaseLinkWriter interface {
-	AddExternalLink(releaseID uint, platform, url string) (*contracts.ReleaseExternalLinkResponse, error)
+	AddExternalLinkWithSource(releaseID uint, platform, url, source string) (*contracts.ReleaseExternalLinkResponse, error)
 }
+
+// releaseLinkSource is the provenance stamped on every enrichment-written link
+// row (NULL = manual) -- the scope of the partial unique index that closes the
+// concurrent-run duplicate race, and the audit/revert key for poisoned MB data.
+const releaseLinkSource = "mb_backfill"
 
 // ReleaseLinksOptions configures one release-links backfill run.
 type ReleaseLinksOptions struct {
 	DryRun bool
 	Limit  int // 0 = all candidate releases (counts real candidates, post-filter)
+	// ReattemptWindow turns on the no-result memo for the background sweep
+	// (PSY-1316). When > 0, only releases with links_enrich_attempted_at NULL or
+	// older than (now - window) are selected, and the batch is stamped up front
+	// (stamp-before-resolve, unless DryRun) so the no-link / single-platform
+	// tail converges instead of re-browsing MusicBrainz every cycle. 0 (the
+	// manual cmd) keeps id-ordered, memo-agnostic selection.
+	ReattemptWindow time.Duration
 }
 
 // ReleaseLinkFill records one link that would be / was written.
@@ -93,10 +110,15 @@ type releaseLinkStore interface {
 	// bandcamp or spotify link. limit caps CANDIDATES (the missing-link filter
 	// runs in SQL, so a partially-filled catalog cannot exhaust the window with
 	// already-complete rows); limit <= 0 = all.
-	ReleaseLinkCandidates(limit int) ([]releaseLinkCandidate, error)
+	ReleaseLinkCandidates(limit int, reattemptCutoff *time.Time) ([]releaseLinkCandidate, error)
+	// StampLinksAttempted sets links_enrich_attempted_at for the batch — the
+	// sweep's no-result memo, written BEFORE resolving (poison-row safety).
+	StampLinksAttempted(releaseIDs []uint, at time.Time) error
 	// ReleaseHasPlatformLink re-checks link presence immediately before a write —
-	// the candidate snapshot can be hours stale on a full run, and the table has
-	// no unique constraint to catch the race.
+	// the candidate snapshot can be hours stale on a full run. It narrows the
+	// backfill-vs-manual window; backfill-vs-backfill is closed by the partial
+	// unique index (dup-key → LinksRaced). Do NOT remove this in favor of the
+	// index alone: manual rows are NULL-source and outside the index scope.
 	ReleaseHasPlatformLink(releaseID uint, platform string) (bool, error)
 }
 
@@ -119,12 +141,39 @@ func backfillReleaseLinks(ctx context.Context, store releaseLinkStore, mb MBRele
 		return nil, fmt.Errorf("musicbrainz browser and (for live runs) link writer are required")
 	}
 
-	candidates, err := store.ReleaseLinkCandidates(opts.Limit)
+	now := time.Now()
+	var cutoff *time.Time
+	if opts.ReattemptWindow > 0 {
+		c := now.Add(-opts.ReattemptWindow)
+		cutoff = &c
+	}
+
+	candidates, err := store.ReleaseLinkCandidates(opts.Limit, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("load candidate releases: %w", err)
 	}
 
 	report := &ReleaseLinksReport{ReleasesScanned: len(candidates)}
+
+	// Stamp-before-resolve (sweep mode): the whole batch consumes its re-attempt
+	// window up front, so a mid-cycle crash cannot re-browse the same rows every
+	// cycle forever. ACCEPTED trade-off (mirrors PSY-1279): a transient MB
+	// failure or mid-cycle ctx-cancel also burns the batch's window — those rows
+	// self-heal next window, and the sweep logs the error strings so the outage
+	// is visible. Invalid-MBID rows are stamped too — deliberately, and
+	// DIFFERENTLY from the artist sweep (artist_links.go skips them pre-stamp):
+	// unstamped poison rows sort NULLS-FIRST at the head of every batch, so
+	// enough of them would livelock the sweep; burning their window keeps them
+	// out while the surfaced error flags them for repair.
+	if opts.ReattemptWindow > 0 && !opts.DryRun && len(candidates) > 0 {
+		ids := make([]uint, len(candidates))
+		for i := range candidates {
+			ids[i] = candidates[i].release.ID
+		}
+		if err := store.StampLinksAttempted(ids, now); err != nil {
+			return nil, fmt.Errorf("stamp links attempted: %w", err)
+		}
+	}
 
 	// One browse per distinct RG-MBID; failedRG marks a failed fetch so siblings
 	// of a failed RG don't re-browse (they're counted as skipped, not "no links").
@@ -194,12 +243,13 @@ func backfillReleaseLinks(ctx context.Context, store releaseLinkStore, mb MBRele
 
 // applyReleaseLink records the fill (and writes it on live runs). Returns true
 // when the fill counts toward the report (dry-run always; live only on success).
-// Live writes re-check link absence first: the candidate snapshot can be hours
-// stale (an admin adds a link mid-run) and the table has no unique constraint —
-// a stale write would create a duplicate platform row. NOTE: this is a
-// check-then-act, not atomic with the INSERT — it closes the stale-snapshot
-// window, not a fully concurrent second live run (don't run two live instances
-// at once; a DB unique index is the PSY-1316 follow-up).
+// Live writes re-check link absence first (backfill-vs-manual window), then rely
+// on the backfill-scoped partial unique index for the backfill-vs-backfill race:
+// a dup-key from that index means a concurrent run won — counted LinksRaced, not
+// an error. CAVEAT (pattern: gorm translate error): the driver collapses EVERY
+// unique violation into the bare gorm.ErrDuplicatedKey, so if a future unique
+// index is added to release_external_links its violations would also land in
+// LinksRaced — revisit this classification then.
 func applyReleaseLink(report *ReleaseLinksReport, store releaseLinkStore, writer releaseLinkWriter, cand *releaseLinkCandidate, platform, u string, dryRun bool) bool {
 	if !dryRun {
 		exists, err := store.ReleaseHasPlatformLink(cand.release.ID, platform)
@@ -212,7 +262,14 @@ func applyReleaseLink(report *ReleaseLinksReport, store releaseLinkStore, writer
 			report.LinksRaced++
 			return false // filled by someone else since the snapshot — not an error
 		}
-		if _, err := writer.AddExternalLink(cand.release.ID, platform, u); err != nil {
+		if _, err := writer.AddExternalLinkWithSource(cand.release.ID, platform, u, releaseLinkSource); err != nil {
+			// A duplicate-key on the backfill-scoped unique index IS the raced
+			// case the pre-write re-check narrows but cannot close (two live
+			// runs overlapping): the row exists, so count it raced, not errored.
+			if shared.IsDuplicateKey(err) {
+				report.LinksRaced++
+				return false
+			}
 			report.Errors = append(report.Errors,
 				fmt.Sprintf("release %d %q %s write: %v", cand.release.ID, cand.release.Title, platform, err))
 			return false
@@ -303,15 +360,22 @@ type gormReleaseLinkStore struct {
 // already-complete rows and the run reports "nothing to do" while eligible
 // releases sit past the window. Existing links are also preloaded so the
 // per-platform flags are computed from the same snapshot.
-func (s *gormReleaseLinkStore) ReleaseLinkCandidates(limit int) ([]releaseLinkCandidate, error) {
+func (s *gormReleaseLinkStore) ReleaseLinkCandidates(limit int, reattemptCutoff *time.Time) ([]releaseLinkCandidate, error) {
 	var releases []catalogm.Release
 	q := s.db.
 		Preload("ExternalLinks").
 		Where("musicbrainz_release_group_id IS NOT NULL AND TRIM(musicbrainz_release_group_id) <> ''").
 		Where(`(NOT EXISTS (SELECT 1 FROM release_external_links l WHERE l.release_id = releases.id AND LOWER(l.platform) = ?)
 		    OR NOT EXISTS (SELECT 1 FROM release_external_links l WHERE l.release_id = releases.id AND LOWER(l.platform) = ?))`,
-			contracts.MusicPlatformBandcamp, contracts.MusicPlatformSpotify).
-		Order("id")
+			contracts.MusicPlatformBandcamp, contracts.MusicPlatformSpotify)
+	if reattemptCutoff != nil {
+		q = q.
+			Where("links_enrich_attempted_at IS NULL OR links_enrich_attempted_at < ?", *reattemptCutoff).
+			Order("links_enrich_attempted_at ASC NULLS FIRST").
+			Order("id ASC")
+	} else {
+		q = q.Order("id")
+	}
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -345,6 +409,19 @@ func (s *gormReleaseLinkStore) ReleaseHasPlatformLink(releaseID uint, platform s
 		Where("release_id = ? AND LOWER(platform) = ?", releaseID, strings.ToLower(platform)).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// StampLinksAttempted sets links_enrich_attempted_at = at for the given release
+// ids (the sweep's no-result memo). No-op on empty. Uses Table (not Model) so
+// this bookkeeping write does NOT bump releases.updated_at (mirrors the artist
+// stores).
+func (s *gormReleaseLinkStore) StampLinksAttempted(releaseIDs []uint, at time.Time) error {
+	if len(releaseIDs) == 0 {
+		return nil
+	}
+	return s.db.Table("releases").
+		Where("id IN ?", releaseIDs).
+		Update("links_enrich_attempted_at", at).Error
 }
 
 func stringValue(s *string) string {

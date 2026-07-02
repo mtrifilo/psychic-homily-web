@@ -64,13 +64,13 @@ type LinksFill struct {
 
 // LinksReport is the structured outcome of a run.
 type LinksReport struct {
-	ArtistsScanned    int
-	FilledSpotify     int
-	FilledBandcamp    int
-	FilledWebsite     int
-	ArtistsNoLinks    int // browsed, but no fillable url-rel for empty fields
-	Errors            []string
-	Fills             []LinksFill // populated in dry-run and live runs
+	ArtistsScanned int
+	FilledSpotify  int
+	FilledBandcamp int
+	FilledWebsite  int
+	ArtistsNoLinks int // browsed, but no fillable url-rel for empty fields
+	Errors         []string
+	Fills          []LinksFill // populated in dry-run and live runs
 }
 
 // BackfillArtistLinks fills missing spotify/bandcamp/website from MB url-rels for
@@ -105,7 +105,10 @@ func backfillArtistLinks(
 
 	// Drop invalid stored MBIDs before the memo stamp — a malformed value must not
 	// consume a re-attempt window without a MusicBrainz call (poison-row safety
-	// applies only to artists we actually browse).
+	// applies only to artists we actually browse). NOTE: the release-links sweep
+	// (release_links.go) deliberately takes the OPPOSITE policy — it stamps
+	// invalid rows so they can't livelock the NULLS-FIRST batch head; if these
+	// ever get reconciled, prefer the release policy.
 	batch := make([]catalogm.Artist, 0, len(artists))
 	for i := range artists {
 		a := artists[i]

@@ -18,13 +18,15 @@
 // platform: a release that already has a bandcamp (or spotify) link keeps it.
 // Re-run behavior: a release drops out of the candidate set only when BOTH
 // platforms are linked — single-platform releases AND releases whose RG carried
-// no usable url-rel (~30% by the spike) are re-browsed on every run; there is no
-// no-result memo yet (that lands with the PSY-1316 sweep follow-up), so budget
-// comparable time for a mop-up run. MusicBrainz browse is ~1 req/s, one browse
-// (up to 10 paginated calls) per distinct release-group, so a full run over the
-// catalog is long — run detached, and never run two LIVE instances concurrently:
-// the pre-write re-check closes the stale-snapshot window, not a fully
-// concurrent race (no DB unique constraint yet, also PSY-1316).
+// no usable url-rel (~30% by the spike) are re-browsed on every run. The
+// PSY-1316 no-result memo exists but this cmd is deliberately memo-AGNOSTIC
+// (ReattemptWindow=0): it neither filters on nor stamps
+// links_enrich_attempted_at, so a manual run re-visits everything and leaves
+// the sweep's convergence state untouched. MusicBrainz browse is ~1 req/s, one
+// browse (up to 10 paginated calls) per distinct release-group, so a full run
+// over the catalog is long — run detached. Concurrent live runs are safe for
+// duplicates (writes carry source='mb_backfill', covered by a partial unique
+// index; a collision counts as "raced") but wasteful — they browse the same RGs.
 package main
 
 import (
@@ -122,8 +124,8 @@ func redactDBHost(raw string) string {
 }
 
 func printReport(r *enrich.ReleaseLinksReport) {
-	// Fills print unconditionally: on a live run this is the audit trail of what
-	// was actually written (the rows carry no provenance column yet — PSY-1316).
+	// Fills print unconditionally: a convenient audit trail of what was written
+	// (rows also carry source='mb_backfill' in the DB — PSY-1316).
 	header := "--- Planned fills ---"
 	if confirm {
 		header = "--- Fills written ---"

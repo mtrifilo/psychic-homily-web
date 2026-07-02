@@ -188,18 +188,19 @@ func main() {
 	// Each service keeps its own cancel func; a nil cancel signals "not started"
 	// so the shutdown path can skip it without panicking.
 	var (
-		cleanupCancel             context.CancelFunc
-		reminderCancel            context.CancelFunc
-		enrichmentCancel          context.CancelFunc
-		autoPromotionCancel       context.CancelFunc
-		radioFetchCancel          context.CancelFunc
-		relDerivationCancel       context.CancelFunc
-		collectionDigestCancel    context.CancelFunc
-		imageEnrichSweepCancel    context.CancelFunc
-		imageEnrichOutboxCancel   context.CancelFunc
+		cleanupCancel                context.CancelFunc
+		reminderCancel               context.CancelFunc
+		enrichmentCancel             context.CancelFunc
+		autoPromotionCancel          context.CancelFunc
+		radioFetchCancel             context.CancelFunc
+		relDerivationCancel          context.CancelFunc
+		collectionDigestCancel       context.CancelFunc
+		imageEnrichSweepCancel       context.CancelFunc
+		imageEnrichOutboxCancel      context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
 		artistDiscographySweepCancel context.CancelFunc
 		artistLinksSweepCancel       context.CancelFunc
+		releaseLinksSweepCancel      context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -331,6 +332,17 @@ func main() {
 		log.Printf("artist links sweep disabled (set ENABLE_ARTIST_LINKS_SWEEP=1 to enable)")
 	}
 
+	// Start release-links sweep (PSY-1316: Phase-A background job filling missing
+	// bandcamp/spotify release links from RG-MBID-keyed MusicBrainz url-rels,
+	// fill-when-empty, source=mb_backfill). OPT-IN, default OFF.
+	if os.Getenv("ENABLE_RELEASE_LINKS_SWEEP") == "1" {
+		var releaseLinksSweepCtx context.Context
+		releaseLinksSweepCtx, releaseLinksSweepCancel = context.WithCancel(context.Background())
+		sc.ReleaseLinksSweep.Start(releaseLinksSweepCtx)
+	} else {
+		log.Printf("release links sweep disabled (set ENABLE_RELEASE_LINKS_SWEEP=1 to enable)")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -403,6 +415,10 @@ func main() {
 	if artistLinksSweepCancel != nil {
 		artistLinksSweepCancel()
 		sc.ArtistLinksSweep.Stop()
+	}
+	if releaseLinksSweepCancel != nil {
+		releaseLinksSweepCancel()
+		sc.ReleaseLinksSweep.Stop()
 	}
 
 	// Graceful shutdown

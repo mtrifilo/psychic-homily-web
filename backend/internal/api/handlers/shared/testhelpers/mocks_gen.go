@@ -2786,6 +2786,7 @@ type MockReleaseService struct {
 	GetReleasesForArtistFn          func(uint) ([]*contracts.ReleaseListResponse, error)
 	GetReleasesForArtistWithRolesFn func(uint) ([]*contracts.ArtistReleaseListResponse, error)
 	AddExternalLinkFn               func(uint, string, string) (*contracts.ReleaseExternalLinkResponse, error)
+	AddExternalLinkWithSourceFn     func(uint, string, string, string) (*contracts.ReleaseExternalLinkResponse, error)
 	RemoveExternalLinkFn            func(uint) error
 }
 
@@ -2846,6 +2847,12 @@ func (m *MockReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*co
 func (m *MockReleaseService) AddExternalLink(releaseID uint, platform string, url string) (*contracts.ReleaseExternalLinkResponse, error) {
 	if m.AddExternalLinkFn != nil {
 		return m.AddExternalLinkFn(releaseID, platform, url)
+	}
+	return nil, nil
+}
+func (m *MockReleaseService) AddExternalLinkWithSource(releaseID uint, platform string, url string, source string) (*contracts.ReleaseExternalLinkResponse, error) {
+	if m.AddExternalLinkWithSourceFn != nil {
+		return m.AddExternalLinkWithSourceFn(releaseID, platform, url, source)
 	}
 	return nil, nil
 }

@@ -143,5 +143,8 @@ type ReleaseServiceInterface interface {
 	GetReleasesForArtist(artistID uint) ([]*ReleaseListResponse, error)
 	GetReleasesForArtistWithRoles(artistID uint) ([]*ArtistReleaseListResponse, error)
 	AddExternalLink(releaseID uint, platform, url string) (*ReleaseExternalLinkResponse, error)
+	// AddExternalLinkWithSource is AddExternalLink with a provenance value for
+	// enrichment writers (PSY-1316, e.g. "mb_backfill"); empty source = manual.
+	AddExternalLinkWithSource(releaseID uint, platform, url, source string) (*ReleaseExternalLinkResponse, error)
 	RemoveExternalLink(linkID uint) error
 }

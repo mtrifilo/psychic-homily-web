@@ -385,6 +385,14 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contra
 
 // AddExternalLink adds an external link to a release
 func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (*contracts.ReleaseExternalLinkResponse, error) {
+	return s.AddExternalLinkWithSource(releaseID, platform, url, "")
+}
+
+// AddExternalLinkWithSource adds an external link carrying a provenance value
+// (PSY-1316). source "" stores NULL (manual entry — the admin dialog and create
+// funnel); enrichment writers pass "mb_backfill", which is also the scope of the
+// partial unique index closing the concurrent-backfill duplicate race.
+func (s *ReleaseService) AddExternalLinkWithSource(releaseID uint, platform, url, source string) (*contracts.ReleaseExternalLinkResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -402,6 +410,9 @@ func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (
 		ReleaseID: releaseID,
 		Platform:  platform,
 		URL:       url,
+	}
+	if source != "" {
+		link.Source = &source
 	}
 
 	// Create the link AND keep the artist Bandcamp embed fresh in one transaction
