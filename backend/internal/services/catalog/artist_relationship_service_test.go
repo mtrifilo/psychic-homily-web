@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -850,6 +851,149 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_B
 
 	suite.Require().Len(graph.Nodes, 1)
 	suite.Assert().Equal("similar", graph.Links[0].Type)
+}
+
+// crossEdgeSet collects a graph's links as canonical (lo, hi, type) tuples.
+func crossEdgeSet(links []contracts.ArtistGraphLink) map[[2]uint]map[string]bool {
+	got := map[[2]uint]map[string]bool{}
+	for _, l := range links {
+		k := [2]uint{min(l.SourceID, l.TargetID), max(l.SourceID, l.TargetID)}
+		if got[k] == nil {
+			got[k] = map[string]bool{}
+		}
+		got[k][l.Type] = true
+	}
+	return got
+}
+
+// Cross edges (step 7, PSY-1301): NULL backbone significance is NOT a drop condition — the
+// backbone alpha deliberately does not apply to ego cross edges (see egoCrossRadioPerNodeCap) —
+// and non-radio cross edges pass through unbounded.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_CrossEdges_NullSigKept_NonRadioUnbounded() {
+	center := suite.createArtist("Center")
+	n1 := suite.createArtist("N1")
+	n2 := suite.createArtist("N2")
+
+	suite.insertRel(center, n1, catalogm.RelationshipTypeSharedBills, 0.9, nil)
+	suite.insertRel(center, n2, catalogm.RelationshipTypeSharedBills, 0.8, nil)
+	// Radio cross edge with NO backbone stamp (the pre-sync / degenerate-edge state).
+	suite.insertRel(n1, n2, catalogm.RelationshipTypeRadioCooccurrence, 0.5, nil)
+	suite.insertRel(n1, n2, catalogm.RelationshipTypeSharedBills, 0.4, nil)
+
+	graph, err := suite.svc.GetArtistGraph(center, nil, 0)
+	suite.Require().NoError(err)
+
+	got := crossEdgeSet(graph.Links)
+	pair := [2]uint{min(n1, n2), max(n1, n2)}
+	suite.Assert().True(got[pair][catalogm.RelationshipTypeRadioCooccurrence],
+		"NULL-significance radio cross edge is kept (no backbone alpha on ego cross edges)")
+	suite.Assert().True(got[pair][catalogm.RelationshipTypeSharedBills],
+		"non-radio cross edge always kept")
+}
+
+// Radio cross edges are bounded to per-node top-K with EITHER-endpoint semantics (PSY-1301):
+// an edge drops only when it ranks beyond K for BOTH endpoints; an edge that is a niche node's
+// best link survives a saturated partner.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_CrossEdges_RadioPerNodeCap() {
+	center := suite.createArtist("Center")
+
+	// A complete radio graph among K+2 neighbors: every member has K+1 radio
+	// cross edges, so each member's weakest edge exceeds its top-K. The edge
+	// with the globally lowest score is the weakest for BOTH endpoints → the
+	// only guaranteed drop.
+	n := egoCrossRadioPerNodeCap + 2
+	members := make([]uint, 0, n)
+	for i := 0; i < n; i++ {
+		m := suite.createArtist(fmt.Sprintf("Member %02d", i))
+		suite.insertRel(center, m, catalogm.RelationshipTypeSharedBills, 0.9, nil)
+		members = append(members, m)
+	}
+	// Unique, strictly decreasing scores; the LAST inserted pair is the global minimum.
+	score := float32(0.99)
+	var weakestPair [2]uint
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			suite.insertRel(members[i], members[j], catalogm.RelationshipTypeRadioCooccurrence, score, nil)
+			weakestPair = [2]uint{min(members[i], members[j]), max(members[i], members[j])}
+			score -= 0.001
+		}
+	}
+
+	// Niche case: one extra neighbor whose ONLY radio cross edge scores below
+	// everything above — rank 1 for the niche node, far beyond K for the member
+	// it attaches to → either-endpoint keeps it.
+	niche := suite.createArtist("Niche")
+	suite.insertRel(center, niche, catalogm.RelationshipTypeSharedBills, 0.7, nil)
+	suite.insertRel(niche, members[0], catalogm.RelationshipTypeRadioCooccurrence, 0.01, nil)
+
+	graph, err := suite.svc.GetArtistGraph(center, nil, 0)
+	suite.Require().NoError(err)
+
+	got := crossEdgeSet(graph.Links)
+	suite.Assert().False(got[weakestPair][catalogm.RelationshipTypeRadioCooccurrence],
+		"the globally weakest clique edge is beyond top-K for both endpoints and drops")
+	strongestPair := [2]uint{min(members[0], members[1]), max(members[0], members[1])}
+	suite.Assert().True(got[strongestPair][catalogm.RelationshipTypeRadioCooccurrence],
+		"the strongest clique edge is kept")
+	nichePair := [2]uint{min(niche, members[0]), max(niche, members[0])}
+	suite.Assert().True(got[nichePair][catalogm.RelationshipTypeRadioCooccurrence],
+		"a niche node's only cross edge survives via the either-endpoint rule")
+}
+
+// The batched vote-count path (PSY-1301) populates VotesUp/VotesDown on both center and cross edges.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_VoteCounts_Batched() {
+	center := suite.createArtist("Center")
+	n1 := suite.createArtist("N1")
+	n2 := suite.createArtist("N2")
+
+	suite.insertRel(center, n1, catalogm.RelationshipTypeSharedBills, 0.9, nil)
+	suite.insertRel(center, n2, catalogm.RelationshipTypeSharedBills, 0.8, nil)
+	suite.insertRel(n1, n2, catalogm.RelationshipTypeSharedBills, 0.5, nil)
+
+	vote := func(a, b uint, dir int16, user *authm.User) {
+		lo, hi := a, b
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationshipVote{
+			SourceArtistID:   lo,
+			TargetArtistID:   hi,
+			RelationshipType: catalogm.RelationshipTypeSharedBills,
+			UserID:           user.ID,
+			Direction:        dir,
+		}).Error)
+	}
+	u1 := suite.createUser("voter1")
+	u2 := suite.createUser("voter2")
+	u3 := suite.createUser("voter3")
+	vote(center, n1, 1, u1)
+	vote(center, n1, 1, u2)
+	vote(center, n1, -1, u3)
+	vote(n1, n2, -1, u1) // cross edge downvote
+
+	graph, err := suite.svc.GetArtistGraph(center, nil, 0)
+	suite.Require().NoError(err)
+
+	byPair := map[[2]uint]contracts.ArtistGraphLink{}
+	for _, l := range graph.Links {
+		lo, hi := l.SourceID, l.TargetID
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		byPair[[2]uint{lo, hi}] = l
+	}
+
+	centerEdge := byPair[[2]uint{min(center, n1), max(center, n1)}]
+	suite.Assert().Equal(2, centerEdge.VotesUp, "center edge upvotes")
+	suite.Assert().Equal(1, centerEdge.VotesDown, "center edge downvotes")
+
+	crossEdge := byPair[[2]uint{min(n1, n2), max(n1, n2)}]
+	suite.Assert().Equal(0, crossEdge.VotesUp, "cross edge upvotes")
+	suite.Assert().Equal(1, crossEdge.VotesDown, "cross edge downvotes")
+
+	unvoted := byPair[[2]uint{min(center, n2), max(center, n2)}]
+	suite.Assert().Equal(0, unvoted.VotesUp)
+	suite.Assert().Equal(0, unvoted.VotesDown)
 }
 
 // ──────────────────────────────────────────────
