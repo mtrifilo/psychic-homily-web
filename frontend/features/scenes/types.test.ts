@@ -106,6 +106,8 @@ describe('scene types contract', () => {
       state: 'AZ',
       artist_count: 12,
       edge_count: 4,
+      metro_roster_total: 12,
+      roster_truncated: false,
     }
     const cluster: SceneGraphCluster = {
       id: 'v_1',
@@ -165,6 +167,8 @@ describe('scene types contract', () => {
         state: 'AZ',
         artist_count: 2,
         edge_count: 1,
+        metro_roster_total: 2,
+        roster_truncated: false,
       },
       clusters: [{ id: 'v_1', label: 'Valley Bar', size: 2, color_index: 0 }],
       nodes: [

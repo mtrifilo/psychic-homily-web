@@ -45,6 +45,12 @@ func NewSceneService(database *gorm.DB) *SceneService {
 const (
 	sceneMinVenues = 2
 	sceneMinShows  = 3
+
+	// sceneGraphRosterLimit caps the scene graph node set to the top-N metro-roster
+	// artists by approved show activity (PSY-1277). Mirrors stationGraphDefaultNodeLimit
+	// (PSY-1081) — same graph-density budget, not a silent cap: MetroRosterTotal +
+	// RosterTruncated surface the full roster size.
+	sceneGraphRosterLimit = 75
 )
 
 // usCountry is the country passed to the geocoder when resolving a scene's
@@ -758,6 +764,7 @@ type sceneArtistRow struct {
 	State            *string `gorm:"column:state"`
 	PrimaryVenueID   *uint   `gorm:"column:primary_venue_id"`
 	PrimaryVenueName *string `gorm:"column:primary_venue_name"`
+	RosterTotal      int     `gorm:"column:roster_total"` // full metro roster (same on every row)
 }
 
 // sceneRelationshipRow is the in-scope relationship payload from artist_relationships.
@@ -797,19 +804,21 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	resolvedTypes := resolveSceneEdgeTypes(types)
 	noEdgesByFilter := len(types) > 0 && len(resolvedTypes) == 0
 
-	// 1. Single CTE query — scene artists (bands based in the metro) + each one's
-	//    most-frequent venue ACROSS the metro. Tie-break: more recent show wins.
-	rows, err := s.querySceneArtistsWithPrimaryVenue(scope)
+	// 1. Single CTE query — top-N metro-roster artists (by approved show activity)
+	//    + each one's most-frequent venue ACROSS the metro.
+	rows, rosterTotal, err := s.querySceneArtistsWithPrimaryVenue(scope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query scene artists: %w", err)
 	}
 
 	resp := &contracts.SceneGraphResponse{
 		Scene: contracts.SceneGraphInfo{
-			Slug:        buildSceneSlug(city, state),
-			City:        city,
-			State:       state,
-			ArtistCount: len(rows),
+			Slug:             buildSceneSlug(city, state),
+			City:             city,
+			State:            state,
+			ArtistCount:      len(rows),
+			MetroRosterTotal: rosterTotal,
+			RosterTruncated:  rosterTotal > len(rows),
 		},
 		Clusters: []contracts.SceneGraphCluster{},
 		Nodes:    []contracts.SceneGraphNode{},
@@ -945,25 +954,48 @@ func sortStringsAsc(s []string) {
 	}
 }
 
-// querySceneArtistsWithPrimaryVenue runs the CTE that lists every band BASED in
-// the scene's metro (PSY-1255 step C) and resolves each one's
-// most-frequently-played venue ACROSS the metro. LEFT JOINs the venue back so
-// the PrimaryVenueID/Name columns are nullable for any roster band that has
-// never played a metro venue (now expected — membership no longer requires a
-// local show; those bands cluster into "other").
-//
-// NOTE (known follow-up): the node set is the FULL metro roster (no LIMIT) —
-// larger than the old played-here set, so the graph + relationship scan for a
-// dense metro can return many (mostly isolate) nodes. Today's catalog keeps this
-// bounded; a principled top-N selection with a truncation flag is deferred to a
-// follow-up so it aligns with the graph-density work (PSY-1257/1259) rather than
-// adding a silent cap here.
-func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, error) {
+// querySceneArtistsWithPrimaryVenue runs the CTE that selects the top-N bands
+// BASED in the scene's metro (PSY-1255 step C), ranked by approved show count
+// at metro venues (tie-break: most recent show, then name). Each selected
+// artist's most-frequently-played venue ACROSS the metro is resolved in the
+// same pass. Returns the capped roster rows and the full metro roster size
+// (for the PSY-1277 truncation flag).
+func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, int, error) {
 	ap, aargs := s.artistPredicate(scope, "a")
 	vp, vargs := scope.venuePredicate("v")
 	const q = `
 		WITH scene_artists AS (
 			SELECT a.id AS artist_id FROM artists a WHERE %s
+		),
+		roster_total AS (
+			SELECT COUNT(*)::bigint AS total FROM scene_artists
+		),
+		artist_metro_activity AS (
+			SELECT
+				sa.artist_id,
+				COUNT(DISTINCT s.id) AS show_count,
+				MAX(s.event_date) AS last_show
+			FROM show_artists sa
+			JOIN shows s ON s.id = sa.show_id AND s.status = ?
+			JOIN show_venues sv ON sv.show_id = s.id
+			JOIN venues v ON v.id = sv.venue_id AND %s
+			WHERE sa.artist_id IN (SELECT artist_id FROM scene_artists)
+			GROUP BY sa.artist_id
+		),
+		ranked_roster AS (
+			SELECT
+				sca.artist_id,
+				ROW_NUMBER() OVER (
+					ORDER BY COALESCE(ama.show_count, 0) DESC,
+					         ama.last_show DESC NULLS LAST,
+					         a.name ASC
+				) AS rn
+			FROM scene_artists sca
+			JOIN artists a ON a.id = sca.artist_id
+			LEFT JOIN artist_metro_activity ama ON ama.artist_id = sca.artist_id
+		),
+		selected_roster AS (
+			SELECT artist_id FROM ranked_roster WHERE rn <= ?
 		),
 		artist_venue_counts AS (
 			SELECT
@@ -981,7 +1013,7 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
 			WHERE %s AND s.status = ?
-				AND sa.artist_id IN (SELECT artist_id FROM scene_artists)
+				AND sa.artist_id IN (SELECT artist_id FROM selected_roster)
 			GROUP BY sa.artist_id, v.id, v.name
 		)
 		SELECT
@@ -991,21 +1023,36 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 			a.city AS city,
 			a.state AS state,
 			avc.venue_id   AS primary_venue_id,
-			avc.venue_name AS primary_venue_name
+			avc.venue_name AS primary_venue_name,
+			rt.total AS roster_total
 		FROM artists a
-		JOIN scene_artists sca ON sca.artist_id = a.id
+		JOIN selected_roster sr ON sr.artist_id = a.id
+		CROSS JOIN roster_total rt
 		LEFT JOIN artist_venue_counts avc ON avc.artist_id = a.id AND avc.rn = 1
 		ORDER BY a.name ASC
 	`
-	// Placeholder order: roster predicate (scene_artists), then venue predicate
-	// + status (artist_venue_counts).
-	args := append(append([]any{}, aargs...), vargs...)
+	args := append(append([]any{}, aargs...), catalogm.ShowStatusApproved)
+	args = append(args, vargs...)
+	args = append(args, sceneGraphRosterLimit)
+	args = append(args, vargs...)
 	args = append(args, catalogm.ShowStatusApproved)
 	var rows []sceneArtistRow
-	if err := s.db.Raw(fmt.Sprintf(q, ap, vp), args...).Scan(&rows).Error; err != nil {
-		return nil, err
+	if err := s.db.Raw(fmt.Sprintf(q, ap, vp, vp), args...).Scan(&rows).Error; err != nil {
+		return nil, 0, err
 	}
-	return rows, nil
+	rosterTotal := 0
+	if len(rows) > 0 {
+		rosterTotal = rows[0].RosterTotal
+	} else {
+		// Empty capped roster — still need the full metro count for the truncation flag.
+		var n int64
+		countQ := "SELECT COUNT(*) FROM artists a WHERE " + ap
+		if err := s.db.Raw(countQ, aargs...).Scan(&n).Error; err != nil {
+			return nil, 0, err
+		}
+		rosterTotal = int(n)
+	}
+	return rows, rosterTotal, nil
 }
 
 // queryRelationshipsAmongArtists fetches all stored relationships where BOTH
