@@ -47,7 +47,8 @@ func TestEpisodeLatestFirstOrderSQL(t *testing.T) {
 			}
 		}
 		if prefix != "" && (strings.Count(got, "air_date") != strings.Count(got, prefix+"air_date") ||
-			strings.Count(got, "starts_at") != strings.Count(got, prefix+"starts_at")) {
+			strings.Count(got, "starts_at") != strings.Count(got, prefix+"starts_at") ||
+			strings.Count(got, "id ") != strings.Count(got, prefix+"id ")) {
 			t.Errorf("episodeLatestFirstOrderSQL(%q): an unqualified column slipped through: %q", prefix, got)
 		}
 		if !strings.Contains(got, "NULLS LAST") {

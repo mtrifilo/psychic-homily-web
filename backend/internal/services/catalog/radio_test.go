@@ -1717,6 +1717,47 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_SameDayAiredBeats
 	suite.Equal(future.ID, episodes[1].ID)
 }
 
+// TestGetEpisodeByShowAndDate_SameDaySiblingsResolveToListWinner pins the
+// PSY-1297 by-date resolution: with two same-day siblings, the day-keyed
+// lookup returns the same row the list surfaces rank first (aired beats
+// future-windowed via the sink), not First's arbitrary primary-key pick. Also
+// pins that GORM's First composes with the custom raw Order (First appends a
+// primary-key ASC key AFTER ours; unreachable behind id DESC).
+func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeByShowAndDate_SameDaySiblingsResolveToListWinner() {
+	station := suite.createStation("Lookup FM")
+	show := suite.createShow(station.ID, "Doubleheader")
+
+	now := time.Now().UTC()
+	airDate := now.Format("2006-01-02")
+	extID := func(s string) *string { return &s }
+
+	airedStarts := now.Add(-4 * time.Hour)
+	airedEnds := now.Add(-3 * time.Hour)
+	aired := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		StartsAt: &airedStarts, EndsAt: &airedEnds,
+		PlayCount: 7, ExternalID: extID("aired"),
+	}
+	suite.Require().NoError(suite.db.Create(aired).Error)
+	// Pre-published later-today sibling, inserted LAST (higher id) — the old
+	// unordered First (primary-key ASC) happened to pick aired; the ordered
+	// lookup must pick it deliberately, and starts_at DESC alone would have
+	// picked this future row instead.
+	futureStarts := now.Add(2 * time.Hour)
+	futureEnds := now.Add(3 * time.Hour)
+	future := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: airDate,
+		StartsAt: &futureStarts, EndsAt: &futureEnds,
+		ExternalID: extID("tonight"),
+	}
+	suite.Require().NoError(suite.db.Create(future).Error)
+
+	got, err := suite.radioService.GetEpisodeByShowAndDate(show.ID, airDate)
+	suite.Require().NoError(err)
+	suite.Equal(aired.ID, got.ID,
+		"day-keyed lookup must resolve to the aired sibling (the list surfaces' same-day winner)")
+}
+
 // TestLatestEpisodeForShow_SameDayWindowedBeatsWindowlessPopup pins the
 // accepted PSY-1297 tradeoff on the LIMIT-1 now-playing selector: when a show
 // has, on one day, both a windowed slot episode and a windowless off-schedule
