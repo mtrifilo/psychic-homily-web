@@ -290,6 +290,13 @@ func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time, 
 	return p.fetchEpisodesFromArchivePage(showExternalID, since, until)
 }
 
+// EpisodeListingIsExhaustive marks WFMU's fetch as a complete listing
+// (ExhaustiveEpisodeLister, PSY-1286): fetchEpisodesFromArchivePage scrapes the
+// show's full archive page — the page WFMU removes a playlist from when a DJ
+// (or WFMU) deletes it — so absence from the result within the fetch window is
+// an authoritative upstream-retraction signal.
+func (p *WFMUProvider) EpisodeListingIsExhaustive() bool { return true }
+
 // wfmuTodayCap is the upper bound for a WFMU fetch: the current day in WFMU's
 // timezone, expressed as a UTC-midnight instant so it lines up with
 // parseWFMUArchivePage's date-only air_date parse — an air_date == today is kept
