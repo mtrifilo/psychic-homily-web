@@ -185,4 +185,44 @@ describe('MobileSceneList', () => {
     renderWithProviders(<MobileSceneList scenes={[]} loading={true} />)
     expect(screen.getByText('Loading…')).toBeInTheDocument()
   })
+
+  it('shows both headline counts on the row (payoff parity with the panel)', () => {
+    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+
+    expect(
+      screen.getByRole('button', { name: /Chicago, IL/ }),
+    ).toHaveTextContent('283 upcoming · 9 venues')
+  })
+
+  it('expands an unplaceable scene into a working preview (globe can never show these)', () => {
+    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Faketown, ZZ/ }))
+
+    expect(mockUseSceneArtists).toHaveBeenCalledWith({
+      slug: 'faketown-zz',
+      limit: EMBED_SEARCH_LIMIT,
+    })
+    expect(
+      screen.getByRole('link', { name: /open scene/i }),
+    ).toHaveAttribute('href', '/scenes/faketown-zz')
+  })
+
+  it('distinguishes a failed roster fetch from an empty scene', () => {
+    mockUseSceneArtists.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    })
+    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
+
+    expect(
+      screen.getByText(/couldn’t load this scene’s artists/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/no artists based here yet/i),
+    ).not.toBeInTheDocument()
+  })
 })

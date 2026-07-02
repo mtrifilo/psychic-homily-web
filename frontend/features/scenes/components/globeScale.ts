@@ -113,6 +113,28 @@ export function labelMinCountForAltitude(altitude: number): number {
 export const LABEL_TOP_K_FLOOR = 5
 
 /**
+ * The FE-owned "liveliest first" ordering rule. The scenes API deliberately has
+ * no ordering contract, so the frontend owns this — and owns it ONCE: search
+ * (AtlasSearch), label prominence (visibleLabelScenes), and the mobile list all
+ * sort with this comparator, so an evolution of the rule (e.g. a
+ * shows_this_week tie-break) can't leave the surfaces disagreeing. Non-finite
+ * counts sort last (a total order even on malformed data — the same defense the
+ * size-scale guards apply).
+ */
+export function compareScenesByActivity<
+  T extends { upcoming_show_count: number },
+>(a: T, b: T): number {
+  const av = Number.isFinite(a.upcoming_show_count)
+    ? a.upcoming_show_count
+    : -Infinity
+  const bv = Number.isFinite(b.upcoming_show_count)
+    ? b.upcoming_show_count
+    : -Infinity
+  if (av === bv) return 0
+  return bv - av
+}
+
+/**
  * The subset of scenes that carry an always-on label at the given threshold
  * (from `labelMinCountForAltitude`). Scenes below it still render their dot and
  * hover tooltip — only the persistent label is withheld until you zoom in.
@@ -130,19 +152,6 @@ export const LABEL_TOP_K_FLOOR = 5
  *   array's identity stable between threshold crossings — react-globe.gl diffs
  *   labelsData by reference, so passing raw altitude would churn it every frame.
  */
-/**
- * The FE-owned "liveliest first" ordering rule. The scenes API deliberately has
- * no ordering contract, so the frontend owns this — and owns it ONCE: search
- * (AtlasSearch), label prominence (visibleLabelScenes), and the mobile list all
- * sort with this comparator, so an evolution of the rule (e.g. a
- * shows_this_week tie-break) can't leave the surfaces disagreeing.
- */
-export function compareScenesByActivity<
-  T extends { upcoming_show_count: number },
->(a: T, b: T): number {
-  return b.upcoming_show_count - a.upcoming_show_count
-}
-
 export function visibleLabelScenes<T extends { upcoming_show_count: number }>(
   scenes: readonly T[],
   minCount: number,

@@ -9,10 +9,11 @@ import type { SceneListItem } from '../types'
  * <640px: the WebGL globe + canvas gestures aren't usable (PSY-511/1086 gate),
  * so serve the scenes as a list — still the geographic-discovery payoff, just
  * not spatial. Lists ALL scenes (incl. ones the globe can't place), liveliest
- * first. Each row expands in place (accordion — the app's in-list expansion
- * idiom, e.g. StationShowsDirectory; the Radix Sheet is modal and overkill
- * here) into the same payoff the desktop preview panel shows: playable embed,
- * this-week shows, top local artists, scene link (PSY-1311).
+ * first. Each row expands in place — the app expands in place rather than
+ * modally (cf. StationShowsDirectory's in-place view-all; the only Sheet
+ * primitive is modal and would bury the list) — into the same payoff the
+ * desktop preview panel shows: playable embed, this-week shows, top local
+ * artists, scene link (PSY-1311).
  */
 export function MobileSceneList({
   scenes,
@@ -48,35 +49,47 @@ export function MobileSceneList({
             const detailId = `scene-row-${s.slug}`
             return (
               <li key={s.slug}>
-                {/* aria-controls only while the detail region exists — a
+                {/* h2-wrapped button = the WAI-ARIA APG accordion header
+                    pattern: keeps the h1 → h2 → (preview's h3s) heading order
+                    and gives screen readers the scene name as a landmark.
+                    aria-controls only while the detail region exists — a
                     dangling id reference fails aria-valid-attr-value. */}
-                <button
-                  type="button"
+                <h2>
+                  <button
+                    type="button"
                   aria-expanded={expanded}
                   aria-controls={expanded ? detailId : undefined}
-                  onClick={(e) => {
-                    const row = e.currentTarget
-                    setExpandedSlug(expanded ? null : s.slug)
-                    // Switching from a taller expanded row ABOVE this one
-                    // shrinks the layout under an unchanged scrollTop, yanking
-                    // the tapped row (and its fresh preview) out of view — pin
-                    // it after the accordion re-lays out. `?.` guards jsdom.
-                    if (!expanded) {
-                      requestAnimationFrame(() =>
-                        row.scrollIntoView?.({ block: 'nearest' }),
-                      )
-                    }
-                  }}
-                  className="flex w-full items-center justify-between gap-3 py-3 text-left"
-                >
-                  <span className="font-medium">
-                    {s.city}, {s.state}
-                  </span>
-                  <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                    {s.upcoming_show_count} upcoming
-                    <span aria-hidden>{expanded ? '−' : '+'}</span>
-                  </span>
-                </button>
+                    onClick={(e) => {
+                      // The whole <li> (row + freshly mounted preview), not
+                      // the button: a tap near the bottom of the viewport
+                      // mounts the preview below the fold, and a taller
+                      // expanded row ABOVE collapsing shrinks the layout under
+                      // an unchanged scrollTop — both leave the payoff
+                      // off-screen unless the full item is pinned after the
+                      // accordion re-lays out. `?.` guards jsdom.
+                      const item = e.currentTarget.closest('li')
+                      setExpandedSlug(expanded ? null : s.slug)
+                      if (!expanded) {
+                        requestAnimationFrame(() =>
+                          item?.scrollIntoView?.({ block: 'nearest' }),
+                        )
+                      }
+                    }}
+                    className="flex w-full items-center justify-between gap-3 py-3 text-left"
+                  >
+                    <span className="font-medium">
+                      {s.city}, {s.state}
+                    </span>
+                    {/* Both headline counts, matching the desktop panel's
+                        "N upcoming · M venues" line — the ticket's payoff
+                        parity includes the counts, and this row is the only
+                        place the mobile surface shows them. */}
+                    <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                      {s.upcoming_show_count} upcoming · {s.venue_count} venues
+                      <span aria-hidden>{expanded ? '−' : '+'}</span>
+                    </span>
+                  </button>
+                </h2>
                 {/* Mounted only while expanded, so the roster/shows queries
                     fire per opened scene, never for the whole list. */}
                 {expanded && (
