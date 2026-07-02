@@ -20,8 +20,11 @@ vi.mock('next/link', () => ({
 }))
 
 const mockUseSceneArtists = vi.fn()
+// Default: a quiet week — tests for the "This week" section override this.
+const mockUseSceneShows = vi.fn()
 vi.mock('../hooks', () => ({
   useSceneArtists: (opts: unknown) => mockUseSceneArtists(opts),
+  useSceneShows: (slug: string) => mockUseSceneShows(slug),
 }))
 
 // Stub MusicEmbed so the test asserts WHICH artist/track is chosen without its
@@ -44,6 +47,7 @@ const scene: SceneListItem = {
   venue_count: 9,
   upcoming_show_count: 283,
   total_show_count: 337,
+  shows_this_week: 0,
   latitude: 41.88,
   longitude: -87.63,
 }
@@ -52,6 +56,8 @@ describe('ScenePreviewPanel', () => {
   beforeEach(() => {
     mockUseSceneArtists.mockReset()
     mockMusicEmbed.mockReset()
+    mockUseSceneShows.mockReset()
+    mockUseSceneShows.mockReturnValue({ data: { shows: [] }, isLoading: false })
   })
 
   it('renders the city, counts, active artists, and a link into the scene', () => {
@@ -247,5 +253,55 @@ describe('ScenePreviewPanel', () => {
       screen.queryByRole('heading', { name: 'Listen' }),
     ).not.toBeInTheDocument()
     expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+  })
+
+  it('lists this-week shows with date, link, and venue (PSY-1309)', () => {
+    mockUseSceneArtists.mockReturnValue({
+      data: { artists: [], total: 0 },
+      isLoading: false,
+    })
+    mockUseSceneShows.mockReturnValue({
+      data: {
+        shows: [
+          {
+            id: 42,
+            slug: 'big-show',
+            title: 'Big Show',
+            event_date: '2026-07-04',
+            venue_name: 'Valley Bar',
+          },
+          // No slug → the link falls back to the id.
+          { id: 43, title: 'Slugless Show', event_date: '2026-07-05' },
+        ],
+      },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+
+    expect(screen.getByRole('heading', { name: 'This week' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Big Show' })).toHaveAttribute(
+      'href',
+      '/shows/big-show',
+    )
+    expect(screen.getByRole('link', { name: 'Slugless Show' })).toHaveAttribute(
+      'href',
+      '/shows/43',
+    )
+    // UTC-pinned date formatting: 2026-07-04 renders as July 4, never shifted
+    // to July 3 by a negative-offset local zone.
+    expect(screen.getByText(/Jul 4/)).toBeInTheDocument()
+    expect(screen.getByText(/Valley Bar/)).toBeInTheDocument()
+  })
+
+  it('renders no "This week" section on a quiet week', () => {
+    mockUseSceneArtists.mockReturnValue({
+      data: { artists: [], total: 0 },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+
+    expect(
+      screen.queryByRole('heading', { name: 'This week' }),
+    ).not.toBeInTheDocument()
   })
 })

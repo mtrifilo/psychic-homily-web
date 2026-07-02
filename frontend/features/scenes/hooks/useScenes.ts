@@ -15,6 +15,7 @@ import type {
   SceneArtistsResponse,
   SceneGenreResponse,
   SceneGraphResponse,
+  SceneShowsResponse,
 } from '../types'
 
 /**
@@ -82,6 +83,26 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
     queryKey: queryKeys.scenes.artists(slug, period, limit),
     queryFn: async (): Promise<SceneArtistsResponse> => {
       return apiRequest<SceneArtistsResponse>(endpoint, {
+        method: 'GET',
+      })
+    },
+    enabled: Boolean(slug),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch a scene's next upcoming shows — the preview panel's "This week"
+ * row (PSY-1309). Backend defaults: 7-day window, 3 shows, soonest first;
+ * metro-scoped so member-city shows count (a Tempe show shows under Phoenix).
+ * Don't re-default the window here — the backend owns it (same rule as
+ * useSceneArtists' period).
+ */
+export function useSceneShows(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.scenes.shows(slug),
+    queryFn: async (): Promise<SceneShowsResponse> => {
+      return apiRequest<SceneShowsResponse>(API_ENDPOINTS.SCENES.SHOWS(slug), {
         method: 'GET',
       })
     },

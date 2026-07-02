@@ -3,8 +3,22 @@
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
-import { useSceneArtists } from '../hooks'
+import { useSceneArtists, useSceneShows } from '../hooks'
 import type { SceneListItem } from '../types'
+
+// Format an ISO date-only string (YYYY-MM-DD) as e.g. "Fri, Jul 4" WITHOUT a
+// timezone shift: parsing it via `new Date(iso)` lands at UTC midnight, which
+// local formatting can render as the previous day. Force UTC on both ends.
+function formatShowDate(isoDate: string): string {
+  const parsed = new Date(`${isoDate}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return isoDate
+  return parsed.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+}
 
 interface ScenePreviewPanelProps {
   scene: SceneListItem
@@ -29,6 +43,11 @@ export function ScenePreviewPanel({ scene, onClose }: ScenePreviewPanelProps) {
     limit: EMBED_SEARCH_LIMIT,
   })
   const artists = data?.artists ?? []
+  // "This week" (PSY-1309): the scene's next shows in the 7-day window —
+  // backend-defaulted window/limit, metro-scoped (member-city shows included).
+  // Rendered only when non-empty; a quiet week simply has no section.
+  const { data: showsData } = useSceneShows(scene.slug)
+  const weekShows = showsData?.shows ?? []
   const closeRef = useRef<HTMLButtonElement>(null)
 
   // The "instant payoff": play the first ACTIVE local band that has an
@@ -92,6 +111,32 @@ export function ScenePreviewPanel({ scene, onClose }: ScenePreviewPanelProps) {
               compact
             />
           </div>
+        </div>
+      )}
+
+      {weekShows.length > 0 && (
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            This week
+          </h3>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {weekShows.map((show) => (
+              <li key={show.id} className="text-sm leading-snug">
+                <span className="font-mono text-xs text-muted-foreground">
+                  {formatShowDate(show.event_date)}
+                </span>{' '}
+                <Link
+                  href={`/shows/${show.slug || show.id}`}
+                  className="underline-offset-4 hover:underline"
+                >
+                  {show.title}
+                </Link>
+                {show.venue_name && (
+                  <span className="text-muted-foreground"> · {show.venue_name}</span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
