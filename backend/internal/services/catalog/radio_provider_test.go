@@ -2381,3 +2381,35 @@ func (m *mockPlaylistProvider) FetchPlaylist(episodeExternalID string) ([]RadioP
 	}
 	return nil, nil
 }
+
+// TestImportEpisode_RejectsFarFutureAirDate (PSY-1350): an air_date beyond the
+// future tolerance is rejected as a typed validation drop and no row is created;
+// dates at/inside the tolerance import normally (date-only air_dates from
+// ahead-of-UTC station zones can legitimately read UTC-tomorrow).
+func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_RejectsFarFutureAirDate() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Future Show")
+	mockProvider := &mockPlaylistProvider{}
+
+	farFuture := time.Now().UTC().AddDate(0, 0, futureAirDateToleranceDays+2).Format("2006-01-02")
+	_, err := suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "ff-1", AirDate: farFuture,
+	}, mockProvider)
+	suite.Require().Error(err)
+	suite.Require().ErrorIs(err, errFutureAirDate)
+	suite.Equal(catalogm.RadioSyncRunErrorValidationDrop, categorizeRunError(err),
+		"future-date rejection must surface in the feed as validation_drop, not an outage category")
+
+	var count int64
+	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
+	suite.Equal(int64(0), count, "rejected episode must not be persisted")
+
+	// Inside the tolerance: imported normally.
+	nearFuture := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	_, err = suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "nf-1", AirDate: nearFuture,
+	}, mockProvider)
+	suite.Require().NoError(err)
+	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
+	suite.Equal(int64(1), count, "near-future (tolerance) episode imports")
+}

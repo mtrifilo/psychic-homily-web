@@ -1188,6 +1188,19 @@ func (s *RadioService) buildNullSafeShowUpdates(existing *catalogm.RadioShow, im
 // window is correct (ComputeEpisodeStatus settles it to aired/archived). (PSY-1238)
 const scheduleDerivedWindowMaxAgeDays = 30
 
+// futureAirDateToleranceDays bounds how far ahead of the UTC date an episode's
+// air_date may be at import (PSY-1350). air_date is date-only and station zones
+// can run ahead of UTC, so "today" in the station zone can be UTC-tomorrow;
+// 2 days accepts any legitimate same-day/next-day listing while catching the
+// real failure (an upstream typo months out, which would pin its show 'active'
+// under the recency janitor and float atop latest-first feeds).
+const futureAirDateToleranceDays = 2
+
+// errFutureAirDate marks an episode rejected by the future-air-date guard in
+// importEpisode. Typed so categorizeRunError buckets it as a validation_drop
+// (structural, per the PSY-1141 convention) instead of provider_unreachable.
+var errFutureAirDate = errors.New("future-dated episode rejected")
+
 // episodeAirWindow resolves the frozen [starts_at, ends_at] for an episode. A
 // provider-supplied window wins (KEXP gives start+end, NTS a start) — those
 // providers already carry the broadcast's own instants, so the result is never
@@ -1271,6 +1284,22 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	// dedup skip above.
 	if ep.AirDate == "" {
 		return &contracts.EpisodeImportResult{}, nil
+	}
+
+	// PSY-1350: reject an air_date implausibly far in the future — an upstream
+	// typo (observed: a WFMU playlist dated a year out) would otherwise pin its
+	// show 'active' under the recency janitor for months and sort atop
+	// latest-first feeds. Provider-agnostic backstop: WFMU is already bounded to
+	// station-local today at fetch (PSY-1240), and KEXP/NTS list aired episodes
+	// only — so nothing legitimate is near the bound. The tolerance exists
+	// because air_date is date-only and station zones run ahead of UTC; the
+	// error is a typed sentinel so the sync-run feed records it as a
+	// validation_drop (visible, not silently clamped — upstream fixes then
+	// import normally on a later fetch).
+	if airDay, parseErr := time.Parse("2006-01-02", ep.AirDate); parseErr == nil {
+		if airDay.After(now.UTC().Truncate(24 * time.Hour).AddDate(0, 0, futureAirDateToleranceDays)) {
+			return nil, fmt.Errorf("%w: air_date %s is beyond now+%dd", errFutureAirDate, ep.AirDate, futureAirDateToleranceDays)
+		}
 	}
 
 	// Create episode. StartsAt/EndsAt are the frozen air window (PSY-1152) — the
