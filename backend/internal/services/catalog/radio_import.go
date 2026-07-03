@@ -437,12 +437,13 @@ func (s *RadioService) advanceFetchWatermark(model interface{}, id uint, fetchAt
 }
 
 // bumpShowFetchFailureStreak increments a show's consecutive-fetch-failure counter —
-// the PSY-1274 per-show sustained-outage signal, maintained only by the scheduled
-// incremental path (FetchNewEpisodes); scoped backfill/manual imports don't touch it,
-// mirroring how they leave the watermarks alone. UpdateColumn keeps this operational
-// counter from bumping updated_at (same rationale as advanceFetchWatermark). A failed
-// write is logged, not swallowed — losing an increment only delays escalation by one
-// cycle, never corrupts the streak semantics.
+// the PSY-1274 per-show sustained-outage signal. Bumped ONLY by scheduled incremental
+// runs (fetchNewEpisodes gates on the trigger); manual admin fetches and scoped
+// backfill/manual imports never inflate it, mirroring how they leave the watermarks
+// alone. UpdateColumn keeps this operational counter from bumping updated_at (same
+// rationale as advanceFetchWatermark). A failed write is logged, not swallowed —
+// losing an increment only delays escalation by one cycle, never corrupts the streak
+// semantics.
 func (s *RadioService) bumpShowFetchFailureStreak(showID uint) {
 	if err := s.db.Model(&catalogm.RadioShow{}).Where("id = ?", showID).
 		UpdateColumn("consecutive_fetch_failures", gorm.Expr("consecutive_fetch_failures + 1")).Error; err != nil {
@@ -484,7 +485,21 @@ func radioWatermarkEntity(model interface{}) string {
 // since its OWN last_playlist_fetch_at watermark (PSY-1272), floored so infrequent shows
 // aren't skipped (PSY-1230; see fetchSince). Each show advances its own watermark on
 // success; the station watermark is the total-station roll-up (the PSY-1269 outage signal).
+// This exported wrapper runs with SCHEDULED-run semantics (failure streaks are
+// maintained); executeSyncMode passes the run's real trigger to fetchNewEpisodes so a
+// manual admin retry can never inflate a streak (PSY-1274).
 func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportResult, error) {
+	return s.fetchNewEpisodes(stationID, catalogm.RadioSyncRunTriggerScheduled)
+}
+
+// fetchNewEpisodes is FetchNewEpisodes with the sync run's trigger made explicit.
+// The trigger gates ONLY the failure-streak bump: the streak means "consecutive
+// SCHEDULED cycles failed" (that is what makes threshold × fetch interval a
+// wall-clock outage duration), so an admin manually re-running a flapping station
+// three times in ten minutes must not count as three cycles. A successful fetch
+// resets the streak regardless of trigger — a manual verification run after fixing
+// a show's external_id should clear the alert condition immediately.
+func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -540,7 +555,9 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 			// failure streak feeds the janitor's per-show escalation (PSY-1274).
 			recordImportError(result, categorizeRunError(err),
 				fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err), nil)
-			s.bumpShowFetchFailureStreak(show.ID)
+			if trigger == catalogm.RadioSyncRunTriggerScheduled {
+				s.bumpShowFetchFailureStreak(show.ID)
+			}
 			continue
 		}
 		stationFetchSuccesses++

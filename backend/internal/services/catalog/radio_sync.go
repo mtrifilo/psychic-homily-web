@@ -341,7 +341,7 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		return discoverOutcome(res, imp)
 
 	case catalogm.RadioSyncRunTypeFetch:
-		res, err := s.FetchNewEpisodes(stationID)
+		res, err := s.fetchNewEpisodes(stationID, opts.Trigger)
 		if err != nil {
 			return syncOutcome{status: catalogm.RadioSyncRunStatusFailed, hardErr: err, errs: topLevelErr(err)}
 		}
@@ -1115,10 +1115,14 @@ func (s *RadioService) EscalateStaleFetchOutages(threshold time.Duration, now ti
 }
 
 // escalateShowPermanentFailure is the per-SHOW sibling of escalatePermanentFailure
-// (PSY-1274): same Sentry path, fingerprinted per (show, category) so a persistent
-// single-show outage is ONE issue with a rising occurrence count, re-triggered each
-// janitor cycle — not per-cycle spam. The station id rides along as a tag (not a
-// fingerprint component) so the issue is still filterable by station.
+// (PSY-1274): same Sentry path, fingerprinted per (show, category). To be precise
+// about volume: Sentry receives one EVENT per janitor cycle while the streak
+// persists; the fingerprint collapses them into ONE issue with a rising occurrence
+// count (and re-opens it if resolved while still broken). That per-cycle re-fire is
+// the same deliberate convention as the station escalation — the population is
+// bounded (broken shows on otherwise-healthy, non-retired stations), and a resolved-
+// but-recurring issue is the desired "still broken" signal. The station id rides
+// along as a tag (not a fingerprint component) so the issue is filterable by station.
 func (s *RadioService) escalateShowPermanentFailure(err error, showID, stationID uint, category string) {
 	if s.onShowPermanentFailure != nil {
 		s.onShowPermanentFailure(err, showID, category)
@@ -1154,25 +1158,37 @@ const radioShowFetchFailureEscalationThreshold = 3
 const radioShowFetchOutageCategory = "show_fetch_outage"
 
 // EscalateShowFetchFailureStreaks escalates active, fetchable shows whose
-// consecutive-fetch-failure streak has reached `threshold` (PSY-1274). This closes
-// the alerting gap PSY-1272 left deliberately open: the per-show watermark holds a
-// broken show's frontier for auto-recovery, but the station watermark advances when
-// any sibling succeeds, so a single chronically-broken show never trips the PSY-1269
-// station escalation. Shows on a station that is ITSELF in a sustained outage (station
-// watermark stale past stationOutageThreshold) are skipped — the station escalation
-// already covers that case, and escalating every sibling show alongside it would be
-// pure Sentry noise. Escalations group per (show, radioShowFetchOutageCategory).
-// Returns the number escalated.
-func (s *RadioService) EscalateShowFetchFailureStreaks(threshold int, stationOutageThreshold time.Duration, now time.Time) (int, error) {
+// consecutive-fetch-failure streak has reached `streakThreshold` (PSY-1274). This
+// closes the alerting gap PSY-1272 left deliberately open: the per-show watermark
+// holds a broken show's frontier for auto-recovery, but the station watermark
+// advances when any sibling succeeds, so a single chronically-broken show never
+// trips the PSY-1269 station escalation.
+//
+// healthyWindow is the healthy-station guard: shows on a station whose watermark is
+// staler than it are skipped — every sibling streaking at once IS a station-level
+// outage, the PSY-1269 escalation's job, and escalating each sibling alongside it
+// would be pure Sentry noise. Callers MUST derive healthyWindow from the SAME clock
+// as the streak (streakThreshold × the scheduled fetch interval): if it were looser
+// (e.g. the 18h-floored station threshold while cycles run hourly), a short total-
+// station outage would trip every sibling's streak before the station counts as
+// unhealthy, producing exactly the per-show storm this guard exists to prevent.
+//
+// retired shows are excluded: retiring IS the documented remediation for a
+// permanently-gone external_id (PSY-1152), so it must quiesce this alert (the
+// fetch loop still selects on the legacy is_active flag and would otherwise keep
+// failing/escalating a retired show forever). Escalations group per
+// (show, radioShowFetchOutageCategory). Returns the number escalated.
+func (s *RadioService) EscalateShowFetchFailureStreaks(streakThreshold int, healthyWindow time.Duration, now time.Time) (int, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
-	stationOutageCutoff := now.Add(-stationOutageThreshold)
+	stationOutageCutoff := now.Add(-healthyWindow)
 	var shows []catalogm.RadioShow
 	err := s.db.
 		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
 		Where("radio_shows.is_active = TRUE AND radio_shows.external_id IS NOT NULL AND radio_shows.external_id != ''").
-		Where("radio_shows.consecutive_fetch_failures >= ?", threshold).
+		Where("radio_shows.lifecycle_state != ?", catalogm.RadioLifecycleRetired).
+		Where("radio_shows.consecutive_fetch_failures >= ?", streakThreshold).
 		Where("radio_stations.is_active = TRUE AND radio_stations.playlist_source IS NOT NULL AND radio_stations.playlist_source != '' AND radio_stations.playlist_source != ?", catalogm.PlaylistSourceManual).
 		// Healthy-station guard: NULL station watermark (never fetched) is excluded by
 		// the comparison too — same never-fetched carve-out as the station janitor.
@@ -1184,7 +1200,7 @@ func (s *RadioService) EscalateShowFetchFailureStreaks(threshold int, stationOut
 	for i := range shows {
 		sh := shows[i]
 		s.escalateShowPermanentFailure(
-			fmt.Errorf("radio show %q has failed its scheduled fetch %d cycles in a row (station otherwise healthy — likely a stale external_id)",
+			fmt.Errorf("radio show %q has failed %d consecutive scheduled fetches (station otherwise healthy — likely a stale external_id or persistent provider errors for this show)",
 				sh.Slug, sh.ConsecutiveFetchFailures),
 			sh.ID, sh.StationID, radioShowFetchOutageCategory)
 	}

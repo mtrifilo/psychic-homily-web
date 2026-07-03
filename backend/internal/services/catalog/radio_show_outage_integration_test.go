@@ -54,6 +54,40 @@ func (s *RadioSyncSuite) TestFetch_FailureStreak_BumpsAndResets() {
 	s.Equal(0, s.streakOf(broken.ID), "a successful zero-episode fetch must reset the streak")
 }
 
+// A MANUAL fetch run never bumps the streak — the counter means "consecutive
+// SCHEDULED cycles failed", so an admin re-running a flapping station three times in
+// ten minutes must not fabricate an ~18h sustained outage. A manual SUCCESS still
+// resets (a verification run after fixing the external_id clears the condition).
+func (s *RadioSyncSuite) TestFetch_FailureStreak_ManualRunsDoNotBump() {
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+	broken := s.seedActiveShow(st.ID, "manual-broken", nil)
+
+	errs := true
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				if errs {
+					return nil, fmt.Errorf("404 external id gone")
+				}
+				return nil, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	for range 3 {
+		_, err := s.svc.fetchNewEpisodes(st.ID, catalogm.RadioSyncRunTriggerManual)
+		s.Require().NoError(err)
+	}
+	s.Equal(0, s.streakOf(broken.ID), "manual-run failures must not inflate the streak")
+
+	s.setShowStreak(broken.ID, 2)
+	errs = false
+	_, err := s.svc.fetchNewEpisodes(st.ID, catalogm.RadioSyncRunTriggerManual)
+	s.Require().NoError(err)
+	s.Equal(0, s.streakOf(broken.ID), "a successful manual fetch must still reset the streak")
+}
+
 // setShowStreak stamps a show's counter directly (the janitor half is tested
 // independently of the fetch loop that maintains it).
 func (s *RadioSyncSuite) setShowStreak(showID uint, n int) {
@@ -86,6 +120,14 @@ func (s *RadioSyncSuite) TestEscalateShowFetchFailureStreaks() {
 	s.setShowStreak(noExt.ID, threshold)
 	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", noExt.ID).
 		Update("external_id", "").Error)
+
+	// Retired = the documented remediation for a permanently-gone external_id
+	// (PSY-1152); it must quiesce the alert even though the legacy is_active polling
+	// gate may still be true and the streak keeps climbing.
+	retired := s.seedActiveShow(healthy.ID, "esc-retired", nil)
+	s.setShowStreak(retired.ID, threshold)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).
+		Update("lifecycle_state", catalogm.RadioLifecycleRetired).Error)
 
 	// Station itself in sustained outage → its shows are the station escalation's
 	// problem, not per-show noise.

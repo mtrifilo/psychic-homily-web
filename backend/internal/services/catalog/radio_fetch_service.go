@@ -1294,10 +1294,16 @@ func (s *RadioFetchService) runJanitorCycle() {
 
 	// Escalate single shows stuck in a consecutive-fetch-failure streak on an
 	// otherwise-healthy station (PSY-1274) — the per-show alerting gap the station
-	// watermark can't see. The station threshold doubles as the healthy-station guard
-	// so a total-station outage escalates once (above), not once per sibling show.
+	// watermark can't see. The healthy-station guard MUST be on the same clock as the
+	// streak (threshold × the fetch interval, unfloored): the 18h-floored station
+	// threshold would let a short total-station outage on a fast interval trip every
+	// sibling's streak before the station reads as unhealthy (see the function doc).
+	streakWindow := time.Duration(radioShowFetchFailureEscalationThreshold) * s.fetchInterval
+	if streakWindow <= 0 { // defensive: an unset interval must not turn the guard into "skip everything"
+		streakWindow = radioFetchOutageEscalationThreshold
+	}
 	showOutagesEscalated, err := s.radioService.EscalateShowFetchFailureStreaks(
-		radioShowFetchFailureEscalationThreshold, outageThreshold, now)
+		radioShowFetchFailureEscalationThreshold, streakWindow, now)
 	if err != nil {
 		s.logger.Error("radio janitor: show fetch-streak escalation failed", "error", err)
 	}
