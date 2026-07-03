@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -98,6 +99,7 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 			next.VenueName = show.Venue.Name
 			next.VenueCity = show.Venue.City
 			next.VenueState = show.Venue.State
+			next.VenueTimezone = show.Venue.Timezone
 		}
 		card.NextShow = next
 	}
@@ -113,26 +115,41 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 		card.Labels = append(card.Labels, contracts.ArtistGraphCardLabel{Name: l.Name, Slug: l.Slug})
 	}
 
-	// "As heard on": distinct stations ordered by that station's play count,
-	// plus the artist's total matched plays. GetAsHeardOnForArtist returns
-	// one row per (station, radio show), already ordered by play count.
+	// "As heard on": GetAsHeardOnForArtist returns one row per (station,
+	// radio show) ordered by PER-ROW play count — first-encounter order
+	// would rank a one-show station above a station whose larger total is
+	// split across shows. Aggregate per station, then sort by station total.
 	rows, err := h.radioService.GetAsHeardOnForArtist(artist.ID)
 	if err != nil {
 		logger.FromContext(ctx).Warn("graph-card: radio lookup failed", "artist_id", artist.ID, "error", err)
 	} else if len(rows) > 0 {
-		radio := &contracts.ArtistGraphCardRadio{Stations: []string{}}
-		seen := make(map[uint]bool, len(rows))
+		type stationTotal struct {
+			name  string
+			plays int
+		}
+		order := []uint{}
+		totals := make(map[uint]*stationTotal, len(rows))
+		total := 0
 		for _, r := range rows {
 			if r == nil {
 				continue
 			}
-			radio.PlayCount += r.PlayCount
-			if !seen[r.StationID] {
-				seen[r.StationID] = true
-				radio.Stations = append(radio.Stations, r.StationName)
+			total += r.PlayCount
+			if st, ok := totals[r.StationID]; ok {
+				st.plays += r.PlayCount
+			} else {
+				totals[r.StationID] = &stationTotal{name: r.StationName, plays: r.PlayCount}
+				order = append(order, r.StationID)
 			}
 		}
-		if radio.PlayCount > 0 {
+		if total > 0 {
+			sort.SliceStable(order, func(i, j int) bool {
+				return totals[order[i]].plays > totals[order[j]].plays
+			})
+			radio := &contracts.ArtistGraphCardRadio{Stations: make([]string, 0, len(order)), PlayCount: total}
+			for _, id := range order {
+				radio.Stations = append(radio.Stations, totals[id].name)
+			}
 			card.Radio = radio
 		}
 	}

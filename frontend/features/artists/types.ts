@@ -332,6 +332,8 @@ export interface ArtistGraphCardShow {
   venue_name: string
   venue_city: string
   venue_state: string
+  /** IANA zone (PSY-985) — render the date in venue-local time. */
+  venue_timezone: string | null
 }
 
 export interface ArtistGraphCardLabel {

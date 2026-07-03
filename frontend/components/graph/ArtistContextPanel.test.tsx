@@ -21,6 +21,7 @@ const CARD: ArtistGraphCard = {
     venue_name: 'Trunk Space',
     venue_city: 'Phoenix',
     venue_state: 'AZ',
+    venue_timezone: 'America/Phoenix',
   },
   labels: [{ name: 'Thrill Jockey', slug: 'thrill-jockey' }],
   radio: { stations: ['WFMU', 'KEXP'], play_count: 31 },
@@ -46,7 +47,7 @@ describe('ArtistContextPanel', () => {
       '/labels/thrill-jockey',
     )
     expect(screen.getByText(/WFMU · KEXP · 31 plays/)).toBeInTheDocument()
-    expect(screen.getByText('7 bills · 4 similar · 2 members · 5 radio')).toBeInTheDocument()
+    expect(screen.getByText('7 bills · 4 similar · 2 members · 5 radio · 3 label ties')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /open page/i })).toHaveAttribute(
       'href',
       '/artists/lightning-bolt',
@@ -97,6 +98,32 @@ describe('ArtistContextPanel', () => {
     expect(screen.queryByText('As heard on')).toBeNull()
     expect(screen.queryByText('Connections')).toBeNull()
     expect(screen.getByRole('link', { name: /open page/i })).toBeInTheDocument()
+  })
+
+  it('renders label ties when shared_labels is the only connection type', () => {
+    render(
+      <ArtistContextPanel
+        artistName="Labelmate"
+        artistSlug="labelmate"
+        card={{
+          ...CARD,
+          connections: { bills: 0, similar: 0, members: 0, radio: 0, shared_labels: 3 },
+        }}
+        onClose={onClose}
+      />,
+    )
+    expect(screen.getByText('3 label ties')).toBeInTheDocument()
+  })
+
+  it('ignores Escape typed into an input (PSY-1313 layered-dismiss lesson)', () => {
+    render(
+      <div>
+        <input aria-label="palette" />
+        <ArtistContextPanel artistName="Lightning Bolt" artistSlug="lightning-bolt" card={CARD} onClose={onClose} />
+      </div>,
+    )
+    fireEvent.keyDown(screen.getByLabelText('palette'), { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('closes on the X button and on capture-phase Escape', () => {

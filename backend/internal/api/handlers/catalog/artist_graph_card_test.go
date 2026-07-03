@@ -61,10 +61,13 @@ func graphCardMocks() (*testhelpers.MockArtistService, *testhelpers.MockArtistRe
 	}
 	radioSvc := &testhelpers.MockRadioService{
 		GetAsHeardOnForArtistFn: func(id uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+			// Per-row (station, radio show) ordering: KEXP's single show
+			// outranks either WFMU row, but WFMU's TOTAL (15+14) wins —
+			// pins the per-station aggregation before ordering.
 			return []*contracts.RadioAsHeardOnResponse{
-				{StationID: 1, StationName: "WFMU", PlayCount: 20},
-				{StationID: 1, StationName: "WFMU", PlayCount: 4}, // second show, same station
-				{StationID: 2, StationName: "KEXP", PlayCount: 7},
+				{StationID: 2, StationName: "KEXP", PlayCount: 20},
+				{StationID: 1, StationName: "WFMU", PlayCount: 15},
+				{StationID: 1, StationName: "WFMU", PlayCount: 14},
 			}, nil
 		},
 	}
@@ -92,11 +95,11 @@ func TestGetArtistGraphCardHandler_AssemblesCard(t *testing.T) {
 	if card.Radio == nil {
 		t.Fatalf("expected radio block")
 	}
-	if card.Radio.PlayCount != 31 {
-		t.Errorf("play count: want 31 (summed across rows), got %d", card.Radio.PlayCount)
+	if card.Radio.PlayCount != 49 {
+		t.Errorf("play count: want 49 (summed across rows), got %d", card.Radio.PlayCount)
 	}
 	if len(card.Radio.Stations) != 2 || card.Radio.Stations[0] != "WFMU" || card.Radio.Stations[1] != "KEXP" {
-		t.Errorf("stations should de-dup preserving order: %v", card.Radio.Stations)
+		t.Errorf("stations must order by per-station TOTAL (WFMU 29 > KEXP 20): %v", card.Radio.Stations)
 	}
 	want := contracts.ArtistGraphCardConnections{Bills: 7, Similar: 4, Members: 2, Radio: 5, SharedLabels: 3}
 	if card.Connections != want {

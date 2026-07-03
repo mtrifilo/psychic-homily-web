@@ -24,6 +24,7 @@ import Link from 'next/link'
 import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { formatShowDate } from '@/lib/utils/formatters'
 import type { ArtistGraphCard } from '@/features/artists/types'
 
 export interface ArtistContextPanelProps {
@@ -40,9 +41,9 @@ export interface ArtistContextPanelProps {
 }
 
 /** Mono-caps field label, matching the mock's NEXT SHOW / LABEL rows. */
-function FieldLabel({ children }: { children: string }) {
+function FieldLabel({ children, className }: { children: string; className?: string }) {
   return (
-    <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+    <div className={cn('font-mono text-[10px] uppercase tracking-wider text-muted-foreground', className)}>
       {children}
     </div>
   )
@@ -50,20 +51,6 @@ function FieldLabel({ children }: { children: string }) {
 
 function SkeletonRow() {
   return <div className="h-3.5 w-40 rounded bg-muted/60 animate-pulse" aria-hidden="true" />
-}
-
-/**
- * The card's date line. The API sends a full timestamp but show dates are
- * calendar dates — render the date part only, in the viewer's locale.
- */
-function formatShowDate(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
 }
 
 export function ArtistContextPanel({
@@ -76,10 +63,19 @@ export function ArtistContextPanel({
 }: ArtistContextPanelProps) {
   // Esc closes — capture phase, same layered-dismiss rationale as
   // ConnectionPanel (innermost layer wins; outer overlay listeners skip
-  // defaultPrevented events).
+  // defaultPrevented events). Input/dialog-targeted keydowns are ignored
+  // (PSY-1313 lesson): the homepage also hosts the CommandPalette, and its
+  // Esc must dismiss the palette alone — one keypress must not close two
+  // layers.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      if (
+        e.target instanceof Element &&
+        e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
+      ) {
+        return
+      }
       e.preventDefault()
       e.stopPropagation()
       onClose()
@@ -98,6 +94,7 @@ export function ArtistContextPanel({
         card.connections.similar > 0 && `${card.connections.similar} similar`,
         card.connections.members > 0 && `${card.connections.members} members`,
         card.connections.radio > 0 && `${card.connections.radio} radio`,
+        card.connections.shared_labels > 0 && `${card.connections.shared_labels} label ties`,
       ].filter((part): part is string => Boolean(part))
     : []
 
@@ -112,9 +109,7 @@ export function ArtistContextPanel({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-0.5">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-primary">
-            Selected
-          </div>
+          <FieldLabel className="text-primary">Selected</FieldLabel>
           <h3 className="text-base font-semibold leading-tight text-foreground">
             {artistName}
           </h3>
@@ -150,7 +145,12 @@ export function ArtistContextPanel({
             <div className="space-y-0.5">
               <FieldLabel>Next show</FieldLabel>
               <p className="text-foreground/90">
-                {formatShowDate(card.next_show.event_date)}
+                {formatShowDate(
+                  card.next_show.event_date,
+                  card.next_show.venue_state,
+                  false,
+                  card.next_show.venue_timezone,
+                )}
                 {card.next_show.venue_name && (
                   <>
                     {' · '}

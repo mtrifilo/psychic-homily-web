@@ -153,6 +153,9 @@ type ArtistGraphCardShow struct {
 	VenueCity string    `json:"venue_city"`
 	// VenueState may be empty for venues without one (international).
 	VenueState string `json:"venue_state"`
+	// VenueTimezone is the venue's IANA zone (PSY-985) so clients render the
+	// show date in venue-local time, not the viewer's. Nil when unresolved.
+	VenueTimezone *string `json:"venue_timezone"`
 }
 
 // ArtistGraphCardLabel is one label chip on the card.
@@ -162,8 +165,8 @@ type ArtistGraphCardLabel struct {
 }
 
 // ArtistGraphCardRadio is the "as heard on" line: distinct station names
-// (ordered by that station's play count, descending) and the artist's total
-// matched play count across all stations.
+// ordered by each station's TOTAL play count (summed across its radio
+// shows), descending, plus the artist's total matched play count.
 type ArtistGraphCardRadio struct {
 	Stations  []string `json:"stations"`
 	PlayCount int      `json:"play_count"`

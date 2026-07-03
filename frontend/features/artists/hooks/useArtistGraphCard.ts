@@ -21,18 +21,19 @@ interface UseArtistGraphCardOptions {
 export function useArtistGraphCard(options: UseArtistGraphCardOptions) {
   const { artistId, enabled = true } = options
 
-  const params = new URLSearchParams()
-  if (typeof window !== 'undefined') {
-    params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)
-  }
-  const queryString = params.toString()
-  const endpoint = queryString
-    ? `${artistEndpoints.GRAPH_CARD(artistId ?? 0)}?${queryString}`
-    : artistEndpoints.GRAPH_CARD(artistId ?? 0)
-
   return useQuery({
+    // Timezone is deliberately NOT in the key: it's constant for a browser
+    // session, and keying on it would only fork cache entries.
     queryKey: artistQueryKeys.graphCard(artistId ?? 0),
     queryFn: async (): Promise<ArtistGraphCard> => {
+      const params = new URLSearchParams()
+      if (typeof window !== 'undefined') {
+        params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)
+      }
+      const queryString = params.toString()
+      const endpoint = queryString
+        ? `${artistEndpoints.GRAPH_CARD(artistId ?? 0)}?${queryString}`
+        : artistEndpoints.GRAPH_CARD(artistId ?? 0)
       return apiRequest<ArtistGraphCard>(endpoint, { method: 'GET' })
     },
     enabled: enabled && artistId !== null && artistId > 0,
