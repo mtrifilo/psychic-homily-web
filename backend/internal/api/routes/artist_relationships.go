@@ -18,6 +18,10 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/graph", relHandler.GetArtistGraphHandler)
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/bill-composition", relHandler.GetArtistBillCompositionHandler)
 
+	// Public: node-select summary card for graph surfaces (PSY-1345).
+	cardHandler := catalogh.NewArtistGraphCardHandler(rc.SC.Artist, rc.SC.ArtistRelationship, rc.SC.Radio)
+	huma.Get(rc.API, "/artists/{artist_id}/graph-card", cardHandler.GetArtistGraphCardHandler)
+
 	// Protected: create relationships and vote
 	huma.Post(rc.Protected, "/artists/relationships", relHandler.CreateRelationshipHandler)
 	huma.Post(rc.Protected, "/artists/relationships/{source_id}/{target_id}/vote", relHandler.VoteHandler)

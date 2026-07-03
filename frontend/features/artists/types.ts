@@ -304,3 +304,50 @@ export interface MergeArtistResult {
   bookmarks_moved: number
   alias_created: boolean
 }
+
+// ============================================================================
+// Artist graph card (PSY-1345)
+// ============================================================================
+
+/**
+ * Node-select summary card for graph surfaces — mirrors
+ * backend contracts.ArtistGraphCard. `next_show`/`radio` are null (not
+ * omitted) when absent; `labels` is always an array.
+ */
+export interface ArtistGraphCard {
+  id: number
+  name: string
+  slug: string
+  city: string | null
+  state: string | null
+  next_show: ArtistGraphCardShow | null
+  labels: ArtistGraphCardLabel[]
+  radio: ArtistGraphCardRadio | null
+  connections: ArtistGraphCardConnections
+}
+
+export interface ArtistGraphCardShow {
+  id: number
+  event_date: string
+  venue_name: string
+  venue_city: string
+  venue_state: string
+}
+
+export interface ArtistGraphCardLabel {
+  name: string
+  slug: string
+}
+
+export interface ArtistGraphCardRadio {
+  stations: string[]
+  play_count: number
+}
+
+export interface ArtistGraphCardConnections {
+  bills: number
+  similar: number
+  members: number
+  radio: number
+  shared_labels: number
+}

@@ -24,12 +24,27 @@ vi.mock('@sentry/nextjs', () => ({
 // static-viewport behavior itself is covered in
 // components/graph/ForceGraphView.staticViewport.test.tsx.
 vi.mock('@/components/graph/ForceGraphView', () => ({
-  ForceGraphView: (props: { ariaLabel: string; staticViewport?: boolean }) => (
+  ForceGraphView: (props: {
+    ariaLabel: string
+    staticViewport?: boolean
+    nodes: Array<{ id: number; name: string; slug: string }>
+    onNodeClick: (node: { id: number; name: string; slug: string }) => void
+    onBackgroundClick?: () => void
+  }) => (
     <div
       data-testid="force-graph-view"
       data-static-viewport={String(props.staticViewport ?? false)}
       aria-label={props.ariaLabel}
-    />
+    >
+      {props.nodes.map(n => (
+        <button key={n.id} type="button" onClick={() => props.onNodeClick(n)}>
+          {`node-${n.slug}`}
+        </button>
+      ))}
+      <button type="button" onClick={() => props.onBackgroundClick?.()}>
+        canvas-background
+      </button>
+    </div>
   ),
 }))
 
@@ -45,6 +60,12 @@ vi.mock('@/features/scenes/hooks/useScenes', async importOriginal => {
     useSceneGraph: (opts: { slug: string; enabled?: boolean }) => useSceneGraph(opts),
   }
 })
+
+const useArtistGraphCard = vi.fn()
+vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
+  useArtistGraphCard: (opts: { artistId: number | null; enabled?: boolean }) =>
+    useArtistGraphCard(opts),
+}))
 
 function scene(overrides: Partial<SceneListItem> & { slug: string }): SceneListItem {
   return {
@@ -116,6 +137,7 @@ beforeEach(() => {
     ImmediateIntersectionObserver as unknown as typeof IntersectionObserver
   useScenes.mockReset().mockReturnValue({ data: { scenes: SCENES, count: SCENES.length }, isLoading: false, isError: false })
   useSceneGraph.mockReset().mockReturnValue({ data: GRAPH, isLoading: false, isError: false })
+  useArtistGraphCard.mockReset().mockReturnValue({ data: undefined, isError: false })
   setContainerWidth(1024)
 })
 
@@ -215,6 +237,40 @@ describe('HomeSceneGraph', () => {
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false }),
     )
+  })
+
+  it('node click opens the context panel and fetches that artist’s card; second click deselects (PSY-1345)', async () => {
+    useArtistGraphCard.mockReturnValue({
+      data: {
+        id: 1, name: 'Alpha', slug: 'alpha', city: 'Chicago', state: 'IL',
+        next_show: null, labels: [], radio: null,
+        connections: { bills: 1, similar: 0, members: 0, radio: 0, shared_labels: 0 },
+      },
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+    expect(useArtistGraphCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ artistId: 1, enabled: true }),
+    )
+    expect(screen.getByRole('link', { name: /open page/i })).toHaveAttribute('href', '/artists/alpha')
+    // Second click on the same node puts the panel away.
+    fireEvent.click(screen.getByRole('button', { name: 'node-alpha' }))
+    expect(screen.queryByRole('region', { name: 'About Alpha' })).toBeNull()
+  })
+
+  it('canvas background click and scene rotation both dismiss the panel (PSY-1345)', async () => {
+    render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'canvas-background' }))
+    expect(screen.queryByRole('region', { name: 'About Alpha' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'node-alpha' }))
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
+    expect(screen.queryByRole('region', { name: 'About Alpha' })).toBeNull()
   })
 
   it('SectionErrorBoundary self-hides the section and reports to Sentry when rendering throws', async () => {

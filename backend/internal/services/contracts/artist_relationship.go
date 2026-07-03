@@ -1,6 +1,8 @@
 package contracts
 
 import (
+	"time"
+
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
@@ -90,6 +92,10 @@ type ArtistRelationshipServiceInterface interface {
 	// Graph
 	GetArtistGraph(artistID uint, types []string, userID uint) (*ArtistGraph, error)
 	GetArtistBillComposition(artistID uint, months int) (*ArtistBillComposition, error)
+	// CountRelationshipsByType returns this artist's relationship counts
+	// keyed by relationship_type (PSY-1345 graph card). Types with zero
+	// rows are absent from the map.
+	CountRelationshipsByType(artistID uint) (map[string]int, error)
 
 	// Voting (only for non-auto-derived, typically "similar")
 	Vote(artistA, artistB uint, relType string, userID uint, isUpvote bool) error
@@ -114,3 +120,63 @@ const (
 	DefaultSharedBillsMinShows   = 1
 	DefaultSharedLabelsMinLabels = 1
 )
+
+// ============================================================================
+// Artist graph card (PSY-1345)
+// ============================================================================
+
+// ArtistGraphCard is the node-select summary card for graph surfaces (the
+// homepage scene-graph section and the /graph Observatory): who this artist
+// is, their next show, labels, radio presence, and how connected they are.
+// Purpose-built so a node click costs one small request instead of the full
+// artist-detail payload plus three sibling endpoints.
+type ArtistGraphCard struct {
+	ID    uint    `json:"id"`
+	Name  string  `json:"name"`
+	Slug  string  `json:"slug"`
+	City  *string `json:"city"`
+	State *string `json:"state"`
+	// NextShow is nil when the artist has no upcoming approved show.
+	NextShow *ArtistGraphCardShow `json:"next_show"`
+	// Labels is empty (never nil on the wire) when the artist has none.
+	Labels []ArtistGraphCardLabel `json:"labels"`
+	// Radio is nil when the artist has no matched radio plays.
+	Radio       *ArtistGraphCardRadio      `json:"radio"`
+	Connections ArtistGraphCardConnections `json:"connections"`
+}
+
+// ArtistGraphCardShow is the card's next-show line.
+type ArtistGraphCardShow struct {
+	ID        uint      `json:"id"`
+	EventDate time.Time `json:"event_date"`
+	VenueName string    `json:"venue_name"`
+	VenueCity string    `json:"venue_city"`
+	// VenueState may be empty for venues without one (international).
+	VenueState string `json:"venue_state"`
+}
+
+// ArtistGraphCardLabel is one label chip on the card.
+type ArtistGraphCardLabel struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// ArtistGraphCardRadio is the "as heard on" line: distinct station names
+// (ordered by that station's play count, descending) and the artist's total
+// matched play count across all stations.
+type ArtistGraphCardRadio struct {
+	Stations  []string `json:"stations"`
+	PlayCount int      `json:"play_count"`
+}
+
+// ArtistGraphCardConnections carries per-type relationship counts. Members
+// folds member_of + side_project (one "people" number for the card);
+// SharedLabels is carried separately from Labels above (a count of
+// labelmate EDGES, not the artist's own label list).
+type ArtistGraphCardConnections struct {
+	Bills        int `json:"bills"`
+	Similar      int `json:"similar"`
+	Members      int `json:"members"`
+	Radio        int `json:"radio"`
+	SharedLabels int `json:"shared_labels"`
+}

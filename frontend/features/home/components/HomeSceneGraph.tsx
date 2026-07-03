@@ -7,7 +7,9 @@
  *
  * Deliberately NOT the full graph tool: click-select only (no wheel-zoom,
  * no pan, no scope switcher, no interactive legend — `staticViewport` on
- * ForceGraphView), frozen after settle, one static caption. Full-power
+ * ForceGraphView), frozen after settle, one static caption. Clicking a
+ * node opens the ArtistContextPanel (PSY-1345) — next show, labels, radio,
+ * connections — with "Open page →" as the navigation path. Full-power
  * interactivity lives on the dedicated /graph page (the re-pointed
  * Observatory, PSY-1079…1086); until that ships the CTA links to the
  * scene page's graph section.
@@ -30,9 +32,9 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState } from 're
 import type { ReactNode } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
+import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -44,6 +46,7 @@ import {
 // scenes module code into the homepage's initial JS. Same precedent as
 // InlineGraph's deep import of useArtistGraph (PSY-868).
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
+import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { sceneArtistCountPhrase } from '@/features/scenes/components/sceneGraphCopy'
 import {
   pickDefaultScene,
@@ -168,7 +171,6 @@ export function HomeSceneGraph() {
 // Inner component so the data hooks only run once scroll-intent exists —
 // the outer shell can't call them conditionally.
 function HomeSceneGraphSection() {
-  const router = useRouter()
   const { refCallback, containerWidth } = useContainerWidth()
   const scenesQuery = useScenes()
   const scenes = useMemo(
@@ -180,6 +182,11 @@ function HomeSceneGraphSection() {
   // The user's "Surprise me" pick; null = the liveliest-scene default.
   const [surpriseSlug, setSurpriseSlug] = useState<string | null>(null)
   const scene = scenes.find(s => s.slug === surpriseSlug) ?? defaultScene
+
+  // Node selection → context panel (PSY-1345). Cleared on rotation (the
+  // selected artist belongs to the outgoing scene's graph) and on
+  // Esc/click-away/close.
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
   // Below the canvas gate the teaser never reads graphData — don't pay
   // the (dense, liveliest-scene) graph round-trip for a payload the
@@ -199,17 +206,29 @@ function HomeSceneGraphSection() {
     ? undefined
     : graphQuery.data
 
+  const cardQuery = useArtistGraphCard({
+    artistId: selectedNode?.id ?? null,
+    enabled: selectedNode !== null,
+  })
+
   const handleSurprise = useCallback(() => {
     const next = pickSurpriseScene(scenes, scene?.slug ?? null)
-    if (next) setSurpriseSlug(next.slug)
+    if (next) {
+      setSurpriseSlug(next.slug)
+      setSelectedNode(null)
+    }
   }, [scenes, scene?.slug])
 
-  const handleNodeClick = useCallback(
-    (node: GraphNode) => {
-      router.push(`/artists/${node.slug}`)
-    },
-    [router],
-  )
+  // Click selects (opens the context panel); navigation happens via the
+  // panel's "Open page →". Clicking the already-selected node deselects —
+  // a second click reads as "put it away".
+  const handleNodeClick = useCallback((node: GraphNode) => {
+    setSelectedNode(prev => (prev?.id === node.id ? null : node))
+  }, [])
+
+  const handlePanelClose = useCallback(() => {
+    setSelectedNode(null)
+  }, [])
 
   // Self-hide on scenes failure/emptiness: a broken graph source must not
   // dent the homepage. (scenes.length === 0 is only meaningful once the
@@ -284,7 +303,8 @@ function HomeSceneGraphSection() {
           // skeleton. The branches are mutually exclusive by construction.
           (settledGraphData ? (
             settledGraphData.nodes.length > 0 ? (
-              <ForceGraphView
+              <div className="relative">
+                <ForceGraphView
                 // Remount per scene: a rotation BACK to a cached scene
                 // arrives with isPlaceholderData false (no skeleton frame,
                 // no unmount), and the mounted canvas's one-shot zoomToFit
@@ -298,9 +318,21 @@ function HomeSceneGraphSection() {
                 containerWidth={containerWidth}
                 height={GRAPH_HEIGHT_PX}
                 staticViewport
-                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${sceneArtistCountPhrase(settledGraphData.scene)}. Click a node to open that artist’s page.`}
+                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${sceneArtistCountPhrase(settledGraphData.scene)}. Click a node for that artist’s details.`}
                 onNodeClick={handleNodeClick}
+                onBackgroundClick={handlePanelClose}
               />
+                {selectedNode && (
+                  <ArtistContextPanel
+                    className="absolute top-2 right-2 z-40"
+                    artistName={selectedNode.name}
+                    artistSlug={selectedNode.slug}
+                    card={cardQuery.data}
+                    isError={cardQuery.isError}
+                    onClose={handlePanelClose}
+                  />
+                )}
+              </div>
             ) : (
               <div
                 className={`w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground ${PLACEHOLDER_HEIGHT_CLASS}`}
@@ -333,7 +365,7 @@ function HomeSceneGraphSection() {
       {graphAvailable && settledGraphData && settledGraphData.nodes.length > 0 && (
         <p className="text-sm text-muted-foreground">
           Lines connect artists — shared bills, label ties, band members.
-          Click any artist to dig in.
+          Click any artist for their next show, labels, and radio plays.
         </p>
       )}
     </section>
