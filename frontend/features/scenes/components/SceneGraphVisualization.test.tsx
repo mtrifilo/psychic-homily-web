@@ -51,9 +51,12 @@ const data: SceneGraphResponse = {
     slug: 'phoenix-az',
     city: 'Phoenix',
     state: 'AZ',
-    artist_count: 12,
-    edge_count: 4,
-    metro_roster_total: 12,
+    // artist_count mirrors nodes.length below — same backend contract the
+    // SceneGraph.test fixture honors (ArtistCount: len(rows)); edge_count
+    // mirrors the empty links list.
+    artist_count: 1,
+    edge_count: 0,
+    metro_roster_total: 1,
     roster_truncated: false,
   },
   clusters: [{ id: 'v_1', label: 'Valley Bar', size: 6, color_index: 0 }],
@@ -98,7 +101,44 @@ describe('SceneGraphVisualization', () => {
     const view = screen.getByTestId('force-graph-view')
     expect(view).toHaveAttribute(
       'aria-label',
-      'Scene relationship graph for Phoenix, AZ: 12 artists, 4 connections.'
+      'Scene relationship graph for Phoenix, AZ: 1 artist, 0 connections.'
+    )
+  })
+
+  it('singularizes a one-edge graph in the aria-label ("1 connection")', () => {
+    render(
+      <SceneGraphVisualization
+        data={{ ...data, scene: { ...data.scene, edge_count: 1 } }}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'aria-label',
+      'Scene relationship graph for Phoenix, AZ: 1 artist, 1 connection.'
+    )
+  })
+
+  // PSY-1296: assistive tech must hear the same "top N of M" framing the
+  // visual header shows when the PSY-1277 roster cap truncated the node set.
+  it('describes a truncated graph honestly in the aria-label', () => {
+    render(
+      <SceneGraphVisualization
+        data={{
+          ...data,
+          scene: {
+            ...data.scene,
+            metro_roster_total: 90,
+            roster_truncated: true,
+          },
+        }}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'aria-label',
+      'Scene relationship graph for Phoenix, AZ: top 1 of 90 artists, 0 connections.'
     )
   })
 
