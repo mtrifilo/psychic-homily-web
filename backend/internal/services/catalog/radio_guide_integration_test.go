@@ -31,10 +31,10 @@ func (s *RadioSyncSuite) seedGuideStation(slug string) catalogm.RadioStation {
 
 func (s *RadioSyncSuite) seedGuideShow(stationID uint, code string, sched *catalogm.RadioSchedule) catalogm.RadioShow {
 	show := catalogm.RadioShow{
-		StationID:      stationID,
-		Name:           "Show " + code,
-		Slug:           fmt.Sprintf("show-%s-%d", code, stationID),
-		ExternalID:     &code,
+		StationID:  stationID,
+		Name:       "Show " + code,
+		Slug:       fmt.Sprintf("show-%s-%d", code, stationID),
+		ExternalID: &code,
 		IsActive:   true,
 	}
 	if sched != nil {
