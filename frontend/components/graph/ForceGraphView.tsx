@@ -533,6 +533,11 @@ export function ForceGraphView({
   }, [containerWidth, graphHeight, reducedMotion])
 
   useEffect(() => {
+    // PSY-1344: in static-viewport mode the user CANNOT own the viewport
+    // (zoom/pan/drag are disabled), so a wheel passing over the canvas
+    // mid-page-scroll must not burn the one-shot initial fit — there would
+    // be no user gesture left to recover the framing.
+    if (staticViewport) return
     const el = containerRef.current
     if (!el) return
     const cancelFit = (e: Event) => {
@@ -546,7 +551,7 @@ export function ForceGraphView({
       el.removeEventListener('pointerdown', cancelFit)
       el.removeEventListener('wheel', cancelFit)
     }
-  }, [])
+  }, [staticViewport])
 
   const maybeFitViewport = useCallback(
     (animated: boolean) => {

@@ -14,14 +14,20 @@
  *
  * Perf posture mirrors InlineGraph (PSY-868/PSY-837): the section
  * lazy-mounts via IntersectionObserver, all data fetching waits for
- * scroll-intent, and ForceGraphView loads in its own dynamic(ssr:false)
- * chunk so nothing graph-shaped lands in the homepage's initial JS.
+ * scroll-intent (and, for the graph payload, for a canvas-capable width),
+ * and ForceGraphView loads in its own dynamic(ssr:false) chunk so nothing
+ * graph-shaped lands in the homepage's initial JS.
  *
- * The section self-hides (renders nothing) when the scenes list errors
- * or is empty — the homepage must never break on a graph-data problem.
+ * The section self-hides (renders nothing) when the scenes list errors,
+ * is empty, or the section itself throws (SectionErrorBoundary — the App
+ * Router's next/dynamic throws failed chunk loads to the nearest error
+ * boundary; without a local one, a graph chunk-fetch failure would
+ * replace the ENTIRE homepage with app/error.tsx). The homepage must
+ * never break on a graph problem.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -43,47 +49,32 @@ import {
 const GRAPH_HEIGHT_PX = 480
 const INTERSECTION_ROOT_MARGIN = '200px'
 
+/**
+ * One shared height contract for every non-canvas box (skeleton, teaser,
+ * empty, error): 240px below Tailwind's `sm` (≈ the 640px canvas gate),
+ * 480px above. Placeholders and settled states agreeing on height is what
+ * keeps the section from shifting LatestRadioShows once measurement or
+ * data resolves (the canvas itself only renders ≥640px, where both are
+ * 480px). A container-vs-viewport mismatch survives only in the narrow
+ * band where the padded column measures <640px on a ≥640px viewport.
+ */
+const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[480px]'
+
 // Height-reserving placeholder (CLS budget) — shared by the pre-mount
 // state, the data-loading state, and the dynamic-import fallback.
 function GraphSkeleton() {
   return (
     <div
-      className="w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
-      style={{ height: GRAPH_HEIGHT_PX }}
+      className={`w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse ${PLACEHOLDER_HEIGHT_CLASS}`}
       aria-hidden="true"
     />
   )
 }
 
-// Perceivable fallback when the ForceGraphView chunk fails to load
-// (next/dynamic re-invokes `loading` with `error` set rather than throwing
-// to an error boundary — without this the aria-hidden skeleton spins
-// forever). Same recovery shape as InlineGraph's GraphLoadError.
-function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
-  return (
-    <div
-      role="alert"
-      className="w-full rounded-lg border border-border/50 bg-muted/10 flex flex-col items-center justify-center gap-3 text-center p-6"
-      style={{ height: GRAPH_HEIGHT_PX }}
-    >
-      <p className="text-sm text-muted-foreground">
-        The graph couldn’t load.
-      </p>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="text-sm text-primary hover:underline underline-offset-4"
-        >
-          Try again
-        </button>
-      )}
-    </div>
-  )
-}
-
 // PSY-868 pattern: split ForceGraphView (and react-force-graph underneath)
-// into an async chunk fetched only when the section actually mounts.
+// into an async chunk fetched only when the section actually mounts. The
+// App Router never re-invokes `loading` with an error — a failed chunk
+// fetch throws from React.lazy instead, which SectionErrorBoundary eats.
 const ForceGraphView = dynamic(
   () =>
     import('@/components/graph/ForceGraphView').then(m => ({
@@ -91,10 +82,28 @@ const ForceGraphView = dynamic(
     })),
   {
     ssr: false,
-    loading: ({ error, retry }) =>
-      error ? <GraphLoadError onRetry={retry} /> : <GraphSkeleton />,
+    loading: () => <GraphSkeleton />,
   },
 )
+
+/**
+ * Self-hide boundary: any render/chunk error inside the section collapses
+ * it to nothing instead of bubbling to app/error.tsx and taking the whole
+ * homepage down. Class component — React error boundaries have no hook
+ * equivalent.
+ */
+class SectionErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
+}
 
 export function HomeSceneGraph() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -130,7 +139,13 @@ export function HomeSceneGraph() {
 
   return (
     <div ref={containerRef} className="w-full">
-      {isMounted ? <HomeSceneGraphSection /> : <GraphSkeleton />}
+      {isMounted ? (
+        <SectionErrorBoundary>
+          <HomeSceneGraphSection />
+        </SectionErrorBoundary>
+      ) : (
+        <GraphSkeleton />
+      )}
     </div>
   )
 }
@@ -141,18 +156,33 @@ function HomeSceneGraphSection() {
   const router = useRouter()
   const { refCallback, containerWidth } = useContainerWidth()
   const scenesQuery = useScenes()
-  const scenes = scenesQuery.data?.scenes ?? []
+  const scenes = useMemo(
+    () => scenesQuery.data?.scenes ?? [],
+    [scenesQuery.data?.scenes],
+  )
+  const defaultScene = useMemo(() => pickDefaultScene(scenes), [scenes])
 
   // The user's "Surprise me" pick; null = the liveliest-scene default.
   const [surpriseSlug, setSurpriseSlug] = useState<string | null>(null)
-  const scene =
-    scenes.find(s => s.slug === surpriseSlug) ?? pickDefaultScene(scenes)
+  const scene = scenes.find(s => s.slug === surpriseSlug) ?? defaultScene
 
+  // Below the canvas gate the teaser never reads graphData — don't pay
+  // the (dense, liveliest-scene) graph round-trip for a payload the
+  // mobile render discards.
+  const graphAvailable =
+    containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
   const graphQuery = useSceneGraph({
     slug: scene?.slug ?? '',
-    enabled: Boolean(scene),
+    enabled: Boolean(scene) && graphAvailable,
   })
-  const graphData = graphQuery.data
+  // useSceneGraph carries placeholderData: keepPreviousData, so right
+  // after a "Surprise me" rotation the hook reports the PREVIOUS scene's
+  // payload as success. Rendering that under the new scene's heading
+  // mislabels the canvas (and its aria-label) — treat placeholder frames
+  // as loading and only trust settled data for the current scene.
+  const settledGraphData = graphQuery.isPlaceholderData
+    ? undefined
+    : graphQuery.data
 
   const handleSurprise = useCallback(() => {
     const next = pickSurpriseScene(scenes, scene?.slug ?? null)
@@ -174,8 +204,6 @@ function HomeSceneGraphSection() {
   if (!scene) return <GraphSkeleton />
 
   const sceneHref = `/scenes/${scene.slug}`
-  const graphAvailable =
-    containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   return (
     <section
@@ -209,16 +237,15 @@ function HomeSceneGraphSection() {
       </div>
 
       <div ref={refCallback} className="w-full">
-        {/* Pre-measurement: hold the height so the section can't collapse
-            and shift the radio section below (CLS budget). */}
+        {/* Pre-measurement: hold the (responsive) height so the section
+            can't shift the radio section below when the state settles. */}
         {containerWidth === null && <GraphSkeleton />}
 
         {/* Static teaser below the canvas-usability gate (PSY-511): no
             canvas touch handling at small widths — link out instead. */}
         {containerWidth !== null && !graphAvailable && (
           <div
-            className="w-full rounded-lg border border-border/50 bg-muted/20 flex flex-col items-center justify-center text-center p-6 gap-3"
-            style={{ height: GRAPH_HEIGHT_PX / 2 }}
+            className={`w-full rounded-lg border border-border/50 bg-muted/20 flex flex-col items-center justify-center text-center p-6 gap-3 ${PLACEHOLDER_HEIGHT_CLASS}`}
           >
             <p className="text-sm text-muted-foreground max-w-xs">
               Every show, artist, venue and label here is connected. The
@@ -233,48 +260,47 @@ function HomeSceneGraphSection() {
           </div>
         )}
 
-        {graphAvailable && (
-          <>
-            {graphQuery.isLoading && <GraphSkeleton />}
-            {graphData && graphData.nodes.length > 0 && (
+        {graphAvailable &&
+          // Settled data for the CURRENT scene wins — including when a
+          // background refetch of the same scene later errors (data is
+          // retained; a working canvas must not be swapped for an error
+          // card). Otherwise: error card, else loading/placeholder
+          // skeleton. The branches are mutually exclusive by construction.
+          (settledGraphData ? (
+            settledGraphData.nodes.length > 0 ? (
               <ForceGraphView
-                nodes={graphData.nodes}
-                links={graphData.links}
-                clusters={graphData.clusters}
+                nodes={settledGraphData.nodes}
+                links={settledGraphData.links}
+                clusters={settledGraphData.clusters}
                 containerWidth={containerWidth}
                 height={GRAPH_HEIGHT_PX}
                 staticViewport
-                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${sceneArtistCountPhrase(graphData.scene)}. Click a node to open that artist’s page.`}
+                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${sceneArtistCountPhrase(settledGraphData.scene)}. Click a node to open that artist’s page.`}
                 onNodeClick={handleNodeClick}
               />
-            )}
-            {!graphQuery.isLoading &&
-              graphData &&
-              graphData.nodes.length === 0 && (
-                <div
-                  className="w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground"
-                  style={{ height: GRAPH_HEIGHT_PX / 2 }}
-                >
-                  Not enough connected artists in {scene.city} yet — try
-                  another scene.
-                </div>
-              )}
-            {graphQuery.isError && (
+            ) : (
               <div
-                className="w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground"
-                style={{ height: GRAPH_HEIGHT_PX / 2 }}
+                className={`w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground ${PLACEHOLDER_HEIGHT_CLASS}`}
               >
-                The graph couldn’t load.{' '}
-                <Link
-                  href={sceneHref}
-                  className="ml-1 text-primary hover:underline underline-offset-4"
-                >
-                  See the {scene.city} scene →
-                </Link>
+                Not enough connected artists in {scene.city} yet — try
+                another scene.
               </div>
-            )}
-          </>
-        )}
+            )
+          ) : graphQuery.isError ? (
+            <div
+              className={`w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground ${PLACEHOLDER_HEIGHT_CLASS}`}
+            >
+              The graph couldn’t load.{' '}
+              <Link
+                href={sceneHref}
+                className="ml-1 text-primary hover:underline underline-offset-4"
+              >
+                See the {scene.city} scene →
+              </Link>
+            </div>
+          ) : (
+            <GraphSkeleton />
+          ))}
       </div>
 
       <p className="text-sm text-muted-foreground">

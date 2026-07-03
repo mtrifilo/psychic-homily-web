@@ -169,6 +169,46 @@ describe('HomeSceneGraph', () => {
     ).toHaveAttribute('href', '/scenes/chicago-il')
   })
 
+  it('treats keepPreviousData placeholder frames as loading — never renders the previous scene’s graph under a new heading', async () => {
+    // After "Surprise me", useSceneGraph reports the OLD scene's payload
+    // with isPlaceholderData: true until the new fetch settles.
+    useSceneGraph.mockReturnValue({
+      data: GRAPH, // Chicago's payload…
+      isLoading: false,
+      isError: false,
+      isPlaceholderData: true, // …but stale for the current key
+    })
+    render(<HomeSceneGraph />)
+    await screen.findByRole('heading', { name: 'The Chicago scene, mapped' })
+    expect(screen.queryByTestId('force-graph-view')).toBeNull()
+    expect(screen.queryByText(/not enough connected artists/i)).toBeNull()
+  })
+
+  it('renders the error card (with a scene-page link) when the graph query fails with no settled data', async () => {
+    useSceneGraph.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+    render(<HomeSceneGraph />)
+    expect(await screen.findByText(/the graph couldn’t load/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /see the chicago scene/i }),
+    ).toHaveAttribute('href', '/scenes/chicago-il')
+  })
+
+  it('keeps the settled canvas when a background refetch of the same scene errors (data retained)', async () => {
+    useSceneGraph.mockReturnValue({ data: GRAPH, isLoading: false, isError: true })
+    render(<HomeSceneGraph />)
+    expect(await screen.findByTestId('force-graph-view')).toBeInTheDocument()
+    expect(screen.queryByText(/the graph couldn’t load/i)).toBeNull()
+  })
+
+  it('does not fetch the graph payload below the canvas gate (teaser never reads it)', async () => {
+    setContainerWidth(500)
+    render(<HomeSceneGraph />)
+    await screen.findByRole('heading', { name: 'The Chicago scene, mapped' })
+    expect(useSceneGraph).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+    )
+  })
+
   it('renders the empty-graph fallback instead of a canvas when the scene has no connected artists', async () => {
     useSceneGraph.mockReturnValue({
       data: { ...GRAPH, nodes: [], links: [] },

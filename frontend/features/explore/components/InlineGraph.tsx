@@ -87,8 +87,9 @@ function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
 // Peer ForceGraphView consumers (Scene / Venue / Collection graphs) keep
 // the static import on purpose: there the graph IS the page's primary
 // content, not a below-the-fold widget on a perf-budgeted landing page,
-// so the split would only add a chunk round-trip. The divergence is
-// intentional and scoped to /explore.
+// so the split would only add a chunk round-trip. The homepage section
+// (HomeSceneGraph, PSY-1344) is the other below-the-fold consumer and
+// splits the same way; extraction of this shared shell is PSY-1347.
 const ForceGraphView = dynamic(
   () =>
     import('@/components/graph/ForceGraphView').then(m => ({
