@@ -45,6 +45,12 @@ func (s *RadioSyncSuite) TestShowsWithSlotBoundariesIn() {
 	onManual := s.seedActiveShow(manual.ID, "slot-on-manual", nil)
 	s.setShowSchedule(onManual.ID, 5, "10:00", "13:00")
 
+	// One bad stored schedule must not starve the tick — it's skipped with a warn
+	// while healthy siblings still fire.
+	badSched := s.seedActiveShow(st.ID, "slot-bad-schedule", nil)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", badSched.ID).
+		Update("schedule", json.RawMessage(`{"timezone":"Not/AZone","slots":[{"day_of_week":5,"start":"10:00","end":"13:00"}]}`)).Error)
+
 	got, err := s.svc.ShowsWithSlotBoundariesIn(from, to)
 	s.Require().NoError(err)
 	s.Require().Len(got, 1, "only the automated station contributes")
@@ -136,4 +142,55 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	anomaly, _ := s.svc.detectVolumeAnomaly(st.ID, 0, 0)
 	s.True(anomaly,
 		"a zero-play sweep against the 100-play baseline must still flag — scoped runs must not dilute the mean")
+}
+
+// Scoped fetch runs are BREAKER-NEUTRAL: their failures never stack the station
+// counter (a boundary-cluster tick with a station-level blip would otherwise trip
+// the 5-failure breaker in minutes), their outcomes never reset genuine sweep
+// accumulation, and an OPEN-past-cooldown breaker is never consumed as a scoped
+// run's half-open trial — the scoped run is skipped and the breaker left open
+// for the next sweep to probe.
+func (s *RadioSyncSuite) TestScopedFetch_BreakerNeutral() {
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+	target := s.seedActiveShow(st.ID, "breaker-scoped", nil)
+
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return nil, fmt.Errorf("provider down")
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	scopedOpts := RunStationSyncOpts{
+		Mode:    catalogm.RadioSyncRunTypeFetch,
+		Trigger: catalogm.RadioSyncRunTriggerScheduled,
+		ShowID:  &target.ID,
+	}
+
+	// Failing scoped runs leave station health untouched (no row, closed/zero).
+	for range 3 {
+		_, err := s.svc.RunStationSync(context.Background(), st.ID, scopedOpts)
+		s.Require().NoError(err)
+	}
+	snap := s.svc.readBreakerSnapshot(st.ID)
+	s.Equal(catalogm.RadioBreakerStateClosed, snap.state, "scoped failures must not move the breaker")
+	s.Equal(0, snap.failures, "scoped failures must not stack the counter")
+
+	// Breaker OPEN past cooldown: a scoped run must be skipped, not promoted to
+	// the half-open trial (and certainly not allowed to close it via `partial`).
+	trippedAt := time.Now().Add(-24 * time.Hour)
+	s.Require().NoError(s.db.Where("station_id = ?", st.ID).Delete(&catalogm.RadioStationHealth{}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID: st.ID, BreakerState: catalogm.RadioBreakerStateOpen,
+		ConsecutiveFailures: 5, BreakerTrippedAt: &trippedAt,
+	}).Error)
+
+	res, err := s.svc.RunStationSync(context.Background(), st.ID, scopedOpts)
+	s.Require().NoError(err)
+	s.True(res.Skipped, "an open-past-cooldown breaker must skip a scoped run, not trial it")
+	snap = s.svc.readBreakerSnapshot(st.ID)
+	s.Equal(catalogm.RadioBreakerStateOpen, snap.state, "the breaker stays open for the next sweep to probe")
+	s.Equal(5, snap.failures)
 }

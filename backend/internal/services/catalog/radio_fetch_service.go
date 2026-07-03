@@ -97,9 +97,11 @@ const DefaultSubstreamScheduleInterval = 24 * time.Hour
 // Default schedule-aware slot-fetch interval (PSY-1333). Bounds how long a
 // schedule-bearing show's episode row can lag its scheduled start/end — the
 // fix for whole broadcasts sitting invisible inside the (default 6h) station
-// sweep gap. Each boundary costs ONE targeted provider request per show
-// (~2/show/airing), so 10 minutes is cheap; the interval is a latency knob,
-// not a load knob. RADIO_SLOT_FETCH_INTERVAL_MINUTES=0 disables it.
+// sweep gap. Each boundary triggers one scoped incremental fetch for that show
+// (~2 per show per airing — see radio_slot_fetch.go for the honest cost
+// breakdown); the interval is a latency knob, not a load knob, because work is
+// driven by slot boundaries, not by ticks. RADIO_SLOT_FETCH_INTERVAL_MINUTES=0
+// disables it.
 const DefaultSlotFetchInterval = 10 * time.Minute
 
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
@@ -600,7 +602,8 @@ func (s *RadioFetchService) runSlotFetchLoop(ctx context.Context) {
 // backstop for anything a tick misses. The window edge advances to `now`
 // unconditionally: a failed scoped fetch must not be re-fired every tick
 // (its next boundary, the post-air backfill sweep, and the station sweep
-// all still cover it).
+// all still cover it). Known debt: the admin sync-run feed has no filter
+// for the scoped rows this writes (PSY-1343).
 func (s *RadioFetchService) runSlotFetchCycle() {
 	now := time.Now()
 	from := s.lastSlotFetchAt

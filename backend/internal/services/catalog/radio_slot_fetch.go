@@ -16,12 +16,18 @@ import (
 // missing" shape: aired Fri 9–noon ET, imported 2:23pm ET). The slot fetch
 // closes that gap for schedule-bearing shows: a fast ticker asks which shows
 // had a scheduled slot START or END inside the window since its last tick and
-// runs a single-show scoped fetch for exactly those. Two targeted provider
-// requests per show per airing (one as it starts — the row appears while it
-// airs, the post-air backfill sweep then grows the playlist — and one after it
-// ends, catching DJs who publish the playlist late). Stations without stored
-// schedules (KEXP/NTS today) keep riding the interval sweep, which remains the
-// backstop for everything.
+// runs a single-show scoped fetch for exactly those — two extra scoped fetches
+// per show per airing (start: the row appears while it airs, the post-air
+// backfill sweep then grows the playlist; end: catches DJs who publish late).
+// Cost honesty: a scoped fetch is a full incremental fetch for that show, not
+// one request — the listing covers the show's fetchSince window (≥ the 45-day
+// floor) and importing a listed-but-unpublished episode burns a playlist fetch
+// attempt, exactly as when the 6h sweep imports a mid-air show; the delta is
+// ~2 such fetches per airing. Scoped runs are BREAKER-NEUTRAL and excluded
+// from failure streaks, the volume-anomaly guard/baseline, and the station
+// health rates (see RunStationSync + computeStationRates). Stations without
+// stored schedules (KEXP/NTS today) keep riding the interval sweep, which
+// remains the backstop for everything.
 
 // slotBoundaryDue reports whether any slot of the schedule has a start or end
 // instant inside (from, to]. Half-open on the left so back-to-back ticker

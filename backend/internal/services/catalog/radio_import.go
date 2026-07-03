@@ -508,6 +508,10 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 // slot fetches would add extra attempts per day and silently tighten the
 // PSY-1274 "N consecutive cycles ≈ N × fetch interval" escalation clock. The
 // reset stays unconditional — any successful fetch clears the alert condition.
+// A scoped start-boundary fetch often finds ZERO episodes (playlist not yet
+// published) and still advances the show watermark ("progress" per
+// shouldAdvanceLastFetch) — safe because fetchSince floors the window in days,
+// so nothing published later inside the slot can slip past the frontier.
 func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string, onlyShowID *uint) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
