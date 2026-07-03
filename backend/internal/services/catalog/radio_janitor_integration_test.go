@@ -197,10 +197,12 @@ func (s *RadioSyncSuite) setGridSchedule(showID uint) {
 		Update("schedule", raw).Error)
 }
 
-// PSY-1348: on a schedule-authoritative station (≥1 scheduled show) lifecycle is
-// grid-driven — on-grid promotes regardless of recency, off-grid demotes regardless of
-// recency, schedule_locked counts as on-grid, retired stays untouched — while a
-// recency-semantics station in the same run keeps the old episode-recency behavior.
+// PSY-1348: on a schedule-authoritative station (≥1 scrape-maintained schedule)
+// lifecycle is grid-driven — on-grid promotes regardless of recency, off-grid demotes
+// regardless of recency, schedule_locked shows keep their admin-set state, retired
+// stays untouched — while a recency-semantics station in the same run keeps the old
+// episode-recency behavior, even when one of its shows carries an admin-locked
+// schedule.
 func (s *RadioSyncSuite) TestReconcileShowLifecycle_ScheduleAuthoritativeStation() {
 	now := time.Now()
 	recent := now.AddDate(0, 0, -5).Format("2006-01-02")
@@ -225,10 +227,19 @@ func (s *RadioSyncSuite) TestReconcileShowLifecycle_ScheduleAuthoritativeStation
 	fillIn := s.seedShowFor(grid.ID, "Fill In", "fill-in-show", "ext-fi")
 	s.seedEpisodeAt(fillIn.ID, "fi-1", recent)
 
-	// Admin-locked NULL schedule, dormant → promoted (locked counts as on-grid).
-	locked := s.seedShowWithState(grid.ID, "Locked Show", "locked-show", "ext-lk", catalogm.RadioLifecycleDormant)
-	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", locked.ID).
+	// Admin-locked shows keep their admin-set lifecycle in BOTH directions: a locked
+	// dormant show is not promoted, a locked active off-grid show is not demoted.
+	lockedDormant := s.seedShowWithState(grid.ID, "Locked Dormant", "locked-dormant", "ext-ld", catalogm.RadioLifecycleDormant)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", lockedDormant.ID).
 		Update("schedule_locked", true).Error)
+	lockedActive := s.seedShowFor(grid.ID, "Locked Active", "locked-active", "ext-la")
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", lockedActive.ID).
+		Update("schedule_locked", true).Error)
+
+	// Off-grid but external_id IS NULL → exempt from the grid demote (the scrape
+	// matches by code, so the grid is not authoritative for code-less rows).
+	noCode := catalogm.RadioShow{StationID: grid.ID, Name: "No Code", Slug: "no-code-show"}
+	s.Require().NoError(s.db.Create(&noCode).Error)
 
 	// Retired + on-grid → untouched (retired is manual-only, both directions).
 	retiredGrid := s.seedShowWithState(grid.ID, "Retired Grid", "retired-grid", "ext-rg", catalogm.RadioLifecycleRetired)
@@ -239,15 +250,29 @@ func (s *RadioSyncSuite) TestReconcileShowLifecycle_ScheduleAuthoritativeStation
 	recShow := s.seedShowFor(rec.ID, "Recency Recent", "recency-recent", "ext-rr")
 	s.seedEpisodeAt(recShow.ID, "rr-1", recent)
 
+	// An admin-locked schedule on the recency station must NOT flip the station to
+	// grid semantics (locked schedules are excluded from the authoritativeness
+	// signal) — its schedule-less siblings with recent episodes (recShow above) stay
+	// active. The locked show itself still lives under recency semantics, so it
+	// needs a recent episode to stay active.
+	recLocked := s.seedShowFor(rec.ID, "Recency Curated", "recency-curated", "ext-rc")
+	s.setGridSchedule(recLocked.ID)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", recLocked.ID).
+		Update("schedule_locked", true).Error)
+	s.seedEpisodeAt(recLocked.ID, "rc-1", recent)
+
 	_, _, err := s.svc.ReconcileShowLifecycle(30*24*time.Hour, now)
 	s.Require().NoError(err)
 
 	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(scheduledDormant.ID).LifecycleState, "on-grid dormant show promoted despite stale episodes")
 	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(scheduledActive.ID).LifecycleState, "on-grid zero-episode show stays active")
 	s.Equal(catalogm.RadioLifecycleDormant, s.reloadShow(fillIn.ID).LifecycleState, "off-grid fill-in demoted despite a recent episode")
-	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(locked.ID).LifecycleState, "schedule_locked counts as on-grid")
+	s.Equal(catalogm.RadioLifecycleDormant, s.reloadShow(lockedDormant.ID).LifecycleState, "locked show keeps admin-set dormant")
+	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(lockedActive.ID).LifecycleState, "locked off-grid show keeps admin-set active")
+	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(noCode.ID).LifecycleState, "code-less show exempt from the grid demote")
 	s.Equal(catalogm.RadioLifecycleRetired, s.reloadShow(retiredGrid.ID).LifecycleState, "retired untouched by the grid rule")
 	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(recShow.ID).LifecycleState, "recency station unaffected by the grid rule")
+	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(recLocked.ID).LifecycleState, "a locked admin schedule does not flip a recency station to grid semantics")
 }
 
 // PSY-1348: the ingest-time reactivation path must agree with the janitor's grid rule —
@@ -267,13 +292,46 @@ func (s *RadioSyncSuite) TestReactivateShowIfDormant_RespectsGridRule() {
 
 	fillIn := s.seedShowWithState(grid.ID, "FillIn React", "fillin-react", "ext-fr", catalogm.RadioLifecycleDormant)
 
+	// Locked show on the authoritative station: admin-set dormant survives ingest.
+	locked := s.seedShowWithState(grid.ID, "Locked React", "locked-react", "ext-lkr", catalogm.RadioLifecycleDormant)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", locked.ID).
+		Update("schedule_locked", true).Error)
+
 	recShow := s.seedShowWithState(rec.ID, "Recency React", "recency-react", "ext-rcr", catalogm.RadioLifecycleDormant)
 
 	s.svc.reactivateShowIfDormant(scheduled.ID, now)
 	s.svc.reactivateShowIfDormant(fillIn.ID, now)
+	s.svc.reactivateShowIfDormant(locked.ID, now)
 	s.svc.reactivateShowIfDormant(recShow.ID, now)
 
 	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(scheduled.ID).LifecycleState, "on-grid dormant show reactivates on ingest")
 	s.Equal(catalogm.RadioLifecycleDormant, s.reloadShow(fillIn.ID).LifecycleState, "off-grid fill-in must NOT reactivate on ingest")
+	s.Equal(catalogm.RadioLifecycleDormant, s.reloadShow(locked.ID).LifecycleState, "locked show keeps admin-set dormant on ingest")
 	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(recShow.ID).LifecycleState, "recency-station show still reactivates on ingest")
+}
+
+// PSY-1348: create-on-first must also follow station semantics — a brand-new show on a
+// schedule-authoritative station is created DORMANT (most such creations are fill-ins;
+// a show genuinely added to the grid promotes at the janitor run after the next
+// scrape), while a recency-station show is created active (it exists only because its
+// first episode is being ingested).
+func (s *RadioSyncSuite) TestUpsertRadioShow_CreateLifecycleFollowsStationSemantics() {
+	grid := s.seedBackfillStation()
+	anchor := s.seedShowFor(grid.ID, "Grid Anchor", "grid-anchor", "ext-ga")
+	s.setGridSchedule(anchor.ID) // makes the station authoritative
+
+	src := catalogm.PlaylistSourceKEXP
+	rec := catalogm.RadioStation{Name: "Recency Station 3", Slug: "recency-station-3",
+		BroadcastType: catalogm.BroadcastTypeInternet, PlaylistSource: &src}
+	s.Require().NoError(s.db.Create(&rec).Error)
+
+	gridID, created, err := s.svc.upsertRadioShow(grid.ID, RadioShowImport{Name: "New Fill In", ExternalID: "ext-nfi"})
+	s.Require().NoError(err)
+	s.Require().True(created)
+	s.Equal(catalogm.RadioLifecycleDormant, s.reloadShow(gridID).LifecycleState, "new show on an authoritative station created dormant")
+
+	recID, created, err := s.svc.upsertRadioShow(rec.ID, RadioShowImport{Name: "New Recency Show", ExternalID: "ext-nrs"})
+	s.Require().NoError(err)
+	s.Require().True(created)
+	s.Equal(catalogm.RadioLifecycleActive, s.reloadShow(recID).LifecycleState, "new show on a recency station created active")
 }

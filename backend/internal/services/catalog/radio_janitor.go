@@ -16,22 +16,27 @@ import (
 // ReconcileShowLifecycle reconciles every show's lifecycle_state between 'active' and
 // 'dormant'. The signal depends on the station class (PSY-1155, PSY-1348):
 //
-//   - Schedule-authoritative stations (any station with ≥1 scheduled show — the WFMU
-//     family, whose grids are scraped and churn-maintained by ApplyWFMUSchedule /
-//     clearAbsentWFMUSchedules): active ⟺ on the current grid (schedule IS NOT NULL,
-//     or schedule_locked — admin-curated counts as scheduled). Episode recency is
-//     ignored: a fill-in that aired yesterday is still dormant (owner directive,
-//     2026-07-03 — the station page must count only the real lineup), and a scheduled
-//     show is active even before its first tracked episode.
+//   - Schedule-authoritative stations (any station with ≥1 scrape-maintained schedule
+//     — the WFMU family, whose grids are scraped and churn-maintained by
+//     ApplyWFMUSchedule / clearAbsentWFMUSchedules): active ⟺ on the current grid.
+//     Episode recency is ignored: a fill-in that aired yesterday is still dormant
+//     (owner directive, 2026-07-03 — the station page must count only the real
+//     lineup), and a scheduled show is active even before its first tracked episode.
+//     schedule_locked shows are exempt from this rule entirely (see the grid queries
+//     below): their lifecycle is whatever the admin set.
 //   - All other stations (KEXP, NTS — no schedule source): active = aired recently
 //     (≥1 episode with air_date within idleThreshold); dormant otherwise (incl.
 //     zero-episode shows, which clears the old discovered-empty-show pollution).
 //
 // Dormant is non-destructive either way — still fully browsable; the distinction is
 // purely "show active shows first, historical ones on a dig-deeper affordance." The
-// transition is reversible: the next grid scrape (authoritative) or episode (recency,
-// via the janitor or reactivateShowIfDormant on ingest) flips it back. is_active and
-// the fetch set are intentionally NOT touched, so a dormant show keeps being polled.
+// transition is reversible: a show scraped back onto the grid promotes at the janitor
+// run FOLLOWING that scrape (the scrape itself never writes lifecycle_state); on
+// recency stations a new episode promotes via the janitor or reactivateShowIfDormant
+// on ingest. Known transient: a show newly ADDED to the grid mid-season reads dormant
+// until the next weekly scrape stamps its schedule (disclosed on PSY-1348). is_active
+// and the fetch set are intentionally NOT touched, so a dormant show keeps being
+// polled.
 //
 // 'retired' is left untouched: the janitor never auto-retires (the provider can't
 // distinguish a leave of absence from an ending — owner decision, 2026-06-21).
@@ -48,12 +53,18 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 
 	cutoff := now.Add(-idleThreshold).Format("2006-01-02")
 
-	// Grid rule — schedule-authoritative stations only.
+	// Grid rule — schedule-authoritative stations only. schedule_locked shows are
+	// exempt in BOTH directions: the lock means an admin curates that show by hand
+	// (the scrape must not touch it), so the janitor must not auto-flip its
+	// lifecycle either — the admin's setting stands until the admin changes it.
 	// Demote: on an authoritative station but not on the current grid → dormant.
+	// external_id IS NULL rows are exempt for the same reason clearAbsentWFMUSchedules
+	// exempts them: the scrape matches by code, so it can never stamp them — the grid
+	// is not authoritative FOR them (stage has zero such rows; belt-and-braces).
 	gridDemote := s.db.Model(&catalogm.RadioShow{}).
 		Where("lifecycle_state = ?", catalogm.RadioLifecycleActive).
 		Where("station_id IN (?)", s.scheduleAuthoritativeStations()).
-		Where("schedule IS NULL AND NOT schedule_locked").
+		Where("schedule IS NULL AND NOT schedule_locked AND external_id IS NOT NULL").
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleDormant,
 			"updated_at":      now,
@@ -63,13 +74,12 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 	}
 	demoted = int(gridDemote.RowsAffected)
 
-	// Promote: on the current grid → active, regardless of recency. (schedule IS NOT
-	// NULL already implies the station is authoritative; the locked leg needs the
-	// station scope so a hypothetical locked show on a recency station isn't pinned.)
+	// Promote: on the current grid (scrape-maintained, i.e. unlocked) → active,
+	// regardless of recency.
 	gridPromote := s.db.Model(&catalogm.RadioShow{}).
 		Where("lifecycle_state = ?", catalogm.RadioLifecycleDormant).
 		Where("station_id IN (?)", s.scheduleAuthoritativeStations()).
-		Where("schedule IS NOT NULL OR schedule_locked").
+		Where("schedule IS NOT NULL AND NOT schedule_locked").
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleActive,
 			"updated_at":      now,
@@ -118,15 +128,31 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 
 // scheduleAuthoritativeStations returns a fresh subquery of station IDs whose show
 // lifecycle is grid-driven rather than recency-driven (PSY-1348): any station with at
-// least one scheduled show. Inferred from data instead of a station flag so it tracks
-// the scrape automatically — if a station's schedule source ever disappears entirely,
-// the station degrades gracefully back to recency semantics. The scrape's
-// suspect-parse floor (clearAbsentWFMUSchedules) protects a real lineup from a partial
-// wipe. Fresh per call: GORM subquery builders are not safely reusable across
-// statements.
+// least one SCRAPE-MAINTAINED schedule. "Scrape-maintained" = schedule present AND not
+// schedule_locked — UpdateShow auto-locks on an admin structured-schedule edit
+// (PSY-1186), so an unlocked schedule can only have been written by the WFMU scrapers.
+// The NOT schedule_locked guard is load-bearing: without it, one admin schedule edit
+// on a KEXP/NTS show would silently flip that whole station to grid semantics and
+// mass-demote its roster (adversarial-review HIGH). Inferred from data instead of a
+// station flag so it tracks the scrape automatically — if a station's scrape source
+// ever disappears entirely (all its unlocked schedules cleared), the station degrades
+// back to recency semantics; the scrape's suspect-parse floor
+// (clearAbsentWFMUSchedules) protects a real lineup from a partial wipe. Fresh per
+// call: GORM subquery builders are not safely reusable across statements.
 func (s *RadioService) scheduleAuthoritativeStations() *gorm.DB {
 	return s.db.Model(&catalogm.RadioShow{}).
-		Select("DISTINCT station_id").Where("schedule IS NOT NULL")
+		Select("DISTINCT station_id").Where("schedule IS NOT NULL AND NOT schedule_locked")
+}
+
+// stationIsScheduleAuthoritative reports whether one station is in the
+// scheduleAuthoritativeStations set — same predicate, point lookup (used by the
+// create-on-first path to pick a new row's initial lifecycle_state).
+func (s *RadioService) stationIsScheduleAuthoritative(stationID uint) (bool, error) {
+	var count int64
+	err := s.db.Model(&catalogm.RadioShow{}).
+		Where("station_id = ? AND schedule IS NOT NULL AND NOT schedule_locked", stationID).
+		Count(&count).Error
+	return count > 0, err
 }
 
 // ReconcilePlayCounts corrects each episode's denormalized play_count against the
