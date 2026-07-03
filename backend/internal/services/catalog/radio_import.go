@@ -1316,9 +1316,18 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 // (PSY-1153). The WHERE guard makes it a no-op for active shows (and never touches
 // 'retired', the manual-only state). Best-effort: a failure here doesn't fail the
 // import (the janitor reconcile, PSY-1155, will correct lifecycle_state on its next run).
+//
+// PSY-1348: on a schedule-authoritative station (see scheduleAuthoritativeStations)
+// active means "on the current grid", not "aired recently" — so a fill-in's new
+// episode must NOT promote it (otherwise this path and the nightly janitor would
+// fight, flapping the show active↔dormant every day). The guard mirrors the
+// janitor's grid rule: promote only if on the grid, schedule_locked, or on a
+// recency-semantics station.
 func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 	if err := s.db.Model(&catalogm.RadioShow{}).
 		Where("id = ? AND lifecycle_state = ?", showID, catalogm.RadioLifecycleDormant).
+		Where("schedule IS NOT NULL OR schedule_locked OR station_id NOT IN (?)",
+			s.scheduleAuthoritativeStations()).
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleActive,
 			"updated_at":      now,
