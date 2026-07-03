@@ -1379,7 +1379,8 @@ func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSwe
 
 // runJanitorCycle is the nightly reconcile (PSY-1155). Three independent steps, each
 // guarded so one failure doesn't abort the others:
-//  1. lifecycle reconcile — active↔dormant by episode idle (the active/historical split);
+//  1. lifecycle reconcile — active↔dormant by grid membership on schedule-authoritative
+//     stations, by episode idle elsewhere (PSY-1348; the active/historical split);
 //  2. play_count reconcile — correct denormalized counts against radio_plays;
 //  3. backfill straggler sweep — a wider-lookback pass for aired incomplete episodes the
 //     hourly post-air sweep missed.

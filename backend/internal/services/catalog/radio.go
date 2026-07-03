@@ -765,7 +765,12 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 	// LifecycleState (PSY-1172): the only write path for the operational state. Validate
 	// against the enum before writing — an invalid value must not reach the DB. Setting
 	// 'retired' is sticky (the janitor excludes it from reconcile); active/dormant are
-	// advisory (the next janitor run may re-reconcile them by episode recency).
+	// advisory — the next janitor run may re-reconcile them by episode recency, or, on
+	// a schedule-authoritative station (WFMU family, PSY-1348), by grid membership. On
+	// those stations the way to make an active/dormant setting stick is to also set
+	// schedule_locked=true (locked shows are exempt from the grid reconcile in both
+	// directions); note the lock's other effect — the scrape stops managing the
+	// show's schedule value.
 	if req.LifecycleState != nil {
 		if !catalogm.IsValidRadioLifecycleState(*req.LifecycleState) {
 			return nil, apperrors.ErrRadioLifecycleInvalid(*req.LifecycleState)
@@ -776,6 +781,10 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 	// schedule edit auto-locks it (the admin curated it by hand, so the weekly WFMU scrape
 	// must not clobber it). To edit the schedule but KEEP it scrape-managed, send the schedule
 	// together with schedule_locked=false (the explicit value wins over the auto-lock).
+	// Lifecycle note (PSY-1348): an UNLOCKED schedule feeds the grid-semantics signal, but
+	// only on stations whose provider actually scrapes a grid (scheduleScrapedPlaylistSources)
+	// — writing schedule_locked=false on a KEXP/NTS show cannot flip that station's
+	// lifecycle semantics.
 	switch {
 	case req.ScheduleLocked != nil:
 		updates["schedule_locked"] = *req.ScheduleLocked

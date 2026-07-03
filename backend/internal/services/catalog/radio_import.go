@@ -1338,13 +1338,14 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 // active means "on the current grid", not "aired recently" — so a fill-in's new
 // episode must NOT promote it (otherwise this path and the nightly janitor would
 // fight, flapping the show active↔dormant every day). The guard mirrors the
-// janitor's grid rule: promote only if on the scrape-maintained grid or on a
-// recency-semantics station; schedule_locked shows on authoritative stations keep
-// the admin-set lifecycle (same exemption as the janitor's grid queries).
+// janitor's grid rule leg for leg: promote if on the scrape-maintained grid, if
+// code-less (NULL/empty external_id — the grid can't speak for rows the scrape can't
+// match, same exemption as the grid demote), or if on a recency-semantics station.
+// schedule_locked shows on authoritative stations keep the admin-set lifecycle.
 func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 	if err := s.db.Model(&catalogm.RadioShow{}).
 		Where("id = ? AND lifecycle_state = ?", showID, catalogm.RadioLifecycleDormant).
-		Where("(schedule IS NOT NULL AND NOT schedule_locked) OR station_id NOT IN (?)",
+		Where("(schedule IS NOT NULL AND NOT schedule_locked) OR external_id IS NULL OR external_id = '' OR station_id NOT IN (?)",
 			s.scheduleAuthoritativeStations()).
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleActive,

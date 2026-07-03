@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -53,18 +54,28 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 
 	cutoff := now.Add(-idleThreshold).Format("2006-01-02")
 
+	// Observability: a station silently entering/leaving grid semantics is the one
+	// residual failure mode of the data-inferred authority signal — log the computed
+	// set every run so a flip shows up next to the demote/promote counts.
+	var authStationIDs []uint
+	if err := s.scrapeMaintainedScheduleRows().
+		Distinct().Pluck("radio_shows.station_id", &authStationIDs).Error; err == nil {
+		slog.Info("radio janitor: schedule-authoritative stations", "station_ids", authStationIDs)
+	}
+
 	// Grid rule — schedule-authoritative stations only. schedule_locked shows are
 	// exempt in BOTH directions: the lock means an admin curates that show by hand
 	// (the scrape must not touch it), so the janitor must not auto-flip its
 	// lifecycle either — the admin's setting stands until the admin changes it.
 	// Demote: on an authoritative station but not on the current grid → dormant.
-	// external_id IS NULL rows are exempt for the same reason clearAbsentWFMUSchedules
-	// exempts them: the scrape matches by code, so it can never stamp them — the grid
-	// is not authoritative FOR them (stage has zero such rows; belt-and-braces).
+	// Code-less rows (NULL or empty external_id) are exempt for the same reason
+	// clearAbsentWFMUSchedules exempts them: the scrape matches by code, so it can
+	// never stamp them — the grid is not authoritative FOR them (stage has zero such
+	// rows; belt-and-braces). The reactivation guard carries the same exemption.
 	gridDemote := s.db.Model(&catalogm.RadioShow{}).
 		Where("lifecycle_state = ?", catalogm.RadioLifecycleActive).
 		Where("station_id IN (?)", s.scheduleAuthoritativeStations()).
-		Where("schedule IS NULL AND NOT schedule_locked AND external_id IS NOT NULL").
+		Where("schedule IS NULL AND NOT schedule_locked AND external_id IS NOT NULL AND external_id <> ''").
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleDormant,
 			"updated_at":      now,
@@ -126,22 +137,42 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 	return promoted, demoted, nil
 }
 
+// scheduleScrapedPlaylistSources lists the playlist sources whose providers maintain
+// radio_shows.schedule from a scraped grid (ApplyWFMUSchedule /
+// ApplyWFMUSubstreamSchedule). Grid lifecycle semantics only make sense where a scrape
+// maintains the grid, so authoritativeness is HARD-GATED on this list: no admin write
+// on a KEXP/NTS show — schedule, lock bit, anything — can flip those stations to grid
+// semantics (adversarial-review HIGH ×2: the auto-lock inference alone was bypassable
+// via UpdateShow's documented explicit schedule_locked=false). Add a source here when
+// its provider gains a schedule scraper.
+var scheduleScrapedPlaylistSources = []string{catalogm.PlaylistSourceWFMU}
+
 // scheduleAuthoritativeStations returns a fresh subquery of station IDs whose show
-// lifecycle is grid-driven rather than recency-driven (PSY-1348): any station with at
-// least one SCRAPE-MAINTAINED schedule. "Scrape-maintained" = schedule present AND not
-// schedule_locked — UpdateShow auto-locks on an admin structured-schedule edit
-// (PSY-1186), so an unlocked schedule can only have been written by the WFMU scrapers.
-// The NOT schedule_locked guard is load-bearing: without it, one admin schedule edit
-// on a KEXP/NTS show would silently flip that whole station to grid semantics and
-// mass-demote its roster (adversarial-review HIGH). Inferred from data instead of a
-// station flag so it tracks the scrape automatically — if a station's scrape source
-// ever disappears entirely (all its unlocked schedules cleared), the station degrades
-// back to recency semantics; the scrape's suspect-parse floor
-// (clearAbsentWFMUSchedules) protects a real lineup from a partial wipe. Fresh per
-// call: GORM subquery builders are not safely reusable across statements.
+// lifecycle is grid-driven rather than recency-driven (PSY-1348): a station whose
+// playlist source has a schedule scraper AND that currently has at least one
+// scrape-maintained schedule ("scrape-maintained" = schedule present AND not
+// schedule_locked; UpdateShow auto-locks admin structured-schedule edits, PSY-1186).
+// The ≥1-unlocked-schedule leg is the degradation valve: if a station's scrape source
+// dies and its schedules get cleared, the station falls back to recency semantics
+// instead of grid-demoting its whole roster; the scrape's suspect-parse floor
+// (clearAbsentWFMUSchedules) protects a real lineup from a partial wipe. Residual
+// known cliff (accepted, disclosed on PSY-1348): if admins ever locked EVERY schedule
+// on a WFMU station it would exit grid semantics — implausible at the current ~65
+// scraped rows; the janitor logs the computed set each run so a flip is observable.
+// Fresh per call: GORM subquery builders are not safely reusable across statements.
 func (s *RadioService) scheduleAuthoritativeStations() *gorm.DB {
+	return s.scrapeMaintainedScheduleRows().Select("DISTINCT radio_shows.station_id")
+}
+
+// scrapeMaintainedScheduleRows is THE single definition of the authoritativeness
+// predicate (shows whose schedule is scrape-maintained, on a scrape-capable station).
+// Every consumer — the janitor subquery, the create-path point lookup, the ingest
+// reactivation guard — derives from this builder so the paths cannot drift apart.
+func (s *RadioService) scrapeMaintainedScheduleRows() *gorm.DB {
 	return s.db.Model(&catalogm.RadioShow{}).
-		Select("DISTINCT station_id").Where("schedule IS NOT NULL AND NOT schedule_locked")
+		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
+		Where("radio_stations.playlist_source IN ?", scheduleScrapedPlaylistSources).
+		Where("radio_shows.schedule IS NOT NULL AND NOT radio_shows.schedule_locked")
 }
 
 // stationIsScheduleAuthoritative reports whether one station is in the
@@ -149,8 +180,8 @@ func (s *RadioService) scheduleAuthoritativeStations() *gorm.DB {
 // create-on-first path to pick a new row's initial lifecycle_state).
 func (s *RadioService) stationIsScheduleAuthoritative(stationID uint) (bool, error) {
 	var count int64
-	err := s.db.Model(&catalogm.RadioShow{}).
-		Where("station_id = ? AND schedule IS NOT NULL AND NOT schedule_locked", stationID).
+	err := s.scrapeMaintainedScheduleRows().
+		Where("radio_shows.station_id = ?", stationID).
 		Count(&count).Error
 	return count > 0, err
 }

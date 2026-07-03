@@ -1212,7 +1212,7 @@ type AdminUpdateRadioShowRequest struct {
 		ArchiveURL      *string          `json:"archive_url,omitempty" required:"false" doc:"Archive URL"`
 		ImageURL        *string          `json:"image_url,omitempty" required:"false" doc:"Show image URL"`
 		IsActive        *bool            `json:"is_active,omitempty" required:"false" doc:"Whether show is active"`
-		LifecycleState  *string          `json:"lifecycle_state,omitempty" required:"false" enum:"active,dormant,retired" doc:"Operational state: active|dormant|retired. 'retired' is the manual-only 'ended forever' signal the janitor never sets/clobbers; active|dormant are advisory and may be re-reconciled nightly."`
+		LifecycleState  *string          `json:"lifecycle_state,omitempty" required:"false" enum:"active,dormant,retired" doc:"Operational state: active|dormant|retired. 'retired' is the manual-only 'ended forever' signal the janitor never sets/clobbers; active|dormant are advisory and may be re-reconciled nightly (by schedule-grid membership on WFMU-family stations, by episode recency elsewhere; schedule_locked=true pins the setting on grid stations)."`
 		ScheduleLocked  *bool            `json:"schedule_locked,omitempty" required:"false" doc:"Pin schedule provenance (PSY-1186): true protects the schedule from the weekly WFMU scrape; false resumes auto-scrape. Omitted = a structured-schedule edit auto-locks."`
 	}
 }
