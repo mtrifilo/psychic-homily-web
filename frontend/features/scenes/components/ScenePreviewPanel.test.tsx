@@ -337,6 +337,13 @@ describe('ScenePreviewPanel', () => {
             event_date: '2026-07-08',
             artist_names: ['  ', 'Real Band'],
           },
+          // Exactly at the cap: no dangling "+0 more".
+          {
+            id: 55,
+            title: '',
+            event_date: '2026-07-09',
+            artist_names: ['X', 'Y', 'Z'],
+          },
         ],
       },
       isLoading: false,
@@ -359,6 +366,10 @@ describe('ScenePreviewPanel', () => {
     expect(
       screen.getByRole('link', { name: 'Real Band' }),
     ).toHaveAttribute('href', '/shows/54')
+    expect(screen.getByRole('link', { name: 'X, Y, Z' })).toHaveAttribute(
+      'href',
+      '/shows/55',
+    )
   })
 
   it('renders no "This week" section on a quiet week', () => {
