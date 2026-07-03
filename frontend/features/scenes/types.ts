@@ -84,6 +84,10 @@ export interface SceneShowSummary {
   title: string
   event_date: string // ISO date (YYYY-MM-DD)
   venue_name?: string
+  // Bill artists in position order — the row's link-text fallback when the
+  // title is empty (full rationale on the backend SceneShowSummary contract,
+  // PSY-1325).
+  artist_names?: string[]
 }
 
 export interface SceneShowsResponse {

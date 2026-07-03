@@ -15,6 +15,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // SceneService handles computed city-level aggregations for "scene" pages.
@@ -489,14 +490,26 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 		return nil, fmt.Errorf("failed to get scene upcoming shows: %w", err)
 	}
 
+	// Bill artists per show, position order — the row's display-name source
+	// when the title is empty (see SceneShowSummary.ArtistNames, PSY-1325).
+	ids := make([]uint, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ID
+	}
+	artistsByShow, err := shared.BatchResolveShowArtistNames(s.db, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scene show artists: %w", err)
+	}
+
 	results := make([]contracts.SceneShowSummary, len(rows))
 	for i, r := range rows {
 		results[i] = contracts.SceneShowSummary{
-			ID:        r.ID,
-			Slug:      r.Slug,
-			Title:     r.Title,
-			EventDate: r.EventDate.UTC().Format("2006-01-02"),
-			VenueName: r.VenueName,
+			ID:          r.ID,
+			Slug:        r.Slug,
+			Title:       r.Title,
+			EventDate:   r.EventDate.UTC().Format("2006-01-02"),
+			VenueName:   r.VenueName,
+			ArtistNames: artistsByShow[r.ID],
 		}
 	}
 	return results, nil
