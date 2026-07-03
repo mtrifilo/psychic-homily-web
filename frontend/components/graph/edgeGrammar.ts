@@ -137,8 +137,9 @@ export function edgeLineDash(type: string): number[] {
  *   similar              — magnitude (Wilson similarity score). Scaled.
  *   shared_bills         — magnitude (recency-weighted shared-show count). Scaled.
  *   radio_cooccurrence   — magnitude (cross-station-weighted co-occurrence). Scaled.
- *   shared_label         — magnitude (count of shared labels, normalized to [0,1] in
- *                          the deriver, capped at 5+ shared labels = 1.0). Scaled.
+ *   shared_label         — magnitude (roster-normalized shared-label weight: each
+ *                          shared label contributes 1/(roster−1), summed and capped
+ *                          at 1.0 in the deriver — PSY-1323). Scaled.
  *   festival_cobill      — magnitude (recency-weighted shared-festival count, capped at
  *                          3+ shared festivals = 1.0 in the deriver). Scaled.
  *   side_project         — BINARY fact ("X is a side project of Y"). Intentionally uniform —

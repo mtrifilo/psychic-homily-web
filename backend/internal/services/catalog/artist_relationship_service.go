@@ -1187,13 +1187,18 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 			}
 			if err := s.db.Create(rel).Error; err == nil {
 				upserted++
+			} else {
+				slog.Warn("shared_bills derive: create failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
 			}
 		} else if err == nil {
-			s.db.Model(&existing).Updates(map[string]interface{}{
+			if err := s.db.Model(&existing).Updates(map[string]interface{}{
 				"score":  score,
 				"detail": &detailRaw,
-			})
-			upserted++
+			}).Error; err == nil {
+				upserted++
+			} else {
+				slog.Warn("shared_bills derive: update failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
+			}
 		}
 	}
 
@@ -1265,9 +1270,13 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 		// scores 1/(N-1) per shared label, summed across labels.
 		score := float32(math.Min(row.NormalizedWeight, 1.0))
 
+		// normalized_weight is persisted because the score is no longer
+		// derivable from shared_count alone — it depends on roster sizes at
+		// derive time, which drift with every enrichment sweep.
 		detail, _ := json.Marshal(map[string]interface{}{
-			"shared_count": row.SharedCount,
-			"label_names":  row.LabelNames,
+			"shared_count":      row.SharedCount,
+			"normalized_weight": math.Round(row.NormalizedWeight*10000) / 10000,
+			"label_names":       row.LabelNames,
 		})
 		detailRaw := json.RawMessage(detail)
 
@@ -1287,13 +1296,18 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 			}
 			if err := s.db.Create(rel).Error; err == nil {
 				upserted++
+			} else {
+				slog.Warn("shared_label derive: create failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
 			}
 		} else if err == nil {
-			s.db.Model(&existing).Updates(map[string]interface{}{
+			if err := s.db.Model(&existing).Updates(map[string]interface{}{
 				"score":  score,
 				"detail": &detailRaw,
-			})
-			upserted++
+			}).Error; err == nil {
+				upserted++
+			} else {
+				slog.Warn("shared_label derive: update failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
+			}
 		}
 	}
 
