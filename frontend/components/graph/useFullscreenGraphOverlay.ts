@@ -83,7 +83,10 @@ export function useFullscreenGraphOverlay(available: boolean): {
     updateDimensions()
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // Layered dismiss (PSY-1334): an inner surface (the ConnectionPanel)
+      // claims the Escape by preventDefault in the capture phase — skip it
+      // here so one keypress closes the innermost layer only.
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         setIsFullscreen(false)
       }
     }

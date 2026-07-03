@@ -35,6 +35,18 @@ export interface EdgeLegendProps {
   /** When provided, rows become show/hide toggle buttons. */
   onToggleType?: (type: string) => void
   /**
+   * PSY-1334: the soloed type, if any. While set, only this type renders in
+   * the simulation (solo wins over hiddenTypes, which stays intact
+   * underneath) — the legend dims every other row and shows a disclosure
+   * line so the filter is never silent.
+   */
+  soloType?: string | null
+  /**
+   * PSY-1334: solo toggle — called with the type to solo, or null to clear.
+   * When provided (alongside onToggleType), each row gains an "only" button.
+   */
+  onSoloType?: (type: string | null) => void
+  /**
    * Weight-scale affordance (PSY-362) — communicates that line thickness
    * encodes signal magnitude. Defaults on; the artist graph keeps it.
    */
@@ -52,7 +64,7 @@ export interface EdgeLegendProps {
 // Mini canvas-dash preview: the same dash arrays the canvas uses, drawn as
 // an SVG stroke so the swatch shows color AND pattern (WCAG 1.4.1 — the
 // dash channel is part of the grammar, the legend must teach it).
-function EdgeSwatch({ type }: { type: string }) {
+export function EdgeSwatch({ type }: { type: string }) {
   const dash = edgeLineDash(type)
   return (
     <svg width="16" height="4" viewBox="0 0 16 4" aria-hidden="true" className="shrink-0">
@@ -75,6 +87,8 @@ export function EdgeLegend({
   counts,
   hiddenTypes,
   onToggleType,
+  soloType,
+  onSoloType,
   showWeightHint = true,
   footnote,
   className,
@@ -92,6 +106,9 @@ export function EdgeLegend({
       {ordered.map(type => {
         const label = edgeTypeLabel(type)
         const hidden = hiddenTypes?.has(type) ?? false
+        // While a solo is active it overrides the hidden set: the soloed row
+        // is the only full-opacity one, mirroring what the simulation shows.
+        const dimmed = soloType ? type !== soloType : hidden
         const row = (
           <>
             <EdgeSwatch type={type} />
@@ -110,22 +127,69 @@ export function EdgeLegend({
             </div>
           )
         }
+        const soloed = soloType === type
         return (
-          <button
-            key={type}
-            type="button"
-            onClick={() => onToggleType(type)}
-            aria-pressed={!hidden}
-            title={hidden ? `Show ${label} connections` : `Hide ${label} connections`}
-            className={cn(
-              'flex w-full items-center gap-1.5 rounded-sm transition-opacity hover:bg-muted/50',
-              hidden ? 'opacity-40' : 'opacity-100',
+          <div key={type} className="group flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onToggleType(type)}
+              // While a solo is active, hide-toggles are DISABLED rather than
+              // live-but-invisible: solo overrides what renders, so a toggle
+              // click here would mutate the hidden set with zero visual
+              // feedback and surprise the user when solo clears (adversarial
+              // finding, 2 lenses). Clear the solo to adjust visibility.
+              disabled={!!soloType}
+              // aria-pressed reflects EFFECTIVE visibility: while a solo is
+              // active, the sim shows only the soloed type, so a screen
+              // reader must not hear "pressed" (shown) for a row the solo
+              // has hidden (self-review finding).
+              aria-pressed={soloType ? type === soloType : !hidden}
+              title={
+                soloType
+                  ? 'Clear the solo to adjust visibility'
+                  : hidden
+                    ? `Show ${label} connections`
+                    : `Hide ${label} connections`
+              }
+              className={cn(
+                'flex w-full items-center gap-1.5 rounded-sm transition-opacity',
+                soloType ? 'cursor-default' : 'hover:bg-muted/50',
+                dimmed ? 'opacity-40' : 'opacity-100',
+              )}
+            >
+              {row}
+            </button>
+            {/* PSY-1334: solo ("only") affordance. Always in the tab order —
+                revealed on row hover for pointer users, on focus for keyboard
+                users, and ALWAYS visible on coarse (touch) pointers, which
+                have no hover to reveal it (adversarial finding: an invisible
+                button is still tappable). */}
+            {onSoloType && (
+              <button
+                type="button"
+                onClick={() => onSoloType(soloed ? null : type)}
+                aria-pressed={soloed}
+                aria-label={soloed ? 'Show all connection types' : `Show only ${label} connections`}
+                title={soloed ? 'Show all connection types' : `Show only ${label} connections`}
+                className={cn(
+                  'shrink-0 rounded-sm px-1 text-[10px] leading-4 text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                  'focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100',
+                  soloed ? 'opacity-100 text-foreground font-medium' : 'opacity-0',
+                )}
+              >
+                only
+              </button>
             )}
-          >
-            {row}
-          </button>
+          </div>
         )
       })}
+      {/* PSY-1334: solo disclosure — the filter must never be silent (same
+          rule as the cap footnote below). */}
+      {soloType && (
+        <div className="pt-1 mt-1 border-t border-border/40 max-w-[12rem] text-[10px] leading-tight text-muted-foreground/80">
+          Showing only {edgeTypeLabel(soloType)} connections
+        </div>
+      )}
       {/* PSY-362: weight-scale affordance — communicates that line thickness
           encodes signal magnitude (similarity score, shared-show count, etc.)
           so users know the visual grammar before hovering individual edges. */}

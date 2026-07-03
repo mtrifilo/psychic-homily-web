@@ -259,7 +259,11 @@ export function buildLinkLabel(link: EdgeTooltipLink): string {
   return escapeHtml(buildLinkLabelText(link))
 }
 
-function buildLinkLabelText(link: EdgeTooltipLink): string {
+// Unescaped provenance copy for DOM surfaces (the ConnectionPanel renders it
+// through React, which escapes at the sink — PSY-1334). Canvas tooltips MUST
+// keep using buildLinkLabel above; this export exists so the panel and the
+// tooltip can never drift on copy.
+export function buildLinkLabelText(link: EdgeTooltipLink): string {
   const detail = link.detail
   switch (link.type) {
     case 'similar': {
