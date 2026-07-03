@@ -44,7 +44,7 @@ function showDisplayTitle(show: SceneShowSummary): string {
   const title = (show.title ?? '').trim()
   if (title) return title
   // Blank entries get the same trim-truthy gate as the title — a `[""]`
-  // payload must fall through to 'Untitled show', not join into nothing.
+  // payload must fall through to 'Untitled Show', not join into nothing.
   const names = (show.artist_names ?? [])
     .map((n) => n.trim())
     .filter(Boolean)

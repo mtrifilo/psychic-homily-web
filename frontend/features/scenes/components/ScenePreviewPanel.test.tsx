@@ -329,6 +329,14 @@ describe('ScenePreviewPanel', () => {
             event_date: '2026-07-07',
             artist_names: ['Trim Check'],
           },
+          // Blank bill entries get the same trim gate: [' ', 'Real Band']
+          // must render 'Real Band', not join a space into the link.
+          {
+            id: 54,
+            title: '',
+            event_date: '2026-07-08',
+            artist_names: ['  ', 'Real Band'],
+          },
         ],
       },
       isLoading: false,
@@ -348,6 +356,9 @@ describe('ScenePreviewPanel', () => {
     expect(
       screen.getByRole('link', { name: 'Trim Check' }),
     ).toHaveAttribute('href', '/shows/53')
+    expect(
+      screen.getByRole('link', { name: 'Real Band' }),
+    ).toHaveAttribute('href', '/shows/54')
   })
 
   it('renders no "This week" section on a quiet week', () => {
