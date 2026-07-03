@@ -37,6 +37,7 @@ function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem
     genre_tags: ['krautrock', 'psych'],
     image_url: null,
     is_active: true,
+    lifecycle_state: 'active',
     episode_count: 142,
     latest_air_date: '2026-06-09',
     latest_starts_at: null,
@@ -119,10 +120,13 @@ describe('StationShowsDirectory', () => {
   it('summarizes active vs archived counts', () => {
     setShows([
       makeShow({ id: 1 }),
-      makeShow({ id: 2, name: 'Retired', slug: 'retired', is_active: false }),
+      makeShow({ id: 2, name: 'Retired', slug: 'retired', lifecycle_state: 'retired' }),
+      // Legacy is_active=false alone must NOT count as archived — it only
+      // gates polling; lifecycle_state is the signal (PSY-1326).
+      makeShow({ id: 3, name: 'Toggled', slug: 'toggled', is_active: false }),
     ])
     render(<StationShowsDirectory stationId={1} stationSlug="wfmu" />)
-    expect(screen.getByText('1 active · 1 archived')).toBeInTheDocument()
+    expect(screen.getByText('2 active · 1 archived')).toBeInTheDocument()
   })
 
   it('collapses to 10 rows and expands in place via View all', () => {

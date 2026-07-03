@@ -21,6 +21,7 @@ function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem
     genre_tags: ['eclectic'],
     image_url: null,
     is_active: true,
+    lifecycle_state: 'active',
     episode_count: 5,
     
     schedule_display: null,

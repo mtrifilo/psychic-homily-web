@@ -128,7 +128,14 @@ export interface RadioShowListItem {
   schedule_display: string | null
   genre_tags: string[] | null
   image_url: string | null
+  /** Legacy operational flag (true for nearly every row — it keeps dormant
+   * shows polling). NOT the active-vs-historical signal; use
+   * lifecycle_state for anything user-facing (PSY-1326). */
   is_active: boolean
+  /** 'active' | 'dormant' | 'retired' — the janitor-maintained signal
+   * (PSY-1155) behind the directory's active count, sort bucket, and
+   * dimming. */
+  lifecycle_state: string
   episode_count: number
   /** Air date (YYYY-MM-DD) of the show's most recent episode (PSY-1048). */
   latest_air_date: string | null
