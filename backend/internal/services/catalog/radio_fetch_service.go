@@ -94,6 +94,16 @@ const DefaultScheduleInterval = 7 * 24 * time.Hour
 // adversarial finding). RADIO_SUBSTREAM_SCHEDULE_INTERVAL_HOURS=0 disables it.
 const DefaultSubstreamScheduleInterval = 24 * time.Hour
 
+// Default schedule-aware slot-fetch interval (PSY-1333). Bounds how long a
+// schedule-bearing show's episode row can lag its scheduled start/end — the
+// fix for whole broadcasts sitting invisible inside the (default 6h) station
+// sweep gap. Each boundary triggers one scoped incremental fetch for that show
+// (~2 per show per airing — see radio_slot_fetch.go for the honest cost
+// breakdown); the interval is a latency knob, not a load knob, because work is
+// driven by slot boundaries, not by ticks. RADIO_SLOT_FETCH_INTERVAL_MINUTES=0
+// disables it.
+const DefaultSlotFetchInterval = 10 * time.Minute
+
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
 // model + AWS Full-Jitter backoff (docs/research/radio-ingestion-best-practices-2026.md
 // §2). Tier 1 (per-request): retry a transient error up to radioRetryMaxAttempts
@@ -262,6 +272,20 @@ type RadioFetchService struct {
 	substreamScheduleEnabled  bool
 	substreamScheduleInterval time.Duration
 
+	// slotFetch* drive the schedule-aware slot fetch (PSY-1333): every
+	// slotFetchInterval, single-show scoped fetches fire for shows whose stored
+	// schedule had a slot start/end inside the window since the last tick — so
+	// an episode row appears within minutes of its scheduled airing instead of
+	// waiting out the (default 6h) station sweep. slotFetchEnabled == false
+	// (RADIO_SLOT_FETCH_INTERVAL_MINUTES=0) disables the cycle (no goroutine
+	// started). lastSlotFetchAt is the previous tick's window edge — touched
+	// only by the single slot-fetch goroutine, so it needs no lock; a restart
+	// zeroes it and the next tick falls back to a bounded cold-start lookback
+	// (the station sweep remains the backstop for anything longer).
+	slotFetchEnabled  bool
+	slotFetchInterval time.Duration
+	lastSlotFetchAt   time.Time
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
@@ -296,6 +320,8 @@ type RadioFetchService struct {
 //   - RADIO_JANITOR_INTERVAL_HOURS (default 24; 0 disables the nightly janitor cycle)
 //   - RADIO_JANITOR_DORMANT_DAYS (default 30; active↔dormant idle threshold)
 //   - RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS (default 30; janitor straggler sweep window)
+//   - RADIO_SLOT_FETCH_INTERVAL_MINUTES (default 10; 0 disables the PSY-1333
+//     schedule-aware slot fetch)
 func NewRadioFetchService(
 	radioService *RadioService,
 	discordService contracts.DiscordServiceInterface,
@@ -362,6 +388,21 @@ func NewRadioFetchService(
 		}
 	}
 
+	// Schedule-aware slot fetch (PSY-1333). Same enable/disable-on-0 semantics;
+	// minutes, not hours — the whole point is a boundary-to-visible latency of
+	// ~one interval, and an hour floor would defeat it.
+	slotFetchEnabled := true
+	slotFetchInterval := DefaultSlotFetchInterval
+	if envVal := os.Getenv("RADIO_SLOT_FETCH_INTERVAL_MINUTES"); envVal != "" {
+		if minutes, err := strconv.Atoi(envVal); err == nil {
+			if minutes <= 0 {
+				slotFetchEnabled = false
+			} else {
+				slotFetchInterval = time.Duration(minutes) * time.Minute
+			}
+		}
+	}
+
 	return &RadioFetchService{
 		radioService:                radioService,
 		discordService:              discordService,
@@ -380,6 +421,8 @@ func NewRadioFetchService(
 		scheduleInterval:            scheduleInterval,
 		substreamScheduleEnabled:    substreamScheduleEnabled,
 		substreamScheduleInterval:   substreamScheduleInterval,
+		slotFetchEnabled:            slotFetchEnabled,
+		slotFetchInterval:           slotFetchInterval,
 		stopCh:                      make(chan struct{}),
 		logger:                      slog.Default(),
 	}
@@ -424,6 +467,13 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		go s.runSubstreamScheduleLoop(ctx)
 	}
 
+	// Schedule-aware slot fetch (PSY-1333). Skipped when disabled
+	// (RADIO_SLOT_FETCH_INTERVAL_MINUTES=0).
+	if s.slotFetchEnabled {
+		s.wg.Add(1)
+		go s.runSlotFetchLoop(ctx)
+	}
+
 	s.logger.Info("radio fetch service started",
 		"fetch_interval_hours", s.fetchInterval.Hours(),
 		"fetch_lookback_floor_days", resolveFetchLookbackFloorDays(),
@@ -439,6 +489,8 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 		"schedule_interval_hours", s.scheduleInterval.Hours(),
 		"substream_schedule_enabled", s.substreamScheduleEnabled,
 		"substream_schedule_interval_hours", s.substreamScheduleInterval.Hours(),
+		"slot_fetch_enabled", s.slotFetchEnabled,
+		"slot_fetch_interval_minutes", s.slotFetchInterval.Minutes(),
 	)
 }
 
@@ -526,6 +578,78 @@ func (s *RadioFetchService) runScheduleCycle() {
 		"schedules_cleared", cleared,
 		"duration", time.Since(start),
 	)
+}
+
+// runSlotFetchLoop runs the schedule-aware slot fetch (PSY-1333).
+// runImmediately=false: the boot co-fire already runs a FULL station sweep,
+// which supersedes anything a slot tick would fetch; the first tick one
+// interval later starts the steady state (its cold-start lookback covers the
+// boot window).
+func (s *RadioFetchService) runSlotFetchLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "radio_slot_fetch", s.slotFetchInterval, s.stopCh, false, func(_ context.Context) {
+		s.runSlotFetchCycle()
+	})
+}
+
+// runSlotFetchCycle fires a single-show scoped fetch for every show whose
+// stored schedule had a slot start or end inside (lastTick, now] — the
+// PSY-1333 freshness fix: the row for a show appears within ~one interval of
+// its scheduled airing instead of waiting out the 6h station sweep. Each
+// scoped run routes through RunStationSync (per-station lock, breaker,
+// run row with show_id) with Trigger=Scheduled; a lock-contended or
+// breaker-skipped show is simply logged — the interval sweep remains the
+// backstop for anything a tick misses. The window edge advances to `now`
+// unconditionally: a failed scoped fetch must not be re-fired every tick
+// (its next boundary, the post-air backfill sweep, and the station sweep
+// all still cover it). Known debt: the admin sync-run feed has no filter
+// for the scoped rows this writes (PSY-1343).
+func (s *RadioFetchService) runSlotFetchCycle() {
+	now := time.Now()
+	from := s.lastSlotFetchAt
+	if from.IsZero() {
+		// Cold start (fresh boot): look back two intervals so a quick restart
+		// doesn't drop a boundary that crossed mid-deploy. Anything older is the
+		// station sweep's job — an unbounded lookback would re-fetch every show
+		// that aired since the last shutdown.
+		from = now.Add(-2 * s.slotFetchInterval)
+	}
+	s.lastSlotFetchAt = now
+
+	due, err := s.radioService.ShowsWithSlotBoundariesIn(from, now)
+	if err != nil {
+		s.logger.Error("radio slot fetch: listing due shows failed", "error", err)
+		return
+	}
+	if len(due) == 0 {
+		return
+	}
+
+	var fetched, skipped, failed int
+	for stationID, showIDs := range due {
+		for _, showID := range showIDs {
+			id := showID
+			res, err := s.radioService.RunStationSync(context.Background(), stationID, RunStationSyncOpts{
+				Mode:    catalogm.RadioSyncRunTypeFetch,
+				Trigger: catalogm.RadioSyncRunTriggerScheduled,
+				ShowID:  &id,
+			})
+			switch {
+			case err != nil:
+				failed++
+				s.logger.Warn("radio slot fetch: scoped fetch failed",
+					"station_id", stationID, "show_id", showID, "error", err)
+			case res.LockContended || res.Skipped:
+				skipped++
+			default:
+				fetched++
+			}
+		}
+	}
+	s.logger.Info("radio slot fetch cycle complete",
+		"window_start", from.UTC().Format(time.RFC3339),
+		"shows_fetched", fetched, "shows_skipped", skipped, "shows_failed", failed,
+		"duration", time.Since(now))
 }
 
 // runSubstreamScheduleLoop runs the periodic WFMU sub-stream schedule scrape

@@ -58,6 +58,11 @@ type RunStationSyncOpts struct {
 
 	// ShowID + Window* are required for mode=backfill (the historic re-ingestion
 	// of one show over a date range; replaces RadioImportJob.Since/Until).
+	// For mode=fetch, ShowID optionally SCOPES the incremental fetch to that one
+	// show — the PSY-1333 slot-fetch path (targeted fetch on a schedule-slot
+	// boundary). Scoped fetch runs carry show_id on their run row and are
+	// excluded from the volume-anomaly guard + its baseline (single-show volumes
+	// are not station-scale).
 	ShowID      *uint
 	WindowStart *time.Time
 	WindowEnd   *time.Time
@@ -135,6 +140,16 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	//      An open breaker that is past its cooldown promotes to half_open for a
 	//      single trial run; the breaker write-back (open / half_open / close) happens
 	//      in updateStationHealth on the run's outcome (PSY-1140).
+	// Show-SCOPED fetch runs (PSY-1333 slot fetch) are BREAKER-NEUTRAL end to end:
+	// they honor an open breaker (below) but never become the half-open trial and
+	// never write station health (step 7). Rationale: a boundary-cluster tick fires
+	// many scoped runs at once, so a station-level blip would count once PER SCOPED
+	// RUN and trip the 5-failure breaker in minutes (its semantics are ~5 sweep
+	// cycles); symmetrically, a scoped run whose ONE fetch failed still lands
+	// `partial`, which would close an open breaker off a failed probe. The sweep —
+	// whose outcome genuinely reflects the whole station — remains the breaker's
+	// only scheduled driver.
+	scopedFetch := opts.Mode == catalogm.RadioSyncRunTypeFetch && opts.ShowID != nil
 	if opts.Trigger != catalogm.RadioSyncRunTriggerManual {
 		switch breakerGateFor(s.readBreakerSnapshot(stationID), time.Now()) {
 		case gateBlocked:
@@ -144,6 +159,15 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 				Skipped: true,
 			}, nil
 		case gateTrial:
+			if scopedFetch {
+				// A scoped run must not consume (or trivially pass) the half-open
+				// trial — leave the open breaker for the next sweep to probe.
+				return &RunStationSyncResult{
+					RunID:   s.recordSkippedRun(stationID, opts),
+					Status:  catalogm.RadioSyncRunStatusSkipped,
+					Skipped: true,
+				}, nil
+			}
 			// Open past cooldown → this run is the half-open trial. Mark it so the
 			// state is observable; the outcome closes (success) or re-opens (failure).
 			s.markBreakerHalfOpen(stationID)
@@ -199,7 +223,9 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// is already recorded, and discover/backfill volumes are too variable for a
 	// baseline. Observational: it does not page Sentry (empty_unexpected is not in
 	// escalationError's escalate set) and only downgrades success → partial, never a failure.
-	if opts.Mode == catalogm.RadioSyncRunTypeFetch && out.hardErr == nil {
+	// Show-SCOPED fetches (PSY-1333 slot fetch) are exempt: a single show's volume is
+	// nowhere near the station-sweep baseline, so every scoped run would false-flag.
+	if opts.Mode == catalogm.RadioSyncRunTypeFetch && opts.ShowID == nil && out.hardErr == nil {
 		if anomaly, detail := s.detectVolumeAnomaly(stationID, run.ID, out.playsImported); anomaly {
 			out.errs = append(out.errs, runError{category: catalogm.RadioSyncRunErrorEmptyUnexpected, detail: detail})
 			if out.status == catalogm.RadioSyncRunStatusSuccess {
@@ -255,7 +281,12 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	//    kind drives the breaker: only a PERMANENT failure increments the counter /
 	//    trips it (transient errors retry, never trip — PSY-887). classifyError(nil)
 	//    is harmless on success/partial (breakerTransition ignores errKind there).
-	s.updateStationHealth(stationID, out.status, opts.Trigger, classifyError(out.hardErr))
+	//    Show-SCOPED fetch runs skip the rollup entirely (breaker-neutral — see the
+	//    gate comment above): their failures must not stack the counter per show,
+	//    and their successes must not erode genuine sweep-failure accumulation.
+	if !scopedFetch {
+		s.updateStationHealth(stationID, out.status, opts.Trigger, classifyError(out.hardErr))
+	}
 
 	// Escalate a PERMANENT scheduled/auto failure to Sentry (the scraper-drift /
 	// format-change signal). Manual failures stay log-only (the operator already sees
@@ -341,7 +372,7 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		return discoverOutcome(res, imp)
 
 	case catalogm.RadioSyncRunTypeFetch:
-		res, err := s.fetchNewEpisodes(stationID, opts.Trigger)
+		res, err := s.fetchNewEpisodes(stationID, opts.Trigger, opts.ShowID)
 		if err != nil {
 			return syncOutcome{status: catalogm.RadioSyncRunStatusFailed, hardErr: err, errs: topLevelErr(err)}
 		}
@@ -791,6 +822,13 @@ func (s *RadioService) computeStationRates(stationID uint, now time.Time) (succe
 		Matched  int64
 		Imported int64
 	}
+	// Show-SCOPED fetch runs (PSY-1333 slot fetch; run_type='fetch' with show_id set)
+	// are excluded: they fire per slot boundary, so on a schedule-bearing station they
+	// outnumber the sweep rows many-to-one and would swamp both rates (a station whose
+	// sweep fails every cycle would still read green off scoped successes). Backfill
+	// runs also carry show_id and KEEP counting — that's their pre-existing behavior;
+	// only the new scoped-fetch class is filtered. Same rationale as the volume-anomaly
+	// baseline's show_id IS NULL filter (detectVolumeAnomaly).
 	if err := s.db.Raw(`
 		SELECT
 			COUNT(*) FILTER (WHERE status = ?) AS success,
@@ -800,9 +838,11 @@ func (s *RadioService) computeStationRates(stationID uint, now time.Time) (succe
 		FROM radio_sync_runs
 		WHERE station_id = ? AND started_at >= ?
 			AND status NOT IN (?, ?, ?)
+			AND NOT (run_type = ? AND show_id IS NOT NULL)
 	`, catalogm.RadioSyncRunStatusSuccess,
 		stationID, windowStart,
-		catalogm.RadioSyncRunStatusRunning, catalogm.RadioSyncRunStatusCancelled, catalogm.RadioSyncRunStatusSkipped).Scan(&runAgg).Error; err != nil {
+		catalogm.RadioSyncRunStatusRunning, catalogm.RadioSyncRunStatusCancelled, catalogm.RadioSyncRunStatusSkipped,
+		catalogm.RadioSyncRunTypeFetch).Scan(&runAgg).Error; err != nil {
 		slog.Warn("radio: computing station run-rates failed", "station_id", stationID, "error", err)
 		return nil, nil, nil, false
 	}

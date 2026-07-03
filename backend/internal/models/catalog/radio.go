@@ -966,10 +966,15 @@ func (RadioImportJob) TableName() string { return "radio_import_jobs" }
 // P2 unification must widen radio_import_jobs' int4 ids when carrying rows over —
 // this table is BIGINT throughout, matching the BIGSERIAL parent PKs.)
 type RadioSyncRun struct {
-	ID        uint   `gorm:"primaryKey"`
-	StationID uint   `gorm:"column:station_id;not null"`
-	ShowID    *uint  `gorm:"column:show_id"`
-	RunType   string `gorm:"column:run_type;not null"`
+	ID        uint  `gorm:"primaryKey"`
+	StationID uint  `gorm:"column:station_id;not null"`
+	// ShowID is set on backfill runs AND on show-SCOPED fetch runs (PSY-1333 slot
+	// fetch). For run_type='fetch', non-NULL show_id means single-show scope:
+	// station-scale aggregates over fetch runs (volume-anomaly baseline, station
+	// health rates) MUST exclude those rows or the per-boundary scoped volume
+	// swamps the sweep signal — see detectVolumeAnomaly / computeStationRates.
+	ShowID  *uint  `gorm:"column:show_id"`
+	RunType string `gorm:"column:run_type;not null"`
 	// Trigger maps to the trigger_source column (`trigger` is a reserved SQL word).
 	Trigger string `gorm:"column:trigger_source;not null"`
 	Status  string `gorm:"column:status;not null;default:running"`
