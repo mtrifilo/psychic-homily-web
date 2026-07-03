@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface ApproveShowDialogProps {
   show: ShowResponse
@@ -48,7 +49,7 @@ export function ApproveShowDialog({
   }
 
   const showTitle =
-    show.title || show.artists.map(a => a.name).join(', ') || 'Untitled Show'
+    showDisplayTitle(show.title, show.artists.map(a => a.name))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

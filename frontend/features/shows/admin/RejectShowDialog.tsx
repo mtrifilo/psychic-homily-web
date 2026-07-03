@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface RejectShowDialogProps {
   show: ShowResponse
@@ -48,7 +49,7 @@ export function RejectShowDialog({
   }
 
   const showTitle =
-    show.title || show.artists.map(a => a.name).join(', ') || 'Untitled Show'
+    showDisplayTitle(show.title, show.artists.map(a => a.name))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

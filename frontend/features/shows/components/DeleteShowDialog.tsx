@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface DeleteShowDialogProps {
   show: ShowResponse
@@ -38,7 +39,7 @@ export function DeleteShowDialog({
   }
 
   const showTitle =
-    show.title || show.artists.map(a => a.name).join(', ') || 'Untitled Show'
+    showDisplayTitle(show.title, show.artists.map(a => a.name))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

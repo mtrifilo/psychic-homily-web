@@ -21,6 +21,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { formatAdminDate, formatAdminTime } from '@/lib/utils/formatters'
 import { ApproveShowDialog } from './ApproveShowDialog'
 import { RejectShowDialog } from './RejectShowDialog'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface PendingShowCardProps {
   show: ShowResponse
@@ -59,9 +60,7 @@ export function PendingShowCard({
             )}
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-lg truncate">
-                {show.title ||
-                  show.artists.map(a => a.name).join(', ') ||
-                  'Untitled Show'}
+                {showDisplayTitle(show.title, show.artists.map(a => a.name))}
               </h3>
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <Badge

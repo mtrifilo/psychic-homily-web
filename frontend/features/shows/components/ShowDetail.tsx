@@ -25,6 +25,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
 import { ShowActions } from './ShowActions'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface ShowDetailProps {
   showId: string | number
@@ -135,7 +136,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const artists = show.artists
   const artistsWithMusic = artists.filter(artistHasMusic)
-  const showTitle = show.title || artists.map(a => a.name).join(', ')
+  const showTitle = showDisplayTitle(show.title, artists.map(a => a.name))
 
   return (
     <>

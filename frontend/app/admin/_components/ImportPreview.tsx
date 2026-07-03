@@ -4,6 +4,7 @@ import { memo } from 'react'
 import { CheckCircle, PlusCircle, AlertTriangle, Calendar, MapPin, Music } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import type { ImportPreviewResponse } from '@/features/shows'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface ImportPreviewProps {
   preview: ImportPreviewResponse
@@ -54,7 +55,7 @@ export const ImportPreview = memo(function ImportPreview({ preview }: ImportPrev
           <div className="flex items-center gap-2">
             <Music className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium">
-              {preview.show.title || 'Untitled Show'}
+              {showDisplayTitle(preview.show.title, null)}
             </span>
           </div>
           <div className="flex items-center gap-2">

@@ -6,6 +6,7 @@ import { Lock } from 'lucide-react'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ProfileSectionAction } from './ProfileSectionAction'
 import { useUserAttendedShows } from '@/features/auth'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface ProfileAttendedShowsProps {
   username: string
@@ -99,10 +100,10 @@ export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
                     href={`/shows/${show.slug}`}
                     className="hover:text-primary hover:underline"
                   >
-                    {show.title || 'Untitled show'}
+                    {showDisplayTitle(show.title, null)}
                   </Link>
                 ) : (
-                  show.title || 'Untitled show'
+                  showDisplayTitle(show.title, null)
                 )}
                 {show.venue_name && (
                   <span className="text-muted-foreground">

@@ -2,20 +2,12 @@
 
 import Link from 'next/link'
 import { Calendar, MapPin, Users, Eye } from 'lucide-react'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import type { TrendingShow } from '../types'
 
 interface TrendingShowsListProps {
   shows: TrendingShow[]
   compact?: boolean
-}
-
-function getShowDisplayTitle(show: TrendingShow): string {
-  if (show.title) return show.title
-  const artistPart = show.artist_names?.length ? show.artist_names.join(', ') : ''
-  if (artistPart && show.venue_name) return `${artistPart} @ ${show.venue_name}`
-  if (artistPart) return artistPart
-  if (show.venue_name) return `Show @ ${show.venue_name}`
-  return 'Untitled Show'
 }
 
 export function TrendingShowsList({ shows, compact = false }: TrendingShowsListProps) {
@@ -40,7 +32,11 @@ export function TrendingShowsList({ shows, compact = false }: TrendingShowsListP
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-tight group-hover:text-primary truncate">
-                {getShowDisplayTitle(show)}
+                {showDisplayTitle(
+                  show.title,
+                  show.artist_names,
+                  compact ? { venueName: show.venue_name } : {},
+                )}
               </p>
               {!compact && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
