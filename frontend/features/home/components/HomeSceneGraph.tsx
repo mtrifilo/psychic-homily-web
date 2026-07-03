@@ -28,6 +28,7 @@
 
 import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -36,29 +37,35 @@ import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
 } from '@/components/graph/useContainerWidth'
-import {
-  useScenes,
-  useSceneGraph,
-  sceneArtistCountPhrase,
-} from '@/features/scenes'
+// Deep imports, deliberately NOT the '@/features/scenes' barrel: the barrel
+// re-exports the scenes component tree (SceneDetailView / AtlasGlobe / …)
+// whose module bodies run top-level dynamic() calls the bundler can't drop,
+// so importing it from a statically-mounted homepage component would drag
+// scenes module code into the homepage's initial JS. Same precedent as
+// InlineGraph's deep import of useArtistGraph (PSY-868).
+import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
+import { sceneArtistCountPhrase } from '@/features/scenes/components/sceneGraphCopy'
 import {
   pickDefaultScene,
   pickSurpriseScene,
 } from './homeSceneGraphScenes'
 
-const GRAPH_HEIGHT_PX = 480
+const GRAPH_HEIGHT_PX = 560
 const INTERSECTION_ROOT_MARGIN = '200px'
 
 /**
  * One shared height contract for every non-canvas box (skeleton, teaser,
  * empty, error): 240px below Tailwind's `sm` (≈ the 640px canvas gate),
- * 480px above. Placeholders and settled states agreeing on height is what
- * keeps the section from shifting LatestRadioShows once measurement or
- * data resolves (the canvas itself only renders ≥640px, where both are
- * 480px). A container-vs-viewport mismatch survives only in the narrow
- * band where the padded column measures <640px on a ≥640px viewport.
+ * 560px above — the `sm` value MUST equal `GRAPH_HEIGHT_PX` (Tailwind
+ * arbitrary values can't read the const). Boxes agreeing on height keeps
+ * the GRAPH AREA from shifting LatestRadioShows as states settle; the
+ * pre-mount skeleton deliberately reserves only the graph box, not the
+ * heading row/caption (~100px), so a small one-time shift remains at
+ * section mount. A container-vs-viewport mismatch survives only in the
+ * narrow band where the padded column measures <640px on a ≥640px
+ * viewport.
  */
-const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[480px]'
+const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[560px]'
 
 // Height-reserving placeholder (CLS budget) — shared by the pre-mount
 // state, the data-loading state, and the dynamic-import fallback.
@@ -99,6 +106,14 @@ class SectionErrorBoundary extends Component<
   state = { failed: false }
   static getDerivedStateFromError() {
     return { failed: true }
+  }
+  componentDidCatch(error: unknown) {
+    // Self-hiding must not mean silent: without this, a systematic chunk
+    // failure (deploy skew, CDN flake) kills the section for everyone and
+    // nothing reports it (app/global-error.tsx would have captured it).
+    Sentry.captureException(error, {
+      tags: { section: 'home-scene-graph' },
+    })
   }
   render() {
     return this.state.failed ? null : this.props.children
@@ -213,6 +228,7 @@ function HomeSceneGraphSection() {
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2
           id="home-scene-graph-heading"
+          aria-live="polite"
           className="text-2xl font-semibold tracking-tight text-foreground"
         >
           The {scene.city} scene, mapped
@@ -224,7 +240,7 @@ function HomeSceneGraphSection() {
               onClick={handleSurprise}
               className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
             >
-              Surprise me ↻
+              Surprise me <span aria-hidden="true">↻</span>
             </button>
           )}
           <Link
@@ -269,6 +285,13 @@ function HomeSceneGraphSection() {
           (settledGraphData ? (
             settledGraphData.nodes.length > 0 ? (
               <ForceGraphView
+                // Remount per scene: a rotation BACK to a cached scene
+                // arrives with isPlaceholderData false (no skeleton frame,
+                // no unmount), and the mounted canvas's one-shot zoomToFit
+                // is already spent — with zoom/pan disabled there'd be no
+                // gesture to recover a mis-framed swap. A fresh mount
+                // re-arms the fit and drops stale hover state.
+                key={scene.slug}
                 nodes={settledGraphData.nodes}
                 links={settledGraphData.links}
                 clusters={settledGraphData.clusters}
@@ -303,10 +326,16 @@ function HomeSceneGraphSection() {
           ))}
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        Every show, artist, venue and label on the site is connected — this
-        is one scene’s slice. Click any artist to dig in.
-      </p>
+      {/* Static mini-legend + payoff line (locked on PSY-1338: no
+          interactive legend on the homepage). Only rendered with the
+          canvas — the teaser/empty/error states carry their own copy and
+          "click any artist" would be a false instruction there. */}
+      {graphAvailable && settledGraphData && settledGraphData.nodes.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Lines connect artists — shared bills, label ties, band members.
+          Click any artist to dig in.
+        </p>
+      )}
     </section>
   )
 }

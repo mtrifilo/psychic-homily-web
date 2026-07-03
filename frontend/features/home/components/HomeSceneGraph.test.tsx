@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { HomeSceneGraph } from './HomeSceneGraph'
-import type { SceneListItem } from '@/features/scenes'
+import type { SceneListItem } from '@/features/scenes/types'
 
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [key: string]: unknown }) => (
@@ -30,8 +30,10 @@ vi.mock('@/components/graph/ForceGraphView', () => ({
 
 const useScenes = vi.fn()
 const useSceneGraph = vi.fn()
-vi.mock('@/features/scenes', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/features/scenes')>()
+// The component deep-imports the hooks module (bundle-size rationale in the
+// component) — mock that module, not the '@/features/scenes' barrel.
+vi.mock('@/features/scenes/hooks/useScenes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/features/scenes/hooks/useScenes')>()
   return {
     ...actual,
     useScenes: () => useScenes(),

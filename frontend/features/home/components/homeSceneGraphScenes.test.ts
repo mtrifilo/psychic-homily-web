@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { pickDefaultScene, pickSurpriseScene } from './homeSceneGraphScenes'
-import type { SceneListItem } from '@/features/scenes'
+import type { SceneListItem } from '@/features/scenes/types'
 
 function scene(overrides: Partial<SceneListItem> & { slug: string }): SceneListItem {
   return {

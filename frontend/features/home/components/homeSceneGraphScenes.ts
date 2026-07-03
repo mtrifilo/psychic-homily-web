@@ -1,5 +1,8 @@
-import { compareScenesByActivity } from '@/features/scenes'
-import type { SceneListItem } from '@/features/scenes'
+// Deep imports (not the '@/features/scenes' barrel) — the barrel pulls the
+// scenes component tree into any static importer's bundle; see the note in
+// HomeSceneGraph.tsx.
+import { compareScenesByActivity } from '@/features/scenes/components/globeScale'
+import type { SceneListItem } from '@/features/scenes/types'
 
 /**
  * Scene-selection rules for the homepage graph section (PSY-1344).
@@ -26,7 +29,10 @@ export function pickDefaultScene(
 
 /**
  * "Surprise me": a random scene other than the current one, preferring
- * scenes with upcoming shows so the surprise never lands on a dead graph.
+ * scenes with upcoming shows so the surprise rarely lands on a dead graph
+ * (upcoming shows are venue-keyed while graph nodes are based-here roster
+ * artists — PSY-1255 — so a shows-but-no-roster scene can still land on
+ * the empty-graph fallback; that fallback is load-bearing, not dead code).
  * Falls back to any other scene when none have upcoming shows; returns
  * null when there is nothing to rotate to (0–1 scenes total).
  *

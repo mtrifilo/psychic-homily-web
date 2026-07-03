@@ -1008,7 +1008,8 @@ export function ForceGraphView({
         // onNodeHover, stranding the tooltip at a stale screen position — dismiss
         // it on zoom (re-hover re-anchors it). Matches ArtistGraph (PSY-1217).
         onZoom={() => setHoveredNode(null)}
-        // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled (default).
+        // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled by
+        // default (staticViewport embeds disable it, PSY-1344).
         // Dragging a node moves it without re-firing onNodeHover (the same node
         // stays under the cursor) or onZoom, so the anchored tooltip would strand
         // at the node's pre-drag position. Dismiss on drag too (PSY-1217 review).
