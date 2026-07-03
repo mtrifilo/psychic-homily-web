@@ -120,14 +120,28 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
   })
 
-  it('stays ARMED when node positions are not initialized yet (no bbox)', () => {
-    h.graph.getGraphBbox.mockReturnValueOnce(null as never)
+  it('stays ARMED when node positions are not initialized yet (NaN-shaped bbox)', () => {
+    // force-graph never returns null for a non-empty graph — uninitialized
+    // positions yield {x:[undefined,undefined],...}; the guard must catch
+    // that shape or the fit corrupts the viewport with centerAt(NaN, NaN).
+    h.graph.getGraphBbox.mockReturnValueOnce({
+      x: [undefined, undefined],
+      y: [undefined, undefined],
+    } as never)
     renderGraph()
     stopEngine()
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
 
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+  })
+
+  it('a canvas wheel cancels the pending fit (trackpad zoom is the common desktop takeover)', () => {
+    renderGraph()
+    fireEvent.wheel(screen.getByTestId('stub-canvas'))
+
+    stopEngine()
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
   })
 
   it('re-arms when the canvas dimensions change (the overlay path)', () => {
@@ -153,9 +167,10 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
   })
 
-  it('a pointerdown on a non-canvas child (e.g. the edge legend) does NOT cancel the fit', () => {
-    const { container } = renderGraph()
-    fireEvent.pointerDown(container.firstElementChild!)
+  it('a pointerdown on the edge legend (a non-canvas overlay child) does NOT cancel the fit', () => {
+    renderGraph({ showEdgeLegend: true })
+    // The legend renders because the payload carries a typed link.
+    fireEvent.pointerDown(screen.getByRole('button', { name: /shared bills/i }))
 
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)

@@ -450,6 +450,11 @@ export function ForceGraphView({
   // runs — a bare querySelector missed it and the label never applied (caught
   // live during PSY-1296 verification). Apply now if present, otherwise watch
   // the container until the canvas appears.
+  // canvasReady doubles as the "dynamic chunk has mounted" signal for the
+  // reduced-motion fit below: graphRef assignment doesn't trigger effects, so
+  // without a state flip the fit effect could run once against a null ref and
+  // never retry (adversarial finding — cold-chunk mounts).
+  const [canvasReady, setCanvasReady] = useState(false)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -458,6 +463,7 @@ export function ForceGraphView({
       if (!canvas) return false
       canvas.setAttribute('role', 'img')
       canvas.setAttribute('aria-label', ariaLabel)
+      setCanvasReady(true)
       return true
     }
     if (apply()) return
@@ -489,11 +495,15 @@ export function ForceGraphView({
   const userOwnsViewportRef = useRef(false)
   useEffect(() => {
     // Mount run redundantly re-arms an already-armed ref; every later run IS
-    // a dimension change.
+    // a dimension change (any-pixel, deliberately not "material": the in-view
+    // spend below absorbs trivial resizes, so a threshold would only add a
+    // tuning knob). reducedMotion is a re-arm signal too — flipping it OFF
+    // resumes the sim and re-settles the layout somewhere new, so a shot
+    // spent on the paused snapshot must not stay spent (adversarial finding).
     if (!userOwnsViewportRef.current) {
       needsFitRef.current = true
     }
-  }, [containerWidth, graphHeight])
+  }, [containerWidth, graphHeight, reducedMotion])
 
   useEffect(() => {
     const el = containerRef.current
@@ -516,18 +526,36 @@ export function ForceGraphView({
       if (!needsFitRef.current) return
       const fg = graphRef.current
       if (!fg || renderData.nodes.length === 0) return // stay armed
+      // Uninitialized positions don't yield a null bbox — force-graph returns
+      // {x:[undefined,undefined],...} (d3 min/max over undefined), which would
+      // sail into centerAt(NaN, NaN) and corrupt the d3-zoom transform for the
+      // rest of the mount (adversarial finding). Validate numerically.
       const bbox = fg.getGraphBbox?.()
-      if (!bbox) return // positions not initialized yet — stay armed
+      if (
+        !bbox ||
+        !Number.isFinite(bbox.x[0]) ||
+        !Number.isFinite(bbox.x[1]) ||
+        !Number.isFinite(bbox.y[0]) ||
+        !Number.isFinite(bbox.y[1])
+      ) {
+        return // positions not initialized yet — stay armed
+      }
       needsFitRef.current = false
       const zoom = fg.zoom()
       const center = fg.centerAt()
       const halfW = containerWidth / zoom / 2
       const halfH = graphHeight / zoom / 2
+      // 5% per-side slack: a bbox that pokes marginally past the viewport
+      // (edge node half-clipped) still counts as in view — a full 400ms
+      // zoomToFit for a few clipped pixels is a worse trade than the clip,
+      // and on inline mounts the fit could drop below the 1.0 label gate.
+      const slackX = halfW * 0.05
+      const slackY = halfH * 0.05
       const inView =
-        bbox.x[0] >= center.x - halfW &&
-        bbox.x[1] <= center.x + halfW &&
-        bbox.y[0] >= center.y - halfH &&
-        bbox.y[1] <= center.y + halfH
+        bbox.x[0] >= center.x - halfW - slackX &&
+        bbox.x[1] <= center.x + halfW + slackX &&
+        bbox.y[0] >= center.y - halfH - slackY &&
+        bbox.y[1] <= center.y + halfH + slackY
       if (inView) return
       // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
       // has already stopped — dismiss like onZoom/onNodeDrag do.
@@ -554,11 +582,13 @@ export function ForceGraphView({
     }
   }, [reducedMotion])
 
+  // canvasReady is a dep so a cold chunk load (graphRef null on the first
+  // run) retries once the dynamic component actually mounts.
   useEffect(() => {
-    if (reducedMotion) {
+    if (reducedMotion && canvasReady) {
       maybeFitViewport(false)
     }
-  }, [reducedMotion, maybeFitViewport])
+  }, [reducedMotion, maybeFitViewport, canvasReady])
 
   // PSY-1235: restart force-graph's rAF render loop on (re-)mount. On a fresh page load
   // react-force-graph starts its own loop, but after a client back-navigation re-mount the
