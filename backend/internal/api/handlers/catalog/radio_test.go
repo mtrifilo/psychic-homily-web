@@ -1346,24 +1346,24 @@ func TestAdminBulkLinkPlays_ServiceError(t *testing.T) {
 
 func TestAdminListSyncRuns_GlobalForwardsArgsAndEnvelope(t *testing.T) {
 	var gotStation *uint
-	var gotStatus string
+	var gotStatus, gotScope string
 	var gotLimit, gotOffset int
 	mock := &testhelpers.MockRadioService{
 		ListSyncRunsFn: func(stationID *uint, status, scope string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
-			gotStation, gotStatus, gotLimit, gotOffset = stationID, status, limit, offset
+			gotStation, gotStatus, gotScope, gotLimit, gotOffset = stationID, status, scope, limit, offset
 			return []*contracts.RadioSyncRunResponse{{ID: 1}, {ID: 2}}, 7, nil
 		},
 	}
 	h := testRadioHandler(mock)
-	resp, err := h.AdminListSyncRunsHandler(radioAdminCtx(), &AdminListSyncRunsRequest{Status: "failed", Limit: 2, Offset: 4})
+	resp, err := h.AdminListSyncRunsHandler(radioAdminCtx(), &AdminListSyncRunsRequest{Status: "failed", Scope: "sweep", Limit: 2, Offset: 4})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gotStation != nil {
 		t.Errorf("global feed must pass nil stationID, got %v", gotStation)
 	}
-	if gotStatus != "failed" || gotLimit != 2 || gotOffset != 4 {
-		t.Errorf("args not forwarded: status=%q limit=%d offset=%d", gotStatus, gotLimit, gotOffset)
+	if gotStatus != "failed" || gotScope != "sweep" || gotLimit != 2 || gotOffset != 4 {
+		t.Errorf("args not forwarded: status=%q scope=%q limit=%d offset=%d", gotStatus, gotScope, gotLimit, gotOffset)
 	}
 	if resp.Body.Total != 7 || resp.Body.Count != 2 {
 		t.Errorf("envelope wrong: total=%d count=%d", resp.Body.Total, resp.Body.Count)

@@ -27,6 +27,11 @@ const (
 // show-scoped fetch row per slot boundary — tens per day on a schedule-bearing
 // station — so the feed needs a way to separate them from the handful of daily
 // station sweeps the operator usually cares about.
+//
+// KEEP IN SYNC (string-typed across three layers, nothing fails at compile
+// time): the huma `enum:"all,sweep,scoped"` tags on both AdminList*SyncRuns
+// requests (api/handlers/catalog/radio.go) and the FE `SyncRunScope` union
+// (frontend/lib/hooks/admin/useAdminRadio.ts).
 const (
 	// SyncRunScopeAll — no scope filter (every run type, scoped or not).
 	SyncRunScopeAll = "all"
@@ -42,8 +47,10 @@ const (
 // = global (across all stations); non-nil scopes to one station (404 if it doesn't
 // exist). status, when non-empty, filters to that exact run status (an unknown status
 // simply yields no rows — a forgiving filter for an internal admin tool). scope is one
-// of the SyncRunScope* values; empty behaves as SyncRunScopeAll (and, forgivingly, so
-// does an unknown value — same convention as status). Returns the page plus the total
+// of the SyncRunScope* values; empty or unknown behaves as SyncRunScopeAll. NOTE: the
+// unknown-value leniency is defense-in-depth for direct callers only — through the API
+// an unknown scope never reaches here (the huma enum tag 422s it). Returns the page
+// plus the total
 // count of the matched set (for pagination). Station/Show/Errors are preloaded so the
 // feed renders names + an error summary in one round trip.
 func (s *RadioService) ListSyncRuns(stationID *uint, status, scope string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {

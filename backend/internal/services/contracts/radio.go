@@ -796,8 +796,9 @@ type RadioSyncRunResponse struct {
 	ID          uint   `json:"id"`
 	StationID   uint   `json:"station_id"`
 	StationName string `json:"station_name"`
-	// ShowID/ShowName are set only for show-scoped runs (backfill); nil for
-	// station-scoped discover/fetch runs.
+	// ShowID/ShowName are set for show-scoped runs — backfills AND the PSY-1333
+	// slot fetches (run_type='fetch' with a show scope); nil for station-scoped
+	// discover/fetch runs.
 	ShowID   *uint   `json:"show_id,omitempty"`
 	ShowName *string `json:"show_name,omitempty"`
 

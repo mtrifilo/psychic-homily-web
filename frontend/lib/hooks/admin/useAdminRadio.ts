@@ -8,7 +8,7 @@
  */
 
 import { useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
 
@@ -653,18 +653,26 @@ export function useStationSyncRuns(
       return apiRequest<SyncRunListResult>(url)
     },
     enabled: enabled && stationId > 0,
+    // A scope flip is a new query key; keep the previous page rendered instead
+    // of flashing the whole feed to a spinner on every toggle.
+    placeholderData: keepPreviousData,
   })
 }
 
 /**
  * Recent runs across all stations filtered to a single status (the backend filter is
- * exact-match). Used to assemble the global recent-failures view.
+ * exact-match). Used to assemble the global recent-failures view. scope=sweep
+ * (PSY-1343): a slot-fetcher incident fails once per slot boundary, so scoped
+ * failures would bury the station-sweep failure this view exists to surface —
+ * and the sweep IS the canonical failure signal (scoped runs are deliberately
+ * breaker/streak-neutral, so a show that fails scoped also fails in the sweep).
+ * Scoped rows stay inspectable via the per-station feed's toggle.
  */
 export function useSyncRunsByStatus(status: RadioSyncRunStatus, limit = 10, enabled = true) {
   return useQuery({
-    queryKey: radioQueryKeys.syncRunsFeed(`status=${status}&limit=${limit}`),
+    queryKey: radioQueryKeys.syncRunsFeed(`status=${status}&scope=sweep&limit=${limit}`),
     queryFn: async () => {
-      const url = `${RADIO_ENDPOINTS.ADMIN_SYNC_RUNS}?status=${status}&limit=${limit}`
+      const url = `${RADIO_ENDPOINTS.ADMIN_SYNC_RUNS}?status=${status}&scope=sweep&limit=${limit}`
       return apiRequest<SyncRunListResult>(url)
     },
     enabled,
