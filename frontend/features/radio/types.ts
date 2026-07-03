@@ -594,3 +594,26 @@ export interface RadioStationGraphResponse {
   nodes: RadioStationGraphNode[]
   links: RadioStationGraphLink[]
 }
+
+/** One scheduled airing on the /radio hub guide (PSY-1053). */
+export interface RadioGuideRow {
+  station: { slug: string; name: string }
+  show: { id: number; slug: string; name: string; host_name?: string | null }
+  /**
+   * Concrete slot instants (ISO). Rendered viewer-local (PSY-1298) with a
+   * station-local aside when the viewer is in a different zone (PSY-1306).
+   */
+  starts_at: string
+  ends_at: string
+  station_timezone: string
+}
+
+/**
+ * Response shape for GET /radio/guide. Schedule-derived only: stations
+ * without scraped schedules (KEXP, NTS) contribute no rows by design.
+ */
+export interface RadioGuideResponse {
+  on_now: RadioGuideRow[] | null
+  up_next: RadioGuideRow[] | null
+  generated_at: string
+}

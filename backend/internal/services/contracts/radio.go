@@ -579,6 +579,44 @@ type RadioStatsResponse struct {
 }
 
 // ──────────────────────────────────────────────
+// Radio Guide types (PSY-1053)
+// ──────────────────────────────────────────────
+
+// RadioGuideStationRef identifies a guide row's station.
+type RadioGuideStationRef struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+// RadioGuideShowRef identifies a guide row's show.
+type RadioGuideShowRef struct {
+	ID       uint    `json:"id"`
+	Slug     string  `json:"slug"`
+	Name     string  `json:"name"`
+	HostName *string `json:"host_name,omitempty"`
+}
+
+// RadioGuideRow is one scheduled airing on the /radio hub guide. StartsAt /
+// EndsAt are instants (the frontend renders them viewer-local per PSY-1298);
+// StationTimezone feeds the station-local aside (PSY-1306 idiom).
+type RadioGuideRow struct {
+	Station         RadioGuideStationRef `json:"station"`
+	Show            RadioGuideShowRef    `json:"show"`
+	StartsAt        time.Time            `json:"starts_at"`
+	EndsAt          time.Time            `json:"ends_at"`
+	StationTimezone string               `json:"station_timezone"`
+}
+
+// RadioGuideResponse is the dial-wide ON NOW / UP NEXT guide, computed from
+// scraped weekly schedules — stations without schedule data contribute no
+// rows (the guide's honesty contract; see GetRadioGuide).
+type RadioGuideResponse struct {
+	OnNow       []RadioGuideRow `json:"on_now"`
+	UpNext      []RadioGuideRow `json:"up_next"`
+	GeneratedAt time.Time       `json:"generated_at"`
+}
+
+// ──────────────────────────────────────────────
 // Import pipeline types
 // ──────────────────────────────────────────────
 
@@ -879,6 +917,9 @@ type RadioServiceInterface interface {
 
 	// Stats
 	GetRadioStats() (*RadioStatsResponse, error)
+
+	// Guide (PSY-1053) — `now` injected so tests pin the clock.
+	GetRadioGuide(now time.Time) (*RadioGuideResponse, error)
 
 	// Import pipeline
 	ImportStation(stationID uint, backfillDays int) (*RadioImportResult, error)

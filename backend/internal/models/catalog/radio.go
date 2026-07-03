@@ -650,19 +650,36 @@ func (s *RadioSchedule) WindowForDate(airDate string) (startsAt, endsAt *time.Ti
 	if match == nil {
 		return nil, nil, nil // no (parseable) slot for this weekday
 	}
-	sh, sm, _ := parseHHMM(match.Start) // ok: filtered above
-	eh, em, ok := parseHHMM(match.End)
+	start, end, ok := match.TimesOnDay(day, loc)
 	if !ok {
 		return nil, nil, nil // malformed end on the chosen slot (defensive; slots are validated)
 	}
-	start := time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
-	end := time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
+	return &start, &end, nil
+}
+
+// TimesOnDay materializes this weekly slot as concrete instants on a given
+// day in a given zone — the ONE definition of slot-time semantics, shared by
+// WindowForDate (episode air windows) and the /radio guide's slot expansion
+// (PSY-1053), so the wrap and parsing conventions can never silently fork
+// between the two consumers. `day` supplies only the calendar date; its own
+// clock time is ignored.
+//
+// An End <= Start slot wraps past midnight, so end lands on the following
+// day; End == Start is a degenerate full-24-hour slot (fails safe — only
+// ever over-reports coverage). ok=false when either time fails the HH:MM
+// parse (defensive; slots are validated at write time).
+func (sl RadioScheduleSlot) TimesOnDay(day time.Time, loc *time.Location) (start, end time.Time, ok bool) {
+	sh, sm, sok := parseHHMM(sl.Start)
+	eh, em, eok := parseHHMM(sl.End)
+	if !sok || !eok {
+		return time.Time{}, time.Time{}, false
+	}
+	start = time.Date(day.Year(), day.Month(), day.Day(), sh, sm, 0, 0, loc)
+	end = time.Date(day.Year(), day.Month(), day.Day(), eh, em, 0, 0, loc)
 	if !end.After(start) {
-		// End <= Start wraps past midnight; End == Start is a degenerate full
-		// 24-hour slot (fails safe — only ever over-reports "live").
 		end = end.AddDate(0, 0, 1)
 	}
-	return &start, &end, nil
+	return start, end, true
 }
 
 // parseHHMM parses a "HH:MM" 24-hour string into hour + minute, reusing the same

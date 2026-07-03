@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -61,6 +62,7 @@ type RadioAggregationReader interface {
 	GetNewReleaseRadar(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error)
 	GetStationGraph(stationID uint, window string, limit int) (*contracts.RadioStationGraphResponse, error)
 	GetRadioStats() (*contracts.RadioStatsResponse, error)
+	GetRadioGuide(now time.Time) (*contracts.RadioGuideResponse, error)
 }
 
 // RadioUnmatchedManager manages unmatched radio plays (admin endpoints).
@@ -827,6 +829,29 @@ type GetRadioStatsRequest struct{}
 // GetRadioStatsResponse represents the response for overall radio stats.
 type GetRadioStatsResponse struct {
 	Body *contracts.RadioStatsResponse
+}
+
+// GetRadioGuideRequest asks for the dial-wide ON NOW / UP NEXT guide (PSY-1053).
+type GetRadioGuideRequest struct{}
+
+// GetRadioGuideResponse carries the guide payload.
+type GetRadioGuideResponse struct {
+	// CacheControl caps recompute amplification: the guide is identical for
+	// every viewer and only changes at minute granularity, so clients (and
+	// any CDN) may share a response for the hook's own refetch cadence.
+	CacheControl string `header:"Cache-Control"`
+	Body         *contracts.RadioGuideResponse
+}
+
+// GetRadioGuideHandler handles GET /radio/guide — the schedule-derived
+// ON NOW / UP NEXT rows for the /radio hub. Stations without schedule data
+// contribute no rows by design (the guide's honesty contract).
+func (h *RadioHandler) GetRadioGuideHandler(ctx context.Context, req *GetRadioGuideRequest) (*GetRadioGuideResponse, error) {
+	guide, err := h.aggregationReader.GetRadioGuide(time.Now())
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to compute radio guide", err)
+	}
+	return &GetRadioGuideResponse{CacheControl: "public, max-age=60", Body: guide}, nil
 }
 
 // GetRadioStatsHandler handles GET /radio/stats
