@@ -74,6 +74,34 @@ test.describe('Homepage', () => {
       page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
+    // Scene-graph section (PSY-1344). Lazy-mounted on scroll intent, and the
+    // heading names whichever seeded scene is liveliest — assert the stable
+    // "…scene, mapped" suffix. The e2e seed carries a metro'd Phoenix scene
+    // (PSY-1319), so the section must not self-hide. Scroll deterministically
+    // to the section BELOW it (radio renders immediately) rather than a
+    // magic wheel delta, so content growth can't strand the observer.
+    await page
+      .getByRole('heading', { name: /latest radio shows/i })
+      .scrollIntoViewIfNeeded()
+    await expect(
+      page.getByRole('heading', { name: /scene, mapped$/i })
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      page.getByRole('link', { name: /explore the full graph/i })
+    ).toBeVisible()
+    // The graph area must settle to a real state — canvas (aria-label) or
+    // the honest empty-roster fallback — and never the error card. This
+    // catches a 500ing graph endpoint or a failed ForceGraphView chunk,
+    // which the heading/CTA assertions alone would miss. (The seed stamps
+    // venue metros but not artist home metros, so an empty based-here
+    // roster is a legitimate settled state here.)
+    await expect(
+      page
+        .getByLabel(/knowledge graph of the .* scene/i)
+        .or(page.getByText(/not enough connected artists/i))
+    ).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/the graph couldn’t load/i)).toHaveCount(0)
+
     // Latest radio shows section + station cards deep-linking to their /radio
     // tabs. Card content is real data now (PSY-1329), so assert only the
     // stable editorial aria-label prefix (call sign · city) — the seeded e2e
