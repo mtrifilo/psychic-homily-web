@@ -1160,10 +1160,13 @@ func parsePlaylistTR(tr *html.Node) *wfmuPlaylistRow {
 
 	row := &wfmuPlaylistRow{}
 
-	// Extract text from each cell
+	// Extract each cell's VISIBLE text: the song cells embed WFMU's hidden
+	// comment-widget markup (a "→" jump button + a `"Title" by "Artist"`
+	// summary span) that a naive flatten writes into every track title
+	// (PSY-1327).
 	cellTexts := make([]string, len(cells))
 	for i, cell := range cells {
-		cellTexts[i] = cleanCellText(collectText(cell))
+		cellTexts[i] = cleanCellText(collectTextSkippingFavIcons(cell))
 	}
 
 	// Map cells to fields based on column count
@@ -1578,8 +1581,14 @@ func parseWFMUSmallline(s string) (showName string, hostName *string) {
 }
 
 // collectTextSkippingFavIcons collects text like collectText but skips
-// KDBFavIcon spans — they hold the favoriting star widget (an <img> today,
-// but any future inner text would corrupt the song/show text).
+// KDBFavIcon spans and display:none nodes. The fav-icon spans hold WFMU's
+// favoriting/comment widgetry — not just the star <img>: the playlist song
+// cells carry a comment-thread widget whose jump button glyph is "→" and
+// whose hidden drop_*_summary_html span reads `"Title" by "Artist"`, which a
+// naive text flatten concatenates into every track title (PSY-1327 — 117k
+// stored plays read `X → "X" by "Artist"` before this). The display:none
+// skip is the general rule the widget's pieces all satisfy, kept alongside
+// the class skip so a widget moved outside the span stays excluded.
 func collectTextSkippingFavIcons(n *html.Node) string {
 	if n == nil {
 		return ""
@@ -1587,9 +1596,13 @@ func collectTextSkippingFavIcons(n *html.Node) string {
 	var sb strings.Builder
 	var walk func(*html.Node)
 	walk = func(node *html.Node) {
-		if node.Type == html.ElementNode && node.Data == "span" &&
-			strings.Contains(getAttr(node, "class"), "KDBFavIcon") {
-			return
+		if node.Type == html.ElementNode {
+			if node.Data == "span" && strings.Contains(getAttr(node, "class"), "KDBFavIcon") {
+				return
+			}
+			if strings.Contains(strings.ReplaceAll(getAttr(node, "style"), " ", ""), "display:none") {
+				return
+			}
 		}
 		if node.Type == html.TextNode {
 			sb.WriteString(node.Data)
