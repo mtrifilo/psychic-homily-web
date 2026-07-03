@@ -20,6 +20,9 @@ const h = vi.hoisted(() => ({
     // Called by the cluster-force effect; returns undefined so the strength guards skip.
     d3Force: vi.fn(),
     d3ReheatSimulation: vi.fn(),
+    // PSY-1321: the reduced-motion mount path applies an instant zoomToFit
+    // right after pausing — the stub must model the real handle's API.
+    zoomToFit: vi.fn(),
   },
   reducedMotion: { value: false },
 }))
