@@ -26,8 +26,11 @@ import (
 // Per-type entity sources:
 //   - shared_bills        → shared approved shows, newest first
 //   - shared_label        → shared labels
-//   - festival_cobill     → shared festivals (query-time type: no stored row;
-//     unioned in exactly like GetArtistGraph does)
+//   - festival_cobill     → shared festivals (query-time type: no stored row.
+//     Unlike GetArtistGraph, where the festival union is strictly OPT-IN via
+//     the types filter (PSY-954: graph-wide cost + not a similarity signal),
+//     provenance ALWAYS unions it — the request is pair-scoped so the cost
+//     concern doesn't apply, and the panel's contract is every connection)
 //   - radio_cooccurrence  → shared stations ONLY (episode-level rows are too
 //     numerous; radio_artist_affinity stores only a station COUNT, so the
 //     stations are resolved from the raw radio_plays facts)
@@ -129,9 +132,10 @@ func (s *ArtistRelationshipService) GetRelationshipProvenance(artistA, artistB u
 		connections = append(connections, conn)
 	}
 
-	// festival_cobill has no stored row (query-time type, PSY-363/954) — union
-	// it in from festival_artists so festival-only pairs still resolve. The
-	// pair-scoped cost is negligible next to the graph-wide opt-in concern.
+	// festival_cobill has no stored row (query-time type, PSY-363) — always
+	// union it from festival_artists so festival-only pairs still resolve.
+	// (Graph loads keep it opt-in per PSY-954; that's a graph-wide cost and
+	// similarity-semantics concern, neither of which applies pair-scoped.)
 	festivalConn, err := s.festivalCobillConnection(src, tgt)
 	if err != nil {
 		return nil, err
