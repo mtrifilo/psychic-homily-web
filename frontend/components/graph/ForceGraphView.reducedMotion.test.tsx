@@ -20,6 +20,12 @@ const h = vi.hoisted(() => ({
     // Called by the cluster-force effect; returns undefined so the strength guards skip.
     d3Force: vi.fn(),
     d3ReheatSimulation: vi.fn(),
+    // PSY-1321: the reduced-motion fit path exists on the component but bails
+    // in THIS file (the stub has no getGraphBbox, so maybeFitViewport stays
+    // armed and never reaches zoomToFit) — its real coverage lives in
+    // ForceGraphView.zoomToFit.test.tsx. The member is here only so an
+    // unexpected call fails loudly instead of throwing on undefined.
+    zoomToFit: vi.fn(),
   },
   reducedMotion: { value: false },
 }))
