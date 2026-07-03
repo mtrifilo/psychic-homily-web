@@ -41,6 +41,12 @@ type RadioService struct {
 	// (or didn't). nil → escalatePermanentFailure fires the real sentry.CaptureException
 	// (PSY-1141).
 	onPermanentFailure func(err error, stationID uint, category string)
+
+	// onShowPermanentFailure is the per-SHOW sibling of onPermanentFailure — tests
+	// inject a recorder to observe the janitor's per-show sustained-outage escalation
+	// (PSY-1274). nil → escalateShowPermanentFailure fires the real Sentry capture,
+	// fingerprinted per (show, category).
+	onShowPermanentFailure func(err error, showID uint, category string)
 }
 
 // NewRadioService creates a new radio service
