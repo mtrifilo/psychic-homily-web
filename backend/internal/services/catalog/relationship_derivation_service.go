@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -73,16 +74,16 @@ func (s *RelationshipDerivationService) RunDerivationCycle() {
 	start := time.Now()
 	s.logger.Info("starting relationship derivation cycle")
 
-	// Derive shared bills (artists who share 2+ approved shows)
-	billsCount, err := s.relService.DeriveSharedBills(2)
+	// Derive shared bills (artists who share minShows+ approved shows)
+	billsCount, err := s.relService.DeriveSharedBills(contracts.DefaultSharedBillsMinShows)
 	if err != nil {
 		s.logger.Error("shared bills derivation failed", "error", err)
 	} else {
 		s.logger.Info("shared bills derivation complete", "upserted", billsCount)
 	}
 
-	// Derive shared labels (artists who share 1+ labels)
-	labelsCount, err := s.relService.DeriveSharedLabels(1)
+	// Derive shared labels (artists who share minLabels+ labels)
+	labelsCount, err := s.relService.DeriveSharedLabels(contracts.DefaultSharedLabelsMinLabels)
 	if err != nil {
 		s.logger.Error("shared labels derivation failed", "error", err)
 	} else {

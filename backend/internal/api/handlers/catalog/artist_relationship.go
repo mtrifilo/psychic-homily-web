@@ -356,7 +356,7 @@ type DeriveRelationshipsResponse struct {
 func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Context, req *DeriveRelationshipsRequest) (*DeriveRelationshipsResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 
-	billsCount, err := h.relService.DeriveSharedBills(2)
+	billsCount, err := h.relService.DeriveSharedBills(contracts.DefaultSharedBillsMinShows)
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -364,7 +364,7 @@ func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Conte
 		)
 	}
 
-	labelsCount, err := h.relService.DeriveSharedLabels(1)
+	labelsCount, err := h.relService.DeriveSharedLabels(contracts.DefaultSharedLabelsMinLabels)
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

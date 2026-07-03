@@ -1170,11 +1170,11 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 
 // queryRelationshipsAmongArtists fetches all stored relationships where BOTH
 // source and target artist IDs are in the given artist set, optionally
-// filtered to the resolved type list. The relationships table already
-// pre-filters shared_bills below the production threshold (see
-// DeriveSharedBills minShows default), so no `min_weight` query parameter is
-// needed at v1. Shared by the scene graph (PSY-367) and the festival graph
-// (PSY-1080).
+// filtered to the resolved type list. Since PSY-1323 the derive steps keep
+// one-off co-bills (minShows=1) with a low score rather than excluding them,
+// so noise here is bounded by edge weight, not by a stored-table pre-filter;
+// no `min_weight` query parameter is needed at v1. Shared by the scene graph
+// (PSY-367) and the festival graph (PSY-1080).
 //
 // backboneAlpha applies the PSY-1293 disparity-filter backbone to the dense
 // radio_cooccurrence edges: when alpha > 0, a radio_cooccurrence edge is kept
