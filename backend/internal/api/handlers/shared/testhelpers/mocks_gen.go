@@ -2474,6 +2474,7 @@ type MockRadioService struct {
 	GetNewReleaseRadarFn          func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
 	GetStationGraphFn             func(uint, string, int) (*contracts.RadioStationGraphResponse, error)
 	GetRadioStatsFn               func() (*contracts.RadioStatsResponse, error)
+	GetRadioGuideFn               func(time.Time) (*contracts.RadioGuideResponse, error)
 	ImportStationFn               func(uint, int) (*contracts.RadioImportResult, error)
 	FetchNewEpisodesFn            func(uint) (*contracts.RadioImportResult, error)
 	ImportEpisodePlaylistFn       func(uint, string) (*contracts.EpisodeImportResult, error)
@@ -2659,6 +2660,12 @@ func (m *MockRadioService) GetStationGraph(stationID uint, window string, limit 
 func (m *MockRadioService) GetRadioStats() (*contracts.RadioStatsResponse, error) {
 	if m.GetRadioStatsFn != nil {
 		return m.GetRadioStatsFn()
+	}
+	return nil, nil
+}
+func (m *MockRadioService) GetRadioGuide(now time.Time) (*contracts.RadioGuideResponse, error) {
+	if m.GetRadioGuideFn != nil {
+		return m.GetRadioGuideFn(now)
 	}
 	return nil, nil
 }

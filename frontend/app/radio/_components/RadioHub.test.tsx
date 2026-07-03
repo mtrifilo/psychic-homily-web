@@ -15,6 +15,9 @@ vi.mock('@/features/radio', async importOriginal => {
     useRecentRadioEpisodes: (...args: unknown[]) =>
       mockUseRecentRadioEpisodes(...args),
     useNewReleaseRadar: (...args: unknown[]) => mockUseNewReleaseRadar(...args),
+    // PSY-1053: the guide self-hides when empty; hub structure tests run with
+    // an empty guide (RadioGuide has its own test file).
+    useRadioGuide: () => ({ data: undefined }),
   }
 })
 

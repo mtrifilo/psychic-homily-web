@@ -47,6 +47,8 @@ export const radioEndpoints = {
   STATS: `${API_BASE_URL}/radio/stats`,
   // PSY-1048: dial-wide latest-playlists feed
   RECENT_EPISODES: `${API_BASE_URL}/radio/episodes/recent`,
+  // PSY-1053: schedule-derived ON NOW / UP NEXT guide
+  GUIDE: `${API_BASE_URL}/radio/guide`,
 } as const
 
 // ============================================================================
@@ -91,4 +93,5 @@ export const radioQueryKeys = {
   newReleases: (params?: object) => ['radio', 'new-releases', params] as const,
   stats: () => ['radio', 'stats'] as const,
   recentEpisodes: (params?: object) => ['radio', 'episodes', 'recent', params] as const,
+  guide: () => ['radio', 'guide'] as const,
 } as const

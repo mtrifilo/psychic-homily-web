@@ -27,3 +27,4 @@ export { useStationTopArtists } from './useStationTopArtists'
 export { useStationTopLabels } from './useStationTopLabels'
 // PSY-1299: station co-occurrence graph
 export { useStationGraph } from './useStationGraph'
+export { useRadioGuide } from './useRadioGuide'

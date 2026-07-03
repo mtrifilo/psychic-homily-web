@@ -7,11 +7,13 @@ import {
   useRadioStations,
   useNewReleaseRadar,
   useRecentRadioEpisodes,
+  useRadioGuide,
   isStationVisibleOnIndex,
 } from '@/features/radio'
 import { DialStationStrip } from './DialStationStrip'
 import { LatestPlaylistsTable } from './LatestPlaylistsTable'
 import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
+import { RadioGuide } from './RadioGuide'
 
 /**
  * The Dial — /radio hub (PSY-1049, Option A, locked 2026-06-09).
@@ -30,6 +32,7 @@ export default function RadioHub() {
   const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({
     limit: 5,
   })
+  const { data: guideData } = useRadioGuide()
 
   const stations = (stationsQuery.data?.stations ?? []).filter(
     isStationVisibleOnIndex
@@ -86,6 +89,10 @@ export default function RadioHub() {
             <DialStationStrip key={station.id} station={station} />
           ))}
         </section>
+
+        {/* ON NOW / UP NEXT guide (PSY-1053) — self-hides when the guide is
+            empty, loading, or errored. */}
+        <RadioGuide onNow={guideData?.on_now} upNext={guideData?.up_next} />
 
         {/* Latest playlists + sidebar */}
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">

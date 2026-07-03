@@ -33,6 +33,7 @@ func setupRadioRoutes(rc RouteContext) {
 
 	// Public radio aggregation endpoints
 	huma.Get(rc.API, "/radio/episodes/recent", radioHandler.GetRecentRadioEpisodesHandler)
+	huma.Get(rc.API, "/radio/guide", radioHandler.GetRadioGuideHandler)
 	huma.Get(rc.API, "/radio/new-releases", radioHandler.GetRadioNewReleaseRadarHandler)
 	huma.Get(rc.API, "/radio/stats", radioHandler.GetRadioStatsHandler)
 
