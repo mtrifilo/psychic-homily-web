@@ -12,6 +12,13 @@
  * friction on a feature whose value is the immediate visual scan. Mobile
  * gating and the empty-state (`<3` connected artists) gate are unchanged.
  *
+ * PSY-1320: cluster lenses. A "Clusters: Venue | Community" pill toggle
+ * switches the backend's `cluster_by` param between most-frequent-venue
+ * clusters and the persisted Leiden community partition (PSY-1262). Venue
+ * remains the DEFAULT until PSY-1323's input-graph rebalance makes community
+ * clusters scene-meaningful (amended decision, 2026-07-02 gamma sweep).
+ * Hidden-cluster state resets on mode switch (IDs are mode-scoped).
+ *
  * PSY-517: the slot vacated by PSY-516's removed toggle now hosts an
  * Expand / Exit button that opens a CSS viewport overlay (not the Browser
  * Fullscreen API) containing the same graph + cluster legend. Esc closes;
@@ -36,10 +43,15 @@ import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
-import { useSceneGraph } from '../hooks/useScenes'
+import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 
 const MIN_GRAPH_NODES = 3
+
+const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
+  { value: 'venue', label: 'Venue' },
+  { value: 'community', label: 'Community' },
+]
 
 interface SceneGraphProps {
   slug: string
@@ -48,8 +60,25 @@ interface SceneGraphProps {
 }
 
 export function SceneGraph({ slug, city, state }: SceneGraphProps) {
-  const { data, isLoading } = useSceneGraph({ slug, enabled: Boolean(slug) })
+  // PSY-1320: venue is the default lens for now — the recorded default-to-
+  // community decision is amended until PSY-1323's input-graph rebalance
+  // makes community clusters scene-meaningful (2026-07-02 gamma sweep:
+  // both eyeball scenes rendered 100% "other").
+  const [clusterBy, setClusterBy] = useState<SceneGraphClusterBy>('venue')
+  const { data, isLoading, isError, isPlaceholderData } = useSceneGraph({
+    slug,
+    clusterBy,
+    enabled: Boolean(slug),
+  })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
+
+  const switchClusterBy = (mode: SceneGraphClusterBy) => {
+    if (mode === clusterBy) return
+    setClusterBy(mode)
+    // Cluster IDs are mode-scoped (`v_*` vs `c_*`), so a hidden set carried
+    // across modes would silently hide nothing — reset with the switch.
+    setHiddenClusters(new Set())
+  }
   // Width measurement uses a callback ref, not useRef + useEffect — the full
   // rationale lives in useContainerWidth.ts.
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
@@ -80,6 +109,54 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
   if (isLoading) return null
 
+  // Cluster-by mode toggle — radio-style pills (VenueBillNetwork's window
+  // filter pattern), rendered above the legend inline and in the overlay.
+  // Defined before the data guards because the error state below needs it.
+  const clusterByToggle = (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-muted-foreground" aria-hidden="true">
+        Clusters:
+      </span>
+      {CLUSTER_MODES.map(mode => {
+        const isActive = clusterBy === mode.value
+        return (
+          <button
+            key={mode.value}
+            type="button"
+            onClick={() => switchClusterBy(mode.value)}
+            aria-pressed={isActive}
+            className={`px-2 py-0.5 rounded-full border text-xs transition-colors ${
+              isActive
+                ? 'bg-primary/10 border-primary text-primary'
+                : 'border-border/60 text-muted-foreground hover:bg-muted/50'
+            }`}
+          >
+            {mode.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  // A settled fetch error leaves `data` undefined (keepPreviousData only
+  // bridges the pending window). Unmounting here would strand the user: the
+  // toggle is their only path back to the mode that worked, so keep the
+  // section shell + toggle rendered with an inline notice instead of
+  // vanishing (code-review finding, PSY-1320).
+  if (!data && isError) {
+    return (
+      <div id="graph" className="mt-2 scroll-mt-20">
+        <h2 className="text-lg font-semibold mb-2">Scene graph</h2>
+        <div className="space-y-2">
+          {clusterByToggle}
+          <p className="text-sm text-muted-foreground">
+            This view couldn&apos;t load. Try switching clusters above.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   // Section is rendered (with the header) so users get scale info even when
   // the graph is unavailable (e.g. mobile). Empty state: scene has < 3
   // connected artists — render nothing rather than a confusing skeleton.
@@ -106,6 +183,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
       onToggle={toggleCluster}
     />
   )
+
+  const clusterCaption =
+    clusterBy === 'community'
+      ? 'Clusters group artists by similarity community — computed nightly from shared bills, shared labels, and radio co-play across the whole catalog.'
+      : 'Clusters group artists by their most-frequent venue here.'
+
+  // Mid-switch, keepPreviousData still renders the OLD mode's clusters while
+  // the caption/pills already claim the new mode. Dim the stale content and
+  // block legend clicks (a hide clicked now would store an old-mode ID into
+  // the just-reset hidden set); the mode toggle stays interactive.
+  const transitionDim = isPlaceholderData ? 'opacity-60 pointer-events-none' : ''
 
   // The Expand button lives inside the header's gap-2 row; it's only rendered
   // when graphAvailable, which inherits the mobile gate (containerWidth must
@@ -168,22 +256,26 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
         {graphAvailable && !isFullscreen && (
           <div className="space-y-3">
-            {/* Cluster legend — click a row to toggle that cluster's visibility.
-                "Other" stays clickable so users can hide the long tail at will. */}
-            {clusterLegend}
+            {clusterByToggle}
 
-            <SceneGraphVisualization
-              data={data}
-              // Safe non-null: graphAvailable requires containerWidth !== null
-              containerWidth={containerWidth!}
-              hiddenClusterIDs={hiddenClusters}
-            />
+            <div className={`space-y-3 ${transitionDim}`} aria-busy={isPlaceholderData}>
+              {/* Cluster legend — click a row to toggle that cluster's visibility.
+                  "Other" stays clickable so users can hide the long tail at will. */}
+              {clusterLegend}
 
-            <p className="text-xs text-muted-foreground">
-              Showing artists who&apos;ve played approved shows in {city}, {state}. Clusters
-              group artists by their most-frequent venue here. Click a cluster pill above to
-              hide it; click any artist to open their page.
-            </p>
+              <SceneGraphVisualization
+                data={data}
+                // Safe non-null: graphAvailable requires containerWidth !== null
+                containerWidth={containerWidth!}
+                hiddenClusterIDs={hiddenClusters}
+              />
+
+              <p className="text-xs text-muted-foreground">
+                Showing artists who&apos;ve played approved shows in {city}, {state}.{' '}
+                {clusterCaption} Click a cluster pill above to hide it; click any artist to
+                open their page.
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -215,9 +307,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             </button>
           </div>
 
-          <div className="px-4 py-2 border-b border-border/30">{clusterLegend}</div>
+          <div className="px-4 py-2 border-b border-border/30 space-y-2">
+            {clusterByToggle}
+            <div className={transitionDim} aria-busy={isPlaceholderData}>
+              {clusterLegend}
+            </div>
+          </div>
 
-          <div className="flex-1 min-h-0 px-4 py-2">
+          <div
+            className={`flex-1 min-h-0 px-4 py-2 ${transitionDim}`}
+            aria-busy={isPlaceholderData}
+          >
             {overlayHeight !== null && overlayWidth !== null && (
               <SceneGraphVisualization
                 data={data}
