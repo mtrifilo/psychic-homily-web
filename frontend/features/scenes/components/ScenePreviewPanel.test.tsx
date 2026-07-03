@@ -113,6 +113,84 @@ describe('ScenePreviewPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('focuses close on open and returns focus to the return target on close (PSY-1313)', () => {
+    mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
+    // The keyboard path: AtlasGlobe passes the "Search scenes" trigger as the
+    // panel's explicit focus-return target.
+    const opener = document.createElement('button')
+    opener.textContent = 'Search scenes'
+    document.body.appendChild(opener)
+
+    const { unmount } = renderWithProviders(
+      <ScenePreviewPanel
+        scene={scene}
+        onClose={() => {}}
+        returnFocusTo={{ current: opener }}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /close scene preview/i }),
+    ).toHaveFocus()
+
+    unmount()
+    expect(opener).toHaveFocus()
+    opener.remove()
+  })
+
+  it('leaves focus alone on close when the user has tabbed elsewhere (non-modal)', () => {
+    mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    const { unmount } = renderWithProviders(
+      <ScenePreviewPanel
+        scene={scene}
+        onClose={() => {}}
+        returnFocusTo={{ current: opener }}
+      />,
+    )
+    // User tabs out of the non-modal panel into some other page control…
+    const elsewhere = document.createElement('a')
+    elsewhere.href = '#'
+    document.body.appendChild(elsewhere)
+    elsewhere.focus()
+    // …then the panel closes (document-level Esc fires regardless of focus).
+    unmount()
+    expect(elsewhere).toHaveFocus()
+    opener.remove()
+    elsewhere.remove()
+  })
+
+  it('ignores Escape while typing in a field (the reopened search owns that Esc)', () => {
+    mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
+    const onClose = vi.fn()
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={onClose} />)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    input.remove()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not return focus to a target that left the DOM (no crash, no stray focus)', () => {
+    mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+
+    const { unmount } = renderWithProviders(
+      <ScenePreviewPanel
+        scene={scene}
+        onClose={() => {}}
+        returnFocusTo={{ current: opener }}
+      />,
+    )
+    opener.remove()
+    expect(() => unmount()).not.toThrow()
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('shows a loading state while artists load', () => {
     mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: true })
     renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)

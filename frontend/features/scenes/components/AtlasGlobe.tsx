@@ -99,6 +99,11 @@ export function AtlasGlobe() {
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
   const flyToRef = useRef<((scene: PlaceableScene) => void) | null>(null)
 
+  // PSY-1313: the search trigger doubles as the preview panel's focus-return
+  // target — it's the page's keyboard entry point into scenes, so closing the
+  // panel lands a keyboard user back where the journey starts.
+  const searchTriggerRef = useRef<HTMLButtonElement | null>(null)
+
   // Drift (PSY-1308): fly to a weighted-random scene and open its preview —
   // the radio.garden "balloon ride". The panel opens immediately so the
   // Bandcamp embed loads during the flight; the pick excludes the scene
@@ -218,7 +223,11 @@ export function AtlasGlobe() {
         >
           Drift
         </button>
-        <AtlasSearch scenes={allScenes} onPick={handleSearchPick} />
+        <AtlasSearch
+          scenes={allScenes}
+          onPick={handleSearchPick}
+          triggerRef={searchTriggerRef}
+        />
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"
@@ -229,7 +238,11 @@ export function AtlasGlobe() {
           </Link>
         )}
         {selected && (
-          <ScenePreviewPanel scene={selected} onClose={closePreview} />
+          <ScenePreviewPanel
+            scene={selected}
+            onClose={closePreview}
+            returnFocusTo={searchTriggerRef}
+          />
         )}
       </>
     )
