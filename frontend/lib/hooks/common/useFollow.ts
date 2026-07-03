@@ -15,7 +15,12 @@ import type {
  * Hook to fetch follow status (follower count + user's follow status) for a single entity.
  * Uses optional auth -- if authenticated, includes whether the user is following.
  */
-export const useFollowStatus = (entityType: string, entityId: number) => {
+export const useFollowStatus = (
+  entityType: string,
+  // number for id-keyed entities; a scene SLUG for "scenes" (PSY-1339/1340 —
+  // same route shape: GET /scenes/{slug}/followers).
+  entityId: number | string
+) => {
   return useQuery({
     queryKey: queryKeys.follows.entity(entityType, entityId),
     queryFn: async (): Promise<FollowStatus> => {
@@ -24,7 +29,9 @@ export const useFollowStatus = (entityType: string, entityId: number) => {
         { method: 'GET' }
       )
     },
-    enabled: entityId > 0 && !!entityType,
+    enabled:
+      (typeof entityId === 'number' ? entityId > 0 : entityId.length > 0) &&
+      !!entityType,
     staleTime: 2 * 60 * 1000, // 2 minutes
   })
 }
@@ -72,7 +79,8 @@ export const useFollow = () => {
       entityId,
     }: {
       entityType: string
-      entityId: number
+      // number, or a scene SLUG for entityType "scenes" (PSY-1340).
+      entityId: number | string
     }): Promise<{ success: boolean; message: string }> => {
       return apiRequest(API_ENDPOINTS.FOLLOW.ENTITY(entityType, entityId), {
         method: 'POST',

@@ -5,6 +5,7 @@ import {
   DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
   LABEL_TOP_K_FLOOR,
+  DOT_COLOR_FOLLOWED,
   labelMinCountForAltitude,
   RING_ALTITUDE,
   sceneDotAltitude,
@@ -97,6 +98,22 @@ describe('sceneDotAltitude', () => {
   it('treats non-finite counts like zero (inherits the radius guard)', () => {
     expect(sceneDotAltitude(NaN)).toBeCloseTo(sceneDotAltitude(0), 5)
     expect(sceneDotAltitude(undefined as unknown as number)).toBeCloseTo(sceneDotAltitude(0), 5)
+  })
+})
+
+describe('sceneDotColor followed state (PSY-1340)', () => {
+  const followed = new Set(['phoenix-az'])
+
+  it('tints followed dots, with selected/hovered still winning', () => {
+    expect(sceneDotColor('phoenix-az', null, null, followed)).toBe(DOT_COLOR_FOLLOWED)
+    expect(sceneDotColor('phoenix-az', 'phoenix-az', null, followed)).toBe(DOT_COLOR_HOVERED)
+    expect(sceneDotColor('phoenix-az', null, 'phoenix-az', followed)).toBe(DOT_COLOR_SELECTED)
+    expect(sceneDotColor('denver-co', null, null, followed)).toBe(DOT_COLOR_BASE)
+  })
+
+  it('treats an absent set as unfollowed (logged-out)', () => {
+    expect(sceneDotColor('phoenix-az', null, null, null)).toBe(DOT_COLOR_BASE)
+    expect(sceneDotColor('phoenix-az', null, null)).toBe(DOT_COLOR_BASE)
   })
 })
 

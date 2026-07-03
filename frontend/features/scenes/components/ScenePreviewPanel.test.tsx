@@ -20,6 +20,16 @@ vi.mock('next/link', () => ({
 }))
 
 const mockUseSceneArtists = vi.fn()
+// FollowButton pulls AuthContext (unavailable here) — mock at the module
+// boundary, same idiom as VenueDetail/LabelDetail tests.
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number | string }) => (
+    <button data-testid="follow-button">
+      Follow {entityType} {String(entityId)}
+    </button>
+  ),
+}))
+
 // Default: a quiet week — tests for the "This week" section override this.
 const mockUseSceneShows = vi.fn()
 vi.mock('../hooks', () => ({
@@ -189,6 +199,14 @@ describe('ScenePreviewPanel', () => {
     opener.remove()
     expect(() => unmount()).not.toThrow()
     expect(document.activeElement).toBe(document.body)
+  })
+
+  it('carries the follow-a-scene affordance, slug-addressed (PSY-1340)', () => {
+    mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+    expect(screen.getByTestId('follow-button')).toHaveTextContent(
+      'Follow scenes chicago-il',
+    )
   })
 
   it('shows a loading state while artists load', () => {

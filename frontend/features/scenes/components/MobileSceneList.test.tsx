@@ -20,6 +20,16 @@ vi.mock('next/link', () => ({
 }))
 
 const mockUseSceneArtists = vi.fn()
+// FollowButton pulls AuthContext (unavailable here) — mock at the module
+// boundary, same idiom as VenueDetail/LabelDetail tests.
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number | string }) => (
+    <button data-testid="follow-button">
+      Follow {entityType} {String(entityId)}
+    </button>
+  ),
+}))
+
 const mockUseSceneShows = vi.fn()
 vi.mock('../hooks', () => ({
   useSceneArtists: (opts: unknown) => mockUseSceneArtists(opts),
@@ -95,6 +105,21 @@ describe('MobileSceneList', () => {
       expect.stringContaining('Phoenix, AZ'),
       expect.stringContaining('Faketown, ZZ'),
     ])
+  })
+
+  it('stars followed scenes and leaves the rest unmarked (PSY-1340)', () => {
+    renderWithProviders(
+      <MobileSceneList
+        scenes={scenes}
+        loading={false}
+        followedSlugs={new Set([scenes[0].slug])}
+      />,
+    )
+    const stars = screen.getAllByRole('img', { name: 'Followed scene' })
+    expect(stars).toHaveLength(1)
+    expect(stars[0].closest('button')).toHaveTextContent(
+      `${scenes[0].city}, ${scenes[0].state}`,
+    )
   })
 
   it('fetches nothing while all rows are collapsed', () => {

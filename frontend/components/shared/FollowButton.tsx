@@ -14,9 +14,10 @@ import {
 import { cn } from '@/lib/utils'
 
 interface FollowButtonProps {
-  /** Entity type for URL path (plural: "artists", "venues", "labels", "festivals") */
+  /** Entity type for URL path (plural: "artists", "venues", "labels", "festivals", "scenes") */
   entityType: string
-  entityId: number
+  /** Numeric id, or the scene SLUG for entityType "scenes" (PSY-1340). */
+  entityId: number | string
   /** true for cards (icon + count only), false for detail pages (icon + text + count) */
   compact?: boolean
   /** Pre-fetched data from batch endpoint, avoids extra request */

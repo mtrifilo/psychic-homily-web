@@ -42,6 +42,8 @@ interface GlobeCanvasProps {
    * the same globeRef).
    */
   flyToRef?: React.MutableRefObject<((scene: PlaceableScene) => void) | null>
+  /** Slugs of scenes the viewer follows (PSY-1340) — tinted DOT_COLOR_FOLLOWED. */
+  followedSlugs?: ReadonlySet<string> | null
 }
 
 const EARTH_TEXTURE =
@@ -95,6 +97,7 @@ export default function GlobeCanvas({
   onSelect,
   selected = null,
   flyToRef,
+  followedSlugs = null,
 }: GlobeCanvasProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
 
@@ -112,8 +115,9 @@ export default function GlobeCanvas({
   }, [])
 
   const pointColor = useCallback(
-    (d: object) => sceneDotColor((d as PlaceableScene).slug, hoveredSlug, selectedSlug),
-    [hoveredSlug, selectedSlug],
+    (d: object) =>
+      sceneDotColor((d as PlaceableScene).slug, hoveredSlug, selectedSlug, followedSlugs),
+    [hoveredSlug, selectedSlug, followedSlugs],
   )
   const pointRadius = useCallback(
     (d: object) => {
