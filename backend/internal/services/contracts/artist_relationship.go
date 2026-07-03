@@ -100,3 +100,17 @@ type ArtistRelationshipServiceInterface interface {
 	DeriveSharedBills(minShows int) (int64, error)
 	DeriveSharedLabels(minLabels int) (int64, error)
 }
+
+// Production thresholds for the auto-derivation steps, shared by the admin
+// trigger endpoint and the scheduled derivation cycle so they can never
+// diverge.
+//
+// PSY-1323: minShows dropped from 2 to 1 — one-off co-bills are the bulk of
+// the live co-appearance signal (only 45 shared_bills edges survived
+// minShows=2 on stage despite dense show data); the score formula already
+// gives a single shared show a low weight (count/10), so noise is bounded by
+// weight rather than by exclusion.
+const (
+	DefaultSharedBillsMinShows   = 1
+	DefaultSharedLabelsMinLabels = 1
+)

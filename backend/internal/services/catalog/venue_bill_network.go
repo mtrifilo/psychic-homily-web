@@ -35,9 +35,11 @@ const (
 	venueWindowYear    = "year"
 	venueWindowDefault = venueWindowAll
 
-	// Minimum shared shows for a co-bill edge to surface. Mirrors the
-	// production threshold for `shared_bills` in `DeriveSharedBills`
-	// (see docs/features/similar-artists.md §"shared_bills" / minShows=2).
+	// Minimum shared shows for a co-bill edge to surface. Deliberately
+	// stricter than the stored `shared_bills` derive threshold (minShows=1
+	// since PSY-1323): this is a query-time display surface where one-off
+	// co-bill pairs at a busy venue would explode the edge count without
+	// the weight-based bounding the stored graph gets from its score.
 	venueBillMinSharedShows = 2
 )
 

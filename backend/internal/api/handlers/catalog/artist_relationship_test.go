@@ -360,14 +360,14 @@ func TestDeriveRelationships_Success(t *testing.T) {
 	h := NewArtistRelationshipHandler(
 		&testhelpers.MockArtistRelationshipService{
 			DeriveSharedBillsFn: func(minShows int) (int64, error) {
-				if minShows != 2 {
-					t.Errorf("expected minShows=2, got %d", minShows)
+				if minShows != contracts.DefaultSharedBillsMinShows {
+					t.Errorf("expected minShows=%d, got %d", contracts.DefaultSharedBillsMinShows, minShows)
 				}
 				return 7, nil
 			},
 			DeriveSharedLabelsFn: func(minLabels int) (int64, error) {
-				if minLabels != 1 {
-					t.Errorf("expected minLabels=1, got %d", minLabels)
+				if minLabels != contracts.DefaultSharedLabelsMinLabels {
+					t.Errorf("expected minLabels=%d, got %d", contracts.DefaultSharedLabelsMinLabels, minLabels)
 				}
 				return 3, nil
 			},

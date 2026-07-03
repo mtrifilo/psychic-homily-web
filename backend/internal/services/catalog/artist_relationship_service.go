@@ -1130,7 +1130,7 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 	}
 
 	if minShows <= 0 {
-		minShows = 2
+		minShows = contracts.DefaultSharedBillsMinShows
 	}
 
 	var rows []sharedBillRow
@@ -1187,13 +1187,18 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 			}
 			if err := s.db.Create(rel).Error; err == nil {
 				upserted++
+			} else {
+				slog.Warn("shared_bills derive: create failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
 			}
 		} else if err == nil {
-			s.db.Model(&existing).Updates(map[string]interface{}{
+			if err := s.db.Model(&existing).Updates(map[string]interface{}{
 				"score":  score,
 				"detail": &detailRaw,
-			})
-			upserted++
+			}).Error; err == nil {
+				upserted++
+			} else {
+				slog.Warn("shared_bills derive: update failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
+			}
 		}
 	}
 
@@ -1202,34 +1207,53 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 
 // sharedLabelRow represents the result of the shared-labels co-occurrence query.
 type sharedLabelRow struct {
-	ArtistA     uint
-	ArtistB     uint
-	SharedCount int
-	LabelNames  string
+	ArtistA          uint
+	ArtistB          uint
+	SharedCount      int
+	NormalizedWeight float64
+	LabelNames       string
 }
 
 // DeriveSharedLabels computes shared_label relationships from the artist_labels join table.
 // Creates or updates relationships where artists share minLabels or more labels.
+//
+// PSY-1323: the edge score is normalized by label roster size — each shared
+// label contributes 1/(roster−1) to the pair's score, so a label contributes
+// a constant total weight per artist regardless of how many artists are on
+// it. Without this, every label roster forms an equal-weight clique and large
+// rosters (quadratically inflated by discography enrichment) drown all other
+// graph signal — verified on stage via cmd/community-gamma-sweep, where
+// ~19,107 of 19,335 community-input edges were shared_label cliques.
 func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
 
 	if minLabels <= 0 {
-		minLabels = 1
+		minLabels = contracts.DefaultSharedLabelsMinLabels
 	}
 
+	// label_sizes counts each label's full roster; roster_size >= 2 whenever a
+	// pair exists (the self-join needs two distinct artists on the label), so
+	// the 1/(roster_size - 1) division is always defined.
 	var rows []sharedLabelRow
 	err := s.db.Raw(`
+		WITH label_sizes AS (
+			SELECT label_id, COUNT(*) AS roster_size
+			FROM artist_labels
+			GROUP BY label_id
+		)
 		SELECT
 			al1.artist_id AS artist_a,
 			al2.artist_id AS artist_b,
 			COUNT(DISTINCT al1.label_id) AS shared_count,
+			SUM(1.0 / (ls.roster_size - 1)) AS normalized_weight,
 			STRING_AGG(DISTINCT l.name, ', ' ORDER BY l.name) AS label_names
 		FROM artist_labels al1
 		JOIN artist_labels al2 ON al1.label_id = al2.label_id
 			AND al1.artist_id < al2.artist_id
 		JOIN labels l ON l.id = al1.label_id
+		JOIN label_sizes ls ON ls.label_id = al1.label_id
 		GROUP BY al1.artist_id, al2.artist_id
 		HAVING COUNT(DISTINCT al1.label_id) >= ?
 	`, minLabels).Scan(&rows).Error
@@ -1241,13 +1265,18 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 	var upserted int64
 
 	for _, row := range rows {
-		// Score: proportion of shared labels (cap at 1.0)
-		// More shared labels = stronger relationship
-		score := float32(math.Min(float64(row.SharedCount)/5.0, 1.0))
+		// Score: roster-normalized shared-label weight (cap at 1.0). A pair
+		// alone on a 2-artist label scores 1.0; a pair on an N-artist roster
+		// scores 1/(N-1) per shared label, summed across labels.
+		score := float32(math.Min(row.NormalizedWeight, 1.0))
 
+		// normalized_weight is persisted because the score is no longer
+		// derivable from shared_count alone — it depends on roster sizes at
+		// derive time, which drift with every enrichment sweep.
 		detail, _ := json.Marshal(map[string]interface{}{
-			"shared_count": row.SharedCount,
-			"label_names":  row.LabelNames,
+			"shared_count":      row.SharedCount,
+			"normalized_weight": math.Round(row.NormalizedWeight*10000) / 10000,
+			"label_names":       row.LabelNames,
 		})
 		detailRaw := json.RawMessage(detail)
 
@@ -1267,13 +1296,18 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 			}
 			if err := s.db.Create(rel).Error; err == nil {
 				upserted++
+			} else {
+				slog.Warn("shared_label derive: create failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
 			}
 		} else if err == nil {
-			s.db.Model(&existing).Updates(map[string]interface{}{
+			if err := s.db.Model(&existing).Updates(map[string]interface{}{
 				"score":  score,
 				"detail": &detailRaw,
-			})
-			upserted++
+			}).Error; err == nil {
+				upserted++
+			} else {
+				slog.Warn("shared_label derive: update failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
+			}
 		}
 	}
 

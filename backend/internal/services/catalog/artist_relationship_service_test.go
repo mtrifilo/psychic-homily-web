@@ -48,6 +48,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM artist_labels")
+	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
@@ -83,6 +85,19 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) createShow(title str
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) addArtistToShow(showID, artistID uint) {
 	suite.db.Exec("INSERT INTO show_artists (show_id, artist_id) VALUES (?, ?)", showID, artistID)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) createLabel(name string) uint {
+	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	label := &catalogm.Label{Name: name, Slug: &slug}
+	err := suite.db.Create(label).Error
+	suite.Require().NoError(err)
+	return label.ID
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) addArtistToLabel(labelID, artistID uint) {
+	err := suite.db.Exec("INSERT INTO artist_labels (artist_id, label_id) VALUES (?, ?)", artistID, labelID).Error
+	suite.Require().NoError(err)
 }
 
 // ──────────────────────────────────────────────
@@ -386,6 +401,136 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBill
 
 	rel, _ := suite.svc.GetRelationship(a1, a2, "shared_bills")
 	suite.Assert().NotNil(rel.Detail) // Has detail JSON
+}
+
+// PSY-1323: minShows=1 keeps one-off co-bills with a low score instead of
+// dropping them — the count/10 formula bounds the noise by weight.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBills_OneOffMinShowsOne() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	show1 := suite.createShow("Show 1")
+
+	suite.addArtistToShow(show1, a1)
+	suite.addArtistToShow(show1, a2)
+
+	count, err := suite.svc.DeriveSharedBills(1)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), count)
+
+	rel, err := suite.svc.GetRelationship(a1, a2, "shared_bills")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+	// One shared show = 0.1, ×1.2 recency boost (show is within 3 months).
+	suite.Assert().InDelta(0.12, float64(rel.Score), 0.001)
+}
+
+// ──────────────────────────────────────────────
+// Shared-label derivation (PSY-1323 roster normalization)
+// ──────────────────────────────────────────────
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedLabels_TwoArtistLabel() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	label := suite.createLabel("Tiny Label")
+	suite.addArtistToLabel(label, a1)
+	suite.addArtistToLabel(label, a2)
+
+	count, err := suite.svc.DeriveSharedLabels(1)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), count)
+
+	rel, err := suite.svc.GetRelationship(a1, a2, "shared_label")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+	suite.Assert().True(rel.AutoDerived)
+	// Roster of 2: the pair carries the label's full weight, 1/(2-1) = 1.0.
+	suite.Assert().InDelta(1.0, float64(rel.Score), 0.001)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedLabels_LargeRosterNormalized() {
+	label := suite.createLabel("Big Label")
+	ids := make([]uint, 5)
+	for i := range ids {
+		ids[i] = suite.createArtist(fmt.Sprintf("Roster Band %d", i))
+		suite.addArtistToLabel(label, ids[i])
+	}
+
+	count, err := suite.svc.DeriveSharedLabels(1)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(10), count) // C(5,2) pairs
+
+	rel, err := suite.svc.GetRelationship(ids[0], ids[1], "shared_label")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+	// Roster of 5: each pair gets 1/(5-1) = 0.25, not the flat 0.2 of the
+	// old shared_count/5 formula — bigger rosters dilute per-pair weight.
+	suite.Assert().InDelta(0.25, float64(rel.Score), 0.001)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedLabels_MultiLabelWeightsSum() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	// Two labels, each with roster 4 (the pair + 2 fillers): the pair's score
+	// sums per-label contributions, 1/3 + 1/3.
+	for _, name := range []string{"Label One", "Label Two"} {
+		label := suite.createLabel(name)
+		suite.addArtistToLabel(label, a1)
+		suite.addArtistToLabel(label, a2)
+		suite.addArtistToLabel(label, suite.createArtist("Filler for "+name))
+		suite.addArtistToLabel(label, suite.createArtist("Filler 2 for "+name))
+	}
+
+	_, err := suite.svc.DeriveSharedLabels(1)
+	suite.Require().NoError(err)
+
+	rel, err := suite.svc.GetRelationship(a1, a2, "shared_label")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+	suite.Assert().InDelta(2.0/3.0, float64(rel.Score), 0.001)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedLabels_ScoreCappedAtOne() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	// Three 2-artist labels: raw normalized weight 3.0, capped to 1.0.
+	for _, name := range []string{"Cap One", "Cap Two", "Cap Three"} {
+		label := suite.createLabel(name)
+		suite.addArtistToLabel(label, a1)
+		suite.addArtistToLabel(label, a2)
+	}
+
+	_, err := suite.svc.DeriveSharedLabels(1)
+	suite.Require().NoError(err)
+
+	rel, err := suite.svc.GetRelationship(a1, a2, "shared_label")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+	suite.Assert().InDelta(1.0, float64(rel.Score), 0.001)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedLabels_RederiveRescoresGrownRoster() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	label := suite.createLabel("Growing Label")
+	suite.addArtistToLabel(label, a1)
+	suite.addArtistToLabel(label, a2)
+
+	_, err := suite.svc.DeriveSharedLabels(1)
+	suite.Require().NoError(err)
+	rel, _ := suite.svc.GetRelationship(a1, a2, "shared_label")
+	suite.Require().NotNil(rel)
+	suite.Assert().InDelta(1.0, float64(rel.Score), 0.001)
+
+	// Roster grows to 3 (e.g. discography enrichment): re-derive updates the
+	// existing row's score to 1/(3-1) = 0.5 in place — no wipe needed.
+	suite.addArtistToLabel(label, suite.createArtist("Band C"))
+	_, err = suite.svc.DeriveSharedLabels(1)
+	suite.Require().NoError(err)
+
+	rel, err = suite.svc.GetRelationship(a1, a2, "shared_label")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+	suite.Assert().InDelta(0.5, float64(rel.Score), 0.001)
 }
 
 // ──────────────────────────────────────────────
