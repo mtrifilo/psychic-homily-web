@@ -38,6 +38,7 @@ import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useCo
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useSceneGraph } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
+import { sceneArtistCountPhrase } from './sceneGraphCopy'
 
 const MIN_GRAPH_NODES = 3
 
@@ -123,11 +124,20 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     </button>
   )
 
+  // PSY-1296: a capped graph must say so — "12 artists" on a 90-band metro
+  // reads as the whole scene. Shared phrase (sceneGraphCopy) so this header
+  // and the canvas aria-label can't state different numbers; only the leading
+  // cap differs (sentence-cased here, mid-sentence in the aria-label). A
+  // digit-leading plain count is a toUpperCase no-op.
+  const rawArtistPhrase = sceneArtistCountPhrase(data.scene)
+  const artistPhrase =
+    rawArtistPhrase.charAt(0).toUpperCase() + rawArtistPhrase.slice(1)
+
   const sceneHeader = (
     <div>
       <h2 className="text-lg font-semibold">Scene graph</h2>
       <p className="text-sm text-muted-foreground">
-        {nodeCount} {nodeCount === 1 ? 'artist' : 'artists'}
+        {artistPhrase}
         {edgeCount > 0 && (
           <>
             {' · '}
@@ -179,10 +189,18 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
               hiddenClusterIDs={hiddenClusters}
             />
 
+            {/* PSY-1296: the roster is BASED-IN artists ranked by approved-show
+                activity here (post-PSY-1233 re-key + PSY-1277 cap) — the old
+                "who've played approved shows in" copy described a played-here
+                population and contradicted the truncation hint above it.
+                "the X scene" (not "in and around X") because the roster's
+                geographic scope varies: metro rollup for CBSA scenes, exact
+                city for the fallback — the FE can't tell which, and "scene"
+                is the product term that covers both. */}
             <p className="text-xs text-muted-foreground">
-              Showing artists who&apos;ve played approved shows in {city}, {state}. Clusters
-              group artists by their most-frequent venue here. Click a cluster pill above to
-              hide it; click any artist to open their page.
+              Showing artists based in the {city}, {state} scene, ranked by their
+              approved shows here. Clusters group artists by their most-frequent venue.
+              Click a cluster pill above to hide it; click any artist to open their page.
             </p>
           </div>
         )}
