@@ -170,7 +170,9 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
   it('a pointerdown on the edge legend (a non-canvas overlay child) does NOT cancel the fit', () => {
     renderGraph({ showEdgeLegend: true })
     // The legend renders because the payload carries a typed link.
-    fireEvent.pointerDown(screen.getByRole('button', { name: /shared bills/i }))
+    // ^Shared Bills pins the row toggle (named by its visible content); the
+    // PSY-1334 solo button's aria-label starts with "Show only".
+    fireEvent.pointerDown(screen.getByRole('button', { name: /^shared bills/i }))
 
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)

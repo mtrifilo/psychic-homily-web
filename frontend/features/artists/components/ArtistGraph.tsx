@@ -12,6 +12,8 @@ import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROU
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
+import { ConnectionPanel } from '@/components/graph/ConnectionPanel'
+import { aggregatePairConnections, useConnectionInspect } from '@/components/graph/useConnectionInspect'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
@@ -305,6 +307,8 @@ export function ArtistGraphVisualization({
   const containerRef = useRef<HTMLDivElement>(null)
   const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
+  // PSY-1334: which artist pair the ConnectionPanel is inspecting.
+  const connectionInspect = useConnectionInspect()
   // Tooltip position in CONTAINER coords (the tooltip is position:absolute within
   // the relative container). Set from the hovered node's screen position in
   // handleNodeHover; flipX/flipY anchor it toward the container's interior near the
@@ -574,11 +578,41 @@ export function ArtistGraphVisualization({
   // escape. Clicking the center is a no-op (it's the ego anchor, already "expanded").
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
+      // Node click shifts attention to the node (expand/collapse) — close an
+      // open connection panel so a stale pair card doesn't linger (PSY-1334).
+      connectionInspect.close()
       if (node.isCenter) return
       onExpand?.({ id: node.id, slug: node.slug, name: node.name })
     },
-    [onExpand]
+    [onExpand, connectionInspect]
   )
+
+  // PSY-1334: edge click opens the ConnectionPanel for that pair. Same
+  // interaction contract as ForceGraphView (shared hook + panel component).
+  const handleLinkClick = useCallback(
+    (link: GraphLink) => {
+      connectionInspect.open(endpointId(link.source), endpointId(link.target))
+    },
+    [connectionInspect]
+  )
+
+  // Panel data derives from the RAW payload (data.links / data.nodes), not
+  // graphData: the panel lists ALL typed connections between the pair, even
+  // types the pill-row toggles or the per-node edge cap currently exclude
+  // from the simulation ("why connected" is about the data, not the filter).
+  const connectionPanelData = useMemo(() => {
+    const pair = connectionInspect.pair
+    if (!pair) return null
+    const byId = new Map<number, { name: string; slug: string }>()
+    byId.set(data.center.id, { name: data.center.name, slug: data.center.slug })
+    for (const n of data.nodes) byId.set(n.id, { name: n.name, slug: n.slug })
+    const source = byId.get(pair.sourceId)
+    const target = byId.get(pair.targetId)
+    if (!source || !target) return null
+    const connections = aggregatePairConnections(data.links, pair)
+    if (connections.length === 0) return null
+    return { source, target, connections }
+  }, [connectionInspect.pair, data])
 
   // Anchor the tooltip on the NODE (onNodeHover carries no MouseEvent) via the
   // shared nodeTooltipPlacement helper — see its doc-comment for the
@@ -925,6 +959,12 @@ export function ArtistGraphVisualization({
         linkWidth={linkWidth}
         linkLineDash={linkLineDash}
         linkLabel={linkLabel}
+        // PSY-1334: 1px strokes are near-unclickable at the lib's default
+        // hover precision — widen the link hit target for the inspect click.
+        linkHoverPrecision={4}
+        onLinkClick={handleLinkClick}
+        // Background click closes the inspect panel (no-op when closed).
+        onBackgroundClick={connectionInspect.close}
         linkDirectionalParticles={0}
         cooldownTicks={100}
         d3AlphaDecay={0.04}
@@ -984,6 +1024,19 @@ export function ArtistGraphVisualization({
         counts={legendDisclosure.counts}
         footnote={legendDisclosure.footnote}
       />
+
+      {/* PSY-1334: click-to-inspect connection panel — same shared component
+          the ForceGraphView surfaces mount, so the ego graph's "why
+          connected" card can't drift from the scene/venue/station ones. */}
+      {connectionPanelData && (
+        <ConnectionPanel
+          className="absolute bottom-2 left-2 z-40"
+          source={connectionPanelData.source}
+          target={connectionPanelData.target}
+          connections={connectionPanelData.connections}
+          onClose={connectionInspect.close}
+        />
+      )}
     </div>
   )
 }
