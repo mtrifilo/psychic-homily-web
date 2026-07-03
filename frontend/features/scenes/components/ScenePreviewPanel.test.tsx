@@ -270,6 +270,8 @@ describe('ScenePreviewPanel', () => {
             title: 'Big Show',
             event_date: '2026-07-04',
             venue_name: 'Valley Bar',
+            // A real title wins over the bill names (PSY-1325 fallback order).
+            artist_names: ['Some Band'],
           },
           // No slug → the link falls back to the id.
           { id: 43, title: 'Slugless Show', event_date: '2026-07-05' },
@@ -292,6 +294,60 @@ describe('ScenePreviewPanel', () => {
     // to July 3 by a negative-offset local zone.
     expect(screen.getByText(/Jul 4/)).toBeInTheDocument()
     expect(screen.getByText(/Valley Bar/)).toBeInTheDocument()
+  })
+
+  // PSY-1325: most shows have NO title — the bill is the display name. An
+  // empty title must never render an invisible, unclickable link.
+  it('falls back to bill names (capped) for untitled this-week shows', () => {
+    mockUseSceneArtists.mockReturnValue({
+      data: { artists: [], total: 0 },
+      isLoading: false,
+    })
+    mockUseSceneShows.mockReturnValue({
+      data: {
+        shows: [
+          {
+            id: 50,
+            slug: 'untitled-bill',
+            title: '',
+            event_date: '2026-07-04',
+            venue_name: 'Empty Bottle',
+            artist_names: ['Fruit Bats', 'Hannah Frey'],
+          },
+          {
+            id: 51,
+            title: '',
+            event_date: '2026-07-05',
+            artist_names: ['A', 'B', 'C', 'D', 'E'],
+          },
+          // Degenerate payload: no title AND no artists — still a clickable link.
+          { id: 52, title: '', event_date: '2026-07-06' },
+          // Whitespace-only title is as invisible as an empty one — bill wins.
+          {
+            id: 53,
+            title: '   ',
+            event_date: '2026-07-07',
+            artist_names: ['Trim Check'],
+          },
+        ],
+      },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+
+    expect(
+      screen.getByRole('link', { name: 'Fruit Bats, Hannah Frey' }),
+    ).toHaveAttribute('href', '/shows/untitled-bill')
+    // Festival-sized bills cap at 3 names.
+    expect(
+      screen.getByRole('link', { name: 'A, B, C +2 more' }),
+    ).toHaveAttribute('href', '/shows/51')
+    expect(
+      screen.getByRole('link', { name: 'Untitled show' }),
+    ).toHaveAttribute('href', '/shows/52')
+    expect(
+      screen.getByRole('link', { name: 'Trim Check' }),
+    ).toHaveAttribute('href', '/shows/53')
   })
 
   it('renders no "This week" section on a quiet week', () => {

@@ -676,6 +676,10 @@ type SceneShowSummary struct {
 	Title     string `json:"title"`
 	EventDate string `json:"event_date"` // ISO date (YYYY-MM-DD)
 	VenueName string `json:"venue_name,omitempty"`
+	// Bill artists in position order (PSY-1325). Most shows have an empty
+	// Title — display names are composed from artists everywhere else in the
+	// app — so without these the preview row carries no band info at all.
+	ArtistNames []string `json:"artist_names,omitempty"`
 }
 
 // SceneDetailResponse represents the full computed scene for a metro (or a

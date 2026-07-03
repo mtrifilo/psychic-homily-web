@@ -317,9 +317,17 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows() {
 	tempe := suite.createVerifiedVenue("Yucca Tap Room", "Tempe", "AZ") // Phoenix-CBSA member city
 
 	now := time.Now().UTC()
-	suite.createApprovedShow("Day 3 Show", venues[0].ID, artists[0].ID, user.ID, now.AddDate(0, 0, 3))
+	day3 := suite.createApprovedShow("Day 3 Show", venues[0].ID, artists[0].ID, user.ID, now.AddDate(0, 0, 3))
 	suite.createApprovedShow("Day 1 Tempe Show", tempe.ID, artists[1].ID, user.ID, now.AddDate(0, 0, 1))
 	suite.createApprovedShow("Day 5 Show", venues[1].ID, artists[2].ID, user.ID, now.AddDate(0, 0, 5))
+
+	// PSY-1325: a second artist on the Day 3 bill at a LATER position — the
+	// summary must carry the bill in position order (most shows have empty
+	// titles, so these names ARE the display name).
+	opener := suite.createArtist("Day 3 Opener")
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+		ShowID: day3.ID, ArtistID: opener.ID, Position: 1,
+	}).Error)
 
 	shows, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 7, 3)
 	suite.Require().NoError(err)
@@ -327,7 +335,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows() {
 	// Soonest first — and the Tempe (member-city) show is included AND first.
 	suite.Equal("Day 1 Tempe Show", shows[0].Title)
 	suite.Equal("Yucca Tap Room", shows[0].VenueName)
+	suite.Equal([]string{artists[1].Name}, shows[0].ArtistNames)
 	suite.Equal("Day 3 Show", shows[1].Title)
+	// Bill in position order: headliner (position 0) before the opener (1).
+	suite.Equal([]string{artists[0].Name, "Day 3 Opener"}, shows[1].ArtistNames)
 	suite.Equal("Day 5 Show", shows[2].Title)
 
 	// Limit caps the list (the 7–11d seed shows would qualify in a 30d window).

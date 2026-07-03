@@ -159,10 +159,12 @@ func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string
 		ShowID uint
 		Name   string
 	}
+	// artists.id tie-break: same-position bill entries otherwise come back in
+	// planner order, which can flip between runs (PSY-1325).
 	if err := db.Raw(`SELECT show_artists.show_id, artists.name FROM show_artists
 		JOIN artists ON show_artists.artist_id = artists.id
 		WHERE show_artists.show_id IN (?)
-		ORDER BY show_artists.show_id, show_artists.position`, showIDs).Scan(&rows).Error; err != nil {
+		ORDER BY show_artists.show_id, show_artists.position, artists.id`, showIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 

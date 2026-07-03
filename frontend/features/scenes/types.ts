@@ -84,6 +84,10 @@ export interface SceneShowSummary {
   title: string
   event_date: string // ISO date (YYYY-MM-DD)
   venue_name?: string
+  // Bill artists in position order (PSY-1325). Most shows have an empty
+  // title — display names are composed from artists app-wide — so the row's
+  // link text falls back to these.
+  artist_names?: string[]
 }
 
 export interface SceneShowsResponse {

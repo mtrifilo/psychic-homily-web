@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { useSceneArtists, useSceneShows } from '../hooks'
-import type { SceneListItem } from '../types'
+import type { SceneListItem, SceneShowSummary } from '../types'
 
 // Format an ISO date-only string (YYYY-MM-DD) as e.g. "Fri, Jul 4" WITHOUT a
 // timezone shift: parsing it via `new Date(iso)` lands at UTC midnight, which
@@ -26,6 +26,24 @@ function formatShowDate(isoDate: string): string {
 // coverage (a backend "representative embed") is the deferred complete fix.
 const PREVIEW_ARTIST_LIMIT = 6
 export const EMBED_SEARCH_LIMIT = 24
+// Cap the bill names in a "This week" row — the panel is one narrow column
+// and a festival-sized bill would wrap it into a paragraph.
+const SHOW_BILL_NAME_LIMIT = 3
+
+// The app-wide show display convention (cf. ShowDetail): most shows have no
+// title, the bill IS the name (PSY-1325). Never returns an empty string — an
+// empty link is invisible and unclickable.
+function showDisplayTitle(show: SceneShowSummary): string {
+  // trim: a whitespace-only title is truthy but renders an invisible link —
+  // the exact bug this fallback exists to prevent.
+  const title = show.title.trim()
+  if (title) return title
+  const names = show.artist_names ?? []
+  if (names.length === 0) return 'Untitled show'
+  const shown = names.slice(0, SHOW_BILL_NAME_LIMIT).join(', ')
+  const more = names.length - SHOW_BILL_NAME_LIMIT
+  return more > 0 ? `${shown} +${more} more` : shown
+}
 
 /**
  * The scene-preview payoff body — playable embed, "This week" shows, top local
@@ -98,7 +116,7 @@ export function ScenePreviewContent({
                   href={`/shows/${show.slug || show.id}`}
                   className="underline-offset-4 hover:underline"
                 >
-                  {show.title}
+                  {showDisplayTitle(show)}
                 </Link>
                 {show.venue_name && (
                   <span className="text-muted-foreground"> · {show.venue_name}</span>
