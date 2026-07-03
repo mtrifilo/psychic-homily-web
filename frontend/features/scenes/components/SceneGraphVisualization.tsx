@@ -70,7 +70,7 @@ export function SceneGraphVisualization({
   // PSY-1296: describe a capped graph honestly — assistive tech hears the
   // exact phrase the visual header shows (shared sceneGraphCopy source), so
   // the two surfaces can't state different numbers for the same graph.
-  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} connections.`
+  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}.`
 
   return (
     <ForceGraphView
