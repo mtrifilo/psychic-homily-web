@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ProfileSectionAction } from './ProfileSectionAction'
 import { useUserFieldNotes } from '@/features/auth'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface ProfileFieldNotesProps {
   username: string
@@ -60,10 +61,10 @@ export function ProfileFieldNotes({ username }: ProfileFieldNotesProps) {
                   href={`/shows/${note.show_slug}#field-notes`}
                   className="hover:text-primary hover:underline"
                 >
-                  {note.show_title || 'Untitled show'}
+                  {showDisplayTitle(note.show_title, null)}
                 </Link>
               ) : (
-                note.show_title || 'Untitled show'
+                showDisplayTitle(note.show_title, null)
               )}
             </p>
             {/* body is plain text from the author; render the raw text

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface PublishShowDialogProps {
   show: ShowResponse
@@ -38,7 +39,7 @@ export function PublishShowDialog({
   }
 
   const showTitle =
-    show.title || show.artists.map(a => a.name).join(', ') || 'Untitled Show'
+    showDisplayTitle(show.title, show.artists.map(a => a.name))
 
   // Check if any venue is unverified
   const hasUnverifiedVenue = show.venues?.some(v => !v.verified)

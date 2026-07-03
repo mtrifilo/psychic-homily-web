@@ -78,10 +78,23 @@ describe('TrendingShowsList', () => {
       expect(screen.getByText('Explicit Title')).toBeInTheDocument()
     })
 
-    it('falls back to "artists @ venue" when title is empty', () => {
+    it('falls back to the bill WITHOUT the venue in full rows — the metadata line already shows it (PSY-1328)', () => {
       render(
         <TrendingShowsList
           shows={[makeShow({ title: '', artist_names: ['Band A', 'Band B'], venue_name: 'The Venue' })]}
+        />
+      )
+      // Venue appears exactly once: in the metadata line, not doubled into the title.
+      expect(screen.getByText('Band A, Band B')).toBeInTheDocument()
+      expect(screen.getByText('The Venue')).toBeInTheDocument()
+      expect(screen.queryByText('Band A, Band B @ The Venue')).not.toBeInTheDocument()
+    })
+
+    it('falls back to "artists @ venue" in COMPACT rows, where the metadata line is hidden', () => {
+      render(
+        <TrendingShowsList
+          shows={[makeShow({ title: '', artist_names: ['Band A', 'Band B'], venue_name: 'The Venue' })]}
+          compact
         />
       )
       expect(screen.getByText('Band A, Band B @ The Venue')).toBeInTheDocument()
@@ -96,10 +109,11 @@ describe('TrendingShowsList', () => {
       expect(screen.getByText('Solo Act')).toBeInTheDocument()
     })
 
-    it('falls back to "Show @ venue" when only the venue is known', () => {
+    it('falls back to "Show @ venue" in compact rows when only the venue is known', () => {
       render(
         <TrendingShowsList
           shows={[makeShow({ title: '', artist_names: [], venue_name: 'Lonely Venue' })]}
+          compact
         />
       )
       expect(screen.getByText('Show @ Lonely Venue')).toBeInTheDocument()

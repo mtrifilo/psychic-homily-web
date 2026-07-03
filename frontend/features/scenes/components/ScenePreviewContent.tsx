@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { useSceneArtists, useSceneShows } from '../hooks'
 import type { SceneListItem, SceneShowSummary } from '../types'
@@ -30,28 +31,13 @@ export const EMBED_SEARCH_LIMIT = 24
 // and a festival-sized bill would wrap it into a paragraph.
 const SHOW_BILL_NAME_LIMIT = 3
 
-// Same title→bill fallback idea as ShowDetail / charts' getShowDisplayTitle,
-// but DELIBERATELY different (PSY-1325): no venue in the fallback (this row
-// renders ` · {venue_name}` separately — the charts-style composition would
-// double it) and capped for the narrow panel. Never returns an empty string —
-// an empty link is invisible and unclickable.
-function showDisplayTitle(show: SceneShowSummary): string {
-  // trim: a whitespace-only title is truthy but renders an invisible link —
-  // the exact bug this fallback exists to prevent.
-  // `?? ''`: sibling fields (slug, venue_name) are already omitempty-optional
-  // on the wire — don't let a future omitempty on title turn this into a
-  // TypeError at a trust boundary.
-  const title = (show.title ?? '').trim()
-  if (title) return title
-  // Blank entries get the same trim-truthy gate as the title — a `[""]`
-  // payload must fall through to 'Untitled Show', not join into nothing.
-  const names = (show.artist_names ?? [])
-    .map((n) => n.trim())
-    .filter(Boolean)
-  if (names.length === 0) return 'Untitled Show'
-  const shown = names.slice(0, SHOW_BILL_NAME_LIMIT).join(', ')
-  const more = names.length - SHOW_BILL_NAME_LIMIT
-  return more > 0 ? `${shown} +${more} more` : shown
+// The shared title→bill convention (PSY-1328), capped for the narrow panel
+// and deliberately WITHOUT the venue option: this row renders ` · {venue_name}`
+// separately, so composing it into the fallback would double it (PSY-1325).
+function sceneShowRowTitle(show: SceneShowSummary): string {
+  return showDisplayTitle(show.title, show.artist_names, {
+    cap: SHOW_BILL_NAME_LIMIT,
+  })
 }
 
 /**
@@ -125,7 +111,7 @@ export function ScenePreviewContent({
                   href={`/shows/${show.slug || show.id}`}
                   className="underline-offset-4 hover:underline"
                 >
-                  {showDisplayTitle(show)}
+                  {sceneShowRowTitle(show)}
                 </Link>
                 {show.venue_name && (
                   <span className="text-muted-foreground"> · {show.venue_name}</span>

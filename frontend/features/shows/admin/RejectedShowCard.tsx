@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatShortDate, formatAdminTime } from '@/lib/utils/formatters'
 import { ApproveShowDialog } from './ApproveShowDialog'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface RejectedShowCardProps {
   show: ShowResponse
@@ -34,7 +35,7 @@ export const RejectedShowCard = memo(function RejectedShowCard({ show }: Rejecte
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2">
             <h3 className="font-medium truncate">
-              {show.title || artistNames || 'Untitled Show'}
+              {showDisplayTitle(show.title, show.artists.map(a => a.name))}
             </h3>
             <Badge
               variant="outline"
