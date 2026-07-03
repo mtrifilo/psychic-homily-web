@@ -933,6 +933,16 @@ export function ForceGraphView({
     [],
   )
 
+  // Self-heal a stranded solo (code-review finding): if the soloed type's
+  // last edges leave the displayable set (e.g. its carrying cluster gets
+  // hidden), its legend row disappears — and with it the only control that
+  // clears the solo. Drop the solo so the filter can't outlive its row.
+  useEffect(() => {
+    if (soloEdgeType && !renderData.edgeTypeCounts.has(soloEdgeType)) {
+      setSoloEdgeType(null)
+    }
+  }, [soloEdgeType, renderData.edgeTypeCounts])
+
   const handleToggleEdgeType = useCallback((type: string) => {
     setHiddenEdgeTypes(prev => {
       const next = new Set(prev)
