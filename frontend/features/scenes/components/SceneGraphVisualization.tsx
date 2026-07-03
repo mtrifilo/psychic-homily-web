@@ -85,6 +85,8 @@ export function SceneGraphVisualization({
       // PSY-1083: scene edges are typed (shared_bills / shared_label /
       // member_of / side_project) — opt into the shared edge legend.
       showEdgeLegend
+      // PSY-1334: click an edge to inspect why the pair is connected.
+      showConnectionPanel
     />
   )
 }

@@ -916,6 +916,13 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
           <span className="text-xs uppercase tracking-wide text-muted-foreground">
             {run.run_type}
           </span>
+          {/* Show-scoped runs (slot fetch PSY-1333, backfill) name their show so a
+              scoped row is identifiable at a glance in the mixed feed. */}
+          {run.show_name && (
+            <Badge variant="outline" className="text-xs font-normal">
+              {run.show_name}
+            </Badge>
+          )}
           {run.window_start && run.window_end && (
             <span className="text-sm text-muted-foreground">
               {run.window_start} to {run.window_end}
@@ -1069,14 +1076,33 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
 
 // Per-station feed: recent sync runs (newest first), reusing SyncRunRow. Anomalies
 // (empty_unexpected, PSY-1156) surface inline via SyncRunRow's categorized error list
-// on partial/failed runs. Handles loading / empty / error.
+// on partial/failed runs. Handles loading / empty / error. Defaults to scope='sweep'
+// (PSY-1343): the PSY-1333 slot fetcher writes a show-scoped fetch row per slot
+// boundary, so the unfiltered feed buries the daily sweeps the operator reads this
+// for; the toggle brings the scoped rows back when inspecting the slot fetcher.
 function StationSyncRunFeed({ stationId }: { stationId: number }) {
-  const { data, isLoading, isError } = useStationSyncRuns(stationId)
+  const [showSlotFetches, setShowSlotFetches] = useState(false)
+  const { data, isLoading, isError } = useStationSyncRuns(
+    stationId,
+    20,
+    true,
+    showSlotFetches ? 'all' : 'sweep'
+  )
   const runs = data?.sync_runs ?? []
 
   return (
     <div>
-      <h4 className="font-medium mb-3">Recent sync runs</h4>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-medium">Recent sync runs</h4>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showSlotFetches}
+            onChange={(e) => setShowSlotFetches(e.target.checked)}
+          />
+          Show slot fetches
+        </label>
+      </div>
       {isLoading ? (
         <div className="flex justify-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

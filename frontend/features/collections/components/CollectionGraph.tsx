@@ -244,6 +244,12 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
               // set — played_at, discography, signed_to, lineup, …) — opt
               // into the shared edge legend. Out-of-grammar types render
               // with the neutral fallback style.
+              // PSY-1334: showConnectionPanel is deliberately NOT set on this
+              // surface — its nodes are heterogeneous entities (venues,
+              // releases, labels, …), so the panel's artist-page endpoint
+              // links would be wrong, and the derived edge types carry no
+              // provenance copy. Wiring it needs a per-kind route map (a
+              // PSY-1335 candidate).
               showEdgeLegend
             />
             <p className="text-xs text-muted-foreground">

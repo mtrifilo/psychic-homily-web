@@ -95,7 +95,7 @@ type RadioSyncManager interface {
 	TriggerShowBackfill(showID uint, since, until string) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRun(runID uint) (*contracts.RadioSyncRunResponse, error)
 	CancelSyncRun(runID uint) error
-	ListSyncRuns(stationID *uint, status string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error)
+	ListSyncRuns(stationID *uint, status, scope string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error)
 	GetStationHealth(stationID uint) (*contracts.RadioStationHealthResponse, error)
 	ListStationHealth() ([]*contracts.RadioStationHealthResponse, error)
 }
@@ -1689,13 +1689,14 @@ type AdminSyncRunListResponse struct {
 // AdminListSyncRunsRequest is the global sync-run feed query (across all stations).
 type AdminListSyncRunsRequest struct {
 	Status string `query:"status" required:"false" enum:"running,success,partial,failed,skipped,cancelled" doc:"Filter by exact run status (e.g. 'failed' for a failures feed)" example:"failed"`
+	Scope  string `query:"scope" required:"false" enum:"all,sweep,scoped" doc:"Row scope (PSY-1343): 'sweep' hides show-scoped slot-fetch rows, 'scoped' shows only them, 'all' (default) everything" example:"sweep"`
 	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"50" doc:"Max results (default 50)" example:"50"`
 	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // AdminListSyncRunsHandler handles GET /admin/radio/sync-runs (global feed).
 func (h *RadioHandler) AdminListSyncRunsHandler(ctx context.Context, req *AdminListSyncRunsRequest) (*AdminSyncRunListResponse, error) {
-	runs, total, err := h.syncManager.ListSyncRuns(nil, req.Status, req.Limit, req.Offset)
+	runs, total, err := h.syncManager.ListSyncRuns(nil, req.Status, req.Scope, req.Limit, req.Offset)
 	if err != nil {
 		return nil, mapRadioSyncError(ctx, err, "Failed to list sync runs")
 	}
@@ -1710,6 +1711,7 @@ func (h *RadioHandler) AdminListSyncRunsHandler(ctx context.Context, req *AdminL
 type AdminListStationSyncRunsRequest struct {
 	StationID uint   `path:"id" doc:"Radio station ID" example:"1"`
 	Status    string `query:"status" required:"false" enum:"running,success,partial,failed,skipped,cancelled" doc:"Filter by exact run status" example:"failed"`
+	Scope     string `query:"scope" required:"false" enum:"all,sweep,scoped" doc:"Row scope (PSY-1343): 'sweep' hides show-scoped slot-fetch rows, 'scoped' shows only them, 'all' (default) everything" example:"sweep"`
 	Limit     int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"50" doc:"Max results (default 50)" example:"50"`
 	Offset    int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
@@ -1717,7 +1719,7 @@ type AdminListStationSyncRunsRequest struct {
 // AdminListStationSyncRunsHandler handles GET /admin/radio-stations/{id}/sync-runs.
 func (h *RadioHandler) AdminListStationSyncRunsHandler(ctx context.Context, req *AdminListStationSyncRunsRequest) (*AdminSyncRunListResponse, error) {
 	stationID := req.StationID
-	runs, total, err := h.syncManager.ListSyncRuns(&stationID, req.Status, req.Limit, req.Offset)
+	runs, total, err := h.syncManager.ListSyncRuns(&stationID, req.Status, req.Scope, req.Limit, req.Offset)
 	if err != nil {
 		return nil, mapRadioSyncError(ctx, err, "Failed to list station sync runs")
 	}

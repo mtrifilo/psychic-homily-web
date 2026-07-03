@@ -60,6 +60,8 @@ import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from './graphFocus'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipPlacement } from './nodeTooltip'
 import { EdgeLegend } from './EdgeLegend'
+import { ConnectionPanel } from './ConnectionPanel'
+import { aggregatePairConnections, useConnectionInspect } from './useConnectionInspect'
 
 // ──────────────────────────────────────────────
 // Public types — the generic graph payload shape
@@ -262,6 +264,13 @@ export interface ForceGraphViewProps {
    * consumers opt in deliberately.
    */
   showEdgeLegend?: boolean
+  /**
+   * PSY-1334: click-to-inspect connection panel — clicking a typed edge
+   * opens a card listing every connection between that artist pair (the
+   * touch-capable, linkable counterpart to the hover tooltip). Off by
+   * default, same opt-in convention as showEdgeLegend.
+   */
+  showConnectionPanel?: boolean
 }
 
 export function ForceGraphView({
@@ -274,6 +283,7 @@ export function ForceGraphView({
   ariaLabel,
   onNodeClick,
   showEdgeLegend = false,
+  showConnectionPanel = false,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null)
@@ -287,6 +297,12 @@ export function ForceGraphView({
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   )
+  // PSY-1334: soloed edge type (legend "only" affordance). Solo WINS over the
+  // hidden set while active; the hidden set is never mutated by soloing, so
+  // leaving solo restores exactly the hide state the user had before.
+  const [soloEdgeType, setSoloEdgeType] = useState<string | null>(null)
+  // PSY-1334: which artist pair the ConnectionPanel is inspecting.
+  const connectionInspect = useConnectionInspect()
   // Tooltip anchor in CONTAINER coords (the tooltip is position:absolute within
   // the relative container). Set from the hovered node's screen position in
   // handleNodeHover via the shared nodeTooltipPlacement helper; flipX/flipY steer
@@ -332,7 +348,9 @@ export function ForceGraphView({
       if (!nodeKept.has(l.source_id) || !nodeKept.has(l.target_id)) continue
       if (l.type) {
         edgeTypeCounts.set(l.type, (edgeTypeCounts.get(l.type) ?? 0) + 1)
-        if (hiddenEdgeTypes.has(l.type)) continue
+        // Solo wins over hidden (PSY-1334): while a type is soloed, only it
+        // renders; the hidden set stays intact underneath for when solo ends.
+        if (soloEdgeType ? l.type !== soloEdgeType : hiddenEdgeTypes.has(l.type)) continue
       }
       renderLinks.push({
         source: l.source_id,
@@ -348,7 +366,7 @@ export function ForceGraphView({
       })
     }
     return { nodes: renderNodes, links: renderLinks, edgeTypeCounts }
-  }, [nodes, links, hiddenClusterIDs, hiddenEdgeTypes])
+  }, [nodes, links, hiddenClusterIDs, hiddenEdgeTypes, soloEdgeType])
 
   // Cluster centroids steer non-isolate nodes via forceX/forceY; the isolate
   // shelf parks artists with no edges along the bottom margin.
@@ -606,10 +624,58 @@ export function ForceGraphView({
 
   const handleNodeClickInternal = useCallback(
     (node: RenderNode) => {
+      // Node click closes an open inspect panel (PSY-1334) — the click either
+      // navigates away or shifts attention to the node; a stale pair panel
+      // would linger over the new context either way.
+      connectionInspect.close()
       onNodeClick(node)
     },
-    [onNodeClick],
+    // The hook's return is useMemo'd (identity tracks `pair` only), so this
+    // dep is stable across the hover-driven render storms these surfaces
+    // see; the React Compiler requires the whole object, not `.close`.
+    [onNodeClick, connectionInspect],
   )
+
+  // PSY-1334: edge click opens the ConnectionPanel for that pair. d3-force
+  // resolves source/target to node objects in place after mount, so read the
+  // ids via endpointId (handles both the bare-id and resolved shapes).
+  const handleLinkClick = useCallback(
+    (link: RenderLink) => {
+      if (!showConnectionPanel || !link.type) return
+      connectionInspect.open(endpointId(link.source), endpointId(link.target))
+    },
+    [showConnectionPanel, connectionInspect],
+  )
+
+  // Panel data derives from the RAW props, not renderData: the panel lists
+  // ALL typed connections between the pair — including types currently
+  // hidden/soloed out of the simulation ("why connected" is about the data,
+  // not the current filter view). Resolves to null (panel closed) when the
+  // pair's nodes leave the payload — a data refresh that drops a node must
+  // not strand a panel naming it.
+  const connectionPanelData = useMemo(() => {
+    const pair = connectionInspect.pair
+    if (!showConnectionPanel || !pair) return null
+    const source = nodes.find(n => n.id === pair.sourceId)
+    const target = nodes.find(n => n.id === pair.targetId)
+    if (!source || !target) return null
+    const connections = aggregatePairConnections(links, pair)
+    if (connections.length === 0) return null
+    return {
+      source: { name: source.name, slug: source.slug },
+      target: { name: target.name, slug: target.slug },
+      connections,
+    }
+  }, [showConnectionPanel, connectionInspect.pair, nodes, links])
+
+  // Release the selection when it can no longer resolve to panel data —
+  // otherwise a payload refresh that drops and later re-adds the pair would
+  // resurrect a panel the user never re-requested (self-review finding).
+  useEffect(() => {
+    if (connectionInspect.pair && !connectionPanelData) {
+      connectionInspect.close()
+    }
+  }, [connectionInspect, connectionPanelData])
 
   // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` and no
   // MouseEvent, so anchor the tooltip on the NODE via the shared
@@ -879,6 +945,16 @@ export function ForceGraphView({
     [],
   )
 
+  // Self-heal a stranded solo (code-review finding): if the soloed type's
+  // last edges leave the displayable set (e.g. its carrying cluster gets
+  // hidden), its legend row disappears — and with it the only control that
+  // clears the solo. Drop the solo so the filter can't outlive its row.
+  useEffect(() => {
+    if (soloEdgeType && !renderData.edgeTypeCounts.has(soloEdgeType)) {
+      setSoloEdgeType(null)
+    }
+  }, [soloEdgeType, renderData.edgeTypeCounts])
+
   const handleToggleEdgeType = useCallback((type: string) => {
     setHiddenEdgeTypes(prev => {
       const next = new Set(prev)
@@ -929,6 +1005,14 @@ export function ForceGraphView({
         linkWidth={linkWidth}
         linkLineDash={linkLineDash}
         linkLabel={linkLabel}
+        // PSY-1334: widen the link hit target for the inspect click — the
+        // lib's hit test is linkWidth + linkHoverPrecision and its DEFAULT
+        // precision is already 4 (adversarial finding: setting 4 was a
+        // no-op), so 8 is the actual widening for ~1px strokes.
+        linkHoverPrecision={8}
+        onLinkClick={handleLinkClick}
+        // Background click closes the inspect panel (no-op when closed).
+        onBackgroundClick={connectionInspect.close}
         linkCanvasObjectMode={() => 'before'}
         linkCanvasObject={drawHulls}
         onRenderFramePre={handleRenderFramePre}
@@ -955,6 +1039,21 @@ export function ForceGraphView({
           counts={renderData.edgeTypeCounts}
           hiddenTypes={hiddenEdgeTypes}
           onToggleType={handleToggleEdgeType}
+          soloType={soloEdgeType}
+          onSoloType={setSoloEdgeType}
+        />
+      )}
+
+      {/* PSY-1334: click-to-inspect connection panel. DOM (not canvas), so it
+          works on touch, carries links, survives the fullscreen overlay, and
+          clicks inside it don't trip the zoomToFit canvas pointerdown cancel. */}
+      {connectionPanelData && (
+        <ConnectionPanel
+          className="absolute bottom-2 left-2 z-40"
+          source={connectionPanelData.source}
+          target={connectionPanelData.target}
+          connections={connectionPanelData.connections}
+          onClose={connectionInspect.close}
         />
       )}
 

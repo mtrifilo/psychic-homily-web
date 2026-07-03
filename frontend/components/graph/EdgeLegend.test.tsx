@@ -105,3 +105,66 @@ describe('EdgeLegend', () => {
     expect(container).toBeEmptyDOMElement()
   })
 })
+
+// PSY-1334: the solo ("only") affordance — isolate one edge type without
+// mutating the hidden set underneath.
+describe('EdgeLegend solo', () => {
+  const soloProps = {
+    types: ['shared_bills', 'shared_label'],
+    counts: new Map<string, number>(),
+    onToggleType: () => {},
+  }
+
+  it('renders an "only" button per row only when onSoloType is provided', () => {
+    const { rerender } = render(<EdgeLegend {...soloProps} />)
+    expect(screen.queryByRole('button', { name: /Show only/ })).not.toBeInTheDocument()
+    rerender(<EdgeLegend {...soloProps} onSoloType={() => {}} />)
+    expect(
+      screen.getByRole('button', { name: 'Show only Shared Bills connections' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Show only Shared Label connections' }),
+    ).toBeInTheDocument()
+  })
+
+  it('solos on click and clears when the soloed row is clicked again', () => {
+    const onSoloType = vi.fn()
+    const { rerender } = render(<EdgeLegend {...soloProps} onSoloType={onSoloType} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show only Shared Bills connections' }))
+    expect(onSoloType).toHaveBeenCalledWith('shared_bills')
+
+    rerender(<EdgeLegend {...soloProps} soloType="shared_bills" onSoloType={onSoloType} />)
+    // The soloed row's button flips to the clear action.
+    fireEvent.click(screen.getByRole('button', { name: 'Show all connection types' }))
+    expect(onSoloType).toHaveBeenCalledWith(null)
+  })
+
+  it('dims every non-soloed row while solo is active, overriding hidden state', () => {
+    render(
+      <EdgeLegend
+        {...soloProps}
+        // shared_bills is hidden — but soloed, so it renders FULL opacity
+        // (the solo view is what the simulation shows).
+        hiddenTypes={new Set(['shared_bills'])}
+        soloType="shared_bills"
+        onSoloType={() => {}}
+      />,
+    )
+    // Row toggle buttons are named by their visible content (swatch + label
+    // + count); the "only" buttons carry aria-labels, so exclude them.
+    const rowButtons = screen
+      .getAllByRole('button')
+      .filter(b => !(b.getAttribute('aria-label') ?? '').includes('only'))
+    const bills = rowButtons.find(b => b.textContent?.includes('Shared Bills'))!
+    const label = rowButtons.find(b => b.textContent?.includes('Shared Label'))!
+    expect(bills.className).toContain('opacity-100')
+    expect(label.className).toContain('opacity-40')
+  })
+
+  it('discloses the active solo filter (never silent)', () => {
+    const { rerender } = render(<EdgeLegend {...soloProps} onSoloType={() => {}} />)
+    expect(screen.queryByText(/Showing only/)).not.toBeInTheDocument()
+    rerender(<EdgeLegend {...soloProps} soloType="shared_label" onSoloType={() => {}} />)
+    expect(screen.getByText('Showing only Shared Label connections')).toBeInTheDocument()
+  })
+})

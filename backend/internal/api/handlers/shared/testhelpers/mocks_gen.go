@@ -2490,7 +2490,7 @@ type MockRadioService struct {
 	TriggerShowBackfillFn         func(uint, string, string) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRunFn                  func(uint) (*contracts.RadioSyncRunResponse, error)
 	CancelSyncRunFn               func(uint) error
-	ListSyncRunsFn                func(*uint, string, int, int) ([]*contracts.RadioSyncRunResponse, int64, error)
+	ListSyncRunsFn                func(*uint, string, string, int, int) ([]*contracts.RadioSyncRunResponse, int64, error)
 	GetStationHealthFn            func(uint) (*contracts.RadioStationHealthResponse, error)
 	ListStationHealthFn           func() ([]*contracts.RadioStationHealthResponse, error)
 }
@@ -2759,9 +2759,9 @@ func (m *MockRadioService) CancelSyncRun(runID uint) error {
 	}
 	return nil
 }
-func (m *MockRadioService) ListSyncRuns(stationID *uint, status string, limit int, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+func (m *MockRadioService) ListSyncRuns(stationID *uint, status string, scope string, limit int, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
 	if m.ListSyncRunsFn != nil {
-		return m.ListSyncRunsFn(stationID, status, limit, offset)
+		return m.ListSyncRunsFn(stationID, status, scope, limit, offset)
 	}
 	return nil, 0, nil
 }
