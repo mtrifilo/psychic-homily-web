@@ -15,7 +15,7 @@ test.describe('Homepage', () => {
     await expect(
       page.getByRole('heading', { name: 'Psychic Homily', level: 1 })
     ).toBeVisible()
-    await expect(page.getByText('The knowledge graph of music.')).toBeVisible()
+    await expect(page.getByText('Your music knowledge graph.')).toBeVisible()
 
     // "Upcoming shows" section heading
     await expect(

@@ -58,7 +58,7 @@ export function HomeHero() {
 
       <div className="max-w-[720px] text-center">
         <p className="text-balance text-lg font-medium text-foreground sm:text-xl">
-          The knowledge graph of music.
+          Your music knowledge graph.
         </p>
       </div>
 

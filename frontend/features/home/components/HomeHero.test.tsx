@@ -28,9 +28,9 @@ describe('HomeHero', () => {
 
   it('renders the tagline as supporting copy, not a heading', () => {
     render(<HomeHero />)
-    expect(screen.getByText('The knowledge graph of music.')).toBeInTheDocument()
+    expect(screen.getByText('Your music knowledge graph.')).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: 'The knowledge graph of music.' })
+      screen.queryByRole('heading', { name: 'Your music knowledge graph.' })
     ).toBeNull()
   })
 
