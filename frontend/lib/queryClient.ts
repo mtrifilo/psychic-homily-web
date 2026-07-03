@@ -360,7 +360,9 @@ export const queryKeys = {
   // Follow queries
   follows: {
     all: ['follows'] as const,
-    entity: (entityType: string, entityId: number) =>
+    // entityId: number for id-keyed entities; a scene SLUG for "scenes"
+    // (PSY-1339 — slug-addressed follow routes).
+    entity: (entityType: string, entityId: number | string) =>
       ['follows', entityType, entityId] as const,
     batch: (entityType: string, entityIds: number[]) =>
       ['follows', 'batch', entityType, ...entityIds] as const,

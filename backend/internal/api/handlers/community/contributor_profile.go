@@ -891,9 +891,9 @@ func (h *ContributorProfileHandler) GetUserFollowingHandler(ctx context.Context,
 		entityType = ""
 	}
 	switch entityType {
-	case "", "artist", "venue", "label", "festival":
+	case "", "artist", "venue", "label", "festival", "scene":
 	default:
-		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', or 'all'")
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', 'scene', or 'all'")
 	}
 
 	emptyBody := func(total int64) *GetUserFollowingResponse {

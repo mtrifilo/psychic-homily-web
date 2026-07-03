@@ -396,7 +396,9 @@ export const API_ENDPOINTS = {
 
   // Follow endpoints
   FOLLOW: {
-    ENTITY: (entityType: string, entityId: number) =>
+    // entityId: number for id-keyed entities; a scene SLUG for "scenes"
+    // (PSY-1339 — same route shape, slug-addressed).
+    ENTITY: (entityType: string, entityId: number | string) =>
       `${API_BASE_URL}/${entityType}/${entityId}/follow`,
     FOLLOWERS: (entityType: string, entityId: number) =>
       `${API_BASE_URL}/${entityType}/${entityId}/followers`,

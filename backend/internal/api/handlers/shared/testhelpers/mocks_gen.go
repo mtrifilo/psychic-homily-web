@@ -3088,6 +3088,8 @@ type MockSceneService struct {
 	GetSceneDetailFn            func(string, string) (*contracts.SceneDetailResponse, error)
 	GetActiveArtistsFn          func(string, string, int, int, int) ([]*contracts.SceneArtistResponse, int64, error)
 	ParseSceneSlugFn            func(string) (string, string, error)
+	GetOrCreateSceneIDFn        func(string) (uint, error)
+	LookupSceneIDFn             func(string) (uint, bool, error)
 	GetSceneGenreDistributionFn func(string, string) ([]contracts.GenreCount, error)
 	GetGenreDiversityIndexFn    func(string, string) (float64, error)
 	GetSceneGraphFn             func(string, string, []string, string) (*contracts.SceneGraphResponse, error)
@@ -3117,6 +3119,18 @@ func (m *MockSceneService) ParseSceneSlug(slug string) (string, string, error) {
 		return m.ParseSceneSlugFn(slug)
 	}
 	return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+}
+func (m *MockSceneService) GetOrCreateSceneID(slug string) (uint, error) {
+	if m.GetOrCreateSceneIDFn != nil {
+		return m.GetOrCreateSceneIDFn(slug)
+	}
+	return 0, nil
+}
+func (m *MockSceneService) LookupSceneID(slug string) (uint, bool, error) {
+	if m.LookupSceneIDFn != nil {
+		return m.LookupSceneIDFn(slug)
+	}
+	return 0, false, nil
 }
 func (m *MockSceneService) GetSceneGenreDistribution(city string, state string) ([]contracts.GenreCount, error) {
 	if m.GetSceneGenreDistributionFn != nil {

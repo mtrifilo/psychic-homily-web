@@ -10,6 +10,7 @@ import {
   MapPin,
   Tag,
   Tent,
+  Globe,
   Loader2,
   UserMinus,
   Users,
@@ -21,7 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 
-const TYPE_TABS = ['all', 'artist', 'venue', 'label', 'festival'] as const
+const TYPE_TABS = ['all', 'artist', 'venue', 'label', 'festival', 'scene'] as const
 type TypeTab = (typeof TYPE_TABS)[number]
 
 function isTypeTab(value: string | null): value is TypeTab {
@@ -41,6 +42,7 @@ const entityTypeInfo: Record<
     label: 'Festival',
     href: (slug) => `/festivals/${slug}`,
   },
+  scene: { plural: 'scenes', label: 'Scene', href: (slug) => `/scenes/${slug}` },
 }
 
 function getEntityIcon(entityType: string) {
@@ -53,6 +55,8 @@ function getEntityIcon(entityType: string) {
       return Tag
     case 'festival':
       return Tent
+    case 'scene':
+      return Globe
     default:
       return Users
   }
@@ -74,7 +78,9 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
 
     unfollow.mutate({
       entityType: info.plural,
-      entityId: entity.entity_id,
+      // Scenes are slug-addressed (PSY-1339): DELETE /scenes/{slug}/follow.
+      entityId:
+        entity.entity_type === 'scene' ? entity.slug : entity.entity_id,
     })
   }
 
@@ -185,6 +191,11 @@ function FollowingList({ type }: { type: string }) {
         title: 'No festivals followed',
         description: 'Follow festivals to get lineup and schedule updates.',
       },
+      scene: {
+        title: 'No scenes followed',
+        description:
+          'Follow a city\'s scene from the Atlas to keep a path back to it.',
+      },
     }
 
     const msg = emptyMessages[type] || emptyMessages.all
@@ -284,7 +295,7 @@ function FollowingContent() {
           <h1 className="text-3xl font-bold tracking-tight">Following</h1>
         </div>
         <p className="text-muted-foreground">
-          Artists, venues, labels, and festivals you follow
+          Artists, venues, labels, festivals, and scenes you follow
         </p>
       </div>
 
@@ -314,6 +325,10 @@ function FollowingContent() {
             <Tent className="h-4 w-4" />
             Festivals
           </TabsTrigger>
+          <TabsTrigger value="scene" className="gap-1.5">
+            <Globe className="h-4 w-4" />
+            Scenes
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="all">
@@ -334,6 +349,10 @@ function FollowingContent() {
 
         <TabsContent value="festival">
           <FollowingList type="festival" />
+        </TabsContent>
+
+        <TabsContent value="scene">
+          <FollowingList type="scene" />
         </TabsContent>
       </Tabs>
     </div>

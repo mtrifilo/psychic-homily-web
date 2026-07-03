@@ -422,8 +422,8 @@ func (h *FollowHandler) GetMyFollowingHandler(ctx context.Context, req *GetMyFol
 
 	// Validate type filter
 	entityTypeFilter := req.Type
-	if entityTypeFilter != "artist" && entityTypeFilter != "venue" && entityTypeFilter != "label" && entityTypeFilter != "festival" && entityTypeFilter != "all" && entityTypeFilter != "" {
-		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', or 'all'")
+	if entityTypeFilter != "artist" && entityTypeFilter != "venue" && entityTypeFilter != "label" && entityTypeFilter != "festival" && entityTypeFilter != "scene" && entityTypeFilter != "all" && entityTypeFilter != "" {
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', 'scene', or 'all'")
 	}
 	if entityTypeFilter == "all" || entityTypeFilter == "" {
 		entityTypeFilter = ""

@@ -1028,6 +1028,13 @@ type SceneServiceInterface interface {
 	// it is NOT a membership filter, so the returned total is the whole roster.
 	GetActiveArtists(city, state string, activeWindowDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
 	ParseSceneSlug(slug string) (string, string, error)
+	// Scene registry (PSY-1339): scenes materialize a row lazily so id-keyed
+	// features (follows) can reference them. GetOrCreateSceneID canonicalizes
+	// the slug (member city → metro principal) and creates the row on first
+	// need; LookupSceneID resolves without creating (read paths — absent row
+	// means zero follows). Both 404 unknown slugs via ParseSceneSlug.
+	GetOrCreateSceneID(slug string) (uint, error)
+	LookupSceneID(slug string) (uint, bool, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	// clusterBy selects the cluster signal: "venue" (default) or "community"

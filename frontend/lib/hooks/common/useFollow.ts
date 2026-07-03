@@ -137,7 +137,10 @@ export const useUnfollow = () => {
       entityId,
     }: {
       entityType: string
-      entityId: number
+      // number for the id-keyed entities; a scene's SLUG for entityType
+      // "scenes" (PSY-1339 — scenes are slug-addressed, the route shape is
+      // identical: DELETE /scenes/{slug}/follow).
+      entityId: number | string
     }): Promise<{ success: boolean; message: string }> => {
       return apiRequest(API_ENDPOINTS.FOLLOW.ENTITY(entityType, entityId), {
         method: 'DELETE',
