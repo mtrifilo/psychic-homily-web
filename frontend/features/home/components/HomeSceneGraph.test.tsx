@@ -14,6 +14,11 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push }),
 }))
 
+const captureException = vi.fn()
+vi.mock('@sentry/nextjs', () => ({
+  captureException: (...args: unknown[]) => captureException(...args),
+}))
+
 // The dynamic(ssr:false) chunk never resolves in jsdom's sync render pass —
 // stub the module so the section's own logic is what's under test. The
 // static-viewport behavior itself is covered in
@@ -106,6 +111,7 @@ function setContainerWidth(px: number) {
 beforeEach(() => {
   vi.restoreAllMocks()
   push.mockReset()
+  captureException.mockReset()
   window.IntersectionObserver =
     ImmediateIntersectionObserver as unknown as typeof IntersectionObserver
   useScenes.mockReset().mockReturnValue({ data: { scenes: SCENES, count: SCENES.length }, isLoading: false, isError: false })
@@ -209,6 +215,22 @@ describe('HomeSceneGraph', () => {
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false }),
     )
+  })
+
+  it('SectionErrorBoundary self-hides the section and reports to Sentry when rendering throws', async () => {
+    // A hook-level throw stands in for any render/chunk failure inside the
+    // section (the App Router surfaces failed dynamic chunks as throws).
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    useScenes.mockImplementation(() => {
+      throw new Error('boom')
+    })
+    const { container } = render(<HomeSceneGraph />)
+    expect(container.querySelector('section')).toBeNull()
+    expect(captureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ tags: { section: 'home-scene-graph' } }),
+    )
+    spy.mockRestore()
   })
 
   it('renders the empty-graph fallback instead of a canvas when the scene has no connected artists', async () => {
