@@ -8,13 +8,12 @@ import { isNavActive, navItemClassName } from './navData'
 
 // The explicit, labelled primary destinations (NN/G: a labelled "Home" link in
 // addition to the clickable logo — left-aligned logo alone is not discoverable).
-// Explore sits next to Home as the deep graph-traversal entry; Shows is our
-// unique advantage. Radio links straight to the Dial hub (PSY-1057 retired the
-// D2 popover once /radio itself became the dial, PSY-1049). Browse / Contribute
-// carry menus (own components).
+// Shows is our unique advantage. Explore is hidden until the Observatory
+// rebuild ships (PSY-1337; the /explore route itself stays live). Radio links
+// straight to the Dial hub (PSY-1057 retired the D2 popover once /radio itself
+// became the dial, PSY-1049). Browse / Contribute carry menus (own components).
 const primaryLinks = [
   { href: '/', label: 'Home' },
-  { href: '/explore', label: 'Explore' },
   { href: '/shows', label: 'Shows' },
   { href: '/artists', label: 'Artists' },
   { href: '/radio', label: 'Radio' },

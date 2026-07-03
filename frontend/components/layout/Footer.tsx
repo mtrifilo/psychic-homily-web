@@ -39,7 +39,6 @@ const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   {
     heading: 'Browse',
     links: [
-      { href: '/explore', label: 'Explore' },
       { href: '/collections', label: 'Collections' },
       { href: '/charts', label: 'Charts' },
       { href: '/tags', label: 'Tags' },

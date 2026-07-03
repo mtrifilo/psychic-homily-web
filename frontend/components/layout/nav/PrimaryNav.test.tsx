@@ -25,7 +25,8 @@ describe('PrimaryNav', () => {
   it('renders the explicit primary destinations with correct hrefs', () => {
     render(<PrimaryNav />)
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
-    expect(screen.getByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/explore')
+    // Explore is hidden until the Observatory rebuild ships (PSY-1337).
+    expect(screen.queryByRole('link', { name: 'Explore' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows')
     expect(screen.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists')
     // PSY-1057: Radio is a plain link to the Dial hub, not a popover trigger.
