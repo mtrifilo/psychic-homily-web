@@ -58,6 +58,9 @@ export function StationGraphVisualization({
       hiddenClusterIDs={hiddenClusterIDs}
       ariaLabel={ariaLabel}
       onNodeClick={handleNodeClick}
+      // PSY-1334: click an edge to inspect why the pair is connected
+      // ("played together on N radio shows across M stations").
+      showConnectionPanel
     />
   )
 }
