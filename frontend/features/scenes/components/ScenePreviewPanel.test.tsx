@@ -343,7 +343,7 @@ describe('ScenePreviewPanel', () => {
       screen.getByRole('link', { name: 'A, B, C +2 more' }),
     ).toHaveAttribute('href', '/shows/51')
     expect(
-      screen.getByRole('link', { name: 'Untitled show' }),
+      screen.getByRole('link', { name: 'Untitled Show' }),
     ).toHaveAttribute('href', '/shows/52')
     expect(
       screen.getByRole('link', { name: 'Trim Check' }),

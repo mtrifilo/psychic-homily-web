@@ -490,9 +490,8 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 		return nil, fmt.Errorf("failed to get scene upcoming shows: %w", err)
 	}
 
-	// Bill artists per show, position order (PSY-1325): most shows have an
-	// empty title — the app composes display names from artists — so the
-	// preview row is band-less without these.
+	// Bill artists per show, position order — the row's display-name source
+	// when the title is empty (see SceneShowSummary.ArtistNames, PSY-1325).
 	ids := make([]uint, len(rows))
 	for i, r := range rows {
 		ids[i] = r.ID
