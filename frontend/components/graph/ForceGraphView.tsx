@@ -435,13 +435,27 @@ export function ForceGraphView({
   }, [renderData, centroids, containerWidth, graphHeight])
 
   // a11y: expose the canvas as an image with a descriptive label, mirroring
-  // ArtistGraphVisualization (PSY-369).
+  // ArtistGraphVisualization (PSY-369). The canvas is created asynchronously
+  // by the dynamic-imported force-graph chunk, usually AFTER this effect first
+  // runs — a bare querySelector missed it and the label never applied (caught
+  // live during PSY-1296 verification). Apply now if present, otherwise watch
+  // the container until the canvas appears.
   useEffect(() => {
-    if (!containerRef.current) return
-    const canvas = containerRef.current.querySelector('canvas')
-    if (!canvas) return
-    canvas.setAttribute('role', 'img')
-    canvas.setAttribute('aria-label', ariaLabel)
+    const container = containerRef.current
+    if (!container) return
+    const apply = () => {
+      const canvas = container.querySelector('canvas')
+      if (!canvas) return false
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute('aria-label', ariaLabel)
+      return true
+    }
+    if (apply()) return
+    const observer = new MutationObserver(() => {
+      if (apply()) observer.disconnect()
+    })
+    observer.observe(container, { childList: true, subtree: true })
+    return () => observer.disconnect()
   }, [ariaLabel])
 
   // Reduced-motion: pause the simulation immediately on mount.
