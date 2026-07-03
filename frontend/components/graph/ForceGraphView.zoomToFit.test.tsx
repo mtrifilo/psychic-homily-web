@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
-// PSY-1321: the initial viewport must frame the settled layout. These tests
-// pin the one-shot contract: fit fires on the first engine stop, does NOT
-// re-fire on later stops (reheats), re-arms on a material dimension change,
-// and is cancelled when the user takes the viewport (pointer/wheel).
+// PSY-1321: the initial viewport must frame the settled layout when — and
+// only when — that layout is out of view. These tests pin the contract:
+// fit on the first engine stop with out-of-view content; spend-without-fit
+// when the content is already framed (inline mounts stay untouched); stay
+// ARMED over empty/bbox-less graphs; re-arm on dimension change; permanent
+// user cancel via canvas pointer/wheel; instant fit on the reduced-motion
+// path (whose paused engine never reaches onEngineStop).
+
+// Default stub viewport: zoom 1 centered at origin over an 800×560 canvas →
+// visible x ∈ [-400, 400], y ∈ [-280, 280]; the out-of-view bbox
+// stays out even at the re-arm test's 1400×900 overlay dims (±700 × ±450).
+const OUT_OF_VIEW_BBOX = { x: [-800, 800], y: [-100, 100] }
+const IN_VIEW_BBOX = { x: [-100, 100], y: [-100, 100] }
 
 const h = vi.hoisted(() => ({
   graph: {
@@ -14,8 +23,10 @@ const h = vi.hoisted(() => ({
     d3Force: vi.fn(),
     d3ReheatSimulation: vi.fn(),
     zoomToFit: vi.fn(),
+    zoom: vi.fn(() => 1),
+    centerAt: vi.fn(() => ({ x: 0, y: 0 })),
+    getGraphBbox: vi.fn(() => ({ x: [-800, 800], y: [-100, 100] })),
   },
-  // Captured from the stub's props so tests can drive the engine lifecycle.
   lastProps: { value: null as Record<string, unknown> | null },
   reducedMotion: { value: false },
 }))
@@ -56,26 +67,28 @@ const stopEngine = () => {
   ;(h.lastProps.value!.onEngineStop as () => void)()
 }
 
+const baseProps = {
+  nodes,
+  links,
+  containerWidth: 800,
+  ariaLabel: 'test graph',
+  onNodeClick: () => {},
+}
+
 const renderGraph = (props: Partial<React.ComponentProps<typeof ForceGraphView>> = {}) =>
-  renderWithProviders(
-    <ForceGraphView
-      nodes={nodes}
-      links={links}
-      containerWidth={800}
-      ariaLabel="test graph"
-      onNodeClick={() => {}}
-      {...props}
-    />,
-  )
+  renderWithProviders(<ForceGraphView {...baseProps} {...props} />)
 
 describe('ForceGraphView zoomToFit (PSY-1321)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     h.lastProps.value = null
     h.reducedMotion.value = false
+    h.graph.zoom.mockReturnValue(1)
+    h.graph.centerAt.mockReturnValue({ x: 0, y: 0 })
+    h.graph.getGraphBbox.mockReturnValue(OUT_OF_VIEW_BBOX)
   })
 
-  it('fits once on the first engine stop, not on later stops', () => {
+  it('fits once on the first engine stop when content is out of view, not on later stops', () => {
     renderGraph()
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
 
@@ -88,37 +101,64 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
   })
 
-  it('re-arms when the canvas dimensions change (the overlay remount-by-resize path)', () => {
+  it('spends the shot WITHOUT fitting when the content is already in view (inline mounts untouched)', () => {
+    h.graph.getGraphBbox.mockReturnValue(IN_VIEW_BBOX)
+    renderGraph()
+
+    stopEngine()
+    stopEngine()
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+  })
+
+  it('stays ARMED over an empty graph, then fits once real data settles', () => {
+    const { rerender } = renderGraph({ nodes: [], links: [] })
+    stopEngine()
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+
+    rerender(<ForceGraphView {...baseProps} />)
+    stopEngine()
+    expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays ARMED when node positions are not initialized yet (no bbox)', () => {
+    h.graph.getGraphBbox.mockReturnValueOnce(null as never)
+    renderGraph()
+    stopEngine()
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+
+    stopEngine()
+    expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-arms when the canvas dimensions change (the overlay path)', () => {
     const { rerender } = renderGraph()
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
 
-    rerender(
-      <ForceGraphView
-        nodes={nodes}
-        links={links}
-        containerWidth={1400}
-        height={900}
-        ariaLabel="test graph"
-        onNodeClick={() => {}}
-      />,
-    )
+    rerender(<ForceGraphView {...baseProps} containerWidth={1400} height={900} />)
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(2)
   })
 
-  it('cancels the pending fit once the user touches the viewport', () => {
-    const { container } = renderGraph()
-    fireEvent.pointerDown(container.firstElementChild!)
+  it('a canvas pointerdown cancels fitting for the REST of the mount, surviving dimension changes', () => {
+    const { rerender } = renderGraph()
+    fireEvent.pointerDown(screen.getByTestId('stub-canvas'))
 
+    stopEngine()
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+
+    // Dimension change must NOT re-arm over a user-owned viewport.
+    rerender(<ForceGraphView {...baseProps} containerWidth={1400} height={900} />)
     stopEngine()
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
   })
 
-  it('does not fit an empty graph', () => {
-    renderGraph({ nodes: [], links: [] })
+  it('a pointerdown on a non-canvas child (e.g. the edge legend) does NOT cancel the fit', () => {
+    const { container } = renderGraph()
+    fireEvent.pointerDown(container.firstElementChild!)
+
     stopEngine()
-    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+    expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
   })
 
   it('applies an instant fit for reduced-motion users (paused engine never stops)', () => {

@@ -394,9 +394,11 @@ export function ForceGraphView({
     // detach our edits from the running simulation. `renderData` is a useMemo
     // result, which the immutability rule treats as frozen; this mutation is
     // the documented d3 contract, not an accidental write (RenderNode's `x/y/
-    // fx/fy` are explicitly typed as runtime fields). A react-hooks/immutability
-    // disable used to wrap this span; the analyzer currently doesn't flag it
-    // (unused-directive warning) — re-add the disable if the rule re-fires.
+    // fx/fy` are explicitly typed as runtime fields). Suppressed for this span
+    // — note the analyzer's reach shifts with unrelated edits to this
+    // component (it stopped flagging these lines mid-PSY-1321, then resumed),
+    // so if the directive ever reports as unused, prefer leaving it in place.
+    /* eslint-disable react-hooks/immutability */
     isolates.forEach((node, i) => {
       node.fx = shelfStart + stride * i
       node.fy = shelfY
@@ -407,6 +409,7 @@ export function ForceGraphView({
         node.fy = null
       }
     }
+    /* eslint-enable react-hooks/immutability */
 
     // Cluster centroid forces (only meaningful when at least one centroid exists).
     fg.d3Force('clusterX', (alpha: number) => {
@@ -465,21 +468,29 @@ export function ForceGraphView({
     return () => observer.disconnect()
   }, [ariaLabel])
 
-  // PSY-1321: frame the graph once the layout settles. On a fresh mount — the
-  // fullscreen-overlay case — the default viewport centers on the coordinate
-  // origin while the connected mass settles wherever the centroid ring +
-  // charge push it and the isolate shelf pins to the bottom margin, so the
-  // initial overlay view could show ONLY the shelf (verified on stage,
-  // minneapolis-mn). One-shot per mount / material dimension change; armed
-  // off until the NEXT dimension change once spent, and cancelled outright
-  // the moment the user pans/zooms/drags (pointer or wheel on the canvas =
-  // the user owns the viewport now — a later engine-stop must not yank it).
+  // PSY-1321: frame the graph once the layout settles — but ONLY when the
+  // settled content is out of view. On a fresh mount — the fullscreen-overlay
+  // case — the default viewport centers on the coordinate origin while the
+  // connected mass settles wherever the centroid ring + charge push it and
+  // the isolate shelf pins to the bottom margin, so the initial overlay view
+  // could show ONLY the shelf (verified on stage, minneapolis-mn).
+  //
+  // Contract (each clause pins a code-review finding):
+  //   - The shot stays ARMED until there is content + a bbox to frame — an
+  //     engine stop over an empty/loading graph must not burn it.
+  //   - Content already fully in view → spend the shot WITHOUT fitting, so
+  //     inline mounts that frame fine today are byte-identical (and keep
+  //     their labels — a full zoomToFit can land below the 1.0 label gate).
+  //   - A canvas pointerdown/wheel means the user owns the viewport for the
+  //     REST OF THE MOUNT: dimension changes re-arm the shot only until then.
+  //     (Canvas-targeted, so EdgeLegend/tooltip clicks don't cancel.)
+  //   - The fit pans the canvas under an open tooltip → dismiss it first.
   const needsFitRef = useRef(true)
-  const prevDimsRef = useRef<{ w: number; h: number } | null>(null)
+  const userOwnsViewportRef = useRef(false)
   useEffect(() => {
-    const prev = prevDimsRef.current
-    prevDimsRef.current = { w: containerWidth, h: graphHeight }
-    if (prev && (prev.w !== containerWidth || prev.h !== graphHeight)) {
+    // Mount run redundantly re-arms an already-armed ref; every later run IS
+    // a dimension change.
+    if (!userOwnsViewportRef.current) {
       needsFitRef.current = true
     }
   }, [containerWidth, graphHeight])
@@ -487,7 +498,9 @@ export function ForceGraphView({
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const cancelFit = () => {
+    const cancelFit = (e: Event) => {
+      if (!(e.target instanceof Element) || !e.target.closest('canvas')) return
+      userOwnsViewportRef.current = true
       needsFitRef.current = false
     }
     el.addEventListener('pointerdown', cancelFit)
@@ -498,32 +511,54 @@ export function ForceGraphView({
     }
   }, [])
 
-  const handleEngineStop = useCallback(() => {
-    if (!needsFitRef.current) return
-    needsFitRef.current = false
-    if (renderData.nodes.length === 0) return
-    graphRef.current?.zoomToFit(reducedMotion ? 0 : 400, ZOOM_FIT_PADDING_PX)
-  }, [renderData, reducedMotion])
+  const maybeFitViewport = useCallback(
+    (animated: boolean) => {
+      if (!needsFitRef.current) return
+      const fg = graphRef.current
+      if (!fg || renderData.nodes.length === 0) return // stay armed
+      const bbox = fg.getGraphBbox?.()
+      if (!bbox) return // positions not initialized yet — stay armed
+      needsFitRef.current = false
+      const zoom = fg.zoom()
+      const center = fg.centerAt()
+      const halfW = containerWidth / zoom / 2
+      const halfH = graphHeight / zoom / 2
+      const inView =
+        bbox.x[0] >= center.x - halfW &&
+        bbox.x[1] <= center.x + halfW &&
+        bbox.y[0] >= center.y - halfH &&
+        bbox.y[1] <= center.y + halfH
+      if (inView) return
+      // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
+      // has already stopped — dismiss like onZoom/onNodeDrag do.
+      setHoveredNode(null)
+      fg.zoomToFit(animated ? 400 : 0, ZOOM_FIT_PADDING_PX)
+    },
+    [renderData, containerWidth, graphHeight],
+  )
 
-  // Reduced-motion: pause the simulation immediately on mount. The paused
-  // engine never reaches onEngineStop, so apply the PSY-1321 initial fit here
-  // instead — instant (0ms, no animation) over the unsettled positions; an
-  // approximate frame still beats an off-view one.
+  const handleEngineStop = useCallback(
+    () => maybeFitViewport(!reducedMotion),
+    [maybeFitViewport, reducedMotion],
+  )
+
+  // Reduced-motion: pause the simulation immediately on mount. A paused
+  // engine never reaches onEngineStop, so the fit for that path runs from
+  // the effect below instead (instant, over unsettled positions — an
+  // approximate frame still beats an off-view one). Keyed on the same
+  // signals that re-arm the shot, so async-arriving data and dimension
+  // changes are covered symmetrically with the animated path.
   useEffect(() => {
     if (reducedMotion && graphRef.current) {
       graphRef.current.pauseAnimation()
-      if (needsFitRef.current) {
-        needsFitRef.current = false
-        if (renderData.nodes.length > 0) {
-          graphRef.current.zoomToFit(0, ZOOM_FIT_PADDING_PX)
-        }
-      }
     }
-    // renderData is deliberately NOT a dep: this effect exists to pause once on
-    // mount (and re-fire only if the OS preference flips); re-running it per
-    // data change would re-pause a canvas the user may have resumed implicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reducedMotion])
+
+  useEffect(() => {
+    if (reducedMotion) {
+      maybeFitViewport(false)
+    }
+  }, [reducedMotion, maybeFitViewport])
 
   // PSY-1235: restart force-graph's rAF render loop on (re-)mount. On a fresh page load
   // react-force-graph starts its own loop, but after a client back-navigation re-mount the
