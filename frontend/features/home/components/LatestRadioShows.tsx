@@ -34,6 +34,10 @@ interface StationEditorial {
   vibe: string
 }
 
+// Slugs must track radio_stations.slug (seeded from backend/internal/seeddata/
+// radio.go) — a renamed station silently degrades its card to the editorial
+// shell (the episodes fetch 404s) while the href dead-links, so verify here on
+// any station-slug migration.
 const STATIONS: ReadonlyArray<StationEditorial> = [
   {
     station: 'KEXP',
@@ -51,7 +55,9 @@ const STATIONS: ReadonlyArray<StationEditorial> = [
     station: 'NTS',
     slug: 'nts-radio',
     city: 'London',
-    vibe: 'Global morning show',
+    // Station-level line (the placeholder's "Global morning show" described
+    // its fictional show, not the station) — owner may reword.
+    vibe: 'Global, two live channels',
   },
 ]
 
@@ -72,15 +78,25 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
     .slice(0, CARD_ARTIST_CAP)
   const live = nowPlaying?.on_air === true
 
-  const ariaLabel = latest
-    ? `${editorial.station} · ${editorial.city} — latest: ${latest.show_name}. Open the station page.`
-    : `${editorial.station} · ${editorial.city}. Open the station page.`
+  // aria-label REPLACES the accessible name computed from the card's content,
+  // so everything a sighted user sees must be restated here — notably the
+  // live status and artists (the dot glyph is aria-hidden decoration).
+  const ariaLabel = [
+    `${editorial.station} · ${editorial.city}`,
+    live ? '— live now' : '',
+    latest ? `— latest: ${latest.show_name}` : '',
+    artists.length > 0 ? `with ${artists.join(', ')}` : '',
+    '. Open the station page.',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(' .', '.')
 
   return (
     <Link
       href={`/radio/${editorial.slug}`}
       aria-label={ariaLabel}
-      className="flex flex-1 flex-col gap-[7px] rounded-xl border border-border bg-card p-[18px] transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="flex min-h-[134px] flex-1 flex-col gap-[7px] rounded-xl border border-border bg-card p-[18px] transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-[7px]">

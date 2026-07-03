@@ -103,4 +103,30 @@ describe('LatestRadioShows', () => {
     render(<LatestRadioShows />)
     expect(screen.queryByText('live')).not.toBeInTheDocument()
   })
+
+  it('degrades to the editorial shell on a fetch ERROR (e.g. a renamed slug 404s)', () => {
+    useStationEpisodes.mockReturnValue({ data: undefined, error: new Error('404') })
+    useStationNowPlaying.mockReturnValue({ data: undefined, error: new Error('404') })
+    render(<LatestRadioShows />)
+    expect(screen.getByText('KEXP')).toBeInTheDocument()
+    expect(screen.getByText('Eclectic host’s-choice')).toBeInTheDocument()
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
+  })
+
+  it('restates live status and artists in the accessible name (aria-label replaces content)', () => {
+    useStationEpisodes.mockImplementation(({ stationSlug }: { stationSlug: string }) =>
+      stationSlug === 'wfmu'
+        ? { data: { episodes: [episodeRow()], total: 1 } }
+        : { data: { episodes: [], total: 0 } }
+    )
+    useStationNowPlaying.mockImplementation((slug: string) => ({
+      data: { on_air: slug === 'wfmu' },
+    }))
+    render(<LatestRadioShows />)
+    expect(
+      screen.getByRole('link', {
+        name: 'WFMU · Jersey City — live now — latest: Strength Through Failure with Stereolab, Broadcast, Pram. Open the station page.',
+      })
+    ).toHaveAttribute('href', '/radio/wfmu')
+  })
 })
