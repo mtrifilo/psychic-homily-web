@@ -414,3 +414,81 @@ func TestDeriveRelationships_SharedLabelsError(t *testing.T) {
 	_, err := h.DeriveRelationshipsHandler(ctx, &DeriveRelationshipsRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// --- GetRelationshipProvenanceHandler (PSY-1335) ---
+
+func TestGetRelationshipProvenance_InvalidIDs(t *testing.T) {
+	h := testArtistRelationshipHandler()
+
+	_, err := h.GetRelationshipProvenanceHandler(context.Background(),
+		&GetRelationshipProvenanceRequest{ArtistID: "abc", OtherID: "2"})
+	testhelpers.AssertHumaError(t, err, 400)
+
+	_, err = h.GetRelationshipProvenanceHandler(context.Background(),
+		&GetRelationshipProvenanceRequest{ArtistID: "1", OtherID: "abc"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetRelationshipProvenance_NotFoundMapsTo404(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			GetRelationshipProvenanceFn: func(a, b uint) (*contracts.RelationshipProvenance, error) {
+				return nil, apperrors.ErrArtistRelationshipNotFound()
+			},
+		},
+		nil,
+	)
+
+	_, err := h.GetRelationshipProvenanceHandler(context.Background(),
+		&GetRelationshipProvenanceRequest{ArtistID: "1", OtherID: "2"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetRelationshipProvenance_UnknownArtistMapsTo404(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			GetRelationshipProvenanceFn: func(a, b uint) (*contracts.RelationshipProvenance, error) {
+				return nil, apperrors.ErrArtistNotFound(a)
+			},
+		},
+		nil,
+	)
+
+	_, err := h.GetRelationshipProvenanceHandler(context.Background(),
+		&GetRelationshipProvenanceRequest{ArtistID: "999", OtherID: "2"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetRelationshipProvenance_Success(t *testing.T) {
+	var capturedA, capturedB uint
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			GetRelationshipProvenanceFn: func(a, b uint) (*contracts.RelationshipProvenance, error) {
+				capturedA, capturedB = a, b
+				return &contracts.RelationshipProvenance{
+					Connections: []contracts.RelationshipProvenanceConnection{
+						{
+							Type:        "shared_bills",
+							Score:       0.8,
+							Entities:    []contracts.RelationshipProvenanceEntity{{Kind: "show", ID: 7, Slug: "a-show", Name: "A Show", Date: "2026-05-14"}},
+							EntityTotal: 12,
+						},
+					},
+				}, nil
+			},
+		},
+		nil,
+	)
+
+	resp, err := h.GetRelationshipProvenanceHandler(context.Background(),
+		&GetRelationshipProvenanceRequest{ArtistID: "1", OtherID: "2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedA != 1 || capturedB != 2 {
+		t.Errorf("expected service called with (1,2), got (%d,%d)", capturedA, capturedB)
+	}
+	if len(resp.Body.Connections) != 1 || resp.Body.Connections[0].EntityTotal != 12 {
+		t.Errorf("unexpected response body: %+v", resp.Body)
+	}
+}

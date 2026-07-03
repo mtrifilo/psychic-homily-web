@@ -17,6 +17,8 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/related", relHandler.GetRelatedArtistsHandler)
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/graph", relHandler.GetArtistGraphHandler)
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/bill-composition", relHandler.GetArtistBillCompositionHandler)
+	// Edge provenance (PSY-1335): the entities behind each connection between a pair
+	huma.Get(optionalAuthGroup, "/artists/{artist_id}/relationships/{other_id}/provenance", relHandler.GetRelationshipProvenanceHandler)
 
 	// Protected: create relationships and vote
 	huma.Post(rc.Protected, "/artists/relationships", relHandler.CreateRelationshipHandler)

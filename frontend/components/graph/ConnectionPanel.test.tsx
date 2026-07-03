@@ -83,6 +83,56 @@ describe('ConnectionPanel', () => {
     )
   })
 
+  it('skips entities whose kind this build does not know (no undefined hrefs)', () => {
+    renderPanel({
+      connections: [
+        {
+          type: 'shared_bills',
+          detail: { shared_count: 1 },
+          entities: [
+            // A future backend kind arriving before a FE deploy.
+            { kind: 'venue' as never, id: 1, slug: 'the-smell', name: 'The Smell' },
+            { kind: 'show', id: 9, slug: 'dehd-empty-bottle', name: 'Empty Bottle', date: '2026-05-14' },
+          ],
+        },
+      ],
+    })
+    expect(screen.queryByRole('link', { name: 'The Smell' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '2026-05-14 · Empty Bottle' })).toBeInTheDocument()
+  })
+
+  it('discloses "and N more" when the entity list is capped', () => {
+    renderPanel({
+      connections: [
+        {
+          type: 'shared_bills',
+          detail: { shared_count: 12 },
+          entities: [
+            { kind: 'show', id: 9, slug: 'dehd-empty-bottle', name: 'Empty Bottle', date: '2026-05-14' },
+          ],
+          entityTotal: 12,
+        },
+      ],
+    })
+    expect(screen.getByText('and 11 more')).toBeInTheDocument()
+  })
+
+  it('omits the "more" line when the total matches the list', () => {
+    renderPanel({
+      connections: [
+        {
+          type: 'shared_bills',
+          detail: { shared_count: 1 },
+          entities: [
+            { kind: 'show', id: 9, slug: 'dehd-empty-bottle', name: 'Empty Bottle', date: '2026-05-14' },
+          ],
+          entityTotal: 1,
+        },
+      ],
+    })
+    expect(screen.queryByText(/and \d+ more/)).not.toBeInTheDocument()
+  })
+
   it('closes via the close button and via Escape', () => {
     const { onClose } = renderPanel()
     fireEvent.click(screen.getByRole('button', { name: 'Close connection details' }))

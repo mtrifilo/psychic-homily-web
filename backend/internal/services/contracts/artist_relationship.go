@@ -79,6 +79,47 @@ type BillCoArtist struct {
 	LastShared  string          `json:"last_shared"` // ISO date "2026-03-01"
 }
 
+// ──────────────────────────────────────────────
+// Edge provenance (PSY-1335)
+// ──────────────────────────────────────────────
+
+// RelationshipProvenanceEntity is one resolvable entity behind a connection
+// claim — a shared show, label, festival, or station — with the slug the
+// frontend needs to link into the knowledge graph.
+type RelationshipProvenanceEntity struct {
+	Kind string `json:"kind"` // show | label | festival | station
+	ID   uint   `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// Date is the display date: ISO event date for shows, edition year for
+	// festivals. Empty for undated kinds (labels, stations).
+	Date string `json:"date,omitempty"`
+}
+
+// RelationshipProvenanceConnection is one typed connection between the pair
+// with the entities that substantiate it. Entity-less types (similar,
+// member_of, side_project — score/votes already suffice) carry an empty list.
+type RelationshipProvenanceConnection struct {
+	Type   string  `json:"type"`
+	Score  float64 `json:"score"`
+	Detail any     `json:"detail,omitempty"`
+	// Entities is capped at RelationshipProvenanceEntityCap; EntityTotal is
+	// the uncapped count so the client can disclose "and N more".
+	Entities    []RelationshipProvenanceEntity `json:"entities,omitempty"`
+	EntityTotal int                            `json:"entity_total,omitempty"`
+}
+
+// RelationshipProvenance is the response body for the edge-inspect endpoint.
+type RelationshipProvenance struct {
+	Connections []RelationshipProvenanceConnection `json:"connections"`
+}
+
+// RelationshipProvenanceEntityCap bounds the per-connection entity list.
+// Shows between prolific co-billers (and episode-heavy radio pairs, which is
+// why radio provenance is station-level only) can be large; the panel is a
+// glance surface, not a browse surface.
+const RelationshipProvenanceEntityCap = 10
+
 // ArtistRelationshipServiceInterface defines the contract for artist relationship operations.
 type ArtistRelationshipServiceInterface interface {
 	// CRUD
@@ -90,6 +131,7 @@ type ArtistRelationshipServiceInterface interface {
 	// Graph
 	GetArtistGraph(artistID uint, types []string, userID uint) (*ArtistGraph, error)
 	GetArtistBillComposition(artistID uint, months int) (*ArtistBillComposition, error)
+	GetRelationshipProvenance(artistA, artistB uint) (*RelationshipProvenance, error)
 
 	// Voting (only for non-auto-derived, typically "similar")
 	Vote(artistA, artistB uint, relType string, userID uint, isUpvote bool) error

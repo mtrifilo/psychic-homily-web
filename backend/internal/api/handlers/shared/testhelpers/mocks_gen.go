@@ -180,17 +180,18 @@ func (m *MockAnalyticsService) GetDataQualityTrends(months int) (*contracts.Data
 // ============================================================================
 
 type MockArtistRelationshipService struct {
-	CreateRelationshipFn       func(uint, uint, string, bool) (*catalogm.ArtistRelationship, error)
-	GetRelationshipFn          func(uint, uint, string) (*catalogm.ArtistRelationship, error)
-	GetRelatedArtistsFn        func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
-	DeleteRelationshipFn       func(uint, uint, string) error
-	GetArtistGraphFn           func(uint, []string, uint) (*contracts.ArtistGraph, error)
-	GetArtistBillCompositionFn func(uint, int) (*contracts.ArtistBillComposition, error)
-	VoteFn                     func(uint, uint, string, uint, bool) error
-	RemoveVoteFn               func(uint, uint, string, uint) error
-	GetUserVoteFn              func(uint, uint, string, uint) (*catalogm.ArtistRelationshipVote, error)
-	DeriveSharedBillsFn        func(int) (int64, error)
-	DeriveSharedLabelsFn       func(int) (int64, error)
+	CreateRelationshipFn        func(uint, uint, string, bool) (*catalogm.ArtistRelationship, error)
+	GetRelationshipFn           func(uint, uint, string) (*catalogm.ArtistRelationship, error)
+	GetRelatedArtistsFn         func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
+	DeleteRelationshipFn        func(uint, uint, string) error
+	GetArtistGraphFn            func(uint, []string, uint) (*contracts.ArtistGraph, error)
+	GetArtistBillCompositionFn  func(uint, int) (*contracts.ArtistBillComposition, error)
+	GetRelationshipProvenanceFn func(uint, uint) (*contracts.RelationshipProvenance, error)
+	VoteFn                      func(uint, uint, string, uint, bool) error
+	RemoveVoteFn                func(uint, uint, string, uint) error
+	GetUserVoteFn               func(uint, uint, string, uint) (*catalogm.ArtistRelationshipVote, error)
+	DeriveSharedBillsFn         func(int) (int64, error)
+	DeriveSharedLabelsFn        func(int) (int64, error)
 }
 
 func (m *MockArtistRelationshipService) CreateRelationship(sourceID uint, targetID uint, relType string, autoDerived bool) (*catalogm.ArtistRelationship, error) {
@@ -226,6 +227,12 @@ func (m *MockArtistRelationshipService) GetArtistGraph(artistID uint, types []st
 func (m *MockArtistRelationshipService) GetArtistBillComposition(artistID uint, months int) (*contracts.ArtistBillComposition, error) {
 	if m.GetArtistBillCompositionFn != nil {
 		return m.GetArtistBillCompositionFn(artistID, months)
+	}
+	return nil, nil
+}
+func (m *MockArtistRelationshipService) GetRelationshipProvenance(artistA uint, artistB uint) (*contracts.RelationshipProvenance, error) {
+	if m.GetRelationshipProvenanceFn != nil {
+		return m.GetRelationshipProvenanceFn(artistA, artistB)
 	}
 	return nil, nil
 }
