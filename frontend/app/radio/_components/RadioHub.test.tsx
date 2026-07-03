@@ -6,6 +6,8 @@ const mockUseRadioStations = vi.fn()
 const mockUseRecentRadioEpisodes = vi.fn()
 const mockUseNewReleaseRadar = vi.fn()
 
+const mockUseRadioGuide = vi.fn()
+
 vi.mock('@/features/radio', async importOriginal => {
   const actual = await importOriginal<typeof import('@/features/radio')>()
   return {
@@ -15,9 +17,9 @@ vi.mock('@/features/radio', async importOriginal => {
     useRecentRadioEpisodes: (...args: unknown[]) =>
       mockUseRecentRadioEpisodes(...args),
     useNewReleaseRadar: (...args: unknown[]) => mockUseNewReleaseRadar(...args),
-    // PSY-1053: the guide self-hides when empty; hub structure tests run with
-    // an empty guide (RadioGuide has its own test file).
-    useRadioGuide: () => ({ data: undefined }),
+    // PSY-1053: hub structure tests default to an empty guide (RadioGuide
+    // has its own test file); the placement test overrides this mock.
+    useRadioGuide: () => mockUseRadioGuide(),
   }
 })
 
@@ -62,6 +64,7 @@ function makeStation(overrides: Record<string, unknown> = {}) {
 describe('RadioHub', () => {
   beforeEach(() => {
     mockUseRadioStats.mockReset().mockReturnValue({ data: stats })
+    mockUseRadioGuide.mockReset().mockReturnValue({ data: undefined, isError: false })
     mockUseRadioStations.mockReset().mockReturnValue({
       data: {
         stations: [
@@ -119,6 +122,39 @@ describe('RadioHub', () => {
     expect(
       screen.getByText('Latest playlists — across the dial')
     ).toBeInTheDocument()
+  })
+
+  it('renders the guide between THE DIAL and LATEST PLAYLISTS (PSY-1053)', () => {
+    mockUseRadioGuide.mockReturnValue({
+      data: {
+        on_now: [
+          {
+            station: { slug: 'wfmu', name: 'WFMU' },
+            show: { id: 1, slug: 'wake', name: 'Wake', host_name: null },
+            starts_at: new Date().toISOString(),
+            ends_at: new Date(Date.now() + 2 * 3600e3).toISOString(),
+            station_timezone: 'America/New_York',
+          },
+        ],
+        up_next: [],
+        generated_at: new Date().toISOString(),
+      },
+      isError: false,
+    })
+    render(<RadioHub />)
+
+    const dial = screen.getByText('The dial — live now')
+    const guide = screen.getByLabelText('Program guide')
+    const playlists = screen.getByText('Latest playlists — across the dial')
+    // DOM order: dial section → guide → playlists (the ticket's one
+    // structural requirement).
+    expect(
+      dial.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      guide.compareDocumentPosition(playlists) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 
   it('links the full playlists feed under the latest-playlists table (PSY-1076)', () => {

@@ -32,7 +32,10 @@ export default function RadioHub() {
   const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({
     limit: 5,
   })
-  const { data: guideData } = useRadioGuide()
+  // On a refetch error React Query RETAINS the previous data (the PSY-1136
+  // stale-retained-data class) while the hook's interval stops — so an
+  // errored guide must render nothing, not yesterday's ON NOW forever.
+  const { data: guideData, isError: guideError } = useRadioGuide()
 
   const stations = (stationsQuery.data?.stations ?? []).filter(
     isStationVisibleOnIndex
@@ -92,7 +95,10 @@ export default function RadioHub() {
 
         {/* ON NOW / UP NEXT guide (PSY-1053) — self-hides when the guide is
             empty, loading, or errored. */}
-        <RadioGuide onNow={guideData?.on_now} upNext={guideData?.up_next} />
+        <RadioGuide
+          onNow={guideError ? null : guideData?.on_now}
+          upNext={guideError ? null : guideData?.up_next}
+        />
 
         {/* Latest playlists + sidebar */}
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">

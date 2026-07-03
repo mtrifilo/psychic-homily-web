@@ -66,6 +66,12 @@ function GuideGroup({ label, rows }: { label: string; rows: RadioGuideRow[] }) {
 
 function GuideRow({ row }: { row: RadioGuideRow }) {
   const local = formatLocalTimeRange(row.starts_at, row.ends_at)
+  // The UP NEXT horizon is 24h, so a row can start past viewer-local
+  // midnight — a bare "3–6 PM" would read as today and send the viewer to
+  // dead air. Mark it. (The horizon caps at one day, so "tomorrow" is the
+  // only case.)
+  const startsTomorrow =
+    new Date(row.starts_at).toDateString() !== new Date().toDateString()
   // Skip the station-local aside only when the viewer IS in the station's
   // zone (zone equality, not clock equality — same rule as the playlist
   // detail page's aired line).
@@ -90,7 +96,13 @@ function GuideRow({ row }: { row: RadioGuideRow }) {
         <Link href={`/radio/${row.station.slug}`} className="hover:underline">
           {row.station.name}
         </Link>
-        {local && <> · {local}</>}
+        {local && (
+          <>
+            {' · '}
+            {local}
+            {startsTomorrow && ' tomorrow'}
+          </>
+        )}
         {stationRange && (
           <span className="text-muted-foreground/70"> ({stationRange})</span>
         )}

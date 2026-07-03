@@ -836,7 +836,11 @@ type GetRadioGuideRequest struct{}
 
 // GetRadioGuideResponse carries the guide payload.
 type GetRadioGuideResponse struct {
-	Body *contracts.RadioGuideResponse
+	// CacheControl caps recompute amplification: the guide is identical for
+	// every viewer and only changes at minute granularity, so clients (and
+	// any CDN) may share a response for the hook's own refetch cadence.
+	CacheControl string `header:"Cache-Control"`
+	Body         *contracts.RadioGuideResponse
 }
 
 // GetRadioGuideHandler handles GET /radio/guide — the schedule-derived
@@ -847,7 +851,7 @@ func (h *RadioHandler) GetRadioGuideHandler(ctx context.Context, req *GetRadioGu
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to compute radio guide", err)
 	}
-	return &GetRadioGuideResponse{Body: guide}, nil
+	return &GetRadioGuideResponse{CacheControl: "public, max-age=60", Body: guide}, nil
 }
 
 // GetRadioStatsHandler handles GET /radio/stats

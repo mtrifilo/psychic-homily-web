@@ -67,6 +67,24 @@ describe('RadioGuide', () => {
     }
   })
 
+  it("marks a next-day UP NEXT row with 'tomorrow'", () => {
+    const t = new Date()
+    render(
+      <RadioGuide
+        onNow={[]}
+        upNext={[
+          row({
+            starts_at: localIso(
+              t.getFullYear(), t.getMonth(), t.getDate() + 1, 9),
+            ends_at: localIso(
+              t.getFullYear(), t.getMonth(), t.getDate() + 1, 12),
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText(/tomorrow/)).toBeInTheDocument()
+  })
+
   it('renders nothing when both groups are empty', () => {
     const { container } = render(<RadioGuide onNow={[]} upNext={null} />)
     expect(container).toBeEmptyDOMElement()
