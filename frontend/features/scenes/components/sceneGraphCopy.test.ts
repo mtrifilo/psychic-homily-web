@@ -48,5 +48,15 @@ describe('sceneArtistCountPhrase (PSY-1296)', () => {
         scene({ metro_roster_total: 12, roster_truncated: true }),
       ),
     ).toBe('12 artists')
+    // A missing total (older payload at runtime) must degrade too — the TS
+    // type says number, but the wire isn't validated.
+    expect(
+      sceneArtistCountPhrase(
+        scene({
+          metro_roster_total: undefined as unknown as number,
+          roster_truncated: true,
+        }),
+      ),
+    ).toBe('12 artists')
   })
 })

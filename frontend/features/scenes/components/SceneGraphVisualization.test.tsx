@@ -105,6 +105,20 @@ describe('SceneGraphVisualization', () => {
     )
   })
 
+  it('singularizes a one-edge graph in the aria-label ("1 connection")', () => {
+    render(
+      <SceneGraphVisualization
+        data={{ ...data, scene: { ...data.scene, edge_count: 1 } }}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'aria-label',
+      'Scene relationship graph for Phoenix, AZ: 1 artist, 1 connection.'
+    )
+  })
+
   // PSY-1296: assistive tech must hear the same "top N of M" framing the
   // visual header shows when the PSY-1277 roster cap truncated the node set.
   it('describes a truncated graph honestly in the aria-label', () => {

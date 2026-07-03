@@ -197,6 +197,10 @@ describe('SceneGraph', () => {
     expect(screen.getByTestId('scene-graph-canvas')).toBeInTheDocument()
     expect(screen.getByText(/Valley Bar \(6\)/)).toBeInTheDocument()
     expect(screen.getByText(/Crescent Ballroom \(6\)/)).toBeInTheDocument()
+    // PSY-1296 caption: the roster is BASED-IN artists, not played-here.
+    expect(
+      screen.getByText(/based in the Phoenix, AZ scene, ranked by their approved shows here/),
+    ).toBeInTheDocument()
   })
 
   it('toggles cluster visibility when a legend pill is clicked', async () => {
