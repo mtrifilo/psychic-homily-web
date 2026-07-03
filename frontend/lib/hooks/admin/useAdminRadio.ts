@@ -631,13 +631,25 @@ export interface SyncRunListResult {
 }
 
 /**
+ * Row scope for the sync-run feeds (PSY-1343): 'sweep' hides the show-scoped
+ * slot-fetch rows (PSY-1333 writes one per slot boundary — they'd drown the
+ * handful of daily station sweeps), 'scoped' shows only them, 'all' everything.
+ */
+export type SyncRunScope = 'all' | 'sweep' | 'scoped'
+
+/**
  * Recent sync runs for one station (newest first), for the per-station feed.
  */
-export function useStationSyncRuns(stationId: number, limit = 20, enabled = true) {
+export function useStationSyncRuns(
+  stationId: number,
+  limit = 20,
+  enabled = true,
+  scope: SyncRunScope = 'all'
+) {
   return useQuery({
-    queryKey: radioQueryKeys.stationSyncRuns(stationId, `limit=${limit}`),
+    queryKey: radioQueryKeys.stationSyncRuns(stationId, `limit=${limit}&scope=${scope}`),
     queryFn: async () => {
-      const url = `${RADIO_ENDPOINTS.ADMIN_STATION_SYNC_RUNS(stationId)}?limit=${limit}`
+      const url = `${RADIO_ENDPOINTS.ADMIN_STATION_SYNC_RUNS(stationId)}?limit=${limit}&scope=${scope}`
       return apiRequest<SyncRunListResult>(url)
     },
     enabled: enabled && stationId > 0,

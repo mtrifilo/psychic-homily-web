@@ -23,13 +23,30 @@ const (
 	maxSyncRunPageSize     = 100
 )
 
+// Sync-run feed scope values (PSY-1343). The PSY-1333 slot fetch writes a
+// show-scoped fetch row per slot boundary — tens per day on a schedule-bearing
+// station — so the feed needs a way to separate them from the handful of daily
+// station sweeps the operator usually cares about.
+const (
+	// SyncRunScopeAll — no scope filter (every run type, scoped or not).
+	SyncRunScopeAll = "all"
+	// SyncRunScopeSweep — hide show-scoped FETCH rows (the slot-fetch flood).
+	// Discover/backfill/janitor rows all still show; backfills carry a show_id
+	// too but are operator-initiated and rare, so they stay visible.
+	SyncRunScopeSweep = "sweep"
+	// SyncRunScopeScoped — ONLY show-scoped fetch rows (inspect the slot fetcher).
+	SyncRunScopeScoped = "scoped"
+)
+
 // ListSyncRuns returns recent sync runs newest-first for the admin feed. stationID nil
 // = global (across all stations); non-nil scopes to one station (404 if it doesn't
 // exist). status, when non-empty, filters to that exact run status (an unknown status
-// simply yields no rows — a forgiving filter for an internal admin tool). Returns the
-// page plus the total count of the matched set (for pagination). Station/Show/Errors are
-// preloaded so the feed renders names + an error summary in one round trip.
-func (s *RadioService) ListSyncRuns(stationID *uint, status string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+// simply yields no rows — a forgiving filter for an internal admin tool). scope is one
+// of the SyncRunScope* values; empty behaves as SyncRunScopeAll (and, forgivingly, so
+// does an unknown value — same convention as status). Returns the page plus the total
+// count of the matched set (for pagination). Station/Show/Errors are preloaded so the
+// feed renders names + an error summary in one round trip.
+func (s *RadioService) ListSyncRuns(stationID *uint, status, scope string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -58,6 +75,12 @@ func (s *RadioService) ListSyncRuns(stationID *uint, status string, limit, offse
 		}
 		if status != "" {
 			db = db.Where("status = ?", status)
+		}
+		switch scope {
+		case SyncRunScopeSweep:
+			db = db.Where("NOT (run_type = ? AND show_id IS NOT NULL)", catalogm.RadioSyncRunTypeFetch)
+		case SyncRunScopeScoped:
+			db = db.Where("run_type = ? AND show_id IS NOT NULL", catalogm.RadioSyncRunTypeFetch)
 		}
 		return db
 	}

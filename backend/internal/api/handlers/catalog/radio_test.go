@@ -1349,7 +1349,7 @@ func TestAdminListSyncRuns_GlobalForwardsArgsAndEnvelope(t *testing.T) {
 	var gotStatus string
 	var gotLimit, gotOffset int
 	mock := &testhelpers.MockRadioService{
-		ListSyncRunsFn: func(stationID *uint, status string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+		ListSyncRunsFn: func(stationID *uint, status, scope string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error) {
 			gotStation, gotStatus, gotLimit, gotOffset = stationID, status, limit, offset
 			return []*contracts.RadioSyncRunResponse{{ID: 1}, {ID: 2}}, 7, nil
 		},
@@ -1373,7 +1373,7 @@ func TestAdminListSyncRuns_GlobalForwardsArgsAndEnvelope(t *testing.T) {
 func TestAdminListStationSyncRuns_ScopesToStation(t *testing.T) {
 	var gotStation *uint
 	mock := &testhelpers.MockRadioService{
-		ListSyncRunsFn: func(stationID *uint, _ string, _, _ int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+		ListSyncRunsFn: func(stationID *uint, _, _ string, _, _ int) ([]*contracts.RadioSyncRunResponse, int64, error) {
 			gotStation = stationID
 			return []*contracts.RadioSyncRunResponse{{ID: 1}}, 1, nil
 		},
@@ -1390,7 +1390,7 @@ func TestAdminListStationSyncRuns_ScopesToStation(t *testing.T) {
 
 func TestAdminListStationSyncRuns_StationNotFound404(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
-		ListSyncRunsFn: func(_ *uint, _ string, _, _ int) ([]*contracts.RadioSyncRunResponse, int64, error) {
+		ListSyncRunsFn: func(_ *uint, _, _ string, _, _ int) ([]*contracts.RadioSyncRunResponse, int64, error) {
 			return nil, 0, apperrors.ErrRadioStationNotFound(999)
 		},
 	}
