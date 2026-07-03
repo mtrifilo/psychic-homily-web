@@ -117,6 +117,10 @@ export interface RadioStationsListResponse {
 // Radio Show
 // ============================================================================
 
+/** Closed enum (DB CHECK constraint + huma enum tag): the show
+ * active-vs-historical signal. */
+export type RadioLifecycleState = 'active' | 'dormant' | 'retired'
+
 export interface RadioShowListItem {
   id: number
   station_id: number
@@ -132,10 +136,9 @@ export interface RadioShowListItem {
    * shows polling). NOT the active-vs-historical signal; use
    * lifecycle_state for anything user-facing (PSY-1326). */
   is_active: boolean
-  /** 'active' | 'dormant' | 'retired' — the janitor-maintained signal
-   * (PSY-1155) behind the directory's active count, sort bucket, and
-   * dimming. */
-  lifecycle_state: string
+  /** The janitor-maintained signal (PSY-1155) behind the directory's
+   * active count, sort bucket, and dimming. */
+  lifecycle_state: RadioLifecycleState
   episode_count: number
   /** Air date (YYYY-MM-DD) of the show's most recent episode (PSY-1048). */
   latest_air_date: string | null

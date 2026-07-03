@@ -194,10 +194,10 @@ type RadioShowDetailResponse struct {
 	IsActive       bool             `json:"is_active"`
 	// LifecycleState (active | dormant | retired) is the operational signal the
 	// janitor maintains (PSY-1155): 'active' = aired within the dormancy window,
-	// 'dormant' = inactive/historical (still browsable). Additive + emitted now so
-	// the frontend can later show active shows primarily and tuck historical ones
-	// behind a dig-deeper affordance — that FE consumer is a follow-up; no reader
-	// exists yet (and ListShows is intentionally NOT filtered by it).
+	// 'dormant' = inactive/historical (still browsable). The station shows
+	// directory reads it for its active count / sort bucket / dimming
+	// (PSY-1326, StationShowsDirectory); ListShows is intentionally NOT
+	// filtered by it (historical archives stay served).
 	LifecycleState string    `json:"lifecycle_state"`
 	EpisodeCount   int64     `json:"episode_count"`
 	CreatedAt      time.Time `json:"created_at"`

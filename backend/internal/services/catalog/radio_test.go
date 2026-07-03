@@ -1371,7 +1371,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.Equal("Mid Show", byLatest[3].Name)
 	suite.Nil(byLatest[3].LatestAirDate)
 	suite.Equal("Beta Retired", byLatest[4].Name)
-	suite.False(byLatest[4].IsActive)
+	suite.Equal(catalogm.RadioLifecycleRetired, byLatest[4].LifecycleState)
 }
 
 // TestListShows_LatestEpisodeWindow pins the PSY-1306 LAST-column window: each

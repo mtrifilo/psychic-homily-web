@@ -126,7 +126,12 @@ describe('StationShowsDirectory', () => {
       makeShow({ id: 3, name: 'Toggled', slug: 'toggled', is_active: false }),
     ])
     render(<StationShowsDirectory stationId={1} stationSlug="wfmu" />)
-    expect(screen.getByText('2 active · 1 archived')).toBeInTheDocument()
+    expect(screen.getByText('2 active · 1 inactive')).toBeInTheDocument()
+    // Dimming keys off lifecycle too: the retired row dims, the legacy
+    // is_active=false row does not.
+    const rows = screen.getAllByRole('row')
+    expect(rows.find(r => within(r).queryByText('Retired'))).toHaveClass('opacity-60')
+    expect(rows.find(r => within(r).queryByText('Toggled'))).not.toHaveClass('opacity-60')
   })
 
   it('collapses to 10 rows and expands in place via View all', () => {

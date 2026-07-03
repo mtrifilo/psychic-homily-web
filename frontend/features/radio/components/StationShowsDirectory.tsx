@@ -46,6 +46,8 @@ export function StationShowsDirectory({
   // nearly every row (it keeps dormant shows polling), which is how WFMU's
   // directory claimed "488 active" against a ~65-slot schedule (PSY-1326).
   const activeCount = shows.filter(isLifecycleActive).length
+  // "inactive", not "archived": dormant is a leave-of-absence state
+  // (seasonal churn, PSY-1152) — "archived" would claim these shows ended.
   const archivedCount = shows.length - activeCount
 
   return (
@@ -89,7 +91,7 @@ export function StationShowsDirectory({
           <div className="flex items-baseline gap-2 mt-2">
             <span className="font-mono text-xs text-muted-foreground tabular-nums">
               {activeCount} active
-              {archivedCount > 0 && ` · ${archivedCount} archived`}
+              {archivedCount > 0 && ` · ${archivedCount} inactive`}
             </span>
             {shows.length > COLLAPSED_ROW_COUNT && (
               <BracketLink
