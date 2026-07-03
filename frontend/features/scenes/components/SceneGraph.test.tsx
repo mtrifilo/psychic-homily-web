@@ -366,4 +366,132 @@ describe('SceneGraph', () => {
       expect(overlayCanvas).toHaveAttribute('data-hidden-clusters', 'v_1')
     })
   })
+
+  describe('cluster-by toggle (PSY-1320)', () => {
+    it('defaults to venue mode (amended decision pending PSY-1323)', () => {
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      expect(screen.getByRole('button', { name: 'Venue' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      expect(screen.getByRole('button', { name: 'Community' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+      expect(screen.getByText(/most-frequent venue/)).toBeInTheDocument()
+    })
+
+    it('switches the hook to community mode and updates the caption', async () => {
+      const user = userEvent.setup()
+      const hooks = await import('../hooks/useScenes')
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      await user.click(screen.getByRole('button', { name: 'Community' }))
+
+      expect(screen.getByRole('button', { name: 'Community' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      expect(screen.getByRole('button', { name: 'Venue' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+      // The hook re-renders with the new mode — the query key change is what
+      // triggers the refetch (covered by useSceneGraph.test.tsx).
+      const lastCall = vi.mocked(hooks.useSceneGraph).mock.calls.at(-1)![0]
+      expect(lastCall.clusterBy).toBe('community')
+      expect(screen.getByText(/similarity community/)).toBeInTheDocument()
+    })
+
+    it('resets hidden clusters when the mode switches (IDs are mode-scoped)', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      await user.click(screen.getByText(/Valley Bar/).closest('button')!)
+      expect(screen.getByTestId('scene-graph-canvas')).toHaveAttribute(
+        'data-hidden-clusters',
+        'v_1',
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Community' }))
+      expect(screen.getByTestId('scene-graph-canvas')).toHaveAttribute(
+        'data-hidden-clusters',
+        '',
+      )
+    })
+
+    it('keeps the toggle rendered when a mode fetch settles in error', async () => {
+      const hooks = await import('../hooks/useScenes')
+      vi.mocked(hooks.useSceneGraph).mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isPlaceholderData: false,
+        error: new Error('boom'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      // The section must NOT unmount: the toggle is the only path back to the
+      // mode that worked.
+      expect(screen.getByText('Scene graph')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Venue' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Community' })).toBeInTheDocument()
+      expect(screen.getByText(/couldn't load/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
+    })
+
+    it('dims and inert-blocks the stale clusters while the mode switch is in flight', async () => {
+      const hooks = await import('../hooks/useScenes')
+      const mocked = vi.mocked(hooks.useSceneGraph)
+      // mockImplementation (not ...Once): the width-measurement setState
+      // re-renders the component, so the hook is called more than once.
+      mocked.mockImplementation(
+        () =>
+          ({
+            data: mockData,
+            isLoading: false,
+            isError: false,
+            isPlaceholderData: true,
+            error: null,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          }) as any,
+      )
+      try {
+        renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+        const busyRegion = screen
+          .getByTestId('scene-graph-canvas')
+          .closest('[aria-busy="true"]')
+        expect(busyRegion).not.toBeNull()
+        expect(busyRegion!.className).toContain('pointer-events-none')
+        // The mode toggle itself stays outside the blocked region.
+        expect(
+          screen.getByRole('button', { name: 'Venue' }).closest('[aria-busy="true"]'),
+        ).toBeNull()
+      } finally {
+        mocked.mockImplementation(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          () => ({ data: mockData, isLoading: false, error: null }) as any,
+        )
+      }
+    })
+
+    it('renders the toggle inside the fullscreen overlay', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      await user.click(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      )
+      const overlay = screen.getByTestId('scene-graph-overlay')
+
+      const communityPill = within(overlay).getByRole('button', { name: 'Community' })
+      await user.click(communityPill)
+      expect(
+        within(overlay).getByRole('button', { name: 'Community' }),
+      ).toHaveAttribute('aria-pressed', 'true')
+    })
+  })
 })

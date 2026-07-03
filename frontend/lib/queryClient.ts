@@ -379,7 +379,11 @@ export const queryKeys = {
       ['scenes', 'artists', slug, period, limit] as const,
     shows: (slug: string) => ['scenes', 'shows', slug] as const,
     genres: (slug: string) => ['scenes', 'genres', slug] as const,
-    graph: (slug: string, types?: string[]) => ['scenes', 'graph', slug, types ?? null] as const,
+    // clusterBy is the literal union (not string) so a drifted value at an
+    // invalidation/prefetch site is a compile error, not a silent key
+    // mismatch (the PSY-1109 key-drift class).
+    graph: (slug: string, types?: string[], clusterBy?: 'venue' | 'community') =>
+      ['scenes', 'graph', slug, types ?? null, clusterBy ?? 'venue'] as const,
   },
 
   // Community queries (public)

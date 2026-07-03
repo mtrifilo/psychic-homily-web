@@ -6,7 +6,7 @@
  * TanStack Query hooks for fetching scene data from the API.
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import type {
@@ -127,26 +127,42 @@ export function useSceneGenres(slug: string) {
   })
 }
 
+export type SceneGraphClusterBy = 'venue' | 'community'
+
 interface UseSceneGraphOptions {
   slug: string
   types?: string[]
+  clusterBy?: SceneGraphClusterBy
   enabled?: boolean
 }
 
 /**
  * Hook to fetch the scene-scale relationship graph (PSY-367).
  *
- * Cluster IDs are computed by the backend at query time from each artist's
- * most-frequent in-scene venue; the response is read-only (no vote data) and
- * includes derived `is_isolate` and `is_cross_cluster` flags so the frontend
- * doesn't have to recompute them every render.
+ * Cluster IDs are computed by the backend at query time — per artist's
+ * most-frequent in-scene venue (`cluster_by=venue`, the default) or the
+ * persisted Leiden community partition (`cluster_by=community`, PSY-1262/
+ * PSY-1320). The response is read-only (no vote data) and includes derived
+ * `is_isolate` and `is_cross_cluster` flags so the frontend doesn't have to
+ * recompute them every render.
+ *
+ * `placeholderData: keepPreviousData` is load-bearing, not a nicety: the
+ * cluster-by toggle changes the query key while the fullscreen overlay can be
+ * open, and `useFullscreenGraphOverlay`'s `available` contract requires data
+ * not to transiently disappear mid-fetch (the venue bill network's in-overlay
+ * filter kick-out, PSY-1305).
  */
 export function useSceneGraph(options: UseSceneGraphOptions) {
-  const { slug, types, enabled = true } = options
+  const { slug, types, clusterBy, enabled = true } = options
 
   const params = new URLSearchParams()
   if (types && types.length > 0) {
     params.set('types', types.join(','))
+  }
+  // Only send cluster_by when it deviates from the backend default (venue),
+  // keeping the common request shape unchanged.
+  if (clusterBy && clusterBy !== 'venue') {
+    params.set('cluster_by', clusterBy)
   }
   const queryString = params.toString()
   const endpoint = queryString
@@ -154,11 +170,12 @@ export function useSceneGraph(options: UseSceneGraphOptions) {
     : API_ENDPOINTS.SCENES.GRAPH(slug)
 
   return useQuery({
-    queryKey: queryKeys.scenes.graph(slug, types),
+    queryKey: queryKeys.scenes.graph(slug, types, clusterBy),
     queryFn: async (): Promise<SceneGraphResponse> => {
       return apiRequest<SceneGraphResponse>(endpoint, { method: 'GET' })
     },
     enabled: enabled && Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousData,
   })
 }
