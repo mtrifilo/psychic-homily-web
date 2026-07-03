@@ -89,7 +89,11 @@ func (s *RadioService) detectVolumeAnomaly(stationID, currentRunID uint, current
 	// collapse, until those successes age out of the lookback window (by then it is
 	// breaker/health-card territory, not a per-run anomaly). The current run is still
 	// status=running here; the explicit id guard is belt-and-suspenders.
+	// show_id IS NULL: show-SCOPED fetch runs (PSY-1333 slot fetch) import single-show
+	// volumes; letting them into the baseline would drag the station-sweep mean toward
+	// zero and blind the guard.
 	err := s.db.Model(&catalogm.RadioSyncRun{}).
+		Where("show_id IS NULL").
 		Where("station_id = ? AND run_type = ? AND status = ? AND started_at >= ? AND id <> ?",
 			stationID,
 			catalogm.RadioSyncRunTypeFetch,

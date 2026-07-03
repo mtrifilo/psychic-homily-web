@@ -76,14 +76,14 @@ func (s *RadioSyncSuite) TestFetch_FailureStreak_ManualRunsDoNotBump() {
 	defer func() { s.svc.playlistProviderFactory = nil }()
 
 	for range 3 {
-		_, err := s.svc.fetchNewEpisodes(st.ID, catalogm.RadioSyncRunTriggerManual)
+		_, err := s.svc.fetchNewEpisodes(st.ID, catalogm.RadioSyncRunTriggerManual, nil)
 		s.Require().NoError(err)
 	}
 	s.Equal(0, s.streakOf(broken.ID), "manual-run failures must not inflate the streak")
 
 	s.setShowStreak(broken.ID, 2)
 	errs = false
-	_, err := s.svc.fetchNewEpisodes(st.ID, catalogm.RadioSyncRunTriggerManual)
+	_, err := s.svc.fetchNewEpisodes(st.ID, catalogm.RadioSyncRunTriggerManual, nil)
 	s.Require().NoError(err)
 	s.Equal(0, s.streakOf(broken.ID), "a successful manual fetch must still reset the streak")
 }

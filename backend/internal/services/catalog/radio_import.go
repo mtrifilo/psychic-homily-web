@@ -489,17 +489,26 @@ func radioWatermarkEntity(model interface{}) string {
 // maintained); executeSyncMode passes the run's real trigger to fetchNewEpisodes so a
 // manual admin retry can never inflate a streak (PSY-1274).
 func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportResult, error) {
-	return s.fetchNewEpisodes(stationID, catalogm.RadioSyncRunTriggerScheduled)
+	return s.fetchNewEpisodes(stationID, catalogm.RadioSyncRunTriggerScheduled, nil)
 }
 
-// fetchNewEpisodes is FetchNewEpisodes with the sync run's trigger made explicit.
+// fetchNewEpisodes is FetchNewEpisodes with the sync run's trigger made explicit
+// and an optional single-show scope.
+//
 // The trigger gates ONLY the failure-streak bump: the streak means "consecutive
 // SCHEDULED cycles failed" (that is what makes threshold × fetch interval a
 // wall-clock outage duration), so an admin manually re-running a flapping station
 // three times in ten minutes must not count as three cycles. A successful fetch
 // resets the streak regardless of trigger — a manual verification run after fixing
 // a show's external_id should clear the alert condition immediately.
-func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string) (*contracts.RadioImportResult, error) {
+//
+// onlyShowID, when non-nil, narrows the loop to that one show — the PSY-1333
+// slot-fetch path (a targeted fetch right after a show's scheduled start/end).
+// A SCOPED run never bumps the failure streak either, even when scheduled:
+// slot fetches would add extra attempts per day and silently tighten the
+// PSY-1274 "N consecutive cycles ≈ N × fetch interval" escalation clock. The
+// reset stays unconditional — any successful fetch clears the alert condition.
+func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string, onlyShowID *uint) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -537,6 +546,9 @@ func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string) (*contra
 	// no external id can't be fetched and is not counted as an attempt.
 	var stationFetchAttempts, stationFetchSuccesses, stationEpisodesReturned int
 	for _, show := range shows {
+		if onlyShowID != nil && show.ID != *onlyShowID {
+			continue
+		}
 		if show.ExternalID == nil || *show.ExternalID == "" {
 			continue
 		}
@@ -555,7 +567,7 @@ func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string) (*contra
 			// failure streak feeds the janitor's per-show escalation (PSY-1274).
 			recordImportError(result, categorizeRunError(err),
 				fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err), nil)
-			if trigger == catalogm.RadioSyncRunTriggerScheduled {
+			if trigger == catalogm.RadioSyncRunTriggerScheduled && onlyShowID == nil {
 				s.bumpShowFetchFailureStreak(show.ID)
 			}
 			continue
@@ -602,8 +614,13 @@ func (s *RadioService) fetchNewEpisodes(stationID uint, trigger string) (*contra
 	// run re-scans and the janitor escalates a sustained one (PSY-1241/PSY-1269);
 	// per-show recovery is the per-show watermarks above (PSY-1272). last_playlist_fetch_at
 	// is a "last successful progress" watermark, NOT "last attempt" — attempt history
-	// lives in radio_sync_runs.
-	s.advanceLastFetch(stationID, stationFetchAttempts, stationFetchSuccesses, stationEpisodesReturned, result.EpisodesImported)
+	// lives in radio_sync_runs. A SCOPED run advances it only off a real attempt: its
+	// "nothing fetchable" case (the target show deactivated between scheduling and
+	// running) says nothing about station health, unlike the sweep's genuinely-empty
+	// station, so it must not refresh the outage signal.
+	if onlyShowID == nil || stationFetchAttempts > 0 {
+		s.advanceLastFetch(stationID, stationFetchAttempts, stationFetchSuccesses, stationEpisodesReturned, result.EpisodesImported)
+	}
 
 	return result, nil
 }

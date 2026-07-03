@@ -58,6 +58,11 @@ type RunStationSyncOpts struct {
 
 	// ShowID + Window* are required for mode=backfill (the historic re-ingestion
 	// of one show over a date range; replaces RadioImportJob.Since/Until).
+	// For mode=fetch, ShowID optionally SCOPES the incremental fetch to that one
+	// show — the PSY-1333 slot-fetch path (targeted fetch on a schedule-slot
+	// boundary). Scoped fetch runs carry show_id on their run row and are
+	// excluded from the volume-anomaly guard + its baseline (single-show volumes
+	// are not station-scale).
 	ShowID      *uint
 	WindowStart *time.Time
 	WindowEnd   *time.Time
@@ -199,7 +204,9 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// is already recorded, and discover/backfill volumes are too variable for a
 	// baseline. Observational: it does not page Sentry (empty_unexpected is not in
 	// escalationError's escalate set) and only downgrades success → partial, never a failure.
-	if opts.Mode == catalogm.RadioSyncRunTypeFetch && out.hardErr == nil {
+	// Show-SCOPED fetches (PSY-1333 slot fetch) are exempt: a single show's volume is
+	// nowhere near the station-sweep baseline, so every scoped run would false-flag.
+	if opts.Mode == catalogm.RadioSyncRunTypeFetch && opts.ShowID == nil && out.hardErr == nil {
 		if anomaly, detail := s.detectVolumeAnomaly(stationID, run.ID, out.playsImported); anomaly {
 			out.errs = append(out.errs, runError{category: catalogm.RadioSyncRunErrorEmptyUnexpected, detail: detail})
 			if out.status == catalogm.RadioSyncRunStatusSuccess {
@@ -341,7 +348,7 @@ func (s *RadioService) executeSyncMode(stationID, runID uint, opts RunStationSyn
 		return discoverOutcome(res, imp)
 
 	case catalogm.RadioSyncRunTypeFetch:
-		res, err := s.fetchNewEpisodes(stationID, opts.Trigger)
+		res, err := s.fetchNewEpisodes(stationID, opts.Trigger, opts.ShowID)
 		if err != nil {
 			return syncOutcome{status: catalogm.RadioSyncRunStatusFailed, hardErr: err, errs: topLevelErr(err)}
 		}
