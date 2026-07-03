@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -21,6 +21,11 @@ interface AtlasSearchProps {
   scenes: SceneListItem[]
   /** Fly-to + open-preview for a scene the globe can place (PSY-1308 seam). */
   onPick: (scene: PlaceableScene) => void
+  /**
+   * Owner-provided ref for the trigger button (PSY-1313): AtlasGlobe shares it
+   * with ScenePreviewPanel as the panel's focus-return target.
+   */
+  triggerRef?: React.RefObject<HTMLButtonElement | null>
 }
 
 /**
@@ -36,9 +41,18 @@ interface AtlasSearchProps {
  * the page (unless typing in another field) — this is also the keyboard path
  * INTO scenes on /atlas, since canvas dots aren't focusable (PSY-1313 pairing).
  */
-export function AtlasSearch({ scenes, onPick }: AtlasSearchProps) {
+export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const localTriggerRef = useRef<HTMLButtonElement>(null)
+  const trigRef = triggerRef ?? localTriggerRef
+  // True while a close is caused by PICKING a scene (vs Esc/click-outside).
+  // Radix restores focus to the trigger AFTER the popover's exit animation —
+  // late enough to steal focus back from the preview panel's close button
+  // (PSY-1313). On a pick we focus the trigger synchronously in handleSelect
+  // (so the panel captures it as the focus-return target) and suppress Radix's
+  // deferred restore; a plain dismiss keeps the default restore.
+  const pickedRef = useRef(false)
 
   // Most-active-first so the list leads with the liveliest scenes before any
   // query is typed; cmdk's built-in filter takes over as the user types.
@@ -46,6 +60,12 @@ export function AtlasSearch({ scenes, onPick }: AtlasSearchProps) {
 
   const handleSelect = useCallback(
     (scene: SceneListItem) => {
+      pickedRef.current = true
+      // Park focus on the trigger BEFORE the panel mounts: the panel captures
+      // document.activeElement as its focus-return target, and without this it
+      // would capture the cmdk input — still connected mid exit-animation, gone
+      // by the time the panel closes.
+      trigRef.current?.focus()
       setOpen(false)
       if (isPlaceableScene(scene)) {
         onPick(scene)
@@ -53,7 +73,7 @@ export function AtlasSearch({ scenes, onPick }: AtlasSearchProps) {
         router.push(`/scenes/${scene.slug}`)
       }
     },
-    [onPick, router],
+    [onPick, router, trigRef],
   )
 
   // `/` opens the search (the common map/list idiom), ignored while typing in
@@ -81,6 +101,7 @@ export function AtlasSearch({ scenes, onPick }: AtlasSearchProps) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
+          ref={trigRef}
           type="button"
           role="combobox"
           aria-expanded={open}
@@ -97,7 +118,18 @@ export function AtlasSearch({ scenes, onPick }: AtlasSearchProps) {
           </kbd>
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[260px] p-0" align="start">
+      <PopoverContent
+        className="w-[260px] p-0"
+        align="start"
+        onCloseAutoFocus={(e) => {
+          // See pickedRef: on a pick the preview panel now owns focus — let it
+          // keep it. Plain dismiss (Esc/click-outside) keeps Radix's restore.
+          if (pickedRef.current) {
+            e.preventDefault()
+            pickedRef.current = false
+          }
+        }}
+      >
         <Command>
           <CommandInput placeholder="City or state…" />
           <CommandList>

@@ -90,6 +90,17 @@ describe('AtlasSearch (PSY-1310)', () => {
     expect(onPick).not.toHaveBeenCalled()
   })
 
+  it('parks focus on the trigger when a scene is picked (PSY-1313 focus-return seam)', () => {
+    // The preview panel captures document.activeElement at mount as its
+    // focus-return target — a pick must leave the trigger focused, not the
+    // cmdk input (which unmounts with the popover's exit animation).
+    openSearch()
+    fireEvent.click(screen.getByRole('option', { name: /Phoenix/ }))
+    expect(
+      screen.getByRole('combobox', { name: /search scenes/i }),
+    ).toHaveFocus()
+  })
+
   it('"/" opens the search — but not while typing in another field', () => {
     renderWithProviders(
       <>
