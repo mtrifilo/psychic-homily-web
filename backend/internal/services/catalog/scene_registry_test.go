@@ -119,3 +119,25 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_DescriptionFro
 	suite.Require().NotNil(detail.Description)
 	suite.Equal("Desert DIY forever.", *detail.Description)
 }
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetOrCreateSceneID_UpgradesFallbackSquatterInPlace() {
+	suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
+
+	// Simulate the drift case: a fallback row created before the geocoder
+	// could resolve the metro now squats the canonical slug.
+	squatter := &catalogm.Scene{City: "Phoenix", State: "AZ", Slug: "phoenix-az"}
+	suite.Require().NoError(suite.db.Create(squatter).Error)
+
+	id, err := suite.sceneService.GetOrCreateSceneID("phoenix-az")
+	suite.Require().NoError(err)
+	suite.Equal(squatter.ID, id, "must converge on the existing row, not error or duplicate")
+
+	var row catalogm.Scene
+	suite.Require().NoError(suite.db.First(&row, id).Error)
+	suite.Require().NotNil(row.Metro, "the squatting fallback row must be upgraded in place")
+	suite.Equal("38060", *row.Metro)
+
+	var count int64
+	suite.db.Model(&catalogm.Scene{}).Count(&count)
+	suite.Equal(int64(1), count)
+}

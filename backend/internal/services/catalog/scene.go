@@ -652,6 +652,7 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 		FROM venues
 		WHERE verified = true
 		  AND LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?
+		ORDER BY city, state
 		LIMIT 1
 	`, strings.ToLower(slug)).Scan(&result).Error
 	if err != nil {

@@ -712,7 +712,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_FestivalCount(
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_FestivalCountMetroRollup() {
 	suite.seedSceneData()
 	suite.createFestival("M3F Fest", "Phoenix", "AZ")
-	suite.createFestival("Tempe Beach Fest", "Tempe", "AZ")   // Phoenix-CBSA member city
+	suite.createFestival("Tempe Beach Fest", "Tempe", "AZ")  // Phoenix-CBSA member city
 	suite.createFestival("Denver Riot Fest", "Denver", "CO") // different metro entirely
 
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")

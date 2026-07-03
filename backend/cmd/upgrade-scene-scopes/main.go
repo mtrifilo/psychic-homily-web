@@ -94,29 +94,93 @@ func main() {
 	}
 
 	fmt.Printf("\nupgradable: %d, still-fallback: %d\n", upgraded, skipped)
+
+	// Orphan sweep: a follow can land on a row id in the instant between this
+	// command's merge transaction and a concurrent request that resolved the
+	// old id (user_bookmarks is polymorphic — no FK). Report always; delete
+	// only with --confirm.
+	var orphans int64
+	if err := database.Raw(`
+		SELECT COUNT(*) FROM user_bookmarks b
+		WHERE b.entity_type = 'scene'
+		  AND NOT EXISTS (SELECT 1 FROM scenes sc WHERE sc.id = b.entity_id)`,
+	).Scan(&orphans).Error; err != nil {
+		log.Fatalf("count orphaned scene follows: %v", err)
+	}
+	if orphans > 0 {
+		fmt.Printf("orphaned scene follows (no scenes row): %d\n", orphans)
+		if confirm {
+			if err := database.Exec(`
+				DELETE FROM user_bookmarks b
+				WHERE b.entity_type = 'scene'
+				  AND NOT EXISTS (SELECT 1 FROM scenes sc WHERE sc.id = b.entity_id)`,
+			).Error; err != nil {
+				log.Fatalf("sweep orphaned scene follows: %v", err)
+			}
+			fmt.Println("orphaned scene follows swept")
+		}
+	}
+
 	if !confirm && upgraded > 0 {
 		fmt.Println("dry-run only — re-run with --confirm to apply")
 	}
 }
 
-// upgradeRow merges one fallback row into its metro row inside a transaction:
-// get-or-create the metro row, move follows (deleting duplicates that would
-// violate the unique index), delete the fallback row.
+// upgradeRow merges one fallback row into its metro identity inside a
+// transaction. When no metro row exists, the fallback row itself is upgraded
+// IN PLACE (set metro + principal city/state/slug) — this is both the common
+// case and the only correct handling when the fallback row already holds the
+// canonical slug (an insert would no-op on the slug index and strand the row).
+// When a metro row already exists, the fallback row's follows (deduped) and
+// description (if the target has none) move over and the fallback row is
+// deleted.
 func upgradeRow(database *gorm.DB, row catalogm.Scene, cbsa, principalCity, principalState string) error {
 	slug := buildSceneSlug(principalCity, principalState)
 	return database.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(
-			`INSERT INTO scenes (metro, city, state, slug) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
-			cbsa, principalCity, principalState, slug,
-		).Error; err != nil {
-			return fmt.Errorf("create metro row: %w", err)
-		}
 		var target catalogm.Scene
-		if err := tx.Where("metro = ?", cbsa).First(&target).Error; err != nil {
-			return fmt.Errorf("load metro row: %w", err)
+		res := tx.Where("metro = ?", cbsa).Limit(1).Find(&target)
+		if res.Error != nil {
+			return fmt.Errorf("load metro row: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			// No metro row — upgrade the fallback row in place. Another
+			// fallback row may hold the canonical slug (e.g. the principal
+			// city's own fallback row while we're upgrading a member city's):
+			// upgrade THAT one instead and fall through to merge ours into it.
+			holder := row
+			if row.Slug != slug {
+				var bySlug catalogm.Scene
+				r := tx.Where("slug = ?", slug).Limit(1).Find(&bySlug)
+				if r.Error != nil {
+					return fmt.Errorf("load slug row: %w", r.Error)
+				}
+				if r.RowsAffected > 0 {
+					holder = bySlug
+				}
+			}
+			if err := tx.Model(&catalogm.Scene{}).Where("id = ?", holder.ID).
+				Updates(map[string]any{
+					"metro": cbsa, "city": principalCity, "state": principalState, "slug": slug,
+				}).Error; err != nil {
+				return fmt.Errorf("upgrade row in place: %w", err)
+			}
+			if holder.ID == row.ID {
+				return nil
+			}
+			target = holder
+			target.Metro = &cbsa
 		}
 		if target.ID == row.ID {
 			return nil
+		}
+		// Carry a curated description over if the target has none.
+		if row.Description != nil {
+			if err := tx.Exec(
+				`UPDATE scenes SET description = COALESCE(description, ?) WHERE id = ?`,
+				*row.Description, target.ID,
+			).Error; err != nil {
+				return fmt.Errorf("carry description: %w", err)
+			}
 		}
 		// A user following BOTH rows would collide on the unique index — drop
 		// the fallback-row duplicate first, then move the rest.

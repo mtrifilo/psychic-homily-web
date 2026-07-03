@@ -24,6 +24,7 @@ const TYPE_ROWS: Array<{
   { type: 'venue', label: 'Venues', href: slug => `/venues/${slug}` },
   { type: 'label', label: 'Labels', href: slug => `/labels/${slug}` },
   { type: 'festival', label: 'Festivals', href: slug => `/festivals/${slug}` },
+  { type: 'scene', label: 'Scenes', href: slug => `/scenes/${slug}` },
 ]
 
 /**
