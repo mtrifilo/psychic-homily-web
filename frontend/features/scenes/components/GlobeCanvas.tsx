@@ -6,6 +6,7 @@ import type { GlobePov, PlaceableScene } from './globeTypes'
 import {
   DOT_HOVER_RADIUS_SCALE,
   labelMinCountForAltitude,
+  RING_ALTITUDE,
   sceneDotAltitude,
   sceneDotColor,
   sceneDotRadius,
@@ -52,8 +53,8 @@ const EARTH_TEXTURE =
 const FLY_TO_ALTITUDE = 1.0
 const FLY_TO_MS = 1200
 
-// PSY-1324 occlusion fix: smaller dots get a slightly TALLER cylinder so an
-// overlapped neighbor's top face always renders above the bigger dot's (see
+// PSY-1324 occlusion fix: less-dense dots get a slightly TALLER cylinder so an
+// overlapped neighbor's top face always renders above the denser dot's (see
 // sceneDotAltitude). Pure and hover-independent, so it lives at module scope —
 // a stable identity means hover-state re-renders never rebuild the altitude
 // accessor.
@@ -284,7 +285,7 @@ export default function GlobeCanvas({
         ringsData={pulseScenes}
         ringLat="latitude"
         ringLng="longitude"
-        ringAltitude={0.006}
+        ringAltitude={RING_ALTITUDE}
         ringMaxRadius={1.6}
         ringPropagationSpeed={0.9}
         ringRepeatPeriod={2600}

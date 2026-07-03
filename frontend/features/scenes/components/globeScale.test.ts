@@ -6,6 +6,7 @@ import {
   DOT_COLOR_SELECTED,
   LABEL_TOP_K_FLOOR,
   labelMinCountForAltitude,
+  RING_ALTITUDE,
   sceneDotAltitude,
   sceneDotColor,
   sceneDotRadius,
@@ -67,27 +68,29 @@ describe('sceneDotRadius', () => {
 })
 
 describe('sceneDotAltitude', () => {
-  it('gives smaller (lower-count) dots a taller cylinder so they stack above larger ones', () => {
+  it('gives less-dense dots a taller cylinder so they stack above denser ones', () => {
     // The PSY-1324 occlusion fix: depth-tested cylinders mean equal heights let
-    // the larger disc swallow a smaller neighbor; inverse-radius height makes
-    // the small dot's top face always render above the big dot's.
+    // the larger disc swallow a smaller neighbor; inverse-count height makes
+    // the less-dense dot's top face always render above the denser one's.
     expect(sceneDotAltitude(0)).toBeGreaterThan(sceneDotAltitude(10))
     expect(sceneDotAltitude(10)).toBeGreaterThan(sceneDotAltitude(283))
   })
 
-  it('bottoms out at the base altitude for capped dense scenes', () => {
-    // A capped dot (radius 0.5) gets no stack offset — 262-show Chicago and a
-    // 10k-show scene sit at the same base height.
-    expect(sceneDotAltitude(283)).toBeCloseTo(0.008, 5)
-    expect(sceneDotAltitude(10_000)).toBeCloseTo(0.008, 5)
+  it('still orders CAPPED dense scenes by count (the co-dense-neighbors case)', () => {
+    // The offset is keyed to the raw count, not the capped radius: two adjacent
+    // metros both past DOT_CAP_COUNT render equal-size dots, and a radius-keyed
+    // offset would z-fight them. 50 and 283 are both capped yet must stack.
+    expect(sceneDotRadius(50)).toBeCloseTo(sceneDotRadius(283), 5)
+    expect(sceneDotAltitude(50)).toBeGreaterThan(sceneDotAltitude(283))
+    expect(sceneDotAltitude(283)).toBeGreaterThan(sceneDotAltitude(10_000))
   })
 
   it('keeps the whole range subtle and above the pulse rings', () => {
-    // Max offset = variable-radius range (0.22) × stack scale (0.02) = 0.0044.
-    expect(sceneDotAltitude(0)).toBeCloseTo(0.0124, 5)
-    for (const c of [0, 5, 49, 283, NaN]) {
-      // ringAltitude is 0.006 (GlobeCanvas) — every dot must stay above it.
-      expect(sceneDotAltitude(c)).toBeGreaterThan(0.006)
+    // Range = base 0.008 + (0, 0.008] — max at count 0.
+    expect(sceneDotAltitude(0)).toBeCloseTo(0.016, 5)
+    for (const c of [0, 5, 49, 283, 10_000, NaN]) {
+      // Structural invariant: GlobeCanvas binds ringAltitude to RING_ALTITUDE.
+      expect(sceneDotAltitude(c)).toBeGreaterThan(RING_ALTITUDE)
     }
   })
 
