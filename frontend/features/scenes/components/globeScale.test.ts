@@ -6,6 +6,7 @@ import {
   DOT_COLOR_SELECTED,
   LABEL_TOP_K_FLOOR,
   labelMinCountForAltitude,
+  sceneDotAltitude,
   sceneDotColor,
   sceneDotRadius,
   sceneLabelSize,
@@ -25,9 +26,10 @@ describe('sceneDotRadius', () => {
   it('grows with count but never exceeds the cap', () => {
     expect(sceneDotRadius(1)).toBeGreaterThan(sceneDotRadius(0))
     expect(sceneDotRadius(50)).toBeGreaterThan(sceneDotRadius(1))
-    // Cap = base 0.28 + variable cap 0.5 = 0.78.
-    expect(sceneDotRadius(283)).toBeCloseTo(0.78, 5)
-    expect(sceneDotRadius(10_000)).toBeCloseTo(0.78, 5)
+    // Cap = base 0.28 + variable cap 0.22 = 0.5 (PSY-1324 shrank it from 0.78 —
+    // the old capped disc still covered ~130 km at Chicago and swallowed Milwaukee).
+    expect(sceneDotRadius(283)).toBeCloseTo(0.5, 5)
+    expect(sceneDotRadius(10_000)).toBeCloseTo(0.5, 5)
   })
 
   it('caps dense scenes far below the old uncapped sqrt formula (the PSY-1223 fix)', () => {
@@ -35,7 +37,15 @@ describe('sceneDotRadius', () => {
     const oldUncapped = 0.28 + Math.sqrt(283) / 14
     expect(oldUncapped).toBeGreaterThan(1.4)
     expect(sceneDotRadius(283)).toBeLessThan(oldUncapped)
-    expect(sceneDotRadius(283)).toBeLessThanOrEqual(0.78)
+    expect(sceneDotRadius(283)).toBeLessThanOrEqual(0.5)
+  })
+
+  it('keeps the dense-tier boundary at ≈49 shows despite the smaller cap (PSY-1324)', () => {
+    // The divisor scaled with the cap (14 → 32) so the cap is still reached at
+    // count ≈ (0.22×32)² ≈ 49 — the PSY-1223 "same max dot past ~49 shows"
+    // calibration survives; only the cap's geometry shrank.
+    expect(sceneDotRadius(40)).toBeLessThan(0.5)
+    expect(sceneDotRadius(50)).toBeCloseTo(0.5, 5)
   })
 
   it('is monotonic non-decreasing in count', () => {
@@ -53,6 +63,37 @@ describe('sceneDotRadius', () => {
     // NOT propagate a NaN radius into the merged three.js point geometry.
     expect(sceneDotRadius(NaN)).toBeCloseTo(0.28, 5)
     expect(sceneDotRadius(undefined as unknown as number)).toBeCloseTo(0.28, 5)
+  })
+})
+
+describe('sceneDotAltitude', () => {
+  it('gives smaller (lower-count) dots a taller cylinder so they stack above larger ones', () => {
+    // The PSY-1324 occlusion fix: depth-tested cylinders mean equal heights let
+    // the larger disc swallow a smaller neighbor; inverse-radius height makes
+    // the small dot's top face always render above the big dot's.
+    expect(sceneDotAltitude(0)).toBeGreaterThan(sceneDotAltitude(10))
+    expect(sceneDotAltitude(10)).toBeGreaterThan(sceneDotAltitude(283))
+  })
+
+  it('bottoms out at the base altitude for capped dense scenes', () => {
+    // A capped dot (radius 0.5) gets no stack offset — 262-show Chicago and a
+    // 10k-show scene sit at the same base height.
+    expect(sceneDotAltitude(283)).toBeCloseTo(0.008, 5)
+    expect(sceneDotAltitude(10_000)).toBeCloseTo(0.008, 5)
+  })
+
+  it('keeps the whole range subtle and above the pulse rings', () => {
+    // Max offset = variable-radius range (0.22) × stack scale (0.02) = 0.0044.
+    expect(sceneDotAltitude(0)).toBeCloseTo(0.0124, 5)
+    for (const c of [0, 5, 49, 283, NaN]) {
+      // ringAltitude is 0.006 (GlobeCanvas) — every dot must stay above it.
+      expect(sceneDotAltitude(c)).toBeGreaterThan(0.006)
+    }
+  })
+
+  it('treats non-finite counts like zero (inherits the radius guard)', () => {
+    expect(sceneDotAltitude(NaN)).toBeCloseTo(sceneDotAltitude(0), 5)
+    expect(sceneDotAltitude(undefined as unknown as number)).toBeCloseTo(sceneDotAltitude(0), 5)
   })
 })
 

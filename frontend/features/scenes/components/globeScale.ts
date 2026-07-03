@@ -18,14 +18,21 @@
 // so a 283-show scene doesn't render a giant dot that swallows its neighbours.
 // `count` is upcoming_show_count; radius is in react-globe.gl globe-radius units.
 const DOT_BASE_RADIUS = 0.28
-const DOT_SQRT_DIVISOR = 14
-// Caps the variable (sqrt) part → max radius DOT_BASE_RADIUS + DOT_VARIABLE_MAX (0.78).
+const DOT_SQRT_DIVISOR = 32
+// Caps the variable (sqrt) part → max radius DOT_BASE_RADIUS + DOT_VARIABLE_MAX (0.5).
 // The cap is reached at count ≈ (DOT_VARIABLE_MAX*DOT_SQRT_DIVISOR)^2 ≈ 49, so every
 // scene above ~49 upcoming shows renders the SAME max dot ON PURPOSE: past that the dot
 // would balloon over its neighbours (the bug this fixes). Finer magnitude among the
 // dense tier is conveyed by the hover tooltip + which cities stay labelled when zoomed
 // out — not by dot size.
-const DOT_VARIABLE_MAX = 0.5
+//
+// PSY-1324 recalibration: the original 0.78 cap still covered ~130 km of geography
+// at the catalog's densest scene, enough for Chicago's capped disc to swallow
+// Milwaukee (dot AND label) outright. Cap shrunk 0.78 → 0.5; the divisor scales
+// with it (14 → 32) so the cap is STILL reached at ≈49 shows — the "dense tier"
+// boundary is a calibration decision independent of the cap's geometry, and
+// keeping it preserves the size-by-activity hierarchy below the cap.
+const DOT_VARIABLE_MAX = 0.22
 
 export function sceneDotRadius(upcomingShowCount: number): number {
   // Non-finite guard: the type says `number`, but sibling fields (latitude/longitude)
@@ -33,6 +40,26 @@ export function sceneDotRadius(upcomingShowCount: number): number {
   // poison the MERGED three.js point geometry (NaN bounding sphere) for the whole layer.
   const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
   return DOT_BASE_RADIUS + Math.min(Math.sqrt(count) / DOT_SQRT_DIVISOR, DOT_VARIABLE_MAX)
+}
+
+// ── Dot altitude: smaller dots stack ABOVE larger ones (PSY-1324) ─────────
+// react-globe.gl points are depth-tested 3D cylinders, so pointsData order does
+// NOT decide which overlapping dot is visible — equal-height cylinders leave the
+// larger disc covering the smaller one entirely (Chicago swallowing Milwaukee).
+// Making cylinder height INVERSELY proportional to radius guarantees a smaller
+// neighbor's top face renders above a bigger dot's, so it always peeks out of
+// the overlap instead of disappearing. The offset range (≤ DOT_VARIABLE_MAX ×
+// DOT_STACK_ALTITUDE_SCALE = 0.0044) is far too small to read as "floating";
+// the base keeps every dot above the PSY-1309 pulse rings (0.006).
+const DOT_BASE_ALTITUDE = 0.008
+const DOT_MAX_RADIUS = DOT_BASE_RADIUS + DOT_VARIABLE_MAX
+const DOT_STACK_ALTITUDE_SCALE = 0.02
+
+export function sceneDotAltitude(upcomingShowCount: number): number {
+  // sceneDotRadius already guards non-finite counts, so the radius — and
+  // therefore the altitude — is always finite.
+  const radius = sceneDotRadius(upcomingShowCount)
+  return DOT_BASE_ALTITUDE + (DOT_MAX_RADIUS - radius) * DOT_STACK_ALTITUDE_SCALE
 }
 
 // ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────
