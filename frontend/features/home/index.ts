@@ -2,3 +2,4 @@
 
 export { HomeHero } from './components/HomeHero'
 export { LatestRadioShows } from './components/LatestRadioShows'
+export { HomeSceneGraph } from './components/HomeSceneGraph'

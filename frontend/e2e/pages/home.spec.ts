@@ -74,6 +74,18 @@ test.describe('Homepage', () => {
       page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
+    // Scene-graph section (PSY-1344). Lazy-mounted on scroll intent, and the
+    // heading names whichever seeded scene is liveliest — assert the stable
+    // "…scene, mapped" suffix. The e2e seed carries a metro'd Phoenix scene
+    // (PSY-1319), so the section must not self-hide.
+    await page.mouse.wheel(0, 4000)
+    await expect(
+      page.getByRole('heading', { name: /scene, mapped$/i })
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      page.getByRole('link', { name: /explore the full graph/i })
+    ).toBeVisible()
+
     // Latest radio shows section + station cards deep-linking to their /radio
     // tabs. Card content is real data now (PSY-1329), so assert only the
     // stable editorial aria-label prefix (call sign · city) — the seeded e2e

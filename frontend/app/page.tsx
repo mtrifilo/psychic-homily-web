@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { HomeShowList } from '@/features/shows'
-import { HomeHero, LatestRadioShows } from '@/features/home'
+import { HomeHero, HomeSceneGraph, LatestRadioShows } from '@/features/home'
 import { Button } from '@/components/ui/button'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
@@ -63,6 +63,11 @@ export default function Home() {
               </Button>
             </div>
           </section>
+
+          {/* PSY-1344: "Observatory Lite" — a bounded scene-graph glimpse of
+              the knowledge graph (Figma Option D, locked 2026-07-03). Lazy-
+              mounts on scroll; self-hides if scene data is unavailable. */}
+          <HomeSceneGraph />
 
           <LatestRadioShows />
         </div>

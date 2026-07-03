@@ -271,6 +271,14 @@ export interface ForceGraphViewProps {
    * default, same opt-in convention as showEdgeLegend.
    */
   showConnectionPanel?: boolean
+  /**
+   * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
+   * graph section). Disables wheel-zoom, drag-pan, and node drag so the
+   * canvas never captures page scroll or invites tool-level interaction;
+   * click/hover select still work, and the one-shot zoomToFit initial
+   * frame still runs. Off by default — full surfaces keep the tool feel.
+   */
+  staticViewport?: boolean
 }
 
 export function ForceGraphView({
@@ -284,6 +292,7 @@ export function ForceGraphView({
   onNodeClick,
   showEdgeLegend = false,
   showConnectionPanel = false,
+  staticViewport = false,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null)
@@ -1026,6 +1035,12 @@ export function ForceGraphView({
         d3VelocityDecay={0.3}
         minZoom={0.4}
         maxZoom={3}
+        // PSY-1344: embed surfaces opt out of viewport interaction so the
+        // canvas never swallows page scroll; programmatic zoomToFit (the
+        // one-shot initial frame) is unaffected by these flags.
+        enableZoomInteraction={!staticViewport}
+        enablePanInteraction={!staticViewport}
+        enableNodeDrag={!staticViewport}
         backgroundColor="transparent"
       />
 
