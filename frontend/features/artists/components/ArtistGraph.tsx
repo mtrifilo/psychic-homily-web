@@ -584,6 +584,9 @@ export function ArtistGraphVisualization({
       if (node.isCenter) return
       onExpand?.({ id: node.id, slug: node.slug, name: node.name })
     },
+    // The hook's return is useMemo'd (identity tracks `pair` only), so this
+    // dep is stable across hover-driven re-renders; the React Compiler
+    // requires the whole object, not `.close`.
     [onExpand, connectionInspect]
   )
 
@@ -959,9 +962,10 @@ export function ArtistGraphVisualization({
         linkWidth={linkWidth}
         linkLineDash={linkLineDash}
         linkLabel={linkLabel}
-        // PSY-1334: 1px strokes are near-unclickable at the lib's default
-        // hover precision — widen the link hit target for the inspect click.
-        linkHoverPrecision={4}
+        // PSY-1334: widen the link hit target for the inspect click — the
+        // lib's default precision is already 4 (hit test = linkWidth +
+        // precision), so 8 is the actual widening for ~1px strokes.
+        linkHoverPrecision={8}
         onLinkClick={handleLinkClick}
         // Background click closes the inspect panel (no-op when closed).
         onBackgroundClick={connectionInspect.close}
@@ -1017,7 +1021,10 @@ export function ArtistGraphVisualization({
           the active type toggles (the pill row above the canvas owns
           toggling, including the festival_cobill lazy opt-in fetch, so the
           in-canvas legend stays display-only here). Counts + footnote disclose
-          the per-node top-k edge cap (PSY-1258) so it's never silent. */}
+          the per-node top-k edge cap (PSY-1258) so it's never silent.
+          The PSY-1334 solo affordance is deliberately NOT wired here: the
+          pill row is this surface's single filter owner, and a legend solo
+          would create a second, competing one. */}
       <EdgeLegend
         className="absolute top-2 right-2"
         types={Array.from(activeTypes)}

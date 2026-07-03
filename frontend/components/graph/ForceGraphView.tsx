@@ -630,6 +630,9 @@ export function ForceGraphView({
       connectionInspect.close()
       onNodeClick(node)
     },
+    // The hook's return is useMemo'd (identity tracks `pair` only), so this
+    // dep is stable across the hover-driven render storms these surfaces
+    // see; the React Compiler requires the whole object, not `.close`.
     [onNodeClick, connectionInspect],
   )
 
@@ -993,9 +996,11 @@ export function ForceGraphView({
         linkWidth={linkWidth}
         linkLineDash={linkLineDash}
         linkLabel={linkLabel}
-        // PSY-1334: 1px strokes are near-unclickable at the lib's default
-        // hover precision — widen the link hit target for the inspect click.
-        linkHoverPrecision={4}
+        // PSY-1334: widen the link hit target for the inspect click — the
+        // lib's hit test is linkWidth + linkHoverPrecision and its DEFAULT
+        // precision is already 4 (adversarial finding: setting 4 was a
+        // no-op), so 8 is the actual widening for ~1px strokes.
+        linkHoverPrecision={8}
         onLinkClick={handleLinkClick}
         // Background click closes the inspect panel (no-op when closed).
         onBackgroundClick={connectionInspect.close}

@@ -12,7 +12,7 @@
  * panel), so the interaction contract can't drift between the two.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { type EdgeTooltipLink, orderEdgeTypes } from './edgeGrammar'
 
@@ -31,7 +31,12 @@ export function useConnectionInspect() {
 
   const close = useCallback(() => setPair(null), [])
 
-  return { pair, open, close }
+  // Memoized so the returned object's identity only changes when `pair`
+  // does — these graph surfaces re-render on every hover, and a fresh
+  // object per render would defeat every useCallback that lists the hook
+  // result in its deps (adversarial finding). `open`/`close` are stable;
+  // prefer depending on those directly in hot callbacks.
+  return useMemo(() => ({ pair, open, close }), [pair, open, close])
 }
 
 /**

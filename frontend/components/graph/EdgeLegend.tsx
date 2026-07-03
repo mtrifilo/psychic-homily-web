@@ -133,10 +133,23 @@ export function EdgeLegend({
             <button
               type="button"
               onClick={() => onToggleType(type)}
+              // While a solo is active, hide-toggles are DISABLED rather than
+              // live-but-invisible: solo overrides what renders, so a toggle
+              // click here would mutate the hidden set with zero visual
+              // feedback and surprise the user when solo clears (adversarial
+              // finding, 2 lenses). Clear the solo to adjust visibility.
+              disabled={!!soloType}
               aria-pressed={!hidden}
-              title={hidden ? `Show ${label} connections` : `Hide ${label} connections`}
+              title={
+                soloType
+                  ? 'Clear the solo to adjust visibility'
+                  : hidden
+                    ? `Show ${label} connections`
+                    : `Hide ${label} connections`
+              }
               className={cn(
-                'flex w-full items-center gap-1.5 rounded-sm transition-opacity hover:bg-muted/50',
+                'flex w-full items-center gap-1.5 rounded-sm transition-opacity',
+                soloType ? 'cursor-default' : 'hover:bg-muted/50',
                 dimmed ? 'opacity-40' : 'opacity-100',
               )}
             >
@@ -144,7 +157,9 @@ export function EdgeLegend({
             </button>
             {/* PSY-1334: solo ("only") affordance. Always in the tab order —
                 revealed on row hover for pointer users, on focus for keyboard
-                users — so the isolate action is never pointer-only. */}
+                users, and ALWAYS visible on coarse (touch) pointers, which
+                have no hover to reveal it (adversarial finding: an invisible
+                button is still tappable). */}
             {onSoloType && (
               <button
                 type="button"
@@ -154,7 +169,7 @@ export function EdgeLegend({
                 title={soloed ? 'Show all connection types' : `Show only ${label} connections`}
                 className={cn(
                   'shrink-0 rounded-sm px-1 text-[10px] leading-4 text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                  'focus-visible:opacity-100 group-hover:opacity-100',
+                  'focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100',
                   soloed ? 'opacity-100 text-foreground font-medium' : 'opacity-0',
                 )}
               >

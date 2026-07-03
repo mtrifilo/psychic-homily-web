@@ -149,9 +149,51 @@ describe('ForceGraphView connection panel', () => {
     expect(screen.queryByRole('region', { name: /connected/ })).not.toBeInTheDocument()
   })
 
-  it('widens the link hit target for the inspect click', () => {
+  it('widens the link hit target beyond the lib DEFAULT of 4', () => {
     renderGraph()
-    expect(h.lastProps.value!.linkHoverPrecision).toBe(4)
+    // force-graph's hit test is linkWidth + linkHoverPrecision with a
+    // default precision of 4 — a value of 4 here would be a no-op
+    // (adversarial finding), so the widening must exceed it.
+    expect(h.lastProps.value!.linkHoverPrecision).toBeGreaterThan(4)
+  })
+
+  it('Escape claims the key from outer layers (fullscreen overlay contract)', () => {
+    renderGraph()
+    clickLink(1, 2)
+    // The panel listens in the CAPTURE phase and preventDefaults, so the
+    // fullscreen overlay's bubble-phase Escape handler (which checks
+    // defaultPrevented) leaves fullscreen intact — innermost layer first.
+    const outerEscapes: boolean[] = []
+    const outerListener = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) outerEscapes.push(true)
+    }
+    document.addEventListener('keydown', outerListener)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    document.removeEventListener('keydown', outerListener)
+    expect(screen.queryByRole('region', { name: /connected/ })).not.toBeInTheDocument()
+    expect(outerEscapes).toHaveLength(0)
+  })
+
+  it('solo filters the simulation to one type and restores the hidden set intact', () => {
+    renderGraph({ showEdgeLegend: true })
+    const simLinks = () =>
+      (h.lastProps.value!.graphData as { links: Array<{ type: string }> }).links.map(l => l.type)
+
+    // Hide shared_label via its row toggle.
+    fireEvent.click(screen.getByRole('button', { name: /^Shared Label/ }))
+    expect(simLinks()).toEqual(['shared_bills', 'shared_bills'])
+
+    // Solo shared_label: solo WINS over the hidden set — only it renders.
+    fireEvent.click(screen.getByRole('button', { name: 'Show only Shared Label connections' }))
+    expect(simLinks()).toEqual(['shared_label'])
+    expect(screen.getByText('Showing only Shared Label connections')).toBeInTheDocument()
+
+    // While soloed, hide-toggles are disabled — no blind hidden-set edits.
+    expect(screen.getByRole('button', { name: /^Shared Bills/ })).toBeDisabled()
+
+    // Clear the solo: the PRIOR hidden set (shared_label hidden) is intact.
+    fireEvent.click(screen.getByRole('button', { name: 'Show all connection types' }))
+    expect(simLinks()).toEqual(['shared_bills', 'shared_bills'])
   })
 
   it('auto-closes when the pair leaves the payload (data refresh)', () => {

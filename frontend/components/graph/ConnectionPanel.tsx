@@ -73,8 +73,10 @@ export interface ConnectionPanelProps {
 
 function EndpointName({ endpoint }: { endpoint: ConnectionPanelEndpoint }) {
   if (!endpoint.slug) return <span className="font-medium">{endpoint.name}</span>
+  // encodeURIComponent pins the slug to ONE path segment — a malformed or
+  // hostile slug ("../admin", "a/b?x") can't traverse to another route.
   return (
-    <Link href={`/artists/${endpoint.slug}`} className="font-medium hover:underline">
+    <Link href={`/artists/${encodeURIComponent(endpoint.slug)}`} className="font-medium hover:underline">
       {endpoint.name}
     </Link>
   )
@@ -89,12 +91,22 @@ export function ConnectionPanel({
 }: ConnectionPanelProps) {
   // Esc closes. Document-level so it works while canvas has focus; the panel
   // is non-modal (no focus trap) — it's an inspector, not a dialog.
+  //
+  // Layered dismiss (adversarial finding, 3 lenses): the fullscreen overlay
+  // ALSO listens for Escape on document, so one keypress would close the
+  // panel AND eject the user from fullscreen. Claim the key in the CAPTURE
+  // phase (fires before any bubble-phase document listener regardless of
+  // registration order) and preventDefault + stopPropagation; the overlay
+  // hook skips defaultPrevented events — innermost layer closes first.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
     }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
+    document.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => document.removeEventListener('keydown', onKeyDown, { capture: true })
   }, [onClose])
 
   if (connections.length === 0) return null
@@ -135,6 +147,8 @@ export function ConnectionPanel({
                 {edgeTypeLabel(conn.type)}
               </span>
             </div>
+            {/* pl-[22px] = swatch width (16) + row gap (6): aligns the copy
+                under the type label, past the swatch. */}
             <p className="pl-[22px] text-foreground/90 leading-snug">
               {buildLinkLabelText(conn)}
             </p>
@@ -143,7 +157,7 @@ export function ConnectionPanel({
                 {conn.entities.map(entity => (
                   <li key={`${entity.kind}-${entity.id}`} className="leading-snug">
                     <Link
-                      href={`${ENTITY_ROUTES[entity.kind]}/${entity.slug}`}
+                      href={`${ENTITY_ROUTES[entity.kind]}/${encodeURIComponent(entity.slug)}`}
                       className="text-muted-foreground hover:text-foreground hover:underline"
                     >
                       {entity.date ? `${entity.date} · ${entity.name}` : entity.name}
