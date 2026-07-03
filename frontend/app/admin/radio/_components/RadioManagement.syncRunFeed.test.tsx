@@ -45,6 +45,7 @@ function makeRun(overrides: Partial<RadioSyncRun> = {}): RadioSyncRun {
 }
 
 // Mutable per-test state the mock reads.
+let stationSyncRunsCalls: unknown[][] = []
 let stationRuns: SyncRunListResult = { sync_runs: [], total: 0, count: 0 }
 let stationRunsLoading = false
 let stationRunsError = false
@@ -62,11 +63,14 @@ vi.mock('@/lib/hooks/admin/useAdminRadio', async (importOriginal) => {
     useAdminRadioStations: () => ({ data: { stations: [station], count: 1 }, isLoading: false }),
     useRadioStationDetail: () => ({ data: undefined }),
     useRadioShows: () => ({ data: { shows: [], count: 0 }, isLoading: false }),
-    useStationSyncRuns: () => ({
-      data: stationRuns,
-      isLoading: stationRunsLoading,
-      isError: stationRunsError,
-    }),
+    useStationSyncRuns: (...args: unknown[]) => {
+      stationSyncRunsCalls.push(args)
+      return {
+        data: stationRuns,
+        isLoading: stationRunsLoading,
+        isError: stationRunsError,
+      }
+    },
     useRecentFailedRuns: () => recentFailures,
     useDeleteRadioStation: noopMutation,
     useTriggerStationSync: noopMutation,
@@ -91,6 +95,7 @@ function renderMgmt() {
 describe('Sync-run feed (PSY-1130)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    stationSyncRunsCalls = []
     stationRuns = { sync_runs: [], total: 0, count: 0 }
     stationRunsLoading = false
     stationRunsError = false
@@ -166,5 +171,28 @@ describe('Sync-run feed (PSY-1130)', () => {
     renderMgmt()
     fireEvent.click(screen.getByRole('button', { name: /Station: WFMU/i }))
     expect(screen.getByText(/Couldn.t load sync runs/)).toBeInTheDocument()
+  })
+
+  // PSY-1343: the feed defaults to scope='sweep' (hide the PSY-1333 slot-fetch
+  // flood); the toggle requests 'all'; a show-carrying run renders its show badge.
+  it('per-station feed: hides slot fetches by default, toggle requests all', () => {
+    renderMgmt()
+    fireEvent.click(screen.getByRole('button', { name: /Station: WFMU/i }))
+    const lastScope = () =>
+      stationSyncRunsCalls[stationSyncRunsCalls.length - 1]?.[3]
+    expect(lastScope()).toBe('sweep')
+    fireEvent.click(screen.getByRole('checkbox', { name: /show slot fetches/i }))
+    expect(lastScope()).toBe('all')
+  })
+
+  it('per-station feed: a show-scoped run row names its show', () => {
+    stationRuns = {
+      sync_runs: [makeRun({ id: 9, show_id: 42, show_name: 'JA In The AM' })],
+      total: 1,
+      count: 1,
+    }
+    renderMgmt()
+    fireEvent.click(screen.getByRole('button', { name: /Station: WFMU/i }))
+    expect(screen.getByText('JA In The AM')).toBeInTheDocument()
   })
 })

@@ -796,8 +796,9 @@ type RadioSyncRunResponse struct {
 	ID          uint   `json:"id"`
 	StationID   uint   `json:"station_id"`
 	StationName string `json:"station_name"`
-	// ShowID/ShowName are set only for show-scoped runs (backfill); nil for
-	// station-scoped discover/fetch runs.
+	// ShowID/ShowName are set for show-scoped runs — backfills AND the PSY-1333
+	// slot fetches (run_type='fetch' with a show scope); nil for station-scoped
+	// discover/fetch runs.
 	ShowID   *uint   `json:"show_id,omitempty"`
 	ShowName *string `json:"show_name,omitempty"`
 
@@ -950,10 +951,12 @@ type RadioServiceInterface interface {
 	GetSyncRun(runID uint) (*RadioSyncRunResponse, error)
 	CancelSyncRun(runID uint) error
 	// Observability feeds (PSY-1129/P5). ListSyncRuns returns recent runs newest-first
-	// (stationID nil = global), optionally filtered by exact status, paginated; the
-	// int64 is the unfiltered-by-page total for the matched set. Station-health reads
-	// back the radio_station_health rollup for the health-card UI.
-	ListSyncRuns(stationID *uint, status string, limit, offset int) ([]*RadioSyncRunResponse, int64, error)
+	// (stationID nil = global), optionally filtered by exact status and by scope
+	// (PSY-1343: ""/"all" = everything, "sweep" hides show-scoped slot-fetch rows,
+	// "scoped" shows only them), paginated; the int64 is the unfiltered-by-page total
+	// for the matched set. Station-health reads back the radio_station_health rollup
+	// for the health-card UI.
+	ListSyncRuns(stationID *uint, status, scope string, limit, offset int) ([]*RadioSyncRunResponse, int64, error)
 	GetStationHealth(stationID uint) (*RadioStationHealthResponse, error)
 	ListStationHealth() ([]*RadioStationHealthResponse, error)
 }
