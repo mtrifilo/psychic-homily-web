@@ -18,14 +18,21 @@
 // so a 283-show scene doesn't render a giant dot that swallows its neighbours.
 // `count` is upcoming_show_count; radius is in react-globe.gl globe-radius units.
 const DOT_BASE_RADIUS = 0.28
-const DOT_SQRT_DIVISOR = 14
-// Caps the variable (sqrt) part → max radius DOT_BASE_RADIUS + DOT_VARIABLE_MAX (0.78).
-// The cap is reached at count ≈ (DOT_VARIABLE_MAX*DOT_SQRT_DIVISOR)^2 ≈ 49, so every
-// scene above ~49 upcoming shows renders the SAME max dot ON PURPOSE: past that the dot
-// would balloon over its neighbours (the bug this fixes). Finer magnitude among the
-// dense tier is conveyed by the hover tooltip + which cities stay labelled when zoomed
-// out — not by dot size.
-const DOT_VARIABLE_MAX = 0.5
+// Every scene at/above this count renders the SAME max dot ON PURPOSE: past it
+// the dot would balloon over its neighbours (the bug this fixes). Finer
+// magnitude among the dense tier is conveyed by the hover tooltip + which
+// cities stay labelled when zoomed out — not by dot size.
+const DOT_CAP_COUNT = 49
+// Caps the variable (sqrt) part → max radius DOT_BASE_RADIUS + DOT_VARIABLE_MAX (0.5).
+//
+// PSY-1324 recalibration: the original 0.78 cap (variable max 0.5) still covered
+// ~130 km of geography at the catalog's densest scene, enough for Chicago's
+// capped disc to swallow Milwaukee (dot AND label) outright. The dense-tier
+// boundary is a calibration decision independent of the cap's geometry, so the
+// divisor is DERIVED from DOT_CAP_COUNT — shrinking the cap again can't
+// silently move the boundary.
+const DOT_VARIABLE_MAX = 0.22
+const DOT_SQRT_DIVISOR = Math.sqrt(DOT_CAP_COUNT) / DOT_VARIABLE_MAX
 
 export function sceneDotRadius(upcomingShowCount: number): number {
   // Non-finite guard: the type says `number`, but sibling fields (latitude/longitude)
@@ -33,6 +40,38 @@ export function sceneDotRadius(upcomingShowCount: number): number {
   // poison the MERGED three.js point geometry (NaN bounding sphere) for the whole layer.
   const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
   return DOT_BASE_RADIUS + Math.min(Math.sqrt(count) / DOT_SQRT_DIVISOR, DOT_VARIABLE_MAX)
+}
+
+// ── Dot altitude: smaller dots stack ABOVE larger ones (PSY-1324) ─────────
+// react-globe.gl points are depth-tested 3D cylinders, so pointsData order does
+// NOT decide which overlapping dot is visible — equal-height cylinders leave the
+// larger disc covering the smaller one entirely (Chicago swallowing Milwaukee).
+// Making cylinder height a strictly DECREASING function of count guarantees a
+// less-dense neighbor's top face renders above a denser dot's, so it always
+// peeks out of the overlap instead of disappearing.
+//
+// The offset is keyed to the RAW count, not the capped radius: radius saturates
+// at DOT_CAP_COUNT, and a radius-derived offset would hand every capped pair
+// (two co-dense adjacent metros — the likeliest overlaps as the catalog goes
+// global) identical altitudes, resurrecting the z-fight exactly where it
+// matters. With the count curve, ties need EXACTLY equal counts — and an
+// equal-count pair is also equal-size, so neither dot dominates the other
+// (the pre-fix status quo, not a regression).
+//
+// Range: base + (0, DOT_STACK_MAX] = (0.008, 0.016] — every dot stays above the
+// PSY-1309 pulse rings (RING_ALTITUDE) and the whole band is far too small to
+// read as "floating". The sqrt curve keeps neighboring dense counts ~1e-4
+// globe-units apart, comfortably outside depth-buffer precision.
+const DOT_BASE_ALTITUDE = 0.008
+const DOT_STACK_MAX = 0.008
+// The pulse rings' altitude (GlobeCanvas binds ringAltitude to this) — exported
+// so the dots-above-rings invariant is structural, not comment-enforced.
+export const RING_ALTITUDE = 0.006
+
+export function sceneDotAltitude(upcomingShowCount: number): number {
+  // Non-finite guard — see sceneDotRadius.
+  const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
+  return DOT_BASE_ALTITUDE + DOT_STACK_MAX / (1 + Math.sqrt(count) / DOT_SQRT_DIVISOR)
 }
 
 // ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────

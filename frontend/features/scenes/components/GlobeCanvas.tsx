@@ -6,6 +6,8 @@ import type { GlobePov, PlaceableScene } from './globeTypes'
 import {
   DOT_HOVER_RADIUS_SCALE,
   labelMinCountForAltitude,
+  RING_ALTITUDE,
+  sceneDotAltitude,
   sceneDotColor,
   sceneDotRadius,
   sceneLabelSize,
@@ -50,6 +52,14 @@ const EARTH_TEXTURE =
 // neighbouring scenes stay in frame.
 const FLY_TO_ALTITUDE = 1.0
 const FLY_TO_MS = 1200
+
+// PSY-1324 occlusion fix: less-dense dots get a slightly TALLER cylinder so an
+// overlapped neighbor's top face always renders above the denser dot's (see
+// sceneDotAltitude). Pure and hover-independent, so it lives at module scope —
+// a stable identity means hover-state re-renders never rebuild the altitude
+// accessor.
+const pointAltitude = (d: object) =>
+  sceneDotAltitude((d as PlaceableScene).upcoming_show_count)
 
 // react-globe.gl's hover tooltip (pointLabel) is written to the DOM via
 // innerHTML, so any markup in the contributor-editable city/state must be
@@ -261,7 +271,7 @@ export default function GlobeCanvas({
         pointsData={scenes}
         pointLat="latitude"
         pointLng="longitude"
-        pointAltitude={0.008}
+        pointAltitude={pointAltitude}
         pointColor={pointColor}
         pointRadius={pointRadius}
         pointResolution={18}
@@ -275,7 +285,7 @@ export default function GlobeCanvas({
         ringsData={pulseScenes}
         ringLat="latitude"
         ringLng="longitude"
-        ringAltitude={0.006}
+        ringAltitude={RING_ALTITUDE}
         ringMaxRadius={1.6}
         ringPropagationSpeed={0.9}
         ringRepeatPeriod={2600}

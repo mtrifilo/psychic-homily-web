@@ -131,6 +131,13 @@ const CHARGE_STRENGTH = -120
 const NODE_RADIUS = 8
 const ISOLATE_RADIUS = 5
 
+// zoomToFit pads the NODE bbox — labels aren't measured, so shelf-END labels
+// can clip at the canvas edge. Deliberately small: a pad wide enough for the
+// labels (~64px) drops the fitted zoom below the 1.0 label gate (PSY-1209)
+// on typical overlay layouts, hiding EVERY label — clipped edge labels beat
+// none (PSY-1321; both measured on the seeded Phoenix fixture).
+const ZOOM_FIT_PADDING_PX = 40
+
 const HULL_FADE_START = 1.0
 const HULL_FADE_END = 1.6
 const HULL_FILL_ALPHA_MAX = 0.12
@@ -387,7 +394,10 @@ export function ForceGraphView({
     // detach our edits from the running simulation. `renderData` is a useMemo
     // result, which the immutability rule treats as frozen; this mutation is
     // the documented d3 contract, not an accidental write (RenderNode's `x/y/
-    // fx/fy` are explicitly typed as runtime fields). Suppressed for that span.
+    // fx/fy` are explicitly typed as runtime fields). Suppressed for this span
+    // — note the analyzer's reach shifts with unrelated edits to this
+    // component (it stopped flagging these lines mid-PSY-1321, then resumed),
+    // so if the directive ever reports as unused, prefer leaving it in place.
     /* eslint-disable react-hooks/immutability */
     isolates.forEach((node, i) => {
       node.fx = shelfStart + stride * i
@@ -440,6 +450,11 @@ export function ForceGraphView({
   // runs — a bare querySelector missed it and the label never applied (caught
   // live during PSY-1296 verification). Apply now if present, otherwise watch
   // the container until the canvas appears.
+  // canvasReady doubles as the "dynamic chunk has mounted" signal for the
+  // reduced-motion fit below: graphRef assignment doesn't trigger effects, so
+  // without a state flip the fit effect could run once against a null ref and
+  // never retry (adversarial finding — cold-chunk mounts).
+  const [canvasReady, setCanvasReady] = useState(false)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -448,6 +463,7 @@ export function ForceGraphView({
       if (!canvas) return false
       canvas.setAttribute('role', 'img')
       canvas.setAttribute('aria-label', ariaLabel)
+      setCanvasReady(true)
       return true
     }
     if (apply()) return
@@ -458,12 +474,121 @@ export function ForceGraphView({
     return () => observer.disconnect()
   }, [ariaLabel])
 
-  // Reduced-motion: pause the simulation immediately on mount.
+  // PSY-1321: frame the graph once the layout settles — but ONLY when the
+  // settled content is out of view. On a fresh mount — the fullscreen-overlay
+  // case — the default viewport centers on the coordinate origin while the
+  // connected mass settles wherever the centroid ring + charge push it and
+  // the isolate shelf pins to the bottom margin, so the initial overlay view
+  // could show ONLY the shelf (verified on stage, minneapolis-mn).
+  //
+  // Contract (each clause pins a code-review finding):
+  //   - The shot stays ARMED until there is content + a bbox to frame — an
+  //     engine stop over an empty/loading graph must not burn it.
+  //   - Content already fully in view → spend the shot WITHOUT fitting, so
+  //     inline mounts that frame fine today are byte-identical (and keep
+  //     their labels — a full zoomToFit can land below the 1.0 label gate).
+  //   - A canvas pointerdown/wheel means the user owns the viewport for the
+  //     REST OF THE MOUNT: dimension changes re-arm the shot only until then.
+  //     (Canvas-targeted, so EdgeLegend/tooltip clicks don't cancel.)
+  //   - The fit pans the canvas under an open tooltip → dismiss it first.
+  const needsFitRef = useRef(true)
+  const userOwnsViewportRef = useRef(false)
+  useEffect(() => {
+    // Mount run redundantly re-arms an already-armed ref; every later run IS
+    // a dimension change (any-pixel, deliberately not "material": the in-view
+    // spend below absorbs trivial resizes, so a threshold would only add a
+    // tuning knob). reducedMotion is a re-arm signal too — flipping it OFF
+    // resumes the sim and re-settles the layout somewhere new, so a shot
+    // spent on the paused snapshot must not stay spent (adversarial finding).
+    if (!userOwnsViewportRef.current) {
+      needsFitRef.current = true
+    }
+  }, [containerWidth, graphHeight, reducedMotion])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const cancelFit = (e: Event) => {
+      if (!(e.target instanceof Element) || !e.target.closest('canvas')) return
+      userOwnsViewportRef.current = true
+      needsFitRef.current = false
+    }
+    el.addEventListener('pointerdown', cancelFit)
+    el.addEventListener('wheel', cancelFit, { passive: true })
+    return () => {
+      el.removeEventListener('pointerdown', cancelFit)
+      el.removeEventListener('wheel', cancelFit)
+    }
+  }, [])
+
+  const maybeFitViewport = useCallback(
+    (animated: boolean) => {
+      if (!needsFitRef.current) return
+      const fg = graphRef.current
+      if (!fg || renderData.nodes.length === 0) return // stay armed
+      // Uninitialized positions don't yield a null bbox — force-graph returns
+      // {x:[undefined,undefined],...} (d3 min/max over undefined), which would
+      // sail into centerAt(NaN, NaN) and corrupt the d3-zoom transform for the
+      // rest of the mount (adversarial finding). Validate numerically.
+      const bbox = fg.getGraphBbox?.()
+      if (
+        !bbox ||
+        !Number.isFinite(bbox.x[0]) ||
+        !Number.isFinite(bbox.x[1]) ||
+        !Number.isFinite(bbox.y[0]) ||
+        !Number.isFinite(bbox.y[1])
+      ) {
+        return // positions not initialized yet — stay armed
+      }
+      needsFitRef.current = false
+      const zoom = fg.zoom()
+      const center = fg.centerAt()
+      const halfW = containerWidth / zoom / 2
+      const halfH = graphHeight / zoom / 2
+      // 5% per-side slack: a bbox that pokes marginally past the viewport
+      // (edge node half-clipped) still counts as in view — a full 400ms
+      // zoomToFit for a few clipped pixels is a worse trade than the clip,
+      // and on inline mounts the fit could drop below the 1.0 label gate.
+      const slackX = halfW * 0.05
+      const slackY = halfH * 0.05
+      const inView =
+        bbox.x[0] >= center.x - halfW - slackX &&
+        bbox.x[1] <= center.x + halfW + slackX &&
+        bbox.y[0] >= center.y - halfH - slackY &&
+        bbox.y[1] <= center.y + halfH + slackY
+      if (inView) return
+      // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
+      // has already stopped — dismiss like onZoom/onNodeDrag do.
+      setHoveredNode(null)
+      fg.zoomToFit(animated ? 400 : 0, ZOOM_FIT_PADDING_PX)
+    },
+    [renderData, containerWidth, graphHeight],
+  )
+
+  const handleEngineStop = useCallback(
+    () => maybeFitViewport(!reducedMotion),
+    [maybeFitViewport, reducedMotion],
+  )
+
+  // Reduced-motion: pause the simulation immediately on mount. A paused
+  // engine never reaches onEngineStop, so the fit for that path runs from
+  // the effect below instead (instant, over unsettled positions — an
+  // approximate frame still beats an off-view one). Keyed on the same
+  // signals that re-arm the shot, so async-arriving data and dimension
+  // changes are covered symmetrically with the animated path.
   useEffect(() => {
     if (reducedMotion && graphRef.current) {
       graphRef.current.pauseAnimation()
     }
   }, [reducedMotion])
+
+  // canvasReady is a dep so a cold chunk load (graphRef null on the first
+  // run) retries once the dynamic component actually mounts.
+  useEffect(() => {
+    if (reducedMotion && canvasReady) {
+      maybeFitViewport(false)
+    }
+  }, [reducedMotion, maybeFitViewport, canvasReady])
 
   // PSY-1235: restart force-graph's rAF render loop on (re-)mount. On a fresh page load
   // react-force-graph starts its own loop, but after a client back-navigation re-mount the
@@ -810,6 +935,8 @@ export function ForceGraphView({
         onRenderFramePost={nodeLabelsFrame}
         // PSY-1220: keep the open tooltip pinned to its node as the node drifts during settle.
         onEngineTick={handleEngineTick}
+        // PSY-1321: one-shot initial frame once the layout settles (see needsFitRef).
+        onEngineStop={handleEngineStop}
         cooldownTicks={200}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}
