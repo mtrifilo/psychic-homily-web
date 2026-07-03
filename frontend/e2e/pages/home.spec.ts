@@ -74,13 +74,16 @@ test.describe('Homepage', () => {
       page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
-    // Latest radio shows section + cards that link to /radio
+    // Latest radio shows section + station cards deep-linking to their /radio
+    // tabs. Card content is real data now (PSY-1329), so assert only the
+    // stable editorial aria-label prefix (call sign · city) — the seeded e2e
+    // DB may or may not carry radio episodes.
     await expect(
       page.getByRole('heading', { name: /latest radio shows/i })
     ).toBeVisible()
     await expect(
-      page.getByRole('link', { name: /KEXP.*Variety Mix/i })
-    ).toHaveAttribute('href', '/radio')
+      page.getByRole('link', { name: /KEXP · Seattle/i })
+    ).toHaveAttribute('href', '/radio/kexp')
 
     // Editorial footer columns (PSY-389). Scope to the footer landmark — the
     // hero also renders a "Discover" quick-links nav, so an unscoped match is
