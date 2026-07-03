@@ -557,7 +557,11 @@ func findAncestorBlock(n *html.Node, maxLevels int) *html.Node {
 	return nil
 }
 
-// collectText recursively collects all text content from a node.
+// collectText recursively collects ALL text content from a node, hidden or
+// not. Prefer collectVisibleText for anything scraped from WFMU cells that a
+// DJ/widget can decorate — hidden comment-widget markup corrupted 123k track
+// titles through this function (PSY-1327). collectText remains for surfaces
+// verified widget-free (index containers, archive rows, bold titles).
 func collectText(n *html.Node) string {
 	if n == nil {
 		return ""
@@ -1166,7 +1170,7 @@ func parsePlaylistTR(tr *html.Node) *wfmuPlaylistRow {
 	// (PSY-1327).
 	cellTexts := make([]string, len(cells))
 	for i, cell := range cells {
-		cellTexts[i] = cleanCellText(collectTextSkippingFavIcons(cell))
+		cellTexts[i] = cleanCellText(collectVisibleText(cell))
 	}
 
 	// Map cells to fields based on column count
@@ -1516,9 +1520,9 @@ func parseWFMULiveStreamBlock(block *html.Node) (string, *RadioLiveNowPlaying) {
 					}
 				}
 			case n.Data == "div" && getAttr(n, "class") == "bigline":
-				bigline = collapseWhitespace(collectTextSkippingFavIcons(n))
+				bigline = collapseWhitespace(collectVisibleText(n))
 			case n.Data == "div" && getAttr(n, "class") == "smallline":
-				smallline = collapseWhitespace(collectTextSkippingFavIcons(n))
+				smallline = collapseWhitespace(collectVisibleText(n))
 				if span := findFirstChildSpan(n); span != nil {
 					if m := wfmuKDBProgramIDRegex.FindStringSubmatch(getAttr(span, "id")); m != nil {
 						programCode = m[1]
@@ -1580,27 +1584,32 @@ func parseWFMUSmallline(s string) (showName string, hostName *string) {
 	return s, nil
 }
 
-// collectTextSkippingFavIcons collects text like collectText but skips
-// KDBFavIcon spans and display:none nodes. The fav-icon spans hold WFMU's
+// collectVisibleText collects text like collectText but skips KDBFavIcon
+// spans and display:none DESCENDANTS. The fav-icon spans hold WFMU's
 // favoriting/comment widgetry — not just the star <img>: the playlist song
 // cells carry a comment-thread widget whose jump button glyph is "→" and
 // whose hidden drop_*_summary_html span reads `"Title" by "Artist"`, which a
-// naive text flatten concatenates into every track title (PSY-1327 — 117k
+// naive text flatten concatenates into every track title (PSY-1327 — 123k
 // stored plays read `X → "X" by "Artist"` before this). The display:none
 // skip is the general rule the widget's pieces all satisfy, kept alongside
 // the class skip so a widget moved outside the span stays excluded.
-func collectTextSkippingFavIcons(n *html.Node) string {
+//
+// The ROOT node's own visibility is deliberately ignored: WFMU hides whole
+// per-show columns via td-level inline style (col_media, col_new_or_special
+// in the fixture) and any real text a DJ enters there should still be
+// captured — only hidden markup NESTED in a cell is widget chrome.
+func collectVisibleText(n *html.Node) string {
 	if n == nil {
 		return ""
 	}
 	var sb strings.Builder
-	var walk func(*html.Node)
-	walk = func(node *html.Node) {
-		if node.Type == html.ElementNode {
+	var walk func(node *html.Node, isRoot bool)
+	walk = func(node *html.Node, isRoot bool) {
+		if !isRoot && node.Type == html.ElementNode {
 			if node.Data == "span" && strings.Contains(getAttr(node, "class"), "KDBFavIcon") {
 				return
 			}
-			if strings.Contains(strings.ReplaceAll(getAttr(node, "style"), " ", ""), "display:none") {
+			if isStyleHidden(getAttr(node, "style")) {
 				return
 			}
 		}
@@ -1608,11 +1617,18 @@ func collectTextSkippingFavIcons(n *html.Node) string {
 			sb.WriteString(node.Data)
 		}
 		for c := node.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
+			walk(c, false)
 		}
 	}
-	walk(n)
+	walk(n, true)
 	return strings.TrimSpace(sb.String())
+}
+
+// isStyleHidden reports whether an inline style hides the element —
+// whitespace- and case-insensitive ("display: none", "DISPLAY:NONE",
+// tab-separated declarations all count; CSS is case-insensitive here).
+func isStyleHidden(style string) bool {
+	return strings.Contains(strings.ToLower(strings.Join(strings.Fields(style), "")), "display:none")
 }
 
 // findFirstChildSpan returns the first <span> descendant of n, nil if none.
