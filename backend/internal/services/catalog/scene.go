@@ -423,7 +423,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		City:        city,
 		State:       state,
 		Slug:        buildSceneSlug(city, state),
-		Description: nil, // nil until scenes table exists
+		Description: s.sceneDescription(buildSceneSlug(city, state)),
 		Stats: contracts.SceneStats{
 			VenueCount:        int(venueCount),
 			ArtistCount:       int(artistCount),

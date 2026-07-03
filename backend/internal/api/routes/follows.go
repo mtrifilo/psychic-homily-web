@@ -21,6 +21,16 @@ func setupFollowRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/{entity_type}/{entity_id}/follow", followHandler.FollowEntityHandler)
 	huma.Delete(rc.Protected, "/{entity_type}/{entity_id}/follow", followHandler.UnfollowEntityHandler)
 
+	// Scene follows (PSY-1339): scenes are slug-addressed (the registry row
+	// materializes lazily on first follow), so they get dedicated routes
+	// instead of joining the generic id-keyed shape — /scenes/{slug}/follow
+	// would collide with /{entity_type}/{entity_id}/follow for entity_type
+	// "scenes" (the static segment wins), and the FE never holds a scene id.
+	sceneFollowHandler := engagementh.NewSceneFollowHandler(rc.SC.Follow, rc.SC.Scene)
+	huma.Post(rc.Protected, "/scenes/{slug}/follow", sceneFollowHandler.SceneFollowHandler)
+	huma.Delete(rc.Protected, "/scenes/{slug}/follow", sceneFollowHandler.SceneUnfollowHandler)
+	huma.Get(optionalAuthGroup, "/scenes/{slug}/followers", sceneFollowHandler.SceneFollowersHandler)
+
 	// Public with optional auth: follower count + user follow status
 	huma.Get(optionalAuthGroup, "/{entity_type}/{entity_id}/followers", followHandler.GetFollowersHandler)
 

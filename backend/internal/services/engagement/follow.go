@@ -26,6 +26,7 @@ var validFollowEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityVenue):    true,
 	string(engagementm.BookmarkEntityLabel):    true,
 	string(engagementm.BookmarkEntityFestival): true,
+	string(engagementm.BookmarkEntityScene):    true,
 	FollowEntityUser:                           true,
 }
 
@@ -301,6 +302,19 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 					slug = *l.Slug
 				}
 				entityNames[entityKey{t, l.ID}] = struct{ Name, Slug string }{l.Name, slug}
+			}
+		case string(engagementm.BookmarkEntityScene):
+			var scenes []struct {
+				ID    uint
+				City  string
+				State string
+				Slug  string
+			}
+			s.db.Table("scenes").Select("id, city, state, slug").Where("id IN ?", ids).Find(&scenes)
+			for _, sc := range scenes {
+				entityNames[entityKey{t, sc.ID}] = struct{ Name, Slug string }{
+					fmt.Sprintf("%s, %s", sc.City, sc.State), sc.Slug,
+				}
 			}
 		case string(engagementm.BookmarkEntityFestival):
 			var festivals []struct {

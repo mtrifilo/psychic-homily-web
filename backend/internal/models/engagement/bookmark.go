@@ -12,6 +12,9 @@ const (
 	BookmarkEntityRelease  BookmarkEntityType = "release"
 	BookmarkEntityLabel    BookmarkEntityType = "label"
 	BookmarkEntityFestival BookmarkEntityType = "festival"
+	// BookmarkEntityScene follows a scenes-registry row (PSY-1339) — the
+	// lazily-materialized identity for a computed metro scene.
+	BookmarkEntityScene BookmarkEntityType = "scene"
 )
 
 // BookmarkAction represents the type of bookmark action

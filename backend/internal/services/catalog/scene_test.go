@@ -80,6 +80,8 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
+	_, _ = sqlDB.Exec("DELETE FROM scenes")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -655,7 +657,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_Success() {
 	suite.Equal("Phoenix", detail.City)
 	suite.Equal("AZ", detail.State)
 	suite.Equal("phoenix-az", detail.Slug)
-	suite.Nil(detail.Description) // no scenes table yet
+	suite.Nil(detail.Description) // no registry row materialized for this scene
 
 	// Stats
 	suite.GreaterOrEqual(detail.Stats.VenueCount, 1)
