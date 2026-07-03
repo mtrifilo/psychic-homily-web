@@ -791,6 +791,14 @@ type RadioShow struct {
 	// PSY-1269 sustained-outage janitor reads. NULL = never fetched (cold-start to
 	// the floor; see fetchSince).
 	LastPlaylistFetchAt *time.Time `gorm:"column:last_playlist_fetch_at"`
+	// ConsecutiveFetchFailures counts back-to-back provider fetch failures for this
+	// show's episode-listing call (PSY-1274). Incremented when the fetch errors, reset
+	// on the next successful fetch — a fetch returning zero episodes is a SUCCESS, so
+	// infrequent shows (monthly/biweekly) never accumulate a streak and the signal is
+	// cadence-independent (the reason a staleness threshold on LastPlaylistFetchAt
+	// can't work here; see PSY-1241/PSY-1269). The janitor escalates a streak past
+	// radioShowFetchFailureEscalationThreshold on an otherwise-healthy station.
+	ConsecutiveFetchFailures int `gorm:"column:consecutive_fetch_failures;not null;default:0"`
 	// IsActive retained for backward compatibility; LifecycleState is the new
 	// operational signal (PSY-1131).
 	IsActive       bool      `gorm:"column:is_active;not null;default:true"`

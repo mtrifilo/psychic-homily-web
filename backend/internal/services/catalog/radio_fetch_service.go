@@ -1292,6 +1292,16 @@ func (s *RadioFetchService) runJanitorCycle() {
 		s.logger.Error("radio janitor: fetch-outage escalation failed", "error", err)
 	}
 
+	// Escalate single shows stuck in a consecutive-fetch-failure streak on an
+	// otherwise-healthy station (PSY-1274) — the per-show alerting gap the station
+	// watermark can't see. The station threshold doubles as the healthy-station guard
+	// so a total-station outage escalates once (above), not once per sibling show.
+	showOutagesEscalated, err := s.radioService.EscalateShowFetchFailureStreaks(
+		radioShowFetchFailureEscalationThreshold, outageThreshold, now)
+	if err != nil {
+		s.logger.Error("radio janitor: show fetch-streak escalation failed", "error", err)
+	}
+
 	s.logger.Info("radio janitor cycle complete",
 		"dormant_days", s.janitorDormantDays,
 		"shows_promoted", promoted,
@@ -1300,6 +1310,7 @@ func (s *RadioFetchService) runJanitorCycle() {
 		"backfill_shows_processed", sweep.processed,
 		"backfill_shows_completed", sweep.completed,
 		"fetch_outages_escalated", outagesEscalated,
+		"show_fetch_outages_escalated", showOutagesEscalated,
 		"duration", time.Since(now),
 	)
 }

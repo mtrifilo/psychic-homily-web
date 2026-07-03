@@ -1114,6 +1114,83 @@ func (s *RadioService) EscalateStaleFetchOutages(threshold time.Duration, now ti
 	return len(stations), nil
 }
 
+// escalateShowPermanentFailure is the per-SHOW sibling of escalatePermanentFailure
+// (PSY-1274): same Sentry path, fingerprinted per (show, category) so a persistent
+// single-show outage is ONE issue with a rising occurrence count, re-triggered each
+// janitor cycle — not per-cycle spam. The station id rides along as a tag (not a
+// fingerprint component) so the issue is still filterable by station.
+func (s *RadioService) escalateShowPermanentFailure(err error, showID, stationID uint, category string) {
+	if s.onShowPermanentFailure != nil {
+		s.onShowPermanentFailure(err, showID, category)
+		return
+	}
+	sentry.WithScope(func(scope *sentry.Scope) {
+		showTag := strconv.FormatUint(uint64(showID), 10)
+		scope.SetTag("service", "radio_sync")
+		scope.SetTag("radio_show_id", showTag)
+		scope.SetTag("radio_station_id", strconv.FormatUint(uint64(stationID), 10))
+		scope.SetTag("error_category", category)
+		scope.SetFingerprint([]string{"radio_sync", category, "show", showTag})
+		// Same detail cap as escalatePermanentFailure: the escalation must not carry
+		// more of a provider's raw response than the run-errors table would.
+		sentry.CaptureException(errors.New(truncateForDetail(err.Error())))
+	})
+}
+
+// radioShowFetchFailureEscalationThreshold is how many CONSECUTIVE scheduled-fetch
+// failures a single show accumulates before the janitor escalates it (PSY-1274).
+// The counter is cadence-independent (a successful fetch returning zero episodes
+// resets it — see RadioShow.ConsecutiveFetchFailures), and counting cycles rather
+// than wall-clock hours means the threshold scales with RADIO_FETCH_INTERVAL_HOURS
+// for free. 3 mirrors the station janitor's ~3-missed-cycles bar
+// (radioFetchOutageEscalationThreshold = 3 × the default 6h interval): one or two
+// failures are provider flakiness; three back-to-back cycles (~18h at the default
+// interval) is a show that needs an admin (typically a renamed/removed external_id).
+const radioShowFetchFailureEscalationThreshold = 3
+
+// radioShowFetchOutageCategory is the escalation category (Sentry error_category tag
+// + fingerprint component) for a per-show sustained fetch outage. Distinct from the
+// station-level radioFetchOutageCategory so the two never share a Sentry issue.
+const radioShowFetchOutageCategory = "show_fetch_outage"
+
+// EscalateShowFetchFailureStreaks escalates active, fetchable shows whose
+// consecutive-fetch-failure streak has reached `threshold` (PSY-1274). This closes
+// the alerting gap PSY-1272 left deliberately open: the per-show watermark holds a
+// broken show's frontier for auto-recovery, but the station watermark advances when
+// any sibling succeeds, so a single chronically-broken show never trips the PSY-1269
+// station escalation. Shows on a station that is ITSELF in a sustained outage (station
+// watermark stale past stationOutageThreshold) are skipped — the station escalation
+// already covers that case, and escalating every sibling show alongside it would be
+// pure Sentry noise. Escalations group per (show, radioShowFetchOutageCategory).
+// Returns the number escalated.
+func (s *RadioService) EscalateShowFetchFailureStreaks(threshold int, stationOutageThreshold time.Duration, now time.Time) (int, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	stationOutageCutoff := now.Add(-stationOutageThreshold)
+	var shows []catalogm.RadioShow
+	err := s.db.
+		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
+		Where("radio_shows.is_active = TRUE AND radio_shows.external_id IS NOT NULL AND radio_shows.external_id != ''").
+		Where("radio_shows.consecutive_fetch_failures >= ?", threshold).
+		Where("radio_stations.is_active = TRUE AND radio_stations.playlist_source IS NOT NULL AND radio_stations.playlist_source != '' AND radio_stations.playlist_source != ?", catalogm.PlaylistSourceManual).
+		// Healthy-station guard: NULL station watermark (never fetched) is excluded by
+		// the comparison too — same never-fetched carve-out as the station janitor.
+		Where("radio_stations.last_playlist_fetch_at >= ?", stationOutageCutoff).
+		Find(&shows).Error
+	if err != nil {
+		return 0, fmt.Errorf("querying show fetch-failure streaks: %w", err)
+	}
+	for i := range shows {
+		sh := shows[i]
+		s.escalateShowPermanentFailure(
+			fmt.Errorf("radio show %q has failed its scheduled fetch %d cycles in a row (station otherwise healthy — likely a stale external_id)",
+				sh.Slug, sh.ConsecutiveFetchFailures),
+			sh.ID, sh.StationID, radioShowFetchOutageCategory)
+	}
+	return len(shows), nil
+}
+
 // runErrorDetailLimit caps a radio_sync_run_errors.detail so a flapping provider
 // can't bloat the admin-readable table (migration note on the column).
 const runErrorDetailLimit = 2000
