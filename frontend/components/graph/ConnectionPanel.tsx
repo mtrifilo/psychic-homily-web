@@ -98,7 +98,13 @@ export function ConnectionPanel({
   // phase (fires before any bubble-phase document listener regardless of
   // registration order) and preventDefault + stopPropagation; the overlay
   // hook skips defaultPrevented events — innermost layer closes first.
+  // Guarded on connections.length: hooks run even when the render below
+  // bails to null, so an empty-connections mount must not register an
+  // invisible listener that silently eats Escape from the fullscreen
+  // overlay (self-review finding — latent, both call sites gate upstream).
+  const hasConnections = connections.length > 0
   useEffect(() => {
+    if (!hasConnections) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
@@ -107,7 +113,7 @@ export function ConnectionPanel({
     }
     document.addEventListener('keydown', onKeyDown, { capture: true })
     return () => document.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [onClose])
+  }, [onClose, hasConnections])
 
   if (connections.length === 0) return null
 

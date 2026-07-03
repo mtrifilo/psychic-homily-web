@@ -617,6 +617,15 @@ export function ArtistGraphVisualization({
     return { source, target, connections }
   }, [connectionInspect.pair, data])
 
+  // Release the selection when it can no longer resolve to panel data —
+  // otherwise a payload change that drops and later re-adds the pair would
+  // resurrect a panel the user never re-requested (self-review finding).
+  useEffect(() => {
+    if (connectionInspect.pair && !connectionPanelData) {
+      connectionInspect.close()
+    }
+  }, [connectionInspect, connectionPanelData])
+
   // Anchor the tooltip on the NODE (onNodeHover carries no MouseEvent) via the
   // shared nodeTooltipPlacement helper — see its doc-comment for the
   // graph2ScreenCoords + position:absolute rationale (PSY-1215, extracted in

@@ -668,6 +668,15 @@ export function ForceGraphView({
     }
   }, [showConnectionPanel, connectionInspect.pair, nodes, links])
 
+  // Release the selection when it can no longer resolve to panel data —
+  // otherwise a payload refresh that drops and later re-adds the pair would
+  // resurrect a panel the user never re-requested (self-review finding).
+  useEffect(() => {
+    if (connectionInspect.pair && !connectionPanelData) {
+      connectionInspect.close()
+    }
+  }, [connectionInspect, connectionPanelData])
+
   // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` and no
   // MouseEvent, so anchor the tooltip on the NODE via the shared
   // nodeTooltipPlacement helper — see its doc-comment for the graph2ScreenCoords +

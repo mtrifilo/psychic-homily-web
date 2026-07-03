@@ -139,7 +139,11 @@ export function EdgeLegend({
               // feedback and surprise the user when solo clears (adversarial
               // finding, 2 lenses). Clear the solo to adjust visibility.
               disabled={!!soloType}
-              aria-pressed={!hidden}
+              // aria-pressed reflects EFFECTIVE visibility: while a solo is
+              // active, the sim shows only the soloed type, so a screen
+              // reader must not hear "pressed" (shown) for a row the solo
+              // has hidden (self-review finding).
+              aria-pressed={soloType ? type === soloType : !hidden}
               title={
                 soloType
                   ? 'Clear the solo to adjust visibility'

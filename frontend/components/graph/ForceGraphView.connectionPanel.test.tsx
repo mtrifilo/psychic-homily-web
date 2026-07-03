@@ -196,6 +196,26 @@ describe('ForceGraphView connection panel', () => {
     expect(simLinks()).toEqual(['shared_bills', 'shared_bills'])
   })
 
+  it('self-heals a solo whose type leaves the displayable set', () => {
+    const { rerender } = renderGraph({ showEdgeLegend: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Show only Shared Label connections' }))
+    expect(screen.getByText('Showing only Shared Label connections')).toBeInTheDocument()
+
+    // The soloed type's edges leave the payload (e.g. its carrying cluster
+    // hidden / data refresh) — the solo must clear rather than strand a
+    // filter with no legend row to undo it (code-review finding).
+    rerender(
+      <ForceGraphView
+        {...baseProps}
+        showEdgeLegend
+        links={links.filter(l => l.type !== 'shared_label')}
+      />,
+    )
+    expect(screen.queryByText(/Showing only/)).not.toBeInTheDocument()
+    const simLinks = (h.lastProps.value!.graphData as { links: Array<{ type: string }> }).links
+    expect(simLinks.length).toBeGreaterThan(0) // graph not stuck empty
+  })
+
   it('auto-closes when the pair leaves the payload (data refresh)', () => {
     const { rerender } = renderGraph()
     clickLink(1, 2)
