@@ -11,6 +11,12 @@ import type { RadioShowListItem } from '../types'
 
 const COLLAPSED_ROW_COUNT = 10
 
+/** The directory's one definition of "active" (count, dimming): the
+ * janitor-maintained lifecycle signal — dormant and retired shows are the
+ * historical bucket. */
+const isLifecycleActive = (show: RadioShowListItem) =>
+  show.lifecycle_state === 'active'
+
 interface StationShowsDirectoryProps {
   stationId: number
   stationSlug: string
@@ -36,7 +42,12 @@ export function StationShowsDirectory({
 
   const shows = data?.shows ?? []
   const visible = expanded ? shows : shows.slice(0, COLLAPSED_ROW_COUNT)
-  const activeCount = shows.filter(s => s.is_active).length
+  // lifecycle_state, NOT the legacy is_active flag: is_active stays true for
+  // nearly every row (it keeps dormant shows polling), which is how WFMU's
+  // directory claimed "488 active" against a ~65-slot schedule (PSY-1326).
+  const activeCount = shows.filter(isLifecycleActive).length
+  // "inactive", not "archived": dormant is a leave-of-absence state
+  // (seasonal churn, PSY-1152) — "archived" would claim these shows ended.
   const archivedCount = shows.length - activeCount
 
   return (
@@ -80,7 +91,7 @@ export function StationShowsDirectory({
           <div className="flex items-baseline gap-2 mt-2">
             <span className="font-mono text-xs text-muted-foreground tabular-nums">
               {activeCount} active
-              {archivedCount > 0 && ` · ${archivedCount} archived`}
+              {archivedCount > 0 && ` · ${archivedCount} inactive`}
             </span>
             {shows.length > COLLAPSED_ROW_COUNT && (
               <BracketLink
@@ -113,7 +124,7 @@ function ShowRow({
   const genres = (show.genre_tags ?? []).slice(0, 3).join(' · ')
 
   return (
-    <tr className={cn(!show.is_active && 'opacity-60')}>
+    <tr className={cn(!isLifecycleActive(show) && 'opacity-60')}>
       <td>
         <Link
           href={`/radio/${stationSlug}/${show.slug}`}

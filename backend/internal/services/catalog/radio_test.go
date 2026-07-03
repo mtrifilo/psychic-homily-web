@@ -1334,13 +1334,23 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.createShow(station.ID, "Mid Show")
 	retired := suite.createShow(station.ID, "Beta Retired")
 	suite.createAiredEpisode(retired.ID, now.AddDate(0, 0, -16).Format("2006-01-02"))
-	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).Update("is_active", false).Error)
+	// The historical bucket keys off lifecycle_state (PSY-1326), not the
+	// legacy is_active flag — set both, the way an admin retire would.
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).
+		Updates(map[string]any{"is_active": false, "lifecycle_state": catalogm.RadioLifecycleRetired}).Error)
+	// An is_active=false show that is still lifecycle-active must NOT drop to
+	// the historical bucket — is_active only gates polling, and keying the
+	// sort on it is how a whole roster read as "active" (PSY-1326 guard).
+	toggled := suite.createShow(station.ID, "Gamma Toggled")
+	suite.createAiredEpisode(toggled.ID, now.AddDate(0, 0, -15).Format("2006-01-02"))
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", toggled.ID).
+		Update("is_active", false).Error)
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", older.ID).Update("schedule_display", "Mon 9pm-12am").Error)
 
 	// Default sort stays alphabetical (existing behavior).
 	byName, err := suite.radioService.ListShows(station.ID, "")
 	suite.Require().NoError(err)
-	suite.Require().Len(byName, 4)
+	suite.Require().Len(byName, 5)
 	suite.Equal("Alpha Show", byName[0].Name)
 	suite.Require().NotNil(byName[0].LatestAirDate)
 	suite.Equal(alphaLatest, *byName[0].LatestAirDate)
@@ -1349,17 +1359,19 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.Equal("Mon 9pm-12am", *byName[0].ScheduleDisplay)
 	suite.Nil(byName[1].ScheduleDisplay)
 
-	// sort=latest: active shows first, newest playlist first, episode-less
-	// actives after dated actives, inactive shows last.
+	// sort=latest: lifecycle-active shows first (whatever the legacy
+	// is_active flag says), newest playlist first, episode-less actives after
+	// dated actives, historical (dormant/retired) shows last.
 	byLatest, err := suite.radioService.ListShows(station.ID, RadioShowSortLatest)
 	suite.Require().NoError(err)
-	suite.Require().Len(byLatest, 4)
+	suite.Require().Len(byLatest, 5)
 	suite.Equal("Zulu Show", byLatest[0].Name)
-	suite.Equal("Alpha Show", byLatest[1].Name)
-	suite.Equal("Mid Show", byLatest[2].Name)
-	suite.Nil(byLatest[2].LatestAirDate)
-	suite.Equal("Beta Retired", byLatest[3].Name)
-	suite.False(byLatest[3].IsActive)
+	suite.Equal("Gamma Toggled", byLatest[1].Name, "is_active=false must not demote a lifecycle-active show")
+	suite.Equal("Alpha Show", byLatest[2].Name)
+	suite.Equal("Mid Show", byLatest[3].Name)
+	suite.Nil(byLatest[3].LatestAirDate)
+	suite.Equal("Beta Retired", byLatest[4].Name)
+	suite.Equal(catalogm.RadioLifecycleRetired, byLatest[4].LifecycleState)
 }
 
 // TestListShows_LatestEpisodeWindow pins the PSY-1306 LAST-column window: each
