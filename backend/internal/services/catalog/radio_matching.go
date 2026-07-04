@@ -127,6 +127,11 @@ func (m *RadioMatchingEngine) MatchPlaysForEpisode(episodeID uint) (*contracts.M
 		return nil, fmt.Errorf("loading unmatched plays: %w", err)
 	}
 
+	return m.matchPlays(plays)
+}
+
+// matchPlays runs the matcher over a pre-loaded slice of plays.
+func (m *RadioMatchingEngine) matchPlays(plays []catalogm.RadioPlay) (*contracts.MatchResult, error) {
 	result := &contracts.MatchResult{
 		Total: len(plays),
 	}
@@ -146,6 +151,52 @@ func (m *RadioMatchingEngine) MatchPlaysForEpisode(episodeID uint) (*contracts.M
 	return result, nil
 }
 
+// MatchUnmatchedPlaysForArtistName rematches only unmatched plays whose
+// artist_name normalizes to the given name (same predicate as matchArtist).
+func (m *RadioMatchingEngine) MatchUnmatchedPlaysForArtistName(name string) (*contracts.MatchResult, error) {
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	normalized := normalizeName(name)
+	if normalized == "" {
+		return &contracts.MatchResult{}, nil
+	}
+
+	var plays []catalogm.RadioPlay
+	err := m.db.Where(
+		"artist_id IS NULL AND immutable_unaccent(LOWER(artist_name)) = immutable_unaccent(LOWER(?))",
+		normalized,
+	).Find(&plays).Error
+	if err != nil {
+		return nil, fmt.Errorf("loading unmatched plays for artist %q: %w", name, err)
+	}
+
+	return m.matchPlays(plays)
+}
+
+// MatchUnmatchedPlaysForLabelName rematches only unmatched plays whose
+// label_name normalizes to the given name (same predicate as matchLabel).
+func (m *RadioMatchingEngine) MatchUnmatchedPlaysForLabelName(name string) (*contracts.MatchResult, error) {
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	normalized := normalizeName(name)
+	if normalized == "" {
+		return &contracts.MatchResult{}, nil
+	}
+
+	var plays []catalogm.RadioPlay
+	err := m.db.Where(
+		"label_id IS NULL AND label_name IS NOT NULL AND immutable_unaccent(LOWER(label_name)) = immutable_unaccent(LOWER(?))",
+		normalized,
+	).Find(&plays).Error
+	if err != nil {
+		return nil, fmt.Errorf("loading unmatched plays for label %q: %w", name, err)
+	}
+
+	return m.matchPlays(plays)
+}
+
 // MatchAllUnmatched runs the matching engine on all unmatched plays in the database.
 func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error) {
 	if m.db == nil {
@@ -158,23 +209,7 @@ func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error
 		return nil, fmt.Errorf("loading unmatched plays: %w", err)
 	}
 
-	result := &contracts.MatchResult{
-		Total: len(plays),
-	}
-
-	for i := range plays {
-		matched, persistErr := m.matchPlayWithErr(&plays[i])
-		if matched {
-			result.Matched++
-		} else {
-			result.Unmatched++
-		}
-		if persistErr != nil {
-			result.PersistErrors++
-		}
-	}
-
-	return result, nil
+	return m.matchPlays(plays)
 }
 
 // matchPlay attempts to match a single play to entities in our knowledge graph.

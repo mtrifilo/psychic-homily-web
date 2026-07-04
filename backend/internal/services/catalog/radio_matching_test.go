@@ -569,3 +569,44 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchPlaysForEpisode_Persist
 	suite.Nil(reloaded.ArtistID, "artist_id must be unset since the update failed")
 	_ = artist
 }
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchUnmatchedPlaysForArtistName_TargetsNameOnly() {
+	episodeID := suite.createStationShowEpisode()
+	suite.createPlay(episodeID, 1, "Metric", nil, nil)
+	suite.createPlay(episodeID, 2, "Pixel Grip", nil, nil)
+	suite.createArtist("Metric")
+
+	result, err := suite.engine.MatchUnmatchedPlaysForArtistName("Metric")
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Total)
+	suite.Equal(1, result.Matched)
+
+	var metricPlay catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("artist_name = ?", "Metric").First(&metricPlay).Error)
+	suite.Require().NotNil(metricPlay.ArtistID)
+
+	var pixelPlay catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("artist_name = ?", "Pixel Grip").First(&pixelPlay).Error)
+	suite.Nil(pixelPlay.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchUnmatchedPlaysForArtistName_ResolvesAlias() {
+	artist := suite.createArtist("World's Worst")
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistAlias{
+		ArtistID: artist.ID,
+		Alias:    "Worlds Worst",
+	}).Error)
+
+	episodeID := suite.createStationShowEpisode()
+	suite.createPlay(episodeID, 1, "Worlds Worst", nil, nil)
+
+	result, err := suite.engine.MatchUnmatchedPlaysForArtistName("Worlds Worst")
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Total)
+	suite.Equal(1, result.Matched)
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("artist_name = ?", "Worlds Worst").First(&reloaded).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(artist.ID, *reloaded.ArtistID)
+}

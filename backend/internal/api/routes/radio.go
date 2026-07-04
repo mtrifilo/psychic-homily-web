@@ -69,4 +69,5 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.Admin, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
 	huma.Post(rc.Admin, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
 	huma.Post(rc.Admin, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
+	huma.Post(rc.Admin, "/admin/radio/rematch", radioHandler.AdminReMatchPlaysHandler)
 }

@@ -2514,6 +2514,7 @@ type MockRadioService struct {
 	ComputeAffinityFn             func() error
 	SyncAffinityToRelationshipsFn func() (*contracts.SyncAffinityResult, error)
 	ReMatchUnmatchedFn            func() (*contracts.MatchResult, error)
+	ReMatchUnmatchedWithFilterFn  func(*contracts.ReMatchRequest) (*contracts.MatchResult, error)
 	TriggerStationSyncFn          func(uint, string) (*contracts.RadioSyncRunResponse, error)
 	TriggerShowBackfillFn         func(uint, string, string) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRunFn                  func(uint) (*contracts.RadioSyncRunResponse, error)
@@ -2760,6 +2761,12 @@ func (m *MockRadioService) SyncAffinityToRelationships() (*contracts.SyncAffinit
 func (m *MockRadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 	if m.ReMatchUnmatchedFn != nil {
 		return m.ReMatchUnmatchedFn()
+	}
+	return nil, nil
+}
+func (m *MockRadioService) ReMatchUnmatchedWithFilter(req *contracts.ReMatchRequest) (*contracts.MatchResult, error) {
+	if m.ReMatchUnmatchedWithFilterFn != nil {
+		return m.ReMatchUnmatchedWithFilterFn(req)
 	}
 	return nil, nil
 }

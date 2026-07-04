@@ -148,6 +148,7 @@ The batch command processes in dependency order: labels → artists → releases
 - **Tags**: Add genre and locale tags where you can confidently identify them. Common genres: punk, post-punk, noise rock, psychedelic, electronic, industrial, experimental, ambient, folk, gospel, funk, disco, synth pop, avant-garde, hip-hop, jazz, metal. Locale tags use `category: "locale"`: Japanese, German, Spanish, Russian, Thai, Brazilian, etc.
 - **Billing tiers** (festivals): headliner, sub_headliner, mid_card, undercard, local, dj, host.
 - **Skip non-music entries**: DJ interludes, radio commercials, compilation album titles without a distinct artist, trivia nights.
+- **Radio plays link by exact normalized name** (plus artist aliases). Collab strings like `Astrid Sonne, Smerz` need either a combined artist entity, a dedicated alias, or the collab-parsing matcher (see PSY-1353). Punctuation variants (`Worlds Worst` vs `World's Worst`) → add an artist alias.
 - **@handles**: When processing Instagram or social media posts, extract @handles from captions and map them to Instagram URLs on the corresponding artist or venue entities.
 
 ### Step 3: Dry Run
@@ -175,6 +176,21 @@ cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts --env prod
 ```
 
 Report the results: how many created, updated, skipped, errored.
+
+**Radio playlist linking:** `batch --confirm` automatically calls `POST /admin/radio/rematch` after any creates/updates, linking historic radio plays to new artists/labels. The backend also rematches asynchronously when an artist or label is created (or when an artist alias is added). Playlist rows show the orange ● only when `radio_plays.artist_id` is set — creating an artist page alone used to leave old plays unlinked until the 7-day background rematch.
+
+For name variants that still won't link (e.g. playlist `Worlds Worst` vs KG `World's Worst`), add an alias:
+```bash
+curl -s -X POST "$URL/admin/artists/{id}/aliases" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"alias":"Worlds Worst"}'
+```
+Alias creation triggers a targeted rematch for that name.
+
+Manual full rematch (ops):
+```bash
+curl -s -X POST "$URL/admin/radio/rematch" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+```
 
 ### Step 5: Fix-ups (if needed)
 

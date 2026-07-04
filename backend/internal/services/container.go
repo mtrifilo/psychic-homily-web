@@ -208,6 +208,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	revisionSvc := adminsvc.NewRevisionService(database)
 	radioSvc := catalog.NewRadioService(database)
+	shared.OnRadioArtistNameRematch = radioSvc.ScheduleRematchForArtistName
+	shared.OnRadioLabelNameRematch = radioSvc.ScheduleRematchForLabelName
 	artistRelSvc := catalog.NewArtistRelationshipService(database)
 
 	// PSY-997: entity_requests creation queue + its fulfillment adapter. The

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -514,12 +515,69 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 // ReMatchUnmatched re-runs the matching engine on all plays where artist_id IS NULL.
 // This catches newly added artists since the last match attempt.
 func (s *RadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
+	return s.ReMatchUnmatchedWithFilter(nil)
+}
+
+// ReMatchUnmatchedWithFilter rematches unmatched plays, optionally scoped to a
+// single artist or label name. A nil or empty request rematches everything.
+func (s *RadioService) ReMatchUnmatchedWithFilter(req *contracts.ReMatchRequest) (*contracts.MatchResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	matcher := NewRadioMatchingEngine(s.db)
+	if req == nil {
+		return matcher.MatchAllUnmatched()
+	}
+	if req.ArtistName != "" {
+		return matcher.MatchUnmatchedPlaysForArtistName(req.ArtistName)
+	}
+	if req.LabelName != "" {
+		return matcher.MatchUnmatchedPlaysForLabelName(req.LabelName)
+	}
 	return matcher.MatchAllUnmatched()
+}
+
+// ScheduleRematchForArtistName asynchronously rematches unmatched plays for one
+// artist name. Safe to call from entity-create hooks after commit.
+func (s *RadioService) ScheduleRematchForArtistName(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	n := name
+	shared.GoSafe(context.Background(), "radio_rematch_artist", func() {
+		result, err := s.ReMatchUnmatchedWithFilter(&contracts.ReMatchRequest{ArtistName: n})
+		if err != nil {
+			slog.Error("radio rematch for artist name failed", "artist_name", n, "error", err)
+			return
+		}
+		if result.Matched > 0 {
+			slog.Info("radio rematch for artist name linked plays",
+				"artist_name", n, "matched", result.Matched, "total", result.Total)
+		}
+	})
+}
+
+// ScheduleRematchForLabelName asynchronously rematches unmatched plays for one
+// label name. Safe to call from entity-create hooks after commit.
+func (s *RadioService) ScheduleRematchForLabelName(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	n := name
+	shared.GoSafe(context.Background(), "radio_rematch_label", func() {
+		result, err := s.ReMatchUnmatchedWithFilter(&contracts.ReMatchRequest{LabelName: n})
+		if err != nil {
+			slog.Error("radio rematch for label name failed", "label_name", n, "error", err)
+			return
+		}
+		if result.Matched > 0 {
+			slog.Info("radio rematch for label name linked plays",
+				"label_name", n, "matched", result.Matched, "total", result.Total)
+		}
+	})
 }
 
 // GetActiveStationsWithPlaylistSource returns all active stations that have an

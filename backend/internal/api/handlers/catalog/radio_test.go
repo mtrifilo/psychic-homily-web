@@ -1341,6 +1341,59 @@ func TestAdminBulkLinkPlays_ServiceError(t *testing.T) {
 }
 
 // ============================================================================
+// AdminReMatchPlaysHandler Tests
+// ============================================================================
+
+func TestAdminReMatchPlays_FullRematch(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		ReMatchUnmatchedWithFilterFn: func(req *contracts.ReMatchRequest) (*contracts.MatchResult, error) {
+			if req.ArtistName != "" || req.LabelName != "" {
+				t.Errorf("expected full rematch, got %+v", req)
+			}
+			return &contracts.MatchResult{Total: 10, Matched: 3, Unmatched: 7}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminReMatchPlaysHandler(radioAdminCtx(), &AdminReMatchPlaysRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Matched != 3 {
+		t.Errorf("expected 3 matched, got %d", resp.Body.Matched)
+	}
+}
+
+func TestAdminReMatchPlays_ScopedToArtist(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		ReMatchUnmatchedWithFilterFn: func(req *contracts.ReMatchRequest) (*contracts.MatchResult, error) {
+			if req.ArtistName != "Metric" {
+				t.Errorf("unexpected request: %+v", req)
+			}
+			return &contracts.MatchResult{Total: 2, Matched: 2, Unmatched: 0}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminReMatchPlaysRequest{}
+	req.Body.ArtistName = "Metric"
+	resp, err := h.AdminReMatchPlaysHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Matched != 2 {
+		t.Errorf("expected 2 matched, got %d", resp.Body.Matched)
+	}
+}
+
+func TestAdminReMatchPlays_BothNamesRejected(t *testing.T) {
+	h := testRadioHandler(&testhelpers.MockRadioService{})
+	req := &AdminReMatchPlaysRequest{}
+	req.Body.ArtistName = "Metric"
+	req.Body.LabelName = "Domino"
+	_, err := h.AdminReMatchPlaysHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// ============================================================================
 // Admin observability feeds (PSY-1129/P5)
 // ============================================================================
 
