@@ -107,6 +107,26 @@ func TestGetArtistGraphCardHandler_AssemblesCard(t *testing.T) {
 	}
 }
 
+func TestGetArtistGraphCardHandler_CapsLabels(t *testing.T) {
+	artistSvc, relSvc, radioSvc := graphCardMocks()
+	artistSvc.GetLabelsForArtistFn = func(uint) ([]*contracts.ArtistLabelResponse, error) {
+		labels := make([]*contracts.ArtistLabelResponse, 7)
+		for i := range labels {
+			labels[i] = &contracts.ArtistLabelResponse{ID: uint(i + 1), Name: fmt.Sprintf("Label %d", i+1), Slug: fmt.Sprintf("label-%d", i+1)}
+		}
+		return labels, nil
+	}
+	h := NewArtistGraphCardHandler(artistSvc, relSvc, radioSvc)
+
+	resp, err := h.GetArtistGraphCardHandler(context.Background(), &GetArtistGraphCardRequest{ArtistID: "7"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Labels) != maxGraphCardLabels {
+		t.Errorf("labels must cap at %d, got %d", maxGraphCardLabels, len(resp.Body.Labels))
+	}
+}
+
 func TestGetArtistGraphCardHandler_ResolvesSlug(t *testing.T) {
 	artistSvc, relSvc, radioSvc := graphCardMocks()
 	h := NewArtistGraphCardHandler(artistSvc, relSvc, radioSvc)

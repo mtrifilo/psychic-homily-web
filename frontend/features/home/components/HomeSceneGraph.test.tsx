@@ -260,6 +260,14 @@ describe('HomeSceneGraph', () => {
     expect(screen.queryByRole('region', { name: 'About Alpha' })).toBeNull()
   })
 
+  it('returns focus to the canvas wrapper when the panel closes (PSY-1313 pattern)', async () => {
+    render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+    fireEvent.click(screen.getByRole('button', { name: /close details/i }))
+    const canvasWrap = screen.getByTestId('force-graph-view').parentElement
+    expect(document.activeElement).toBe(canvasWrap)
+  })
+
   it('canvas background click and scene rotation both dismiss the panel (PSY-1345)', async () => {
     render(<HomeSceneGraph />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
