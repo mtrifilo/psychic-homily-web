@@ -58,8 +58,12 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 	// residual failure mode of the data-inferred authority signal — log the computed
 	// set every run so a flip shows up next to the demote/promote counts.
 	var authStationIDs []uint
-	if err := s.scrapeMaintainedScheduleRows().
-		Distinct().Pluck("radio_shows.station_id", &authStationIDs).Error; err == nil {
+	if plErr := s.scrapeMaintainedScheduleRows().
+		Distinct().Pluck("radio_shows.station_id", &authStationIDs).Error; plErr != nil {
+		// Log-only valve, but it is the disclosed mitigation for the authority-flip
+		// cliff — its own failure must not be invisible.
+		slog.Warn("radio janitor: could not compute schedule-authoritative stations", "error", plErr)
+	} else {
 		slog.Info("radio janitor: schedule-authoritative stations", "station_ids", authStationIDs)
 	}
 
@@ -75,7 +79,7 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 	gridDemote := s.db.Model(&catalogm.RadioShow{}).
 		Where("lifecycle_state = ?", catalogm.RadioLifecycleActive).
 		Where("station_id IN (?)", s.scheduleAuthoritativeStations()).
-		Where("schedule IS NULL AND NOT schedule_locked AND external_id IS NOT NULL AND external_id <> ''").
+		Where("radio_shows.schedule IS NULL AND NOT radio_shows.schedule_locked AND NOT " + radioShowCodelessSQL).
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleDormant,
 			"updated_at":      now,
@@ -90,7 +94,7 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 	gridPromote := s.db.Model(&catalogm.RadioShow{}).
 		Where("lifecycle_state = ?", catalogm.RadioLifecycleDormant).
 		Where("station_id IN (?)", s.scheduleAuthoritativeStations()).
-		Where("schedule IS NOT NULL AND NOT schedule_locked").
+		Where(radioShowOnGridSQL).
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleActive,
 			"updated_at":      now,
@@ -137,6 +141,17 @@ func (s *RadioService) ReconcileShowLifecycle(idleThreshold time.Duration, now t
 	return promoted, demoted, nil
 }
 
+// The grid rule's two per-show predicates, composed by every consumer (janitor
+// demote/promote, the authoritativeness builder, the ingest reactivation guard in
+// radio_import.go) so the legs cannot drift apart. Columns are table-qualified —
+// legal in both the single-table UPDATEs and the JOINed subquery contexts.
+// NOTE: the demote leg is NOT the negation of radioShowOnGridSQL — a locked show is
+// exempt in BOTH directions (admin-managed), so demote spells its own condition.
+const (
+	radioShowOnGridSQL   = "radio_shows.schedule IS NOT NULL AND NOT radio_shows.schedule_locked"
+	radioShowCodelessSQL = "(radio_shows.external_id IS NULL OR radio_shows.external_id = '')"
+)
+
 // scheduleScrapedPlaylistSources lists the playlist sources whose providers maintain
 // radio_shows.schedule from a scraped grid (ApplyWFMUSchedule /
 // ApplyWFMUSubstreamSchedule). Grid lifecycle semantics only make sense where a scrape
@@ -172,7 +187,7 @@ func (s *RadioService) scrapeMaintainedScheduleRows() *gorm.DB {
 	return s.db.Model(&catalogm.RadioShow{}).
 		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
 		Where("radio_stations.playlist_source IN ?", scheduleScrapedPlaylistSources).
-		Where("radio_shows.schedule IS NOT NULL AND NOT radio_shows.schedule_locked")
+		Where(radioShowOnGridSQL)
 }
 
 // stationIsScheduleAuthoritative reports whether one station is in the

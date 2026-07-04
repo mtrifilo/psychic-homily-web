@@ -1345,7 +1345,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 	if err := s.db.Model(&catalogm.RadioShow{}).
 		Where("id = ? AND lifecycle_state = ?", showID, catalogm.RadioLifecycleDormant).
-		Where("(schedule IS NOT NULL AND NOT schedule_locked) OR external_id IS NULL OR external_id = '' OR station_id NOT IN (?)",
+		Where("("+radioShowOnGridSQL+") OR "+radioShowCodelessSQL+" OR station_id NOT IN (?)",
 			s.scheduleAuthoritativeStations()).
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleActive,

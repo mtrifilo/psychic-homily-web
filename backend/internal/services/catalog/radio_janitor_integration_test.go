@@ -192,9 +192,8 @@ func (s *RadioSyncSuite) TestJanitorCycle_EndToEnd() {
 // setGridSchedule stamps a minimal valid schedule JSONB on a show. On a
 // scrape-capable station this makes the station schedule-authoritative (PSY-1348).
 func (s *RadioSyncSuite) setGridSchedule(showID uint) {
-	raw := `{"timezone":"America/New_York","slots":[{"day_of_week":1,"start":"06:00","end":"09:00"}]}`
 	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", showID).
-		Update("schedule", raw).Error)
+		Update("schedule", sampleScheduleJSON).Error)
 }
 
 
