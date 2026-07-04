@@ -569,3 +569,32 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchPlaysForEpisode_Persist
 	suite.Nil(reloaded.ArtistID, "artist_id must be unset since the update failed")
 	_ = artist
 }
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_ByMusicBrainzID() {
+	const mbid = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+	slug := utils.GenerateArtistSlug("Radiohead")
+	artist := &catalogm.Artist{
+		Name:                "Radiohead",
+		Slug:                &slug,
+		MusicBrainzArtistID: strPtr(mbid),
+	}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	episodeID := suite.createStationShowEpisode()
+	play := &catalogm.RadioPlay{
+		EpisodeID:           episodeID,
+		Position:            1,
+		ArtistName:          "Totally Wrong Name",
+		MusicBrainzArtistID: strPtr(mbid),
+	}
+	suite.Require().NoError(suite.db.Create(play).Error)
+
+	suite.True(suite.engine.matchPlay(play))
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(artist.ID, *reloaded.ArtistID)
+}
+
+func strPtr(s string) *string { return &s }
