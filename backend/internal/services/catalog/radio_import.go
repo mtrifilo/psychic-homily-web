@@ -1196,10 +1196,14 @@ const scheduleDerivedWindowMaxAgeDays = 30
 // under the recency janitor and float atop latest-first feeds).
 const futureAirDateToleranceDays = 2
 
-// errFutureAirDate marks an episode rejected by the future-air-date guard in
-// importEpisode. Typed so categorizeRunError buckets it as a validation_drop
-// (structural, per the PSY-1141 convention) instead of provider_unreachable.
-var errFutureAirDate = errors.New("future-dated episode rejected")
+// errFutureAirDate / errInvalidAirDate mark episodes rejected by the air-date
+// guard in importEpisode. Typed so categorizeRunError buckets them as
+// validation_drop (structural, per the PSY-1141 convention) instead of
+// provider_unreachable.
+var (
+	errFutureAirDate  = errors.New("future-dated episode rejected")
+	errInvalidAirDate = errors.New("unparseable air_date rejected")
+)
 
 // episodeAirWindow resolves the frozen [starts_at, ends_at] for an episode. A
 // provider-supplied window wins (KEXP gives start+end, NTS a start) — those
@@ -1295,11 +1299,21 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	// because air_date is date-only and station zones run ahead of UTC; the
 	// error is a typed sentinel so the sync-run feed records it as a
 	// validation_drop (visible, not silently clamped — upstream fixes then
-	// import normally on a later fetch).
-	if airDay, parseErr := time.Parse("2006-01-02", ep.AirDate); parseErr == nil {
-		if airDay.After(now.UTC().Truncate(24 * time.Hour).AddDate(0, 0, futureAirDateToleranceDays)) {
-			return nil, fmt.Errorf("%w: air_date %s is beyond now+%dd", errFutureAirDate, ep.AirDate, futureAirDateToleranceDays)
-		}
+	// import normally on a later fetch). Scope: NEW episodes only — a
+	// future-dated row persisted before this guard shipped re-enters via the
+	// dedup path above and is out of reach (the one known instance, stage
+	// episode 4917, was deleted by hand; evidence on PSY-1350). A non-empty
+	// air_date that fails the canonical YYYY-MM-DD parse is ALSO rejected —
+	// the DATE column would happily accept formats Go's strict parse does not
+	// ("2027-6-5", "06/05/2027"), which would smuggle a future date past the
+	// bound; every provider normalizes to YYYY-MM-DD, so nothing legitimate
+	// trips this.
+	airDay, parseErr := time.Parse("2006-01-02", ep.AirDate)
+	if parseErr != nil {
+		return nil, fmt.Errorf("%w: %q", errInvalidAirDate, ep.AirDate)
+	}
+	if airDay.After(now.UTC().Truncate(24 * time.Hour).AddDate(0, 0, futureAirDateToleranceDays)) {
+		return nil, fmt.Errorf("%w: air_date %s is beyond now+%dd", errFutureAirDate, ep.AirDate, futureAirDateToleranceDays)
 	}
 
 	// Create episode. StartsAt/EndsAt are the frozen air window (PSY-1152) — the

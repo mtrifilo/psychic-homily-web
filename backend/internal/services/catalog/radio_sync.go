@@ -981,7 +981,7 @@ func categorizeRunError(err error) string {
 	// PSY-1350: a future-air-date rejection is a data-quality drop, not a
 	// provider outage — it must not feed outage-shaped signals (breaker context,
 	// unreachable counts) and must surface in the feed as validation_drop.
-	if errors.Is(err, errFutureAirDate) {
+	if errors.Is(err, errFutureAirDate) || errors.Is(err, errInvalidAirDate) {
 		return catalogm.RadioSyncRunErrorValidationDrop
 	}
 	if errors.Is(err, context.DeadlineExceeded) {

@@ -2404,6 +2404,27 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_RejectsFarFuture
 	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
 	suite.Equal(int64(0), count, "rejected episode must not be persisted")
 
+	// Non-canonical format that Postgres would accept but Go's strict parse does
+	// not: rejected (it could smuggle a future date past the bound).
+	_, err = suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "uf-1", AirDate: "2027-6-5",
+	}, mockProvider)
+	suite.Require().ErrorIs(err, errInvalidAirDate)
+	suite.Equal(catalogm.RadioSyncRunErrorValidationDrop, categorizeRunError(err))
+
+	// Pin the exact boundary: today+tolerance accepted (strict After), +1 beyond rejected.
+	atBound := time.Now().UTC().AddDate(0, 0, futureAirDateToleranceDays).Format("2006-01-02")
+	_, err = suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "ab-1", AirDate: atBound,
+	}, mockProvider)
+	suite.Require().NoError(err, "air_date exactly at now+tolerance imports")
+
+	justOver := time.Now().UTC().AddDate(0, 0, futureAirDateToleranceDays+1).Format("2006-01-02")
+	_, err = suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "jo-1", AirDate: justOver,
+	}, mockProvider)
+	suite.Require().ErrorIs(err, errFutureAirDate, "air_date one day past the tolerance is rejected")
+
 	// Inside the tolerance: imported normally.
 	nearFuture := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
 	_, err = suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
@@ -2411,5 +2432,5 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_RejectsFarFuture
 	}, mockProvider)
 	suite.Require().NoError(err)
 	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
-	suite.Equal(int64(1), count, "near-future (tolerance) episode imports")
+	suite.Equal(int64(2), count, "near-future (tolerance) episodes import")
 }
