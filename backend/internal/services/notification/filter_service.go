@@ -700,8 +700,26 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 		FilterName string `gorm:"column:filter_name"`
 	}
 
+	// Scene-follow rows (PSY-1341) are show rows with a NULL filter_id — the
+	// first such rows ever, so the bell UI's filter-name slot would render
+	// bare "show" for them. Re-derive the scene display name from the show's
+	// venues (same join branches as sceneFollowersForShow); a since-merged
+	// scene row just falls back to the generic label.
+	sceneNameSubquery := `(
+		SELECT sc.city || ', ' || sc.state || ' scene'
+		FROM show_venues sv
+		JOIN venues v ON v.id = sv.venue_id
+		JOIN scenes sc ON (
+			(v.metro IS NOT NULL AND sc.metro = v.metro)
+			OR (sc.metro IS NULL
+				AND LOWER(TRIM(sc.city)) = LOWER(TRIM(v.city))
+				AND LOWER(TRIM(sc.state)) = LOWER(TRIM(v.state)))
+		)
+		WHERE sv.show_id = nl.entity_id
+		LIMIT 1
+	)`
 	err := s.db.Table("notification_log nl").
-		Select("nl.*, nf.name as filter_name").
+		Select("nl.*, COALESCE(nf.name, CASE WHEN nl.entity_type = 'show' AND nl.filter_id IS NULL THEN "+sceneNameSubquery+" END, '') as filter_name").
 		Joins("LEFT JOIN notification_filters nf ON nf.id = nl.filter_id").
 		Where("nl.user_id = ?", userID).
 		Order("nl.sent_at DESC").

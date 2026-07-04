@@ -79,8 +79,10 @@ func TestSceneFollowHandler_SetsNotifyMode(t *testing.T) {
 	h := NewSceneFollowHandler(follows, scenes)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
-	req := &SceneFollowRequest{Slug: "phoenix-az"}
-	req.Body.NotifyMode = "followed_bands_only"
+	req := &SceneFollowRequest{
+		Slug: "phoenix-az",
+		Body: &SceneFollowBody{NotifyMode: "followed_bands_only"},
+	}
 	if _, err := h.SceneFollowHandler(ctx, req); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

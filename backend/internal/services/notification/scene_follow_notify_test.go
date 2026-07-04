@@ -115,3 +115,58 @@ func (s *NotificationFilterSuite) TestSceneFollow_DedupsAgainstFilterMatch() {
 	// Exactly one notification: the filter's. The scene pass defers.
 	s.Equal(int64(1), s.sceneLogCount(userID, showID))
 }
+
+func (s *NotificationFilterSuite) TestSceneFollow_AnyQualifyingFollowWins() {
+	// User follows TWO scenes a multi-venue show maps to: one gated
+	// (followed_bands_only, no matching artist follow) and one "all". The
+	// explicit "all" subscription must win regardless of row order.
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "followed_bands_only") // phoenix-az
+
+	var tucsonID uint
+	s.Require().NoError(s.db.Raw(`
+		INSERT INTO scenes (metro, city, state, slug)
+		VALUES (NULL, 'Tucson', 'AZ', 'tucson-az') RETURNING id`).Scan(&tucsonID).Error)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'scene', ?, 'follow', now())`, userID, tucsonID).Error)
+
+	artistID := s.createTestArtist("Unfollowed Band")
+	phxVenue := s.createTestVenue("The Rebel Lounge")
+	tucsonVenue := catalogm.Venue{Name: "Club Congress", City: "Tucson", State: "AZ"}
+	s.Require().NoError(s.db.Create(&tucsonVenue).Error)
+
+	showID := s.createTestShow("Two City Show", []uint{artistID}, []uint{phxVenue, tucsonVenue.ID})
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+}
+
+func (s *NotificationFilterSuite) TestSceneFollow_SubmitterIsNotSelfNotified() {
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+
+	artistID := s.createTestArtist("My Own Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("My Own Show", []uint{artistID}, []uint{venueID})
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET submitted_by = ? WHERE id = ?`, userID, showID).Error)
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(0), s.sceneLogCount(userID, showID))
+}
+
+func (s *NotificationFilterSuite) TestSceneFollow_FallbackRowMatchesMetroStampedVenue() {
+	// Scope drift: a fallback scene row predates a venue-metro backfill. The
+	// join must still connect them (normalized city/state, regardless of the
+	// venue's new metro) so existing followers aren't stranded.
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+
+	metro := "38060"
+	venue := catalogm.Venue{Name: "Stamped Venue", City: "phoenix", State: "az", Metro: &metro}
+	s.Require().NoError(s.db.Create(&venue).Error)
+	artistID := s.createTestArtist("Drift Band")
+	showID := s.createTestShow("Drift Show", []uint{artistID}, []uint{venue.ID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+}

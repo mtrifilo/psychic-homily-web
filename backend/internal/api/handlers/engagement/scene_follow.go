@@ -42,9 +42,15 @@ const sceneEntityType = "scene"
 // idempotent).
 type SceneFollowRequest struct {
 	Slug string `path:"slug" doc:"Scene slug (e.g. phoenix-az)"`
-	Body struct {
-		NotifyMode string `json:"notify_mode,omitempty" enum:"all,followed_bands_only" doc:"New-show notification mode (default all)"`
-	}
+	// POINTER body: huma marks a non-pointer Body as a REQUIRED request body,
+	// which would 400 the existing body-less FollowButton POST (review-caught;
+	// handler tests bypass huma so no test sees it).
+	Body *SceneFollowBody `required:"false"`
+}
+
+// SceneFollowBody is the optional POST /scenes/{slug}/follow body (PSY-1341).
+type SceneFollowBody struct {
+	NotifyMode string `json:"notify_mode,omitempty" enum:"all,followed_bands_only" doc:"New-show notification mode (default all)"`
 }
 
 // SceneUnfollowRequest is the request for DELETE /scenes/{slug}/follow.
@@ -107,7 +113,7 @@ func (h *SceneFollowHandler) SceneFollowHandler(ctx context.Context, req *SceneF
 		)
 	}
 
-	if req.Body.NotifyMode != "" {
+	if req.Body != nil && req.Body.NotifyMode != "" {
 		if err := h.followService.SetSceneNotifyMode(user.ID, sceneID, req.Body.NotifyMode); err != nil {
 			logger.FromContext(ctx).Error("scene_follow_mode_failed",
 				"user_id", user.ID, "slug", req.Slug, "scene_id", sceneID,

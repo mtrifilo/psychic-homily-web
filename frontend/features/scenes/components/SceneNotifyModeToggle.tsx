@@ -28,6 +28,26 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
         method: 'POST',
         body: JSON.stringify({ notify_mode: mode }),
       }),
+    // Optimistic: without this the radio snaps back to the stale cached mode
+    // between the POST resolving and the invalidation refetch landing, which
+    // reads as "the click didn't take" (review-caught).
+    onMutate: async (mode: string) => {
+      const key = queryKeys.follows.entity('scenes', slug)
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData(key)
+      queryClient.setQueryData(key, (old: unknown) =>
+        old ? { ...(old as object), notify_mode: mode } : old,
+      )
+      return { previous }
+    },
+    onError: (_err, _mode, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(
+          queryKeys.follows.entity('scenes', slug),
+          context.previous,
+        )
+      }
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.entity('scenes', slug),
