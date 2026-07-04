@@ -195,6 +195,7 @@ func main() {
 		radioFetchCancel             context.CancelFunc
 		relDerivationCancel          context.CancelFunc
 		collectionDigestCancel       context.CancelFunc
+		sceneDigestCancel            context.CancelFunc
 		imageEnrichSweepCancel       context.CancelFunc
 		imageEnrichOutboxCancel      context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
@@ -267,6 +268,17 @@ func main() {
 		sc.CollectionDigest.Start(collectionDigestCtx)
 	} else {
 		log.Printf("DISABLE_COLLECTION_DIGEST=1: skipping collection digest service startup")
+	}
+
+	// Start scene digest service (PSY-1342: weekly batched email of this-week
+	// shows + new bands across all the scenes a user follows. Opt-IN — users
+	// enable the toggle in notification settings).
+	if os.Getenv("DISABLE_SCENE_DIGEST") != "1" {
+		var sceneDigestCtx context.Context
+		sceneDigestCtx, sceneDigestCancel = context.WithCancel(context.Background())
+		sc.SceneDigest.Start(sceneDigestCtx)
+	} else {
+		log.Printf("DISABLE_SCENE_DIGEST=1: skipping scene digest service startup")
 	}
 
 	// Start image enrichment sweep (PSY-1246: background job filling missing artist
@@ -395,6 +407,10 @@ func main() {
 	if collectionDigestCancel != nil {
 		collectionDigestCancel()
 		sc.CollectionDigest.Stop()
+	}
+	if sceneDigestCancel != nil {
+		sceneDigestCancel()
+		sc.SceneDigest.Stop()
 	}
 	if imageEnrichSweepCancel != nil {
 		imageEnrichSweepCancel()

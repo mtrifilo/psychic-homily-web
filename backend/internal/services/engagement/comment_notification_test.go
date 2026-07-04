@@ -249,6 +249,10 @@ func (m *captureEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ 
 }
 func (m *captureEmailService) SendEditApprovedEmail(_, _, _, _, _, _ string) error { return nil }
 func (m *captureEmailService) SendEditRejectedEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *captureEmailService) SendSceneDigestEmail(_ string, _ []contracts.SceneDigestGroup, _ string) error {
+	return nil
+}
+
 func (m *captureEmailService) SendCollectionDigestEmail(_ string, _ []contracts.CollectionDigestGroup, _ string) error {
 	return nil
 }

@@ -44,6 +44,10 @@ type UserBookmark struct {
 	// "scene_notify_mode" — "all" (default when absent) or
 	// "followed_bands_only" for scene follows' new-show notifications.
 	Settings *json.RawMessage `gorm:"type:jsonb;column:settings"`
+	// SceneDigestSentAt is the per-scene-follow weekly-digest cursor (PSY-1342):
+	// the digest job includes new bands with created_at after this. NULL until
+	// the first digest; the first cycle looks back to CreatedAt instead.
+	SceneDigestSentAt *time.Time `gorm:"column:scene_digest_sent_at"`
 }
 
 // TableName specifies the table name for UserBookmark

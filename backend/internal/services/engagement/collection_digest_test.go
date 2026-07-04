@@ -153,6 +153,10 @@ func (m *captureDigestEmailService) SendMentionNotification(_, _, _, _, _, _, _ 
 	return nil
 }
 
+func (m *captureDigestEmailService) SendSceneDigestEmail(_ string, _ []contracts.SceneDigestGroup, _ string) error {
+	return nil
+}
+
 func (m *captureDigestEmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

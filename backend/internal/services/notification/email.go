@@ -900,6 +900,117 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 	return nil
 }
 
+// SendSceneDigestEmail sends a single batched email summarizing this-week
+// shows + new bands across every scene the recipient follows (PSY-1342).
+// Caller groups by scene and provides the rendered URLs + display titles.
+//
+// Anti-spam hardening mirrors SendCollectionDigestEmail exactly: the recipient
+// must have explicitly enabled `notify_on_scene_digest` (column default FALSE /
+// opt-IN; the digest service filters on it — this is a dumb sender), and the
+// RFC 8058 / RFC 2369 List-Unsubscribe headers + the prominent in-body opt-out
+// card use the same HMAC-signed `unsubscribeURL` (GET page + one-click POST).
+func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.SceneDigestGroup, unsubscribeURL string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+	if len(groups) == 0 {
+		return fmt.Errorf("no scene digest groups provided")
+	}
+
+	totalShows, totalArtists := 0, 0
+	for _, g := range groups {
+		totalShows += len(g.Shows)
+		totalArtists += len(g.NewArtists)
+	}
+	if totalShows == 0 && totalArtists == 0 {
+		return fmt.Errorf("scene digest groups contain no content")
+	}
+
+	subject := "Your followed scenes this week on Psychic Homily"
+	if len(groups) == 1 {
+		subject = fmt.Sprintf("This week in %s", groups[0].SceneName)
+	}
+
+	// Render each scene as its own block: shows sub-list, then new-bands sub-list.
+	var groupsHTML strings.Builder
+	for _, g := range groups {
+		fmt.Fprintf(&groupsHTML, `<div style="margin-bottom: 28px;">
+				<h3 style="margin: 0 0 8px; color: #1a1a1a;"><a href="%s" style="color: #1a1a1a; text-decoration: none;">%s</a></h3>`,
+			g.SceneURL, htmlEscape(g.SceneName))
+		if len(g.Shows) > 0 {
+			groupsHTML.WriteString(`<p style="margin: 4px 0; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em;">This week</p>`)
+			groupsHTML.WriteString(`<ul style="margin: 0 0 10px; padding-left: 20px; color: #444;">`)
+			for _, sh := range g.Shows {
+				venue := ""
+				if sh.VenueName != "" {
+					venue = " · " + htmlEscape(sh.VenueName)
+				}
+				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a> <span style="color: #888;">(%s%s)</span></li>`,
+					sh.ShowURL, htmlEscape(sh.DisplayTitle), htmlEscape(sh.Date), venue)
+			}
+			groupsHTML.WriteString(`</ul>`)
+		}
+		if len(g.NewArtists) > 0 {
+			groupsHTML.WriteString(`<p style="margin: 4px 0; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em;">New bands based here</p>`)
+			groupsHTML.WriteString(`<ul style="margin: 0; padding-left: 20px; color: #444;">`)
+			for _, a := range g.NewArtists {
+				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a></li>`,
+					a.ArtistURL, htmlEscape(a.Name))
+			}
+			groupsHTML.WriteString(`</ul>`)
+		}
+		groupsHTML.WriteString(`</div>`)
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">Your scenes this week</h2>
+        <p style="font-size: 15px; color: #444;">Shows happening this week and new bands, for the scenes you follow.</p>
+        %s
+    </div>
+
+    %s
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>You&rsquo;re receiving this because you opted in to weekly scene digests on Psychic Homily.</p>
+        <p>Manage all notifications in your <a href="%s/settings" style="color: #666;">notification settings</a>.</p>
+    </div>
+</body>
+</html>
+`, groupsHTML.String(), unsubscribeCardHTML(unsubscribeURL, "weekly scene digests"), s.frontendURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: subject,
+		Html:    html,
+		Headers: unsubscribeHeaders(unsubscribeURL),
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "scene_digest")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send scene digest email: %w", err)
+	}
+
+	return nil
+}
+
 // unsubscribeCardHTML renders the prominent in-body opt-out block shared by
 // the notification emails. `label` describes the category in the recipient's
 // words (e.g. "tier-change emails"). The same `unsubscribeURL`

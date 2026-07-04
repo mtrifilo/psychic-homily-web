@@ -488,6 +488,53 @@ func (h *UserPreferencesHandler) SetCollectionDigestHandler(ctx context.Context,
 	return resp, nil
 }
 
+// ──────────────────────────────────────────────
+// PSY-1342: weekly scene digest preference (weekly cadence; opt-IN by default)
+// ──────────────────────────────────────────────
+
+// SetSceneDigestRequest toggles the weekly scene digest preference.
+type SetSceneDigestRequest struct {
+	Body struct {
+		Enabled bool `json:"enabled" doc:"Enable or disable the weekly followed-scenes digest email"`
+	}
+}
+
+// SetSceneDigestResponse reports the resulting preference state.
+type SetSceneDigestResponse struct {
+	Body struct {
+		Success             bool `json:"success"`
+		NotifyOnSceneDigest bool `json:"notify_on_scene_digest"`
+	}
+}
+
+// SetSceneDigestHandler handles PATCH /auth/preferences/scene-digest.
+func (h *UserPreferencesHandler) SetSceneDigestHandler(ctx context.Context, req *SetSceneDigestRequest) (*SetSceneDigestResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if err := h.userService.SetNotifyOnSceneDigest(user.ID, req.Body.Enabled); err != nil {
+		logger.FromContext(ctx).Error("set_notify_on_scene_digest_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update preference: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_notify_on_scene_digest_success",
+		"user_id", user.ID,
+		"enabled", req.Body.Enabled,
+	)
+
+	resp := &SetSceneDigestResponse{}
+	resp.Body.Success = true
+	resp.Body.NotifyOnSceneDigest = req.Body.Enabled
+	return resp, nil
+}
+
 // PSY-350: collection digest unsubscribe handler is registered as a chi
 // route (not Huma) so the same path can serve:
 //   - GET (manual link click from the email body): renders an HTML

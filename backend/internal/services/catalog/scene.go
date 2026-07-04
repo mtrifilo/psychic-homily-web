@@ -515,6 +515,50 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 	return results, nil
 }
 
+// GetSceneNewArtistsSince returns bands based in the scene whose catalog row
+// was created after `since` (up to `now`), newest first, capped at `limit` —
+// the "new bands based here" stream of the weekly scene digest (PSY-1342).
+// Uses the same roster scope (artistPredicate) as GetActiveArtists, so the
+// additions match the roster the user sees on the scene page. Created-at (not
+// updated-at) is the "new to the scene" signal: it's stable and means "new to
+// the catalog," where updated-at would re-surface an old band on any edit.
+// Unlike GetSceneUpcomingShows this does NOT gate on venue count — a followed
+// scene that temporarily dips below the venue threshold still has a real
+// roster, and the digest caller treats an empty result as an empty section.
+func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]contracts.SceneNewArtist, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	scope := s.scopeFor(city, state)
+	ap, aargs := s.artistPredicate(scope, "a")
+
+	type row struct {
+		ID   uint   `gorm:"column:id"`
+		Slug string `gorm:"column:slug"`
+		Name string `gorm:"column:name"`
+	}
+	args := append(append([]any{}, aargs...), since, now, limit)
+	var rows []row
+	if err := s.db.Raw(`
+		SELECT a.id, COALESCE(a.slug, '') AS slug, a.name
+		FROM artists a
+		WHERE `+ap+`
+		  AND a.created_at > ?
+		  AND a.created_at <= ?
+		ORDER BY a.created_at DESC, a.id DESC
+		LIMIT ?
+	`, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get scene new artists: %w", err)
+	}
+
+	out := make([]contracts.SceneNewArtist, len(rows))
+	for i, r := range rows {
+		out[i] = contracts.SceneNewArtist{ID: r.ID, Slug: r.Slug, Name: r.Name}
+	}
+	return out, nil
+}
+
 // GetActiveArtists returns the scene's roster — bands BASED in the metro — with
 // the ACTIVE ones sorted first, then by total approved show count, then name
 // (PSY-1255 step C). "Active" = an upcoming approved show OR one within

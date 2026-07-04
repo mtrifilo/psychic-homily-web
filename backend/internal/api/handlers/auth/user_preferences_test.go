@@ -621,3 +621,51 @@ func TestSetTierEditNotificationsHandler_Success(t *testing.T) {
 		t.Fatal("expected response to reflect DB state (true)")
 	}
 }
+
+// --- SetSceneDigestHandler (PSY-1342) ---
+
+func TestSetSceneDigestHandler_NoAuth(t *testing.T) {
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+	_, err := h.SetSceneDigestHandler(context.Background(), &SetSceneDigestRequest{})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestSetSceneDigestHandler_Success_Enable(t *testing.T) {
+	var calledEnabled bool
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnSceneDigestFn: func(userID uint, enabled bool) error {
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			calledEnabled = enabled
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetSceneDigestRequest{}
+	req.Body.Enabled = true
+
+	resp, err := h.SetSceneDigestHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || !resp.Body.NotifyOnSceneDigest {
+		t.Fatal("expected success=true and notify_on_scene_digest=true")
+	}
+	if !calledEnabled {
+		t.Fatal("expected service called with enabled=true")
+	}
+}
+
+func TestSetSceneDigestHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnSceneDigestFn: func(_ uint, _ bool) error { return errors.New("db error") },
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetSceneDigestRequest{}
+	req.Body.Enabled = true
+	_, err := h.SetSceneDigestHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 500)
+}

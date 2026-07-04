@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"time"
+
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/engagement"
@@ -169,3 +171,25 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneNotifyMode_RoundTrip() {
 	// Invalid mode rejected.
 	suite.Error(follows.SetSceneNotifyMode(user.ID, sceneID, "hourly"))
 }
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtistsSince() {
+	// A fallback scene (ZZ has no CBSA → city/state scope, no geocoder dep).
+	since := time.Now().Add(-48 * time.Hour)
+	mk := func(name string, createdAt time.Time) {
+		slug := name
+		a := catalogm.Artist{Name: name, Slug: &slug, City: ptr("Testville"), State: ptr("ZZ"), CreatedAt: createdAt, UpdatedAt: createdAt}
+		suite.Require().NoError(suite.db.Create(&a).Error)
+	}
+	mk("Fresh Band", time.Now().Add(-12*time.Hour)) // after `since` → included
+	mk("Stale Band", time.Now().Add(-96*time.Hour)) // before `since` → excluded
+	// An artist based elsewhere must not leak in.
+	other := "Other Town Band"
+	suite.Require().NoError(suite.db.Create(&catalogm.Artist{Name: other, Slug: &other, City: ptr("Elsewhere"), State: ptr("ZZ"), CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error)
+
+	out, err := suite.sceneService.GetSceneNewArtistsSince("Testville", "ZZ", since, time.Now(), 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(out, 1)
+	suite.Equal("Fresh Band", out[0].Name)
+}
+
+func ptr(s string) *string { return &s }

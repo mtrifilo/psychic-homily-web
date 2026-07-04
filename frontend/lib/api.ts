@@ -69,6 +69,7 @@ export const API_ENDPOINTS = {
     UNSUBSCRIBE_SHOW_REMINDERS: `${API_BASE_URL}/auth/unsubscribe/show-reminders`,
     // PSY-350 / PSY-515: weekly digest of new items in collections you follow.
     COLLECTION_DIGEST: `${API_BASE_URL}/auth/preferences/collection-digest`,
+    SCENE_DIGEST: `${API_BASE_URL}/auth/preferences/scene-digest`,
     // PSY-756 / PSY-807: opt-OUT toggles for tier-change + edit-review emails.
     TIER_EDIT_NOTIFICATIONS: `${API_BASE_URL}/auth/preferences/tier-edit-notifications`,
   },
