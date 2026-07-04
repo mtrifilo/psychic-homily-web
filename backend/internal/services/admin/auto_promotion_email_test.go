@@ -85,6 +85,10 @@ func (m *mockEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) e
 func (m *mockEmailService) SendMentionNotification(_, _, _, _, _, _, _ string) error {
 	return nil
 }
+func (m *mockEmailService) SendSceneDigestEmail(_ string, _ []contracts.SceneDigestGroup, _ string) error {
+	return nil
+}
+
 func (m *mockEmailService) SendCollectionDigestEmail(_ string, _ []contracts.CollectionDigestGroup, _ string) error {
 	return nil
 }

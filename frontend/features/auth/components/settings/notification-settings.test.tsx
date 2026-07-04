@@ -20,6 +20,13 @@ let mockCollectionDigestState = {
   error: null as Error | null,
 }
 
+const mockSceneDigestMutate = vi.fn()
+let mockSceneDigestState = {
+  isPending: false,
+  isError: false,
+  error: null as Error | null,
+}
+
 const mockTierEditMutate = vi.fn()
 let mockTierEditState = {
   isPending: false,
@@ -32,6 +39,7 @@ let mockProfileData: {
     preferences?: {
       show_reminders?: boolean
       notify_on_collection_digest?: boolean
+      notify_on_scene_digest?: boolean
       notify_on_tier_notifications?: boolean
       notify_on_edit_notifications?: boolean
     }
@@ -62,6 +70,13 @@ vi.mock('@/features/collections', () => ({
   }),
 }))
 
+vi.mock('@/features/scenes', () => ({
+  useSetSceneDigestPreference: () => ({
+    mutate: mockSceneDigestMutate,
+    ...mockSceneDigestState,
+  }),
+}))
+
 // --- Tests ---
 
 describe('NotificationSettings', () => {
@@ -70,6 +85,12 @@ describe('NotificationSettings', () => {
     mockShowRemindersState = { isPending: false, isError: false, error: null }
     mockCollectionDigestMutate.mockReset()
     mockCollectionDigestState = {
+      isPending: false,
+      isError: false,
+      error: null,
+    }
+    mockSceneDigestMutate.mockReset()
+    mockSceneDigestState = {
       isPending: false,
       isError: false,
       error: null,
@@ -309,6 +330,43 @@ describe('NotificationSettings', () => {
         'Failed to update setting. Please try again.'
       )
       expect(errors.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // ----- PSY-1342: weekly scene digest toggle -----
+
+  describe('weekly scene digest toggle', () => {
+    const label = /Weekly digest for scenes I follow/
+
+    it('renders the scene digest label', () => {
+      renderWithProviders(<NotificationSettings />)
+      expect(screen.getByText('Weekly digest for scenes I follow')).toBeInTheDocument()
+    })
+
+    it('defaults to OFF when the preference is undefined (matches server default)', () => {
+      mockProfileData = { user: { preferences: {} } }
+      renderWithProviders(<NotificationSettings />)
+      expect(screen.getByRole('switch', { name: label })).not.toBeChecked()
+    })
+
+    it('reflects the current value when notify_on_scene_digest is true', () => {
+      mockProfileData = { user: { preferences: { notify_on_scene_digest: true } } }
+      renderWithProviders(<NotificationSettings />)
+      expect(screen.getByRole('switch', { name: label })).toBeChecked()
+    })
+
+    it('calls the mutation with true when toggled on', async () => {
+      mockProfileData = { user: { preferences: { notify_on_scene_digest: false } } }
+      const user = userEvent.setup()
+      renderWithProviders(<NotificationSettings />)
+      await user.click(screen.getByRole('switch', { name: label }))
+      expect(mockSceneDigestMutate).toHaveBeenCalledWith(true)
+    })
+
+    it('disables the switch while the mutation is in flight', () => {
+      mockSceneDigestState = { isPending: true, isError: false, error: null }
+      renderWithProviders(<NotificationSettings />)
+      expect(screen.getByRole('switch', { name: label })).toBeDisabled()
     })
   })
 

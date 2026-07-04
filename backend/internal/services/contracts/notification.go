@@ -29,6 +29,35 @@ type CollectionDigestGroup struct {
 	Items           []CollectionDigestEntry
 }
 
+// SceneDigestShow is one this-week show line in the weekly scene digest
+// (PSY-1342). DisplayTitle is the resolved title→bill→"Untitled Show" label.
+type SceneDigestShow struct {
+	DisplayTitle string
+	Date         string // human date, e.g. "Fri, Jul 4"
+	VenueName    string
+	ShowURL      string
+}
+
+// SceneDigestArtist is one "new band based here" line (PSY-1342).
+type SceneDigestArtist struct {
+	Name      string
+	ArtistURL string
+}
+
+// SceneDigestGroup is one followed scene's section in a user's weekly scene
+// digest — this-week shows + new bands based there since the last digest. A
+// section is rendered only when at least one of the two is non-empty. PSY-1342.
+type SceneDigestGroup struct {
+	SceneName  string // "City, ST"
+	SceneURL   string
+	Shows      []SceneDigestShow
+	NewArtists []SceneDigestArtist
+	// MoreNewArtists is how many new bands beyond the listed ones fell in the
+	// window (>0 renders "+N more" so the per-scene cap never silently drops
+	// bands the digest cursor then advances past). PSY-1342.
+	MoreNewArtists int
+}
+
 // ──────────────────────────────────────────────
 // Email Service Interface
 // ──────────────────────────────────────────────
@@ -53,6 +82,9 @@ type EmailServiceInterface interface {
 	// PSY-350: collection digest email — single batched email per user per
 	// week grouping items added across all subscribed collections.
 	SendCollectionDigestEmail(toEmail string, groups []CollectionDigestGroup, unsubscribeURL string) error
+	// PSY-1342: weekly scene digest — single batched email per user grouping
+	// this-week shows + new bands across all the scenes they follow.
+	SendSceneDigestEmail(toEmail string, groups []SceneDigestGroup, unsubscribeURL string) error
 }
 
 // ──────────────────────────────────────────────

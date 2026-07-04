@@ -121,6 +121,8 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	huma.Patch(rc.Protected, "/auth/preferences/comment-notifications", userPrefsHandler.SetCommentNotificationsHandler)
 	// PSY-350: collection digest preference toggle (weekly cadence; opt-IN).
 	huma.Patch(rc.Protected, "/auth/preferences/collection-digest", userPrefsHandler.SetCollectionDigestHandler)
+	// PSY-1342: weekly scene digest preference toggle (opt-IN).
+	huma.Patch(rc.Protected, "/auth/preferences/scene-digest", userPrefsHandler.SetSceneDigestHandler)
 	// Tier-change + edit-review notification toggles (opt-OUT).
 	huma.Patch(rc.Protected, "/auth/preferences/tier-edit-notifications", userPrefsHandler.SetTierEditNotificationsHandler)
 
@@ -142,6 +144,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	rc.Router.Post("/unsubscribe/tier-notifications", userPrefsHandler.UnsubscribeTierNotificationsPageHandler)
 	rc.Router.Get("/unsubscribe/edit-notifications", userPrefsHandler.UnsubscribeEditNotificationsPageHandler)
 	rc.Router.Post("/unsubscribe/edit-notifications", userPrefsHandler.UnsubscribeEditNotificationsPageHandler)
+	// PSY-1342: weekly scene digest unsubscribe (same chi GET+POST shape).
+	rc.Router.Get("/unsubscribe/scene-digest", userPrefsHandler.UnsubscribeSceneDigestPageHandler)
+	rc.Router.Post("/unsubscribe/scene-digest", userPrefsHandler.UnsubscribeSceneDigestPageHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(rc.API, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)

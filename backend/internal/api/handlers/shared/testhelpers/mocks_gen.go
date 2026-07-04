@@ -1422,6 +1422,7 @@ type MockEmailService struct {
 	SendCommentNotificationFn      func(string, string, string, string, string, string, string) error
 	SendMentionNotificationFn      func(string, string, string, string, string, string, string) error
 	SendCollectionDigestEmailFn    func(string, []contracts.CollectionDigestGroup, string) error
+	SendSceneDigestEmailFn         func(string, []contracts.SceneDigestGroup, string) error
 }
 
 func (m *MockEmailService) IsConfigured() bool {
@@ -1505,6 +1506,12 @@ func (m *MockEmailService) SendMentionNotification(toEmail string, mentionerName
 func (m *MockEmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) error {
 	if m.SendCollectionDigestEmailFn != nil {
 		return m.SendCollectionDigestEmailFn(toEmail, groups, unsubscribeURL)
+	}
+	return nil
+}
+func (m *MockEmailService) SendSceneDigestEmail(toEmail string, groups []contracts.SceneDigestGroup, unsubscribeURL string) error {
+	if m.SendSceneDigestEmailFn != nil {
+		return m.SendSceneDigestEmailFn(toEmail, groups, unsubscribeURL)
 	}
 	return nil
 }
@@ -3129,6 +3136,7 @@ type MockSceneService struct {
 	GetGenreDiversityIndexFn    func(string, string) (float64, error)
 	GetSceneGraphFn             func(string, string, []string, string) (*contracts.SceneGraphResponse, error)
 	GetSceneUpcomingShowsFn     func(string, string, int, int) ([]contracts.SceneShowSummary, error)
+	GetSceneNewArtistsSinceFn   func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtist, int, error)
 }
 
 func (m *MockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -3190,6 +3198,12 @@ func (m *MockSceneService) GetSceneUpcomingShows(city string, state string, wind
 		return m.GetSceneUpcomingShowsFn(city, state, windowDays, limit)
 	}
 	return nil, nil
+}
+func (m *MockSceneService) GetSceneNewArtistsSince(city string, state string, since time.Time, now time.Time, limit int) ([]contracts.SceneNewArtist, int, error) {
+	if m.GetSceneNewArtistsSinceFn != nil {
+		return m.GetSceneNewArtistsSinceFn(city, state, since, now, limit)
+	}
+	return nil, 0, nil
 }
 
 // ============================================================================
@@ -3768,6 +3782,7 @@ type MockUserService struct {
 	SetNotifyOnCommentSubscriptionFn  func(uint, bool) error
 	SetNotifyOnMentionFn              func(uint, bool) error
 	SetNotifyOnCollectionDigestFn     func(uint, bool) error
+	SetNotifyOnSceneDigestFn          func(uint, bool) error
 	SetNotifyOnTierNotificationsFn    func(uint, bool) error
 	SetNotifyOnEditNotificationsFn    func(uint, bool) error
 }
@@ -4003,6 +4018,12 @@ func (m *MockUserService) SetNotifyOnMention(userID uint, enabled bool) error {
 func (m *MockUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
 	if m.SetNotifyOnCollectionDigestFn != nil {
 		return m.SetNotifyOnCollectionDigestFn(userID, enabled)
+	}
+	return nil
+}
+func (m *MockUserService) SetNotifyOnSceneDigest(userID uint, enabled bool) error {
+	if m.SetNotifyOnSceneDigestFn != nil {
+		return m.SetNotifyOnSceneDigestFn(userID, enabled)
 	}
 	return nil
 }

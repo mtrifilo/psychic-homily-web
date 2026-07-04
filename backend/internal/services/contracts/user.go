@@ -338,6 +338,8 @@ type UserServiceInterface interface {
 	SetNotifyOnMention(userID uint, enabled bool) error
 	// PSY-350: collection digest preference toggle (weekly cadence; opt-IN).
 	SetNotifyOnCollectionDigest(userID uint, enabled bool) error
+	// PSY-1342: weekly scene-digest preference toggle (opt-IN).
+	SetNotifyOnSceneDigest(userID uint, enabled bool) error
 	// Per-category tier-change + edit-review email toggles (opt-OUT).
 	SetNotifyOnTierNotifications(userID uint, enabled bool) error
 	SetNotifyOnEditNotifications(userID uint, enabled bool) error

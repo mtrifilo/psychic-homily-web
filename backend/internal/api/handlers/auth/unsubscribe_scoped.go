@@ -50,6 +50,16 @@ func (h *UserPreferencesHandler) UnsubscribeEditNotificationsPageHandler(w http.
 	})
 }
 
+// UnsubscribeSceneDigestPageHandler serves /unsubscribe/scene-digest (PSY-1342).
+func (h *UserPreferencesHandler) UnsubscribeSceneDigestPageHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
+		scope:     engagement.UnsubscribeScopeSceneDigest,
+		setPref:   func(uid uint) error { return h.userService.SetNotifyOnSceneDigest(uid, false) },
+		noun:      "weekly scene digests",
+		logSuffix: "scene_digest",
+	})
+}
+
 // handleScopedUnsubscribe is the shared GET/POST body for the scoped
 // unsubscribe handlers. Mirrors UnsubscribeCollectionDigestPageHandler but
 // parameterized by scope + preference setter.

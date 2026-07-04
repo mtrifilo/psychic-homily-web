@@ -159,6 +159,10 @@ func (n *nilDBUserService) SetNotifyOnMention(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetNotifyOnSceneDigest(userID uint, enabled bool) error {
+	return nil
+}
+
 func (n *nilDBUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }

@@ -6,3 +6,4 @@ export {
   useSceneGraph,
   useSceneShows,
 } from './useScenes'
+export { useSetSceneDigestPreference } from './useSceneDigestPreference'

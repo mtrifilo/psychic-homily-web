@@ -108,6 +108,8 @@ type ServiceContainer struct {
 	AutoPromotion          *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
+	// PSY-1342: weekly followed-scenes digest emails (opt-IN).
+	SceneDigest *engagement.SceneDigestService
 }
 
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
@@ -238,6 +240,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// can apply/remove tags + the get/list responses can surface chips.
 	collectionSvc := community.NewCollectionService(database)
 	tagSvc := catalog.NewTagService(database)
+	// Shared instance: also injected into the scene digest service (PSY-1342)
+	// for its per-scene content queries.
+	sceneSvc := catalog.NewSceneService(database)
 	collectionSvc.SetTagService(tagSvc)
 
 	// /explore landing reads reuse the FeaturedSlot service to look up
@@ -279,7 +284,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		EntityRequestFulfiller: entityRequestFulfiller,
 		Tag:                    tagSvc,
 		ArtistRelationship:     artistRelSvc,
-		Scene:                  catalog.NewSceneService(database),
+		Scene:                  sceneSvc,
 		Attendance:             engagement.NewAttendanceService(database),
 		Comment:                commentSvc,
 		CommentVote:            engagement.NewCommentVoteService(database),
@@ -337,5 +342,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ReleaseLinksSweep:      releaseLinksSweep,
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
+		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),
 	}
 }

@@ -119,6 +119,13 @@ type UserPreferences struct {
 	// 20260428003421_collection_digest_columns.up.sql for rationale.
 	NotifyOnCollectionDigest bool `json:"notify_on_collection_digest" gorm:"column:notify_on_collection_digest;not null;default:false"`
 
+	// PSY-1342: weekly scene digest email preference — a once-per-week batched
+	// email of this-week shows + new bands for every scene the user follows.
+	// Opt-IN (default FALSE) for the same bulk-sender reason as the collection
+	// digest: following a scene implicitly subscribes to a recurring email, so
+	// the column defaults OFF and users opt in via the settings toggle.
+	NotifyOnSceneDigest bool `json:"notify_on_scene_digest" gorm:"column:notify_on_scene_digest;not null;default:false"`
+
 	// Per-category opt-out for tier-change and edit-review emails. Each is a
 	// single email per discrete action, so both default TRUE (opt-OUT) like
 	// the comment/mention flags. Flipped off by the one-click unsubscribe link

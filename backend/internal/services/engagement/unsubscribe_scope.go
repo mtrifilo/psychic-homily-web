@@ -17,6 +17,7 @@ const (
 	UnsubscribeScopeShowReminders     = "show-reminders"
 	UnsubscribeScopeMention           = "mention"
 	UnsubscribeScopeCollectionDigest  = "collection-digest"
+	UnsubscribeScopeSceneDigest       = "scene-digest"
 )
 
 // ComputeScopedUnsubscribeSignature computes HMAC-SHA256 over

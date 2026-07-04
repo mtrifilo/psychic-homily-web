@@ -26,6 +26,7 @@ export {
   useSceneArtists,
   useSceneGenres,
   useSceneGraph,
+  useSetSceneDigestPreference,
 } from './hooks'
 
 // Components

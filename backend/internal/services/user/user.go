@@ -1287,6 +1287,15 @@ func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) err
 	return nil
 }
 
+// SetNotifyOnSceneDigest toggles the weekly scene-digest email preference
+// (PSY-1342). Opt-IN (column default FALSE). Upserts — see setNotificationFlagPref.
+func (s *UserService) SetNotifyOnSceneDigest(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return s.setNotificationFlagPref(userID, "notify_on_scene_digest", enabled)
+}
+
 // SetNotifyOnTierNotifications toggles the tier-change email preference.
 // Upserts — see setNotificationFlagPref.
 func (s *UserService) SetNotifyOnTierNotifications(userID uint, enabled bool) error {

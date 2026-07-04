@@ -682,6 +682,14 @@ type SceneShowSummary struct {
 	ArtistNames []string `json:"artist_names,omitempty"`
 }
 
+// SceneNewArtist is one "new band based here" row for the weekly scene digest
+// (PSY-1342) — just enough to render a linked name.
+type SceneNewArtist struct {
+	ID   uint   `json:"id"`
+	Slug string `json:"slug,omitempty"`
+	Name string `json:"name"`
+}
+
 // SceneDetailResponse represents the full computed scene for a metro (or a
 // no-CBSA fallback city); City/State are the principal city/state.
 type SceneDetailResponse struct {
@@ -1046,4 +1054,10 @@ type SceneServiceInterface interface {
 	// Tempe show counts toward the Phoenix scene), which is why this isn't the
 	// literal-city shows endpoint.
 	GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]SceneShowSummary, error)
+	// GetSceneNewArtistsSince returns bands based in the scene created after
+	// `since` (up to `now`), newest first, capped — plus the TOTAL in the
+	// window so the caller can render "+N more" (the cap must not silently
+	// drop bands the cursor then advances past). The weekly digest's "new
+	// bands based here" stream (PSY-1342). Same roster scope as GetActiveArtists.
+	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, int, error)
 }

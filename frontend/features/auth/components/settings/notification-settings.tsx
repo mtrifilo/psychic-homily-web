@@ -6,6 +6,7 @@ import {
 } from '@/features/auth'
 import { useSetShowReminders } from '@/features/shows'
 import { useSetCollectionDigestPreference } from '@/features/collections'
+import { useSetSceneDigestPreference } from '@/features/scenes'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -29,12 +30,15 @@ export function NotificationSettings() {
   const { data: profileData } = useProfile()
   const setShowReminders = useSetShowReminders()
   const setCollectionDigest = useSetCollectionDigestPreference()
+  const setSceneDigest = useSetSceneDigestPreference()
   const setTierEditNotifications = useSetTierEditNotificationPreference()
 
   const showRemindersEnabled =
     profileData?.user?.preferences?.show_reminders ?? false
   const collectionDigestEnabled =
     profileData?.user?.preferences?.notify_on_collection_digest ?? false
+  const sceneDigestEnabled =
+    profileData?.user?.preferences?.notify_on_scene_digest ?? false
   // Opt-OUT: default to ON when the server hasn't sent an explicit value.
   const tierNotificationsEnabled =
     profileData?.user?.preferences?.notify_on_tier_notifications ?? true
@@ -47,6 +51,10 @@ export function NotificationSettings() {
 
   const handleCollectionDigestToggle = (checked: boolean) => {
     setCollectionDigest.mutate(checked)
+  }
+
+  const handleSceneDigestToggle = (checked: boolean) => {
+    setSceneDigest.mutate(checked)
   }
 
   const handleTierNotificationsToggle = (checked: boolean) => {
@@ -123,6 +131,37 @@ export function NotificationSettings() {
             </div>
           </div>
           {setCollectionDigest.isError && (
+            <p className="mt-2 text-sm text-destructive">
+              Failed to update setting. Please try again.
+            </p>
+          )}
+        </div>
+
+        {/* Scene digest (PSY-1342) */}
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="scene-digest">
+                Weekly digest for scenes I follow
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                One email a week with this week&apos;s shows and new bands for
+                the scenes you follow.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {setSceneDigest.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+              <Switch
+                id="scene-digest"
+                checked={sceneDigestEnabled}
+                onCheckedChange={handleSceneDigestToggle}
+                disabled={setSceneDigest.isPending}
+              />
+            </div>
+          </div>
+          {setSceneDigest.isError && (
             <p className="mt-2 text-sm text-destructive">
               Failed to update setting. Please try again.
             </p>
