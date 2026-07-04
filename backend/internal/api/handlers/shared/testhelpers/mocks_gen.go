@@ -1976,6 +1976,8 @@ type MockFollowService struct {
 	UnfollowFn               func(uint, string, uint) error
 	IsFollowingFn            func(uint, string, uint) (bool, error)
 	GetFollowerCountFn       func(string, uint) (int64, error)
+	SetSceneNotifyModeFn     func(uint, uint, string) error
+	SceneNotifyModeFn        func(uint, uint) (string, error)
 	GetBatchFollowerCountsFn func(string, []uint) (map[uint]int64, error)
 	GetBatchUserFollowingFn  func(uint, string, []uint) (map[uint]bool, error)
 	GetUserFollowingFn       func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
@@ -2005,6 +2007,18 @@ func (m *MockFollowService) GetFollowerCount(entityType string, entityID uint) (
 		return m.GetFollowerCountFn(entityType, entityID)
 	}
 	return 0, nil
+}
+func (m *MockFollowService) SetSceneNotifyMode(userID uint, sceneID uint, mode string) error {
+	if m.SetSceneNotifyModeFn != nil {
+		return m.SetSceneNotifyModeFn(userID, sceneID, mode)
+	}
+	return nil
+}
+func (m *MockFollowService) SceneNotifyMode(userID uint, sceneID uint) (string, error) {
+	if m.SceneNotifyModeFn != nil {
+		return m.SceneNotifyModeFn(userID, sceneID)
+	}
+	return "", nil
 }
 func (m *MockFollowService) GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error) {
 	if m.GetBatchFollowerCountsFn != nil {

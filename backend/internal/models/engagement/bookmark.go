@@ -1,6 +1,9 @@
 package engagement
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // BookmarkEntityType represents the type of entity being bookmarked
 type BookmarkEntityType string
@@ -37,6 +40,10 @@ type UserBookmark struct {
 	Action         BookmarkAction     `gorm:"not null;column:action"`
 	CreatedAt      time.Time          `gorm:"not null;column:created_at"`
 	ReminderSentAt *time.Time         `gorm:"column:reminder_sent_at"`
+	// Settings holds follow-scoped preferences (PSY-1341). First key:
+	// "scene_notify_mode" — "all" (default when absent) or
+	// "followed_bands_only" for scene follows' new-show notifications.
+	Settings *json.RawMessage `gorm:"type:jsonb;column:settings"`
 }
 
 // TableName specifies the table name for UserBookmark

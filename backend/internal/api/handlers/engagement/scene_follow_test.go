@@ -61,6 +61,55 @@ func TestSceneFollowHandler_Success(t *testing.T) {
 	}
 }
 
+func TestSceneFollowHandler_SetsNotifyMode(t *testing.T) {
+	modeSet := ""
+	scenes := &testhelpers.MockSceneService{
+		GetOrCreateSceneIDFn: func(string) (uint, error) { return 7, nil },
+	}
+	follows := &testhelpers.MockFollowService{
+		FollowFn: func(uint, string, uint) error { return nil },
+		SetSceneNotifyModeFn: func(userID uint, sceneID uint, mode string) error {
+			if userID != 1 || sceneID != 7 {
+				t.Errorf("unexpected args: %d/%d", userID, sceneID)
+			}
+			modeSet = mode
+			return nil
+		},
+	}
+	h := NewSceneFollowHandler(follows, scenes)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	req := &SceneFollowRequest{Slug: "phoenix-az"}
+	req.Body.NotifyMode = "followed_bands_only"
+	if _, err := h.SceneFollowHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if modeSet != "followed_bands_only" {
+		t.Errorf("expected mode set, got %q", modeSet)
+	}
+}
+
+func TestSceneFollowersHandler_IncludesMyMode(t *testing.T) {
+	scenes := &testhelpers.MockSceneService{
+		LookupSceneIDFn: func(string) (uint, bool, error) { return 7, true, nil },
+	}
+	follows := &testhelpers.MockFollowService{
+		GetFollowerCountFn: func(string, uint) (int64, error) { return 1, nil },
+		IsFollowingFn:      func(uint, string, uint) (bool, error) { return true, nil },
+		SceneNotifyModeFn:  func(uint, uint) (string, error) { return "followed_bands_only", nil },
+	}
+	h := NewSceneFollowHandler(follows, scenes)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.SceneFollowersHandler(ctx, &SceneFollowersRequest{Slug: "phoenix-az"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.NotifyMode != "followed_bands_only" {
+		t.Errorf("expected mode in response, got %q", resp.Body.NotifyMode)
+	}
+}
+
 func TestSceneUnfollowHandler_AbsentRowIsIdempotentSuccess(t *testing.T) {
 	unfollowCalled := false
 	scenes := &testhelpers.MockSceneService{

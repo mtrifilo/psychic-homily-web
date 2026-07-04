@@ -11,6 +11,8 @@ export interface FollowStatus {
   entity_id: number
   follower_count: number
   is_following: boolean
+  /** Scene follows only (PSY-1341): the viewer's new-show notify mode. */
+  notify_mode?: string
 }
 
 export interface BatchFollowEntry {

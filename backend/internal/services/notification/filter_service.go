@@ -319,10 +319,6 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		return fmt.Errorf("failed to find matching filters: %w", err)
 	}
 
-	if len(matches) == 0 {
-		return nil
-	}
-
 	// Group matches by user for deduplication and email batching
 	userMatches := make(map[uint][]filterMatch)
 	for _, m := range matches {
@@ -333,6 +329,11 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	for userID, userFilterMatches := range userMatches {
 		s.processUserMatches(userID, show, userFilterMatches)
 	}
+
+	// Scene follows fan out AFTER filters — even when no filter matched — so
+	// their cross-system dedup can defer to filter notifications already
+	// logged for this show (PSY-1341).
+	s.notifySceneFollowers(show, showArtistIDs)
 
 	return nil
 }
@@ -549,11 +550,38 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 		return
 	}
 
-	// Build show info
-	showTitle := show.Title
+	c := s.showEmailContent(show)
 
-	// Fetch venues with timezone so the event time renders in the venue's local
-	// zone (PSY-996), preferring the first venue's timezone over the state map.
+	// Unsubscribe URL (HMAC-signed)
+	unsubscribeURL := GenerateFilterUnsubscribeURL(s.frontendURL, filterID, s.jwtSecret)
+
+	html := buildFilterEmailHTML(filterName, show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, unsubscribeURL)
+
+	subject := fmt.Sprintf("New show matching \"%s\"", filterName)
+	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "notification_filter")
+			scope.SetTag("email_type", "filter_match")
+			sentry.CaptureException(err)
+		})
+		log.Printf("failed to send filter notification email to %s: %v", email, err)
+	}
+}
+
+// showEmailContentParts is the show-derived content shared by the filter and
+// scene-follow notification emails.
+type showEmailContentParts struct {
+	date       string
+	venueText  string
+	artistText string
+	priceText  string
+	showURL    string
+}
+
+// showEmailContent builds the show-derived email fields (extracted from
+// sendFilterEmail for reuse by the scene-follow email, PSY-1341). Venue
+// timezone rendering per PSY-996.
+func (s *NotificationFilterService) showEmailContent(show *catalogm.Show) showEmailContentParts {
 	type venueRow struct {
 		Name     string
 		Timezone *string
@@ -579,8 +607,6 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 		}
 	}
 
-	showDate := show.EventDate.In(utils.EventLocation(venueTZ, venueState)).Format("Monday, January 2, 2006")
-
 	var artistNames []string
 	s.db.Table("show_artists").
 		Joins("JOIN artists ON artists.id = show_artists.artist_id").
@@ -597,32 +623,56 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 		showURL = fmt.Sprintf("%s/shows/%d", s.frontendURL, show.ID)
 	}
 
-	// Unsubscribe URL (HMAC-signed)
-	unsubscribeURL := GenerateFilterUnsubscribeURL(s.frontendURL, filterID, s.jwtSecret)
-
-	venueText := ""
-	if len(venueNames) > 0 {
-		venueText = strings.Join(venueNames, ", ")
-	}
-	artistText := ""
-	if len(artistNames) > 0 {
-		artistText = strings.Join(artistNames, ", ")
-	}
 	priceText := ""
 	if show.Price != nil {
 		priceText = fmt.Sprintf("$%.0f", *show.Price)
 	}
 
-	html := buildFilterEmailHTML(filterName, showTitle, showDate, venueText, artistText, priceText, showURL, unsubscribeURL)
+	return showEmailContentParts{
+		date:       show.EventDate.In(utils.EventLocation(venueTZ, venueState)).Format("Monday, January 2, 2006"),
+		venueText:  strings.Join(venueNames, ", "),
+		artistText: strings.Join(artistNames, ", "),
+		priceText:  priceText,
+		showURL:    showURL,
+	}
+}
 
-	subject := fmt.Sprintf("New show matching \"%s\"", filterName)
-	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
+// sendSceneFollowEmail mirrors sendFilterEmail for a scene follow (PSY-1341):
+// same per-user daily rate limit, scene name in place of the filter name, and
+// the manage page in place of a filter-scoped one-click unsubscribe (scene
+// follows have no filter row to sign; the weekly-digest ticket owns richer
+// unsubscribe scoping).
+func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName string, show *catalogm.Show) {
+	var emailCount int64
+	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
+	s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND channel = ? AND sent_at > ?", userID, "email", dayAgo).
+		Count(&emailCount)
+	if emailCount >= int64(maxFilterEmailsPerDay) {
+		log.Printf("rate limit: skipping scene-follow email for user %d (sent %d today)", userID, emailCount)
+		return
+	}
+
+	var email string
+	if err := s.db.Table("users").Where("id = ?", userID).Pluck("email", &email).Error; err != nil || email == "" {
+		log.Printf("failed to get email for user %d: %v", userID, err)
+		return
+	}
+
+	c := s.showEmailContent(show)
+	manageURL := fmt.Sprintf("%s/following?tab=scene", s.frontendURL)
+	html := buildFilterEmailHTML(
+		fmt.Sprintf("%s scene", sceneName),
+		show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, manageURL,
+	)
+	subject := fmt.Sprintf("New show in %s", sceneName)
+	if err := s.sendEmail(email, subject, html, manageURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "notification_filter")
-			scope.SetTag("email_type", "filter_match")
+			scope.SetTag("email_type", "scene_follow")
 			sentry.CaptureException(err)
 		})
-		log.Printf("failed to send filter notification email to %s: %v", email, err)
+		log.Printf("failed to send scene-follow email to %s: %v", email, err)
 	}
 }
 
