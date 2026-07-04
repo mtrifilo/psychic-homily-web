@@ -8,11 +8,13 @@ package catalog
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -465,4 +467,52 @@ func (s *WFMUDedupIntegrationTestSuite) TestUpsertRadioShow_FamilyStickiness() {
 	var fresh catalogm.RadioShow
 	s.Require().NoError(s.db.First(&fresh, newID).Error)
 	s.Equal(s.stationID("wfmu"), fresh.StationID)
+}
+
+// PSY-1349: a map-absent code with rows on MULTIPLE substreams is contradictory
+// evidence (the legacy full-catalog-pollution shape) — it defaults to the flagship,
+// not an arbitrary substream.
+func (s *WFMUDedupIntegrationTestSuite) TestMapAbsentCode_MultiSubstream_DefaultsToFlagship() {
+	s.createShow("wfmu-drummer", "Ambiguous Show", "ambiguous-drummer", "AM", nil)
+	s.createShow("wfmu-sheena", "Ambiguous Show", "ambiguous-sheena", "AM", nil)
+	s.createShow("wfmu", "Ambiguous Show", "ambiguous-wfmu", "AM", nil)
+
+	_, err := DedupWFMUFamilyShows(s.db, map[string]string{}, false)
+	s.Require().NoError(err)
+
+	var survivors []catalogm.RadioShow
+	s.Require().NoError(s.db.Where("external_id = ?", "AM").Find(&survivors).Error)
+	s.Require().Len(survivors, 1)
+	s.Equal(s.stationID("wfmu"), survivors[0].StationID, "contradictory substream evidence defaults to the flagship")
+}
+
+// PSY-1349 AC1, exercised through the REAL discover-run funnel: with a family twin
+// present, importRosterShowEpisodes on the other station imports the episode onto the
+// existing sibling row and creates nothing.
+func (s *WFMUDedupIntegrationTestSuite) TestImportRosterShow_FamilyTwin_EpisodesLandOnSibling() {
+	svc := &RadioService{db: s.db}
+	existing := s.createShow("wfmu-drummer", "Bodega Pop", "bodega-pop", "PG", nil)
+
+	provider := &mockPlaylistProvider{
+		fetchNewEpisodesFn: func(showExternalID string, since, until time.Time) ([]RadioEpisodeImport, error) {
+			return []RadioEpisodeImport{{ExternalID: "pg-ep-1", AirDate: time.Now().UTC().Format("2006-01-02")}}, nil
+		},
+	}
+
+	result := &contracts.RadioImportResult{}
+	created := svc.importRosterShowEpisodes(
+		s.stationID("wfmu"), // ownership flapped: the FLAGSHIP run sees the show
+		contracts.RadioRosterShow{Name: "Bodega Pop", ExternalID: "PG"},
+		time.Now().UTC().AddDate(0, 0, -7), time.Now().UTC().AddDate(0, 0, 1),
+		provider, result)
+
+	s.False(created, "no twin row created")
+	var count int64
+	s.db.Model(&catalogm.RadioShow{}).Where("external_id = ?", "PG").Count(&count)
+	s.Equal(int64(1), count)
+
+	var ep catalogm.RadioEpisode
+	s.Require().NoError(s.db.Where("external_id = ?", "pg-ep-1").First(&ep).Error)
+	s.Equal(existing.ID, ep.ShowID, "episode lands on the established sibling-station row")
+	s.Equal(1, result.EpisodesImported, "import result attributes the episode honestly")
 }
