@@ -13,6 +13,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // markStripper is the runes filter used to drop combining marks after NFKD
@@ -267,15 +268,9 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 // matchArtist tries to match an artist name to our knowledge graph.
 // Priority: MusicBrainz ID → exact name → alias match → collab split (PSY-1353).
 func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
-	// 1. MusicBrainz ID match (highest confidence)
-	// Note: Artists table doesn't have a musicbrainz_id column yet,
-	// so we skip this path. When the column exists, uncomment:
-	// if mbID != nil && *mbID != "" {
-	// 	var artist catalogm.Artist
-	// 	if err := m.db.Where("musicbrainz_id = ?", *mbID).First(&artist).Error; err == nil {
-	// 		return &artist.ID
-	// 	}
-	// }
+	if id := m.matchArtistByMBID(mbID); id != nil {
+		return id
+	}
 
 	if id := m.matchArtistByNameOrAlias(name); id != nil {
 		return id
@@ -301,6 +296,23 @@ func (m *RadioMatchingEngine) matchArtistByNameOrAlias(name string) *uint {
 		return &alias.ArtistID
 	}
 
+	return nil
+}
+
+// matchArtistByMBID links a play to an artist by MusicBrainz artist MBID (PSY-1354).
+func (m *RadioMatchingEngine) matchArtistByMBID(mbID *string) *uint {
+	if mbID == nil {
+		return nil
+	}
+	mbid := strings.TrimSpace(*mbID)
+	if mbid == "" || !utils.IsValidMBID(mbid) {
+		return nil
+	}
+
+	var artist catalogm.Artist
+	if err := m.db.Where("musicbrainz_artist_id = ?", mbid).First(&artist).Error; err == nil {
+		return &artist.ID
+	}
 	return nil
 }
 
