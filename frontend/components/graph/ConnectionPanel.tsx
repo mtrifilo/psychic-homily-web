@@ -54,6 +54,12 @@ const ENTITY_ROUTES: Record<ConnectionEntity['kind'], string> = {
 export interface PanelConnection extends EdgeTooltipLink {
   /** Phase-2: resolvable entities behind the claim. Absent in phase 1. */
   entities?: ConnectionEntity[]
+  /**
+   * Phase-2: uncapped entity count. When it exceeds entities.length the row
+   * discloses "and N more" (no silent caps — same rule as the EdgeLegend
+   * footnote).
+   */
+  entityTotal?: number
 }
 
 export interface ConnectionPanelEndpoint {
@@ -160,16 +166,28 @@ export function ConnectionPanel({
             </p>
             {conn.entities && conn.entities.length > 0 && (
               <ul className="pl-[22px] space-y-0.5">
-                {conn.entities.map(entity => (
-                  <li key={`${entity.kind}-${entity.id}`} className="leading-snug">
-                    <Link
-                      href={`${ENTITY_ROUTES[entity.kind]}/${encodeURIComponent(entity.slug)}`}
-                      className="text-muted-foreground hover:text-foreground hover:underline"
-                    >
-                      {entity.date ? `${entity.date} · ${entity.name}` : entity.name}
-                    </Link>
+                {conn.entities.map(entity => {
+                  // Entities arrive from the wire: a kind this build doesn't
+                  // know (backend added one without a lockstep FE deploy) must
+                  // degrade to no link, not an href of "undefined/…".
+                  const route = ENTITY_ROUTES[entity.kind]
+                  if (!route) return null
+                  return (
+                    <li key={`${entity.kind}-${entity.id}`} className="leading-snug">
+                      <Link
+                        href={`${route}/${encodeURIComponent(entity.slug)}`}
+                        className="text-muted-foreground hover:text-foreground hover:underline"
+                      >
+                        {entity.date ? `${entity.date} · ${entity.name}` : entity.name}
+                      </Link>
+                    </li>
+                  )
+                })}
+                {conn.entityTotal !== undefined && conn.entityTotal > conn.entities.length && (
+                  <li className="leading-snug text-muted-foreground/70">
+                    and {conn.entityTotal - conn.entities.length} more
                   </li>
-                ))}
+                )}
               </ul>
             )}
           </li>

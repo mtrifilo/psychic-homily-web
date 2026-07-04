@@ -14,6 +14,7 @@ import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type T
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { ConnectionPanel } from '@/components/graph/ConnectionPanel'
 import { aggregatePairConnections, useConnectionInspect } from '@/components/graph/useConnectionInspect'
+import { mergeProvenanceEntities, useConnectionProvenance } from '@/components/graph/useConnectionProvenance'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
@@ -599,6 +600,10 @@ export function ArtistGraphVisualization({
     [connectionInspect]
   )
 
+  // PSY-1335: lazily fetch the entities behind each connection for the
+  // inspected pair; rows stay text-only while loading / on error.
+  const provenanceQuery = useConnectionProvenance(connectionInspect.pair)
+
   // Panel data derives from the RAW payload (data.links / data.nodes), not
   // graphData: the panel lists ALL typed connections between the pair, even
   // types the pill-row toggles or the per-node edge cap currently exclude
@@ -614,8 +619,12 @@ export function ArtistGraphVisualization({
     if (!source || !target) return null
     const connections = aggregatePairConnections(data.links, pair)
     if (connections.length === 0) return null
-    return { source, target, connections }
-  }, [connectionInspect.pair, data])
+    return {
+      source,
+      target,
+      connections: mergeProvenanceEntities(connections, provenanceQuery.data),
+    }
+  }, [connectionInspect.pair, data, provenanceQuery.data])
 
   // Release the selection when it can no longer resolve to panel data —
   // otherwise a payload change that drops and later re-adds the pair would

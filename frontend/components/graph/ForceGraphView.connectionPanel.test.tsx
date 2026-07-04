@@ -42,6 +42,17 @@ vi.mock('@/features/artists/hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
 }))
 
+// PSY-1335: opening the panel fetches provenance. Reject by default (rows
+// stay text-only) so the rest of the suite exercises the phase-1 path;
+// individual tests resolve it to assert the entity upgrade.
+const mockApiRequest = vi.fn()
+vi.mock('@/lib/api', () => ({
+  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+}))
+vi.mock('@/lib/api-base', () => ({
+  API_BASE_URL: 'http://localhost:8080',
+}))
+
 import { ForceGraphView, type GraphNode } from './ForceGraphView'
 
 const nodes: GraphNode[] = [
@@ -77,6 +88,9 @@ const clickLink = (source: number, target: number, type = 'shared_bills') => {
 beforeEach(() => {
   h.lastProps.value = null
   vi.clearAllMocks()
+  mockApiRequest.mockRejectedValue(
+    Object.assign(new Error('Not Found'), { status: 404 }),
+  )
 })
 
 describe('ForceGraphView connection panel', () => {
@@ -147,6 +161,50 @@ describe('ForceGraphView connection panel', () => {
     renderGraph({ links: [{ source_id: 1, target_id: 2, type: '' }] })
     clickLink(1, 2, '')
     expect(screen.queryByRole('region', { name: /connected/ })).not.toBeInTheDocument()
+  })
+
+  it('upgrades rows to entity links when provenance resolves (PSY-1335)', async () => {
+    mockApiRequest.mockResolvedValue({
+      connections: [
+        {
+          type: 'shared_bills',
+          score: 0.3,
+          entities: [
+            { kind: 'show', id: 9, slug: 'dehd-empty-bottle', name: 'Empty Bottle', date: '2026-05-14' },
+          ],
+          entity_total: 3,
+        },
+      ],
+    })
+    renderGraph()
+    clickLink(1, 2)
+
+    // Phase-1 text rows render immediately, entities arrive async.
+    expect(screen.getByText('Shared Bills')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('link', { name: '2026-05-14 · Empty Bottle' }),
+    ).toHaveAttribute('href', '/shows/dehd-empty-bottle')
+    expect(screen.getByText('and 2 more')).toBeInTheDocument()
+    // The pair is fetched once, canonical orientation.
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      'http://localhost:8080/artists/1/relationships/2/provenance',
+      { method: 'GET' },
+    )
+    // shared_label had no provenance — its text row is untouched.
+    expect(screen.getByText('Shared Label')).toBeInTheDocument()
+  })
+
+  it('keeps phase-1 text rows when the provenance fetch errors', async () => {
+    renderGraph() // beforeEach default: fetch rejects with 404
+    clickLink(1, 2)
+    expect(screen.getByText('Shared Bills')).toBeInTheDocument()
+    expect(screen.getByText('Shared Label')).toBeInTheDocument()
+    // Give the rejected query a beat — the panel must not blank or lose rows.
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByText('Shared Bills')).toBeInTheDocument()
+    expect(screen.queryAllByRole('link', { name: /·/ })).toHaveLength(0)
   })
 
   it('widens the link hit target beyond the lib DEFAULT of 4', () => {

@@ -62,6 +62,7 @@ import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipPlacement } fr
 import { EdgeLegend } from './EdgeLegend'
 import { ConnectionPanel } from './ConnectionPanel'
 import { aggregatePairConnections, useConnectionInspect } from './useConnectionInspect'
+import { mergeProvenanceEntities, useConnectionProvenance } from './useConnectionProvenance'
 
 // ──────────────────────────────────────────────
 // Public types — the generic graph payload shape
@@ -661,6 +662,15 @@ export function ForceGraphView({
     [showConnectionPanel, connectionInspect],
   )
 
+  // PSY-1335: lazily fetch the entities behind each connection for the
+  // inspected pair. Loading/error leaves the rows text-only (phase-1 copy) —
+  // the panel never blanks and the fullscreen overlay's `available` signal is
+  // untouched by this query's transients.
+  const provenanceQuery = useConnectionProvenance(
+    connectionInspect.pair,
+    showConnectionPanel,
+  )
+
   // Panel data derives from the RAW props, not renderData: the panel lists
   // ALL typed connections between the pair — including types currently
   // hidden/soloed out of the simulation ("why connected" is about the data,
@@ -678,9 +688,9 @@ export function ForceGraphView({
     return {
       source: { name: source.name, slug: source.slug },
       target: { name: target.name, slug: target.slug },
-      connections,
+      connections: mergeProvenanceEntities(connections, provenanceQuery.data),
     }
-  }, [showConnectionPanel, connectionInspect.pair, nodes, links])
+  }, [showConnectionPanel, connectionInspect.pair, nodes, links, provenanceQuery.data])
 
   // Release the selection when it can no longer resolve to panel data —
   // otherwise a payload refresh that drops and later re-adds the pair would
