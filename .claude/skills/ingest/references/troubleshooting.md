@@ -21,3 +21,21 @@
 - **Verify artist links via `GET /artists/{id}` detail** — roster/list projections omit `social`/`bandcamp`.
 
 - **Release re-runs are NOT idempotent until PSY-1184 is deployed** — confirm PR #1210 is live before re-running release batches on large datasets.
+
+## Radio playlist linking
+
+- **Orange ● on a playlist row** means `radio_plays.artist_id` is set — not merely that `/artists/{slug}` exists. Matching runs at import time; artists added later stay unlinked until rematch.
+- **`batch --confirm`** calls `POST /admin/radio/rematch` after creates/updates (PSY-1347). Artist/label/alias create also triggers async targeted rematch on the backend.
+- **Exact normalized name + aliases** — punctuation variants need an alias (e.g. playlist `Worlds Worst` vs KG `World's Worst`):
+  ```bash
+  curl -s -X POST "$URL/admin/artists/{id}/aliases" \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"alias":"Worlds Worst"}'
+  ```
+- **Collab strings** (`Astrid Sonne, Smerz`, `zzzahara, Winter`) — combined artist entity, alias, or collab matcher (PSY-1353). Skip DJ markers (`Music behind DJ: …`).
+- **Manual full rematch** (ops / post-backfill):
+  ```bash
+  curl -s -X POST "$URL/admin/radio/rematch" \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+  ```
+- **WFMU plays have no MusicBrainz artist IDs** — MBID matching (PSY-1354) helps KEXP etc., not WFMU.

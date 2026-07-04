@@ -105,6 +105,7 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	// when the feature is disabled). Atomicity depends on whether the caller passes
 	// a tx — see enqueueImageEnrich.
 	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityArtist, artist.ID)
+	shared.NotifyRadioArtistNameRematch(name)
 	return &artist, true, nil
 }
 

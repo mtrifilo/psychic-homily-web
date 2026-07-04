@@ -747,6 +747,13 @@ type MatchResult struct {
 	PersistErrors int `json:"persist_errors,omitempty"`
 }
 
+// ReMatchRequest optionally scopes a radio rematch to a single artist or label
+// name. An empty request rematches all unmatched plays.
+type ReMatchRequest struct {
+	ArtistName string `json:"artist_name,omitempty" doc:"Rematch only plays with this artist_name" example:"Boy Harsher"`
+	LabelName  string `json:"label_name,omitempty" doc:"Rematch only plays with this label_name" example:"Sacred Bones"`
+}
+
 // ──────────────────────────────────────────────
 // Unmatched play management types
 // ──────────────────────────────────────────────
@@ -944,6 +951,7 @@ type RadioServiceInterface interface {
 
 	// Re-matching
 	ReMatchUnmatched() (*MatchResult, error)
+	ReMatchUnmatchedWithFilter(req *ReMatchRequest) (*MatchResult, error)
 
 	// Unified sync triggers + observability (PSY-1135). The manual triggers are
 	// async: they open a radio_sync_runs row, return its poll handle, and execute

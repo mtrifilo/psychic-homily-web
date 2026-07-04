@@ -93,10 +93,19 @@ Episode list caps at `limit=100` per request. UI paginates at **25/page** (~10 p
 
 ### 5. Post-backfill enrichment (optional)
 
-Backfill imports **raw** `artist_name` on plays. KG linkage (`artist_id`/`artist_slug`) is sparse (~9% matched for SCA). Follow with:
+Backfill imports **raw** `artist_name` on plays. KG linkage (`artist_id`/`artist_slug`) is sparse until artists exist **and** rematch runs.
 
-- Artist matching / link enrichment for high-play-count names from `top-artists`
-- Not the same as [link-enrichment.md](link-enrichment.md) (that's for `artists` table social URLs)
+After ingest creates artists (or after deploy of PSY-1347):
+
+```bash
+# Full rematch — links plays whose artist_name (or alias) now resolves
+curl -s -X POST "$API/admin/radio/rematch" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+```
+
+`ph batch --confirm` calls the same endpoint automatically after roster/playlist screenshot ingests.
+
+For name variants still unlinked, add artist aliases (triggers targeted rematch) — see [troubleshooting.md](troubleshooting.md#radio-playlist-linking).
 
 DJ patter rows (e.g. `"Music behind DJ: Intro! Yeah! Party!!"`) import as plays — filter at display or matching layer, not ingest.
 

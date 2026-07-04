@@ -96,4 +96,12 @@ Present dry-run: counts per type, fuzzy tag matches, unresolved artists, validat
 
 Fix-ups: `submit artist --confirm`, then retry failed releases/shows.
 
+### Radio playlist linking (after confirm)
+
+`batch --confirm` automatically calls `POST /admin/radio/rematch`, linking historic `radio_plays` rows to artists/labels just created. The backend also rematches asynchronously when an artist, label, or artist alias is created.
+
+Playlist UI orange ● = `artist_id` set on the play row — **not** merely that an artist page exists.
+
+See [troubleshooting.md](troubleshooting.md#radio-playlist-linking) for name variants and collab strings.
+
 See [troubleshooting.md](troubleshooting.md) for show dedup, timezone, and verify endpoints.

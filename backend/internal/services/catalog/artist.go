@@ -1071,6 +1071,8 @@ func (s *ArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.
 		return nil, fmt.Errorf("failed to create alias: %w", err)
 	}
 
+	shared.NotifyRadioArtistNameRematch(alias)
+
 	return &contracts.ArtistAliasResponse{
 		ID:        artistAlias.ID,
 		ArtistID:  artistAlias.ArtistID,
