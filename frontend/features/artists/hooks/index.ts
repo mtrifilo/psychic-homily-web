@@ -19,3 +19,4 @@ export {
 } from './useArtistGraph'
 
 export { useReducedMotion } from './useReducedMotion'
+export { useArtistGraphCard } from './useArtistGraphCard'

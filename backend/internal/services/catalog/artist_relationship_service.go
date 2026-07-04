@@ -1802,3 +1802,31 @@ func (s *ArtistRelationshipService) recalculateScore(tx *gorm.DB, sourceID, targ
 			sourceID, targetID, relType).
 		Update("score", score).Error
 }
+
+// CountRelationshipsByType returns the artist's relationship counts grouped
+// by relationship_type (PSY-1345 graph card). One GROUP BY instead of the
+// full GetArtistGraph edge load — the card needs numbers, not edges.
+func (s *ArtistRelationshipService) CountRelationshipsByType(artistID uint) (map[string]int, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var rows []struct {
+		RelationshipType string
+		Count            int
+	}
+	err := s.db.Model(&catalogm.ArtistRelationship{}).
+		Select("relationship_type, COUNT(*) AS count").
+		Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID).
+		Group("relationship_type").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to count relationships: %w", err)
+	}
+
+	counts := make(map[string]int, len(rows))
+	for _, r := range rows {
+		counts[r.RelationshipType] = r.Count
+	}
+	return counts, nil
+}

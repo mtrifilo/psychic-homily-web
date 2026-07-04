@@ -127,6 +127,20 @@ describe('ForceGraphView connection panel', () => {
     ).toBeInTheDocument()
   })
 
+  it('forwards background clicks to the consumer onBackgroundClick (PSY-1345) after closing the panel', () => {
+    const onBackgroundClick = vi.fn()
+    renderGraph({ onBackgroundClick })
+    clickLink(1, 2)
+    expect(screen.getByRole('region', { name: /connected/ })).toBeInTheDocument()
+    act(() => {
+      ;(h.lastProps.value!.onBackgroundClick as () => void)()
+    })
+    // Both the internal panel dismissal AND the consumer callback fire —
+    // deleting either half of the composed lambda must fail this test.
+    expect(screen.queryByRole('region', { name: /connected/ })).not.toBeInTheDocument()
+    expect(onBackgroundClick).toHaveBeenCalledTimes(1)
+  })
+
   it('closes on background click and on node click', () => {
     renderGraph()
     clickLink(1, 2)

@@ -280,6 +280,12 @@ export interface ForceGraphViewProps {
    * frame still runs. Off by default — full surfaces keep the tool feel.
    */
   staticViewport?: boolean
+  /**
+   * PSY-1345: notified on canvas background clicks (in addition to the
+   * internal connection-panel dismissal) so consumers can close their own
+   * floating overlays (e.g. the artist context panel) on click-away.
+   */
+  onBackgroundClick?: () => void
 }
 
 export function ForceGraphView({
@@ -294,6 +300,7 @@ export function ForceGraphView({
   showEdgeLegend = false,
   showConnectionPanel = false,
   staticViewport = false,
+  onBackgroundClick,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null)
@@ -1036,8 +1043,12 @@ export function ForceGraphView({
         // no-op), so 8 is the actual widening for ~1px strokes.
         linkHoverPrecision={8}
         onLinkClick={handleLinkClick}
-        // Background click closes the inspect panel (no-op when closed).
-        onBackgroundClick={connectionInspect.close}
+        // Background click closes the inspect panel (no-op when closed) and
+        // notifies the consumer's own overlay (PSY-1345).
+        onBackgroundClick={() => {
+          connectionInspect.close()
+          onBackgroundClick?.()
+        }}
         linkCanvasObjectMode={() => 'before'}
         linkCanvasObject={drawHulls}
         onRenderFramePre={handleRenderFramePre}

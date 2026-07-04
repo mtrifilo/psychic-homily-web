@@ -112,9 +112,13 @@ export function ConnectionPanel({
   useEffect(() => {
     if (!hasConnections) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      // defaultPrevented guard + stopImmediatePropagation: sibling panels
+      // (ArtistContextPanel, PSY-1345) also listen on document/capture, and
+      // stopPropagation alone does not stop same-target listeners — without
+      // this pair, one Esc closes both panels.
+      if (e.key !== 'Escape' || e.defaultPrevented) return
       e.preventDefault()
-      e.stopPropagation()
+      e.stopImmediatePropagation()
       onClose()
     }
     document.addEventListener('keydown', onKeyDown, { capture: true })

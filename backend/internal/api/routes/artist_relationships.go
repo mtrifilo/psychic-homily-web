@@ -20,6 +20,10 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 	// Edge provenance (PSY-1335): the entities behind each connection between a pair
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/relationships/{other_id}/provenance", relHandler.GetRelationshipProvenanceHandler)
 
+	// Public: node-select summary card for graph surfaces (PSY-1345).
+	cardHandler := catalogh.NewArtistGraphCardHandler(rc.SC.Artist, rc.SC.ArtistRelationship, rc.SC.Radio)
+	huma.Get(rc.API, "/artists/{artist_id}/graph-card", cardHandler.GetArtistGraphCardHandler)
+
 	// Protected: create relationships and vote
 	huma.Post(rc.Protected, "/artists/relationships", relHandler.CreateRelationshipHandler)
 	huma.Post(rc.Protected, "/artists/relationships/{source_id}/{target_id}/vote", relHandler.VoteHandler)

@@ -1,6 +1,8 @@
 package contracts
 
 import (
+	"time"
+
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
@@ -131,6 +133,10 @@ type ArtistRelationshipServiceInterface interface {
 	// Graph
 	GetArtistGraph(artistID uint, types []string, userID uint) (*ArtistGraph, error)
 	GetArtistBillComposition(artistID uint, months int) (*ArtistBillComposition, error)
+	// CountRelationshipsByType returns this artist's relationship counts
+	// keyed by relationship_type (PSY-1345 graph card). Types with zero
+	// rows are absent from the map.
+	CountRelationshipsByType(artistID uint) (map[string]int, error)
 	GetRelationshipProvenance(artistA, artistB uint) (*RelationshipProvenance, error)
 
 	// Voting (only for non-auto-derived, typically "similar")
@@ -156,3 +162,74 @@ const (
 	DefaultSharedBillsMinShows   = 1
 	DefaultSharedLabelsMinLabels = 1
 )
+
+// ============================================================================
+// Artist graph card (PSY-1345)
+// ============================================================================
+
+// ArtistGraphCard is the node-select summary card for graph surfaces (the
+// homepage scene-graph section today; the unshipped /graph Observatory is
+// the intended second consumer): who this artist
+// is, their next show, labels, radio presence, and how connected they are.
+// Purpose-built so a node click costs one small request instead of the full
+// artist-detail payload plus three sibling endpoints.
+type ArtistGraphCard struct {
+	ID    uint    `json:"id"`
+	Name  string  `json:"name"`
+	Slug  string  `json:"slug"`
+	City  *string `json:"city"`
+	State *string `json:"state"`
+	// NextShow is nil when the artist has no upcoming approved show.
+	NextShow *ArtistGraphCardShow `json:"next_show"`
+	// Labels is empty (never nil on the wire) when the artist has none;
+	// capped at 5 chips (the artist page carries the full list).
+	Labels []ArtistGraphCardLabel `json:"labels"`
+	// Radio is nil when the artist has no matched radio plays.
+	Radio       *ArtistGraphCardRadio      `json:"radio"`
+	Connections ArtistGraphCardConnections `json:"connections"`
+}
+
+// ArtistGraphCardShow is the card's next-show line.
+type ArtistGraphCardShow struct {
+	ID        uint      `json:"id"`
+	EventDate time.Time `json:"event_date"`
+	VenueName string    `json:"venue_name"`
+	VenueCity string    `json:"venue_city"`
+	// VenueState may be empty for venues without one (international).
+	VenueState string `json:"venue_state"`
+	// VenueTimezone is the venue's IANA zone (PSY-985) so clients render the
+	// show date in venue-local time, not the viewer's. Nil when unresolved.
+	VenueTimezone *string `json:"venue_timezone"`
+}
+
+// ArtistGraphCardLabel is one label chip on the card.
+type ArtistGraphCardLabel struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// ArtistGraphCardRadio is the "as heard on" line: distinct station names
+// ordered by each station's TOTAL play count (summed across its radio
+// shows), descending, plus the artist's total matched play count.
+type ArtistGraphCardRadio struct {
+	Stations  []string `json:"stations"`
+	PlayCount int      `json:"play_count"`
+}
+
+// ArtistGraphCardConnections carries per-type relationship counts. Members
+// folds member_of + side_project (one "people" number for the card);
+// SharedLabels is carried separately from Labels above (a count of
+// labelmate EDGES, not the artist's own label list).
+//
+// These are the artist's GLOBAL stored-relationship totals — deliberately
+// not the edge counts of whatever capped/filtered graph the card floats
+// over (scene graphs draw in-metro edges only; ego graphs cap at 30), so
+// the numbers routinely exceed the visible lines. That mismatch is the
+// point: the card says how connected the artist is site-wide.
+type ArtistGraphCardConnections struct {
+	Bills        int `json:"bills"`
+	Similar      int `json:"similar"`
+	Members      int `json:"members"`
+	Radio        int `json:"radio"`
+	SharedLabels int `json:"shared_labels"`
+}

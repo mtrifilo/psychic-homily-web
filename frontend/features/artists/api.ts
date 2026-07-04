@@ -21,6 +21,7 @@ export const artistEndpoints = {
   LABELS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/labels`,
   ALIASES: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/aliases`,
   GRAPH: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/graph`,
+  GRAPH_CARD: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/graph-card`,
   BILL_COMPOSITION: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/bill-composition`,
   RELATED: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/related`,
   RELATIONSHIPS: {
@@ -52,6 +53,8 @@ export const artistQueryKeys = {
   aliases: (artistId: number) => ['artists', 'aliases', artistId] as const,
   graph: (idOrSlug: string | number, types?: string[]) =>
     ['artists', 'graph', String(idOrSlug), types] as const,
+  graphCard: (idOrSlug: string | number) =>
+    ['artists', 'graphCard', String(idOrSlug)] as const,
   billComposition: (idOrSlug: string | number, months: number) =>
     ['artists', 'billComposition', String(idOrSlug), months] as const,
 } as const
