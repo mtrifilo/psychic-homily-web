@@ -85,17 +85,25 @@ export function sceneDotAltitude(upcomingShowCount: number): number {
 export const DOT_COLOR_BASE = '#ff7a3c'
 export const DOT_COLOR_HOVERED = '#ffb066'
 export const DOT_COLOR_SELECTED = '#ffe6c2'
+// Followed scenes (PSY-1340 "My Scenes"): a distinct hue — not a brightness
+// step of the base orange — so the followed set reads at continental zoom
+// without colliding with the hover/selected affordance ramp.
+export const DOT_COLOR_FOLLOWED = '#7ee8fa'
 // Radius bump on hover — kept small so the merged point geometry rebuild (the
 // accessors re-evaluate on hover change) never visibly pops neighbours.
 export const DOT_HOVER_RADIUS_SCALE = 1.2
 
+// Precedence: selected > hovered > followed > base — the transient affordance
+// states stay legible on top of the persistent "my scene" marking.
 export function sceneDotColor(
   slug: string,
   hoveredSlug: string | null,
   selectedSlug: string | null,
+  followedSlugs?: ReadonlySet<string> | null,
 ): string {
   if (selectedSlug !== null && slug === selectedSlug) return DOT_COLOR_SELECTED
   if (hoveredSlug !== null && slug === hoveredSlug) return DOT_COLOR_HOVERED
+  if (followedSlugs != null && followedSlugs.has(slug)) return DOT_COLOR_FOLLOWED
   return DOT_COLOR_BASE
 }
 

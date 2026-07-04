@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { TagPill } from '@/components/shared'
 import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
+import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneGraph } from './SceneGraph'
 
 interface SceneDetailProps {
@@ -159,9 +160,13 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           </Link>
           <span>/</span>
         </div>
-        <h1 className="text-3xl font-bold">
-          {scene.city}, {scene.state}
-        </h1>
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-3xl font-bold">
+            {scene.city}, {scene.state}
+          </h1>
+          {/* Follow-a-scene (PSY-1340): slug-addressed (PSY-1339). */}
+          <FollowButton entityType="scenes" entityId={slug} />
+        </div>
         {statParts.length > 0 && (
           <p className="text-muted-foreground mt-1">
             {statParts.join(' \u00B7 ')}

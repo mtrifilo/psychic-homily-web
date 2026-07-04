@@ -26,6 +26,23 @@ vi.mock('next/link', () => ({
 }))
 
 const mockUseScenes = vi.fn()
+// FollowButton pulls AuthContext + usePathname (neither available here) —
+// mock at the module boundary, same idiom as VenueDetail/LabelDetail tests.
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number | string }) => (
+    <button data-testid="follow-button">
+      Follow {entityType} {String(entityId)}
+    </button>
+  ),
+}))
+
+// useMyFollowing pulls AuthContext (unavailable here) — stub the follows hook
+// (PSY-1340); tests override via mockUseMyFollowing.
+const mockUseMyFollowing = vi.fn(() => ({ data: undefined }))
+vi.mock('@/lib/hooks/common/useFollow', () => ({
+  useMyFollowing: () => mockUseMyFollowing(),
+}))
+
 vi.mock('../hooks', () => ({
   useScenes: () => mockUseScenes(),
   useSceneArtists: () => ({ data: undefined, isLoading: false }),
