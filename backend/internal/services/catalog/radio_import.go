@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1085,11 +1086,65 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		return id, false, nil
 	}
 
-	// Create new show
+	// PSY-1349: family-wide stickiness. WFMU show↔station ownership is scraped live
+	// from volatile roster pages each discover run, and unknown/ambiguous codes
+	// default to the flagship — so ownership FLAPS across runs, and every flap used
+	// to mint a twin row (same external_id under two family stations) that then
+	// accrued its own episode history forever. If the code already has a row under
+	// ANY WFMU-family station, reuse that row instead of creating a second one; the
+	// established home is the strong claim, this run's ownership resolution the weak
+	// one. This pairing is STEADY-STATE, not transitional: a map-absent code homed on
+	// a substream keeps being fed by the flagship's discover run indefinitely (under
+	// the flagship run's lock/breaker/stats) — the per-reuse Info log below is the
+	// operational breadcrumb. Re-homing a show that GENUINELY moved streams is
+	// deliberately left to cmd/dedup-radio-shows (full-history view).
+	//
+	// The lookup+create runs under a family-wide pg advisory xact lock: the sync
+	// layer's advisory locks are per-station, so two family stations' runs (e.g. the
+	// scheduled discover cycle racing a manual admin trigger) could otherwise both
+	// miss the lookup and both create — the (station_id, external_id) unique index
+	// does not span stations, so nothing at the DB level stops the second insert.
+	// Family creates are rare (new shows only), so one global lock is uncontended.
+	isFamily, err := s.isWFMUFamilyStation(stationID)
+	if err != nil {
+		return 0, false, err
+	}
+	if !isFamily {
+		return s.createRadioShow(s.db, stationID, importShow)
+	}
+
+	var id uint
+	var created bool
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext('psy_wfmu_family_show_create'))").Error; err != nil {
+			return fmt.Errorf("acquiring WFMU family create lock: %w", err)
+		}
+		if eid, found, err := s.findAndUpdateWFMUFamilyShow(tx, stationID, importShow); err != nil {
+			return err
+		} else if found {
+			id, created = eid, false
+			return nil
+		}
+		nid, created2, err := s.createRadioShow(tx, stationID, importShow)
+		if err != nil {
+			return err
+		}
+		id, created = nid, created2
+		return nil
+	})
+	if txErr != nil {
+		return 0, false, txErr
+	}
+	return id, created, nil
+}
+
+// createRadioShow inserts a new show row (the create half of upsertRadioShow),
+// generating a unique slug against db (which may be a transaction).
+func (s *RadioService) createRadioShow(db *gorm.DB, stationID uint, importShow RadioShowImport) (uint, bool, error) {
 	baseSlug := utils.GenerateArtistSlug(importShow.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
+		db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
@@ -1123,11 +1178,62 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		LifecycleState: lifecycle,
 	}
 
-	if err := s.db.Create(show).Error; err != nil {
+	if err := db.Create(show).Error; err != nil {
 		return 0, false, fmt.Errorf("creating show: %w", err)
 	}
 
 	return show.ID, true, nil
+}
+
+// isWFMUFamilyStation reports whether the station is one of the WFMU-family stations
+// (WFMUFamilySlugs — pinned in sync with the provider's wfmuStationChannels by
+// radio_provider_wfmu_scoped_test.go, so a fifth stream can't silently escape).
+func (s *RadioService) isWFMUFamilyStation(stationID uint) (bool, error) {
+	var station catalogm.RadioStation
+	if err := s.db.Select("slug").First(&station, stationID).Error; err != nil {
+		return false, fmt.Errorf("loading station for family twin check: %w", err)
+	}
+	return slices.Contains(WFMUFamilySlugs, station.Slug), nil
+}
+
+// findAndUpdateWFMUFamilyShow looks up a show by external_id across ALL WFMU-family
+// stations and, on a hit, fills null-safe metadata onto it (same write behavior as
+// findAndUpdateExistingShow — the name discloses the mutation). Caller guarantees
+// stationID is a family station and holds the family create lock. A hit means
+// episodes import onto the existing sibling-station row and NO new row is created.
+// Non-family stations (KEXP, NTS) never share external_id namespaces, so
+// upsertRadioShow skips this entirely for them.
+func (s *RadioService) findAndUpdateWFMUFamilyShow(db *gorm.DB, stationID uint, importShow RadioShowImport) (uint, bool, error) {
+	if importShow.ExternalID == "" {
+		return 0, false, nil // code-less rows can't be family-matched
+	}
+
+	// Oldest row wins when (pathologically) more than one already exists — the
+	// pre-existing twins are cmd/dedup-radio-shows' job, not this guard's.
+	var existing catalogm.RadioShow
+	err := db.
+		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
+		Where("radio_stations.slug IN ?", WFMUFamilySlugs).
+		Where("radio_shows.external_id = ?", importShow.ExternalID).
+		Order("radio_shows.id").
+		First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("checking WFMU family for existing show: %w", err)
+	}
+
+	updates := s.buildNullSafeShowUpdates(&existing, importShow)
+	if len(updates) > 0 {
+		if uErr := db.Model(&existing).Updates(updates).Error; uErr != nil {
+			slog.Warn("radio import: family stickiness metadata fill failed", "show_id", existing.ID, "error", uErr)
+		}
+	}
+	slog.Info("radio import: WFMU family stickiness — reusing sibling-station row instead of creating a twin",
+		"code", importShow.ExternalID, "show_id", existing.ID,
+		"home_station_id", existing.StationID, "requested_station_id", stationID)
+	return existing.ID, true, nil
 }
 
 // findAndUpdateExistingShow looks up a roster show by (station_id, external_id) then

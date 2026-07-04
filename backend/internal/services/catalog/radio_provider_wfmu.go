@@ -132,6 +132,12 @@ var wfmuChannelArtifactShows = map[string]string{
 //     rebroadcasts them (e.g. five 91.1 shows rerun on Rock'n'Soul).
 //  3. Codes on exactly one channel roster page → that channel.
 //  4. Everything else (defunct shows, codes on no roster) → flagship.
+//
+// NOTE (PSY-1349): rule 4's flagship default governs which station's discover run
+// ROUTES a code's episodes — it no longer chooses a row's HOME. If a map-absent code
+// already has a row under a sibling family station, upsertRadioShow's family
+// stickiness reuses that row (and cmd/dedup-radio-shows keeps a unique existing
+// substream home) instead of minting/moving to a flagship twin.
 func (p *WFMUProvider) DiscoverShowsForStation(stationSlug string) ([]RadioShowImport, error) {
 	channel, ok := wfmuStationChannels[stationSlug]
 	if !ok {
@@ -163,9 +169,12 @@ func (p *WFMUProvider) DiscoverShowsForStation(stationSlug string) ([]RadioShowI
 
 // FetchShowOwnership returns external show code → owning station slug for
 // every code visible on WFMU's schedule pages, plus the channel-stream
-// artifact codes. Codes absent from the map belong to the flagship by
-// default. Used by cmd/dedup-radio-shows to compute the canonical owner for
-// existing duplicated rows with the same rule set as discovery.
+// artifact codes. Used by cmd/dedup-radio-shows to compute the canonical owner
+// for existing duplicated rows. Codes ABSENT from the map are deliberately
+// treated differently by the two consumers (PSY-1349): discovery routes them to
+// the flagship (rule 4 above), but the dedup keeps a unique existing substream
+// home rather than forcing the flagship default — absence from volatile roster
+// pages is weak evidence, an established row is strong.
 func (p *WFMUProvider) FetchShowOwnership() (map[string]string, error) {
 	channelByCode, err := p.fetchShowChannels()
 	if err != nil {

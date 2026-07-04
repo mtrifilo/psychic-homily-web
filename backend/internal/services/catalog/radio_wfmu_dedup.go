@@ -158,8 +158,30 @@ func runWFMUDedup(tx *gorm.DB, ownership map[string]string, result *WFMUDedupRes
 		ownerSlug := ownership[code]
 		ownerID, ok := stationIDBySlug[ownerSlug]
 		if !ok {
-			ownerSlug = WFMUFlagshipSlug
+			// Code absent from every roster page (or an unknown slug). The
+			// flagship default is the WEAK claim here (PSY-1349): the roster
+			// pages are volatile — a substream show can drop off its channel
+			// page while still airing — and forcing flagship on absence is
+			// exactly the ownership flap that minted twins in the first place.
+			// When the group has EXACTLY ONE substream home (the modern twin
+			// shape: an original substream row + a flap-minted flagship copy),
+			// that unique roster-evidenced home wins. Multiple substream homes
+			// are contradictory evidence (the legacy full-catalog-pollution
+			// shape) → flagship default, mirroring fetchShowChannels' own
+			// two-rosters-at-once ambiguity rule.
+			substreams := make(map[uint]bool)
+			for _, show := range group {
+				if show.StationID != flagshipID {
+					substreams[show.StationID] = true
+				}
+			}
 			ownerID = flagshipID
+			if len(substreams) == 1 {
+				for id := range substreams {
+					ownerID = id
+				}
+			}
+			ownerSlug = slugByStationID[ownerID]
 		}
 
 		winner, losers := pickWFMUDedupWinner(group, ownerID, flagshipID)
