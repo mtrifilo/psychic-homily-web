@@ -36,9 +36,21 @@ func NewSceneFollowHandler(
 
 const sceneEntityType = "scene"
 
-// SceneFollowRequest is the request for POST /scenes/{slug}/follow.
+// SceneFollowRequest is the request for POST /scenes/{slug}/follow. The body
+// is optional; NotifyMode configures the new-show notification mode
+// (PSY-1341) — re-POSTing with a different mode updates it (follow is
+// idempotent).
 type SceneFollowRequest struct {
 	Slug string `path:"slug" doc:"Scene slug (e.g. phoenix-az)"`
+	// POINTER body: huma marks a non-pointer Body as a REQUIRED request body,
+	// which would 400 the existing body-less FollowButton POST (review-caught;
+	// handler tests bypass huma so no test sees it).
+	Body *SceneFollowBody `required:"false"`
+}
+
+// SceneFollowBody is the optional POST /scenes/{slug}/follow body (PSY-1341).
+type SceneFollowBody struct {
+	NotifyMode string `json:"notify_mode,omitempty" enum:"all,followed_bands_only" doc:"New-show notification mode (default all)"`
 }
 
 // SceneUnfollowRequest is the request for DELETE /scenes/{slug}/follow.
@@ -52,11 +64,13 @@ type SceneFollowersRequest struct {
 }
 
 // SceneFollowersResponse mirrors GetFollowersResponse, keyed by slug.
+// NotifyMode is the requesting user's mode when following (PSY-1341).
 type SceneFollowersResponse struct {
 	Body struct {
 		Slug          string `json:"slug"`
 		FollowerCount int64  `json:"follower_count"`
 		IsFollowing   bool   `json:"is_following"`
+		NotifyMode    string `json:"notify_mode,omitempty"`
 	}
 }
 
@@ -97,6 +111,20 @@ func (h *SceneFollowHandler) SceneFollowHandler(ctx context.Context, req *SceneF
 		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to follow (request_id: %s)", requestID),
 		)
+	}
+
+	if req.Body != nil && req.Body.NotifyMode != "" {
+		if err := h.followService.SetSceneNotifyMode(user.ID, sceneID, req.Body.NotifyMode); err != nil {
+			logger.FromContext(ctx).Error("scene_follow_mode_failed",
+				"user_id", user.ID, "slug", req.Slug, "scene_id", sceneID,
+				"mode", req.Body.NotifyMode, "error", err.Error(), "request_id", requestID)
+			if mapped := shared.MapFollowError(err); mapped != nil {
+				return nil, mapped
+			}
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to set notify mode (request_id: %s)", requestID),
+			)
+		}
 	}
 
 	logger.FromContext(ctx).Info("scene_follow_success",
@@ -182,6 +210,11 @@ func (h *SceneFollowHandler) SceneFollowersHandler(ctx context.Context, req *Sce
 		following, err := h.followService.IsFollowing(user.ID, sceneEntityType, sceneID)
 		if err == nil {
 			resp.Body.IsFollowing = following
+		}
+		if following {
+			if mode, err := h.followService.SceneNotifyMode(user.ID, sceneID); err == nil {
+				resp.Body.NotifyMode = mode
+			}
 		}
 	}
 

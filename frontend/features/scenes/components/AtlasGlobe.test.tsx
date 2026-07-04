@@ -41,6 +41,8 @@ vi.mock('@/components/shared/FollowButton', () => ({
 const mockUseMyFollowing = vi.fn(() => ({ data: undefined }))
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useMyFollowing: () => mockUseMyFollowing(),
+  // SceneNotifyModeToggle (rendered inside the preview panel) reads this.
+  useFollowStatus: () => ({ data: undefined }),
 }))
 
 vi.mock('../hooks', () => ({

@@ -79,6 +79,62 @@ func (s *FollowService) Follow(userID uint, entityType string, entityID uint) er
 	return nil
 }
 
+// Scene-follow notify modes (PSY-1341) — stored in user_bookmarks.settings
+// under "scene_notify_mode". Absent settings mean SceneNotifyModeAll.
+const (
+	SceneNotifyModeAll           = "all"
+	SceneNotifyModeFollowedBands = "followed_bands_only"
+	sceneNotifyModeKey           = "scene_notify_mode"
+)
+
+// SetSceneNotifyMode stores the scene follow's new-show notification mode on
+// the existing follow row. The follow must already exist (call Follow first);
+// a missing row is an error so a client can't silently configure nothing.
+func (s *FollowService) SetSceneNotifyMode(userID uint, sceneID uint, mode string) error {
+	if s.db == nil {
+		return apperrors.ErrFollowInternal(fmt.Errorf("database not initialized"))
+	}
+	if mode != SceneNotifyModeAll && mode != SceneNotifyModeFollowedBands {
+		return apperrors.ErrFollowInvalidEntityType(fmt.Sprintf("invalid notify mode: %s", mode))
+	}
+	res := s.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			userID, engagementm.BookmarkEntityScene, sceneID, engagementm.BookmarkActionFollow).
+		Update("settings", gorm.Expr(
+			`COALESCE(settings, '{}'::jsonb) || jsonb_build_object(?::text, ?::text)`,
+			sceneNotifyModeKey, mode))
+	if res.Error != nil {
+		return apperrors.ErrFollowInternal(fmt.Errorf("failed to set notify mode: %w", res.Error))
+	}
+	if res.RowsAffected == 0 {
+		return apperrors.ErrFollowInternal(fmt.Errorf("no scene follow to configure"))
+	}
+	return nil
+}
+
+// SceneNotifyMode reads the stored mode for a user's scene follow; absent
+// settings (or no follow) return SceneNotifyModeAll.
+func (s *FollowService) SceneNotifyMode(userID uint, sceneID uint) (string, error) {
+	if s.db == nil {
+		return "", apperrors.ErrFollowInternal(fmt.Errorf("database not initialized"))
+	}
+	// Pluck requires a slice destination; COALESCE folds the two "no explicit
+	// mode" shapes (NULL settings, absent key) into '' so zero rows (no
+	// follow) and unset settings both read as the default.
+	var modes []string
+	err := s.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			userID, engagementm.BookmarkEntityScene, sceneID, engagementm.BookmarkActionFollow).
+		Pluck(`COALESCE(settings->>'scene_notify_mode', '')`, &modes).Error
+	if err != nil {
+		return "", apperrors.ErrFollowInternal(fmt.Errorf("failed to read notify mode: %w", err))
+	}
+	if len(modes) == 0 || modes[0] == "" {
+		return SceneNotifyModeAll, nil
+	}
+	return modes[0], nil
+}
+
 // Unfollow removes a follow bookmark. Idempotent — if not following, no error.
 func (s *FollowService) Unfollow(userID uint, entityType string, entityID uint) error {
 	if s.db == nil {

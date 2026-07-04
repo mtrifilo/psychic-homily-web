@@ -191,6 +191,10 @@ type FollowServiceInterface interface {
 	Unfollow(userID uint, entityType string, entityID uint) error
 	IsFollowing(userID uint, entityType string, entityID uint) (bool, error)
 	GetFollowerCount(entityType string, entityID uint) (int64, error)
+	// Scene-follow notify mode (PSY-1341): "all" (default) or
+	// "followed_bands_only", stored on the follow row's settings JSONB.
+	SetSceneNotifyMode(userID uint, sceneID uint, mode string) error
+	SceneNotifyMode(userID uint, sceneID uint) (string, error)
 	GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error)
 	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
