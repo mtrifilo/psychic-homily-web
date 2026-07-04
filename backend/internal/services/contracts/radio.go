@@ -165,9 +165,10 @@ type UpdateRadioShowRequest struct {
 	// LifecycleState, when set, explicitly sets the show's operational state — the only
 	// write path for it (PSY-1172). Valid values: active | dormant | retired. 'retired'
 	// is the manual-only "ended forever" signal the nightly janitor never sets and never
-	// clobbers (it reconciles only active↔dormant by episode recency); a manual
-	// active/dormant is advisory and may be re-reconciled on the next janitor run. An
-	// invalid value is rejected (no DB write).
+	// clobbers; a manual active/dormant is advisory and may be re-reconciled on the
+	// next janitor run — by schedule-grid membership on WFMU-family stations, by
+	// episode recency elsewhere (PSY-1348; schedule_locked=true pins the setting on
+	// grid stations). An invalid value is rejected (no DB write).
 	LifecycleState *string `json:"lifecycle_state"`
 }
 
@@ -193,8 +194,9 @@ type RadioShowDetailResponse struct {
 	ImageURL       *string          `json:"image_url"`
 	IsActive       bool             `json:"is_active"`
 	// LifecycleState (active | dormant | retired) is the operational signal the
-	// janitor maintains (PSY-1155): 'active' = aired within the dormancy window,
-	// 'dormant' = inactive/historical (still browsable). The station shows
+	// janitor maintains (PSY-1155/PSY-1348): 'active' = on the current schedule grid
+	// (WFMU-family stations) or aired within the dormancy window (stations with no
+	// schedule source); 'dormant' = inactive/historical (still browsable). The station shows
 	// directory reads it for its active count / sort bucket / dimming
 	// (PSY-1326, StationShowsDirectory); ListShows is intentionally NOT
 	// filtered by it (historical archives stay served).

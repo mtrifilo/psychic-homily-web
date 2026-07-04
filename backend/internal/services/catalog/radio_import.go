@@ -1093,17 +1093,34 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		return count > 0
 	})
 
+	// Lifecycle at creation follows the station's semantics (PSY-1348). On a
+	// recency station a row exists only because its first episode is being
+	// ingested (PSY-1153), so it IS active (the model/DB default). On a
+	// schedule-authoritative station "active" means "on the current grid", and a
+	// just-created show has no schedule yet — most such creations are fill-ins,
+	// which must not enter the active lineup even for a day. The cost is a known
+	// transient for a show genuinely ADDED to the grid mid-season: it stays
+	// dormant until the next weekly scrape stamps its schedule and the following
+	// janitor run promotes it (disclosed on PSY-1348).
+	lifecycle := catalogm.RadioLifecycleActive
+	authoritative, err := s.stationIsScheduleAuthoritative(stationID)
+	if err != nil {
+		return 0, false, fmt.Errorf("checking station schedule authority: %w", err)
+	}
+	if authoritative {
+		lifecycle = catalogm.RadioLifecycleDormant
+	}
+
 	show := &catalogm.RadioShow{
-		StationID:   stationID,
-		Name:        importShow.Name,
-		Slug:        slug,
-		HostName:    importShow.HostName,
-		Description: importShow.Description,
-		ImageURL:    importShow.ImageURL,
-		ArchiveURL:  importShow.ArchiveURL,
-		ExternalID:  &importShow.ExternalID,
-		// lifecycle_state defaults to 'active' (model/DB default): a show row exists
-		// only because its first episode is being ingested (PSY-1153), so it IS active.
+		StationID:      stationID,
+		Name:           importShow.Name,
+		Slug:           slug,
+		HostName:       importShow.HostName,
+		Description:    importShow.Description,
+		ImageURL:       importShow.ImageURL,
+		ArchiveURL:     importShow.ArchiveURL,
+		ExternalID:     &importShow.ExternalID,
+		LifecycleState: lifecycle,
 	}
 
 	if err := s.db.Create(show).Error; err != nil {
@@ -1316,9 +1333,20 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 // (PSY-1153). The WHERE guard makes it a no-op for active shows (and never touches
 // 'retired', the manual-only state). Best-effort: a failure here doesn't fail the
 // import (the janitor reconcile, PSY-1155, will correct lifecycle_state on its next run).
+//
+// PSY-1348: on a schedule-authoritative station (see scheduleAuthoritativeStations)
+// active means "on the current grid", not "aired recently" — so a fill-in's new
+// episode must NOT promote it (otherwise this path and the nightly janitor would
+// fight, flapping the show active↔dormant every day). The guard mirrors the
+// janitor's grid rule leg for leg: promote if on the scrape-maintained grid, if
+// code-less (NULL/empty external_id — the grid can't speak for rows the scrape can't
+// match, same exemption as the grid demote), or if on a recency-semantics station.
+// schedule_locked shows on authoritative stations keep the admin-set lifecycle.
 func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 	if err := s.db.Model(&catalogm.RadioShow{}).
 		Where("id = ? AND lifecycle_state = ?", showID, catalogm.RadioLifecycleDormant).
+		Where("("+radioShowOnGridSQL+") OR "+radioShowCodelessSQL+" OR station_id NOT IN (?)",
+			s.scheduleAuthoritativeStations()).
 		Updates(map[string]any{
 			"lifecycle_state": catalogm.RadioLifecycleActive,
 			"updated_at":      now,
