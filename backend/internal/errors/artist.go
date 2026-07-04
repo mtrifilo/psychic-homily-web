@@ -17,6 +17,9 @@ const (
 	CodeArtistAliasNotFound = "ARTIST_ALIAS_NOT_FOUND"
 	// CodeArtistMergeSelf indicates an attempt to merge an artist into itself.
 	CodeArtistMergeSelf = "ARTIST_MERGE_SELF"
+	// CodeArtistRelationshipNotFound indicates no connection (stored or
+	// query-time) exists between the artist pair.
+	CodeArtistRelationshipNotFound = "ARTIST_RELATIONSHIP_NOT_FOUND"
 )
 
 // ArtistError represents an artist-related error with additional context.
@@ -81,6 +84,14 @@ func ErrArtistAliasNotFound() *ArtistError {
 	return &ArtistError{
 		Code:    CodeArtistAliasNotFound,
 		Message: "alias not found",
+	}
+}
+
+// ErrArtistRelationshipNotFound creates a no-relationship-between-pair error.
+func ErrArtistRelationshipNotFound() *ArtistError {
+	return &ArtistError{
+		Code:    CodeArtistRelationshipNotFound,
+		Message: "No relationship found between these artists",
 	}
 }
 

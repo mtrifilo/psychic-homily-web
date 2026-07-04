@@ -141,3 +141,31 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetOrCreateSceneID_UpgradesFa
 	suite.db.Model(&catalogm.Scene{}).Count(&count)
 	suite.Equal(int64(1), count)
 }
+
+func (suite *SceneServiceIntegrationTestSuite) TestSceneNotifyMode_RoundTrip() {
+	suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
+	user := &authm.User{}
+	suite.Require().NoError(suite.db.Create(user).Error)
+	sceneID, err := suite.sceneService.GetOrCreateSceneID("phoenix-az")
+	suite.Require().NoError(err)
+
+	follows := engagement.NewFollowService(suite.db)
+
+	// Configuring a mode without a follow is an error, not a silent no-op.
+	suite.Error(follows.SetSceneNotifyMode(user.ID, sceneID, engagement.SceneNotifyModeFollowedBands))
+
+	suite.Require().NoError(follows.Follow(user.ID, "scene", sceneID))
+
+	// Default (absent settings) reads as "all".
+	mode, err := follows.SceneNotifyMode(user.ID, sceneID)
+	suite.Require().NoError(err)
+	suite.Equal(engagement.SceneNotifyModeAll, mode)
+
+	suite.Require().NoError(follows.SetSceneNotifyMode(user.ID, sceneID, engagement.SceneNotifyModeFollowedBands))
+	mode, err = follows.SceneNotifyMode(user.ID, sceneID)
+	suite.Require().NoError(err)
+	suite.Equal(engagement.SceneNotifyModeFollowedBands, mode)
+
+	// Invalid mode rejected.
+	suite.Error(follows.SetSceneNotifyMode(user.ID, sceneID, "hourly"))
+}

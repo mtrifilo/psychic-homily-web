@@ -168,6 +168,8 @@ func (s *NotificationFilterSuite) TearDownTest() {
 	// Clean up test data between tests
 	s.db.Exec("DELETE FROM notification_log")
 	s.db.Exec("DELETE FROM notification_filters")
+	s.db.Exec("DELETE FROM user_bookmarks")
+	s.db.Exec("DELETE FROM scenes")
 	s.db.Exec("DELETE FROM show_artists")
 	s.db.Exec("DELETE FROM show_venues")
 	s.db.Exec("DELETE FROM shows")

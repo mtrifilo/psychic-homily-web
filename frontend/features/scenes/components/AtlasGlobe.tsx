@@ -21,6 +21,8 @@ import {
 } from './globeTypes'
 import { pickDriftScene } from './drift'
 import { AtlasSearch } from './AtlasSearch'
+import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
+import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 
@@ -78,6 +80,19 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
   const allScenes = data?.scenes ?? EMPTY_SCENES
+
+  // Followed scenes (PSY-1340): tint their dots + star the mobile rows. The
+  // hook is auth-gated, so logged-out visitors cost no request. Memoized to a
+  // Set so the GlobeCanvas color accessor's identity only changes when the
+  // follow list actually does.
+  const { data: myScenes } = useMyFollowing({
+    type: 'scene',
+    limit: MY_SCENES_FETCH_LIMIT, // same key as MyScenesStrip → one request
+  })
+  const followedSlugs = useMemo(() => {
+    const follows = myScenes?.following ?? []
+    return follows.length > 0 ? new Set(follows.map((f) => f.slug)) : null
+  }, [myScenes])
   // Memoize so the points/labels array reference is stable until the data
   // actually changes — react-globe.gl diffs pointsData by reference and would
   // otherwise rebuild the three.js geometry on every click/resize render.
@@ -202,7 +217,13 @@ export function AtlasGlobe() {
       <CenterMessage>The atlas couldn’t load. Try again shortly.</CenterMessage>
     )
   } else if (isMobile) {
-    content = <MobileSceneList scenes={allScenes} loading={isLoading} />
+    content = (
+      <MobileSceneList
+        scenes={allScenes}
+        loading={isLoading}
+        followedSlugs={followedSlugs}
+      />
+    )
   } else if (size !== null && placeable.length > 0 && pov !== null) {
     content = (
       <>
@@ -214,6 +235,7 @@ export function AtlasGlobe() {
           onSelect={setSelected}
           selected={selected}
           flyToRef={flyToRef}
+          followedSlugs={followedSlugs}
         />
         <button
           type="button"
@@ -228,6 +250,7 @@ export function AtlasGlobe() {
           onPick={handleSearchPick}
           triggerRef={searchTriggerRef}
         />
+        <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"

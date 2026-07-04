@@ -180,7 +180,7 @@ func MapArtistError(err error) error {
 	var artistErr *apperrors.ArtistError
 	if errors.As(err, &artistErr) {
 		switch artistErr.Code {
-		case apperrors.CodeArtistNotFound, apperrors.CodeArtistAliasNotFound:
+		case apperrors.CodeArtistNotFound, apperrors.CodeArtistAliasNotFound, apperrors.CodeArtistRelationshipNotFound:
 			return huma.Error404NotFound(artistErr.Message)
 		case apperrors.CodeArtistExists, apperrors.CodeArtistAliasExists, apperrors.CodeArtistHasShows:
 			return huma.Error409Conflict(artistErr.Message)

@@ -180,18 +180,19 @@ func (m *MockAnalyticsService) GetDataQualityTrends(months int) (*contracts.Data
 // ============================================================================
 
 type MockArtistRelationshipService struct {
-	CreateRelationshipFn       func(uint, uint, string, bool) (*catalogm.ArtistRelationship, error)
-	GetRelationshipFn          func(uint, uint, string) (*catalogm.ArtistRelationship, error)
-	GetRelatedArtistsFn        func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
-	DeleteRelationshipFn       func(uint, uint, string) error
-	GetArtistGraphFn           func(uint, []string, uint) (*contracts.ArtistGraph, error)
-	GetArtistBillCompositionFn func(uint, int) (*contracts.ArtistBillComposition, error)
-	CountRelationshipsByTypeFn func(uint) (map[string]int, error)
-	VoteFn                     func(uint, uint, string, uint, bool) error
-	RemoveVoteFn               func(uint, uint, string, uint) error
-	GetUserVoteFn              func(uint, uint, string, uint) (*catalogm.ArtistRelationshipVote, error)
-	DeriveSharedBillsFn        func(int) (int64, error)
-	DeriveSharedLabelsFn       func(int) (int64, error)
+	CreateRelationshipFn        func(uint, uint, string, bool) (*catalogm.ArtistRelationship, error)
+	GetRelationshipFn           func(uint, uint, string) (*catalogm.ArtistRelationship, error)
+	GetRelatedArtistsFn         func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
+	DeleteRelationshipFn        func(uint, uint, string) error
+	GetArtistGraphFn            func(uint, []string, uint) (*contracts.ArtistGraph, error)
+	GetArtistBillCompositionFn  func(uint, int) (*contracts.ArtistBillComposition, error)
+	CountRelationshipsByTypeFn  func(uint) (map[string]int, error)
+	GetRelationshipProvenanceFn func(uint, uint) (*contracts.RelationshipProvenance, error)
+	VoteFn                      func(uint, uint, string, uint, bool) error
+	RemoveVoteFn                func(uint, uint, string, uint) error
+	GetUserVoteFn               func(uint, uint, string, uint) (*catalogm.ArtistRelationshipVote, error)
+	DeriveSharedBillsFn         func(int) (int64, error)
+	DeriveSharedLabelsFn        func(int) (int64, error)
 }
 
 func (m *MockArtistRelationshipService) CreateRelationship(sourceID uint, targetID uint, relType string, autoDerived bool) (*catalogm.ArtistRelationship, error) {
@@ -233,6 +234,12 @@ func (m *MockArtistRelationshipService) GetArtistBillComposition(artistID uint, 
 func (m *MockArtistRelationshipService) CountRelationshipsByType(artistID uint) (map[string]int, error) {
 	if m.CountRelationshipsByTypeFn != nil {
 		return m.CountRelationshipsByTypeFn(artistID)
+	}
+	return nil, nil
+}
+func (m *MockArtistRelationshipService) GetRelationshipProvenance(artistA uint, artistB uint) (*contracts.RelationshipProvenance, error) {
+	if m.GetRelationshipProvenanceFn != nil {
+		return m.GetRelationshipProvenanceFn(artistA, artistB)
 	}
 	return nil, nil
 }
@@ -1983,6 +1990,8 @@ type MockFollowService struct {
 	UnfollowFn               func(uint, string, uint) error
 	IsFollowingFn            func(uint, string, uint) (bool, error)
 	GetFollowerCountFn       func(string, uint) (int64, error)
+	SetSceneNotifyModeFn     func(uint, uint, string) error
+	SceneNotifyModeFn        func(uint, uint) (string, error)
 	GetBatchFollowerCountsFn func(string, []uint) (map[uint]int64, error)
 	GetBatchUserFollowingFn  func(uint, string, []uint) (map[uint]bool, error)
 	GetUserFollowingFn       func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
@@ -2012,6 +2021,18 @@ func (m *MockFollowService) GetFollowerCount(entityType string, entityID uint) (
 		return m.GetFollowerCountFn(entityType, entityID)
 	}
 	return 0, nil
+}
+func (m *MockFollowService) SetSceneNotifyMode(userID uint, sceneID uint, mode string) error {
+	if m.SetSceneNotifyModeFn != nil {
+		return m.SetSceneNotifyModeFn(userID, sceneID, mode)
+	}
+	return nil
+}
+func (m *MockFollowService) SceneNotifyMode(userID uint, sceneID uint) (string, error) {
+	if m.SceneNotifyModeFn != nil {
+		return m.SceneNotifyModeFn(userID, sceneID)
+	}
+	return "", nil
 }
 func (m *MockFollowService) GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error) {
 	if m.GetBatchFollowerCountsFn != nil {

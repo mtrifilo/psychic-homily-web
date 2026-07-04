@@ -13,6 +13,16 @@ import type {
 // children). Mock the data hooks and the two child components so this test
 // covers the view's own composition without dragging in the canvas.
 
+// FollowButton pulls AuthContext (unavailable here) — mock at the module
+// boundary, same idiom as VenueDetail/LabelDetail tests.
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number | string }) => (
+    <button data-testid="follow-button">
+      Follow {entityType} {String(entityId)}
+    </button>
+  ),
+}))
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -123,10 +133,11 @@ describe('SceneDetailView', () => {
       const heading = screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
       expect(heading).toBeInTheDocument()
 
-      // The stat summary is the single `<p>` directly after the heading; the
+      // The stat summary is the single `<p>` directly after the heading ROW
+      // (the h1 shares a flex row with the follow button since PSY-1340); the
       // venue/artist/show counts also appear in the cards below, so match the
       // whole joined line rather than substrings.
-      const summary = heading.nextElementSibling as HTMLElement
+      const summary = heading.closest('div')!.nextElementSibling as HTMLElement
       const sep = ' · ' // statParts.join separator
       expect(summary.textContent).toBe(
         ['12 venues', '85 artists', '45 upcoming shows'].join(sep)

@@ -128,6 +128,44 @@ func splitAndTrim(s string) []string {
 }
 
 // ============================================================================
+// Get Relationship Provenance (public, PSY-1335)
+// ============================================================================
+
+type GetRelationshipProvenanceRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"1"`
+	OtherID  string `path:"other_id" doc:"The other artist in the pair" example:"2"`
+}
+
+type GetRelationshipProvenanceResponse struct {
+	Body contracts.RelationshipProvenance
+}
+
+// GetRelationshipProvenanceHandler returns every typed connection between the
+// artist pair with the resolvable entities behind each claim (shared shows,
+// labels, festivals, stations). 404 when either artist is unknown or the pair
+// has no connection of any type.
+func (h *ArtistRelationshipHandler) GetRelationshipProvenanceHandler(ctx context.Context, req *GetRelationshipProvenanceRequest) (*GetRelationshipProvenanceResponse, error) {
+	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+	otherID, err := strconv.ParseUint(req.OtherID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	provenance, err := h.relService.GetRelationshipProvenance(uint(artistID), uint(otherID))
+	if err != nil {
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to get relationship provenance")
+	}
+
+	return &GetRelationshipProvenanceResponse{Body: *provenance}, nil
+}
+
+// ============================================================================
 // Get Related Artists (optional auth)
 // ============================================================================
 

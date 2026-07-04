@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import { FollowButton } from '@/components/shared/FollowButton'
+import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { useSceneArtists, useSceneShows } from '../hooks'
 import type { SceneListItem, SceneShowSummary } from '../types'
 
@@ -81,6 +83,13 @@ export function ScenePreviewContent({
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
+      {/* Follow-a-scene (PSY-1340) — in the shared body so the desktop panel
+          and the mobile accordion rows carry the same affordance. Scenes are
+          slug-addressed (PSY-1339). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <FollowButton entityType="scenes" entityId={scene.slug} compact />
+        <SceneNotifyModeToggle slug={scene.slug} />
+      </div>
       {embedArtist && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

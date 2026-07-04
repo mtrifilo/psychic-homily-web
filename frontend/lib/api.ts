@@ -400,7 +400,7 @@ export const API_ENDPOINTS = {
     // (PSY-1339 — same route shape, slug-addressed).
     ENTITY: (entityType: string, entityId: number | string) =>
       `${API_BASE_URL}/${entityType}/${entityId}/follow`,
-    FOLLOWERS: (entityType: string, entityId: number) =>
+    FOLLOWERS: (entityType: string, entityId: number | string) =>
       `${API_BASE_URL}/${entityType}/${entityId}/followers`,
     FOLLOWERS_LIST: (entityType: string, entityId: number) =>
       `${API_BASE_URL}/${entityType}/${entityId}/followers/list`,

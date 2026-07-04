@@ -68,9 +68,11 @@ const DefaultBackfillLookbackDays = 7
 // stragglers (PSY-1155). RADIO_JANITOR_INTERVAL_HOURS=0 disables the whole cycle.
 const DefaultJanitorInterval = 24 * time.Hour
 
-// Default dormancy window (30 days). A show with no episode aired in this window is
-// marked 'dormant' (inactive/historical, still browsable); a show that aired within
-// it is 'active'. Owner decision (2026-06-21). Env: RADIO_JANITOR_DORMANT_DAYS.
+// Default dormancy window (30 days) for recency-semantics stations only: a show with
+// no episode aired in this window is marked 'dormant' (inactive/historical, still
+// browsable); a show that aired within it is 'active'. Schedule-authoritative
+// (WFMU-family) stations ignore it — they reconcile by grid membership (PSY-1348).
+// Owner decision (2026-06-21). Env: RADIO_JANITOR_DORMANT_DAYS.
 const DefaultJanitorDormantDays = 30
 
 // Default janitor backfill straggler lookback (30 days) — wider than the hourly
@@ -250,7 +252,8 @@ type RadioFetchService struct {
 	backfillLookbackDays int
 
 	// janitor* drive the nightly reconcile cycle (PSY-1155): lifecycle (active↔dormant
-	// by janitorDormantDays of episode idle), play_count drift, and a wider-lookback
+	// by grid membership on schedule-authoritative stations, by janitorDormantDays of
+	// episode idle elsewhere — PSY-1348), play_count drift, and a wider-lookback
 	// (janitorBackfillLookbackDays) backfill straggler sweep. janitorEnabled == false
 	// (RADIO_JANITOR_INTERVAL_HOURS=0) disables the whole cycle (no goroutine started).
 	janitorEnabled              bool
@@ -1379,7 +1382,8 @@ func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSwe
 
 // runJanitorCycle is the nightly reconcile (PSY-1155). Three independent steps, each
 // guarded so one failure doesn't abort the others:
-//  1. lifecycle reconcile — active↔dormant by episode idle (the active/historical split);
+//  1. lifecycle reconcile — active↔dormant by grid membership on schedule-authoritative
+//     stations, by episode idle elsewhere (PSY-1348; the active/historical split);
 //  2. play_count reconcile — correct denormalized counts against radio_plays;
 //  3. backfill straggler sweep — a wider-lookback pass for aired incomplete episodes the
 //     hourly post-air sweep missed.

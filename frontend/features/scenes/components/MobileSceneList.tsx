@@ -18,9 +18,12 @@ import type { SceneListItem } from '../types'
 export function MobileSceneList({
   scenes,
   loading,
+  followedSlugs = null,
 }: {
   scenes: SceneListItem[]
   loading: boolean
+  /** Slugs of scenes the viewer follows (PSY-1340) — starred in the list. */
+  followedSlugs?: ReadonlySet<string> | null
 }) {
   // One row open at a time: the payoff includes an audio embed, and stacking
   // several players in one scroll column is noise, not discovery.
@@ -78,6 +81,15 @@ export function MobileSceneList({
                     className="flex w-full items-center justify-between gap-3 py-3 text-left"
                   >
                     <span className="font-medium">
+                      {followedSlugs?.has(s.slug) && (
+                        <span
+                          aria-label="Followed scene"
+                          role="img"
+                          className="mr-1.5 text-primary"
+                        >
+                          ★
+                        </span>
+                      )}
                       {s.city}, {s.state}
                     </span>
                     {/* Both headline counts, matching the desktop panel's
