@@ -70,6 +70,7 @@ type RadioUnmatchedManager interface {
 	GetUnmatchedPlays(stationID uint, limit, offset int) ([]*contracts.UnmatchedPlayGroup, int64, error)
 	LinkPlay(playID uint, req *contracts.LinkPlayRequest) error
 	BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error)
+	ReMatchUnmatchedWithFilter(req *contracts.ReMatchRequest) (*contracts.MatchResult, error)
 }
 
 // RadioStationWriter writes radio stations (admin endpoints).
@@ -1608,6 +1609,75 @@ func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *Admin
 	)
 
 	return &AdminBulkLinkPlaysResponse{Body: result}, nil
+}
+
+// ============================================================================
+// Admin: Rematch Unmatched Plays
+// ============================================================================
+
+// AdminReMatchPlaysRequest represents the request for rematching radio plays.
+type AdminReMatchPlaysRequest struct {
+	Body struct {
+		ArtistName string `json:"artist_name,omitempty" doc:"Optional: rematch only this artist_name" example:"Boy Harsher"`
+		LabelName  string `json:"label_name,omitempty" doc:"Optional: rematch only this label_name" example:"Sacred Bones"`
+	}
+}
+
+// AdminReMatchPlaysResponse represents the response for rematching radio plays.
+type AdminReMatchPlaysResponse struct {
+	Body *contracts.MatchResult
+}
+
+// AdminReMatchPlaysHandler handles POST /admin/radio/rematch
+func (h *RadioHandler) AdminReMatchPlaysHandler(ctx context.Context, req *AdminReMatchPlaysRequest) (*AdminReMatchPlaysResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+	user := middleware.GetUserFromContext(ctx)
+
+	if req.Body.ArtistName != "" && req.Body.LabelName != "" {
+		return nil, huma.Error422UnprocessableEntity("provide artist_name or label_name, not both")
+	}
+
+	rematchReq := &contracts.ReMatchRequest{
+		ArtistName: req.Body.ArtistName,
+		LabelName:  req.Body.LabelName,
+	}
+
+	result, err := h.unmatchedManager.ReMatchUnmatchedWithFilter(rematchReq)
+	if err != nil {
+		logger.FromContext(ctx).Error("rematch_radio_plays_failed",
+			"artist_name", req.Body.ArtistName,
+			"label_name", req.Body.LabelName,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to rematch radio plays (request_id: %s)", requestID),
+		)
+	}
+
+	if h.auditLogService != nil {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "rematch_radio_plays", "radio_play", 0, map[string]interface{}{
+				"artist_name": req.Body.ArtistName,
+				"label_name":  req.Body.LabelName,
+				"total":       result.Total,
+				"matched":     result.Matched,
+				"unmatched":   result.Unmatched,
+			})
+		})
+	}
+
+	logger.FromContext(ctx).Info("rematch_radio_plays_complete",
+		"artist_name", req.Body.ArtistName,
+		"label_name", req.Body.LabelName,
+		"total", result.Total,
+		"matched", result.Matched,
+		"unmatched", result.Unmatched,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminReMatchPlaysResponse{Body: result}, nil
 }
 
 // ============================================================================

@@ -128,6 +128,11 @@ func (m *RadioMatchingEngine) MatchPlaysForEpisode(episodeID uint) (*contracts.M
 		return nil, fmt.Errorf("loading unmatched plays: %w", err)
 	}
 
+	return m.matchPlays(plays)
+}
+
+// matchPlays runs the matcher over a pre-loaded slice of plays.
+func (m *RadioMatchingEngine) matchPlays(plays []catalogm.RadioPlay) (*contracts.MatchResult, error) {
 	result := &contracts.MatchResult{
 		Total: len(plays),
 	}
@@ -147,6 +152,52 @@ func (m *RadioMatchingEngine) MatchPlaysForEpisode(episodeID uint) (*contracts.M
 	return result, nil
 }
 
+// MatchUnmatchedPlaysForArtistName rematches only unmatched plays whose
+// artist_name normalizes to the given name (same predicate as matchArtist).
+func (m *RadioMatchingEngine) MatchUnmatchedPlaysForArtistName(name string) (*contracts.MatchResult, error) {
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	normalized := normalizeName(name)
+	if normalized == "" {
+		return &contracts.MatchResult{}, nil
+	}
+
+	var plays []catalogm.RadioPlay
+	err := m.db.Where(
+		"artist_id IS NULL AND immutable_unaccent(LOWER(artist_name)) = immutable_unaccent(LOWER(?))",
+		normalized,
+	).Find(&plays).Error
+	if err != nil {
+		return nil, fmt.Errorf("loading unmatched plays for artist %q: %w", name, err)
+	}
+
+	return m.matchPlays(plays)
+}
+
+// MatchUnmatchedPlaysForLabelName rematches only unmatched plays whose
+// label_name normalizes to the given name (same predicate as matchLabel).
+func (m *RadioMatchingEngine) MatchUnmatchedPlaysForLabelName(name string) (*contracts.MatchResult, error) {
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	normalized := normalizeName(name)
+	if normalized == "" {
+		return &contracts.MatchResult{}, nil
+	}
+
+	var plays []catalogm.RadioPlay
+	err := m.db.Where(
+		"label_id IS NULL AND label_name IS NOT NULL AND immutable_unaccent(LOWER(label_name)) = immutable_unaccent(LOWER(?))",
+		normalized,
+	).Find(&plays).Error
+	if err != nil {
+		return nil, fmt.Errorf("loading unmatched plays for label %q: %w", name, err)
+	}
+
+	return m.matchPlays(plays)
+}
+
 // MatchAllUnmatched runs the matching engine on all unmatched plays in the database.
 func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error) {
 	if m.db == nil {
@@ -159,23 +210,7 @@ func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error
 		return nil, fmt.Errorf("loading unmatched plays: %w", err)
 	}
 
-	result := &contracts.MatchResult{
-		Total: len(plays),
-	}
-
-	for i := range plays {
-		matched, persistErr := m.matchPlayWithErr(&plays[i])
-		if matched {
-			result.Matched++
-		} else {
-			result.Unmatched++
-		}
-		if persistErr != nil {
-			result.PersistErrors++
-		}
-	}
-
-	return result, nil
+	return m.matchPlays(plays)
 }
 
 // matchPlay attempts to match a single play to entities in our knowledge graph.
@@ -231,14 +266,21 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 }
 
 // matchArtist tries to match an artist name to our knowledge graph.
-// Priority: MusicBrainz ID → exact name → alias match.
+// Priority: MusicBrainz ID → exact name → alias match → collab split (PSY-1353).
 func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
 	if id := m.matchArtistByMBID(mbID); id != nil {
 		return id
 	}
 
-	// Exact name match (diacritic- and case-insensitive).
-	// Uses the `idx_artists_name_unaccent_lower` expression index (PSY-886).
+	if id := m.matchArtistByNameOrAlias(name); id != nil {
+		return id
+	}
+	return m.matchArtistByCollabParts(name)
+}
+
+// matchArtistByNameOrAlias matches a single artist credit by exact normalized name
+// or alias. Does not split collab strings.
+func (m *RadioMatchingEngine) matchArtistByNameOrAlias(name string) *uint {
 	normalized := normalizeName(name)
 	if normalized == "" {
 		return nil
@@ -249,7 +291,6 @@ func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
 		return &artist.ID
 	}
 
-	// Alias match (diacritic- and case-insensitive).
 	var alias catalogm.ArtistAlias
 	if err := m.db.Where("immutable_unaccent(LOWER(alias)) = immutable_unaccent(LOWER(?))", normalized).First(&alias).Error; err == nil {
 		return &alias.ArtistID
@@ -273,6 +314,36 @@ func (m *RadioMatchingEngine) matchArtistByMBID(mbID *string) *uint {
 		return &artist.ID
 	}
 	return nil
+}
+
+// matchArtistByCollabParts splits WFMU-style collab credits and links when
+// exactly one segment resolves to an artist. When multiple distinct artists
+// match, the play stays unmatched (true duet billing — no guess).
+func (m *RadioMatchingEngine) matchArtistByCollabParts(name string) *uint {
+	parts := splitCollabArtistName(name)
+	if len(parts) < 2 {
+		return nil
+	}
+
+	var matched []uint
+	for _, part := range parts {
+		if id := m.matchArtistByNameOrAlias(part); id != nil {
+			matched = appendUniqueUint(matched, *id)
+		}
+	}
+	if len(matched) != 1 {
+		return nil
+	}
+	return &matched[0]
+}
+
+func appendUniqueUint(ids []uint, id uint) []uint {
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
 }
 
 // matchRelease tries to match a release by MusicBrainz ID or exact title.

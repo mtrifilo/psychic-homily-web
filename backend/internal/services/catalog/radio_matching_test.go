@@ -597,4 +597,79 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_ByMusicBrainzID(
 	suite.Equal(artist.ID, *reloaded.ArtistID)
 }
 
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchUnmatchedPlaysForArtistName_TargetsNameOnly() {
+	episodeID := suite.createStationShowEpisode()
+	suite.createPlay(episodeID, 1, "Metric", nil, nil)
+	suite.createPlay(episodeID, 2, "Pixel Grip", nil, nil)
+	suite.createArtist("Metric")
+
+	result, err := suite.engine.MatchUnmatchedPlaysForArtistName("Metric")
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Total)
+	suite.Equal(1, result.Matched)
+
+	var metricPlay catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("artist_name = ?", "Metric").First(&metricPlay).Error)
+	suite.Require().NotNil(metricPlay.ArtistID)
+
+	var pixelPlay catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("artist_name = ?", "Pixel Grip").First(&pixelPlay).Error)
+	suite.Nil(pixelPlay.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchUnmatchedPlaysForArtistName_ResolvesAlias() {
+	artist := suite.createArtist("World's Worst")
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistAlias{
+		ArtistID: artist.ID,
+		Alias:    "Worlds Worst",
+	}).Error)
+
+	episodeID := suite.createStationShowEpisode()
+	suite.createPlay(episodeID, 1, "Worlds Worst", nil, nil)
+
+	result, err := suite.engine.MatchUnmatchedPlaysForArtistName("Worlds Worst")
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Total)
+	suite.Equal(1, result.Matched)
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.Where("artist_name = ?", "Worlds Worst").First(&reloaded).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(artist.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabSinglePartResolves() {
+	winter := suite.createArtist("Winter")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "zzzahara, Winter", nil, nil)
+
+	suite.True(suite.engine.matchPlay(play))
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(winter.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabAmbiguousWhenBothMatch() {
+	suite.createArtist("Astrid Sonne")
+	suite.createArtist("Smerz")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Astrid Sonne, Smerz", nil, nil)
+
+	suite.False(suite.engine.matchPlay(play))
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Nil(reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabSkipsCommaAmpersandAct() {
+	suite.createArtist("Earth")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Earth, Wind & Fire", nil, nil)
+
+	suite.False(suite.engine.matchPlay(play))
+}
+
 func strPtr(s string) *string { return &s }

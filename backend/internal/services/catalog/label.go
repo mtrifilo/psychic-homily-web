@@ -77,6 +77,8 @@ func (s *LabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contract
 		return nil, fmt.Errorf("failed to create label: %w", err)
 	}
 
+	shared.NotifyRadioLabelNameRematch(label.Name)
+
 	return s.GetLabel(label.ID)
 }
 
