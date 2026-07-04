@@ -67,6 +67,14 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
     useArtistGraphCard(opts),
 }))
 
+// Geo default (PSY-1346) — mock so the default-scene pick is deterministic.
+// Default: settled with no geo → liveliest scene, the pre-PSY-1346 behavior
+// every existing test relies on. Geo-specific tests override the return.
+const useGeoDefaultScene = vi.fn()
+vi.mock('../hooks/useGeoDefaultScene', () => ({
+  useGeoDefaultScene: () => useGeoDefaultScene(),
+}))
+
 function scene(overrides: Partial<SceneListItem> & { slug: string }): SceneListItem {
   return {
     city: 'Phoenix',
@@ -138,6 +146,9 @@ beforeEach(() => {
   useScenes.mockReset().mockReturnValue({ data: { scenes: SCENES, count: SCENES.length }, isLoading: false, isError: false })
   useSceneGraph.mockReset().mockReturnValue({ data: GRAPH, isLoading: false, isError: false })
   useArtistGraphCard.mockReset().mockReturnValue({ data: undefined, isError: false })
+  useGeoDefaultScene
+    .mockReset()
+    .mockReturnValue({ suggestion: null, resolved: true })
   setContainerWidth(1024)
 })
 
@@ -160,6 +171,42 @@ describe('HomeSceneGraph', () => {
       'aria-label',
       expect.stringContaining('Knowledge graph of the Chicago scene: 2 artists'),
     )
+  })
+
+  it('defaults to the visitor’s own scene when geo matches one (PSY-1346)', async () => {
+    // Chicago is the liveliest, but a Phoenix visitor should land on Phoenix.
+    useGeoDefaultScene.mockReturnValue({
+      suggestion: { city: 'Phoenix', state: 'AZ' },
+      resolved: true,
+    })
+    render(<HomeSceneGraph />)
+    expect(
+      await screen.findByRole('heading', { name: 'The Phoenix scene, mapped' }),
+    ).toBeInTheDocument()
+  })
+
+  it('holds the skeleton (no scene) until geo resolves (PSY-1346)', () => {
+    // Unresolved geo → no default scene yet → the section shows its skeleton
+    // rather than rendering the liveliest scene and later swapping.
+    useGeoDefaultScene.mockReturnValue({ suggestion: null, resolved: false })
+    render(<HomeSceneGraph />)
+    expect(screen.queryByRole('heading', { name: /scene, mapped/i })).toBeNull()
+    expect(screen.queryByTestId('force-graph-view')).toBeNull()
+  })
+
+  it('lets "Surprise me" win over the geo default (PSY-1346)', async () => {
+    // Geo would default to Phoenix; a surprise rotation must still move off it.
+    useGeoDefaultScene.mockReturnValue({
+      suggestion: { city: 'Phoenix', state: 'AZ' },
+      resolved: true,
+    })
+    render(<HomeSceneGraph />)
+    await screen.findByRole('heading', { name: 'The Phoenix scene, mapped' })
+    fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
+    // Only one other scene exists, so the rotation is deterministic.
+    expect(
+      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+    ).toBeInTheDocument()
   })
 
   it('"Surprise me" rotates to another scene', async () => {

@@ -3,6 +3,8 @@
 // HomeSceneGraph.tsx.
 import { compareScenesByActivity } from '@/features/scenes/components/globeScale'
 import type { SceneListItem } from '@/features/scenes/types'
+import type { GeoLocation } from '@/lib/geo-default'
+import { matchByGeo } from '@/lib/geo-client'
 
 /**
  * Scene-selection rules for the homepage graph section (PSY-1344).
@@ -12,18 +14,37 @@ import type { SceneListItem } from '@/features/scenes/types'
  */
 
 /**
- * The section's default scene: the liveliest one, via the shared
- * `compareScenesByActivity` ordering (the same rule the atlas globe's
- * labels, search results, and mobile list use — surfaces must not
- * disagree about which scene is "first").
+ * The section's default scene.
  *
- * Geo-personalization (defaulting to the visitor's own scene) is
- * deliberately not attempted here — see PSY-1346.
+ * With a geo suggestion (the visitor's IP-derived `{city,state}`+coords from
+ * `/api/geo`, PSY-1346), prefer the visitor's OWN scene so a newcomer lands on
+ * their local graph — the same personalization Upcoming Shows already has. The
+ * match runs through the shared two-tier `matchByGeo` (exact city/state, else
+ * nearest scene by haversine over the scene centroids — PSY-981) so it agrees
+ * with the shows city default about what "the visitor's place" means. Falls
+ * back to the liveliest scene when geo is absent or matches nothing.
+ *
+ * The liveliest fallback uses the shared `compareScenesByActivity` ordering —
+ * the same rule the atlas globe's labels, search results, and mobile list use,
+ * so surfaces never disagree about which scene is "first".
+ *
+ * `geo` is a SUGGESTION only: the component keeps it overridable — a
+ * "Surprise me" pick (or any scene the visitor already selected) wins over it.
  */
 export function pickDefaultScene(
   scenes: readonly SceneListItem[],
+  geo?: GeoLocation | null,
 ): SceneListItem | null {
   if (scenes.length === 0) return null
+  if (geo) {
+    const local = matchByGeo(scenes, geo, {
+      city: s => s.city,
+      state: s => s.state,
+      lat: s => s.latitude,
+      lng: s => s.longitude,
+    })
+    if (local) return local
+  }
   return [...scenes].sort(compareScenesByActivity)[0]
 }
 

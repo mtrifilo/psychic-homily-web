@@ -52,6 +52,7 @@ import {
   pickDefaultScene,
   pickSurpriseScene,
 } from './homeSceneGraphScenes'
+import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
 
 const GRAPH_HEIGHT_PX = 560
 const INTERSECTION_ROOT_MARGIN = '200px'
@@ -177,7 +178,18 @@ function HomeSceneGraphSection() {
     () => scenesQuery.data?.scenes ?? [],
     [scenesQuery.data?.scenes],
   )
-  const defaultScene = useMemo(() => pickDefaultScene(scenes), [scenes])
+  // Geo-personalize the default (PSY-1346): a visitor in a scene-city lands on
+  // THEIR scene, not just the liveliest one. Hold the default (→ skeleton via
+  // the `!scene` guard below) until geo settles so the section picks — and
+  // fetches the graph for — the geo scene ONCE, with no liveliest→geo swap. A
+  // warm session cache settles synchronously (no skeleton beat); "Surprise me"
+  // still wins below.
+  const { suggestion: geoSuggestion, resolved: geoResolved } =
+    useGeoDefaultScene()
+  const defaultScene = useMemo(
+    () => (geoResolved ? pickDefaultScene(scenes, geoSuggestion) : null),
+    [scenes, geoSuggestion, geoResolved],
+  )
 
   // The user's "Surprise me" pick; null = the liveliest-scene default.
   const [surpriseSlug, setSurpriseSlug] = useState<string | null>(null)
