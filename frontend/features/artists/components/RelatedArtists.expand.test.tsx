@@ -14,12 +14,17 @@ import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 // data / expandedIds / expandingIds the orchestration produced.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let vizProps: any = null
-vi.mock('./ArtistGraph', () => ({
-  ArtistGraphVisualization: (props: Record<string, unknown>) => {
-    vizProps = props
-    return <div data-testid="viz" />
-  },
-}))
+vi.mock('./ArtistGraph', async () => {
+  const { createContext } = await import('react')
+  return {
+    ArtistGraphVisualization: (props: Record<string, unknown>) => {
+      vizProps = props
+      return <div data-testid="viz" />
+    },
+    // PSY-1351: ArtistGraphDialog wraps the graph in this context's Provider.
+    ConnectionPanelDismissContext: createContext(null),
+  }
+})
 
 // A controllable expand fetcher — each call parks a {id, resolve} we settle manually.
 const fetchCalls: Array<{ id: number; resolve: (g: ArtistGraph) => void; reject: (e?: unknown) => void }> = []

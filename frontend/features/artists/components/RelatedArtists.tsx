@@ -25,7 +25,7 @@ import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCrea
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { useReducedMotion } from '../hooks/useReducedMotion'
-import { ArtistGraphVisualization } from './ArtistGraph'
+import { ArtistGraphVisualization, ConnectionPanelDismissContext, type ConnectionPanelDismissHandle } from './ArtistGraph'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import {
@@ -329,6 +329,10 @@ export function ArtistGraphDialog({
   const [slugToIdCache, setSlugToIdCache] = useState<Record<string, number>>({})
   const [announcement, setAnnouncement] = useState('')
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
+  // PSY-1351: Escape-intercept handle for the ConnectionPanel that floats
+  // inside this dialog. ArtistGraphVisualization keeps it current; the
+  // onEscapeKeyDown below reads it (see the comment there).
+  const connectionDismissRef = useRef<ConnectionPanelDismissHandle | null>(null)
 
   // Same callback-ref + ResizeObserver pattern as the pre-PSY-645 inline
   // graph (PSY-519). Measures the DialogContent inner container.
@@ -355,7 +359,22 @@ export function ArtistGraphDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-auto">
+      <DialogContent
+        className="max-w-5xl max-h-[90vh] overflow-auto"
+        onEscapeKeyDown={e => {
+          // PSY-1351: the ConnectionPanel floats inside this dialog and can't
+          // win Escape against Radix's own capture-phase dismiss (Radix
+          // registers first, at open), so one Escape would close the panel AND
+          // the dialog. When a panel is open, close it here and swallow the key
+          // (preventDefault stops Radix's dismiss); the next Escape falls
+          // through and closes the dialog.
+          const dismiss = connectionDismissRef.current
+          if (dismiss?.isOpen) {
+            e.preventDefault()
+            dismiss.close()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Similar artists · {artistName}</DialogTitle>
         </DialogHeader>
@@ -372,20 +391,22 @@ export function ArtistGraphDialog({
         */}
         <div ref={containerRefCallback} className="min-w-0 w-full overflow-hidden">
           {containerWidth !== null && (
-            <RecenteringGraph
-              originalArtistId={artistId}
-              originalArtistSlug={artistSlug}
-              originalArtistName={artistName}
-              containerWidth={containerWidth}
-              activeTypes={activeTypes}
-              onToggleType={toggleType}
-              trail={trail}
-              setTrail={setTrail}
-              slugToIdCache={slugToIdCache}
-              setSlugToIdCache={setSlugToIdCache}
-              announcement={announcement}
-              setAnnouncement={setAnnouncement}
-            />
+            <ConnectionPanelDismissContext.Provider value={connectionDismissRef}>
+              <RecenteringGraph
+                originalArtistId={artistId}
+                originalArtistSlug={artistSlug}
+                originalArtistName={artistName}
+                containerWidth={containerWidth}
+                activeTypes={activeTypes}
+                onToggleType={toggleType}
+                trail={trail}
+                setTrail={setTrail}
+                slugToIdCache={slugToIdCache}
+                setSlugToIdCache={setSlugToIdCache}
+                announcement={announcement}
+                setAnnouncement={setAnnouncement}
+              />
+            </ConnectionPanelDismissContext.Provider>
           )}
         </div>
       </DialogContent>
