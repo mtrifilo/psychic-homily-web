@@ -179,16 +179,16 @@ function HomeSceneGraphSection() {
     [scenesQuery.data?.scenes],
   )
   // Geo-personalize the default (PSY-1346): a visitor in a scene-city lands on
-  // THEIR scene, not just the liveliest one. Hold the default (→ skeleton via
-  // the `!scene` guard below) until geo settles so the section picks — and
-  // fetches the graph for — the geo scene ONCE, with no liveliest→geo swap. A
-  // warm session cache settles synchronously (no skeleton beat); "Surprise me"
-  // still wins below.
-  const { suggestion: geoSuggestion, resolved: geoResolved } =
-    useGeoDefaultScene()
+  // THEIR scene, not just the liveliest one. Non-blocking (like the shows
+  // filter's useGeoDefaultCity): geo is null until it resolves, so the section
+  // shows its liveliest default immediately and swaps to the geo scene when the
+  // suggestion arrives — a warm session cache resolves synchronously, so the
+  // common case shows the geo scene from the first render with no swap.
+  // "Surprise me" still wins below.
+  const geoSuggestion = useGeoDefaultScene()
   const defaultScene = useMemo(
-    () => (geoResolved ? pickDefaultScene(scenes, geoSuggestion) : null),
-    [scenes, geoSuggestion, geoResolved],
+    () => pickDefaultScene(scenes, geoSuggestion),
+    [scenes, geoSuggestion],
   )
 
   // The user's "Surprise me" pick; null = the liveliest-scene default.

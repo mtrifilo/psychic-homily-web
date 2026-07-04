@@ -69,6 +69,29 @@ describe('pickDefaultScene', () => {
       ).toBe('phoenix-az')
     })
 
+    it('falls back to the liveliest scene when the matched scene has no upcoming shows', () => {
+      // The visitor's own scene is a match but inactive — the homepage must not
+      // open on a dead graph, so the liveliest (active) scene wins instead.
+      const withDeadLocal = [
+        scene({
+          slug: 'chicago-il',
+          city: 'Chicago',
+          state: 'IL',
+          upcoming_show_count: 17,
+        }),
+        scene({
+          slug: 'quietville-nv',
+          city: 'Quietville',
+          state: 'NV',
+          upcoming_show_count: 0,
+        }),
+      ]
+      expect(
+        pickDefaultScene(withDeadLocal, { city: 'Quietville', state: 'NV' })
+          ?.slug,
+      ).toBe('chicago-il')
+    })
+
     it('matches case- and whitespace-insensitively (Vercel spelling vs stored casing)', () => {
       expect(
         pickDefaultScene(scenes, { city: '  phoenix ', state: 'az' })?.slug,

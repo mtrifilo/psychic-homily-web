@@ -21,12 +21,18 @@ import { matchByGeo } from '@/lib/geo-client'
  * their local graph — the same personalization Upcoming Shows already has. The
  * match runs through the shared two-tier `matchByGeo` (exact city/state, else
  * nearest scene by haversine over the scene centroids — PSY-981) so it agrees
- * with the shows city default about what "the visitor's place" means. Falls
- * back to the liveliest scene when geo is absent or matches nothing.
+ * with the shows city default about what "the visitor's place" means.
  *
- * The liveliest fallback uses the shared `compareScenesByActivity` ordering —
- * the same rule the atlas globe's labels, search results, and mobile list use,
- * so surfaces never disagree about which scene is "first".
+ * The matched scene wins ONLY if it's active (`upcoming_show_count > 0`),
+ * mirroring `pickSurpriseScene`'s guard: the homepage graph is a newcomer's
+ * first impression, so it must not default onto a dead/empty scene when a
+ * lively one exists. (Activity is a venue-keyed proxy for liveliness, not a
+ * graph-density guarantee — the empty-graph fallback stays load-bearing for the
+ * residual case of an active scene with a sparse roster.) An inactive or absent
+ * match falls back to the liveliest scene via the shared
+ * `compareScenesByActivity` ordering — the same rule the atlas globe's labels,
+ * search results, and mobile list use, so surfaces never disagree about which
+ * scene is "first".
  *
  * `geo` is a SUGGESTION only: the component keeps it overridable — a
  * "Surprise me" pick (or any scene the visitor already selected) wins over it.
@@ -43,7 +49,7 @@ export function pickDefaultScene(
       lat: s => s.latitude,
       lng: s => s.longitude,
     })
-    if (local) return local
+    if (local && local.upcoming_show_count > 0) return local
   }
   return [...scenes].sort(compareScenesByActivity)[0]
 }

@@ -5,8 +5,11 @@
  * These live here — not inside a specific feature hook — so all client geo
  * consumers agree on ONE sessionStorage cache key and ONE response validator.
  * A homepage renders more than one geo consumer at once (the shows city filter
- * and the scene-graph default); sharing the cache means the visit makes at most
- * one `/api/geo` request regardless of how many consumers mount.
+ * and the scene-graph default); sharing the cache means that once one consumer
+ * has warmed the cache this session, the others read it instead of re-fetching.
+ * (This is a shared cache, NOT a single-flight lock: on a cold cache, consumers
+ * that mount before any write lands can each fire `/api/geo` once — an extra
+ * idempotent edge hit, not a correctness issue.)
  *
  * Client-safe by construction: unlike `lib/geo-default.ts` (which imports
  * `next/headers` for the server read path), nothing here touches server-only
@@ -21,29 +24,32 @@ export const GEO_CACHE_KEY = 'ph-geo-default-city'
 
 /**
  * Narrow an arbitrary parsed value to a `GeoLocation` (two non-empty string
- * halves + optional finite coords), else null. Defensive: the route handler /
+ * halves + optional in-range coords), else null. Defensive: the route handler /
  * cache always emits this shape, but a malformed value (corrupted
  * sessionStorage, a future route-handler change) must not reach the consumers,
- * where `.trim()` on a non-string would throw mid-render or a non-finite coord
- * would corrupt a haversine pick.
+ * where `.trim()` on a non-string would throw mid-render or a bad coord would
+ * corrupt a haversine pick.
  *
- * The coords are attached only when BOTH are finite numbers; a partial/garbage
- * pair is dropped so the nearest-by-distance path never sees a half-coordinate.
+ * The coords are attached only when BOTH are finite AND within valid
+ * latitude/longitude range — mirroring the server-side `parseCoordinate`
+ * (`lib/geo-default.ts`) so the cache-restore path is as strict as the
+ * header-decode path. A partial/out-of-range/garbage pair is dropped so the
+ * nearest-by-distance path never sees a half- or absurd coordinate.
  */
 export function toGeoLocation(value: unknown): GeoLocation | null {
   if (typeof value !== 'object' || value === null) return null
   const { city, state, latitude, longitude } = value as Record<string, unknown>
   if (typeof city !== 'string' || typeof state !== 'string') return null
   if (city.trim() === '' || state.trim() === '') return null
-  if (
-    typeof latitude === 'number' &&
-    Number.isFinite(latitude) &&
-    typeof longitude === 'number' &&
-    Number.isFinite(longitude)
-  ) {
+  if (isCoordinate(latitude, 90) && isCoordinate(longitude, 180)) {
     return { city, state, latitude, longitude }
   }
   return { city, state }
+}
+
+/** A finite number within ±`max` degrees — the valid range for a coordinate. */
+function isCoordinate(value: unknown, max: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= -max && value <= max
 }
 
 /** Field accessors letting `matchByGeo` work over any item shape. */
