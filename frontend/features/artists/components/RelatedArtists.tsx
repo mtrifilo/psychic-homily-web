@@ -25,7 +25,7 @@ import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCrea
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { useReducedMotion } from '../hooks/useReducedMotion'
-import { ArtistGraphVisualization, ConnectionPanelDismissContext, type ConnectionPanelDismissHandle } from './ArtistGraph'
+import { ArtistGraphVisualization, ConnectionPanelDismissContext, dismissConnectionPanelOnEscape, type ConnectionPanelDismissHandle } from './ArtistGraph'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import {
@@ -365,14 +365,9 @@ export function ArtistGraphDialog({
           // PSY-1351: the ConnectionPanel floats inside this dialog and can't
           // win Escape against Radix's own capture-phase dismiss (Radix
           // registers first, at open), so one Escape would close the panel AND
-          // the dialog. When a panel is open, close it here and swallow the key
-          // (preventDefault stops Radix's dismiss); the next Escape falls
-          // through and closes the dialog.
-          const dismiss = connectionDismissRef.current
-          if (dismiss?.isOpen) {
-            e.preventDefault()
-            dismiss.close()
-          }
+          // the dialog. Close an open panel here and swallow the key; the next
+          // Escape falls through and closes the dialog. Shared with the test.
+          dismissConnectionPanelOnEscape(connectionDismissRef, e)
         }}
       >
         <DialogHeader>

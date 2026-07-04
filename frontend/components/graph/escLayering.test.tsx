@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useEffect, useRef, useState } from 'react'
 import { render, fireEvent, screen } from '@testing-library/react'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import {
+  dismissConnectionPanelOnEscape,
+  type ConnectionPanelDismissHandle,
+} from '@/features/artists/components/ArtistGraph'
 import { ArtistContextPanel } from './ArtistContextPanel'
 import { ConnectionPanel } from './ConnectionPanel'
 
@@ -68,7 +72,7 @@ describe('graph panel Esc layering', () => {
 // from a broken one that skips in-dialog targets.
 describe('ConnectionPanel inside a Radix Dialog (ego graph, PSY-1351)', () => {
   function EgoDialogHarness({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
-    const dismissRef = useRef<{ isOpen: boolean; close: () => void } | null>(null)
+    const dismissRef = useRef<ConnectionPanelDismissHandle | null>(null)
     const [panelOpen, setPanelOpen] = useState(true)
 
     // Mirror ArtistGraphVisualization keeping the dialog's dismiss handle current.
@@ -79,13 +83,9 @@ describe('ConnectionPanel inside a Radix Dialog (ego graph, PSY-1351)', () => {
     return (
       <Dialog open onOpenChange={onOpenChange}>
         <DialogContent
-          onEscapeKeyDown={e => {
-            const dismiss = dismissRef.current
-            if (dismiss?.isOpen) {
-              e.preventDefault()
-              dismiss.close()
-            }
-          }}
+          // The REAL handler ArtistGraphDialog uses — shared so the test can't
+          // drift from the component (adversarial-review fix).
+          onEscapeKeyDown={e => dismissConnectionPanelOnEscape(dismissRef, e)}
         >
           <DialogTitle>Similar artists</DialogTitle>
           <DialogDescription className="sr-only">Artist relationship graph</DialogDescription>

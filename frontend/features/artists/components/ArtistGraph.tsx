@@ -312,6 +312,25 @@ export interface ConnectionPanelDismissHandle {
 export const ConnectionPanelDismissContext =
   createContext<MutableRefObject<ConnectionPanelDismissHandle | null> | null>(null)
 
+/**
+ * The ego Dialog's Escape interception (PSY-1351), shared by ArtistGraphDialog's
+ * onEscapeKeyDown and its test so they can't drift: if a ConnectionPanel is open,
+ * close it and preventDefault (stops Radix dismissing the dialog) so the first
+ * Escape dismisses only the panel. Returns whether it intercepted.
+ */
+export function dismissConnectionPanelOnEscape(
+  ref: MutableRefObject<ConnectionPanelDismissHandle | null>,
+  event: Pick<KeyboardEvent, 'preventDefault'>,
+): boolean {
+  const dismiss = ref.current
+  if (dismiss?.isOpen) {
+    event.preventDefault()
+    dismiss.close()
+    return true
+  }
+  return false
+}
+
 export function ArtistGraphVisualization({
   data,
   activeTypes,
