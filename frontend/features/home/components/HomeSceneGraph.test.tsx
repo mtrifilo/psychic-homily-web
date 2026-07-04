@@ -181,6 +181,27 @@ describe('HomeSceneGraph', () => {
     ).toBeInTheDocument()
   })
 
+  it('pins the scene the visitor is exploring so a late geo resolution cannot swap it (PSY-1346)', async () => {
+    // Cold cache: geo resolves to null first → the liveliest scene (Chicago).
+    useGeoDefaultScene.mockReturnValue(null)
+    const { rerender } = render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+    ).toBeInTheDocument()
+
+    // Geo resolves LATE to Phoenix — but the visitor already engaged a node, so
+    // the scene must stay Chicago and the panel must remain open (the ticket's
+    // "geo must never override user interaction" rule).
+    useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
+    rerender(<HomeSceneGraph />)
+    expect(
+      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+  })
+
   it('lets "Surprise me" win over the geo default (PSY-1346)', async () => {
     // Geo would default to Phoenix; a surprise rotation must still move off it.
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })

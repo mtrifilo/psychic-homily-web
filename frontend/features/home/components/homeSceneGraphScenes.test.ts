@@ -98,6 +98,39 @@ describe('pickDefaultScene', () => {
       ).toBe('phoenix-az')
     })
 
+    it('applies the activity floor to the nearest tier too (inactive nearest → liveliest)', () => {
+      // Visitor near an inactive scene, with the only active scene far away:
+      // the floor still rejects the (nearest but dead) match → liveliest wins.
+      const scenesWithDeadNearest = [
+        scene({
+          slug: 'chicago-il',
+          city: 'Chicago',
+          state: 'IL',
+          upcoming_show_count: 17,
+          latitude: 41.88,
+          longitude: -87.63,
+        }),
+        scene({
+          slug: 'tucson-az',
+          city: 'Tucson',
+          state: 'AZ',
+          upcoming_show_count: 0,
+          latitude: 32.22,
+          longitude: -110.97,
+        }),
+      ]
+      // Visitor in Mesa, AZ (no scene) is nearest to Tucson, but Tucson is
+      // inactive → falls back to the liveliest (Chicago), not the dead nearest.
+      expect(
+        pickDefaultScene(scenesWithDeadNearest, {
+          city: 'Mesa',
+          state: 'AZ',
+          latitude: 33.42,
+          longitude: -111.83,
+        })?.slug,
+      ).toBe('chicago-il')
+    })
+
     it('picks the nearest scene by haversine when the exact city has no scene', () => {
       // Tucson, AZ has no scene here; its coords are far closer to Phoenix
       // than to Chicago.
