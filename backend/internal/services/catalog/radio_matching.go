@@ -265,7 +265,7 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 }
 
 // matchArtist tries to match an artist name to our knowledge graph.
-// Priority: MusicBrainz ID → exact name → alias match.
+// Priority: MusicBrainz ID → exact name → alias match → collab split (PSY-1353).
 func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
 	// 1. MusicBrainz ID match (highest confidence)
 	// Note: Artists table doesn't have a musicbrainz_id column yet,
@@ -277,8 +277,15 @@ func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
 	// 	}
 	// }
 
-	// 2. Exact name match (diacritic- and case-insensitive).
-	//    Uses the `idx_artists_name_unaccent_lower` expression index (PSY-886).
+	if id := m.matchArtistByNameOrAlias(name); id != nil {
+		return id
+	}
+	return m.matchArtistByCollabParts(name)
+}
+
+// matchArtistByNameOrAlias matches a single artist credit by exact normalized name
+// or alias. Does not split collab strings.
+func (m *RadioMatchingEngine) matchArtistByNameOrAlias(name string) *uint {
 	normalized := normalizeName(name)
 	if normalized == "" {
 		return nil
@@ -289,13 +296,42 @@ func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
 		return &artist.ID
 	}
 
-	// 3. Alias match (diacritic- and case-insensitive).
 	var alias catalogm.ArtistAlias
 	if err := m.db.Where("immutable_unaccent(LOWER(alias)) = immutable_unaccent(LOWER(?))", normalized).First(&alias).Error; err == nil {
 		return &alias.ArtistID
 	}
 
 	return nil
+}
+
+// matchArtistByCollabParts splits WFMU-style collab credits and links when
+// exactly one segment resolves to an artist. When multiple distinct artists
+// match, the play stays unmatched (true duet billing — no guess).
+func (m *RadioMatchingEngine) matchArtistByCollabParts(name string) *uint {
+	parts := splitCollabArtistName(name)
+	if len(parts) < 2 {
+		return nil
+	}
+
+	var matched []uint
+	for _, part := range parts {
+		if id := m.matchArtistByNameOrAlias(part); id != nil {
+			matched = appendUniqueUint(matched, *id)
+		}
+	}
+	if len(matched) != 1 {
+		return nil
+	}
+	return &matched[0]
+}
+
+func appendUniqueUint(ids []uint, id uint) []uint {
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
 }
 
 // matchRelease tries to match a release by MusicBrainz ID or exact title.
