@@ -271,6 +271,14 @@ export interface ForceGraphViewProps {
    * default, same opt-in convention as showEdgeLegend.
    */
   showConnectionPanel?: boolean
+  /**
+   * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
+   * graph section). Disables wheel-zoom, drag-pan, and node drag so the
+   * canvas never captures page scroll or invites tool-level interaction;
+   * click/hover select still work, and the one-shot zoomToFit initial
+   * frame still runs. Off by default — full surfaces keep the tool feel.
+   */
+  staticViewport?: boolean
 }
 
 export function ForceGraphView({
@@ -284,6 +292,7 @@ export function ForceGraphView({
   onNodeClick,
   showEdgeLegend = false,
   showConnectionPanel = false,
+  staticViewport = false,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null)
@@ -524,6 +533,11 @@ export function ForceGraphView({
   }, [containerWidth, graphHeight, reducedMotion])
 
   useEffect(() => {
+    // PSY-1344: in static-viewport mode the user CANNOT own the viewport
+    // (zoom/pan/drag are disabled), so a wheel passing over the canvas
+    // mid-page-scroll must not burn the one-shot initial fit — there would
+    // be no user gesture left to recover the framing.
+    if (staticViewport) return
     const el = containerRef.current
     if (!el) return
     const cancelFit = (e: Event) => {
@@ -537,7 +551,7 @@ export function ForceGraphView({
       el.removeEventListener('pointerdown', cancelFit)
       el.removeEventListener('wheel', cancelFit)
     }
-  }, [])
+  }, [staticViewport])
 
   const maybeFitViewport = useCallback(
     (animated: boolean) => {
@@ -994,7 +1008,8 @@ export function ForceGraphView({
         // onNodeHover, stranding the tooltip at a stale screen position — dismiss
         // it on zoom (re-hover re-anchors it). Matches ArtistGraph (PSY-1217).
         onZoom={() => setHoveredNode(null)}
-        // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled (default).
+        // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled by
+        // default (staticViewport embeds disable it, PSY-1344).
         // Dragging a node moves it without re-firing onNodeHover (the same node
         // stays under the cursor) or onZoom, so the anchored tooltip would strand
         // at the node's pre-drag position. Dismiss on drag too (PSY-1217 review).
@@ -1026,6 +1041,12 @@ export function ForceGraphView({
         d3VelocityDecay={0.3}
         minZoom={0.4}
         maxZoom={3}
+        // PSY-1344: embed surfaces opt out of viewport interaction so the
+        // canvas never swallows page scroll; programmatic zoomToFit (the
+        // one-shot initial frame) is unaffected by these flags.
+        enableZoomInteraction={!staticViewport}
+        enablePanInteraction={!staticViewport}
+        enableNodeDrag={!staticViewport}
         backgroundColor="transparent"
       />
 
