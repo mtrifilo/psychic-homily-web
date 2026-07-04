@@ -388,14 +388,81 @@ func (s *WFMUDedupIntegrationTestSuite) TestShowsWithoutExternalID_AreSkipped() 
 	s.NoError(s.db.First(&still, show.ID).Error)
 }
 
-func (s *WFMUDedupIntegrationTestSuite) TestUnknownOwnershipSlug_DefaultsToFlagship() {
+func (s *WFMUDedupIntegrationTestSuite) TestUnknownOwnershipSlug_KeepsExistingHome() {
 	// An ownership entry pointing outside the family (corrupt map, future
-	// channel not yet seeded) must not error — it defaults to the flagship.
+	// channel not yet seeded) must not error. Pre-PSY-1349 this force-moved the
+	// row to the flagship; now an unresolvable claim is treated like a
+	// map-absent code — the show's unique existing substream home stands (the
+	// established row is the strong claim, the resolution artifact the weak one).
 	s.createShow("wfmu-sheena", "Mystery Show", "mystery-show", "MYST", nil)
 
 	result, err := DedupWFMUFamilyShows(s.db, map[string]string{"MYST": "wfmu-not-a-station"}, false)
 	s.Require().NoError(err)
 
-	s.Equal(1, result.PerStation["wfmu"].ShowsReassignedIn)
-	s.ElementsMatch([]string{"MYST"}, s.showCodesByStation("wfmu"))
+	s.Equal(0, result.PerStation["wfmu"].ShowsReassignedIn, "no forced flagship reassignment")
+	s.ElementsMatch([]string{"MYST"}, s.showCodesByStation("wfmu-sheena"))
+}
+
+// =============================================================================
+// PSY-1349 — ownership-flap hardening
+// =============================================================================
+
+// A code ABSENT from the ownership map (dropped off every roster page) must keep
+// its existing non-flagship home — forcing the flagship default onto such groups
+// is the ownership flap that minted twins (the M7 / Mellow Tambourine shape). A
+// map-absent code living ONLY on the flagship still defaults there (rule 4).
+func (s *WFMUDedupIntegrationTestSuite) TestMapAbsentCode_KeepsExistingSubstreamHome() {
+	// Oldest row on Sheena's, newer twin on the flagship, code on no roster page.
+	sheena := s.createShow("wfmu-sheena", "The Mellow Tambourine", "mellow-tambourine", "M7", nil)
+	flagTwin := s.createShow("wfmu", "The Mellow Tambourine", "mellow-tambourine-2", "M7", nil)
+	s.createEpisodeWithPlays(sheena.ID, "2026-06-20", "m7-e1", 3)
+	s.createEpisodeWithPlays(flagTwin.ID, "2026-06-27", "m7-e2", 2)
+
+	// Flagship-only map-absent code: stays on the flagship.
+	s.createShow("wfmu", "Nat Roe", "nat-roe", "NR", nil)
+
+	result, err := DedupWFMUFamilyShows(s.db, map[string]string{}, false)
+	s.Require().NoError(err)
+	s.Equal(2, result.GroupsTotal)
+
+	var survivors []catalogm.RadioShow
+	s.Require().NoError(s.db.Where("external_id = ?", "M7").Find(&survivors).Error)
+	s.Require().Len(survivors, 1, "twins collapse to one row")
+	s.Equal(s.stationID("wfmu-sheena"), survivors[0].StationID, "map-absent code keeps its substream home, not the flagship default")
+	s.Equal(sheena.ID, survivors[0].ID, "the original substream row is the winner")
+
+	var epCount int64
+	s.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", sheena.ID).Count(&epCount)
+	s.Equal(int64(2), epCount, "the flagship twin's episodes merged onto the home row")
+
+	var natRoe catalogm.RadioShow
+	s.Require().NoError(s.db.Where("external_id = ?", "NR").First(&natRoe).Error)
+	s.Equal(s.stationID("wfmu"), natRoe.StationID, "flagship-only map-absent code stays on the flagship")
+}
+
+// PSY-1349 create-path stickiness: when a WFMU-family discover run tries to create a
+// show whose code already lives under a SIBLING family station, upsertRadioShow reuses
+// that row instead of minting a twin; a genuinely new code still creates normally.
+func (s *WFMUDedupIntegrationTestSuite) TestUpsertRadioShow_FamilyStickiness() {
+	svc := &RadioService{db: s.db}
+
+	existing := s.createShow("wfmu-drummer", "Explorers Room", "explorers-room", "EX", nil)
+
+	// Ownership flapped to flagship this run: the flagship discover tries to create EX.
+	id, created, err := svc.upsertRadioShow(s.stationID("wfmu"), RadioShowImport{Name: "Explorers Room", ExternalID: "EX"})
+	s.Require().NoError(err)
+	s.False(created, "no twin minted")
+	s.Equal(existing.ID, id, "episodes route to the established sibling-station row")
+
+	var count int64
+	s.db.Model(&catalogm.RadioShow{}).Where("external_id = ?", "EX").Count(&count)
+	s.Equal(int64(1), count)
+
+	// Genuinely new code: creates under the requesting station (rule 4 preserved).
+	newID, created, err := svc.upsertRadioShow(s.stationID("wfmu"), RadioShowImport{Name: "Brand New Show", ExternalID: "ZZ"})
+	s.Require().NoError(err)
+	s.True(created)
+	var fresh catalogm.RadioShow
+	s.Require().NoError(s.db.First(&fresh, newID).Error)
+	s.Equal(s.stationID("wfmu"), fresh.StationID)
 }

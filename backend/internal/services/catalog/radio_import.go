@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1085,6 +1086,21 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		return id, false, nil
 	}
 
+	// PSY-1349: family-wide stickiness. WFMU show↔station ownership is scraped live
+	// from volatile roster pages each discover run, and unknown/ambiguous codes
+	// default to the flagship — so ownership FLAPS across runs, and every flap used
+	// to mint a twin row (same external_id under two family stations) that then
+	// accrued its own episode history forever. If the code already has a row under
+	// ANY WFMU-family station, reuse that row instead of creating a second one; the
+	// established home is the strong claim, this run's ownership resolution the weak
+	// one. Re-homing a show that GENUINELY moved streams is deliberately left to
+	// cmd/dedup-radio-shows (full-history view).
+	if id, found, err := s.findWFMUFamilyShow(stationID, importShow); err != nil {
+		return 0, false, err
+	} else if found {
+		return id, false, nil
+	}
+
 	// Create new show
 	baseSlug := utils.GenerateArtistSlug(importShow.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
@@ -1111,6 +1127,50 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 	}
 
 	return show.ID, true, nil
+}
+
+// findWFMUFamilyShow looks up a show by external_id across ALL WFMU-family stations
+// (see upsertRadioShow's stickiness comment). Only consulted when stationID itself is
+// a family station and the same-station lookups already missed; a hit means episodes
+// import onto the existing sibling-station row and NO new row is created. Metadata is
+// filled null-safe exactly like the same-station path. Non-family stations (KEXP,
+// NTS) never share external_id namespaces, so the check is skipped entirely.
+func (s *RadioService) findWFMUFamilyShow(stationID uint, importShow RadioShowImport) (uint, bool, error) {
+	if importShow.ExternalID == "" {
+		return 0, false, nil // code-less rows can't be family-matched
+	}
+	var station catalogm.RadioStation
+	if err := s.db.Select("slug").First(&station, stationID).Error; err != nil {
+		return 0, false, fmt.Errorf("loading station for family twin check: %w", err)
+	}
+	if !slices.Contains(WFMUFamilySlugs, station.Slug) {
+		return 0, false, nil
+	}
+
+	// Oldest row wins when (pathologically) more than one already exists — the
+	// pre-existing twins are cmd/dedup-radio-shows' job, not this guard's.
+	var existing catalogm.RadioShow
+	err := s.db.
+		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
+		Where("radio_stations.slug IN ?", WFMUFamilySlugs).
+		Where("radio_shows.external_id = ?", importShow.ExternalID).
+		Order("radio_shows.id").
+		First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("checking WFMU family for existing show: %w", err)
+	}
+
+	updates := s.buildNullSafeShowUpdates(&existing, importShow)
+	if len(updates) > 0 {
+		s.db.Model(&existing).Updates(updates)
+	}
+	slog.Info("radio import: WFMU family stickiness — reusing sibling-station row instead of creating a twin",
+		"code", importShow.ExternalID, "show_id", existing.ID,
+		"home_station_id", existing.StationID, "requested_station_id", stationID)
+	return existing.ID, true, nil
 }
 
 // findAndUpdateExistingShow looks up a roster show by (station_id, external_id) then
