@@ -186,12 +186,19 @@ function HomeSceneGraphSection() {
   // Node selection → context panel (PSY-1345). Cleared whenever the scene
   // identity changes (the selected artist belongs to the outgoing scene's
   // graph — Surprise-me AND data-driven re-ranks both count) and on
-  // Esc/click-away/close.
+  // Esc/click-away/close. React 19.2: clear via the previous-value-guard
+  // idiom (adjust state during render) rather than a synchronous setState
+  // in an effect, which trips react-hooks/set-state-in-effect and adds a
+  // cascading render.
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const canvasWrapRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
+  const [prevSceneSlug, setPrevSceneSlug] = useState<string | undefined>(
+    scene?.slug,
+  )
+  if (scene?.slug !== prevSceneSlug) {
+    setPrevSceneSlug(scene?.slug)
     setSelectedNode(null)
-  }, [scene?.slug])
+  }
 
   // Below the canvas gate the teaser never reads graphData — don't pay
   // the (dense, liveliest-scene) graph round-trip for a payload the
