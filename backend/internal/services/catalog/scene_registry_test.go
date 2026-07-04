@@ -186,10 +186,17 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtistsSince() {
 	other := "Other Town Band"
 	suite.Require().NoError(suite.db.Create(&catalogm.Artist{Name: other, Slug: &other, City: ptr("Elsewhere"), State: ptr("ZZ"), CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error)
 
-	out, err := suite.sceneService.GetSceneNewArtistsSince("Testville", "ZZ", since, time.Now(), 10)
+	out, total, err := suite.sceneService.GetSceneNewArtistsSince("Testville", "ZZ", since, time.Now(), 10)
 	suite.Require().NoError(err)
 	suite.Require().Len(out, 1)
+	suite.Equal(1, total)
 	suite.Equal("Fresh Band", out[0].Name)
+
+	// Cap smaller than the window → the list is capped but total still counts all.
+	capped, total2, err := suite.sceneService.GetSceneNewArtistsSince("Testville", "ZZ", since, time.Now(), 0)
+	suite.Require().NoError(err)
+	suite.Len(capped, 0)
+	suite.Equal(1, total2)
 }
 
 func ptr(s string) *string { return &s }

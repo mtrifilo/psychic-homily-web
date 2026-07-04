@@ -516,22 +516,38 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 }
 
 // GetSceneNewArtistsSince returns bands based in the scene whose catalog row
-// was created after `since` (up to `now`), newest first, capped at `limit` —
-// the "new bands based here" stream of the weekly scene digest (PSY-1342).
+// was created after `since` (up to `now`), newest first, capped at `limit`,
+// plus the TOTAL number in the window — the "new bands based here" stream of
+// the weekly scene digest (PSY-1342). The total lets the caller render a
+// "+N more" affordance so the cap never SILENTLY drops bands: the digest
+// advances its per-follow cursor to `now` after a send, so any band beyond the
+// cap would otherwise fall before next cycle's window and be lost forever.
 // Uses the same roster scope (artistPredicate) as GetActiveArtists, so the
 // additions match the roster the user sees on the scene page. Created-at (not
-// updated-at) is the "new to the scene" signal: it's stable and means "new to
-// the catalog," where updated-at would re-surface an old band on any edit.
-// Unlike GetSceneUpcomingShows this does NOT gate on venue count — a followed
-// scene that temporarily dips below the venue threshold still has a real
-// roster, and the digest caller treats an empty result as an empty section.
-func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]contracts.SceneNewArtist, error) {
+// updated-at) is the "new to the scene" signal: stable, "new to the catalog,"
+// where updated-at would re-surface an old band on any edit. Unlike
+// GetSceneUpcomingShows this does NOT gate on venue count — a followed scene
+// that temporarily dips below the venue threshold still has a real roster.
+func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]contracts.SceneNewArtist, int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	scope := s.scopeFor(city, state)
 	ap, aargs := s.artistPredicate(scope, "a")
+
+	// Total in the window (uncapped) so the caller can show "+N more".
+	var total int64
+	countArgs := append(append([]any{}, aargs...), since, now)
+	if err := s.db.Raw(`
+		SELECT COUNT(*) FROM artists a
+		WHERE `+ap+` AND a.created_at > ? AND a.created_at <= ?
+	`, countArgs...).Scan(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count scene new artists: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
 
 	type row struct {
 		ID   uint   `gorm:"column:id"`
@@ -549,14 +565,14 @@ func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now ti
 		ORDER BY a.created_at DESC, a.id DESC
 		LIMIT ?
 	`, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get scene new artists: %w", err)
+		return nil, 0, fmt.Errorf("failed to get scene new artists: %w", err)
 	}
 
 	out := make([]contracts.SceneNewArtist, len(rows))
 	for i, r := range rows {
 		out[i] = contracts.SceneNewArtist{ID: r.ID, Slug: r.Slug, Name: r.Name}
 	}
-	return out, nil
+	return out, int(total), nil
 }
 
 // GetActiveArtists returns the scene's roster — bands BASED in the metro — with

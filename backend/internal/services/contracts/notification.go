@@ -52,6 +52,10 @@ type SceneDigestGroup struct {
 	SceneURL   string
 	Shows      []SceneDigestShow
 	NewArtists []SceneDigestArtist
+	// MoreNewArtists is how many new bands beyond the listed ones fell in the
+	// window (>0 renders "+N more" so the per-scene cap never silently drops
+	// bands the digest cursor then advances past). PSY-1342.
+	MoreNewArtists int
 }
 
 // ──────────────────────────────────────────────

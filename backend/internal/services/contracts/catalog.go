@@ -1055,7 +1055,9 @@ type SceneServiceInterface interface {
 	// literal-city shows endpoint.
 	GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]SceneShowSummary, error)
 	// GetSceneNewArtistsSince returns bands based in the scene created after
-	// `since` (up to `now`), newest first, capped — the weekly digest's "new
+	// `since` (up to `now`), newest first, capped — plus the TOTAL in the
+	// window so the caller can render "+N more" (the cap must not silently
+	// drop bands the cursor then advances past). The weekly digest's "new
 	// bands based here" stream (PSY-1342). Same roster scope as GetActiveArtists.
-	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, error)
+	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, int, error)
 }

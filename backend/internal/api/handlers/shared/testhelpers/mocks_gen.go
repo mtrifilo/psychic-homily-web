@@ -3129,7 +3129,7 @@ type MockSceneService struct {
 	GetGenreDiversityIndexFn    func(string, string) (float64, error)
 	GetSceneGraphFn             func(string, string, []string, string) (*contracts.SceneGraphResponse, error)
 	GetSceneUpcomingShowsFn     func(string, string, int, int) ([]contracts.SceneShowSummary, error)
-	GetSceneNewArtistsSinceFn   func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtist, error)
+	GetSceneNewArtistsSinceFn   func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtist, int, error)
 }
 
 func (m *MockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -3192,11 +3192,11 @@ func (m *MockSceneService) GetSceneUpcomingShows(city string, state string, wind
 	}
 	return nil, nil
 }
-func (m *MockSceneService) GetSceneNewArtistsSince(city string, state string, since time.Time, now time.Time, limit int) ([]contracts.SceneNewArtist, error) {
+func (m *MockSceneService) GetSceneNewArtistsSince(city string, state string, since time.Time, now time.Time, limit int) ([]contracts.SceneNewArtist, int, error) {
 	if m.GetSceneNewArtistsSinceFn != nil {
 		return m.GetSceneNewArtistsSinceFn(city, state, since, now, limit)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 
 // ============================================================================

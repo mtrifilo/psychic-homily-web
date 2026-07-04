@@ -957,6 +957,10 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a></li>`,
 					a.ArtistURL, htmlEscape(a.Name))
 			}
+			if g.MoreNewArtists > 0 {
+				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px; list-style: none; color: #888;"><a href="%s" style="color: #888;">+%d more new %s — see the scene</a></li>`,
+					g.SceneURL, g.MoreNewArtists, pluralize("band", g.MoreNewArtists))
+			}
 			groupsHTML.WriteString(`</ul>`)
 		}
 		groupsHTML.WriteString(`</div>`)

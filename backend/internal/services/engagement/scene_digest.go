@@ -33,6 +33,12 @@ const (
 	sceneDigestShowsPerScene   = 8
 	sceneDigestArtistsPerScene = 8
 	sceneDigestWindowDays      = 7 // "this week" (PSY-1309 semantics)
+	// Safety bound on scene sections in one email (deliverability + fatigue).
+	// The catalog is ~a dozen scene-cities today, so this only bites a
+	// pathological follow count; excluded scenes keep their cursor and are
+	// retried next cycle. A prioritization/rotation upgrade is a follow-up if
+	// global expansion makes it bite in practice.
+	sceneDigestMaxScenes = 20
 )
 
 // SceneDigestService is a ticker-based background service that batches, per
@@ -40,11 +46,14 @@ const (
 // weekly email (PSY-1342, from the PSY-1314 spike). Modeled on
 // CollectionDigestService.
 //
-// Idempotent across restarts: the per-(scene-follow) `scene_digest_sent_at`
-// cursor advances only after a successful send (or a deliberate skip when
-// email is unconfigured), and ONLY on scenes that contributed content — so a
-// band that appears in a scene the user follows but that was empty this cycle
-// is still included next cycle.
+// Idempotent across restarts: RunTickerLoop fires immediately on startup, so
+// the follow-selection query gates on the per-(scene-follow)
+// `scene_digest_sent_at` cursor being older than one interval — a follow
+// already digested this week is skipped, so a restart doesn't re-send the
+// (cursor-independent) this-week-shows section. The cursor advances only after
+// a successful send and ONLY on scenes that contributed content, so a band
+// that appears in a scene the user follows but that was empty this cycle is
+// still included next cycle.
 type SceneDigestService struct {
 	db           *gorm.DB
 	emailService contracts.EmailServiceInterface
@@ -140,7 +149,10 @@ func (s *SceneDigestService) runDigestCycle() {
 	s.logger.Info("starting scene digest cycle")
 	now := time.Now().UTC()
 
-	follows, err := s.queryFollows()
+	// Only follows not digested within the last interval are due — this is what
+	// makes the cycle idempotent across restarts (the ticker runs immediately
+	// on startup, and the this-week-shows section isn't otherwise cursor-gated).
+	follows, err := s.queryFollows(now.Add(-s.interval))
 	if err != nil {
 		s.logger.Error("failed to query scene follows", "error", err)
 		return
@@ -178,6 +190,12 @@ func (s *SceneDigestService) runDigestCycle() {
 		groups := make([]contracts.SceneDigestGroup, 0, len(ub.follows))
 		contributing := make([]uint, 0, len(ub.follows))
 		for _, f := range ub.follows {
+			// Safety bound: cap scene sections per email. Excluded scenes are
+			// NOT added to `contributing`, so their cursors don't advance and
+			// they're retried next cycle (their content isn't lost).
+			if len(groups) >= sceneDigestMaxScenes {
+				break
+			}
 			group, ok := s.buildSceneGroup(f, now)
 			if !ok {
 				continue
@@ -243,10 +261,10 @@ func (s *SceneDigestService) buildSceneGroup(f sceneFollowRow, now time.Time) (c
 	if f.Cursor != nil {
 		since = *f.Cursor
 	}
-	newArtists, err := s.sceneService.GetSceneNewArtistsSince(f.City, f.State, since, now, sceneDigestArtistsPerScene)
+	newArtists, newArtistsTotal, err := s.sceneService.GetSceneNewArtistsSince(f.City, f.State, since, now, sceneDigestArtistsPerScene)
 	if err != nil {
 		s.logger.Warn("scene digest: new artists unavailable", "scene_id", f.SceneID, "error", err)
-		newArtists = nil
+		newArtists, newArtistsTotal = nil, 0
 	}
 
 	if len(shows) == 0 && len(newArtists) == 0 {
@@ -254,8 +272,9 @@ func (s *SceneDigestService) buildSceneGroup(f sceneFollowRow, now time.Time) (c
 	}
 
 	group := contracts.SceneDigestGroup{
-		SceneName: fmt.Sprintf("%s, %s", f.City, f.State),
-		SceneURL:  fmt.Sprintf("%s/scenes/%s", s.frontendURL, f.Slug),
+		SceneName:      fmt.Sprintf("%s, %s", f.City, f.State),
+		SceneURL:       fmt.Sprintf("%s/scenes/%s", s.frontendURL, f.Slug),
+		MoreNewArtists: newArtistsTotal - len(newArtists), // >0 → "+N more"
 	}
 	for _, sh := range shows {
 		group.Shows = append(group.Shows, contracts.SceneDigestShow{
@@ -274,9 +293,13 @@ func (s *SceneDigestService) buildSceneGroup(f sceneFollowRow, now time.Time) (c
 	return group, true
 }
 
-// queryFollows loads every opted-in scene follow with its registry row +
-// digest cursor. Ordered by user so the grouping loop is straightforward.
-func (s *SceneDigestService) queryFollows() ([]sceneFollowRow, error) {
+// queryFollows loads every opted-in scene follow DUE for a digest — its cursor
+// is NULL (never digested) or older than one interval — with its registry row.
+// The interval gate is what makes the cycle idempotent across restarts: a
+// follow digested within the last interval is skipped, so the immediate
+// startup run doesn't re-send its this-week-shows section. Ordered by user so
+// the grouping loop is straightforward.
+func (s *SceneDigestService) queryFollows(cutoff time.Time) ([]sceneFollowRow, error) {
 	var rows []sceneFollowRow
 	err := s.db.Raw(`
 		SELECT b.user_id,
@@ -293,8 +316,9 @@ func (s *SceneDigestService) queryFollows() ([]sceneFollowRow, error) {
 		  AND u.is_active = TRUE
 		  AND u.deleted_at IS NULL
 		  AND COALESCE(up.notify_on_scene_digest, FALSE) = TRUE
+		  AND (b.scene_digest_sent_at IS NULL OR b.scene_digest_sent_at <= ?)
 		ORDER BY b.user_id ASC, sc.city ASC, sc.state ASC, sc.id ASC
-	`).Scan(&rows).Error
+	`, cutoff).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("scene follow candidate query: %w", err)
 	}

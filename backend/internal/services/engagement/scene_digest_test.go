@@ -311,3 +311,43 @@ func (s *SceneDigestSuite) TestCursorOnlyBumpsContributingScenes() {
 	s.NotNil(s.cursorFor(userID, full), "contributing scene's cursor advances")
 	s.Nil(s.cursorFor(userID, emptyScene), "empty scene's cursor stays so a later band isn't lost")
 }
+
+func (s *SceneDigestSuite) TestIdempotentAcrossRestart() {
+	// A scene with only a this-week SHOW (no new bands). The shows stream is a
+	// forward snapshot, NOT cursor-gated — so without the interval guard on
+	// follow selection, the immediate startup run would re-send it every
+	// restart. The guard must exclude a follow already digested this interval.
+	userID, _ := s.createUser()
+	sceneID, venueID := s.createScene()
+	s.setSceneDigestPref(userID, true)
+	s.followScene(userID, sceneID, nil, time.Now().Add(-24*time.Hour))
+	s.createThisWeekShow(venueID)
+
+	s.svc.RunDigestCycleNow()
+	s.Require().Len(s.mock.calls, 1, "first cycle sends the shows email")
+	s.NotNil(s.cursorFor(userID, sceneID))
+
+	// Simulate a restart: run again immediately. The follow was digested within
+	// the interval, so it must be excluded — no re-send of the shows section.
+	s.mock.calls = nil
+	s.svc.RunDigestCycleNow()
+	s.Empty(s.mock.calls, "an immediate re-run must not re-send this-week shows")
+}
+
+func (s *SceneDigestSuite) TestNewBandsOverflowRendersMore() {
+	userID, _ := s.createUser()
+	sceneID, _ := s.createScene()
+	s.setSceneDigestPref(userID, true)
+	s.followScene(userID, sceneID, nil, time.Now().Add(-72*time.Hour))
+
+	// 9 new bands, cap is 8 → 8 listed + MoreNewArtists = 1.
+	for i := 0; i < 9; i++ {
+		s.createArtist(fmt.Sprintf("Band %d", i), time.Now().Add(-time.Duration(i+1)*time.Hour))
+	}
+
+	s.svc.RunDigestCycleNow()
+	s.Require().Len(s.mock.calls, 1)
+	g := s.mock.calls[0].Groups[0]
+	s.Len(g.NewArtists, sceneDigestArtistsPerScene)
+	s.Equal(1, g.MoreNewArtists, "the 9th band is surfaced as +1 more, not silently dropped")
+}
