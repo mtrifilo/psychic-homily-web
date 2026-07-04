@@ -104,6 +104,17 @@ export function ConnectionPanel({
   // phase (fires before any bubble-phase document listener regardless of
   // registration order) and preventDefault + stopPropagation; the overlay
   // hook skips defaultPrevented events — innermost layer closes first.
+  //
+  // NOT window-level (PSY-1351): a window-capture listener would run before
+  // EVERY document listener — including a command palette / dropdown / dialog
+  // legitimately stacked ON TOP of this panel — and swallow the Escape meant
+  // for it (this panel lacks ArtistContextPanel's input/[role=dialog] target
+  // guard). The one case a document-capture listener loses is the ego graph,
+  // where Radix's <Dialog> registers its own document-capture Escape at open,
+  // before this panel; that is handled where it belongs — ArtistGraphDialog's
+  // onEscapeKeyDown closes an open panel itself (PSY-1351) — not by making
+  // this shared panel outrank every layer everywhere.
+  //
   // Guarded on connections.length: hooks run even when the render below
   // bails to null, so an empty-connections mount must not register an
   // invisible listener that silently eats Escape from the fullscreen
