@@ -15,8 +15,9 @@ import (
 )
 
 // ArtistGraphCardHandler serves the node-select summary card for graph
-// surfaces (PSY-1345): the homepage scene-graph section and the /graph
-// Observatory fetch it when the user clicks an artist node. It composes
+// surfaces (PSY-1345): the homepage scene-graph section fetches it when
+// the user clicks an artist node (the /graph Observatory, PSY-1079…1086
+// unshipped, is the intended second consumer). It composes
 // existing per-domain service methods into one small response so a node
 // click costs one request, not four.
 type ArtistGraphCardHandler struct {
@@ -37,6 +38,10 @@ func NewArtistGraphCardHandler(
 		radioService:  radioService,
 	}
 }
+
+// maxGraphCardLabels caps the card's label chips (the artist page carries
+// the full list).
+const maxGraphCardLabels = 5
 
 type GetArtistGraphCardRequest struct {
 	ArtistID string `path:"artist_id" doc:"Artist ID or slug" example:"42"`
@@ -68,7 +73,10 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 			return nil, huma.Error404NotFound("Artist not found")
 		}
-		return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
+		// Log the cause; don't put driver/DB error text on the wire of a
+		// public endpoint (huma serializes passed errors into details[]).
+		logger.FromContext(ctx).Error("graph-card: artist fetch failed", "artist_id", req.ArtistID, "error", err)
+		return nil, huma.Error500InternalServerError("Failed to fetch artist")
 	}
 
 	timezone := req.Timezone
@@ -113,6 +121,11 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 			continue
 		}
 		card.Labels = append(card.Labels, contracts.ArtistGraphCardLabel{Name: l.Name, Slug: l.Slug})
+		// Card rows are a glance, not a discography — cap the label chips
+		// so a many-label artist can't balloon the "small card" payload.
+		if len(card.Labels) == maxGraphCardLabels {
+			break
+		}
 	}
 
 	// "As heard on": GetAsHeardOnForArtist returns one row per (station,

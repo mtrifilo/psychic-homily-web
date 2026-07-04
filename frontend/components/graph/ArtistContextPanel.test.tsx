@@ -60,7 +60,32 @@ describe('ArtistContextPanel', () => {
     )
     expect(screen.getByLabelText('Loading artist details')).toBeInTheDocument()
     expect(screen.queryByText('Next show')).toBeNull()
-    expect(screen.queryByRole('link', { name: /open page/i })).toBeNull()
+    // Navigation must never be stranded — the link renders from the node
+    // slug even before the card arrives.
+    expect(screen.getByRole('link', { name: /open page/i })).toHaveAttribute(
+      'href',
+      '/artists/lightning-bolt',
+    )
+  })
+
+  it('shows the cached card, not the error apology, when a background refetch fails (isError + card)', () => {
+    render(
+      <ArtistContextPanel artistName="Lightning Bolt" artistSlug="lightning-bolt" card={CARD} isError onClose={onClose} />,
+    )
+    expect(screen.queryByText(/details couldn’t load/i)).toBeNull()
+    expect(screen.getByText(/Trunk Space, Phoenix/)).toBeInTheDocument()
+  })
+
+  it('marks station truncation so the play total can’t misread as the sum of the named three', () => {
+    render(
+      <ArtistContextPanel
+        artistName="Lightning Bolt"
+        artistSlug="lightning-bolt"
+        card={{ ...CARD, radio: { stations: ['A', 'B', 'C', 'D'], play_count: 57 } }}
+        onClose={onClose}
+      />,
+    )
+    expect(screen.getByText(/A · B · C\s*\+1\s*· 57 plays/)).toBeInTheDocument()
   })
 
   it('degrades to name + open-page link (via the node slug) when the fetch errors', () => {

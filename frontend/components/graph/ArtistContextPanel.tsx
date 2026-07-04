@@ -8,7 +8,8 @@
  * do they fit": next show, labels, where freeform radio plays them, and how
  * connected they are — the "everything is connected" payoff in one glance,
  * with "Open page →" as the dig-in path. Consumed by the homepage scene
- * graph today; the /graph Observatory mounts the same panel.
+ * graph today; intended for the /graph Observatory (PSY-1079…1086,
+ * unshipped) as its node-select card.
  *
  * Presentational only — the caller owns data fetching (useArtistGraphCard),
  * selection state, and positioning (floated over the canvas). Mirrors
@@ -61,15 +62,18 @@ export function ArtistContextPanel({
   onClose,
   className,
 }: ArtistContextPanelProps) {
-  // Esc closes — capture phase, same layered-dismiss rationale as
-  // ConnectionPanel (innermost layer wins; outer overlay listeners skip
-  // defaultPrevented events). Input/dialog-targeted keydowns are ignored
-  // (PSY-1313 lesson): the homepage also hosts the CommandPalette, and its
-  // Esc must dismiss the palette alone — one keypress must not close two
-  // layers.
+  // Esc closes — capture phase so bubble-phase overlay hooks (which skip
+  // defaultPrevented events) defer to us. Two guards make one keypress
+  // close exactly one layer (PSY-1313 lesson):
+  //   - input/dialog-targeted keydowns are ignored (the CommandPalette's
+  //     Esc must dismiss the palette alone);
+  //   - defaultPrevented events are ignored AND we stopImmediatePropagation
+  //     — stopPropagation alone does NOT stop sibling listeners on the
+  //     same document/capture phase (e.g. ConnectionPanel when both panels
+  //     mount on /graph), so without these, one Esc closes both panels.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || e.defaultPrevented) return
       if (
         e.target instanceof Element &&
         e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
@@ -77,7 +81,7 @@ export function ArtistContextPanel({
         return
       }
       e.preventDefault()
-      e.stopPropagation()
+      e.stopImmediatePropagation()
       onClose()
     }
     document.addEventListener('keydown', onKeyDown, { capture: true })
@@ -133,7 +137,10 @@ export function ArtistContextPanel({
         </div>
       )}
 
-      {isError && (
+      {/* Only when there's nothing better to show — a failed background
+          refetch retains cached data (isError + card both set), and the
+          card must win over an apology. */}
+      {isError && !card && (
         <p className="text-muted-foreground">
           Details couldn’t load — the artist page has the full picture.
         </p>
@@ -190,6 +197,9 @@ export function ArtistContextPanel({
               <FieldLabel>As heard on</FieldLabel>
               <p className="text-foreground/90">
                 {card.radio.stations.slice(0, 3).join(' · ')}
+                {/* play_count spans ALL stations — flag truncation so the
+                    number can't misread as the sum of the named three. */}
+                {card.radio.stations.length > 3 && ` +${card.radio.stations.length - 3}`}
                 {` · ${card.radio.play_count} ${card.radio.play_count === 1 ? 'play' : 'plays'}`}
               </p>
             </div>
@@ -204,16 +214,15 @@ export function ArtistContextPanel({
         </div>
       )}
 
-      {(card || isError) && (
-        <Link
-          // Backend-canonical slug when loaded; the graph node's slug keeps
-          // the link working in the degraded (fetch-failed) state.
-          href={`/artists/${encodeURIComponent(card?.slug ?? artistSlug)}`}
-          className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
-        >
-          [ Open page → ]
-        </Link>
-      )}
+      <Link
+        // Always rendered — the node's slug keeps navigation available even
+        // while the card loads or after a failed fetch (the panel replaced
+        // click-to-navigate, so it must never strand the user pathless).
+        href={`/artists/${encodeURIComponent(card?.slug ?? artistSlug)}`}
+        className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
+      >
+        [ Open page → ]
+      </Link>
     </section>
   )
 }

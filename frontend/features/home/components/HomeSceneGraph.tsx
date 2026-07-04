@@ -183,10 +183,15 @@ function HomeSceneGraphSection() {
   const [surpriseSlug, setSurpriseSlug] = useState<string | null>(null)
   const scene = scenes.find(s => s.slug === surpriseSlug) ?? defaultScene
 
-  // Node selection → context panel (PSY-1345). Cleared on rotation (the
-  // selected artist belongs to the outgoing scene's graph) and on
+  // Node selection → context panel (PSY-1345). Cleared whenever the scene
+  // identity changes (the selected artist belongs to the outgoing scene's
+  // graph — Surprise-me AND data-driven re-ranks both count) and on
   // Esc/click-away/close.
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+  const canvasWrapRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    setSelectedNode(null)
+  }, [scene?.slug])
 
   // Below the canvas gate the teaser never reads graphData — don't pay
   // the (dense, liveliest-scene) graph round-trip for a payload the
@@ -213,10 +218,8 @@ function HomeSceneGraphSection() {
 
   const handleSurprise = useCallback(() => {
     const next = pickSurpriseScene(scenes, scene?.slug ?? null)
-    if (next) {
-      setSurpriseSlug(next.slug)
-      setSelectedNode(null)
-    }
+    // Selection clearing rides the scene-slug effect above.
+    if (next) setSurpriseSlug(next.slug)
   }, [scenes, scene?.slug])
 
   // Click selects (opens the context panel); navigation happens via the
@@ -228,6 +231,9 @@ function HomeSceneGraphSection() {
 
   const handlePanelClose = useCallback(() => {
     setSelectedNode(null)
+    // PSY-1313 lesson: return focus via an EXPLICIT ref — after the panel
+    // unmounts, focus would otherwise drop to document.body.
+    canvasWrapRef.current?.focus()
   }, [])
 
   // Self-hide on scenes failure/emptiness: a broken graph source must not
@@ -303,7 +309,7 @@ function HomeSceneGraphSection() {
           // skeleton. The branches are mutually exclusive by construction.
           (settledGraphData ? (
             settledGraphData.nodes.length > 0 ? (
-              <div className="relative">
+              <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
                 <ForceGraphView
                 // Remount per scene: a rotation BACK to a cached scene
                 // arrives with isPlaceholderData false (no skeleton frame,

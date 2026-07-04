@@ -3,9 +3,10 @@
 /**
  * Artist Graph Card Hook (PSY-1345)
  *
- * Fetches the node-select summary card for graph surfaces (homepage scene
- * graph, /graph Observatory). One small request per selected node; cached
- * per artist so re-selecting a node within the session is free.
+ * Fetches the node-select summary card for graph surfaces — the homepage
+ * scene graph today, intended for the /graph Observatory (unshipped). One
+ * small request per selected node; cached per artist so re-selecting a
+ * node within the session is free.
  */
 
 import { useQuery } from '@tanstack/react-query'
