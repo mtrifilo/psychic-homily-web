@@ -721,8 +721,8 @@ func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 // No startup cycle — the first fetch cycle is allowed to complete first.
 func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_rematch", s.rematchInterval, s.stopCh, false, func(_ context.Context) {
-		s.runReMatchCycle()
+	shared.RunTickerLoop(ctx, "radio_rematch", s.rematchInterval, s.stopCh, false, func(cycleCtx context.Context) {
+		s.runReMatchCycle(cycleCtx)
 	})
 }
 
@@ -1088,17 +1088,38 @@ func (s *RadioFetchService) runAffinityCycle() {
 }
 
 // runReMatchCycle re-matches unmatched plays against current artists.
-func (s *RadioFetchService) runReMatchCycle() {
+func (s *RadioFetchService) runReMatchCycle(ctx context.Context) {
 	start := time.Now()
 	s.logger.Info("starting re-match of unmatched plays")
 
-	result, err := s.radioService.ReMatchUnmatched()
+	cycleCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if s.stopCh != nil {
+		go func() {
+			select {
+			case <-s.stopCh:
+				cancel()
+			case <-cycleCtx.Done():
+			}
+		}()
+	}
+
+	result, err := s.radioService.ReMatchUnmatchedChunked(cycleCtx, defaultReMatchNamePageSize)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			s.logger.Info("re-match abandoned on shutdown",
+				"names_processed", result.NamesProcessed,
+				"matched", result.Matched,
+				"duration", time.Since(start),
+			)
+			return
+		}
 		s.logger.Error("re-match failed", "error", err)
 		return
 	}
 
 	s.logger.Info("re-match complete",
+		"names_processed", result.NamesProcessed,
 		"total", result.Total,
 		"matched", result.Matched,
 		"unmatched", result.Unmatched,
@@ -1473,7 +1494,7 @@ func (s *RadioFetchService) RunAffinityCycleNow() {
 
 // RunReMatchCycleNow triggers an immediate re-match cycle (useful for testing/admin).
 func (s *RadioFetchService) RunReMatchCycleNow() {
-	s.runReMatchCycle()
+	s.runReMatchCycle(context.Background())
 }
 
 // RunDiscoverCycleNow triggers an immediate discover cycle (useful for testing/admin).

@@ -15,6 +15,17 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
+// defaultReMatchNamePageSize is how many distinct unmatched artist names the
+// scheduled rematch ticker processes per DB page — keeps memory bounded vs
+// MatchAllUnmatched() loading every unmatched play at once (PSY-1363).
+const defaultReMatchNamePageSize = 500
+
+// ReMatchChunkedResult aggregates per-name rematch stats across a paginated sweep.
+type ReMatchChunkedResult struct {
+	contracts.MatchResult
+	NamesProcessed int
+}
+
 // GetUnmatchedPlays returns unmatched plays grouped by artist_name,
 // optionally filtered by station_id, with pagination.
 func (s *RadioService) GetUnmatchedPlays(stationID uint, limit, offset int) ([]*contracts.UnmatchedPlayGroup, int64, error) {
@@ -516,6 +527,90 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 // This catches newly added artists since the last match attempt.
 func (s *RadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 	return s.ReMatchUnmatchedWithFilter(nil)
+}
+
+// listUnmatchedArtistNamesPage returns the next page of distinct unmatched
+// artist_name values in ascending order. afterName is the cursor (empty for the
+// first page); uses keyset pagination so large archives don't pay OFFSET cost.
+func (s *RadioService) listUnmatchedArtistNamesPage(afterName string, limit int) ([]string, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if limit <= 0 {
+		limit = defaultReMatchNamePageSize
+	}
+
+	type nameRow struct {
+		ArtistName string `gorm:"column:artist_name"`
+	}
+	var rows []nameRow
+	q := s.db.Table("radio_plays").
+		Select("DISTINCT artist_name").
+		Where("artist_id IS NULL")
+	if afterName != "" {
+		q = q.Where("artist_name > ?", afterName)
+	}
+	err := q.Order("artist_name ASC").Limit(limit).Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("listing unmatched artist names: %w", err)
+	}
+
+	names := make([]string, len(rows))
+	for i, row := range rows {
+		names[i] = row.ArtistName
+	}
+	return names, nil
+}
+
+// ReMatchUnmatchedChunked rematches unmatched plays by sweeping distinct
+// artist_name values in bounded pages. ctx is checked between pages so a
+// shutdown can abandon a long sweep without waiting for the full archive.
+func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int) (*ReMatchChunkedResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if pageSize <= 0 {
+		pageSize = defaultReMatchNamePageSize
+	}
+
+	agg := &ReMatchChunkedResult{}
+	var afterName string
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return agg, err
+		}
+
+		names, err := s.listUnmatchedArtistNamesPage(afterName, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		if len(names) == 0 {
+			break
+		}
+
+		for _, name := range names {
+			if err := ctx.Err(); err != nil {
+				return agg, err
+			}
+			result, err := s.ReMatchUnmatchedWithFilter(&contracts.ReMatchRequest{ArtistName: name})
+			if err != nil {
+				return nil, err
+			}
+			agg.Total += result.Total
+			agg.Matched += result.Matched
+			agg.Unmatched += result.Unmatched
+			agg.PersistErrors += result.PersistErrors
+			agg.NamesProcessed++
+		}
+
+		afterName = names[len(names)-1]
+		if len(names) < pageSize {
+			break
+		}
+	}
+
+	return agg, nil
 }
 
 // ReMatchUnmatchedWithFilter rematches unmatched plays, optionally scoped to a
