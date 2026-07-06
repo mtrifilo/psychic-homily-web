@@ -33,6 +33,7 @@ import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTree
 import {
   buildExpandAnnouncement,
   buildCollapseAnnouncement,
+  buildDepthAnnouncement,
   buildCollapseAllAnnouncement,
   buildExpandErrorAnnouncement,
   buildFilterAnnouncement,
@@ -109,6 +110,13 @@ const CENTER_QUERY_KEY = 'center'
 // instead of lighting up every neighbor — and so a freshly-expanded hub can't flag all of
 // the neighbors it just revealed (the cap is over the WHOLE graph, see selectSuggestedExpansions).
 const MAX_SUGGESTED_DIRECTIONS = 5
+
+// PSY-1303: at depth 2 we auto-expand only the top-K DOI-ranked 1-hop neighbours,
+// NOT every neighbour — a bounded ~K fetches that keeps the graph legible instead
+// of re-introducing the hairball the whole ego arc (PSY-1257..1275) fixed. The
+// per-expansion node/edge caps still apply on top of this. Labelled honestly in
+// the control ("top N connections") so "2 hops" doesn't overpromise a full 2-hop view.
+const DEPTH_2_TOP_K = 8
 
 // Two top-level exports: `ArtistSimilarSidebar` is the sidebar dense list;
 // `ArtistGraphDialog` is the on-demand modal hosting `RecenteringGraph`.
@@ -548,6 +556,13 @@ function RecenteringGraph({
   const [expansions, setExpansions] = useState<Map<number, ArtistGraph>>(new Map())
   const [expandingIds, setExpandingIds] = useState<Set<number>>(() => new Set())
 
+  // PSY-1303: exploration depth. 1 = the base 1-hop ego (+ any manual expand-on-
+  // demand); 2 = additionally auto-expand the top-DOI 1-hop neighbours. depthAutoIds
+  // records exactly which nodes depth 2 auto-expanded so returning to depth 1
+  // collapses those (restoring the base view) WITHOUT discarding manual expansions.
+  const [depth, setDepth] = useState<1 | 2>(1)
+  const [depthAutoIds, setDepthAutoIds] = useState<Set<number>>(() => new Set())
+
   // PSY-1260: discovery-bias slider value, 0 = Popular (default — DOI exactly as PSY-1273
   // shipped) … 1 = Niche (boost low-degree/serendipitous artists). Per-viewing-session state;
   // persists across re-centers, resets when the dialog unmounts. Feeds the DOI weights below.
@@ -571,6 +586,11 @@ function RecenteringGraph({
     setExpansionKey(explorationKey)
     setExpansions(new Map())
     setExpandingIds(new Set())
+    // PSY-1303: re-centering is a fresh exploration — the depth-2 auto-expansions
+    // belonged to the prior center, so drop back to depth 1 rather than silently
+    // showing "2 hops" over an empty expansion set.
+    setDepth(1)
+    setDepthAutoIds(new Set())
   }
 
   // Generation counter so an in-flight expand fetch is applied only if the exploration hasn't
@@ -675,6 +695,95 @@ function RecenteringGraph({
   const doi = useMemo(
     () => (merged ? computeGraphDoi(merged, activeTypes, doiWeightsForBias(diversityBias)) : null),
     [merged, activeTypes, diversityBias]
+  )
+
+  // PSY-1303: depth 2 — auto-expand the top-K DOI-ranked 1-hop neighbours in ONE
+  // batch (fetch in parallel, merge together, a single aria-live announcement
+  // instead of one per node). Generation-guarded exactly like handleExpand so a
+  // re-center / festival toggle / collapse-all / return-to-depth-1 in flight
+  // discards the stale result. Already-expanded (manual) neighbours are skipped,
+  // so depth 2 is additive; the per-expansion node/edge caps still bound each ego.
+  const expandTopKByDoi = useCallback(() => {
+    if (!graph || !doi) return
+    const targets = graph.nodes
+      .filter(n => !expansions.has(n.id) && !expandingIds.has(n.id))
+      .map(n => ({ node: n, score: doi.doiByNodeId.get(n.id) ?? -Infinity }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, DEPTH_2_TOP_K)
+      .map(x => x.node)
+    if (targets.length === 0) {
+      setAnnouncement(buildDepthAnnouncement(2, 0))
+      return
+    }
+    const ids = targets.map(n => n.id)
+    const genAtExpand = generationRef.current
+    setExpandingIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) next.add(id)
+      return next
+    })
+    Promise.allSettled(
+      targets.map(n => fetchGraph(n.id, fetchTypes).then(ego => ({ id: n.id, ego })))
+    )
+      .then(results => {
+        if (generationRef.current !== genAtExpand) return
+        const ok = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []))
+        // Count genuinely-new artists across the whole batch, mutating knownIdsRef
+        // synchronously HERE (not in the setState updater, which can run twice) so
+        // overlapping egos don't double-count — mirrors handleExpand.
+        let added = 0
+        for (const { ego } of ok) {
+          for (const nd of ego.nodes) {
+            if (!knownIdsRef.current.has(nd.id)) added++
+            knownIdsRef.current.add(nd.id)
+          }
+        }
+        setExpansions(prev => {
+          const next = new Map(prev)
+          for (const { id, ego } of ok) next.set(id, ego)
+          return next
+        })
+        setDepthAutoIds(prev => {
+          const next = new Set(prev)
+          for (const { id } of ok) next.add(id)
+          return next
+        })
+        setAnnouncement(buildDepthAnnouncement(2, added))
+      })
+      .finally(() => {
+        if (generationRef.current !== genAtExpand) return
+        setExpandingIds(prev => {
+          const next = new Set(prev)
+          for (const id of ids) next.delete(id)
+          return next
+        })
+      })
+  }, [graph, doi, expansions, expandingIds, fetchGraph, fetchTypes, setAnnouncement])
+
+  // PSY-1303: toggle exploration depth. → 2 auto-expands the top-K; → 1 removes
+  // exactly the auto-expanded set (mergeEgoGraphs prunes the freed second-hop
+  // nodes) so any MANUAL expansions survive, and bumps the generation to cancel
+  // an auto-expand still in flight (a fast 2→1 must not let it pop back).
+  const handleDepthChange = useCallback(
+    (next: 1 | 2) => {
+      if (next === depth) return
+      setDepth(next)
+      if (next === 2) {
+        expandTopKByDoi()
+        return
+      }
+      generationRef.current += 1
+      setExpandingIds(new Set())
+      setExpansions(prev => {
+        if (depthAutoIds.size === 0) return prev
+        const nextMap = new Map(prev)
+        for (const id of depthAutoIds) nextMap.delete(id)
+        return nextMap
+      })
+      setDepthAutoIds(new Set())
+      setAnnouncement(buildDepthAnnouncement(1, 0))
+    },
+    [depth, depthAutoIds, expandTopKByDoi, setAnnouncement]
   )
 
   // PSY-1304: keep the known-id set current (center + base neighbours + every
@@ -954,6 +1063,33 @@ function RecenteringGraph({
             </button>
           )
         })}
+      </div>
+
+      {/* PSY-1303: exploration depth. 1 hop = the base ego; 2 hops auto-expands the
+          top DOI-ranked neighbours (labelled "top N connections" — deliberately not a
+          full 2-hop view, per PSY-1303). Always visible (unlike the canvas-only bias
+          slider below): it changes the graph AND the accessible tree, so reduced-motion
+          users need it too. aria-pressed makes the active hop count SR-legible. */}
+      <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
+        <span className="shrink-0 font-medium">Depth</span>
+        <div role="group" aria-label="Graph depth" className="inline-flex rounded-md border border-border overflow-hidden">
+          {([1, 2] as const).map(d => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => handleDepthChange(d)}
+              aria-pressed={depth === d}
+              className={`px-2 py-0.5 transition-colors ${
+                depth === d ? 'bg-accent text-foreground' : 'hover:bg-muted/50'
+              }`}
+            >
+              {d === 1 ? '1 hop' : '2 hops'}
+            </button>
+          ))}
+        </div>
+        {depth === 2 && (
+          <span className="shrink-0 text-[11px]">top {DEPTH_2_TOP_K} connections</span>
+        )}
       </div>
 
       {/* PSY-1260: discovery-bias slider — interpolates DOI's importance weight from Popular

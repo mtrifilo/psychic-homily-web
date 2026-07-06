@@ -337,3 +337,59 @@ describe('accessible tree — adversarial-review fix (PSY-1304)', () => {
     expect(screen.getByText('Collapsed all expansions back to the starting graph.')).toBeInTheDocument()
   })
 })
+
+describe('depth control (1 / 2 hops, PSY-1303)', () => {
+  beforeEach(() => {
+    vizProps = null
+    fetchCalls.length = 0
+    routerPush.mockClear()
+    mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
+  })
+
+  it('depth 2 auto-expands the base neighbours and announces the batch exactly once', async () => {
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: '2 hops' }))
+    // Base has 2 neighbours (a2, a3), both under the top-K cap → both fetched.
+    expect(fetchCalls.map(c => c.id).sort()).toEqual([2, 3])
+    await act(async () => {
+      fetchCalls.find(c => c.id === 2)!.resolve(exp2)
+      fetchCalls.find(c => c.id === 3)!.resolve(exp3)
+    })
+    // Canvas AND the accessible tree both show the merged second hop (a4 via a2,
+    // a5 via a3) — AC3: the sidebar reflects the depth change.
+    expect(nodeIds()).toEqual([2, 3, 4, 5])
+    expect(screen.getAllByRole('treeitem')).toHaveLength(4)
+    // ONE aria-live announcement for the whole batch, not one per node.
+    expect(
+      screen.getByText('Showing 2 hops — added 2 artists from the top connections.'),
+    ).toBeInTheDocument()
+  })
+
+  it('depth 1 collapses the auto-expanded set back to the base (reversible)', async () => {
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: '2 hops' }))
+    await act(async () => {
+      fetchCalls.find(c => c.id === 2)!.resolve(exp2)
+      fetchCalls.find(c => c.id === 3)!.resolve(exp3)
+    })
+    expect(nodeIds()).toEqual([2, 3, 4, 5])
+    fireEvent.click(screen.getByRole('button', { name: '1 hop' }))
+    expect(nodeIds()).toEqual([2, 3]) // restored to the base ego
+    expect(
+      screen.getByText('Back to 1 hop — collapsed the second-hop connections.'),
+    ).toBeInTheDocument()
+  })
+
+  it('depth 2 caps auto-expansion at the top-K, never every neighbour (no hairball)', () => {
+    // A dense ego: 12 neighbours. Depth 2 must fetch only the top 8 (DEPTH_2_TOP_K).
+    const dense = ego(
+      1,
+      [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      Array.from({ length: 12 }, (_, i) => link(1, i + 2)),
+    )
+    mockUseArtistGraph.mockReturnValue({ data: dense, isFetching: false })
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: '2 hops' }))
+    expect(fetchCalls).toHaveLength(8)
+  })
+})
