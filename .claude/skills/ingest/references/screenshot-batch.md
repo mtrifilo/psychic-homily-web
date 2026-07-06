@@ -98,7 +98,7 @@ Fix-ups: `submit artist --confirm`, then retry failed releases/shows.
 
 ### Radio playlist linking (after confirm)
 
-`batch --confirm` automatically calls `POST /admin/radio/rematch`, linking historic `radio_plays` rows to artists/labels just created. The backend also rematches asynchronously when an artist, label, or artist alias is created.
+`batch --confirm` automatically runs chunked `ph radio rematch` after creates/updates, linking historic `radio_plays` rows to artists/labels just created. The backend also rematches asynchronously when an artist, label, or artist alias is created.
 
 Playlist UI orange ● = `artist_id` set on the play row — **not** merely that an artist page exists.
 

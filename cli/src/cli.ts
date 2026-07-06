@@ -17,6 +17,7 @@ import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
+import { runRadioRematch } from "./commands/radio";
 
 const program = new Command();
 
@@ -213,6 +214,43 @@ showCmd
   .action(async (showId: string, artist: string, opts: { confirm?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runShowRemoveArtist(showId, artist, env, !!opts.confirm);
+  });
+
+// ─── ph radio ────────────────────────────────────────────────────────────────
+
+const radioCmd = program
+  .command("radio")
+  .description("Radio playlist operations (admin)");
+
+radioCmd
+  .command("rematch")
+  .description(
+    "Rematch unmatched radio plays to the KG in per-name chunks (avoids full-table timeout)",
+  )
+  .option("--station <id>", "Limit to unmatched groups on one station ID")
+  .option("--show <slug>", "Limit to unmatched artist names on one radio show")
+  .option(
+    "--artist-name <name>",
+    "Rematch one artist_name only (repeatable)",
+    (value: string, prev: string[] | undefined) => [...(prev ?? []), value],
+  )
+  .option("--limit <n>", "Cap how many distinct artist names to process")
+  .option("--dry-run", "List names that would be rematched without POSTing")
+  .action(async (opts: {
+    station?: string;
+    show?: string;
+    artistName?: string[];
+    limit?: string;
+    dryRun?: boolean;
+  }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runRadioRematch(env, {
+      stationId: opts.station,
+      showSlug: opts.show,
+      artistName: opts.artistName,
+      limit: opts.limit,
+      dryRun: opts.dryRun,
+    });
   });
 
 // ─── ph status ───────────────────────────────────────────────────────────────
