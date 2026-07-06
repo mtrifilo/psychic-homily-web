@@ -624,6 +624,18 @@ func (s *RadioFetchService) runSlotFetchCycle() {
 		s.logger.Error("radio slot fetch: listing due shows failed", "error", err)
 		return
 	}
+
+	// PSY-1370: also refresh shows airing RIGHT NOW with an incomplete playlist, so an
+	// on-air show's tracks grow every tick — not only at the slot boundary. Merged into
+	// the same per-show scoped-fetch work list (deduped), so a show that is both at a
+	// boundary and live this tick is fetched once. A query failure here must not starve
+	// the boundary fetches, so it's logged and the cycle proceeds with `due` alone.
+	live, err := s.radioService.ShowsWithLiveIncompleteEpisodes(now)
+	if err != nil {
+		s.logger.Error("radio slot fetch: listing live incomplete shows failed", "error", err)
+	} else {
+		mergeShowWorkLists(due, live)
+	}
 	if len(due) == 0 {
 		return
 	}
@@ -653,6 +665,24 @@ func (s *RadioFetchService) runSlotFetchCycle() {
 		"window_start", from.UTC().Format(time.RFC3339),
 		"shows_fetched", fetched, "shows_skipped", skipped, "shows_failed", failed,
 		"duration", time.Since(now))
+}
+
+// mergeShowWorkLists folds src into dst (both stationID → showIDs), appending only
+// showIDs not already present for that station so a show reachable via two work lists
+// (a slot boundary AND a live episode this tick) is fetched exactly once. Mutates dst.
+func mergeShowWorkLists(dst, src map[uint][]uint) {
+	for stationID, showIDs := range src {
+		seen := make(map[uint]bool, len(dst[stationID]))
+		for _, id := range dst[stationID] {
+			seen[id] = true
+		}
+		for _, id := range showIDs {
+			if !seen[id] {
+				dst[stationID] = append(dst[stationID], id)
+				seen[id] = true
+			}
+		}
+	}
 }
 
 // runSubstreamScheduleLoop runs the periodic WFMU sub-stream schedule scrape

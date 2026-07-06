@@ -88,3 +88,44 @@ func TestSlotBoundaryDue(t *testing.T) {
 		}
 	})
 }
+
+// TestMergeShowWorkLists pins the dedup merge (PSY-1370): a show reachable via both the
+// boundary and live work lists this tick is fetched exactly once; disjoint shows across
+// stations all survive.
+func TestMergeShowWorkLists(t *testing.T) {
+	dst := map[uint][]uint{
+		1: {10, 11}, // station 1: boundary shows
+		2: {20},     // station 2: boundary show
+	}
+	src := map[uint][]uint{
+		1: {11, 12}, // station 1: 11 overlaps (dedup), 12 is new (live-only)
+		3: {30},     // station 3: live-only station
+	}
+	mergeShowWorkLists(dst, src)
+
+	if got := dst[1]; len(got) != 3 || !containsAll(got, []uint{10, 11, 12}) {
+		t.Errorf("station 1 = %v, want exactly {10,11,12} (11 not duplicated)", got)
+	}
+	if got := dst[2]; len(got) != 1 || got[0] != 20 {
+		t.Errorf("station 2 = %v, want {20}", got)
+	}
+	if got := dst[3]; len(got) != 1 || got[0] != 30 {
+		t.Errorf("station 3 = %v, want {30} (live-only station merged in)", got)
+	}
+}
+
+func containsAll(have, want []uint) bool {
+	set := make(map[uint]bool, len(have))
+	for _, v := range have {
+		if set[v] {
+			return false // duplicate present
+		}
+		set[v] = true
+	}
+	for _, w := range want {
+		if !set[w] {
+			return false
+		}
+	}
+	return true
+}

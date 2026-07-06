@@ -2434,3 +2434,65 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_RejectsFarFuture
 	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
 	suite.Equal(int64(2), count, "near-future (tolerance) episodes import")
 }
+
+// TestImportEpisode_LiveRefresh (PSY-1370): a re-list of an episode airing right now
+// with an incomplete playlist RE-FETCHES it (tracks accumulate → partial), whereas a
+// scheduled (not-yet-started) episode is left untouched. Before PSY-1370 the live case
+// was a dedup skip, so an on-air show's playlist stayed frozen at its pre-air snapshot.
+func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_LiveRefresh() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Live Show")
+	now := time.Now()
+
+	// Provider now returns two tracks (the show has started airing them).
+	mockProvider := &mockPlaylistProvider{
+		fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+			return []RadioPlayImport{{Position: 0, ArtistName: "A"}, {Position: 1, ArtistName: "B"}}, nil
+		},
+	}
+
+	// (1) LIVE + pending + 0 plays (the pre-air empty snapshot shape) → re-fetch imports the tracks.
+	liveStart, liveEnd := now.Add(-30*time.Minute), now.Add(30*time.Minute)
+	liveExt := "ep-live"
+	live := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: "2026-06-16", ExternalID: &liveExt,
+		StartsAt: &liveStart, EndsAt: &liveEnd,
+		PlaylistState: catalogm.RadioPlaylistStatePending, PlaylistFetchAttempts: 0, PlayCount: 0,
+	}
+	suite.Require().NoError(suite.db.Create(live).Error)
+
+	res, err := suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "ep-live", AirDate: "2026-06-16", StartsAt: &liveStart, EndsAt: &liveEnd,
+	}, mockProvider)
+	suite.Require().NoError(err)
+	suite.Equal(2, res.PlaysImported, "live re-fetch imports the newly-aired tracks")
+
+	var got catalogm.RadioEpisode
+	suite.Require().NoError(suite.db.First(&got, live.ID).Error)
+	suite.Equal(catalogm.RadioPlaylistStatePartial, got.PlaylistState, "live snapshot → partial")
+	suite.Equal(2, got.PlayCount)
+	suite.Equal(0, got.PlaylistFetchAttempts, "a live re-fetch never burns a post-air attempt")
+
+	var plays int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", live.ID).Count(&plays)
+	suite.Equal(int64(2), plays)
+
+	// (2) SCHEDULED (not started) → dedup skip, NOT re-fetched (playlist doesn't exist yet).
+	schedStart, schedEnd := now.Add(1*time.Hour), now.Add(2*time.Hour)
+	schedExt := "ep-scheduled"
+	sched := &catalogm.RadioEpisode{
+		ShowID: show.ID, AirDate: "2026-06-16", ExternalID: &schedExt,
+		StartsAt: &schedStart, EndsAt: &schedEnd,
+		PlaylistState: catalogm.RadioPlaylistStatePending, PlaylistFetchAttempts: 0, PlayCount: 0,
+	}
+	suite.Require().NoError(suite.db.Create(sched).Error)
+
+	res2, err := suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+		ExternalID: "ep-scheduled", AirDate: "2026-06-16", StartsAt: &schedStart, EndsAt: &schedEnd,
+	}, mockProvider)
+	suite.Require().NoError(err)
+	suite.Equal(0, res2.PlaysImported, "a scheduled episode is not re-fetched")
+	var schedPlays int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", sched.ID).Count(&schedPlays)
+	suite.Equal(int64(0), schedPlays)
+}

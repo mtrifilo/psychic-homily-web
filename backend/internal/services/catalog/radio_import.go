@@ -1510,11 +1510,12 @@ func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 // across the deploy would lose its ON AIR strip until re-ingest. The window comes
 // from the provider's instants (KEXP/NTS) or, for WFMU, the show's schedule +
 // air_date (PSY-1238) — so a windowless WFMU episode that gets re-listed inside
-// the fetch window self-heals. It then runs a post-air playlist backfill
-// (PSY-1154) iff the episode has aired with an incomplete playlist and has
-// attempts left — a complete, exhausted (unavailable), still-live, or scheduled
-// episode is left untouched (dedup skip), so a routine re-list never re-fetches a
-// playlist that is already final or legitimately still in progress.
+// the fetch window self-heals. It then re-fetches the playlist iff the episode is
+// aired + incomplete with attempts left (post-air backfill, PSY-1154) OR airing
+// right now + incomplete (live refresh, PSY-1370, so tracks accumulate during the
+// show) — a complete, exhausted (unavailable), or scheduled episode is left
+// untouched (dedup skip), so a routine re-list never re-fetches a playlist that is
+// already final or hasn't started.
 func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
 	// Heal a missing frozen window AND enforce the PSY-1285 scheduled-never-unavailable
 	// invariant in a SINGLE update: both can change `status`, so the fields are collected
@@ -1573,8 +1574,15 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 		}
 	}
 
+	// Re-fetch when the episode is either (a) aired + incomplete with attempts left —
+	// the post-air backfill (PSY-1154) — or (b) airing RIGHT NOW + incomplete — the
+	// live refresh (PSY-1370, so tracks accumulate during the show). Both funnel into
+	// the same idempotent fetch. A complete/exhausted/scheduled episode matches neither
+	// and is a dedup skip. The two predicates are mutually exclusive by time phase, so
+	// the handoff at ends_at is clean (live refresh → one final post-air fetch).
 	if !catalogm.ShouldBackfillPlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState,
-		existing.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts, now) {
+		existing.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts, now) &&
+		!catalogm.ShouldRefreshLivePlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState, now) {
 		return &contracts.EpisodeImportResult{}, nil
 	}
 

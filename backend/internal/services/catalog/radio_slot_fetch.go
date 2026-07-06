@@ -28,6 +28,17 @@ import (
 // health rates (see RunStationSync + computeStationRates). Stations without
 // stored schedules (KEXP/NTS today) keep riding the interval sweep, which
 // remains the backstop for everything.
+//
+// PSY-1370 (live refresh): the boundary work list alone re-fetches a show only at
+// its slot start/end — so a playlist fetched empty before airtime (WFMU pre-publishes
+// the page hours early) stays at 0 tracks for the whole live window. Each tick the
+// cycle therefore ALSO scoped-fetches every show with an episode airing right now whose
+// playlist is still incomplete (ShowsWithLiveIncompleteEpisodes), so tracks accumulate
+// during the show. Same neutral scoped-fetch path (all the neutrality guarantees above
+// are inherited), same ~one incremental fetch per tick per live show; the re-fetch
+// itself is opened by ShouldRefreshLivePlaylist in reimportExistingEpisode. Handoff is
+// clean: past ends_at the episode is no longer live and the post-air backfill owns the
+// single final fetch → complete.
 
 // slotBoundaryDue reports whether any slot of the schedule has a start or end
 // instant inside (from, to]. Half-open on the left so back-to-back ticker
@@ -107,4 +118,42 @@ func (s *RadioService) ShowsWithSlotBoundariesIn(from, to time.Time) (map[uint][
 		}
 	}
 	return due, nil
+}
+
+// ShowsWithLiveIncompleteEpisodes returns stationID → showIDs for every show that has
+// an episode airing RIGHT NOW whose playlist is still incomplete (PSY-1370). This is
+// the slot ticker's live-refresh work list, unioned with the boundary work list so an
+// on-air show is re-fetched every tick and its playlist grows during the show — not
+// only at the boundary. The show population mirrors ShowsWithSlotBoundariesIn exactly
+// (active shows with an external id on active, automated stations), so live refresh
+// never targets a show the sweep itself wouldn't fetch. "Live" is the bounded-window
+// condition ComputeEpisodeStatus uses (starts_at <= now <= ends_at); a windowless
+// episode has NULL bounds and is excluded by construction — it can't be "live".
+func (s *RadioService) ShowsWithLiveIncompleteEpisodes(now time.Time) (map[uint][]uint, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	type row struct {
+		StationID uint
+		ShowID    uint
+	}
+	var rows []row
+	err := s.db.Model(&catalogm.RadioEpisode{}).
+		Select("DISTINCT radio_shows.station_id AS station_id, radio_shows.id AS show_id").
+		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
+		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
+		Where("radio_shows.is_active = TRUE AND radio_shows.external_id IS NOT NULL AND radio_shows.external_id != ''").
+		Where("radio_stations.is_active = TRUE AND radio_stations.playlist_source IS NOT NULL AND radio_stations.playlist_source != '' AND radio_stations.playlist_source != ?", catalogm.PlaylistSourceManual).
+		Where("radio_episodes.starts_at IS NOT NULL AND radio_episodes.ends_at IS NOT NULL").
+		Where("radio_episodes.starts_at <= ? AND radio_episodes.ends_at >= ?", now, now).
+		Where("radio_episodes.playlist_state IN ?", []string{catalogm.RadioPlaylistStatePending, catalogm.RadioPlaylistStatePartial}).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("querying shows with live incomplete episodes: %w", err)
+	}
+	live := make(map[uint][]uint)
+	for _, r := range rows {
+		live[r.StationID] = append(live[r.StationID], r.ShowID)
+	}
+	return live, nil
 }

@@ -138,6 +138,69 @@ func TestShouldBackfillPlaylist(t *testing.T) {
 	}
 }
 
+// TestShouldRefreshLivePlaylist pins the PSY-1370 live-refresh eligibility: exactly the
+// complement of the backfill gate in the time dimension — LIVE + incomplete is eligible,
+// every non-live phase (scheduled/aired/windowless) is not, and complete/unavailable
+// never qualify regardless of phase. No attempts arg by design (a live re-fetch never
+// burns one), so eligibility is purely (live ∧ incomplete).
+func TestShouldRefreshLivePlaylist(t *testing.T) {
+	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	during := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
+	before := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
+	after := time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC)
+	ptr := func(tm time.Time) *time.Time { return &tm }
+
+	cases := []struct {
+		name         string
+		starts, ends *time.Time
+		state        string
+		now          time.Time
+		want         bool
+	}{
+		{"live + pending → eligible", ptr(start), ptr(end), RadioPlaylistStatePending, during, true},
+		{"live + partial → eligible (growing snapshot)", ptr(start), ptr(end), RadioPlaylistStatePartial, during, true},
+		{"scheduled → NOT eligible (hasn't started)", ptr(start), ptr(end), RadioPlaylistStatePending, before, false},
+		{"aired → NOT eligible (post-air backfill owns it)", ptr(start), ptr(end), RadioPlaylistStatePending, after, false},
+		{"live + complete → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateComplete, during, false},
+		{"live + unavailable → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateUnavailable, during, false},
+		// Windowless (no bounded window) is never live → never refreshed here; the
+		// exact instant the backfill gate calls "aired" is what live refresh skips.
+		{"windowless → NOT eligible (never live)", nil, nil, RadioPlaylistStatePending, during, false},
+		{"start but no end (NTS) → NOT eligible (unbounded, never live)", ptr(start), nil, RadioPlaylistStatePending, during, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ShouldRefreshLivePlaylist(tc.starts, tc.ends, tc.state, tc.now)
+			if got != tc.want {
+				t.Errorf("ShouldRefreshLivePlaylist(%v, %v, %q, %v) = %v, want %v",
+					tc.starts, tc.ends, tc.state, tc.now, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBackfillAndLiveRefreshAreMutuallyExclusive pins the clean handoff (PSY-1370): for
+// an incomplete episode, at most one of the two re-fetch gates is ever open, so nothing
+// double-drives — live refresh during the window, post-air backfill after ends_at.
+func TestBackfillAndLiveRefreshAreMutuallyExclusive(t *testing.T) {
+	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	ptr := func(tm time.Time) *time.Time { return &tm }
+	for _, now := range []time.Time{
+		time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC),  // scheduled
+		time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC), // live
+		time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC),  // aired
+	} {
+		backfill := ShouldBackfillPlaylist(ptr(start), ptr(end), RadioPlaylistStatePending, 0, 5, now)
+		live := ShouldRefreshLivePlaylist(ptr(start), ptr(end), RadioPlaylistStatePending, now)
+		if backfill && live {
+			t.Errorf("both gates open at now=%v (backfill=%v live=%v) — would double-drive", now, backfill, live)
+		}
+	}
+}
+
 // TestNormalizeScheduledPlaylistState pins the PSY-1285 invariant: a not-yet-aired
 // (scheduled) episode is never 'unavailable' and carries no burned backfill attempts;
 // every other phase (live/aired/windowless) is left untouched.

@@ -194,3 +194,56 @@ func (s *RadioSyncSuite) TestScopedFetch_BreakerNeutral() {
 	s.Equal(catalogm.RadioBreakerStateOpen, snap.state, "the breaker stays open for the next sweep to probe")
 	s.Equal(5, snap.failures)
 }
+
+// TestShowsWithLiveIncompleteEpisodes (PSY-1370): the live-refresh work list — shows
+// with an episode airing right now and still incomplete — mirrors the boundary work
+// list's population (active shows with an external id on active, automated stations)
+// and excludes every non-live / complete / windowless / non-automated case.
+func (s *RadioSyncSuite) TestShowsWithLiveIncompleteEpisodes() {
+	now := time.Date(2026, 7, 6, 20, 0, 0, 0, time.UTC)
+	liveS, liveE := now.Add(-30*time.Minute), now.Add(30*time.Minute) // now inside → live
+	schedS, schedE := now.Add(1*time.Hour), now.Add(2*time.Hour)      // future → scheduled
+	airedS, airedE := now.Add(-2*time.Hour), now.Add(-1*time.Hour)    // past → aired
+
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+
+	// LIVE + pending → in the work list.
+	livePending := s.seedActiveShow(st.ID, "live-pending", nil)
+	s.seedEpisodeFor(livePending.ID, "lp-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	// LIVE + partial → in the work list (still growing).
+	livePartial := s.seedActiveShow(st.ID, "live-partial", nil)
+	s.seedEpisodeFor(livePartial.ID, "lpa-1", "2026-07-06", catalogm.RadioPlaylistStatePartial, 0, &liveS, &liveE, now)
+
+	// LIVE + complete → excluded (nothing left to refresh).
+	liveComplete := s.seedActiveShow(st.ID, "live-complete", nil)
+	s.seedEpisodeFor(liveComplete.ID, "lc-1", "2026-07-06", catalogm.RadioPlaylistStateComplete, 0, &liveS, &liveE, now)
+
+	// SCHEDULED → excluded (hasn't started).
+	scheduled := s.seedActiveShow(st.ID, "scheduled", nil)
+	s.seedEpisodeFor(scheduled.ID, "sc-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &schedS, &schedE, now)
+
+	// AIRED → excluded (post-air backfill owns it).
+	aired := s.seedActiveShow(st.ID, "aired", nil)
+	s.seedEpisodeFor(aired.ID, "ai-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &airedS, &airedE, now)
+
+	// WINDOWLESS live-ish (NULL window) → excluded (can't be "live").
+	windowless := s.seedActiveShow(st.ID, "windowless", nil)
+	s.seedEpisodeFor(windowless.ID, "wl-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, nil, nil, now)
+
+	// LIVE but empty external_id → excluded (not a fetchable identity).
+	noExt := s.seedActiveShow(st.ID, "live-no-ext", nil)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", noExt.ID).Update("external_id", "").Error)
+	s.seedEpisodeFor(noExt.ID, "ne-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	// LIVE but on a MANUAL station → excluded (the sweep wouldn't fetch it).
+	manual := s.seedStation(catalogm.PlaylistSourceManual)
+	onManual := s.seedActiveShow(manual.ID, "live-on-manual", nil)
+	s.seedEpisodeFor(onManual.ID, "om-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	got, err := s.svc.ShowsWithLiveIncompleteEpisodes(now)
+	s.Require().NoError(err)
+	s.Require().Len(got, 1, "only the automated station contributes")
+	s.ElementsMatch([]uint{livePending.ID, livePartial.ID}, got[st.ID],
+		"exactly the live+incomplete shows with a fetchable identity are due")
+}
