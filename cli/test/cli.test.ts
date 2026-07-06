@@ -38,6 +38,7 @@ describe("CLI integration", () => {
     expect(stdout).toContain("search");
     expect(stdout).toContain("submit");
     expect(stdout).toContain("batch");
+    expect(stdout).toContain("radio");
     expect(exitCode).toBe(0);
   });
 

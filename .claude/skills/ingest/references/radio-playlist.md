@@ -98,12 +98,12 @@ Backfill imports **raw** `artist_name` on plays. KG linkage (`artist_id`/`artist
 After ingest creates artists (or after deploy of PSY-1347):
 
 ```bash
-# Full rematch — links plays whose artist_name (or alias) now resolves
-curl -s -X POST "$API/admin/radio/rematch" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+# Chunked rematch — per artist_name (avoids full-table gateway 502)
+cd cli && bun run src/entry.ts --env stage radio rematch
+bun run src/entry.ts --env stage radio rematch --show secret-canine-agents
 ```
 
-`ph batch --confirm` calls the same endpoint automatically after roster/playlist screenshot ingests.
+`ph batch --confirm` runs the same chunked rematch automatically after roster/playlist screenshot ingests.
 
 For name variants still unlinked, add artist aliases (triggers targeted rematch) — see [troubleshooting.md](troubleshooting.md#radio-playlist-linking).
 

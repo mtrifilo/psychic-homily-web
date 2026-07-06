@@ -52,6 +52,37 @@ func (s *RadioSyncSuite) reloadEpisode(id uint) catalogm.RadioEpisode {
 	return ep
 }
 
+// recentSundayBackfillFixture picks a Sunday within the 7-day backfill lookback.
+// RunBackfillCycleNow passes time.Now() into ListBackfillCandidates, so a fixed
+// historical air_date (e.g. 2026-06-28) ages out and the end-to-end heal test
+// stops fetching.
+func recentSundayBackfillFixture(etNow time.Time) (airDate string, episodeNow time.Time) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		panic(err)
+	}
+	etNow = etNow.In(ny)
+
+	var day time.Time
+	if etNow.Weekday() == time.Sunday && etNow.Hour() >= 6 {
+		day = time.Date(etNow.Year(), etNow.Month(), etNow.Day(), 0, 0, 0, 0, ny)
+	} else {
+		for i := 1; i <= 6; i++ {
+			d := etNow.AddDate(0, 0, -i)
+			if d.Weekday() == time.Sunday {
+				day = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, ny)
+				break
+			}
+		}
+	}
+	if day.IsZero() {
+		panic("recentSundayBackfillFixture: no Sunday within 6 days")
+	}
+	// Noon ET — well after the 3–6am slot used by the F4 schedule shape.
+	episodeNow = time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, ny)
+	return day.Format("2006-01-02"), episodeNow
+}
+
 // recordPlaylistOutcome on an aired episode that returned plays settles it to
 // complete + archived, refreshes play_count, stamps fetched_at, and leaves the
 // attempt counter untouched.
@@ -189,10 +220,8 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_IncludesStrandedWindowlessUn
 func (s *RadioSyncSuite) TestBackfillCycle_HealsWindowlessUnavailableAfterScheduleFix() {
 	ny, err := time.LoadLocation("America/New_York")
 	s.Require().NoError(err)
-	// Sunday 2026-06-28 noon ET — well after the 3-6am air window.
-	now := time.Date(2026, 6, 28, 12, 0, 0, 0, ny)
-	airDate := "2026-06-28"
-	showExt, epExt := "F4", "ep-f4-jun28"
+	airDate, now := recentSundayBackfillFixture(time.Now().In(ny))
+	showExt, epExt := "F4", "ep-f4-heal"
 
 	schedRaw, _ := json.Marshal(catalogm.RadioSchedule{
 		Timezone: "America/New_York",

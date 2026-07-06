@@ -69,7 +69,7 @@ Each step after roster is optional. Names-only Shopify rosters (Sacred Bones, Da
 4. **Artist-skip QA scan** on large rosters/calendars — map SKIPs to proposed names; pre-create distinct artists via `POST /admin/artists` (not `ph submit artist`) to beat 0.6 fuzzy false-matches.
 5. **Don't auto-split `and`/`&`/`,` in band names** unless the source clearly lists separate acts.
 6. **Register + stamp sources** after successful venue/label ingests so [catalog-refresh](references/catalog-refresh.md) can pick them up.
-7. **Radio playlist linking** — playlist orange ● requires `radio_plays.artist_id`. `batch --confirm` auto-calls `POST /admin/radio/rematch`; artist/label create also rematch async. See [troubleshooting.md](references/troubleshooting.md#radio-playlist-linking) and [radio-playlist.md](references/radio-playlist.md).
+7. **Radio playlist linking** — playlist orange ● requires `radio_plays.artist_id`. `batch --confirm` auto-runs `ph radio rematch` (chunked); artist/label create also rematch async. See [troubleshooting.md](references/troubleshooting.md#radio-playlist-linking) and [radio-playlist.md](references/radio-playlist.md).
 
 
 ## CLI quick reference

@@ -1,7 +1,7 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
-import { rematchRadioPlays } from "../lib/radio";
+import { rematchRadioPlaysChunked } from "../lib/radio";
 import { expandInlineRosters, type RosterItem } from "../lib/roster";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
@@ -180,14 +180,16 @@ export async function processBatch(
     display.warn("Dry run. Use --confirm to execute.");
   } else if (result.totalCreated > 0 || result.totalUpdated > 0) {
     try {
-      const rematch = await rematchRadioPlays(client);
+      const rematch = await rematchRadioPlaysChunked(client);
       if (rematch.matched > 0) {
         display.info(
-          `Radio rematch linked ${rematch.matched} play(s) (${rematch.unmatched} still unmatched of ${rematch.total} scanned).`,
+          `Radio rematch linked ${rematch.matched} play(s) across ${rematch.namesProcessed} name(s) ` +
+            `(${rematch.unmatched} still unmatched of ${rematch.total} scanned).`,
         );
       } else {
         display.info(
-          `Radio rematch: no new play links (${rematch.total} unmatched plays scanned).`,
+          `Radio rematch: no new play links across ${rematch.namesProcessed} name(s) ` +
+            `(${rematch.total} unmatched plays scanned).`,
         );
       }
     } catch (err) {
