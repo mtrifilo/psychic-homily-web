@@ -74,14 +74,9 @@ vi.mock('next/navigation', () => ({
 }))
 
 // Mock the canvas-based ArtistGraph viz.
-vi.mock('./ArtistGraph', async () => {
-  const { createContext } = await import('react')
-  return {
-    ArtistGraphVisualization: () => <div data-testid="artist-graph">Graph Visualization</div>,
-    // PSY-1351: ArtistGraphDialog wraps the graph in this context's Provider.
-    ConnectionPanelDismissContext: createContext(null),
-  }
-})
+vi.mock('./ArtistGraph', () => ({
+  ArtistGraphVisualization: () => <div data-testid="artist-graph">Graph Visualization</div>,
+}))
 
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 
