@@ -282,16 +282,6 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 	return artistMatched, nil
 }
 
-// matchArtist tries to match an artist name to our knowledge graph.
-// Priority: MusicBrainz ID → exact name → alias match → collab split (PSY-1353).
-func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
-	outcome, id := m.resolveArtist(name, mbID)
-	if outcome != artistMatchFound {
-		return nil
-	}
-	return id
-}
-
 type artistMatchOutcome int
 
 const (
