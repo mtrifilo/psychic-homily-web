@@ -136,6 +136,12 @@ interface ArtistGraphProps {
    */
   suggestedIds?: Set<number>
   /**
+   * PSY-1304: id of the sr-only note that names the accessible connections list
+   * as this canvas's keyboard/screen-reader equivalent. Applied to the canvas
+   * as aria-describedby so assistive tech links the two.
+   */
+  canvasDescribedById?: string
+  /**
    * PSY-361: When true, an overlay spinner is shown over the graph while
    * the parent fetches the new center's payload. We deliberately do NOT
    * unmount the canvas — that would cause the simulation-mid-tick stutter
@@ -342,6 +348,7 @@ export function ArtistGraphVisualization({
   expandingIds,
   doiByNodeId,
   suggestedIds,
+  canvasDescribedById,
   isRecentering = false,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -538,15 +545,40 @@ export function ArtistGraphVisualization({
   // descriptive label so assistive tech announces it sensibly and points
   // users to the accessible list below.
   useEffect(() => {
-    if (!containerRef.current) return
-    const canvas = containerRef.current.querySelector('canvas')
-    if (!canvas) return
-    canvas.setAttribute('role', 'img')
-    canvas.setAttribute(
-      'aria-label',
-      `Artist relationship graph for ${data.center.name}. Use the Related Artists list below to navigate.`
-    )
-  }, [data.center.name])
+    const container = containerRef.current
+    if (!container) return
+    const apply = (canvas: Element) => {
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute(
+        'aria-label',
+        `Artist relationship graph for ${data.center.name}. Use the Related Artists list below to navigate.`
+      )
+      // PSY-1304: link the canvas to the sr-only note that names the accessible
+      // connections list as its keyboard/screen-reader equivalent.
+      if (canvasDescribedById) {
+        canvas.setAttribute('aria-describedby', canvasDescribedById)
+      }
+    }
+    const existing = container.querySelector('canvas')
+    if (existing) {
+      apply(existing)
+      return
+    }
+    // The <canvas> is created asynchronously by react-force-graph's dynamic
+    // chunk, so this effect can run before it exists (and its deps won't change
+    // to retry). Observe until it appears, then apply once — the "apply-or-
+    // observe" fix from PSY-1296/1321; without it the canvas a11y attributes
+    // (and this association) silently never apply.
+    const observer = new MutationObserver(() => {
+      const canvas = container.querySelector('canvas')
+      if (canvas) {
+        apply(canvas)
+        observer.disconnect()
+      }
+    })
+    observer.observe(container, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [data.center.name, canvasDescribedById])
 
   // Reduced-motion: pause the continuous force simulation after the
   // initial layout settles so motion-sensitive users get a static

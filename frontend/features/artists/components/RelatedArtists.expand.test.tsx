@@ -214,3 +214,64 @@ describe('RecenteringGraph — discovery-bias slider (PSY-1260)', () => {
     expect(doiNiche.get(3)!).toBeGreaterThan(doiNiche.get(2)!) // niche: leaf surfaces above the hub
   })
 })
+
+describe('accessible connections tree + announcements (PSY-1304)', () => {
+  beforeEach(() => {
+    vizProps = null
+    fetchCalls.length = 0
+    mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
+  })
+
+  it('renders a role=tree of the base neighbours, keyboard-navigable', () => {
+    renderDialog()
+    const tree = screen.getByRole('tree', { name: /Connections for a1/i })
+    expect(tree).toBeInTheDocument()
+    const items = screen.getAllByRole('treeitem')
+    expect(items.map(el => el.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('a2'), expect.stringContaining('a3')]),
+    )
+    // Exactly one roving tabstop.
+    expect(items.filter(el => el.getAttribute('tabindex') === '0')).toHaveLength(1)
+  })
+
+  it('associates the canvas with the sr-only note (aria-describedby, AC1)', () => {
+    renderDialog()
+    // The mocked canvas doesn't apply the attribute (that effect lives in the
+    // real component), but the note it points at must exist in the DOM.
+    expect(document.getElementById('ego-graph-a11y-note')).toBeInTheDocument()
+    expect(vizProps.canvasDescribedById).toBe('ego-graph-a11y-note')
+  })
+
+  it('announces expand → collapse in the aria-live region (AC3)', async () => {
+    renderDialog()
+    // Focus starts on the first row (a2). Enter expands it.
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'Enter' })
+    expect(fetchCalls).toHaveLength(1)
+    await act(async () => {
+      fetchCalls[0].resolve(exp2)
+    })
+    expect(screen.getByText('Added 1 artist connected to a2.')).toBeInTheDocument()
+
+    // Enter again collapses (a2 is now expanded).
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'Enter' })
+    expect(screen.getByText('Collapsed the connections under a2.')).toBeInTheDocument()
+  })
+
+  it('announces a relationship-type filter toggle (AC3)', () => {
+    renderDialog()
+    // 'similar' links are present and active by default → toggling hides them.
+    fireEvent.click(screen.getByRole('button', { name: /^Similar$/i }))
+    expect(screen.getByText('Similar connections hidden.')).toBeInTheDocument()
+  })
+
+  it('does not double-announce a same-center refetch alongside a filter toggle', () => {
+    renderDialog()
+    // Turning festival_cobill ON changes the fetch shape (same center refetch).
+    // The filter announcement should fire; the re-center announcement must NOT.
+    fireEvent.click(screen.getByRole('button', { name: /Festival co-lineup/i }))
+    expect(screen.getByText('Festival co-lineup connections shown.')).toBeInTheDocument()
+    // The initial open already announced the re-center; it must not re-fire for
+    // the same center.
+    expect(screen.queryByText(/Graph now centered on A1/)).not.toBeInTheDocument()
+  })
+})

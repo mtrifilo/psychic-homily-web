@@ -28,6 +28,13 @@ import { useReducedMotion } from '../hooks/useReducedMotion'
 import { ArtistGraphVisualization, ConnectionPanelDismissContext, dismissConnectionPanelOnEscape, type ConnectionPanelDismissHandle } from './ArtistGraph'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
+import { GraphAccessibleTree } from '@/components/graph/GraphAccessibleTree'
+import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTreeModel'
+import {
+  buildExpandAnnouncement,
+  buildCollapseAnnouncement,
+  buildFilterAnnouncement,
+} from '@/components/graph/graphAnnouncements'
 import {
   MAX_TRAIL_SLOTS,
   pushTrail,
@@ -574,6 +581,11 @@ function RecenteringGraph({
     generationRef.current += 1
   }, [explorationKey])
 
+  // PSY-1304: ids currently shown (center + base neighbours + every expansion's
+  // nodes), kept current so an expand can announce how many artists it ADDED
+  // (vs merely re-surfaced). Populated below once graph + expansions are built.
+  const knownIdsRef = useRef<Set<number>>(new Set())
+
   // Click a satellite → expand it (fetch + merge) or, if already expanded, collapse it.
   // mergeEgoGraphs' reachability prune drops any node left dangling by the collapse, so we
   // only track the directly-expanded ids here. A click on a node whose fetch is still in
@@ -587,6 +599,8 @@ function RecenteringGraph({
           next.delete(node.id)
           return next
         })
+        // PSY-1304: announce the collapse to the shared aria-live region.
+        setAnnouncement(buildCollapseAnnouncement(node.name))
         return
       }
       const genAtExpand = generationRef.current
@@ -596,7 +610,12 @@ function RecenteringGraph({
           // Drop the result if the exploration was invalidated while this was in flight
           // (re-center, festival toggle, or Collapse-all) — it belongs to a reset state.
           if (generationRef.current !== genAtExpand) return
+          // PSY-1304: count only the genuinely NEW artists (knownIdsRef reflects
+          // the pre-merge shown set) so the announcement is honest even when the
+          // ego overlaps the current graph. Computed before the merge below.
+          const added = ego.nodes.filter(n => !knownIdsRef.current.has(n.id)).length
           setExpansions(prev => new Map(prev).set(node.id, ego))
+          setAnnouncement(buildExpandAnnouncement(node.name, added))
         })
         .catch(() => {
           // A failed expand fetch simply doesn't grow the graph — nothing to roll back.
@@ -609,7 +628,7 @@ function RecenteringGraph({
           })
         )
     },
-    [expandingIds, expansions, fetchGraph, fetchTypes]
+    [expandingIds, expansions, fetchGraph, fetchTypes, setAnnouncement]
   )
 
   // The merged client graph + per-node hop distance (null until the base graph loads).
@@ -645,6 +664,31 @@ function RecenteringGraph({
     [merged, activeTypes, diversityBias]
   )
 
+  // PSY-1304: keep the known-id set current (center + base neighbours + every
+  // expansion's nodes) so handleExpand can announce how many artists it ADDED.
+  useEffect(() => {
+    const ids = new Set<number>()
+    if (graph) {
+      ids.add(graph.center.id)
+      for (const n of graph.nodes) ids.add(n.id)
+    }
+    for (const ego of expansions.values()) {
+      for (const n of ego.nodes) ids.add(n.id)
+    }
+    knownIdsRef.current = ids
+  }, [graph, expansions])
+
+  // PSY-1304: rows for the accessible connections tree — built from the SAME base
+  // graph + expansions the canvas draws, ranked by the DOI so the list order
+  // matches the canvas. Empty until the base graph loads.
+  const connectionRows = useMemo(
+    () =>
+      graph
+        ? flattenVisibleTree(buildGraphTree(graph, expansions, expandingIds, doi?.doiByNodeId))
+        : [],
+    [graph, expansions, expandingIds, doi]
+  )
+
   // The top ≤5 DOI-ranked nodes the user hasn't already expanded (or isn't mid-expanding) —
   // these get the "suggested direction" affordance in the canvas. Excluding expanding nodes
   // too keeps a node from being flagged-as-suggested and showing its loading ring at once.
@@ -662,12 +706,16 @@ function RecenteringGraph({
     setExpandingIds(new Set())
   }, [])
 
-  // PSY-361: announce each re-center to assistive tech. Keyed on the
-  // graph's actual center.id (not the URL slug) so the announcement
-  // fires only after the new payload has actually rendered, and we
-  // never announce a stale center while a fetch is in flight.
+  // PSY-361: announce each re-center to assistive tech, after the new payload
+  // renders (keyed on the graph's actual center.id, never a stale center while
+  // a fetch is in flight). PSY-1304: fire ONLY when the center actually changes
+  // — a same-center refetch (e.g. toggling festival_cobill, which has its own
+  // filter announcement) must not double-announce (AC3: exactly one per action).
+  const announcedCenterIdRef = useRef<number | null>(null)
   useEffect(() => {
     if (!graph) return
+    if (announcedCenterIdRef.current === graph.center.id) return
+    announcedCenterIdRef.current = graph.center.id
     setAnnouncement(buildRecenterAnnouncement(graph.center.name, graph.nodes.length))
   }, [graph, setAnnouncement])
 
@@ -857,7 +905,12 @@ function RecenteringGraph({
           return (
             <button
               key={type}
-              onClick={() => onToggleType(type)}
+              onClick={() => {
+                onToggleType(type)
+                // PSY-1304: announce the filter change (AC3). isActive is the
+                // pre-toggle state, so the new state is its negation.
+                setAnnouncement(buildFilterAnnouncement(badge.label, !isActive))
+              }}
               className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-opacity ${
                 badge.className
               } ${isActive ? 'opacity-100' : 'opacity-60'}`}
@@ -937,14 +990,35 @@ function RecenteringGraph({
         expandingIds={expandingIds}
         doiByNodeId={doi?.doiByNodeId}
         suggestedIds={suggestedIds}
+        canvasDescribedById="ego-graph-a11y-note"
         isRecentering={isRecentering}
       />
 
-      {/* PSY-361: aria-live region for re-center announcements. The
-          `sr-only` class is the codebase's standard visually-hidden
-          utility (Tailwind built-in). Polite politeness so the
-          announcement doesn't interrupt other assistive-tech speech;
-          atomic so the entire string is read on each update. */}
+      {/* PSY-1304: the accessible connections list — the keyboard / screen-reader
+          equivalent of the role=img canvas above. The sr-only note is what the
+          canvas's aria-describedby points at (programmatic association, AC1); the
+          role=tree drives the SAME expand-on-demand traversal via arrow keys +
+          Enter (AC2). */}
+      <p id="ego-graph-a11y-note" className="sr-only">
+        The connections list below is the keyboard-accessible, screen-reader
+        equivalent of this graph. Use the arrow keys to move between artists and
+        Enter to expand a connection.
+      </p>
+      <div className="mt-3">
+        <h3 className="text-xs font-semibold text-muted-foreground mb-1">Connections</h3>
+        <GraphAccessibleTree
+          id="ego-graph-connections"
+          rows={connectionRows}
+          label={`Connections for ${graph.center.name}`}
+          onToggleExpand={handleExpand}
+          emptyLabel="No connections to navigate."
+        />
+      </div>
+
+      {/* PSY-361/1304: single polite aria-live region — every graph state change
+          (re-center, expand, collapse, filter) writes `announcement`, so each
+          fires exactly one announcement. sr-only is the standard hidden utility;
+          atomic so the whole string is read on each update. */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
