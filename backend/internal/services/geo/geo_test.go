@@ -35,8 +35,8 @@ func TestResolve(t *testing.T) {
 		// fall back to a wrong-state namesake's zone. Sidney is only in the dataset
 		// as Sidney, OH (Eastern); Sidney, NE is below the cities15000 threshold, so
 		// a NE-pinned lookup used to return America/New_York. It now misses, leaving
-		// venue.timezone NULL so the state->tz fallback (Chicago) wins. Mirrors
-		// ResolveMetro's "mismatched state -> refuse".
+		// venue.timezone NULL so the state->tz fallback (Chicago) wins. Resolve and
+		// ResolveMetro both route through bestCity's hard filter, so both refuse this.
 		{"sub-threshold town, confident state, no same-state row → miss", "Sidney", "NE", "", "", false},
 		// Pasadena is in MD/TX/CA but not FL, so an FL-pinned lookup misses rather
 		// than returning the highest-population namesake (Pasadena TX / Chicago).
@@ -223,8 +223,11 @@ func TestResolveMetro(t *testing.T) {
 		// (the PSY-1244 trap) — must return false, not "Houston".
 		{"bare pasadena (ambiguous) → refuse", "Pasadena", "", "", "", false},
 		{"bare springfield (ambiguous) → refuse", "Springfield", "", "", "", false},
-		// A state that pins NO namesake of the city must refuse, not fall back.
-		{"mismatched state → refuse", "Pasadena", "FL", "", "", false},
+		// A state that pins NO namesake of the city must refuse, not fall back. FL is
+		// a valid state with no Pasadena row → bestCity's hard filter misses; ZZ isn't
+		// a US state → admin1 is empty, so the bare-name ResolveUSState ambiguity
+		// check refuses instead.
+		{"valid state pins no namesake → miss", "Pasadena", "FL", "", "", false},
 		{"bogus state → refuse", "Pasadena", "ZZ", "", "", false},
 		// Non-US place: CBSA is US-only, so no metro (caller falls back to city).
 		{"london GB has no CBSA", "London", "", "GB", "", false},

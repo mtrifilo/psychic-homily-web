@@ -498,8 +498,9 @@ func (g *offlineGeocoder) Resolve(city, state, country string) (Result, bool) {
 // It REFUSES the population guess that sibling ResolveUSState refuses (the
 // PSY-1244 corruption class): a metro is returned only when the same-named place
 // is unambiguously pinned —
-//   - an explicit US state was given AND it matches the selected place's state
-//     (a non-matching state means the highest-population fallback fired → refuse);
+//   - an explicit US state was given: bestCity hard-filters to that state, so the
+//     selected place already matches it (a state with no same-state namesake is a
+//     miss, handled above);
 //   - or no state was given but the name is US-unambiguous (one US state, US-
 //     dominant) per ResolveUSState.
 //
@@ -512,17 +513,16 @@ func (g *offlineGeocoder) ResolveMetro(city, state, country string) (Metro, bool
 	if !ok || best.cbsaCode == "" {
 		return Metro{}, false // miss, non-US, or US place not in any CBSA
 	}
-	if _, admin1 := g.resolveCountry(state, country); admin1 != "" {
-		// A US state was given. bestCity hard-filters to same-state rows, so a hit
-		// already pins THIS place and a mismatch is unreachable — kept as a
-		// defensive guard in case bestCity's filtering ever changes.
-		if best.admin1 != admin1 {
+	// bestCity has already hard-filtered by admin1 when a US state was resolved, so
+	// a state-pinned hit is guaranteed to match — a state with no same-state
+	// namesake is a miss inside bestCity, caught by the !ok return above. Only the
+	// no-state case still needs a guard: refuse to guess a metro for a name that
+	// isn't unambiguously one US state (the PSY-1244 population-guess trap), else a
+	// bare "Pasadena" would resolve to the biggest namesake's metro.
+	if _, admin1 := g.resolveCountry(state, country); admin1 == "" {
+		if _, status := g.ResolveUSState(city); status != USStateUnambiguous {
 			return Metro{}, false
 		}
-	} else if _, status := g.ResolveUSState(city); status != USStateUnambiguous {
-		// No state to pin the namesake and the name isn't unambiguously one US
-		// state — refuse rather than guess the wrong same-named city's metro.
-		return Metro{}, false
 	}
 	return Metro{CBSACode: best.cbsaCode, Name: best.cbsaName}, true
 }
