@@ -432,6 +432,99 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_PicksMostR
 	suite.Equal("Recent Artist", resp.CurrentTrack.ArtistName)
 }
 
+// PSY-1374 (adversarial-review CRITICAL): the fallback must NOT surface a not-yet-aired
+// episode, even one that already carries plays (WFMU pre-publishes upcoming pages and
+// importEpisode fetches within-tolerance future episodes on creation) — `air_date DESC`
+// is the primary sort key, so without an aired gate a future row wins. It must also skip
+// an aired-today but 0-track slot (a talk show's hollow episode). Both are excluded here
+// and the last REAL playlist wins.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_SkipsFutureAndEmpty() {
+	station := suite.createStation("Future FM", "future-fm", catalogm.PlaylistSourceManual)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ptr := func(t time.Time) *time.Time { return &t }
+
+	// Real aired episode (yesterday, past window, WITH a play) — the expected winner.
+	real := suite.createShow(station.ID, "Real Show", "real-show-2", nil, nil)
+	realEp := suite.createEpisode(real.ID, now.AddDate(0, 0, -1).Format("2006-01-02"))
+	suite.createPlay(realEp.ID, 1, "Real Artist", "Real Song", nil)
+
+	// FUTURE episode (air_date +2d, window +48h, WITH a play): air_date DESC would rank
+	// it first, but it isn't aired yet → excluded.
+	fut := suite.createShow(station.ID, "Future Show", "future-show-2", nil, nil)
+	fs, fe := now.Add(48*time.Hour), now.Add(49*time.Hour)
+	futEp := &catalogm.RadioEpisode{ShowID: fut.ID, AirDate: now.AddDate(0, 0, 2).Format("2006-01-02"), StartsAt: ptr(fs), EndsAt: ptr(fe)}
+	suite.Require().NoError(suite.db.Create(futEp).Error)
+	suite.createPlay(futEp.ID, 1, "Future Artist", "Future Song", nil)
+
+	// AIRED-TODAY but 0-track (talk-show hollow slot): air_date today ranks it above the
+	// yesterday real one, but it has no plays → skipped.
+	talk := suite.createShow(station.ID, "Talk Show", "talk-show-2", nil, nil)
+	ts, te := now.Add(-90*time.Minute), now.Add(-30*time.Minute)
+	talkEp := &catalogm.RadioEpisode{ShowID: talk.ID, AirDate: now.Format("2006-01-02"), StartsAt: ptr(ts), EndsAt: ptr(te)}
+	suite.Require().NoError(suite.db.Create(talkEp).Error)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Show)
+	suite.Equal("Real Show", resp.Show.Name, "future + empty-aired episodes are excluded; the last REAL playlist wins")
+	suite.Require().NotNil(resp.CurrentTrack)
+	suite.Equal("Real Artist", resp.CurrentTrack.ArtistName)
+}
+
+// PSY-1374: on two shows' episodes sharing one air_date, episodeLatestFirstOrderSQL's
+// starts_at DESC tiebreak picks the later-starting one.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_SameAirDateTieBreakByStartsAt() {
+	station := suite.createStation("Tie FM", "tie-fm", catalogm.PlaylistSourceManual)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ptr := func(t time.Time) *time.Time { return &t }
+	today := now.Format("2006-01-02")
+
+	earlier := suite.createShow(station.ID, "Earlier Show", "earlier-show", nil, nil)
+	es, ee := now.Add(-3*time.Hour), now.Add(-2*time.Hour)
+	earlierEp := &catalogm.RadioEpisode{ShowID: earlier.ID, AirDate: today, StartsAt: ptr(es), EndsAt: ptr(ee)}
+	suite.Require().NoError(suite.db.Create(earlierEp).Error)
+	suite.createPlay(earlierEp.ID, 1, "Earlier Artist", "Song", nil)
+
+	later := suite.createShow(station.ID, "Later Show", "later-show", nil, nil)
+	ls, le := now.Add(-90*time.Minute), now.Add(-30*time.Minute)
+	laterEp := &catalogm.RadioEpisode{ShowID: later.ID, AirDate: today, StartsAt: ptr(ls), EndsAt: ptr(le)}
+	suite.Require().NoError(suite.db.Create(laterEp).Error)
+	suite.createPlay(laterEp.ID, 1, "Later Artist", "Song", nil)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Show)
+	suite.Equal("Later Show", resp.Show.Name, "same-air_date tie → later starts_at wins")
+}
+
+// PSY-1374: for a LIVE show whose name matches nothing, the borrowed "earlier:" artist
+// hops come from the station's MOST-RECENT played episode — not the deepest-archive
+// show's latest (the same regression as the archive fallback, on the live path).
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_UnmatchedShowBorrowsStationLatestArtists() {
+	station := suite.createStation("WFMU", "wfmu", catalogm.PlaylistSourceWFMU)
+	// Deep-archive show: MORE played episodes, but all older.
+	deep := suite.createShow(station.ID, "Deep Show", "deep-show", nil, nil)
+	for i := 6; i >= 4; i-- {
+		ep := suite.createEpisode(deep.ID, time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02"))
+		suite.createPlay(ep.ID, 1, "Old Artist", "Old Song", nil)
+	}
+	// Recent show: a single, more-recent played episode.
+	recent := suite.createShow(station.ID, "Recent Show", "recent-show-2", nil, nil)
+	recentEp := suite.createEpisode(recent.ID, time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02"))
+	suite.createPlay(recentEp.ID, 1, "Recent Artist", "Recent Song", nil)
+
+	fake := &fakeLiveProvider{live: &RadioLiveNowPlaying{ShowName: "Unmatched Guest DJ"}}
+	suite.injectLiveProvider(fake)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLive, resp.Source)
+	suite.Nil(resp.Show, "unmatched live show name does not link")
+	suite.Require().Len(resp.RecentArtists, 1)
+	suite.Equal("Recent Artist", resp.RecentArtists[0].ArtistName,
+		"hops come from the station's most-recent played episode, not the deepest archive")
+}
+
 func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_EmptyStation() {
 	station := suite.createStation("Empty FM", "empty-fm", "")
 

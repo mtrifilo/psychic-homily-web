@@ -4,11 +4,10 @@ package catalog
 //
 // The payload comes from the station's provider live API when one exists
 // (KEXP plays/shows, NTS live, WFMU current-live-shows aggregator) and falls
-// back to the "latest archive" heuristic otherwise — the most-active show's
-// latest episode's latest play, mirroring the frontend v1 derivation
-// (frontend/features/radio/lib/stationOverview.ts) that this endpoint
-// supersedes. Provider failures NEVER surface as errors: they degrade to the
-// archive fallback and log.
+// back to the "latest archive" payload otherwise — the station's most-recent
+// aired episode that has real playlist content and its latest play
+// (latestStationPlayedEpisode, PSY-1374). Provider failures NEVER surface as
+// errors: they degrade to the archive fallback and log.
 //
 // Caching: a per-station in-process TTL cache (map + per-entry mutex) sits in
 // front of the fetch, so page views never fan out to provider APIs — at most
@@ -469,17 +468,36 @@ func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPla
 // recently — a stale playlist mislabeled "Latest". Keying on the newest played episode
 // makes "Latest playlist" honest.
 //
-// "Has content" gates on an EXISTing radio_plays row rather than the denormalized
-// play_count — the same source episodePlayRows reads for the display, so the selection
-// can't disagree with what would render (and it's immune to any transient play_count
-// drift before the nightly reconcile). This also skips a started-but-empty slot (a talk
-// show's or a placeholder's 0-track episode) in favor of the last real playlist.
-// Returns (nil, nil, nil) when the station has no played episodes.
+// Two gates, matching the per-show selector (latestEpisodeForShow) so the fallback and
+// the "Latest playlists" feed agree:
+//   - AIRED, not future: `air_date <= station-local today` AND airedEpisodeVisibleSQL
+//     (windowed → starts_at <= now; windowless → has plays). Without this, a future
+//     air_date wins the `air_date DESC` primary sort — and WFMU pre-publishes upcoming
+//     pages whose within-tolerance episodes importEpisode fetches on creation, so a
+//     not-yet-aired episode can carry plays. This gate keeps a provisional/upcoming
+//     tracklist from being shown as "Latest".
+//   - HAS CONTENT: an EXISTing radio_plays row (not the denormalized play_count — the
+//     same source episodePlayRows reads for the display, so the pick can't disagree with
+//     what renders, and it's immune to play_count drift before the nightly reconcile).
+//     This skips a started-but-empty slot (a talk show's or a placeholder's 0-track
+//     episode) in favor of the last real playlist.
+//
+// Returns (nil, nil, nil) when the station has no aired played episodes.
 func (s *RadioService) latestStationPlayedEpisode(stationID uint) (*catalogm.RadioEpisode, *catalogm.RadioShow, error) {
+	var station catalogm.RadioStation
+	if err := s.db.Select("timezone").First(&station, stationID).Error; err != nil {
+		return nil, nil, fmt.Errorf("loading station timezone for latest episode: %w", err)
+	}
+	today, err := s.stationLocalToday(station.Timezone)
+	if err != nil {
+		return nil, nil, err
+	}
 	var episodes []catalogm.RadioEpisode
-	err := s.db.
+	err = s.db.
 		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
 		Where("radio_shows.station_id = ?", stationID).
+		Where("radio_episodes.air_date <= ?", today).
+		Where(airedEpisodeVisibleSQL("radio_episodes."), time.Now()).
 		Where("EXISTS (SELECT 1 FROM radio_plays WHERE radio_plays.episode_id = radio_episodes.id)").
 		Order(episodeLatestFirstOrderSQL("radio_episodes.")).
 		Limit(1).
