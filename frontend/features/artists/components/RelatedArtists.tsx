@@ -1035,16 +1035,21 @@ function RecenteringGraph({
           Enter (AC2). */}
       <p id="ego-graph-a11y-note" className="sr-only">
         The connections list below is the keyboard-accessible, screen-reader
-        equivalent of this graph. Use the arrow keys to move between artists and
-        Enter to expand a connection.
+        equivalent of this graph. Use the arrow keys to move between artists,
+        Enter to expand a connection, and R to re-center the graph on an artist.
       </p>
       <div className="mt-3">
         <h3 className="text-xs font-semibold text-muted-foreground mb-1">Connections</h3>
+        {/* Custom key hint (arrow/Enter are the standard tree keys; R is ours). */}
+        <p className="text-[11px] text-muted-foreground mb-1">
+          Arrow keys to navigate · Enter to expand · <kbd className="font-sans">R</kbd> to re-center
+        </p>
         <GraphAccessibleTree
           id="ego-graph-connections"
           rows={connectionRows}
           label={`Connections for ${graph.center.name}`}
           onToggleExpand={handleExpand}
+          onRecenter={handleRecenter}
           emptyLabel="No connections to navigate."
         />
       </div>

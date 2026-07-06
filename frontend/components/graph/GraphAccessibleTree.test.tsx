@@ -81,6 +81,42 @@ describe('GraphAccessibleTree', () => {
     expect(onToggleExpand).toHaveBeenCalledTimes(2)
   })
 
+  it('R re-centers the graph on the focused row (PSY-1361)', () => {
+    const onRecenter = vi.fn()
+    renderTree({ onRecenter })
+    const tree = screen.getByRole('tree')
+    fireEvent.keyDown(tree, { key: 'r' })
+    expect(onRecenter).toHaveBeenCalledWith(expect.objectContaining({ id: 2, slug: 'dehd' }))
+  })
+
+  it('Ctrl/Cmd+R does NOT re-center, so browser reload is preserved (PSY-1361)', () => {
+    const onRecenter = vi.fn()
+    renderTree({ onRecenter })
+    const tree = screen.getByRole('tree')
+    fireEvent.keyDown(tree, { key: 'r', ctrlKey: true })
+    fireEvent.keyDown(tree, { key: 'r', metaKey: true })
+    fireEvent.keyDown(tree, { key: 'r', altKey: true })
+    expect(onRecenter).not.toHaveBeenCalled()
+  })
+
+  it('R is a no-op (no throw) when re-centering is not wired', () => {
+    renderTree()
+    const tree = screen.getByRole('tree')
+    fireEvent.keyDown(tree, { key: 'r' })
+    // Nav model intact — the tabstop stays put.
+    expect(items()[0]).toHaveAttribute('tabindex', '0')
+  })
+
+  it('advertises R via aria-keyshortcuts on each row only when re-center is wired (PSY-1361)', () => {
+    renderTree({ onRecenter: vi.fn() })
+    expect(items().every(el => el.getAttribute('aria-keyshortcuts') === 'R')).toBe(true)
+  })
+
+  it('omits aria-keyshortcuts when re-center is not wired', () => {
+    renderTree()
+    expect(items().every(el => !el.hasAttribute('aria-keyshortcuts'))).toBe(true)
+  })
+
   it('ArrowRight expands a collapsed row; on an expanded row it steps into the first child', () => {
     const { onToggleExpand } = renderTree()
     const tree = screen.getByRole('tree')

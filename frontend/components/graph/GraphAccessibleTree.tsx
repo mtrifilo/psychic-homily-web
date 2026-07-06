@@ -41,6 +41,13 @@ export interface GraphAccessibleTreeProps<N extends AccessibleTreeGraphNode> {
   label: string
   /** Expand (collapsed) or collapse (expanded) the node's connections. */
   onToggleExpand: (node: N) => void
+  /**
+   * Re-center the graph on a node — the keyboard twin of the canvas tooltip's
+   * "Center on this artist" (PSY-1361). Bound to `R` on the focused row.
+   * Optional: surfaces only where the host wires re-centering (the ego dialog);
+   * omit it and the shortcut + its advertisement are absent.
+   */
+  onRecenter?: (node: N) => void
   /** Optional trailing metadata per row (location, edge summary, …). */
   renderRowMeta?: (node: N) => ReactNode
   className?: string
@@ -53,6 +60,7 @@ export function GraphAccessibleTree<N extends AccessibleTreeGraphNode>({
   rows,
   label,
   onToggleExpand,
+  onRecenter,
   renderRowMeta,
   className,
   emptyLabel = 'No connections to navigate.',
@@ -137,9 +145,18 @@ export function GraphAccessibleTree<N extends AccessibleTreeGraphNode>({
           e.preventDefault()
           onToggleExpand(row.node)
           break
+        case 'r':
+        case 'R':
+          // Re-center on this node (PSY-1361), the keyboard twin of the canvas
+          // "Center on this artist". Bail on modifier combos so Ctrl/Cmd+R
+          // (reload) and OS shortcuts still reach the browser — a bare `r` only.
+          if (e.ctrlKey || e.metaKey || e.altKey || !onRecenter) break
+          e.preventDefault()
+          onRecenter(row.node)
+          break
       }
     },
-    [rows, effectiveFocusedId, focusRow, onToggleExpand],
+    [rows, effectiveFocusedId, focusRow, onToggleExpand, onRecenter],
   )
 
   if (rows.length === 0) {
@@ -179,6 +196,9 @@ export function GraphAccessibleTree<N extends AccessibleTreeGraphNode>({
             aria-setsize={row.setSize}
             aria-posinset={row.posInSet}
             aria-busy={row.expanding || undefined}
+            // Advertise the custom re-center shortcut to assistive tech (the
+            // built-in tree nav keys are implied by role=tree). PSY-1361.
+            aria-keyshortcuts={onRecenter ? 'R' : undefined}
             onClick={() => {
               focusRow(row.node.id)
               onToggleExpand(row.node)
