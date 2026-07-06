@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -508,6 +510,45 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatched_CatchesNewArtist() {
 	s.Require().NoError(err)
 	s.Equal(1, result2.Total)
 	s.Equal(1, result2.Matched)
+}
+
+func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ProcessesAllDistinctNames() {
+	station := s.createTestStation("KEXP", "kexp-chunk", "kexp_api")
+	show := s.createTestShow(station.ID, "Show", "show-chunk")
+	ep := s.createTestEpisode(show.ID, "2026-01-01")
+
+	s.createTestPlay(ep.ID, "Alpha Artist", nil)
+	s.createTestPlay(ep.ID, "Beta Artist", nil)
+	s.createTestPlay(ep.ID, "Gamma Artist", nil)
+
+	s.createTestArtist("Alpha Artist", "alpha-chunk")
+	s.createTestArtist("Beta Artist", "beta-chunk")
+
+	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2)
+	s.Require().NoError(err)
+	s.Equal(3, result.NamesProcessed)
+	s.Equal(3, result.Total)
+	s.Equal(2, result.Matched)
+	s.Equal(1, result.Unmatched)
+}
+
+func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_HonorsContextCancel() {
+	station := s.createTestStation("KEXP", "kexp-chunk-cancel", "kexp_api")
+	show := s.createTestShow(station.ID, "Show", "show-chunk-cancel")
+	ep := s.createTestEpisode(show.ID, "2026-01-02")
+
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("Artist %02d", i)
+		s.createTestPlay(ep.ID, name, nil)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := s.svc.ReMatchUnmatchedChunked(ctx, 2)
+	s.Require().Error(err)
+	s.ErrorIs(err, context.Canceled)
+	s.Equal(0, result.NamesProcessed)
 }
 
 // ── GetActiveStationsWithPlaylistSource ──
