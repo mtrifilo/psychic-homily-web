@@ -295,6 +295,12 @@ func (m *mockArtistServiceForEnrichment) CreateArtist(req *contracts.CreateArtis
 func (m *mockArtistServiceForEnrichment) GetArtist(artistID uint) (*contracts.ArtistDetailResponse, error) {
 	return nil, nil
 }
+func (m *mockArtistServiceForEnrichment) GetArtistSummary(artistID uint) (*contracts.ArtistDetailResponse, error) {
+	return nil, nil
+}
+func (m *mockArtistServiceForEnrichment) GetArtistSummaryBySlug(slug string) (*contracts.ArtistDetailResponse, error) {
+	return nil, nil
+}
 func (m *mockArtistServiceForEnrichment) GetArtistByName(name string) (*contracts.ArtistDetailResponse, error) {
 	return nil, nil
 }
@@ -319,6 +325,9 @@ func (m *mockArtistServiceForEnrichment) SearchArtists(query string) ([]*contrac
 }
 func (m *mockArtistServiceForEnrichment) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
 	return nil, 0, nil
+}
+func (m *mockArtistServiceForEnrichment) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
+	return nil, nil
 }
 func (m *mockArtistServiceForEnrichment) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
 	return nil, nil
