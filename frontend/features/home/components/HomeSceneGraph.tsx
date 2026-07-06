@@ -21,17 +21,14 @@
  * graph-shaped lands in the homepage's initial JS.
  *
  * The section self-hides (renders nothing) when the scenes list errors,
- * is empty, or the section itself throws (SectionErrorBoundary — the App
- * Router's next/dynamic throws failed chunk loads to the nearest error
- * boundary; without a local one, a graph chunk-fetch failure would
- * replace the ENTIRE homepage with app/error.tsx). The homepage must
+ * is empty, or the section itself throws (GraphSectionErrorBoundary with no
+ * fallback — the App Router's next/dynamic throws failed chunk loads to the
+ * nearest error boundary; without a local one, a graph chunk-fetch failure
+ * would replace the ENTIRE homepage with app/error.tsx). The homepage must
  * never break on a graph problem.
  */
 
-import { Component, useCallback, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import * as Sentry from '@sentry/nextjs'
-import dynamic from 'next/dynamic'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
@@ -41,6 +38,8 @@ import {
 } from '@/components/graph/useContainerWidth'
 import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
 import { GraphSkeleton as BaseGraphSkeleton } from '@/components/graph/GraphSkeleton'
+import { createLazyForceGraphView } from '@/components/graph/lazyForceGraphView'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 // Deep imports, deliberately NOT the '@/features/scenes' barrel: the barrel
 // re-exports the scenes component tree (SceneDetailView / AtlasGlobe / …)
 // whose module bodies run top-level dynamic() calls the bundler can't drop,
@@ -81,47 +80,11 @@ function SceneGraphSkeleton() {
   return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
 }
 
-// PSY-868 pattern: split ForceGraphView (and react-force-graph underneath)
-// into an async chunk fetched only when the section actually mounts. The
-// App Router never re-invokes `loading` with an error — a failed chunk
-// fetch throws from React.lazy instead, which SectionErrorBoundary eats.
-const ForceGraphView = dynamic(
-  () =>
-    import('@/components/graph/ForceGraphView').then(m => ({
-      default: m.ForceGraphView,
-    })),
-  {
-    ssr: false,
-    loading: () => <SceneGraphSkeleton />,
-  },
-)
-
-/**
- * Self-hide boundary: any render/chunk error inside the section collapses
- * it to nothing instead of bubbling to app/error.tsx and taking the whole
- * homepage down. Class component — React error boundaries have no hook
- * equivalent.
- */
-class SectionErrorBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false }
-  static getDerivedStateFromError() {
-    return { failed: true }
-  }
-  componentDidCatch(error: unknown) {
-    // Self-hiding must not mean silent: without this, a systematic chunk
-    // failure (deploy skew, CDN flake) kills the section for everyone and
-    // nothing reports it (app/global-error.tsx would have captured it).
-    Sentry.captureException(error, {
-      tags: { section: 'home-scene-graph' },
-    })
-  }
-  render() {
-    return this.state.failed ? null : this.props.children
-  }
-}
+// Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk so
+// nothing graph-shaped lands in the homepage's initial JS (PSY-868). A failed
+// chunk fetch throws to GraphSectionErrorBoundary below (the App Router never
+// re-invokes `loading` with an error); `loading` is only the happy-path skeleton.
+const ForceGraphView = createLazyForceGraphView(<SceneGraphSkeleton />)
 
 export function HomeSceneGraph() {
   // Lazy-mount on scroll intent (shared hook — PSY-1347, incl. the React 19
@@ -133,9 +96,12 @@ export function HomeSceneGraph() {
   return (
     <div ref={containerRef} className="w-full">
       {isMounted ? (
-        <SectionErrorBoundary>
+        // Self-hide on any render/chunk error (no fallback) — a graph problem
+        // must never dent the homepage; the throw is reported to Sentry, not
+        // bubbled to app/error.tsx.
+        <GraphSectionErrorBoundary sentryTag="home-scene-graph">
           <HomeSceneGraphSection />
-        </SectionErrorBoundary>
+        </GraphSectionErrorBoundary>
       ) : (
         <SceneGraphSkeleton />
       )}
