@@ -24,6 +24,7 @@ const defaultReMatchNamePageSize = 500
 type ReMatchChunkedResult struct {
 	contracts.MatchResult
 	NamesProcessed int
+	BulkLink       BulkLinkArtistsResult
 }
 
 // GetUnmatchedPlays returns unmatched plays grouped by artist_name,
@@ -574,6 +575,21 @@ func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int
 	}
 
 	agg := &ReMatchChunkedResult{}
+	matcher := NewRadioMatchingEngine(s.db)
+	bulk, err := matcher.BulkLinkUnmatchedArtistPlays(ctx)
+	if err != nil {
+		return agg, fmt.Errorf("bulk link unmatched plays: %w", err)
+	}
+	if bulk != nil {
+		agg.BulkLink = *bulk
+		if bulk.TotalLinked() > 0 {
+			slog.Info("radio rematch chunked: SQL bulk link complete",
+				"mbid", bulk.MBIDLinked,
+				"name", bulk.NameLinked,
+				"alias", bulk.AliasLinked)
+		}
+	}
+
 	var afterName string
 
 	for {
