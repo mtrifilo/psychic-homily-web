@@ -12,7 +12,7 @@ import (
 
 func (s *RadioSyncSuite) seedSyncRunWithPlays(stationID uint, status string, startedAt time.Time, imported, matched int) {
 	run := catalogm.RadioSyncRun{
-		StationID:     stationID,
+		StationID:     radioSyncStationID(stationID),
 		RunType:       catalogm.RadioSyncRunTypeFetch,
 		Trigger:       catalogm.RadioSyncRunTriggerScheduled,
 		Status:        status,

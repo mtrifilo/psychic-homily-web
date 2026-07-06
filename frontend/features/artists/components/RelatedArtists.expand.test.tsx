@@ -42,8 +42,10 @@ vi.mock('../hooks/useArtistGraph', () => ({
 vi.mock('@/features/auth', () => ({
   useIsAuthenticated: () => ({ user: null, isAuthenticated: false }),
 }))
+// Stable push spy so a re-center can be asserted end-to-end (PSY-1361).
+const routerPush = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
   usePathname: () => '/artists/a1',
   useSearchParams: () => new URLSearchParams(),
 }))
@@ -83,6 +85,7 @@ describe('RecenteringGraph — expand-on-demand orchestration (PSY-1259)', () =>
   beforeEach(() => {
     vizProps = null
     fetchCalls.length = 0
+    routerPush.mockClear()
     mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
   })
 
@@ -151,6 +154,7 @@ describe('RecenteringGraph — DOI suggested expansion directions (PSY-1273)', (
   beforeEach(() => {
     vizProps = null
     fetchCalls.length = 0
+    routerPush.mockClear()
     mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
   })
 
@@ -219,6 +223,7 @@ describe('accessible connections tree + announcements (PSY-1304)', () => {
   beforeEach(() => {
     vizProps = null
     fetchCalls.length = 0
+    routerPush.mockClear()
     mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
   })
 
@@ -232,6 +237,15 @@ describe('accessible connections tree + announcements (PSY-1304)', () => {
     )
     // Exactly one roving tabstop.
     expect(items.filter(el => el.getAttribute('tabindex') === '0')).toHaveLength(1)
+  })
+
+  it('R on a tree row re-centers the graph on that artist (PSY-1361)', () => {
+    renderDialog()
+    // Focus starts on the first row (a2). R is the keyboard twin of the canvas
+    // "Center on this artist" — it pushes the center-query URL the graph
+    // pipeline re-fetches from (and the shared effect announces on center change).
+    fireEvent.keyDown(screen.getByRole('tree', { name: /Connections for a1/i }), { key: 'r' })
+    expect(routerPush).toHaveBeenCalledWith('/artists/a1?center=a2', { scroll: false })
   })
 
   it('associates the canvas with the sr-only note (aria-describedby, AC1)', () => {
@@ -280,6 +294,7 @@ describe('accessible tree — code-review fixes (PSY-1304)', () => {
   beforeEach(() => {
     vizProps = null
     fetchCalls.length = 0
+    routerPush.mockClear()
     mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
   })
 
@@ -307,6 +322,7 @@ describe('accessible tree — adversarial-review fix (PSY-1304)', () => {
   beforeEach(() => {
     vizProps = null
     fetchCalls.length = 0
+    routerPush.mockClear()
     mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
   })
 

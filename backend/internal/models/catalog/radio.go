@@ -993,7 +993,9 @@ func (RadioImportJob) TableName() string { return "radio_import_jobs" }
 // this table is BIGINT throughout, matching the BIGSERIAL parent PKs.)
 type RadioSyncRun struct {
 	ID        uint  `gorm:"primaryKey"`
-	StationID uint  `gorm:"column:station_id;not null"`
+	// StationID is NULL only on global rematch runs (run_type='rematch' with no
+	// station filter). All discover/fetch/backfill/station-scoped runs set it.
+	StationID *uint `gorm:"column:station_id"`
 	// ShowID is set on backfill runs AND on show-SCOPED fetch runs (PSY-1333 slot
 	// fetch). For run_type='fetch', non-NULL show_id means single-show scope:
 	// station-scale aggregates over fetch runs (volume-anomaly baseline, station

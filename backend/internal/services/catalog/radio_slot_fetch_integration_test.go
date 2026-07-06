@@ -121,7 +121,7 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	// Baseline: 5 healthy full-sweep successes at ~100 plays…
 	for range 5 {
 		s.Require().NoError(s.db.Create(&catalogm.RadioSyncRun{
-			StationID: st.ID, RunType: catalogm.RadioSyncRunTypeFetch,
+			StationID: radioSyncStationID(st.ID), RunType: catalogm.RadioSyncRunTypeFetch,
 			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
 			Status:        catalogm.RadioSyncRunStatusSuccess,
 			PlaysImported: 100,
@@ -131,7 +131,7 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	// …plus a pile of scoped zero-play successes that would poison the mean if counted.
 	for range 10 {
 		s.Require().NoError(s.db.Create(&catalogm.RadioSyncRun{
-			StationID: st.ID, ShowID: &show.ID,
+			StationID: radioSyncStationID(st.ID), ShowID: &show.ID,
 			RunType:       catalogm.RadioSyncRunTypeFetch,
 			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
 			Status:        catalogm.RadioSyncRunStatusSuccess,

@@ -94,6 +94,7 @@ type RadioShowWriter interface {
 type RadioSyncManager interface {
 	TriggerStationSync(stationID uint, mode string) (*contracts.RadioSyncRunResponse, error)
 	TriggerShowBackfill(showID uint, since, until string) (*contracts.RadioSyncRunResponse, error)
+	TriggerGlobalRematch(req contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRun(runID uint) (*contracts.RadioSyncRunResponse, error)
 	CancelSyncRun(runID uint) error
 	ListSyncRuns(stationID *uint, status, scope string, limit, offset int) ([]*contracts.RadioSyncRunResponse, int64, error)
@@ -1620,6 +1621,8 @@ type AdminReMatchPlaysRequest struct {
 	Body struct {
 		ArtistName string `json:"artist_name,omitempty" doc:"Optional: rematch only this artist_name" example:"Boy Harsher"`
 		LabelName  string `json:"label_name,omitempty" doc:"Optional: rematch only this label_name" example:"Sacred Bones"`
+		StationID  *uint  `json:"station_id,omitempty" doc:"Bulk rematch: scope to this station's unmatched names"`
+		ShowID     *uint  `json:"show_id,omitempty" doc:"Bulk rematch: scope to this show's unmatched names"`
 	}
 }
 
@@ -1635,6 +1638,38 @@ func (h *RadioHandler) AdminReMatchPlaysHandler(ctx context.Context, req *AdminR
 
 	if req.Body.ArtistName != "" && req.Body.LabelName != "" {
 		return nil, huma.Error422UnprocessableEntity("provide artist_name or label_name, not both")
+	}
+
+	// Bulk async rematch — empty name fields enqueue a background job.
+	if req.Body.ArtistName == "" && req.Body.LabelName == "" {
+		run, err := h.syncManager.TriggerGlobalRematch(contracts.GlobalRematchRequest{
+			StationID: req.Body.StationID,
+			ShowID:    req.Body.ShowID,
+		})
+		if err != nil {
+			return nil, mapRadioSyncError(ctx, err, "Failed to trigger rematch")
+		}
+
+		if h.auditLogService != nil {
+			servicesshared.GoSafe(ctx, "audit_log", func() {
+				h.auditLogService.LogAction(user.ID, "rematch_radio_plays", "radio_play", 0, map[string]interface{}{
+					"run_id":     run.ID,
+					"station_id": req.Body.StationID,
+					"show_id":    req.Body.ShowID,
+					"async":      true,
+				})
+			})
+		}
+
+		logger.FromContext(ctx).Info("rematch_radio_plays_enqueued",
+			"run_id", run.ID,
+			"station_id", req.Body.StationID,
+			"show_id", req.Body.ShowID,
+			"admin_id", user.ID,
+			"request_id", requestID,
+		)
+
+		return &AdminReMatchPlaysResponse{Body: &contracts.MatchResult{Run: run}}, nil
 	}
 
 	rematchReq := &contracts.ReMatchRequest{
@@ -1961,7 +1996,7 @@ func mapRadioSyncError(ctx context.Context, err error, msg500 string) error {
 			return huma.Error404NotFound("Radio show not found")
 		case apperrors.CodeRadioSyncRunNotFound:
 			return huma.Error404NotFound(radioErr.Message)
-		case apperrors.CodeRadioSyncAlreadyRunning, apperrors.CodeRadioSyncNotCancellable:
+		case apperrors.CodeRadioSyncAlreadyRunning, apperrors.CodeRadioSyncNotCancellable, apperrors.CodeRadioRematchAlreadyRunning:
 			return huma.Error409Conflict(radioErr.Message)
 		}
 	}

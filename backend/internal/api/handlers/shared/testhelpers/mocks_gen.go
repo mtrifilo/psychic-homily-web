@@ -2545,6 +2545,7 @@ type MockRadioService struct {
 	ReMatchUnmatchedWithFilterFn  func(*contracts.ReMatchRequest) (*contracts.MatchResult, error)
 	TriggerStationSyncFn          func(uint, string) (*contracts.RadioSyncRunResponse, error)
 	TriggerShowBackfillFn         func(uint, string, string) (*contracts.RadioSyncRunResponse, error)
+	TriggerGlobalRematchFn        func(contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error)
 	GetSyncRunFn                  func(uint) (*contracts.RadioSyncRunResponse, error)
 	CancelSyncRunFn               func(uint) error
 	ListSyncRunsFn                func(*uint, string, string, int, int) ([]*contracts.RadioSyncRunResponse, int64, error)
@@ -2807,6 +2808,12 @@ func (m *MockRadioService) TriggerStationSync(stationID uint, mode string) (*con
 func (m *MockRadioService) TriggerShowBackfill(showID uint, since string, until string) (*contracts.RadioSyncRunResponse, error) {
 	if m.TriggerShowBackfillFn != nil {
 		return m.TriggerShowBackfillFn(showID, since, until)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) TriggerGlobalRematch(opts contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error) {
+	if m.TriggerGlobalRematchFn != nil {
+		return m.TriggerGlobalRematchFn(opts)
 	}
 	return nil, nil
 }
