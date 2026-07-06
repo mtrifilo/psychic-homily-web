@@ -13,14 +13,20 @@
  * as a recoverable card — never allowed to take the page down.
  *
  * Parameterized by:
- *   - `sentryTag`: the `section` tag the failure is reported under, so the two
+ *   - `sentryTag`: the `section` tag the failure is reported under, so the
  *     surfaces are distinguishable in Sentry.
- *   - `fallback`: what to render on error. Omit it to SELF-HIDE (render nothing
- *     — the homepage's posture: the section just disappears). Provide it to show
- *     a visible, recoverable state (/explore's posture); it receives a `reset`
- *     that clears the error and re-attempts the children — for a transient chunk
- *     hiccup the retry can succeed; a deploy-skew rotation needs a full reload,
- *     which the fallback copy can point to.
+ *   - `fallback`: what to render on error. Omit it to SELF-HIDE (render nothing —
+ *     the homepage's posture: the section just disappears). Provide a node to show
+ *     a visible state (/explore's posture).
+ *
+ * NOTE on recovery: the boundary deliberately does NOT offer an in-place "reset".
+ * next/dynamic wraps the import in a module-scoped React.lazy that permanently
+ * caches a rejected import (it re-throws the cached error without re-invoking the
+ * loader), so re-rendering the same lazy after a reset just re-throws. And the
+ * dominant real failure is a deploy rotating the hashed chunk — the open page's
+ * baked-in chunk URL then 404s no matter how often it re-imports; only fresh HTML
+ * carries the new URL. So the only reliable recovery is a full page reload, which
+ * a visible fallback can offer (see InlineGraph); the homepage just self-hides.
  *
  * Class component because React error boundaries have no hook equivalent.
  */
@@ -32,11 +38,8 @@ interface GraphSectionErrorBoundaryProps {
   children: ReactNode
   /** Sentry `section` tag the failure is attributed to. */
   sentryTag: string
-  /**
-   * Rendered on error. Receives a `reset` that clears the error and re-renders
-   * the children. Omit to self-hide (render nothing).
-   */
-  fallback?: (reset: () => void) => ReactNode
+  /** Rendered on error. Omit to self-hide (render nothing). */
+  fallback?: ReactNode
 }
 
 interface GraphSectionErrorBoundaryState {
@@ -62,13 +65,9 @@ export class GraphSectionErrorBoundary extends Component<
     })
   }
 
-  reset = () => {
-    this.setState({ failed: false })
-  }
-
   render() {
     if (this.state.failed) {
-      return this.props.fallback ? this.props.fallback(this.reset) : null
+      return this.props.fallback ?? null
     }
     return this.props.children
   }

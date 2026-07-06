@@ -56,11 +56,16 @@ describe('InlineGraph chunk-failure recovery (PSY-1359)', () => {
     graphState.shouldThrow = true
   })
 
-  it('shows the recoverable GraphLoadError card and reports to Sentry, then retry recovers', () => {
+  it('shows the recoverable GraphLoadError card, reports to Sentry, and retry reloads the page', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    render(
-      <InlineGraph billSlug="b" billTitle="Big Show" billHref="/shows/b" />,
-    )
+    const reload = vi.fn()
+    const realLocation = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...realLocation, reload },
+    })
+
+    render(<InlineGraph billSlug="b" billTitle="Big Show" billHref="/shows/b" />)
 
     // Perceivable, recoverable state — not an uncaught throw or an endless skeleton.
     expect(screen.getByRole('alert')).toHaveTextContent(/couldn.t load/i)
@@ -70,12 +75,16 @@ describe('InlineGraph chunk-failure recovery (PSY-1359)', () => {
       expect.objectContaining({ tags: { section: 'explore-inline-graph' } }),
     )
 
-    // Retry (boundary reset) after the transient failure clears → the graph mounts.
-    graphState.shouldThrow = false
+    // Retry is a full reload — the only reliable recovery for a rotated/failed
+    // chunk (React.lazy caches the rejection; a deploy-rotated URL only refreshes
+    // via fresh HTML).
     fireEvent.click(screen.getByRole('button', { name: /try again/i }))
-    expect(screen.getByTestId('force-graph')).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(reload).toHaveBeenCalledTimes(1)
 
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: realLocation,
+    })
     spy.mockRestore()
   })
 })

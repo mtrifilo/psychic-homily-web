@@ -75,10 +75,10 @@ function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
   )
 }
 
-// Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk
-// fetched only when the graph mounts, so the heavy renderer stays out of
-// /explore's initial JS (PSY-868). `loading` is the happy-path skeleton only;
-// a failed chunk fetch throws to the GraphSectionErrorBoundary at the mount.
+// Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk fetched
+// only when the graph mounts, so the heavy renderer stays out of /explore's
+// initial JS (PSY-868). `loading` is the happy-path skeleton; a failed chunk fetch
+// throws to the GraphSectionErrorBoundary at the mount (App Router).
 const ForceGraphView = createLazyForceGraphView(graphSkeleton)
 
 interface InlineGraphProps {
@@ -155,11 +155,16 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
             {graphData && graphData.nodes.length > 0 && (
               // A failed ForceGraphView chunk fetch throws here (App Router);
               // the boundary catches it, reports to Sentry, and shows the
-              // recoverable GraphLoadError card (retry = boundary reset) instead
-              // of letting it bubble uncaught and take down /explore (PSY-1359).
+              // recoverable GraphLoadError card instead of letting it bubble
+              // uncaught and take down /explore (PSY-1359). Retry is a full
+              // reload — the only reliable recovery: the dominant failure is a
+              // deploy rotating the hashed chunk, so the open page's baked-in
+              // chunk URL 404s no matter how often it re-imports; only fresh HTML
+              // carries the new URL (and React.lazy caches the rejected import
+              // anyway, so a boundary reset would just re-throw).
               <GraphSectionErrorBoundary
                 sentryTag="explore-inline-graph"
-                fallback={reset => <GraphLoadError onRetry={reset} />}
+                fallback={<GraphLoadError onRetry={() => window.location.reload()} />}
               >
                 <ForceGraphView
                   nodes={graphData.nodes}
