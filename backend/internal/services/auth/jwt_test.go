@@ -623,3 +623,45 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 	})
 }
 
+
+// TestJWTService_SessionUserID covers the DB-free user-id extraction used by the
+// public-read per-user rate limiter (PSY-1373).
+func TestJWTService_SessionUserID(t *testing.T) {
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: "test-secret-key-123",
+			Expiry:    24,
+		},
+	}
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
+
+	user := &authm.User{ID: 4242, Email: stringPtr("fan@example.com")}
+	token, err := jwtService.CreateToken(user)
+	require.NoError(t, err)
+
+	t.Run("valid session token returns its user id (no DB)", func(t *testing.T) {
+		uid, ok := jwtService.SessionUserID(token)
+		assert.True(t, ok)
+		assert.Equal(t, uint(4242), uid)
+	})
+
+	t.Run("garbage token is not ok", func(t *testing.T) {
+		uid, ok := jwtService.SessionUserID("not-a-jwt")
+		assert.False(t, ok)
+		assert.Equal(t, uint(0), uid)
+	})
+
+	t.Run("empty token is not ok", func(t *testing.T) {
+		_, ok := jwtService.SessionUserID("")
+		assert.False(t, ok)
+	})
+
+	t.Run("token signed with a different secret is not ok", func(t *testing.T) {
+		otherCfg := &config.Config{JWT: config.JWTConfig{SecretKey: "a-completely-different-secret", Expiry: 24}}
+		otherService := NewJWTService(nil, otherCfg, newNilDBUserService())
+		forged, err := otherService.CreateToken(user)
+		require.NoError(t, err)
+		_, ok := jwtService.SessionUserID(forged)
+		assert.False(t, ok, "a token signed with the wrong secret must not yield a user id")
+	})
+}

@@ -84,16 +84,26 @@ func (s *JWTService) parseSessionToken(tokenString string) (jwt.MapClaims, error
 	return claims, nil
 }
 
-// HasValidSessionToken reports whether tokenString is a validly-signed, unexpired
-// session token — WITHOUT loading the user from the database. Used by the
-// public-read rate limiter (middleware.SkipRateLimitForAuthenticated) to tell
-// anonymous traffic from logged-in users on EVERY request without adding a DB
-// query per authenticated request. Deliberately does NOT check IsActive/admin:
-// for throttling anonymous abuse, a validly-signed session token means "not an
-// anonymous scraper," which is all the bypass needs.
-func (s *JWTService) HasValidSessionToken(tokenString string) bool {
-	_, err := s.parseSessionToken(tokenString)
-	return err == nil
+// SessionUserID returns the user id from a validly-signed, unexpired session
+// token — WITHOUT loading the user from the database. ok is false for any
+// invalid/expired/forged token or a missing/non-numeric user_id claim.
+//
+// Used by the public-read rate limiter (middleware.RateLimitPublicReadsByAuthState,
+// PSY-1373) to (a) tell anonymous traffic from logged-in users and (b) key the
+// authenticated per-user rate bucket by id — on EVERY request, so a per-request DB
+// query would be wasteful. Deliberately does NOT check IsActive/admin: for
+// metering read abuse, a validly-signed session token identifies a real account,
+// which is all the per-user cap needs.
+func (s *JWTService) SessionUserID(tokenString string) (uint, bool) {
+	claims, err := s.parseSessionToken(tokenString)
+	if err != nil {
+		return 0, false
+	}
+	uid, ok := claims["user_id"].(float64)
+	if !ok || uid < 0 {
+		return 0, false
+	}
+	return uint(uid), true
 }
 
 // ValidateToken validates and extracts user info from JWT

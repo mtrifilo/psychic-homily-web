@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +47,13 @@ const (
 	// TagVoteRequestsPerMinute is the rate limit for tag voting.
 	// Prevents rapid vote manipulation.
 	TagVoteRequestsPerMinute = 30
+
+	// PublicReadUserRequestsPerMinute is the per-USER rate limit for authenticated
+	// public reads (PSY-1373). Higher than the anonymous per-IP limit
+	// (APIRequestsPerMinute) — a logged-in user power-browsing the graph shouldn't
+	// hit it — but finite, so one throwaway signup can't scrape unmetered. Keyed
+	// by user id, so shared-IP logged-in users each get their own bucket.
+	PublicReadUserRequestsPerMinute = 300
 )
 
 // RateLimitAuthEndpoints creates a strict rate limiter for authentication endpoints
@@ -160,54 +169,75 @@ func isAdminTokenRequest(jwtService *auth.JWTService, r *http.Request) bool {
 	return user.IsAdmin
 }
 
-// SkipRateLimitForAuthenticated wraps a rate-limit middleware so a request
-// carrying a cryptographically-verified session JWT (any user, admin or not)
-// bypasses the per-IP limiter. Only anonymous/unauthenticated traffic hits the
-// underlying limiter.
+// rateLimitUserIDKey is the context key under which
+// RateLimitPublicReadsByAuthState stashes the authenticated user id so the
+// per-user limiter's key func can read it without re-parsing the token.
+type rateLimitUserIDKey struct{}
+
+// rateLimitUserKeyFunc keys the authenticated per-user limiter by the user id
+// stashed in context. Only ever called for requests RateLimitPublicReadsByAuthState
+// routed as authenticated, so the id is always present.
+func rateLimitUserKeyFunc(r *http.Request) (string, error) {
+	uid, _ := r.Context().Value(rateLimitUserIDKey{}).(uint)
+	return "user:" + strconv.FormatUint(uint64(uid), 10), nil
+}
+
+// RateLimitPublicReadUserEndpoints is the per-USER limiter for authenticated
+// public reads: PublicReadUserRequestsPerMinute per user id (NOT per IP), so
+// shared-IP logged-in users each get their own bucket. Pair with
+// RateLimitPublicReadsByAuthState, which supplies the user id via context.
+func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
+	return httprate.Limit(
+		PublicReadUserRequestsPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(rateLimitUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
+// RateLimitPublicReadsByAuthState routes each request to the right limiter:
+// authenticated (a cryptographically-verified session JWT) → a per-USER bucket
+// (userLimiter, higher cap); anonymous → a per-IP bucket (anonLimiter).
 //
-// PSY-1362: public unauthenticated read endpoints (graph-card, artist/show/
-// venue/label/scene reads, etc.) were unthrottled. Limiting ONLY anonymous
-// traffic protects them from scraping/abuse while never throttling logged-in
-// users — which sidesteps the shared-IP false-positive risk of a blanket
-// per-IP limit (offices, universities, carrier NAT, where many real, logged-in
-// users share one egress IP).
+// PSY-1373: this replaces the old full bypass for authenticated users. A full
+// bypass meant one throwaway signup defeated the anti-scraping limit entirely
+// (session tokens mint without a human gate). A finite per-user cap keeps
+// shared-IP logged-in users un-collided (each keyed by their own id, so an office
+// doesn't share one bucket — PSY-1362's requirement) while still metering a
+// scraper account. DB-free: the id comes from the verified token
+// (auth.JWTService.SessionUserID), no per-request DB query.
 //
-// SECURITY: unlike SkipRateLimitForAdmin, this deliberately does NOT honor the
-// phk_ API-token prefix. isTrustedAPIToken trusts the prefix WITHOUT validating
-// the token; that is safe on the admin-gated write routes SkipRateLimitForAdmin
-// guards (a forged token is rejected by downstream auth anyway), but these are
-// PUBLIC reads with NO downstream auth — a forged `Authorization: Bearer phk_x`
-// would otherwise defeat the whole limiter for free (adversarial-review CRITICAL).
-// The ph CLI uses API tokens for bulk imports, never public browse traffic, so it
-// has no legitimate need to bypass this limiter. Only an unforgeable JWT bypasses.
-func SkipRateLimitForAuthenticated(jwtService *auth.JWTService, limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+// SECURITY: like PSY-1362 this does NOT honor the phk_ API-token prefix (trusted
+// without validation) — a forged prefix must not grant the higher authenticated
+// cap on these no-downstream-auth public reads. Only an unforgeable JWT with a
+// user_id claim routes to the per-user limiter; everything else is anonymous.
+func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, anonLimiter, userLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
+		anon := anonLimiter(next)
+		user := userLimiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isAuthenticatedRequest(jwtService, r) {
-				next.ServeHTTP(w, r)
+			if uid, ok := sessionUserID(jwtService, r); ok {
+				ctx := context.WithValue(r.Context(), rateLimitUserIDKey{}, uid)
+				user.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			limited.ServeHTTP(w, r)
+			anon.ServeHTTP(w, r)
 		})
 	}
 }
 
-// isAuthenticatedRequest returns true when the request carries a validly-signed,
-// unexpired session token. Uses HasValidSessionToken (signature/claims only, NO
-// DB lookup) — unlike isAdminTokenRequest, the anonymous-vs-authenticated
-// decision needs no fresh user record, and this middleware runs on every
-// request, so a per-request DB query would be wasteful. Any failure
-// (missing/invalid/expired token, nil service) returns false.
-func isAuthenticatedRequest(jwtService *auth.JWTService, r *http.Request) bool {
+// sessionUserID returns the user id from a validly-signed session token (DB-free),
+// or ok=false for anonymous/invalid/expired/forged requests (incl. phk_ tokens,
+// which carry no session JWT). Any failure (nil service, no token) returns false.
+func sessionUserID(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
 	if jwtService == nil {
-		return false
+		return 0, false
 	}
 	token := extractJWT(r)
 	if token == "" {
-		return false
+		return 0, false
 	}
-	return jwtService.HasValidSessionToken(token)
+	return jwtService.SessionUserID(token)
 }
 
 // extractJWT reads the JWT from either the Authorization header or the

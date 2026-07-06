@@ -6,6 +6,10 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/config"
+	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/auth"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 func enableEnv(k string) string {
@@ -115,6 +119,37 @@ func TestPublicReadRateLimiter_HealthPathExempt(t *testing.T) {
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("health probe %d: status = %d, want 200 (/health must be exempt)", i, rr.Code)
+		}
+	}
+}
+
+// PSY-1373: an authenticated user is routed to the per-USER cap
+// (PublicReadUserRequestsPerMinute), which is higher than the anonymous per-IP
+// cap — so it passes well past the anonymous limit instead of 429-ing at it.
+func TestPublicReadRateLimiter_AuthenticatedUsesPerUserCap(t *testing.T) {
+	cfg := &config.Config{JWT: config.JWTConfig{SecretKey: "test-secret-key-for-routes-unit-32c", Expiry: 24}}
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
+	user := &authm.User{ID: 7}
+	token, err := jwtService.CreateToken(user)
+	if err != nil {
+		t.Fatalf("CreateToken: %v", err)
+	}
+
+	mw := PublicReadRateLimiter(jwtService, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Send more requests than the anonymous cap would allow; all pass because the
+	// authenticated user is on the higher per-user bucket, not the per-IP one.
+	for i := 0; i < middleware.APIRequestsPerMinute+50; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.RemoteAddr = "7.7.7.11:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("authenticated request %d (past anon cap): status = %d, want 200 (per-user cap is higher)", i, rr.Code)
 		}
 	}
 }
