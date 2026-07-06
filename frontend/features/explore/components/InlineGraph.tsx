@@ -49,6 +49,13 @@ const graphSkeleton = (
 // the user would sit on the aria-hidden skeleton forever. The graph is an
 // optional below-the-fold section, so a failure must be perceivable but
 // must not take down the rest of /explore.
+//
+// ⚠️ KNOWN CONTRADICTION (tracked in PSY-1359): HomeSceneGraph documents the
+// OPPOSITE — that the App Router THROWS a failed chunk fetch to the nearest
+// error boundary rather than re-invoking `loading` with `error`, which would
+// make this error-path dead code. PSY-1347 extracted only the shared hook +
+// skeleton; reconciling this dynamic-wrapper/error-boundary discrepancy (and
+// fixing whichever side is wrong) is deliberately deferred to PSY-1359.
 function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
   return (
     <div

@@ -19,6 +19,11 @@ import { useEffect, useRef, useState } from 'react'
  * a microtask so it lands AFTER the effect returns rather than synchronously in
  * the effect body (react-hooks/set-state-in-effect / a cascading render); the
  * two-phase render (placeholder → mounted) is preserved exactly.
+ *
+ * `rootMargin` is an effect dependency, so pass a stable value (a literal or a
+ * memoized string) — an inline-computed string that changes every render would
+ * tear down and recreate the observer each render. Both current callers use the
+ * '200px' default.
  */
 export function useLazyGraphMount(rootMargin = '200px'): {
   containerRef: React.RefObject<HTMLDivElement | null>

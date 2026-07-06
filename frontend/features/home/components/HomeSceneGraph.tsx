@@ -72,11 +72,12 @@ const GRAPH_HEIGHT_PX = 560
  */
 const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[560px]'
 
-// This surface's height-reserving placeholder (CLS budget) — the shared base
-// look (GraphSkeleton, PSY-1347) plus the responsive height contract above.
+// This surface's height-reserving placeholder (CLS budget) — the shared
+// `GraphSkeleton` base look (PSY-1347) plus the responsive height contract
+// above. Named distinctly from the shared primitive to avoid shadowing it.
 // Used by the pre-mount state, the data-loading state, and the dynamic-import
 // fallback so they can't drift apart.
-function GraphSkeleton() {
+function SceneGraphSkeleton() {
   return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
 }
 
@@ -91,7 +92,7 @@ const ForceGraphView = dynamic(
     })),
   {
     ssr: false,
-    loading: () => <GraphSkeleton />,
+    loading: () => <SceneGraphSkeleton />,
   },
 )
 
@@ -136,7 +137,7 @@ export function HomeSceneGraph() {
           <HomeSceneGraphSection />
         </SectionErrorBoundary>
       ) : (
-        <GraphSkeleton />
+        <SceneGraphSkeleton />
       )}
     </div>
   )
@@ -247,7 +248,7 @@ function HomeSceneGraphSection() {
   // query settled — while loading we hold the skeleton instead.)
   if (scenesQuery.isError) return null
   if (!scenesQuery.isLoading && scenes.length === 0) return null
-  if (!scene) return <GraphSkeleton />
+  if (!scene) return <SceneGraphSkeleton />
 
   const sceneHref = `/scenes/${scene.slug}`
 
@@ -286,7 +287,7 @@ function HomeSceneGraphSection() {
       <div ref={refCallback} className="w-full">
         {/* Pre-measurement: hold the (responsive) height so the section
             can't shift the radio section below when the state settles. */}
-        {containerWidth === null && <GraphSkeleton />}
+        {containerWidth === null && <SceneGraphSkeleton />}
 
         {/* Static teaser below the canvas-usability gate (PSY-511): no
             canvas touch handling at small widths — link out instead. */}
@@ -366,7 +367,7 @@ function HomeSceneGraphSection() {
               </Link>
             </div>
           ) : (
-            <GraphSkeleton />
+            <SceneGraphSkeleton />
           ))}
       </div>
 
