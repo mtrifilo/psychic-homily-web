@@ -133,3 +133,55 @@ describe('ConnectionPanel inside a Radix Dialog (ego graph, PSY-1351)', () => {
     expect(onOpenChange).toHaveBeenCalled()
   })
 })
+
+// PSY-1355: on a scene/station/venue graph the ConnectionPanel floats over the
+// canvas (NOT inside a modal). If the user opens the ⌘K command palette (a Radix
+// Dialog) on top and presses Escape, the palette must close FIRST — the panel had
+// been swallowing it (its custom capture listener registered before the palette's
+// and won by order). Converting the panels to Radix DismissableLayer fixes it for
+// free: the palette mounts last → it's the highest layer → Radix dismisses only it.
+describe('ConnectionPanel with a ⌘K palette stacked on top (PSY-1355)', () => {
+  function PanelThenPalette() {
+    const [panelOpen, setPanelOpen] = useState(true)
+    const [paletteOpen, setPaletteOpen] = useState(true)
+    return (
+      <div>
+        {panelOpen && (
+          <ConnectionPanel
+            source={{ name: 'Dehd' }}
+            target={{ name: 'Lifeguard' }}
+            connections={[{ type: 'shared_bills' }]}
+            onClose={() => setPanelOpen(false)}
+          />
+        )}
+        {/* Opened AFTER the panel → topmost Radix layer, as in the real app. */}
+        <Dialog open={paletteOpen} onOpenChange={setPaletteOpen}>
+          <DialogContent>
+            <DialogTitle>Command palette</DialogTitle>
+            <DialogDescription className="sr-only">Search</DialogDescription>
+            <input aria-label="command input" />
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+  }
+
+  it('Escape closes the palette first, leaving the ConnectionPanel open; a second closes the panel', () => {
+    render(<PanelThenPalette />)
+    // The modal palette aria-hides the panel behind it (as the real ⌘K does), so
+    // query it with { hidden: true } while the palette is open.
+    expect(screen.getByRole('region', { name: /connected/i, hidden: true })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: /command palette/i })).toBeInTheDocument()
+
+    // First Escape: only the topmost layer (the palette) dismisses.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: /command palette/i })).not.toBeInTheDocument()
+    // Palette gone → the panel is no longer aria-hidden → back in the a11y tree,
+    // proving the first Escape spared it (the PSY-1355 bug closed it instead).
+    expect(screen.getByRole('region', { name: /connected/i })).toBeInTheDocument()
+
+    // With the palette gone the panel is topmost, so the next Escape closes it.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: /connected/i })).not.toBeInTheDocument()
+  })
+})

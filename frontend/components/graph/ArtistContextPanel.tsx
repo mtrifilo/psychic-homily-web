@@ -28,7 +28,6 @@ import { parseSpotifyEmbed } from '@/lib/spotify'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import { GraphPanelShell } from './GraphPanelShell'
-import { useGraphPanelEscape } from './useGraphPanelEscape'
 
 export interface ArtistContextPanelProps {
   /** Name of the selected node — rendered immediately, before the card loads. */
@@ -64,11 +63,9 @@ export function ArtistContextPanel({
   onClose,
   className,
 }: ArtistContextPanelProps) {
-  // Esc closes, coordinated innermost-first with ConnectionPanel (PSY-1360).
-  // ignoreFromInput: a CommandPalette Escape must dismiss the palette alone
-  // (PSY-1313 layered-dismiss lesson), so an input/[role=dialog]-targeted
-  // Escape is left for that control.
-  useGraphPanelEscape(onClose, { ignoreFromInput: true })
+  // Esc closes via GraphPanelShell's DismissableLayer, coordinated innermost-first
+  // against every other Radix layer (sibling panel, ⌘K palette, enclosing dialog)
+  // by Radix's shared layer stack — PSY-1355/1360.
 
   const loading = !card && !isError
   const location = card && (card.city || card.state)
