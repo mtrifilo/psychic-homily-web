@@ -705,11 +705,13 @@ func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDa
 		BandcampEmbedURL string  `gorm:"column:bandcamp_embed_url"`
 	}
 
-	// Same active-first ordering as GetActiveArtists (shared const), restricted to
-	// bands that HAVE an embed, top 1. is_active/show_count are computed only to
-	// drive that ordering (active bands surface first; a dormant band is the
-	// fallback — PSY-1294 decision). Placeholder order mirrors GetActiveArtists:
-	// cutoff (SELECT), status (subquery), then the roster predicate args.
+	// Same active-first ordering as GetActiveArtists (shared sceneRosterActiveOrderBy
+	// const), restricted to bands that HAVE an embed, top 1. The is_active and
+	// show_count SELECT aliases are REQUIRED by that ORDER BY and must stay even
+	// though embedRow ignores them — dropping them makes Postgres fail to resolve
+	// the ORDER BY. Active bands surface first; a dormant band is the fallback
+	// (PSY-1294 decision). Placeholder order mirrors GetActiveArtists: cutoff
+	// (SELECT), status (subquery), then the roster predicate args.
 	args := append([]any{activeCutoff, catalogm.ShowStatusApproved}, aargs...)
 	var row embedRow
 	result := s.db.Raw(`
@@ -733,8 +735,11 @@ func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDa
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get representative embed: %w", result.Error)
 	}
-	if result.RowsAffected == 0 {
-		// No band based in this metro has an embed — the preview shows no player.
+	// No matching row leaves `row` zero-valued. The WHERE filters to a non-empty
+	// bandcamp_embed_url, so an empty URL here unambiguously means no band based in
+	// this metro has an embed — the preview shows no player. (Uses the file's
+	// zero-value no-row idiom, cf. parseSceneSlugParts.)
+	if row.BandcampEmbedURL == "" {
 		return nil, nil
 	}
 

@@ -110,7 +110,7 @@ type GetSceneActiveArtistsResponse struct {
 		// RepresentativeEmbed is chosen over the FULL roster (active-first), so the
 		// preview's player is independent of the returned page (PSY-1294). null when
 		// no band based in the metro has a Bandcamp embed.
-		RepresentativeEmbed *contracts.SceneRepresentativeEmbed `json:"representative_embed" doc:"The single band whose Bandcamp embed represents the scene — computed over the full metro roster, so it's independent of the returned page. null when no band based here has an embed."`
+		RepresentativeEmbed *contracts.SceneRepresentativeEmbed `json:"representative_embed" doc:"The single band whose Bandcamp embed represents the scene — computed over the full metro roster, so it's independent of the returned page. Populated on the first page only (offset 0); null on later pages, and null when no band based here has an embed."`
 	}
 }
 
@@ -162,6 +162,13 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 // failing the roster response — which the full scene page also depends on
 // (mirrors the non-fatal secondary lookups in artist_graph_card.go). Returned
 // only for the first page (offset 0) — it's a scene-level field, not per-page.
+//
+// This runs for EVERY consumer of GET /scenes/{slug}/artists, including the full
+// scene page (SceneDetail), which ignores the field — accepted because the
+// common case is free (the embed comes from `page`) and the full-roster fallback
+// fires only when the first page holds no embed but the roster is larger (rare,
+// and scene-page loads are infrequent). Gate behind an opt-in param if that
+// fallback ever shows up as measurable load.
 func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state string, activeWindowDays, offset int, page []*contracts.SceneArtistResponse, total int64) *contracts.SceneRepresentativeEmbed {
 	if offset != 0 {
 		return nil

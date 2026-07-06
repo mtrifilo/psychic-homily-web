@@ -72,7 +72,8 @@ export interface SceneArtist {
 
 // The single band whose Bandcamp embed represents the scene (PSY-1294), chosen
 // server-side over the FULL metro roster (active-first) so the preview's player
-// is independent of the fetched window. null when no band based here has one.
+// is independent of the fetched window. Populated on the first page only
+// (offset 0); null on later pages and when no band based here has one.
 export interface SceneRepresentativeEmbed {
   embed_url: string
   artist_name: string
