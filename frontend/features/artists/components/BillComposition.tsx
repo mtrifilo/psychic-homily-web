@@ -19,6 +19,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useArtistBillComposition } from '../hooks/useArtistBillComposition'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import type { BillCoArtist } from '../types'
@@ -102,11 +103,29 @@ export function BillComposition({ artistId, defaultCollapsed = false }: BillComp
 
           {showGraph && graphAvailable && (
             <div className="mb-6">
-              <ArtistGraphVisualization
-                data={data.graph}
-                activeTypes={new Set(['shared_bills'])}
-                containerWidth={containerWidth!}
-              />
+              {/*
+                PSY-1371: ArtistGraphVisualization loads react-force-graph-2d as a
+                MODULE-SCOPE dynamic(ssr:false) chunk shared with the ego-graph
+                dialog. A failed chunk fetch throws to the nearest boundary (App
+                Router); this inline mount had none, so it would crash the whole
+                artist page — AND, because the lazy is a singleton whose rejection
+                is cached, this second mount re-throws even after the dialog's
+                boundary caught the first failure. Contain it here too.
+              */}
+              <GraphSectionErrorBoundary
+                sentryTag="artist-bill-composition"
+                fallback={
+                  <p role="alert" className="text-sm text-muted-foreground py-8 text-center">
+                    The bill-composition graph couldn’t load.
+                  </p>
+                }
+              >
+                <ArtistGraphVisualization
+                  data={data.graph}
+                  activeTypes={new Set(['shared_bills'])}
+                  containerWidth={containerWidth!}
+                />
+              </GraphSectionErrorBoundary>
             </div>
           )}
 

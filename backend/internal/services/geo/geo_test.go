@@ -31,6 +31,25 @@ func TestResolve(t *testing.T) {
 		{"st. paul abbreviated → Chicago tz", "St. Paul", "MN", "", "America/Chicago", true},
 		{"st. petersburg FL pinned → New York tz", "St. Petersburg", "FL", "", "America/New_York", true},
 		{"berlin germany", "Berlin", "", "Germany", "Europe/Berlin", true},
+		// PSY-1012: a confident US state with NO same-state namesake must MISS, not
+		// fall back to a wrong-state namesake's zone. Sidney is only in the dataset
+		// as Sidney, OH (Eastern); Sidney, NE is below the cities15000 threshold, so
+		// a NE-pinned lookup used to return America/New_York. It now misses, leaving
+		// venue.timezone NULL so the state->tz fallback (Chicago) wins. Resolve and
+		// ResolveMetro both route through bestCity's hard filter, so both refuse this.
+		{"sub-threshold town, confident state, no same-state row → miss", "Sidney", "NE", "", "", false},
+		// Pasadena is in MD/TX/CA but not FL, so an FL-pinned lookup misses rather
+		// than returning the highest-population namesake (Pasadena TX / Chicago).
+		{"confident state pins no namesake → miss", "Pasadena", "FL", "", "", false},
+		// A second spot-check in a different zone: Evanston is in the dataset only as
+		// Evanston, IL (Central) — Evanston, WY (pop ~12k) is below the threshold — so
+		// a WY-pinned lookup misses instead of returning Illinois's Central zone,
+		// leaving the WY state fallback (Mountain) to apply.
+		{"sub-threshold town in a Mountain state → miss", "Evanston", "WY", "", "", false},
+		// No regression: a same-state namesake still resolves. Pasadena, MD is in the
+		// dataset, so an MD-pinned lookup returns its Eastern zone (not the larger
+		// TX/CA namesakes).
+		{"same-state namesake still resolves", "Pasadena", "MD", "", "America/New_York", true},
 		{"amsterdam state-holds-country-code", "Amsterdam", "NL", "Netherlands", "Europe/Amsterdam", true},
 		{"montreal by country name", "Montreal", "QC", "Canada", "America/Toronto", true},
 		{"montreal accented input", "Montréal", "QC", "Canada", "America/Toronto", true},
@@ -89,6 +108,28 @@ func TestLookupPointers(t *testing.T) {
 		lat, lng, tz := LookupPointers(nil, "Phoenix", "AZ", "")
 		if lat != nil || lng != nil || tz != nil {
 			t.Errorf("expected all nil with nil geocoder, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+	})
+
+	// PSY-1012: a confident US state with no same-state namesake must miss here too,
+	// so the venue write path stores NULL and the state->tz fallback (Chicago for
+	// NE) applies at render — instead of persisting Sidney, OH's America/New_York.
+	t.Run("confident state, no same-state row returns all nil", func(t *testing.T) {
+		lat, lng, tz := LookupPointers(g, "Sidney", "NE", "")
+		if lat != nil || lng != nil || tz != nil {
+			t.Errorf("expected all nil for Sidney,NE, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+	})
+
+	// No regression at the write seam: a same-state namesake among several (Pasadena
+	// MD, vs the larger TX/CA) still returns non-nil pointers with its own zone.
+	t.Run("same-state namesake returns non-nil pointers", func(t *testing.T) {
+		lat, lng, tz := LookupPointers(g, "Pasadena", "MD", "")
+		if lat == nil || lng == nil || tz == nil {
+			t.Fatalf("expected non-nil pointers for Pasadena,MD, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+		if *tz != "America/New_York" {
+			t.Errorf("tz = %q, want America/New_York", *tz)
 		}
 	})
 }
@@ -182,8 +223,11 @@ func TestResolveMetro(t *testing.T) {
 		// (the PSY-1244 trap) — must return false, not "Houston".
 		{"bare pasadena (ambiguous) → refuse", "Pasadena", "", "", "", false},
 		{"bare springfield (ambiguous) → refuse", "Springfield", "", "", "", false},
-		// A state that pins NO namesake of the city must refuse, not fall back.
-		{"mismatched state → refuse", "Pasadena", "FL", "", "", false},
+		// A state that pins NO namesake of the city must refuse, not fall back. FL is
+		// a valid state with no Pasadena row → bestCity's hard filter misses; ZZ isn't
+		// a US state → admin1 is empty, so the bare-name ResolveUSState ambiguity
+		// check refuses instead.
+		{"valid state pins no namesake → miss", "Pasadena", "FL", "", "", false},
 		{"bogus state → refuse", "Pasadena", "ZZ", "", "", false},
 		// Non-US place: CBSA is US-only, so no metro (caller falls back to city).
 		{"london GB has no CBSA", "London", "", "GB", "", false},
