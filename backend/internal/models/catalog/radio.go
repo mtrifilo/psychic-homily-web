@@ -189,6 +189,32 @@ func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, a
 	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
 }
 
+// ShouldRefreshLivePlaylist reports whether an episode that is airing RIGHT NOW still
+// wants a playlist re-fetch (PSY-1370). The post-air backfill (ShouldBackfillPlaylist)
+// is deliberately aired-only — it never touches a live episode — so without this, a
+// show whose playlist was fetched empty before airtime (WFMU pre-publishes the page
+// hours early) shows 0 tracks for its whole live window despite the "ON AIR — updating
+// live" strip; the tracks land only after ends_at. This predicate is the live
+// counterpart: eligible when the episode is LIVE (bounded window, now inside it) and
+// still incomplete (pending/partial — a live episode is never complete/unavailable).
+//
+// No attempt cap, by construction: a live re-fetch goes through ComputePlaylistState's
+// NON-AIRED path, which returns the attempt count UNCHANGED (a live fetch with plays →
+// partial, without plays → pending; neither burns an attempt). So live attempts stay 0
+// throughout the window and the natural, sole terminator is ends_at — past it the
+// episode is no longer live, this returns false, and ShouldBackfillPlaylist takes over
+// for the single final post-air fetch → complete. The two predicates are mutually
+// exclusive by time phase, so nothing double-drives an episode.
+//
+// A windowless episode (startsAt/endsAt nil) is never live and so is never refreshed
+// here — correct, it has no live window to refresh within.
+func ShouldRefreshLivePlaylist(startsAt, endsAt *time.Time, playlistState string, now time.Time) bool {
+	if playlistState != RadioPlaylistStatePending && playlistState != RadioPlaylistStatePartial {
+		return false
+	}
+	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusLive
+}
+
 // NormalizeScheduledPlaylistState enforces the invariant that a not-yet-aired
 // (scheduled) episode never carries a terminal/exhausted playlist state (PSY-1285).
 // A scheduled episode's playlist legitimately doesn't exist yet, so it must be

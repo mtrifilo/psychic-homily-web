@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -121,8 +122,8 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	for range 5 {
 		s.Require().NoError(s.db.Create(&catalogm.RadioSyncRun{
 			StationID: radioSyncStationID(st.ID), RunType: catalogm.RadioSyncRunTypeFetch,
-			Trigger: catalogm.RadioSyncRunTriggerScheduled,
-			Status:  catalogm.RadioSyncRunStatusSuccess,
+			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
+			Status:        catalogm.RadioSyncRunStatusSuccess,
 			PlaysImported: 100,
 			StartedAt:     time.Now().Add(-time.Hour), FinishedAt: ptrTime(time.Now().Add(-time.Hour)),
 		}).Error)
@@ -131,9 +132,9 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	for range 10 {
 		s.Require().NoError(s.db.Create(&catalogm.RadioSyncRun{
 			StationID: radioSyncStationID(st.ID), ShowID: &show.ID,
-			RunType: catalogm.RadioSyncRunTypeFetch,
-			Trigger: catalogm.RadioSyncRunTriggerScheduled,
-			Status:  catalogm.RadioSyncRunStatusSuccess,
+			RunType:       catalogm.RadioSyncRunTypeFetch,
+			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
+			Status:        catalogm.RadioSyncRunStatusSuccess,
 			PlaysImported: 0,
 			StartedAt:     time.Now().Add(-30 * time.Minute), FinishedAt: ptrTime(time.Now().Add(-30 * time.Minute)),
 		}).Error)
@@ -193,4 +194,137 @@ func (s *RadioSyncSuite) TestScopedFetch_BreakerNeutral() {
 	snap = s.svc.readBreakerSnapshot(st.ID)
 	s.Equal(catalogm.RadioBreakerStateOpen, snap.state, "the breaker stays open for the next sweep to probe")
 	s.Equal(5, snap.failures)
+}
+
+// TestShowsWithLiveIncompleteEpisodes (PSY-1370): the live-refresh work list — shows
+// with an episode airing right now and still incomplete — mirrors the boundary work
+// list's population (active SCHEDULE-BEARING shows with an external id on active,
+// automated stations) and excludes every non-live / complete / windowless / non-
+// automated / schedule-less case. The schedule filter is the deliberate scope decision
+// that keeps KEXP/NTS (no stored schedule) off this fast ticker.
+func (s *RadioSyncSuite) TestShowsWithLiveIncompleteEpisodes() {
+	now := time.Date(2026, 7, 6, 20, 0, 0, 0, time.UTC)
+	liveS, liveE := now.Add(-30*time.Minute), now.Add(30*time.Minute) // now inside → live
+	schedS, schedE := now.Add(1*time.Hour), now.Add(2*time.Hour)      // future → scheduled
+	airedS, airedE := now.Add(-2*time.Hour), now.Add(-1*time.Hour)    // past → aired
+
+	st := s.seedStation(catalogm.PlaylistSourceNTS)
+	// sched stamps any valid schedule so a show passes the schedule-bearing filter (the
+	// query only checks schedule IS NOT NULL; the slot day/time is irrelevant here).
+	sched := func(showID uint) { s.setShowSchedule(showID, 1, "10:00", "13:00") }
+
+	// LIVE + pending + schedule → in the work list.
+	livePending := s.seedActiveShow(st.ID, "live-pending", nil)
+	sched(livePending.ID)
+	s.seedEpisodeFor(livePending.ID, "lp-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	// LIVE + partial + schedule → in the work list (still growing).
+	livePartial := s.seedActiveShow(st.ID, "live-partial", nil)
+	sched(livePartial.ID)
+	s.seedEpisodeFor(livePartial.ID, "lpa-1", "2026-07-06", catalogm.RadioPlaylistStatePartial, 0, &liveS, &liveE, now)
+
+	// LIVE + pending, episode ending EXACTLY at now → still live at the boundary → in.
+	liveBoundary := s.seedActiveShow(st.ID, "live-boundary", nil)
+	sched(liveBoundary.ID)
+	boundS := now.Add(-1 * time.Hour)
+	s.seedEpisodeFor(liveBoundary.ID, "lb-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &boundS, &now, now)
+
+	// LIVE + incomplete but NO schedule → EXCLUDED (the KEXP/NTS-class scope guard).
+	liveNoSched := s.seedActiveShow(st.ID, "live-no-schedule", nil)
+	s.seedEpisodeFor(liveNoSched.ID, "lns-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	// LIVE + complete → excluded (nothing left to refresh).
+	liveComplete := s.seedActiveShow(st.ID, "live-complete", nil)
+	sched(liveComplete.ID)
+	s.seedEpisodeFor(liveComplete.ID, "lc-1", "2026-07-06", catalogm.RadioPlaylistStateComplete, 0, &liveS, &liveE, now)
+
+	// SCHEDULED → excluded (hasn't started).
+	scheduled := s.seedActiveShow(st.ID, "scheduled", nil)
+	sched(scheduled.ID)
+	s.seedEpisodeFor(scheduled.ID, "sc-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &schedS, &schedE, now)
+
+	// AIRED → excluded (post-air backfill owns it).
+	aired := s.seedActiveShow(st.ID, "aired", nil)
+	sched(aired.ID)
+	s.seedEpisodeFor(aired.ID, "ai-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &airedS, &airedE, now)
+
+	// WINDOWLESS live-ish (NULL window) → excluded (can't be "live").
+	windowless := s.seedActiveShow(st.ID, "windowless", nil)
+	sched(windowless.ID)
+	s.seedEpisodeFor(windowless.ID, "wl-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, nil, nil, now)
+
+	// LIVE but empty external_id → excluded (not a fetchable identity).
+	noExt := s.seedActiveShow(st.ID, "live-no-ext", nil)
+	sched(noExt.ID)
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).Where("id = ?", noExt.ID).Update("external_id", "").Error)
+	s.seedEpisodeFor(noExt.ID, "ne-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	// LIVE but on a MANUAL station → excluded (the sweep wouldn't fetch it).
+	manual := s.seedStation(catalogm.PlaylistSourceManual)
+	onManual := s.seedActiveShow(manual.ID, "live-on-manual", nil)
+	sched(onManual.ID)
+	s.seedEpisodeFor(onManual.ID, "om-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
+
+	got, err := s.svc.ShowsWithLiveIncompleteEpisodes(now)
+	s.Require().NoError(err)
+	s.Require().Len(got, 1, "only the automated station contributes")
+	s.ElementsMatch([]uint{livePending.ID, livePartial.ID, liveBoundary.ID}, got[st.ID],
+		"exactly the live+incomplete+schedule-bearing shows with a fetchable identity are due")
+}
+
+// TestSlotFetchCycle_LiveRefresh_EndToEnd (PSY-1370) drives the real runSlotFetchCycle
+// over the DB — the wiring that the isolated unit/query tests can't cover. It seeds a
+// schedule-bearing show with a LIVE incomplete episode and a mock provider whose
+// playlist has tracks, then confirms the cycle actually scoped-fetched that show and
+// grew its playlist. The boundary work list is emptied (lastSlotFetchAt = now, so the
+// tick window is ~empty), so only the live-refresh path can drive the fetch — a guard
+// against an inverted/mis-wired live selection the lower-level tests wouldn't catch
+// (mirrors TestBackfillCycle_HealsAiredIncompleteEpisode).
+func (s *RadioSyncSuite) TestSlotFetchCycle_LiveRefresh_EndToEnd() {
+	now := time.Now()
+	start, end := now.Add(-1*time.Hour), now.Add(1*time.Hour) // live
+	airDate := now.Format("2006-01-02")
+	showExt, epExt := "sw-live", "sw-live-ep"
+
+	st := s.seedStation(catalogm.PlaylistSourceWFMU)
+	show := s.seedActiveShow(st.ID, showExt, nil)
+	s.setShowSchedule(show.ID, int(now.Weekday()), "00:00", "00:01") // schedule-bearing, but not a boundary now
+	s.seedEpisodeFor(show.ID, epExt, airDate, catalogm.RadioPlaylistStatePending, 0, &start, &end, now)
+
+	var fetchPlaylistCalls int
+	track := "Live Track"
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{
+					ExternalID: epExt, ShowExternalID: showExt, AirDate: airDate,
+					StartsAt: &start, EndsAt: &end,
+				}}, nil
+			},
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				fetchPlaylistCalls++
+				return []RadioPlayImport{
+					{Position: 1, ArtistName: "Live A", TrackTitle: &track},
+					{Position: 2, ArtistName: "Live B", TrackTitle: &track},
+				}, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	fetchSvc := &RadioFetchService{
+		radioService:      s.svc,
+		stopCh:            make(chan struct{}),
+		logger:            slog.Default(),
+		slotFetchInterval: 10 * time.Minute,
+		lastSlotFetchAt:   time.Now(), // empties the boundary window → only live refresh can drive
+	}
+	fetchSvc.runSlotFetchCycle()
+
+	s.Positive(fetchPlaylistCalls, "the cycle must scoped-fetch the live show's playlist via the live-refresh path")
+	var ep catalogm.RadioEpisode
+	s.Require().NoError(s.db.Where("show_id = ? AND external_id = ?", show.ID, epExt).First(&ep).Error)
+	s.Equal(catalogm.RadioPlaylistStatePartial, ep.PlaylistState, "live playlist → partial after the cycle")
+	s.Equal(2, ep.PlayCount, "the live tracks were imported")
+	s.Equal(0, ep.PlaylistFetchAttempts, "live refresh burns no post-air attempt")
 }

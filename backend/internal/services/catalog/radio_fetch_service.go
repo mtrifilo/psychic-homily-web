@@ -619,10 +619,25 @@ func (s *RadioFetchService) runSlotFetchCycle() {
 	}
 	s.lastSlotFetchAt = now
 
-	due, err := s.radioService.ShowsWithSlotBoundariesIn(from, now)
-	if err != nil {
-		s.logger.Error("radio slot fetch: listing due shows failed", "error", err)
-		return
+	// The two work lists are independent (boundary-due shows and live-incomplete shows),
+	// so a failure in one must not starve the other — each is logged and skipped, and
+	// the cycle proceeds with whatever it did get. `due` starts empty and both merge
+	// into it. (PSY-1370: the boundary query used to hard-return on error, which would
+	// have starved live refresh too — symmetric log-and-continue instead.)
+	due := make(map[uint][]uint)
+	if boundary, err := s.radioService.ShowsWithSlotBoundariesIn(from, now); err != nil {
+		s.logger.Error("radio slot fetch: listing boundary-due shows failed", "error", err)
+	} else {
+		mergeShowWorkLists(due, boundary)
+	}
+	// PSY-1370: also refresh shows airing RIGHT NOW with an incomplete playlist, so an
+	// on-air show's tracks grow every tick — not only at the slot boundary. Deduped into
+	// the same per-show scoped-fetch work list, so a show that is both at a boundary and
+	// live this tick is fetched once.
+	if live, err := s.radioService.ShowsWithLiveIncompleteEpisodes(now); err != nil {
+		s.logger.Error("radio slot fetch: listing live incomplete shows failed", "error", err)
+	} else {
+		mergeShowWorkLists(due, live)
 	}
 	if len(due) == 0 {
 		return
@@ -653,6 +668,24 @@ func (s *RadioFetchService) runSlotFetchCycle() {
 		"window_start", from.UTC().Format(time.RFC3339),
 		"shows_fetched", fetched, "shows_skipped", skipped, "shows_failed", failed,
 		"duration", time.Since(now))
+}
+
+// mergeShowWorkLists folds src into dst (both stationID → showIDs), appending only
+// showIDs not already present for that station so a show reachable via two work lists
+// (a slot boundary AND a live episode this tick) is fetched exactly once. Mutates dst.
+func mergeShowWorkLists(dst, src map[uint][]uint) {
+	for stationID, showIDs := range src {
+		seen := make(map[uint]bool, len(dst[stationID]))
+		for _, id := range dst[stationID] {
+			seen[id] = true
+		}
+		for _, id := range showIDs {
+			if !seen[id] {
+				dst[stationID] = append(dst[stationID], id)
+				seen[id] = true
+			}
+		}
+	}
 }
 
 // runSubstreamScheduleLoop runs the periodic WFMU sub-stream schedule scrape
