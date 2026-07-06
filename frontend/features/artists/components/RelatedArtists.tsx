@@ -29,6 +29,7 @@ import { ArtistGraphVisualization, ConnectionPanelDismissContext, dismissConnect
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import { GraphAccessibleTree } from '@/components/graph/GraphAccessibleTree'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTreeModel'
 import {
   buildExpandAnnouncement,
@@ -329,6 +330,27 @@ interface ArtistGraphDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+// PSY-1371: modal fallback when the graph chunk fails to load. Message only —
+// the Dialog's own close (X / Esc) dismisses back to the intact artist page.
+// The copy deliberately does NOT promise a retry: react-force-graph-2d is a
+// module-scope dynamic import, so React.lazy caches a rejected chunk fetch and
+// reopening the dialog re-throws the same rejection (see GraphSectionErrorBoundary
+// — a full reload is the only real recovery). We don't offer a reload button
+// because it's heavy-handed from a modal for an optional feature; the graph page
+// itself keeps working, so "close and keep browsing" is the honest guidance.
+function EgoGraphLoadError() {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center py-16 text-center"
+    >
+      <p className="text-sm text-muted-foreground">
+        The similar-artists graph couldn’t load. Close this to keep browsing.
+      </p>
+    </div>
+  )
+}
+
 export function ArtistGraphDialog({
   artistId,
   artistSlug,
@@ -402,24 +424,39 @@ export function ArtistGraphDialog({
           measured width at the real dialog inner width and breaking the loop.
         */}
         <div ref={containerRefCallback} className="min-w-0 w-full overflow-hidden">
-          {containerWidth !== null && (
-            <ConnectionPanelDismissContext.Provider value={connectionDismissRef}>
-              <RecenteringGraph
-                originalArtistId={artistId}
-                originalArtistSlug={artistSlug}
-                originalArtistName={artistName}
-                containerWidth={containerWidth}
-                activeTypes={activeTypes}
-                onToggleType={toggleType}
-                trail={trail}
-                setTrail={setTrail}
-                slugToIdCache={slugToIdCache}
-                setSlugToIdCache={setSlugToIdCache}
-                announcement={announcement}
-                setAnnouncement={setAnnouncement}
-              />
-            </ConnectionPanelDismissContext.Provider>
-          )}
+          {/*
+            PSY-1371: the graph loads react-force-graph-2d as a dynamic(ssr:false)
+            chunk. In the App Router a failed chunk fetch (deploy skew / CDN flake)
+            THROWS to the nearest error boundary — with none here it would hit
+            app/error.tsx and replace the whole artist page. Contain it to the
+            dialog: report to Sentry (artist-ego-graph) and show a visible card
+            (not self-hide — the graph IS this dialog's content, so an empty dialog
+            reads as broken). Close returns to the intact page; see EgoGraphLoadError
+            for why the copy doesn't promise an in-dialog retry.
+          */}
+          <GraphSectionErrorBoundary
+            sentryTag="artist-ego-graph"
+            fallback={<EgoGraphLoadError />}
+          >
+            {containerWidth !== null && (
+              <ConnectionPanelDismissContext.Provider value={connectionDismissRef}>
+                <RecenteringGraph
+                  originalArtistId={artistId}
+                  originalArtistSlug={artistSlug}
+                  originalArtistName={artistName}
+                  containerWidth={containerWidth}
+                  activeTypes={activeTypes}
+                  onToggleType={toggleType}
+                  trail={trail}
+                  setTrail={setTrail}
+                  slugToIdCache={slugToIdCache}
+                  setSlugToIdCache={setSlugToIdCache}
+                  announcement={announcement}
+                  setAnnouncement={setAnnouncement}
+                />
+              </ConnectionPanelDismissContext.Provider>
+            )}
+          </GraphSectionErrorBoundary>
         </div>
       </DialogContent>
     </Dialog>
