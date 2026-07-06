@@ -315,5 +315,6 @@ func (s *RadioService) TriggerGlobalRematch(req contracts.GlobalRematchRequest) 
 	return s.startGlobalRematchJob(GlobalRematchOpts{
 		StationID: req.StationID,
 		ShowID:    req.ShowID,
+		Force:     req.Force,
 	})
 }

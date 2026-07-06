@@ -517,7 +517,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchAllUnmatched_BeforeAfte
 	const totalPlays = 10
 	const expectedAfterMatchCount = 8 // previouslyFailing all resolve; mustNotMatch stay unmatched
 
-	result, err := suite.engine.MatchAllUnmatched()
+	result, err := suite.engine.MatchAllUnmatched(false)
 	suite.Require().NoError(err)
 
 	// Bulk SQL links diacritic/exact cases; Go matcher handles punctuation and
@@ -659,6 +659,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabSinglePart
 	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
 	suite.Require().NotNil(reloaded.ArtistID)
 	suite.Equal(winter.ID, *reloaded.ArtistID)
+	suite.Equal(catalogm.RadioPlayMatchStateMatched, reloaded.MatchState)
 }
 
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabAmbiguousWhenBothMatch() {
@@ -672,6 +673,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabAmbiguousW
 	var reloaded catalogm.RadioPlay
 	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
 	suite.Nil(reloaded.ArtistID)
+	suite.Equal(catalogm.RadioPlayMatchStateAmbiguous, reloaded.MatchState)
 }
 
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabSkipsCommaAmpersandAct() {
@@ -680,11 +682,11 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabSkipsComma
 	play := suite.createPlay(episodeID, 1, "Earth, Wind & Fire", nil, nil)
 
 	suite.False(suite.engine.matchPlay(play))
-}
 
-// =============================================================================
-// INTEGRATION — SQL bulk-link (PSY-1365)
-// =============================================================================
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Equal(catalogm.RadioPlayMatchStateNoMatch, reloaded.MatchState)
+}
 
 func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_MusicBrainzID() {
 	const mbid = "a74b1b7f-71a5-4011-9441-d0b5e4122711"

@@ -20,6 +20,7 @@ import (
 type GlobalRematchOpts struct {
 	StationID *uint
 	ShowID    *uint
+	Force     bool
 }
 
 // startGlobalRematchJob opens a radio_sync_runs row (run_type=rematch) and

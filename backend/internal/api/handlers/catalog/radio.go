@@ -1623,6 +1623,7 @@ type AdminReMatchPlaysRequest struct {
 		LabelName  string `json:"label_name,omitempty" doc:"Optional: rematch only this label_name" example:"Sacred Bones"`
 		StationID  *uint  `json:"station_id,omitempty" doc:"Bulk rematch: scope to this station's unmatched names"`
 		ShowID     *uint  `json:"show_id,omitempty" doc:"Bulk rematch: scope to this show's unmatched names"`
+		Force      bool   `json:"force,omitempty" doc:"Re-try plays previously marked no_match or ambiguous"`
 	}
 }
 
@@ -1645,6 +1646,7 @@ func (h *RadioHandler) AdminReMatchPlaysHandler(ctx context.Context, req *AdminR
 		run, err := h.syncManager.TriggerGlobalRematch(contracts.GlobalRematchRequest{
 			StationID: req.Body.StationID,
 			ShowID:    req.Body.ShowID,
+			Force:     req.Body.Force,
 		})
 		if err != nil {
 			return nil, mapRadioSyncError(ctx, err, "Failed to trigger rematch")
@@ -1675,6 +1677,7 @@ func (h *RadioHandler) AdminReMatchPlaysHandler(ctx context.Context, req *AdminR
 	rematchReq := &contracts.ReMatchRequest{
 		ArtistName: req.Body.ArtistName,
 		LabelName:  req.Body.LabelName,
+		Force:      req.Body.Force,
 	}
 
 	result, err := h.unmatchedManager.ReMatchUnmatchedWithFilter(rematchReq)
