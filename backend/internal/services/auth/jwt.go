@@ -53,14 +53,16 @@ func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 	return token.SignedString([]byte(s.config.JWT.SecretKey))
 }
 
-// ValidateToken validates and extracts user info from JWT
-// Fetches the full user from the database to ensure we have current admin status
-func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
-	// Enforce the session subject, issuer, and audience as part of parsing.
-	// WithSubject/WithIssuer/WithAudience require the claim to exist and match,
-	// so single-purpose tokens (email-verification, magic-link,
-	// account-recovery) and legacy session tokens minted before the subject was
-	// added are rejected here rather than being honored as session credentials.
+// parseSessionToken parses and cryptographically verifies a session JWT —
+// signing method (HMAC), signature (secret), issuer, audience, subject, and
+// expiry — WITHOUT any database lookup, returning the validated claims.
+//
+// Enforce the session subject, issuer, and audience as part of parsing.
+// WithSubject/WithIssuer/WithAudience require the claim to exist and match, so
+// single-purpose tokens (email-verification, magic-link, account-recovery) and
+// legacy session tokens minted before the subject was added are rejected here
+// rather than being honored as session credentials.
+func (s *JWTService) parseSessionToken(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -75,24 +77,47 @@ func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
 		return nil, apperrors.ErrTokenInvalid(err)
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		userID := uint(claims["user_id"].(float64))
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return nil, apperrors.ErrTokenInvalid(nil)
+	}
+	return claims, nil
+}
 
-		// Fetch full user from database to get current admin status and other fields
-		// This ensures we always have the most up-to-date user information
-		user, err := s.userService.GetUserByID(userID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user: %w", err)
-		}
+// HasValidSessionToken reports whether tokenString is a validly-signed, unexpired
+// session token — WITHOUT loading the user from the database. Used by the
+// public-read rate limiter (middleware.SkipRateLimitForAuthenticated) to tell
+// anonymous traffic from logged-in users on EVERY request without adding a DB
+// query per authenticated request. Deliberately does NOT check IsActive/admin:
+// for throttling anonymous abuse, a validly-signed session token means "not an
+// anonymous scraper," which is all the bypass needs.
+func (s *JWTService) HasValidSessionToken(tokenString string) bool {
+	_, err := s.parseSessionToken(tokenString)
+	return err == nil
+}
 
-		if !user.IsActive {
-			return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
-		}
-
-		return user, nil
+// ValidateToken validates and extracts user info from JWT
+// Fetches the full user from the database to ensure we have current admin status
+func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
+	claims, err := s.parseSessionToken(tokenString)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, apperrors.ErrTokenInvalid(nil)
+	userID := uint(claims["user_id"].(float64))
+
+	// Fetch full user from database to get current admin status and other fields
+	// This ensures we always have the most up-to-date user information
+	user, err := s.userService.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if !user.IsActive {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
+	}
+
+	return user, nil
 }
 
 // RefreshToken creates a new token with extended expiry

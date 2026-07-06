@@ -178,6 +178,12 @@ func main() {
 	// Create service container (all services instantiated once)
 	sc := services.NewServiceContainer(database, cfg)
 
+	// PSY-1362: throttle anonymous public-read traffic (100/min per IP), bypassing
+	// any authenticated request (SkipRateLimitForAuthenticated). Mounted here —
+	// after sc (needs sc.JWT), before SetupRoutes (chi middleware must be
+	// registered before routes). Kill-switch: DISABLE_PUBLIC_READ_RATE_LIMITS=1.
+	router.Use(routes.PublicReadRateLimiter(sc.JWT, os.Getenv))
+
 	// Setup routes
 	_ = routes.SetupRoutes(router, sc, cfg)
 

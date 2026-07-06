@@ -160,6 +160,48 @@ func isAdminTokenRequest(jwtService *auth.JWTService, r *http.Request) bool {
 	return user.IsAdmin
 }
 
+// SkipRateLimitForAuthenticated wraps a rate-limit middleware so ANY
+// authenticated request bypasses the per-IP limiter — a valid JWT (admin or
+// not) or a trusted phk_ API token. Only anonymous/unauthenticated traffic
+// hits the underlying limiter.
+//
+// PSY-1362: public unauthenticated read endpoints (graph-card, artist/show/
+// venue/label/scene reads, etc.) were unthrottled. Limiting ONLY anonymous
+// traffic protects them from scraping/abuse while never throttling logged-in
+// users — which sidesteps the shared-IP false-positive risk of a blanket
+// per-IP limit (offices, universities, carrier NAT, where many real, logged-in
+// users share one egress IP). Broader bypass than SkipRateLimitForAdmin (which
+// limits non-admin authenticated users); reuses the same JWT/API-token helpers.
+func SkipRateLimitForAuthenticated(jwtService *auth.JWTService, limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isTrustedAPIToken(r) || isAuthenticatedRequest(jwtService, r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			limited.ServeHTTP(w, r)
+		})
+	}
+}
+
+// isAuthenticatedRequest returns true when the request carries a validly-signed,
+// unexpired session token. Uses HasValidSessionToken (signature/claims only, NO
+// DB lookup) — unlike isAdminTokenRequest, the anonymous-vs-authenticated
+// decision needs no fresh user record, and this middleware runs on every
+// request, so a per-request DB query would be wasteful. Any failure
+// (missing/invalid/expired token, nil service) returns false.
+func isAuthenticatedRequest(jwtService *auth.JWTService, r *http.Request) bool {
+	if jwtService == nil {
+		return false
+	}
+	token := extractJWT(r)
+	if token == "" {
+		return false
+	}
+	return jwtService.HasValidSessionToken(token)
+}
+
 // extractJWT reads the JWT from either the Authorization header or the
 // auth_token cookie, matching the logic in JWTMiddleware. Returns empty
 // string when no token is present.
