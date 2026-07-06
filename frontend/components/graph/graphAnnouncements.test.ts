@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildExpandAnnouncement,
   buildCollapseAnnouncement,
+  buildExpandErrorAnnouncement,
   buildFilterAnnouncement,
 } from './graphAnnouncements'
 
@@ -17,6 +18,10 @@ describe('graphAnnouncements', () => {
 
   it('collapse: names the node', () => {
     expect(buildCollapseAnnouncement('Dehd')).toBe('Collapsed the connections under Dehd.')
+  })
+
+  it('expand error: names the node + prompts retry', () => {
+    expect(buildExpandErrorAnnouncement('Dehd')).toBe("Couldn't load connections for Dehd. Try again.")
   })
 
   it('filter: reflects shown/hidden', () => {

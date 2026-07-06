@@ -28,7 +28,7 @@
  * scene/station graphs, mount one implementation.
  */
 
-import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import type { AccessibleTreeGraphNode, AccessibleTreeRow } from './graphTreeModel'
 
@@ -58,6 +58,9 @@ export function GraphAccessibleTree<N extends AccessibleTreeGraphNode>({
   emptyLabel = 'No connections to navigate.',
 }: GraphAccessibleTreeProps<N>) {
   const itemRefs = useRef(new Map<number, HTMLLIElement>())
+  // Tracks whether the tree has ever held DOM focus, so the focus-restore effect
+  // never steals focus on mount — only recovers it after an unmount orphaned it.
+  const hasHeldFocusRef = useRef(false)
   const [focusedId, setFocusedId] = useState<number | null>(rows[0]?.node.id ?? null)
 
   // Keep the roving tabstop on a still-visible row as rows change (expand
@@ -75,6 +78,19 @@ export function GraphAccessibleTree<N extends AccessibleTreeGraphNode>({
     setFocusedId(nodeId)
     itemRefs.current.get(nodeId)?.focus()
   }, [])
+
+  // Restore focus when a focused row unmounts (collapse-all, a canvas node-click
+  // that collapses, an external data change) and drops DOM focus to <body>: the
+  // render-phase clamp moved the roving tabstop but not focus. Only fires once the
+  // tree has held focus (never steals on mount) and only when focus actually
+  // escaped to <body> (never yanks focus that legitimately moved elsewhere).
+  // focus() is a DOM side effect — the correct use of an effect, not setState.
+  useEffect(() => {
+    if (effectiveFocusedId === null || !hasHeldFocusRef.current) return
+    if (typeof document !== 'undefined' && document.activeElement === document.body) {
+      itemRefs.current.get(effectiveFocusedId)?.focus()
+    }
+  }, [effectiveFocusedId])
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLUListElement>) => {
@@ -141,6 +157,9 @@ export function GraphAccessibleTree<N extends AccessibleTreeGraphNode>({
       aria-label={label}
       className={cn('text-sm', className)}
       onKeyDown={onKeyDown}
+      onFocus={() => {
+        hasHeldFocusRef.current = true
+      }}
     >
       {rows.map(row => {
         const focused = row.node.id === effectiveFocusedId

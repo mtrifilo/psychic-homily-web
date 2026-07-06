@@ -33,6 +33,7 @@ import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTree
 import {
   buildExpandAnnouncement,
   buildCollapseAnnouncement,
+  buildExpandErrorAnnouncement,
   buildFilterAnnouncement,
 } from '@/components/graph/graphAnnouncements'
 import {
@@ -614,19 +615,30 @@ function RecenteringGraph({
           // the pre-merge shown set) so the announcement is honest even when the
           // ego overlaps the current graph. Computed before the merge below.
           const added = ego.nodes.filter(n => !knownIdsRef.current.has(n.id)).length
+          // Update knownIdsRef SYNCHRONOUSLY (it's otherwise repopulated in a
+          // passive effect): two concurrent expands resolving in the same batch
+          // would both read the stale set and double-count a shared artist.
+          for (const n of ego.nodes) knownIdsRef.current.add(n.id)
           setExpansions(prev => new Map(prev).set(node.id, ego))
           setAnnouncement(buildExpandAnnouncement(node.name, added))
         })
         .catch(() => {
-          // A failed expand fetch simply doesn't grow the graph — nothing to roll back.
+          // The graph simply doesn't grow — nothing to roll back — but the
+          // accessible path must not go silent (every other outcome speaks).
+          if (generationRef.current !== genAtExpand) return
+          setAnnouncement(buildExpandErrorAnnouncement(node.name))
         })
-        .finally(() =>
+        .finally(() => {
+          // Only clear THIS fetch's loading state. If the exploration was reset
+          // (collapse-all / re-center) and the same node was re-expanded, a newer
+          // fetch owns expandingIds now — don't clear it out from under it.
+          if (generationRef.current !== genAtExpand) return
           setExpandingIds(prev => {
             const next = new Set(prev)
             next.delete(node.id)
             return next
           })
-        )
+        })
     },
     [expandingIds, expansions, fetchGraph, fetchTypes, setAnnouncement]
   )
@@ -678,15 +690,33 @@ function RecenteringGraph({
     knownIdsRef.current = ids
   }, [graph, expansions])
 
+  // PSY-1304: the node set the CANVAS actually draws for the current filter —
+  // a node is visible iff it has ≥1 link of an active type (the canvas prunes the
+  // same way). The tree is filtered to this so it can't list (or let a user
+  // expand) artists a type toggle has hidden — the two representations must agree.
+  const treeVisibleIds = useMemo(() => {
+    if (!merged) return undefined
+    const ids = new Set<number>([merged.center.id])
+    for (const l of merged.links) {
+      if (activeTypes.has(l.type)) {
+        ids.add(l.source_id)
+        ids.add(l.target_id)
+      }
+    }
+    return ids
+  }, [merged, activeTypes])
+
   // PSY-1304: rows for the accessible connections tree — built from the SAME base
-  // graph + expansions the canvas draws, ranked by the DOI so the list order
-  // matches the canvas. Empty until the base graph loads.
+  // graph + expansions the canvas draws, filtered by the active types and ranked
+  // by the DOI so the list matches the canvas. Empty until the base graph loads.
   const connectionRows = useMemo(
     () =>
       graph
-        ? flattenVisibleTree(buildGraphTree(graph, expansions, expandingIds, doi?.doiByNodeId))
+        ? flattenVisibleTree(
+            buildGraphTree(graph, expansions, expandingIds, doi?.doiByNodeId, treeVisibleIds)
+          )
         : [],
-    [graph, expansions, expandingIds, doi]
+    [graph, expansions, expandingIds, doi, treeVisibleIds]
   )
 
   // The top ≤5 DOI-ranked nodes the user hasn't already expanded (or isn't mid-expanding) —

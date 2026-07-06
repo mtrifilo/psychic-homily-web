@@ -120,6 +120,32 @@ describe('GraphAccessibleTree', () => {
     expect(screen.getByText('No connections to navigate.')).toBeInTheDocument()
   })
 
+  it('restores focus to the clamped row when the focused row unmounts (no orphan to body)', () => {
+    const onToggleExpand = vi.fn()
+    const withChild: Row[] = [
+      { node: node(2, 'Dehd'), level: 1, expanded: true, expanding: false, posInSet: 1, setSize: 2 },
+      { node: node(5, 'Opener A'), level: 2, expanded: false, expanding: false, posInSet: 1, setSize: 1 },
+      { node: node(3, 'Lifeguard'), level: 1, expanded: false, expanding: false, posInSet: 2, setSize: 2 },
+    ]
+    const { rerender } = render(
+      <GraphAccessibleTree rows={withChild} label="c" onToggleExpand={onToggleExpand} />,
+    )
+    // Move focus to the child row (Opener A).
+    const tree = screen.getByRole('tree')
+    fireEvent.keyDown(tree, { key: 'ArrowDown' })
+    expect(screen.getByRole('treeitem', { name: /Opener A/ })).toHaveFocus()
+
+    // Collapse: the child row unmounts (as if via Collapse-all / a canvas click).
+    const collapsed: Row[] = [
+      { node: node(2, 'Dehd'), level: 1, expanded: false, expanding: false, posInSet: 1, setSize: 2 },
+      { node: node(3, 'Lifeguard'), level: 1, expanded: false, expanding: false, posInSet: 2, setSize: 2 },
+    ]
+    rerender(<GraphAccessibleTree rows={collapsed} label="c" onToggleExpand={onToggleExpand} />)
+    // Focus is restored to the clamped row rather than left on <body>.
+    expect(document.body).not.toHaveFocus()
+    expect(screen.getByRole('treeitem', { name: /Dehd/ })).toHaveFocus()
+  })
+
   it('marks an in-flight expand with aria-busy', () => {
     renderTree({
       rows: [{ node: node(2, 'Dehd'), level: 1, expanded: false, expanding: true, posInSet: 1, setSize: 1 }],

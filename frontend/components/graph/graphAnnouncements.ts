@@ -28,6 +28,11 @@ export function buildCollapseAnnouncement(nodeName: string): string {
   return `Collapsed the connections under ${nodeName}.`
 }
 
+/** "Couldn't load connections for X." — when an expand fetch fails. */
+export function buildExpandErrorAnnouncement(nodeName: string): string {
+  return `Couldn't load connections for ${nodeName}. Try again.`
+}
+
 /**
  * "Shared bills connections shown/hidden." — after a type-filter toggle.
  * `label` is the human relationship-type label (e.g. "Shared bills").

@@ -76,6 +76,19 @@ describe('buildGraphTree', () => {
     expect(tree.find(t => t.node.id === 3)!.expanding).toBe(true)
     expect(tree.find(t => t.node.id === 2)!.expanding).toBe(false)
   })
+
+  it('prunes nodes (and their subtree) not in visibleNodeIds (type filter)', () => {
+    const expansions = new Map<number, AccessibleTreeGraph<AccessibleTreeGraphNode>>([
+      [2, { center: { id: 2 }, nodes: [n(5, 'Opener A')] }],
+    ])
+    // Hide Lifeguard(3) and Opener A(5); keep center(1) + Dehd(2) + Horsegirl(4).
+    const visible = new Set([1, 2, 4])
+    const tree = buildGraphTree(base, expansions, new Set(), undefined, visible)
+    expect(tree.map(t => t.node.id)).toEqual([2, 4]) // Lifeguard pruned from roots
+    const dehd = tree.find(t => t.node.id === 2)!
+    expect(dehd.expanded).toBe(true)
+    expect(dehd.children).toHaveLength(0) // Opener A pruned from the subtree
+  })
 })
 
 describe('flattenVisibleTree', () => {

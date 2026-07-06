@@ -275,3 +275,30 @@ describe('accessible connections tree + announcements (PSY-1304)', () => {
     expect(screen.queryByText(/Graph now centered on A1/)).not.toBeInTheDocument()
   })
 })
+
+describe('accessible tree — code-review fixes (PSY-1304)', () => {
+  beforeEach(() => {
+    vizProps = null
+    fetchCalls.length = 0
+    mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
+  })
+
+  it('tree honors the type filter — toggling a type off drops those artists', () => {
+    renderDialog()
+    expect(screen.getAllByRole('treeitem')).toHaveLength(2) // a2, a3 (both via 'similar')
+    // baseGraph's only links are 'similar'; hiding it leaves no active edges.
+    fireEvent.click(screen.getByRole('button', { name: /^Similar$/i }))
+    expect(screen.queryAllByRole('treeitem')).toHaveLength(0)
+    expect(screen.getByText('No connections to navigate.')).toBeInTheDocument()
+  })
+
+  it('announces a failed expand instead of going silent', async () => {
+    renderDialog()
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'Enter' })
+    expect(fetchCalls).toHaveLength(1)
+    await act(async () => {
+      fetchCalls[0].reject(new Error('network'))
+    })
+    expect(screen.getByText(/Couldn.t load connections for a2\. Try again\./)).toBeInTheDocument()
+  })
+})

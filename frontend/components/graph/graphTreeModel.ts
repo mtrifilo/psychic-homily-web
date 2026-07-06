@@ -65,13 +65,20 @@ export interface AccessibleTreeRow<N extends AccessibleTreeGraphNode> {
  * @param rankByNodeId optional score (higher = earlier); ties + absent fall
  *                     back to name order, so the list order is deterministic
  *                     and matches the canvas's DOI ranking when supplied.
+ * @param visibleNodeIds optional filter — when given, only these node ids appear
+ *                     (others are pruned with their subtree). Pass the canvas's
+ *                     activeTypes-filtered node set so the tree can't list (or
+ *                     let the user expand) artists the type filter has hidden.
  */
 export function buildGraphTree<N extends AccessibleTreeGraphNode>(
   base: AccessibleTreeGraph<N>,
   expansions: ReadonlyMap<number, AccessibleTreeGraph<N>>,
   expandingIds: ReadonlySet<number>,
   rankByNodeId?: ReadonlyMap<number, number>,
+  visibleNodeIds?: ReadonlySet<number>,
 ): AccessibleTreeItem<N>[] {
+  const isVisible = (id: number) => visibleNodeIds == null || visibleNodeIds.has(id)
+
   // Claim the center AND every base neighbour up front: base neighbours are
   // always level-1, so an expansion can never pull one down into a nested
   // child (which would happen if we discovered it mid-DFS before its own root
@@ -100,7 +107,7 @@ export function buildGraphTree<N extends AccessibleTreeGraphNode>(
     }
     if (ego) {
       for (const child of sortNodes(ego.nodes)) {
-        if (seen.has(child.id)) continue
+        if (seen.has(child.id) || !isVisible(child.id)) continue
         seen.add(child.id)
         item.children.push(build(child, level + 1))
       }
@@ -108,7 +115,9 @@ export function buildGraphTree<N extends AccessibleTreeGraphNode>(
     return item
   }
 
-  return sortNodes(base.nodes).map(n => build(n, 1))
+  return sortNodes(base.nodes)
+    .filter(n => isVisible(n.id))
+    .map(n => build(n, 1))
 }
 
 /**
@@ -129,7 +138,8 @@ export function flattenVisibleTree<N extends AccessibleTreeGraphNode>(
         posInSet: i + 1,
         setSize: items.length,
       })
-      if (item.expanded && item.children.length > 0) walk(item.children)
+      // children are only populated for expanded items, so length is sufficient.
+      if (item.children.length > 0) walk(item.children)
     })
   }
   walk(roots)
