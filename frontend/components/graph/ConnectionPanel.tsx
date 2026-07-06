@@ -26,13 +26,13 @@
  * the PSY-1321 zoomToFit canvas pointerdown cancel.
  */
 
-import { useEffect } from 'react'
 import Link from 'next/link'
-import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { buildLinkLabelText, edgeTypeLabel, type EdgeTooltipLink } from './edgeGrammar'
 import { EdgeSwatch } from './EdgeLegend'
+import { GraphPanelShell } from './GraphPanelShell'
+import { useGraphPanelEscape } from './useGraphPanelEscape'
 
 /** Phase-2 (PSY-1335) provenance entity — rendered as a link when present. */
 export interface ConnectionEntity {
@@ -95,59 +95,29 @@ export function ConnectionPanel({
   onClose,
   className,
 }: ConnectionPanelProps) {
-  // Esc closes. Document-level so it works while canvas has focus; the panel
-  // is non-modal (no focus trap) — it's an inspector, not a dialog.
+  // Esc closes, coordinated innermost-first with ArtistContextPanel (PSY-1360).
+  // No ignoreFromInput guard: this panel must stay dismissable while the canvas
+  // has focus, and its ego-graph case (Escape targeted inside a Radix <Dialog>)
+  // is handled at the Dialog boundary — ArtistGraphDialog's onEscapeKeyDown
+  // preventDefaults first, so this listener's defaultPrevented check defers to
+  // it (PSY-1351), rather than this panel outranking every layer everywhere.
   //
-  // Layered dismiss (adversarial finding, 3 lenses): the fullscreen overlay
-  // ALSO listens for Escape on document, so one keypress would close the
-  // panel AND eject the user from fullscreen. Claim the key in the CAPTURE
-  // phase (fires before any bubble-phase document listener regardless of
-  // registration order) and preventDefault + stopPropagation; the overlay
-  // hook skips defaultPrevented events — innermost layer closes first.
-  //
-  // NOT window-level (PSY-1351): a window-capture listener would run before
-  // EVERY document listener — including a command palette / dropdown / dialog
-  // legitimately stacked ON TOP of this panel — and swallow the Escape meant
-  // for it (this panel lacks ArtistContextPanel's input/[role=dialog] target
-  // guard). The one case a document-capture listener loses is the ego graph,
-  // where Radix's <Dialog> registers its own document-capture Escape at open,
-  // before this panel; that is handled where it belongs — ArtistGraphDialog's
-  // onEscapeKeyDown closes an open panel itself (PSY-1351) — not by making
-  // this shared panel outrank every layer everywhere.
-  //
-  // Guarded on connections.length: hooks run even when the render below
-  // bails to null, so an empty-connections mount must not register an
-  // invisible listener that silently eats Escape from the fullscreen
-  // overlay (self-review finding — latent, both call sites gate upstream).
+  // enabled gate: hooks run even when the render below bails to null, so an
+  // empty-connections mount must not register a listener that silently eats
+  // Escape from the fullscreen overlay (both call sites gate upstream, but this
+  // keeps the invariant local).
   const hasConnections = connections.length > 0
-  useEffect(() => {
-    if (!hasConnections) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      // defaultPrevented guard + stopImmediatePropagation: sibling panels
-      // (ArtistContextPanel, PSY-1345) also listen on document/capture, and
-      // stopPropagation alone does not stop same-target listeners — without
-      // this pair, one Esc closes both panels.
-      if (e.key !== 'Escape' || e.defaultPrevented) return
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      onClose()
-    }
-    document.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => document.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [onClose, hasConnections])
+  useGraphPanelEscape(onClose, { enabled: hasConnections })
 
   if (connections.length === 0) return null
 
   return (
-    <section
-      aria-label={`Why ${source.name} and ${target.name} are connected`}
-      className={cn(
-        'w-72 max-w-[calc(100%-1rem)] max-h-[60%] overflow-y-auto rounded-md border border-border/50',
-        'bg-background/95 backdrop-blur-sm p-3 text-xs shadow-lg space-y-2',
-        className,
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
+    <GraphPanelShell
+      ariaLabel={`Why ${source.name} and ${target.name} are connected`}
+      closeLabel="Close connection details"
+      onClose={onClose}
+      className={cn('max-h-[60%] p-3 space-y-2', className)}
+      header={
         <div className="text-sm leading-snug">
           <EndpointName endpoint={source} />
           <span className="text-muted-foreground px-1" aria-hidden="true">
@@ -155,16 +125,8 @@ export function ConnectionPanel({
           </span>
           <EndpointName endpoint={target} />
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close connection details"
-          className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/50"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </div>
-
+      }
+    >
       <ul className="space-y-2">
         {connections.map(conn => (
           <li key={conn.type} className="space-y-0.5">
@@ -208,6 +170,6 @@ export function ConnectionPanel({
           </li>
         ))}
       </ul>
-    </section>
+    </GraphPanelShell>
   )
 }

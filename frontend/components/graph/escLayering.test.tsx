@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { useEffect, useRef, useState } from 'react'
 import { render, fireEvent, screen } from '@testing-library/react'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -17,42 +17,55 @@ vi.mock('next/link', () => ({
 
 // PSY-1345 adversarial finding (2 lenses): both graph panels listen for
 // Escape on document in the CAPTURE phase, and stopPropagation does NOT
-// stop sibling listeners on the same target/phase. The defaultPrevented
-// guard + stopImmediatePropagation pair must make one keypress close
-// exactly ONE panel — this is the /graph-Observatory coexistence contract.
-describe('graph panel Esc layering', () => {
-  const closeArtist = vi.fn()
-  const closeConnection = vi.fn()
-
-  beforeEach(() => {
-    closeArtist.mockReset()
-    closeConnection.mockReset()
-  })
-
-  it('one Escape closes exactly one panel when both are mounted', () => {
-    render(
+// stop sibling listeners on the same target/phase — one keypress must close
+// exactly ONE panel (the /graph-Observatory coexistence contract). PSY-1360
+// sharpens that into innermost-first: the coordinated useGraphPanelEscape stack
+// closes the most-recently-mounted panel first, deterministically (before, the
+// FIRST-mounted / outermost panel won by registration order).
+describe('graph panel Esc layering (innermost-first, PSY-1360)', () => {
+  // Real open/close state so a closed panel actually UNMOUNTS — popping its
+  // useGraphPanelEscape token off the shared stack. A mock onClose would leave both
+  // panels mounted and couldn't distinguish innermost-first from a dead listener.
+  function StackedPanels() {
+    const [artistOpen, setArtistOpen] = useState(true)
+    const [connectionOpen, setConnectionOpen] = useState(true)
+    return (
       <div>
-        <ArtistContextPanel
-          artistName="Lightning Bolt"
-          artistSlug="lightning-bolt"
-          card={undefined}
-          onClose={closeArtist}
-        />
-        <ConnectionPanel
-          source={{ name: 'Dehd' }}
-          target={{ name: 'Lifeguard' }}
-          connections={[{ type: 'shared_bills' }]}
-          onClose={closeConnection}
-        />
-      </div>,
+        {artistOpen && (
+          <ArtistContextPanel
+            artistName="Lightning Bolt"
+            artistSlug="lightning-bolt"
+            card={undefined}
+            onClose={() => setArtistOpen(false)}
+          />
+        )}
+        {/* Mounted last → innermost → dismissed first. */}
+        {connectionOpen && (
+          <ConnectionPanel
+            source={{ name: 'Dehd' }}
+            target={{ name: 'Lifeguard' }}
+            connections={[{ type: 'shared_bills' }]}
+            onClose={() => setConnectionOpen(false)}
+          />
+        )}
+      </div>
     )
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(closeArtist.mock.calls.length + closeConnection.mock.calls.length).toBe(1)
+  }
 
-    // A second Escape reaches the surviving panel (the consumed event's
-    // defaultPrevented state must not leak across keypresses).
+  it('one Escape closes only the innermost panel; the next closes the outer', () => {
+    render(<StackedPanels />)
+    expect(screen.getByRole('region', { name: /connected/i })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /about lightning bolt/i })).toBeInTheDocument()
+
+    // First Escape: only the innermost (ConnectionPanel) closes.
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(closeArtist.mock.calls.length + closeConnection.mock.calls.length).toBe(2)
+    expect(screen.queryByRole('region', { name: /connected/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /about lightning bolt/i })).toBeInTheDocument()
+
+    // Second Escape reaches the now-topmost panel (defaultPrevented state must
+    // not leak across keypresses).
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: /about lightning bolt/i })).not.toBeInTheDocument()
   })
 })
 
