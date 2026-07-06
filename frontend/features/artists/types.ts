@@ -320,6 +320,13 @@ export interface ArtistGraphCard {
   slug: string
   city: string | null
   state: string | null
+  /**
+   * Playable audio (PSY-1302): the artist's Bandcamp embed URL and Spotify
+   * link, so the node-select card can play a sample without leaving the graph
+   * (the same MusicEmbed the Atlas scene preview uses). Both null ⟹ no player.
+   */
+  bandcamp_embed_url: string | null
+  spotify: string | null
   next_show: ArtistGraphCardShow | null
   labels: ArtistGraphCardLabel[]
   radio: ArtistGraphCardRadio | null

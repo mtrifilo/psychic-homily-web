@@ -20,8 +20,12 @@ import (
 func graphCardMocks() (*testhelpers.MockArtistService, *testhelpers.MockArtistRelationshipService, *testhelpers.MockRadioService) {
 	city := "Providence"
 	state := "RI"
+	embed := "https://lightningbolt.bandcamp.com/album/wonderful-rainbow"
+	spotify := "https://open.spotify.com/artist/2wY6Ju4nsyXXXXXXXXXXXX"
 	artist := &contracts.ArtistDetailResponse{
 		ID: 7, Slug: "lightning-bolt", Name: "Lightning Bolt", City: &city, State: &state,
+		BandcampEmbedURL: &embed,
+		Social:           contracts.SocialResponse{Spotify: &spotify},
 	}
 	artistSvc := &testhelpers.MockArtistService{
 		GetArtistSummaryFn: func(id uint) (*contracts.ArtistDetailResponse, error) {
@@ -85,6 +89,13 @@ func TestGetArtistGraphCardHandler_AssemblesCard(t *testing.T) {
 	card := resp.Body
 	if card.Name != "Lightning Bolt" || card.Slug != "lightning-bolt" {
 		t.Errorf("identity mismatch: %+v", card)
+	}
+	// PSY-1302: playable-audio URLs pass through from the summary read.
+	if card.BandcampEmbedURL == nil || *card.BandcampEmbedURL != "https://lightningbolt.bandcamp.com/album/wonderful-rainbow" {
+		t.Errorf("bandcamp embed url must pass through: %v", card.BandcampEmbedURL)
+	}
+	if card.Spotify == nil || *card.Spotify != "https://open.spotify.com/artist/2wY6Ju4nsyXXXXXXXXXXXX" {
+		t.Errorf("spotify url must pass through: %v", card.Spotify)
 	}
 	if card.NextShow == nil || card.NextShow.VenueName != "Trunk Space" || card.NextShow.VenueCity != "Phoenix" {
 		t.Errorf("next show mismatch: %+v", card.NextShow)

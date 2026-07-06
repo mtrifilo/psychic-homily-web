@@ -9,12 +9,36 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// MusicEmbed owns its own async embed resolution + network (covered by its own
+// tests). Here we only care that the panel mounts it with the right props when
+// an audio URL is present — stub it to expose the props it received.
+vi.mock('@/components/shared/MusicEmbed', () => ({
+  MusicEmbed: ({
+    bandcampAlbumUrl,
+    spotifyUrl,
+    artistName,
+  }: {
+    bandcampAlbumUrl?: string | null
+    spotifyUrl?: string | null
+    artistName: string
+  }) => (
+    <div
+      data-testid="music-embed"
+      data-bandcamp={bandcampAlbumUrl ?? ''}
+      data-spotify={spotifyUrl ?? ''}
+      data-artist={artistName}
+    />
+  ),
+}))
+
 const CARD: ArtistGraphCard = {
   id: 7,
   name: 'Lightning Bolt',
   slug: 'lightning-bolt',
   city: 'Providence',
   state: 'RI',
+  bandcamp_embed_url: null,
+  spotify: null,
   next_show: {
     id: 99,
     event_date: '2026-06-12T20:00:00Z',
@@ -52,6 +76,57 @@ describe('ArtistContextPanel', () => {
       'href',
       '/artists/lightning-bolt',
     )
+  })
+
+  it('mounts a playable embed with the artist name when the card has a Bandcamp embed URL (PSY-1302)', () => {
+    render(
+      <ArtistContextPanel
+        artistName="Lightning Bolt"
+        artistSlug="lightning-bolt"
+        card={{ ...CARD, bandcamp_embed_url: 'https://lightningbolt.bandcamp.com/album/wonderful-rainbow' }}
+        onClose={onClose}
+      />,
+    )
+    expect(screen.getByText('Listen')).toBeInTheDocument()
+    const embed = screen.getByTestId('music-embed')
+    expect(embed).toHaveAttribute('data-bandcamp', 'https://lightningbolt.bandcamp.com/album/wonderful-rainbow')
+    expect(embed).toHaveAttribute('data-artist', 'Lightning Bolt')
+  })
+
+  it('falls back to the Spotify URL when there is no Bandcamp embed (PSY-1302)', () => {
+    render(
+      <ArtistContextPanel
+        artistName="Lightning Bolt"
+        artistSlug="lightning-bolt"
+        card={{ ...CARD, bandcamp_embed_url: null, spotify: 'https://open.spotify.com/artist/2wY6Ju4nsyAmd4jVZ8Ovzm' }}
+        onClose={onClose}
+      />,
+    )
+    const embed = screen.getByTestId('music-embed')
+    expect(embed).toHaveAttribute('data-spotify', 'https://open.spotify.com/artist/2wY6Ju4nsyAmd4jVZ8Ovzm')
+  })
+
+  it('renders no player (and no Listen label) when the artist has neither audio URL', () => {
+    render(
+      <ArtistContextPanel artistName="Lightning Bolt" artistSlug="lightning-bolt" card={CARD} onClose={onClose} />,
+    )
+    expect(screen.queryByTestId('music-embed')).toBeNull()
+    expect(screen.queryByText('Listen')).toBeNull()
+  })
+
+  it('shows no dead "Listen" row when the only audio URL is an unparseable Spotify link (PSY-1302)', () => {
+    // MusicEmbed would render nothing for a Spotify link with no embeddable id,
+    // so the headed row must not appear at all (no dead affordance).
+    render(
+      <ArtistContextPanel
+        artistName="Lightning Bolt"
+        artistSlug="lightning-bolt"
+        card={{ ...CARD, bandcamp_embed_url: null, spotify: 'https://open.spotify.com/playlist/xyz' }}
+        onClose={onClose}
+      />,
+    )
+    expect(screen.queryByTestId('music-embed')).toBeNull()
+    expect(screen.queryByText('Listen')).toBeNull()
   })
 
   it('renders skeleton rows (no field labels) while the card loads', () => {

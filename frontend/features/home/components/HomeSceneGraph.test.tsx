@@ -295,6 +295,7 @@ describe('HomeSceneGraph', () => {
     useArtistGraphCard.mockReturnValue({
       data: {
         id: 1, name: 'Alpha', slug: 'alpha', city: 'Chicago', state: 'IL',
+        bandcamp_embed_url: null, spotify: null,
         next_show: null, labels: [], radio: null,
         connections: { bills: 1, similar: 0, members: 0, radio: 0, shared_labels: 0 },
       },
