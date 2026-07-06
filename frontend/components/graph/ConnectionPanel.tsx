@@ -32,7 +32,6 @@ import { cn } from '@/lib/utils'
 import { buildLinkLabelText, edgeTypeLabel, type EdgeTooltipLink } from './edgeGrammar'
 import { EdgeSwatch } from './EdgeLegend'
 import { GraphPanelShell } from './GraphPanelShell'
-import { useGraphPanelEscape } from './useGraphPanelEscape'
 
 /** Phase-2 (PSY-1335) provenance entity — rendered as a link when present. */
 export interface ConnectionEntity {
@@ -95,21 +94,15 @@ export function ConnectionPanel({
   onClose,
   className,
 }: ConnectionPanelProps) {
-  // Esc closes, coordinated innermost-first with ArtistContextPanel (PSY-1360).
-  // No ignoreFromInput guard: this panel must stay dismissable while the canvas
-  // has focus, and its ego-graph case (Escape targeted inside a Radix <Dialog>)
-  // is handled at the Dialog boundary — ArtistGraphDialog's onEscapeKeyDown
-  // preventDefaults first, so this listener's defaultPrevented check defers to
-  // it (PSY-1351), rather than this panel outranking every layer everywhere.
-  //
-  // enabled gate: hooks run even when the render below bails to null, so an
-  // empty-connections mount must not register a listener that silently eats
-  // Escape from the fullscreen overlay (both call sites gate upstream, but this
-  // keeps the invariant local).
-  const hasConnections = connections.length > 0
-  useGraphPanelEscape(onClose, { enabled: hasConnections })
-
+  // Empty panel = no layer: bailing before GraphPanelShell means its
+  // DismissableLayer never registers, so an empty ConnectionPanel can't sit on
+  // Radix's stack and eat Escape meant for the fullscreen overlay or a sibling.
   if (connections.length === 0) return null
+
+  // Escape closes via GraphPanelShell's DismissableLayer. On the ego graph the
+  // panel mounts (edge-click) AFTER the enclosing Radix <Dialog> opens, so it's
+  // the topmost layer and Radix dismisses it before the dialog (PSY-1351); a ⌘K
+  // palette opened later outranks it in turn (PSY-1355). No custom guard needed.
 
   return (
     <GraphPanelShell

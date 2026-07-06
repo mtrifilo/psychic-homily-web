@@ -215,16 +215,10 @@ describe('ArtistContextPanel', () => {
     expect(screen.getByText('3 label ties')).toBeInTheDocument()
   })
 
-  it('ignores Escape typed into an input (PSY-1313 layered-dismiss lesson)', () => {
-    render(
-      <div>
-        <input aria-label="palette" />
-        <ArtistContextPanel artistName="Lightning Bolt" artistSlug="lightning-bolt" card={CARD} onClose={onClose} />
-      </div>,
-    )
-    fireEvent.keyDown(screen.getByLabelText('palette'), { key: 'Escape' })
-    expect(onClose).not.toHaveBeenCalled()
-  })
+  // Layered dismiss (a ⌘K palette / dialog stacked over the panel wins Escape)
+  // is now enforced by Radix's DismissableLayer stack, not input-target sniffing,
+  // so it's covered against a REAL Radix layer in escLayering.test.tsx (PSY-1355)
+  // rather than a plain-input simulation here.
 
   it('closes on the X button and on capture-phase Escape', () => {
     render(
