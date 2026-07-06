@@ -26,6 +26,8 @@ import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { formatShowDate } from '@/lib/utils/formatters'
+import { parseSpotifyEmbed } from '@/lib/spotify'
+import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import type { ArtistGraphCard } from '@/features/artists/types'
 
 export interface ArtistContextPanelProps {
@@ -101,6 +103,13 @@ export function ArtistContextPanel({
         card.connections.shared_labels > 0 && `${card.connections.shared_labels} label ties`,
       ].filter((part): part is string => Boolean(part))
     : []
+  // Whether the Listen row will actually render a player — mirrors MusicEmbed's
+  // own resolution so the headed row never strands empty (PSY-1302): a Bandcamp
+  // embed URL always yields content (an iframe, or a fallback link), a Spotify
+  // link only when it parses to an embeddable id.
+  const hasPlayableAudio = card
+    ? Boolean(card.bandcamp_embed_url) || Boolean(card.spotify && parseSpotifyEmbed(card.spotify))
+    : false
 
   return (
     <section
@@ -209,6 +218,23 @@ export function ArtistContextPanel({
             <div className="space-y-0.5">
               <FieldLabel>Connections</FieldLabel>
               <p className="text-foreground/90">{connectionParts.join(' · ')}</p>
+            </div>
+          )}
+
+          {/* Playable audio (PSY-1302) — the graph's payoff: hear the artist
+              without leaving the view. Gated on hasPlayableAudio so the row
+              appears only when MusicEmbed will render a player (never a dead
+              "Listen" header). Only one panel is open at a time, which is what
+              keeps a single embed playing. */}
+          {hasPlayableAudio && (
+            <div className="space-y-0.5">
+              <FieldLabel>Listen</FieldLabel>
+              <MusicEmbed
+                compact
+                bandcampAlbumUrl={card.bandcamp_embed_url}
+                spotifyUrl={card.spotify}
+                artistName={card.name}
+              />
             </div>
           )}
         </div>

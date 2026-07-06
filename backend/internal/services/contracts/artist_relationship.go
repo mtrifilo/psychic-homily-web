@@ -179,6 +179,13 @@ type ArtistGraphCard struct {
 	Slug  string  `json:"slug"`
 	City  *string `json:"city"`
 	State *string `json:"state"`
+	// Playable audio (PSY-1302) so the node-select card can play a sample
+	// without leaving the graph — the same MusicEmbed the Atlas scene preview
+	// uses (PSY-1224). Both nil ⟹ the card renders no player. BandcampEmbedURL
+	// is the embed-specific column (PSY-1187/1189), distinct from the Bandcamp
+	// social profile; Spotify is the artist link, used as the fallback embed.
+	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
+	Spotify          *string `json:"spotify"`
 	// NextShow is nil when the artist has no upcoming approved show.
 	NextShow *ArtistGraphCardShow `json:"next_show"`
 	// Labels is empty (never nil on the wire) when the artist has none;

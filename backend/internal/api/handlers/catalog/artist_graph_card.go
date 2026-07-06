@@ -87,12 +87,16 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 	}
 
 	card := contracts.ArtistGraphCard{
-		ID:     artist.ID,
-		Name:   artist.Name,
-		Slug:   artist.Slug,
-		City:   artist.City,
-		State:  artist.State,
-		Labels: []contracts.ArtistGraphCardLabel{},
+		ID:    artist.ID,
+		Name:  artist.Name,
+		Slug:  artist.Slug,
+		City:  artist.City,
+		State: artist.State,
+		// Playable audio (PSY-1302) — both columns are on the artist row the
+		// summary read already loaded, so this costs no extra query.
+		BandcampEmbedURL: artist.BandcampEmbedURL,
+		Spotify:          artist.Social.Spotify,
+		Labels:           []contracts.ArtistGraphCardLabel{},
 	}
 
 	// Next upcoming show — the lean single-show read (no discarded COUNT, no
