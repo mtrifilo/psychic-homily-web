@@ -20,13 +20,13 @@
  * (auto-escaped); slugs are encodeURIComponent-pinned to one path segment.
  */
 
-import { useEffect } from 'react'
 import Link from 'next/link'
-import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { formatShowDate } from '@/lib/utils/formatters'
 import type { ArtistGraphCard } from '@/features/artists/types'
+import { GraphPanelShell } from './GraphPanelShell'
+import { useCaptureEscape } from './useCaptureEscape'
 
 export interface ArtistContextPanelProps {
   /** Name of the selected node — rendered immediately, before the card loads. */
@@ -62,31 +62,11 @@ export function ArtistContextPanel({
   onClose,
   className,
 }: ArtistContextPanelProps) {
-  // Esc closes — capture phase so bubble-phase overlay hooks (which skip
-  // defaultPrevented events) defer to us. Two guards make one keypress
-  // close exactly one layer (PSY-1313 lesson):
-  //   - input/dialog-targeted keydowns are ignored (the CommandPalette's
-  //     Esc must dismiss the palette alone);
-  //   - defaultPrevented events are ignored AND we stopImmediatePropagation
-  //     — stopPropagation alone does NOT stop sibling listeners on the
-  //     same document/capture phase (e.g. ConnectionPanel when both panels
-  //     mount on /graph), so without these, one Esc closes both panels.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return
-      if (
-        e.target instanceof Element &&
-        e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
-      ) {
-        return
-      }
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      onClose()
-    }
-    document.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => document.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [onClose])
+  // Esc closes, coordinated innermost-first with ConnectionPanel (PSY-1360).
+  // ignoreFromInput: a CommandPalette Escape must dismiss the palette alone
+  // (PSY-1313 layered-dismiss lesson), so an input/[role=dialog]-targeted
+  // Escape is left for that control.
+  useCaptureEscape(onClose, { ignoreFromInput: true })
 
   const loading = !card && !isError
   const location = card && (card.city || card.state)
@@ -103,15 +83,12 @@ export function ArtistContextPanel({
     : []
 
   return (
-    <section
-      aria-label={`About ${artistName}`}
-      className={cn(
-        'w-72 max-w-[calc(100%-1rem)] max-h-[85%] overflow-y-auto rounded-md border border-border/50',
-        'bg-background/95 backdrop-blur-sm p-4 text-xs shadow-lg space-y-2.5',
-        className,
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
+    <GraphPanelShell
+      ariaLabel={`About ${artistName}`}
+      closeLabel={`Close details for ${artistName}`}
+      onClose={onClose}
+      className={cn('max-h-[85%] p-4 space-y-2.5', className)}
+      header={
         <div className="space-y-0.5">
           <FieldLabel className="text-primary">Selected</FieldLabel>
           <h3 className="text-base font-semibold leading-tight text-foreground">
@@ -119,16 +96,8 @@ export function ArtistContextPanel({
           </h3>
           {location && <p className="text-muted-foreground">{location}</p>}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={`Close details for ${artistName}`}
-          className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/50"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </div>
-
+      }
+    >
       {loading && (
         <div className="space-y-2" aria-label="Loading artist details">
           <SkeletonRow />
@@ -223,6 +192,6 @@ export function ArtistContextPanel({
       >
         [ Open page → ]
       </Link>
-    </section>
+    </GraphPanelShell>
   )
 }
