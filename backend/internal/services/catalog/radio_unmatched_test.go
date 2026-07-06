@@ -505,11 +505,11 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatched_CatchesNewArtist() {
 	// Now add the artist
 	s.createTestArtist("New Artist", "new-artist-rm")
 
-	// Re-match should now find it via SQL bulk link before the Go sweep runs.
-	result2, err := s.svc.ReMatchUnmatched()
+	// Re-match via targeted artist name (same path as ScheduleRematchForArtistName).
+	result2, err := s.svc.ReMatchUnmatchedWithFilter(&contracts.ReMatchRequest{ArtistName: "New Artist"})
 	s.Require().NoError(err)
-	s.Equal(0, result2.Total, "bulk SQL links exact-name match; Go phase has nothing left")
-	s.Equal(0, result2.Matched)
+	s.Equal(1, result2.Total)
+	s.Equal(1, result2.Matched)
 
 	var play catalogm.RadioPlay
 	s.Require().NoError(s.db.Where("episode_id = ?", ep.ID).First(&play).Error)
@@ -539,6 +539,28 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ProcessesAllDistinctNa
 	var linked int64
 	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Where("artist_id IS NOT NULL").Count(&linked).Error)
 	s.Equal(int64(2), linked)
+
+	var gamma catalogm.RadioPlay
+	s.Require().NoError(s.db.Where("artist_name = ?", "Gamma Artist").First(&gamma).Error)
+	s.Equal(catalogm.RadioPlayMatchStateNoMatch, gamma.MatchState)
+
+	result2, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2, UnmatchedArtistNameFilter{}, 0)
+	s.Require().NoError(err)
+	s.Equal(0, result2.NamesProcessed, "no_match names are skipped on subsequent sweeps")
+}
+
+func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ForceIncludesExhaustedNames() {
+	station := s.createTestStation("KEXP", "kexp-chunk-force", "kexp_api")
+	show := s.createTestShow(station.ID, "Show", "show-chunk-force")
+	ep := s.createTestEpisode(show.ID, "2026-01-03")
+
+	s.createTestPlay(ep.ID, "Hopeless Name", nil)
+	_, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 10, UnmatchedArtistNameFilter{}, 0)
+	s.Require().NoError(err)
+
+	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 10, UnmatchedArtistNameFilter{Force: true}, 0)
+	s.Require().NoError(err)
+	s.Equal(1, result.NamesProcessed)
 }
 
 func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_HonorsContextCancel() {

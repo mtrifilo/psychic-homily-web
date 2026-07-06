@@ -27,12 +27,13 @@ func (r BulkLinkArtistsResult) TotalLinked() int64 {
 // MusicBrainz artist MBID. Duplicate MBIDs in artists are skipped (ambiguous).
 const bulkLinkMBIDSQL = `
 UPDATE radio_plays rp
-SET artist_id = sub.artist_id
+SET artist_id = sub.artist_id, match_state = 'matched'
 FROM (
 	SELECT rp2.id AS play_id, MIN(a.id) AS artist_id
 	FROM radio_plays rp2
 	INNER JOIN artists a ON a.musicbrainz_artist_id = TRIM(rp2.musicbrainz_artist_id)
 	WHERE rp2.artist_id IS NULL
+		AND rp2.match_state = 'unmatched'
 		AND rp2.musicbrainz_artist_id IS NOT NULL
 		AND TRIM(rp2.musicbrainz_artist_id) <> ''
 		AND TRIM(rp2.musicbrainz_artist_id) ~ '` + mbidUUIDPattern + `'
@@ -47,13 +48,14 @@ WHERE rp.id = sub.play_id
 // normalized name are skipped (Go .First() would pick arbitrarily; we decline).
 const bulkLinkExactNameSQL = `
 UPDATE radio_plays rp
-SET artist_id = sub.artist_id
+SET artist_id = sub.artist_id, match_state = 'matched'
 FROM (
 	SELECT rp2.id AS play_id, MIN(a.id) AS artist_id
 	FROM radio_plays rp2
 	INNER JOIN artists a
 		ON immutable_unaccent(LOWER(rp2.artist_name)) = immutable_unaccent(LOWER(a.name))
 	WHERE rp2.artist_id IS NULL
+		AND rp2.match_state = 'unmatched'
 	GROUP BY rp2.id
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
@@ -64,13 +66,14 @@ WHERE rp.id = sub.play_id
 // Ambiguous alias collisions (two artists, same normalized alias) are skipped.
 const bulkLinkAliasSQL = `
 UPDATE radio_plays rp
-SET artist_id = sub.artist_id
+SET artist_id = sub.artist_id, match_state = 'matched'
 FROM (
 	SELECT rp2.id AS play_id, MIN(aa.artist_id) AS artist_id
 	FROM radio_plays rp2
 	INNER JOIN artist_aliases aa
 		ON immutable_unaccent(LOWER(rp2.artist_name)) = immutable_unaccent(LOWER(aa.alias))
 	WHERE rp2.artist_id IS NULL
+		AND rp2.match_state = 'unmatched'
 	GROUP BY rp2.id
 	HAVING COUNT(DISTINCT aa.artist_id) = 1
 ) sub

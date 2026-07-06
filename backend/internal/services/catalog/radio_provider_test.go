@@ -1096,7 +1096,7 @@ func TestRadioMatchingEngine_NilDB(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "database not initialized", err.Error())
 
-	_, err = engine.MatchAllUnmatched()
+	_, err = engine.MatchAllUnmatched(false)
 	assert.Error(t, err)
 	assert.Equal(t, "database not initialized", err.Error())
 }

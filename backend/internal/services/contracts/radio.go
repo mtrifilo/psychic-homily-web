@@ -755,12 +755,14 @@ type MatchResult struct {
 type ReMatchRequest struct {
 	ArtistName string `json:"artist_name,omitempty" doc:"Rematch only plays with this artist_name" example:"Boy Harsher"`
 	LabelName  string `json:"label_name,omitempty" doc:"Rematch only plays with this label_name" example:"Sacred Bones"`
+	Force      bool   `json:"force,omitempty" doc:"Re-try plays previously marked no_match or ambiguous"`
 }
 
 // GlobalRematchRequest scopes a bulk async rematch job (PSY-1364).
 type GlobalRematchRequest struct {
 	StationID *uint `json:"station_id,omitempty"`
 	ShowID    *uint `json:"show_id,omitempty"`
+	Force     bool  `json:"force,omitempty" doc:"Re-try plays previously marked no_match or ambiguous"`
 }
 
 // ──────────────────────────────────────────────

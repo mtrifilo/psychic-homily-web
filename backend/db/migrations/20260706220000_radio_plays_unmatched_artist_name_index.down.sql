@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_radio_plays_unmatched_artist_name;

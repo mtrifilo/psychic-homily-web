@@ -31,6 +31,7 @@ type ReMatchChunkedResult struct {
 type UnmatchedArtistNameFilter struct {
 	StationID *uint
 	ShowID    *uint
+	Force     bool
 }
 
 // GetUnmatchedPlays returns unmatched plays grouped by artist_name,
@@ -219,6 +220,7 @@ func (s *RadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) err
 	updates := make(map[string]interface{})
 	if req.ArtistID != nil {
 		updates["artist_id"] = *req.ArtistID
+		updates["match_state"] = catalogm.RadioPlayMatchStateMatched
 	}
 	if req.ReleaseID != nil {
 		updates["release_id"] = *req.ReleaseID
@@ -249,7 +251,10 @@ func (s *RadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts
 
 	result := s.db.Model(&catalogm.RadioPlay{}).
 		Where("artist_name = ? AND artist_id IS NULL", req.ArtistName).
-		Update("artist_id", req.ArtistID)
+		Updates(map[string]interface{}{
+			"artist_id":    req.ArtistID,
+			"match_state":  catalogm.RadioPlayMatchStateMatched,
+		})
 
 	if result.Error != nil {
 		return nil, fmt.Errorf("bulk linking plays: %w", result.Error)
@@ -552,8 +557,8 @@ func (s *RadioService) listUnmatchedArtistNamesPage(afterName string, limit int,
 	}
 	var rows []nameRow
 	q := s.db.Table("radio_plays rp").
-		Select("DISTINCT rp.artist_name").
-		Where("rp.artist_id IS NULL")
+		Select("DISTINCT rp.artist_name")
+	q = scopePlaysForArtistRematch(q, "rp", filter.Force)
 	if filter.ShowID != nil {
 		q = q.Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
 			Where("re.show_id = ?", *filter.ShowID)
@@ -669,7 +674,7 @@ func (s *RadioService) ReMatchUnmatchedWithFilter(req *contracts.ReMatchRequest)
 
 	matcher := NewRadioMatchingEngine(s.db)
 	if req == nil {
-		return matcher.MatchAllUnmatched()
+		return matcher.MatchAllUnmatched(false)
 	}
 	if req.ArtistName != "" {
 		return matcher.MatchUnmatchedPlaysForArtistName(req.ArtistName)
@@ -677,7 +682,7 @@ func (s *RadioService) ReMatchUnmatchedWithFilter(req *contracts.ReMatchRequest)
 	if req.LabelName != "" {
 		return matcher.MatchUnmatchedPlaysForLabelName(req.LabelName)
 	}
-	return matcher.MatchAllUnmatched()
+	return matcher.MatchAllUnmatched(req.Force)
 }
 
 // ScheduleRematchForArtistName asynchronously rematches unmatched plays for one
