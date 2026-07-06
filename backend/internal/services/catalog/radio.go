@@ -1255,12 +1255,11 @@ type episodeFeedScope func(*gorm.DB) *gorm.DB
 // (even 0-track) and a windowless episode carrying a playlist stay. `prefix` qualifies
 // the columns ("re." in the joined feed query, "" in a single-table query); the one ?
 // binds the "now" instant. Every aired-only surface — the "Latest playlists" feed
-// (episodeRows), the shows-directory latest date (ListShows), the now-playing "Latest"
-// selector (latestEpisodeForShow), and the most-active-show pick (mostActiveShow) —
-// shares this single air-window definition. The first three also pair it with an
-// `air_date <= today` bound; mostActiveShow gates on the window alone, so the four
-// agree except for the practically-unreachable case of a windowless future-dated
-// episode that already carries plays.
+// (episodeRows), the shows-directory latest date (ListShows), and the now-playing
+// per-show "Latest" selector (latestEpisodeForShow) — shares this single air-window
+// definition, each paired with an `air_date <= today` bound. (The station-wide
+// now-playing fallback keys on play_count > 0 directly — latestStationPlayedEpisode,
+// PSY-1374 — since it needs a real playlist to display, not merely an aired slot.)
 func airedEpisodeVisibleSQL(prefix string) string {
 	return fmt.Sprintf(
 		"((%[1]sstarts_at IS NOT NULL AND %[1]sstarts_at <= ?) OR (%[1]sstarts_at IS NULL AND %[1]splay_count > 0))",

@@ -364,9 +364,10 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_FullPayloa
 	suite.Nil(resp.RecentArtists[1].ArtistID)
 }
 
-// PSY-1285: mostActiveShow ranks by VISIBLE-aired episodes, so a show padded with
-// not-yet-aired / 0-track placeholder rows does not out-rank a show with real archived
-// content (which the old ungated COUNT would, yielding an empty now-playing payload).
+// PSY-1374: the archive "Latest playlist" fallback picks the latest episode that has
+// actual plays — a show padded with not-yet-aired / 0-track placeholder rows is skipped
+// in favor of the one with a real playlist (which the old row-count heuristic would miss,
+// yielding an empty now-playing payload).
 func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_PicksShowWithVisibleContent() {
 	station := suite.createStation("Pad FM", "pad-fm", catalogm.PlaylistSourceManual)
 	now := time.Now().UTC()
@@ -399,6 +400,36 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_PicksShowW
 	suite.Equal("Real Show", resp.Show.Name, "the show with VISIBLE archived content is picked, not the row-padded one")
 	suite.Require().NotNil(resp.CurrentTrack)
 	suite.Equal("Real Artist", resp.CurrentTrack.ArtistName)
+}
+
+// PSY-1374 regression: the archive fallback must show the station's genuinely MOST
+// RECENT played episode — not the deepest-archive show's stale latest. This is the
+// reported bug: Secret Canine Agents (a long-running show with a huge back catalog)
+// won the old most-episodes heuristic, so its days-old playlist showed as "Latest"
+// while another show had aired more recently.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_PicksMostRecentAcrossShows() {
+	station := suite.createStation("Recency FM", "recency-fm", catalogm.PlaylistSourceManual)
+	now := time.Now().UTC()
+
+	// Deep-archive show: MANY played episodes, but its latest aired days ago.
+	deep := suite.createShow(station.ID, "Deep Archive", "deep-archive", nil, nil)
+	for i := 10; i >= 6; i-- { // air_dates 10..6 days ago (latest = 6 days ago)
+		ep := suite.createEpisode(deep.ID, now.AddDate(0, 0, -i).Format("2006-01-02"))
+		suite.createPlay(ep.ID, 1, "Deep Artist", "Deep Song", nil)
+	}
+	// Recent show: a SINGLE played episode, but it aired more recently (yesterday).
+	recent := suite.createShow(station.ID, "Recent Show", "recent-show", nil, nil)
+	recentEp := suite.createEpisode(recent.ID, now.AddDate(0, 0, -1).Format("2006-01-02"))
+	suite.createPlay(recentEp.ID, 1, "Recent Artist", "Recent Song", nil)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.NowPlayingSourceLatestArchive, resp.Source)
+	suite.Require().NotNil(resp.Show)
+	suite.Equal("Recent Show", resp.Show.Name,
+		"the station's most-recent played episode is 'Latest', not the deepest-archive show's stale one")
+	suite.Require().NotNil(resp.CurrentTrack)
+	suite.Equal("Recent Artist", resp.CurrentTrack.ArtistName)
 }
 
 func (suite *RadioNowPlayingIntegrationTestSuite) TestArchiveFallback_EmptyStation() {

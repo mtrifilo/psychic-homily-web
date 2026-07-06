@@ -394,18 +394,16 @@ func recentArtistKey(name string) string {
 func (s *RadioService) archiveRecentArtistsForLive(stationID uint, matchedShow *contracts.RadioNowPlayingShowRef, skipArtistName string) []contracts.RadioEpisodePreviewArtist {
 	empty := []contracts.RadioEpisodePreviewArtist{}
 
-	var showID uint
+	var episode *catalogm.RadioEpisode
+	var err error
 	if matchedShow != nil {
-		showID = matchedShow.ID
+		episode, err = s.latestEpisodeForShow(matchedShow.ID)
 	} else {
-		show, err := s.mostActiveShow(stationID)
-		if err != nil || show == nil {
-			return empty
-		}
-		showID = show.ID
+		// Unmatched live show: borrow the "earlier:" hops from the station's most-recent
+		// played episode — the actually-recent activity, not the deepest-archive show's
+		// stale latest (PSY-1374, mirroring the archive fallback's own change).
+		episode, _, err = s.latestStationPlayedEpisode(stationID)
 	}
-
-	episode, err := s.latestEpisodeForShow(showID)
 	if err != nil || episode == nil {
 		return empty
 	}
@@ -420,10 +418,10 @@ func (s *RadioService) archiveRecentArtistsForLive(stationID uint, matchedShow *
 // Archive fallback (the v1 heuristic, server-side)
 // =============================================================================
 
-// archiveNowPlaying builds the latest-archive payload: the most-active show's
-// latest episode's latest play, mirroring the frontend v1 derivation
-// (pickNowPlayingShow + deriveNowPlaying). DB errors here are real server
-// errors and DO propagate.
+// archiveNowPlaying builds the latest-archive payload: the station's most-recent
+// played episode (across all shows) and its latest play — an honest "Latest playlist"
+// (PSY-1374, replacing the most-active-show heuristic that showed a stale playlist from
+// the deepest-archive show). DB errors here are real server errors and DO propagate.
 func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPlayingResponse, error) {
 	resp := &contracts.RadioNowPlayingResponse{
 		Source:        contracts.NowPlayingSourceLatestArchive,
@@ -431,23 +429,16 @@ func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPla
 		RecentArtists: []contracts.RadioEpisodePreviewArtist{},
 	}
 
-	show, err := s.mostActiveShow(stationID)
+	episode, show, err := s.latestStationPlayedEpisode(stationID)
 	if err != nil {
 		return nil, err
 	}
-	if show == nil {
-		return resp, nil // station with no shows: empty, honestly-labeled payload
+	if episode == nil || show == nil {
+		return resp, nil // station with no played episodes: empty, honestly-labeled payload
 	}
 	resp.Show = nowPlayingShowRef(show)
 	resp.ShowName = &show.Name
 
-	episode, err := s.latestEpisodeForShow(show.ID)
-	if err != nil {
-		return nil, err
-	}
-	if episode == nil {
-		return resp, nil
-	}
 	airDate := normalizeDate(episode.AirDate)
 	resp.EpisodeAirDate = &airDate
 	// PSY-1306: expose the episode's frozen air window so the ON AIR box can
@@ -466,31 +457,45 @@ func (s *RadioService) archiveNowPlaying(stationID uint) (*contracts.RadioNowPla
 	return resp, nil
 }
 
-// mostActiveShow picks the station's "current" show: the show with the most
-// VISIBLE-aired episodes (per airedEpisodeVisibleSQL, PSY-1285 — NOT raw logged
-// episodes, so placeholder/not-yet-aired rows don't inflate the count), ties broken
-// by lower id (stable). Returns nil when the station has no shows.
-func (s *RadioService) mostActiveShow(stationID uint) (*catalogm.RadioShow, error) {
-	var shows []catalogm.RadioShow
-	// Rank by VISIBLE-aired episodes only (PSY-1285): count the same episodes
-	// latestEpisodeForShow can actually select (airedEpisodeVisibleSQL), so the
-	// most-active pick and the latest-episode pick agree — otherwise a show with the
-	// most 0-track/not-yet-aired rows could be chosen and then yield an empty payload
-	// while a less-"active" show has real archived content.
-	err := s.db.Raw(`
-		SELECT rs.* FROM radio_shows rs
-		LEFT JOIN radio_episodes re ON re.show_id = rs.id
-		WHERE rs.station_id = ?
-		GROUP BY rs.id
-		ORDER BY COUNT(re.id) FILTER (WHERE `+airedEpisodeVisibleSQL("re.")+`) DESC, rs.id ASC
-		LIMIT 1`, stationID, time.Now()).Scan(&shows).Error
+// latestStationPlayedEpisode returns the station's most-recent episode that has actual
+// playlist content, together with its show, for the archive "Latest playlist" fallback
+// (PSY-1374). Ordered by the canonical latest-first ordering (episodeLatestFirstOrderSQL
+// — the same one the "Latest playlists" feed uses), so the fallback and the feed agree
+// on what "latest" means.
+//
+// It replaces the old most-active-show heuristic: ranking by episode COUNT picked the
+// station's deepest-archive show (e.g. a long-running weekly show with a 4-year archive)
+// and showed ITS latest episode, which could be days stale while another show aired more
+// recently — a stale playlist mislabeled "Latest". Keying on the newest played episode
+// makes "Latest playlist" honest.
+//
+// "Has content" gates on an EXISTing radio_plays row rather than the denormalized
+// play_count — the same source episodePlayRows reads for the display, so the selection
+// can't disagree with what would render (and it's immune to any transient play_count
+// drift before the nightly reconcile). This also skips a started-but-empty slot (a talk
+// show's or a placeholder's 0-track episode) in favor of the last real playlist.
+// Returns (nil, nil, nil) when the station has no played episodes.
+func (s *RadioService) latestStationPlayedEpisode(stationID uint) (*catalogm.RadioEpisode, *catalogm.RadioShow, error) {
+	var episodes []catalogm.RadioEpisode
+	err := s.db.
+		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
+		Where("radio_shows.station_id = ?", stationID).
+		Where("EXISTS (SELECT 1 FROM radio_plays WHERE radio_plays.episode_id = radio_episodes.id)").
+		Order(episodeLatestFirstOrderSQL("radio_episodes.")).
+		Limit(1).
+		Find(&episodes).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to pick now-playing show: %w", err)
+		return nil, nil, fmt.Errorf("failed to get station's latest played episode: %w", err)
 	}
-	if len(shows) == 0 {
-		return nil, nil
+	if len(episodes) == 0 {
+		return nil, nil, nil
 	}
-	return &shows[0], nil
+	ep := &episodes[0]
+	var show catalogm.RadioShow
+	if err := s.db.First(&show, ep.ShowID).Error; err != nil {
+		return nil, nil, fmt.Errorf("loading show for latest station episode: %w", err)
+	}
+	return ep, &show, nil
 }
 
 // latestEpisodeForShow returns the show's most recent AIRED episode (shared
