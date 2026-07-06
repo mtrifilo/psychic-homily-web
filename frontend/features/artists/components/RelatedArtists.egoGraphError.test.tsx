@@ -39,18 +39,11 @@ vi.mock('next/navigation', () => ({
 
 // The canvas viz stands in for the dynamic chunk: throwing here is exactly what a
 // failed react-force-graph-2d chunk fetch does at render.
-vi.mock('./ArtistGraph', async () => {
-  const { createContext } = await import('react')
-  return {
-    ArtistGraphVisualization: () => {
-      throw new Error('chunk fetch failed')
-    },
-    ConnectionPanelDismissContext: createContext(null),
-    // RelatedArtists also imports this for the Dialog's onEscapeKeyDown; stubbed
-    // so the mock is a complete stand-in (not exercised here — no Esc keypress).
-    dismissConnectionPanelOnEscape: vi.fn(),
-  }
-})
+vi.mock('./ArtistGraph', () => ({
+  ArtistGraphVisualization: () => {
+    throw new Error('chunk fetch failed')
+  },
+}))
 
 import { ArtistGraphDialog } from './RelatedArtists'
 

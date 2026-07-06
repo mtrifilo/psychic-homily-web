@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useRef, useEffect, useState, type ComponentType, type MutableRefObject } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useState, type ComponentType, type MutableRefObject } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
@@ -299,46 +299,6 @@ const LABEL_MIN_SCALE = 0.7
 // different gap geometry — so don't "unify" them.
 const TOOLTIP_DISMISS_DELAY_MS = 300
 
-/**
- * Imperative handle the ego Dialog uses to intercept Escape (PSY-1351).
- * The ConnectionPanel floats inside ArtistGraphDialog's Radix <Dialog>, which
- * registers its own document-capture Escape dismiss at open — before the panel
- * mounts on edge-click — so the panel can't win Escape against it. The dialog's
- * onEscapeKeyDown reads this handle and closes an open panel itself instead of
- * letting Radix dismiss the whole dialog.
- */
-export interface ConnectionPanelDismissHandle {
-  isOpen: boolean
-  close: () => void
-}
-
-/**
- * Populated by ArtistGraphVisualization when it renders inside the ego Dialog;
- * null everywhere else (e.g. the inline BillComposition mini-graph, which has
- * no enclosing dialog to protect).
- */
-export const ConnectionPanelDismissContext =
-  createContext<MutableRefObject<ConnectionPanelDismissHandle | null> | null>(null)
-
-/**
- * The ego Dialog's Escape interception (PSY-1351), shared by ArtistGraphDialog's
- * onEscapeKeyDown and its test so they can't drift: if a ConnectionPanel is open,
- * close it and preventDefault (stops Radix dismissing the dialog) so the first
- * Escape dismisses only the panel. Returns whether it intercepted.
- */
-export function dismissConnectionPanelOnEscape(
-  ref: MutableRefObject<ConnectionPanelDismissHandle | null>,
-  event: Pick<KeyboardEvent, 'preventDefault'>,
-): boolean {
-  const dismiss = ref.current
-  if (dismiss?.isOpen) {
-    event.preventDefault()
-    dismiss.close()
-    return true
-  }
-  return false
-}
-
 export function ArtistGraphVisualization({
   data,
   activeTypes,
@@ -359,9 +319,6 @@ export function ArtistGraphVisualization({
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   // PSY-1334: which artist pair the ConnectionPanel is inspecting.
   const connectionInspect = useConnectionInspect()
-  // PSY-1351: when mounted inside the ego Dialog, expose an open/close handle so
-  // the dialog's onEscapeKeyDown can dismiss the panel instead of the dialog.
-  const connectionDismissRef = useContext(ConnectionPanelDismissContext)
   // Tooltip position in CONTAINER coords (the tooltip is position:absolute within
   // the relative container). Set from the hovered node's screen position in
   // handleNodeHover; flipX/flipY anchor it toward the container's interior near the
@@ -711,21 +668,6 @@ export function ArtistGraphVisualization({
       connectionInspect.close()
     }
   }, [connectionInspect, connectionPanelData])
-
-  // PSY-1351: keep the ego Dialog's Escape-intercept handle current. `isOpen`
-  // tracks whether the panel is actually rendered (connectionPanelData != null),
-  // so the dialog swallows Escape only while a panel is showing. No-op when
-  // there's no enclosing dialog (context is null — the inline BillComposition).
-  useEffect(() => {
-    if (!connectionDismissRef) return
-    connectionDismissRef.current = {
-      isOpen: connectionPanelData != null,
-      close: connectionInspect.close,
-    }
-    return () => {
-      connectionDismissRef.current = null
-    }
-  }, [connectionDismissRef, connectionPanelData, connectionInspect])
 
   // Anchor the tooltip on the NODE (onNodeHover carries no MouseEvent) via the
   // shared nodeTooltipPlacement helper — see its doc-comment for the
