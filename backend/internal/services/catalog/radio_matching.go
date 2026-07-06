@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -199,9 +200,15 @@ func (m *RadioMatchingEngine) MatchUnmatchedPlaysForLabelName(name string) (*con
 }
 
 // MatchAllUnmatched runs the matching engine on all unmatched plays in the database.
+// A SQL bulk-link pass (MBID, exact name, alias) runs first for deterministic
+// matches; collab strings and edge cases fall through to per-row Go matching.
 func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error) {
 	if m.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if _, err := m.BulkLinkUnmatchedArtistPlays(context.Background()); err != nil {
+		return nil, fmt.Errorf("bulk link unmatched plays: %w", err)
 	}
 
 	var plays []catalogm.RadioPlay

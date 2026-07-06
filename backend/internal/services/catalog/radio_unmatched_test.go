@@ -505,11 +505,15 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatched_CatchesNewArtist() {
 	// Now add the artist
 	s.createTestArtist("New Artist", "new-artist-rm")
 
-	// Re-match should now find it
+	// Re-match should now find it via SQL bulk link before the Go sweep runs.
 	result2, err := s.svc.ReMatchUnmatched()
 	s.Require().NoError(err)
-	s.Equal(1, result2.Total)
-	s.Equal(1, result2.Matched)
+	s.Equal(0, result2.Total, "bulk SQL links exact-name match; Go phase has nothing left")
+	s.Equal(0, result2.Matched)
+
+	var play catalogm.RadioPlay
+	s.Require().NoError(s.db.Where("episode_id = ?", ep.ID).First(&play).Error)
+	s.NotNil(play.ArtistID)
 }
 
 func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ProcessesAllDistinctNames() {
@@ -526,10 +530,15 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ProcessesAllDistinctNa
 
 	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2)
 	s.Require().NoError(err)
-	s.Equal(3, result.NamesProcessed)
-	s.Equal(3, result.Total)
-	s.Equal(2, result.Matched)
+	s.Equal(int64(2), result.BulkLink.NameLinked, "Alpha and Beta linked by SQL bulk pass")
+	s.Equal(1, result.NamesProcessed, "only Gamma remains for per-name Go sweep")
+	s.Equal(1, result.Total)
+	s.Equal(0, result.Matched)
 	s.Equal(1, result.Unmatched)
+
+	var linked int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Where("artist_id IS NOT NULL").Count(&linked).Error)
+	s.Equal(int64(2), linked)
 }
 
 func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_HonorsContextCancel() {

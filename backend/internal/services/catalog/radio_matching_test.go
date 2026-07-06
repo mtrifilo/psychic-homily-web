@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -519,13 +520,22 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchAllUnmatched_BeforeAfte
 	result, err := suite.engine.MatchAllUnmatched()
 	suite.Require().NoError(err)
 
-	suite.Equalf(totalPlays, result.Total, "Total plays loaded by matcher")
-	suite.Equalf(
-		expectedAfterMatchCount, result.Matched,
-		"PSY-886 match rate on curated international corpus: before=%d/%d, after=%d/%d",
-		beforeMatchCount, totalPlays, result.Matched, totalPlays,
+	// Bulk SQL links diacritic/exact cases; Go matcher handles punctuation and
+	// whitespace trim on the remainder. Assert final on-disk link count.
+	var linkedOnDisk int64
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.RadioPlay{}).Where("artist_id IS NOT NULL").Count(&linkedOnDisk).Error,
 	)
-	suite.Equalf(totalPlays-expectedAfterMatchCount, result.Unmatched, "Unmatched count")
+	suite.Equal(int64(expectedAfterMatchCount), linkedOnDisk,
+		"PSY-886 + PSY-1365: curated corpus link rate before=%d/%d, after=%d/%d on disk",
+		beforeMatchCount, totalPlays, linkedOnDisk, totalPlays,
+	)
+
+	// Go phase only sees plays the SQL bulk pass could not resolve.
+	const goPhaseTotal = 4 // The Who!, Stereolab padding, ACDC, The
+	suite.Equalf(goPhaseTotal, result.Total, "Go matcher play load count")
+	suite.Equalf(2, result.Matched, "Go matcher links punctuation/whitespace remainders")
+	suite.Equalf(goPhaseTotal-2, result.Unmatched, "Unmatched count")
 }
 
 // TestMatchPlaysForEpisode_PersistFailureSurfaced is the PSY-1119 match-persist
@@ -670,6 +680,153 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CollabSkipsComma
 	play := suite.createPlay(episodeID, 1, "Earth, Wind & Fire", nil, nil)
 
 	suite.False(suite.engine.matchPlay(play))
+}
+
+// =============================================================================
+// INTEGRATION — SQL bulk-link (PSY-1365)
+// =============================================================================
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_MusicBrainzID() {
+	const mbid = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+	slug := utils.GenerateArtistSlug("Radiohead")
+	artist := &catalogm.Artist{
+		Name:                "Radiohead",
+		Slug:                &slug,
+		MusicBrainzArtistID: strPtr(mbid),
+	}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	episodeID := suite.createStationShowEpisode()
+	play := &catalogm.RadioPlay{
+		EpisodeID:           episodeID,
+		Position:            1,
+		ArtistName:          "Totally Wrong Name",
+		MusicBrainzArtistID: strPtr(mbid),
+	}
+	suite.Require().NoError(suite.db.Create(play).Error)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.MBIDLinked)
+	suite.Equal(int64(0), bulk.NameLinked)
+	suite.Equal(int64(0), bulk.AliasLinked)
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(artist.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_ExactNameDiacritic() {
+	jose := suite.createArtist("Jose Gonzalez")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "José González", nil, nil)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), bulk.MBIDLinked)
+	suite.Equal(int64(1), bulk.NameLinked)
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(jose.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_Alias() {
+	a := suite.createArtist("Different Canonical")
+	suite.createAlias(a.ID, "Stage Alias")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Stage Alias", nil, nil)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.AliasLinked)
+	suite.Equal(int64(0), bulk.NameLinked)
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(a.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_SkipsAmbiguousExactName() {
+	suite.createArtist("Jose")
+	suite.createArtist("José")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Jose", nil, nil)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), bulk.TotalLinked())
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Nil(reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_LeavesCollabForGoMatcher() {
+	winter := suite.createArtist("Winter")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "zzzahara, Winter", nil, nil)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), bulk.TotalLinked(), "collab billing must not bulk-link")
+
+	suite.True(suite.engine.matchPlay(play))
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(winter.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_BeforeAfterCounts() {
+	const mbid = "11111111-2222-3333-4444-555555555555"
+	slug := utils.GenerateArtistSlug("MBID Artist")
+	mbidArtist := &catalogm.Artist{
+		Name:                "MBID Artist",
+		Slug:                &slug,
+		MusicBrainzArtistID: strPtr(mbid),
+	}
+	suite.Require().NoError(suite.db.Create(mbidArtist).Error)
+	suite.createArtist("The Who")
+	aliasArtist := suite.createArtist("Canonical Name")
+	suite.createAlias(aliasArtist.ID, "Alias Credit")
+
+	episodeID := suite.createStationShowEpisode()
+
+	mbidPlay := &catalogm.RadioPlay{
+		EpisodeID: episodeID, Position: 1,
+		ArtistName: "Wrong", MusicBrainzArtistID: strPtr(mbid),
+	}
+	suite.Require().NoError(suite.db.Create(mbidPlay).Error)
+	exactPlay := suite.createPlay(episodeID, 2, "THE WHO", nil, nil)
+	aliasPlay := suite.createPlay(episodeID, 3, "Alias Credit", nil, nil)
+	collabPlay := suite.createPlay(episodeID, 4, "zzzahara, Winter", nil, nil)
+	suite.createArtist("Winter")
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.MBIDLinked)
+	suite.Equal(int64(1), bulk.NameLinked)
+	suite.Equal(int64(1), bulk.AliasLinked)
+	suite.Equal(int64(3), bulk.TotalLinked())
+
+	// Collab play still unmatched after SQL phase.
+	var collabReloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&collabReloaded, collabPlay.ID).Error)
+	suite.Nil(collabReloaded.ArtistID)
+
+	// Go matcher resolves the collab remainder.
+	suite.True(suite.engine.matchPlay(collabPlay))
+	suite.Require().NoError(suite.db.First(&collabReloaded, collabPlay.ID).Error)
+	suite.NotNil(collabReloaded.ArtistID)
+
+	_ = exactPlay
+	_ = aliasPlay
+	_ = mbidPlay
 }
 
 func strPtr(s string) *string { return &s }
