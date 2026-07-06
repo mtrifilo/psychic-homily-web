@@ -1346,11 +1346,15 @@ func TestAdminBulkLinkPlays_ServiceError(t *testing.T) {
 
 func TestAdminReMatchPlays_FullRematch(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
-		ReMatchUnmatchedWithFilterFn: func(req *contracts.ReMatchRequest) (*contracts.MatchResult, error) {
-			if req.ArtistName != "" || req.LabelName != "" {
-				t.Errorf("expected full rematch, got %+v", req)
+		TriggerGlobalRematchFn: func(req contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error) {
+			if req.StationID != nil || req.ShowID != nil {
+				t.Errorf("expected global rematch, got %+v", req)
 			}
-			return &contracts.MatchResult{Total: 10, Matched: 3, Unmatched: 7}, nil
+			return &contracts.RadioSyncRunResponse{
+				ID:      42,
+				RunType: "rematch",
+				Status:  "running",
+			}, nil
 		},
 	}
 	h := testRadioHandler(mock)
@@ -1358,8 +1362,11 @@ func TestAdminReMatchPlays_FullRematch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Matched != 3 {
-		t.Errorf("expected 3 matched, got %d", resp.Body.Matched)
+	if resp.Body.Run == nil || resp.Body.Run.ID != 42 {
+		t.Fatalf("expected async run handle, got %+v", resp.Body)
+	}
+	if resp.Body.Run.Status != "running" {
+		t.Errorf("expected running status, got %q", resp.Body.Run.Status)
 	}
 }
 

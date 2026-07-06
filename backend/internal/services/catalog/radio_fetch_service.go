@@ -1104,7 +1104,7 @@ func (s *RadioFetchService) runReMatchCycle(ctx context.Context) {
 		}()
 	}
 
-	result, err := s.radioService.ReMatchUnmatchedChunked(cycleCtx, defaultReMatchNamePageSize)
+	result, err := s.radioService.ReMatchUnmatchedChunked(cycleCtx, defaultReMatchNamePageSize, UnmatchedArtistNameFilter{}, 0)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			s.logger.Info("re-match abandoned on shutdown",

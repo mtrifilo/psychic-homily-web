@@ -50,7 +50,7 @@ func (s *RadioService) TriggerStationSync(stationID uint, mode string) (*contrac
 		return nil, err
 	}
 	return s.settleTriggeredRun(runID, &contracts.RadioSyncRunResponse{
-		StationID: stationID,
+		StationID: radioSyncStationID(stationID),
 		RunType:   mode,
 	})
 }
@@ -93,9 +93,9 @@ func (s *RadioService) TriggerShowBackfill(showID uint, since, until string) (*c
 	}
 	ws, we := since, until
 	return s.settleTriggeredRun(runID, &contracts.RadioSyncRunResponse{
-		StationID:   show.StationID,
-		ShowID:      &showID,
-		RunType:     catalogm.RadioSyncRunTypeBackfill,
+		StationID: radioSyncStationID(show.StationID),
+		ShowID:    &showID,
+		RunType:   catalogm.RadioSyncRunTypeBackfill,
 		WindowStart: &ws,
 		WindowEnd:   &we,
 	})
@@ -261,8 +261,6 @@ func (s *RadioService) assertStationExists(stationID uint) error {
 func syncRunToResponse(run *catalogm.RadioSyncRun) *contracts.RadioSyncRunResponse {
 	resp := &contracts.RadioSyncRunResponse{
 		ID:                 run.ID,
-		StationID:          run.StationID,
-		StationName:        run.Station.Name,
 		RunType:            run.RunType,
 		Trigger:            run.Trigger,
 		Status:             run.Status,
@@ -277,6 +275,13 @@ func syncRunToResponse(run *catalogm.RadioSyncRun) *contracts.RadioSyncRunRespon
 		FinishedAt:         run.FinishedAt,
 		CreatedAt:          run.CreatedAt,
 		UpdatedAt:          run.UpdatedAt,
+	}
+
+	if run.StationID != nil {
+		resp.StationID = run.StationID
+		if run.Station.Name != "" {
+			resp.StationName = run.Station.Name
+		}
 	}
 
 	if run.ShowID != nil {
@@ -303,4 +308,12 @@ func syncRunToResponse(run *catalogm.RadioSyncRun) *contracts.RadioSyncRunRespon
 	}
 
 	return resp
+}
+
+// TriggerGlobalRematch is the contracts-facing entry for bulk async rematch (PSY-1364).
+func (s *RadioService) TriggerGlobalRematch(req contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error) {
+	return s.startGlobalRematchJob(GlobalRematchOpts{
+		StationID: req.StationID,
+		ShowID:    req.ShowID,
+	})
 }

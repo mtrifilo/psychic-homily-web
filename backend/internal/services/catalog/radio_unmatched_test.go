@@ -528,7 +528,7 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ProcessesAllDistinctNa
 	s.createTestArtist("Alpha Artist", "alpha-chunk")
 	s.createTestArtist("Beta Artist", "beta-chunk")
 
-	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2)
+	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2, UnmatchedArtistNameFilter{}, 0)
 	s.Require().NoError(err)
 	s.Equal(int64(2), result.BulkLink.NameLinked, "Alpha and Beta linked by SQL bulk pass")
 	s.Equal(1, result.NamesProcessed, "only Gamma remains for per-name Go sweep")
@@ -554,7 +554,7 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_HonorsContextCancel() 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, err := s.svc.ReMatchUnmatchedChunked(ctx, 2)
+	result, err := s.svc.ReMatchUnmatchedChunked(ctx, 2, UnmatchedArtistNameFilter{}, 0)
 	s.Require().Error(err)
 	s.ErrorIs(err, context.Canceled)
 	s.Equal(0, result.NamesProcessed)
