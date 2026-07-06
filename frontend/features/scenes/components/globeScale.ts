@@ -13,6 +13,10 @@
  *      (Minneapolis / St. Paul, ~10 mi apart) overlapped at the default zoom.
  */
 
+// Pure great-circle helper (no three.js), so globeScale stays unit-testable
+// without loading the globe. Reused by the PSY-1330 proximity declutter below.
+import { haversineDistanceKm } from '@/lib/haversine'
+
 // ── Dot radius ────────────────────────────────────────────────────────────
 // sqrt scale (so dense scenes don't dwarf small ones) with the high end CAPPED
 // so a 283-show scene doesn't render a giant dot that swallows its neighbours.
@@ -159,6 +163,39 @@ export function labelMinCountForAltitude(altitude: number): number {
 // constant is the single tuning knob for the floor; fixed (not viewport-scaled).
 export const LABEL_TOP_K_FLOOR = 5
 
+// ── Proximity declutter (PSY-1330) ────────────────────────────────────────
+// The count gate alone can't stop two co-dense ADJACENT cities that BOTH clear
+// the threshold from rendering overlapping, unreadable labels — the demonstrated
+// case is Minneapolis (~187) and St. Paul (~95), ~15 km apart, both above the
+// multi-region 40 at camera altitude 1.0. After the count gate, drop the
+// less-dense of any pair whose labels would collide (see declutterByProximity),
+// keyed on GREAT-CIRCLE distance, not screen projection: this runs only when the
+// discrete label threshold changes (visibleLabelScenes is memoized on minCount),
+// so a per-frame projection pass would churn labelsData every frame and defeat
+// the PSY-1213/1223 churn-avoidance design. A screen-projection declutter is more
+// pixel-accurate but was ruled out for exactly that reason.
+//
+// The "too close" distance widens with altitude: a fixed km spans fewer screen
+// pixels the further out the camera, so labels collide at larger real distances
+// when zoomed out. Keyed on the same discrete minCount the label gate uses.
+// CALIBRATION: anchored on the one demonstrated pair (Minneapolis/St. Paul
+// ~15 km must declutter at the band-40 view); the exact values want a visual pass
+// on stage where dense adjacent-metro data exists (local dev is too sparse to
+// reproduce the overlap). Tunable here — this map is the single knob. Bands not
+// listed (minCount 0 — the zoomed-in "label everything" view) get no declutter.
+export const LABEL_DECLUTTER_KM_BY_MIN_COUNT: Readonly<Record<number, number>> = {
+  120: 60, // continental — only the very densest scenes label; wide overlap reach
+  40: 30, //  multi-region — catches Minneapolis/St. Paul (~15 km) with margin
+  10: 15, //  metro cluster — tight; only near-coincident cities collide here
+}
+
+// The declutter radius (km) for a label band, or 0 (no declutter) for any band
+// not in the calibration map. minCount is the DISCRETE threshold from
+// labelMinCountForAltitude, not raw altitude.
+export function labelDeclutterRadiusKm(minCount: number): number {
+  return LABEL_DECLUTTER_KM_BY_MIN_COUNT[minCount] ?? 0
+}
+
 /**
  * The FE-owned "liveliest first" ordering rule. The scenes API deliberately has
  * no ordering contract, so the frontend owns this — and owns it ONCE: search
@@ -181,40 +218,94 @@ export function compareScenesByActivity<
   return bv - av
 }
 
+// The shape visibleLabelScenes / declutterByProximity need: a show count for the
+// gate + ordering, and coords for the proximity pass. Coords are optional (the
+// scenes API's latitude/longitude are `number | null`); a scene without them is
+// simply never a declutter collision (it isn't plotted on the globe anyway).
+type LabelScene = {
+  upcoming_show_count: number
+  latitude?: number | null
+  longitude?: number | null
+}
+
+/**
+ * Drop the less-dense of any pair of labelled scenes whose great-circle distance
+ * is within `radiusKm`, so co-dense adjacent cities (Minneapolis/St. Paul) don't
+ * render overlapping labels (PSY-1330). The DENSER of a colliding pair is kept
+ * (compareScenesByActivity — the shared liveliest-first rule). A scene with no
+ * coordinates can't be measured, so it's always kept and never suppresses another.
+ * The result preserves the INPUT order minus the suppressed scenes, so a caller's
+ * ordering contract is unchanged. `radiusKm <= 0` (a band with no calibrated
+ * distance) is a no-op. Pure and O(kept²) — paid at band crossings, never per frame.
+ */
+function declutterByProximity<T extends LabelScene>(
+  labelled: readonly T[],
+  radiusKm: number,
+): T[] {
+  if (radiusKm <= 0 || labelled.length < 2) return labelled.slice()
+  // Decide keeps densest-first so the denser scene always wins a collision...
+  const byDensity = [...labelled].sort(compareScenesByActivity)
+  const kept: T[] = []
+  const suppressed = new Set<T>()
+  for (const s of byDensity) {
+    const { latitude: lat, longitude: lon } = s
+    if (lat == null || lon == null) {
+      kept.push(s) // no coords → can't collide, and can't suppress others
+      continue
+    }
+    const collides = kept.some(
+      (k) =>
+        k.latitude != null &&
+        k.longitude != null &&
+        haversineDistanceKm(lat, lon, k.latitude, k.longitude) <= radiusKm,
+    )
+    if (collides) suppressed.add(s)
+    else kept.push(s)
+  }
+  // ...but emit in the ORIGINAL order (only the suppressed are removed).
+  return labelled.filter((s) => !suppressed.has(s))
+}
+
 /**
  * The subset of scenes that carry an always-on label at the given threshold
  * (from `labelMinCountForAltitude`). Scenes below it still render their dot and
  * hover tooltip — only the persistent label is withheld until you zoom in.
  *
- * Normally this is just the threshold gate (`count >= minCount`). The PSY-1229
- * floor adds one safety net: if the threshold clears NOTHING (a seasonal dip
- * where no city reaches the continental count), fall back to the
- * `LABEL_TOP_K_FLOOR` densest so the zoomed-out view is never empty. The
- * fallback fires ONLY on an empty result, so a normal season is untouched — the
- * calibrated continental label set (and the Minneapolis/St. Paul declutter) is
- * preserved.
+ * Normally this is the threshold gate (`count >= minCount`) followed by a
+ * proximity declutter (PSY-1330): co-dense adjacent cities that both clear the
+ * gate would overlap, so the less-dense of any colliding pair is dropped. The
+ * PSY-1229 floor adds one safety net: if the threshold clears NOTHING (a seasonal
+ * dip where no city reaches the continental count), fall back to the
+ * `LABEL_TOP_K_FLOOR` densest (also decluttered) so the zoomed-out view is never
+ * empty. The fallback fires ONLY on an empty gate result, so a normal season is
+ * untouched — the calibrated continental label set is preserved.
  *
  * @param minCount the DISCRETE threshold from `labelMinCountForAltitude` (a step
  *   value, NOT raw altitude). The caller memoizes on it to keep the returned
  *   array's identity stable between threshold crossings — react-globe.gl diffs
  *   labelsData by reference, so passing raw altitude would churn it every frame.
+ *   The declutter reads the same discrete value, so it too runs only on crossings.
  */
-export function visibleLabelScenes<T extends { upcoming_show_count: number }>(
+export function visibleLabelScenes<T extends LabelScene>(
   scenes: readonly T[],
   minCount: number,
 ): T[] {
   // Every path returns a fresh array, so the result is always safe to mutate.
   if (minCount <= 0) return scenes.slice()
+  const radiusKm = labelDeclutterRadiusKm(minCount)
   // NaN counts fail `>= minCount` (NaN comparisons are always false), so a
   // malformed scene is naturally excluded from the gate.
   const qualifiers = scenes.filter((s) => s.upcoming_show_count >= minCount)
-  if (qualifiers.length > 0) return qualifiers
+  if (qualifiers.length > 0) return declutterByProximity(qualifiers, radiusKm)
   // The threshold cleared NOTHING (a seasonal dip) — fall back to the
   // LABEL_TOP_K_FLOOR densest so the zoomed-out view is never empty. Firing only
   // on empty keeps a normal season untouched (no re-clutter). Non-finite counts
   // are excluded outright (never floored in), matching the size-scale guards.
-  return scenes
+  // Declutter BEFORE the cap so we keep the K densest NON-overlapping — the
+  // densest is first in density order and never suppressed, so the view is still
+  // never empty.
+  const finite = scenes
     .filter((s) => Number.isFinite(s.upcoming_show_count))
     .sort(compareScenesByActivity)
-    .slice(0, LABEL_TOP_K_FLOOR)
+  return declutterByProximity(finite, radiusKm).slice(0, LABEL_TOP_K_FLOOR)
 }
