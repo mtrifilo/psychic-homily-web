@@ -24,24 +24,24 @@ func graphCardMocks() (*testhelpers.MockArtistService, *testhelpers.MockArtistRe
 		ID: 7, Slug: "lightning-bolt", Name: "Lightning Bolt", City: &city, State: &state,
 	}
 	artistSvc := &testhelpers.MockArtistService{
-		GetArtistFn: func(id uint) (*contracts.ArtistDetailResponse, error) {
+		GetArtistSummaryFn: func(id uint) (*contracts.ArtistDetailResponse, error) {
 			if id != 7 {
 				return nil, pherrors.ErrArtistNotFound(id)
 			}
 			return artist, nil
 		},
-		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistSummaryBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			if slug != "lightning-bolt" {
 				return nil, pherrors.ErrArtistNotFound(0)
 			}
 			return artist, nil
 		},
-		GetShowsForArtistFn: func(id uint, tz string, limit int, filter string) ([]*contracts.ArtistShowResponse, int64, error) {
-			return []*contracts.ArtistShowResponse{{
+		GetNextShowForArtistFn: func(id uint, tz string) (*contracts.ArtistShowResponse, error) {
+			return &contracts.ArtistShowResponse{
 				ID:        99,
 				EventDate: time.Date(2026, 6, 12, 20, 0, 0, 0, time.UTC),
 				Venue:     &contracts.ArtistShowVenueResponse{Name: "Trunk Space", City: "Phoenix", State: "AZ"},
-			}}, 1, nil
+			}, nil
 		},
 		GetLabelsForArtistFn: func(id uint) ([]*contracts.ArtistLabelResponse, error) {
 			return []*contracts.ArtistLabelResponse{{ID: 3, Name: "Thrill Jockey", Slug: "thrill-jockey"}}, nil
@@ -150,8 +150,8 @@ func TestGetArtistGraphCardHandler_NotFound(t *testing.T) {
 
 func TestGetArtistGraphCardHandler_DegradesOnEnrichmentFailure(t *testing.T) {
 	artistSvc, relSvc, radioSvc := graphCardMocks()
-	artistSvc.GetShowsForArtistFn = func(uint, string, int, string) ([]*contracts.ArtistShowResponse, int64, error) {
-		return nil, 0, fmt.Errorf("shows query broke")
+	artistSvc.GetNextShowForArtistFn = func(uint, string) (*contracts.ArtistShowResponse, error) {
+		return nil, fmt.Errorf("shows query broke")
 	}
 	artistSvc.GetLabelsForArtistFn = func(uint) ([]*contracts.ArtistLabelResponse, error) {
 		return nil, fmt.Errorf("labels query broke")

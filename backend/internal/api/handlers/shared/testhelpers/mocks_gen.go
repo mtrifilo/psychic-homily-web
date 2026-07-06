@@ -331,6 +331,8 @@ func (m *MockArtistReportService) GetReportByID(reportID uint) (*communitym.Arti
 type MockArtistService struct {
 	CreateArtistFn             func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
 	GetArtistFn                func(uint) (*contracts.ArtistDetailResponse, error)
+	GetArtistSummaryFn         func(uint) (*contracts.ArtistDetailResponse, error)
+	GetArtistSummaryBySlugFn   func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistByNameFn          func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistBySlugFn          func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistsFn               func(map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
@@ -339,6 +341,7 @@ type MockArtistService struct {
 	DeleteArtistFn             func(uint) error
 	SearchArtistsFn            func(string) ([]*contracts.ArtistDetailResponse, error)
 	GetShowsForArtistFn        func(uint, string, int, string) ([]*contracts.ArtistShowResponse, int64, error)
+	GetNextShowForArtistFn     func(uint, string) (*contracts.ArtistShowResponse, error)
 	GetArtistCitiesFn          func() ([]*contracts.ArtistCityResponse, error)
 	GetLabelsForArtistFn       func(uint) ([]*contracts.ArtistLabelResponse, error)
 	AddArtistAliasFn           func(uint, string) (*contracts.ArtistAliasResponse, error)
@@ -356,6 +359,18 @@ func (m *MockArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*c
 func (m *MockArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailResponse, error) {
 	if m.GetArtistFn != nil {
 		return m.GetArtistFn(artistID)
+	}
+	return nil, nil
+}
+func (m *MockArtistService) GetArtistSummary(artistID uint) (*contracts.ArtistDetailResponse, error) {
+	if m.GetArtistSummaryFn != nil {
+		return m.GetArtistSummaryFn(artistID)
+	}
+	return nil, nil
+}
+func (m *MockArtistService) GetArtistSummaryBySlug(slug string) (*contracts.ArtistDetailResponse, error) {
+	if m.GetArtistSummaryBySlugFn != nil {
+		return m.GetArtistSummaryBySlugFn(slug)
 	}
 	return nil, nil
 }
@@ -406,6 +421,12 @@ func (m *MockArtistService) GetShowsForArtist(artistID uint, timezone string, li
 		return m.GetShowsForArtistFn(artistID, timezone, limit, timeFilter)
 	}
 	return nil, 0, nil
+}
+func (m *MockArtistService) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
+	if m.GetNextShowForArtistFn != nil {
+		return m.GetNextShowForArtistFn(artistID, timezone)
+	}
+	return nil, nil
 }
 func (m *MockArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
 	if m.GetArtistCitiesFn != nil {

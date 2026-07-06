@@ -1003,6 +1003,10 @@ type VenueServiceInterface interface {
 type ArtistServiceInterface interface {
 	CreateArtist(req *CreateArtistRequest) (*ArtistDetailResponse, error)
 	GetArtist(artistID uint) (*ArtistDetailResponse, error)
+	// GetArtistSummary / …BySlug: identity-only reads (no stats block) for hot
+	// composition endpoints like the graph-card (PSY-1352).
+	GetArtistSummary(artistID uint) (*ArtistDetailResponse, error)
+	GetArtistSummaryBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtistByName(name string) (*ArtistDetailResponse, error)
 	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
@@ -1011,6 +1015,9 @@ type ArtistServiceInterface interface {
 	DeleteArtist(artistID uint) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
 	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)
+	// GetNextShowForArtist: the soonest upcoming show only (no count, no bill) —
+	// the graph-card's next-show glance (PSY-1352).
+	GetNextShowForArtist(artistID uint, timezone string) (*ArtistShowResponse, error)
 	GetArtistCities() ([]*ArtistCityResponse, error)
 	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
 	AddArtistAlias(artistID uint, alias string) (*ArtistAliasResponse, error)

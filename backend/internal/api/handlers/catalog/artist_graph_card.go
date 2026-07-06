@@ -63,10 +63,12 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 	// ID-or-slug resolution, same convention as GetArtistHandler.
 	var artist *contracts.ArtistDetailResponse
 	var err error
+	// Summary reads (identity only) — the card discards the stats block, so
+	// skip the 5-subquery buildArtistStats the full GetArtist runs (PSY-1352).
 	if id, parseErr := strconv.ParseUint(req.ArtistID, 10, 32); parseErr == nil {
-		artist, err = h.artistService.GetArtist(uint(id))
+		artist, err = h.artistService.GetArtistSummary(uint(id))
 	} else {
-		artist, err = h.artistService.GetArtistBySlug(req.ArtistID)
+		artist, err = h.artistService.GetArtistSummaryBySlug(req.ArtistID)
 	}
 	if err != nil {
 		var artistErr *apperrors.ArtistError
@@ -93,12 +95,12 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 		Labels: []contracts.ArtistGraphCardLabel{},
 	}
 
-	// Next upcoming show (limit 1, soonest first).
-	shows, _, err := h.artistService.GetShowsForArtist(artist.ID, timezone, 1, "upcoming")
+	// Next upcoming show — the lean single-show read (no discarded COUNT, no
+	// bill preload) instead of GetShowsForArtist (PSY-1352).
+	show, err := h.artistService.GetNextShowForArtist(artist.ID, timezone)
 	if err != nil {
 		logger.FromContext(ctx).Warn("graph-card: next-show lookup failed", "artist_id", artist.ID, "error", err)
-	} else if len(shows) > 0 && shows[0] != nil {
-		show := shows[0]
+	} else if show != nil {
 		next := &contracts.ArtistGraphCardShow{
 			ID:        show.ID,
 			EventDate: show.EventDate,
