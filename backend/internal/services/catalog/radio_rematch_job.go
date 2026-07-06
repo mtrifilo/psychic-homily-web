@@ -43,10 +43,7 @@ func (s *RadioService) startGlobalRematchJob(opts GlobalRematchOpts) (*contracts
 		return nil, err
 	}
 
-	filter := UnmatchedArtistNameFilter{
-		StationID: opts.StationID,
-		ShowID:    opts.ShowID,
-	}
+	filter := UnmatchedArtistNameFilter(opts)
 	runID := run.ID
 
 	shared.GoSafe(context.Background(), "radio_global_rematch", func() {

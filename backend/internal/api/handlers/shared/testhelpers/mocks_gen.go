@@ -2811,9 +2811,9 @@ func (m *MockRadioService) TriggerShowBackfill(showID uint, since string, until 
 	}
 	return nil, nil
 }
-func (m *MockRadioService) TriggerGlobalRematch(req contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error) {
+func (m *MockRadioService) TriggerGlobalRematch(opts contracts.GlobalRematchRequest) (*contracts.RadioSyncRunResponse, error) {
 	if m.TriggerGlobalRematchFn != nil {
-		return m.TriggerGlobalRematchFn(req)
+		return m.TriggerGlobalRematchFn(opts)
 	}
 	return nil, nil
 }
