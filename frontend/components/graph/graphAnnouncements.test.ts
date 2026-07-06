@@ -5,6 +5,7 @@ import {
   buildExpandErrorAnnouncement,
   buildCollapseAllAnnouncement,
   buildFilterAnnouncement,
+  buildDepthAnnouncement,
 } from './graphAnnouncements'
 
 describe('graphAnnouncements', () => {
@@ -32,5 +33,12 @@ describe('graphAnnouncements', () => {
   it('filter: reflects shown/hidden', () => {
     expect(buildFilterAnnouncement('Shared bills', true)).toBe('Shared bills connections shown.')
     expect(buildFilterAnnouncement('Shared bills', false)).toBe('Shared bills connections hidden.')
+  })
+
+  it('depth: pluralizes the added count at depth 2, and speaks the collapse at depth 1 (PSY-1303)', () => {
+    expect(buildDepthAnnouncement(2, 5)).toBe('Showing 2 hops — added 5 artists from the top connections.')
+    expect(buildDepthAnnouncement(2, 1)).toBe('Showing 2 hops — added 1 artist from the top connections.')
+    expect(buildDepthAnnouncement(2, 0)).toBe('Showing 2 hops — no new artists to add.')
+    expect(buildDepthAnnouncement(1, 0)).toBe('Back to 1 hop — collapsed the second-hop connections.')
   })
 })

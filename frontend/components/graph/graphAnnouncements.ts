@@ -45,3 +45,18 @@ export function buildCollapseAllAnnouncement(): string {
 export function buildFilterAnnouncement(label: string, active: boolean): string {
   return `${label} connections ${active ? 'shown' : 'hidden'}.`
 }
+
+/**
+ * Depth control (PSY-1303). Depth 2 auto-expands the top DOI-ranked neighbours,
+ * so the copy speaks how many artists that ADDED; depth 1 collapses them back.
+ */
+export function buildDepthAnnouncement(depth: 1 | 2, addedCount: number): string {
+  if (depth === 1) {
+    return 'Back to 1 hop — collapsed the second-hop connections.'
+  }
+  if (addedCount <= 0) {
+    return 'Showing 2 hops — no new artists to add.'
+  }
+  const noun = addedCount === 1 ? 'artist' : 'artists'
+  return `Showing 2 hops — added ${addedCount} ${noun} from the top connections.`
+}
