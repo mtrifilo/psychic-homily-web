@@ -64,14 +64,26 @@ export interface SceneArtist {
   // band BASED in the metro; the UI highlights the active ones.
   is_active: boolean
   // The artist's embeddable Bandcamp /album|/track URL, null when the artist has
-  // none. The /atlas scene preview plays the first ACTIVE artist that has one as
-  // the scene's "instant payoff" track (PSY-1224).
+  // none. (The /atlas preview's player now uses the scene-level
+  // `representative_embed` — PSY-1294 — so the preview no longer reads this
+  // per-artist field, but it stays on the roster payload.)
   bandcamp_embed_url?: string | null
+}
+
+// The single band whose Bandcamp embed represents the scene (PSY-1294), chosen
+// server-side over the FULL metro roster (active-first) so the preview's player
+// is independent of the fetched window. Populated on the first page only
+// (offset 0); null on later pages and when no band based here has one.
+export interface SceneRepresentativeEmbed {
+  embed_url: string
+  artist_name: string
+  artist_slug: string
 }
 
 export interface SceneArtistsResponse {
   artists: SceneArtist[]
   total: number
+  representative_embed?: SceneRepresentativeEmbed | null
 }
 
 // One upcoming show in the scene preview's "This week" row (PSY-1309) —

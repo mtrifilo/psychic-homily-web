@@ -45,7 +45,7 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
 }))
 
 import { MobileSceneList } from './MobileSceneList'
-import { EMBED_SEARCH_LIMIT } from './ScenePreviewContent'
+import { PREVIEW_ARTIST_LIMIT } from './ScenePreviewContent'
 
 function makeScene(overrides: Partial<SceneListItem>): SceneListItem {
   return {
@@ -134,11 +134,12 @@ describe('MobileSceneList', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Phoenix, AZ/ }))
 
-    // Same roster-fetch contract as the desktop panel: the WIDER embed-search
-    // limit, not the displayed count (PSY-1224).
+    // Same roster-fetch contract as the desktop panel: the display-sized limit.
+    // The player comes from the backend's representative embed (PSY-1294), so we
+    // no longer over-fetch a wider embed-search window.
     expect(mockUseSceneArtists).toHaveBeenCalledWith({
       slug: 'phoenix-az',
-      limit: EMBED_SEARCH_LIMIT,
+      limit: PREVIEW_ARTIST_LIMIT,
     })
     expect(mockUseSceneShows).toHaveBeenCalledWith('phoenix-az')
     const row = screen.getByRole('button', { name: /Phoenix, AZ/ })
@@ -192,16 +193,15 @@ describe('MobileSceneList', () => {
   it('renders the playable embed inside an expanded row', () => {
     mockUseSceneArtists.mockReturnValue({
       data: {
-        artists: [
-          {
-            id: 1,
-            slug: 'band-a',
-            name: 'Band A',
-            is_active: true,
-            bandcamp_embed_url: 'https://band-a.bandcamp.com/album/x',
-          },
-        ],
+        artists: [{ id: 1, slug: 'band-a', name: 'Band A', is_active: true }],
         total: 1,
+        // The preview plays the backend's representative embed (PSY-1294), not a
+        // per-artist field scanned from the roster above.
+        representative_embed: {
+          embed_url: 'https://band-a.bandcamp.com/album/x',
+          artist_name: 'Band A',
+          artist_slug: 'band-a',
+        },
       },
       isLoading: false,
     })
@@ -232,7 +232,7 @@ describe('MobileSceneList', () => {
 
     expect(mockUseSceneArtists).toHaveBeenCalledWith({
       slug: 'faketown-zz',
-      limit: EMBED_SEARCH_LIMIT,
+      limit: PREVIEW_ARTIST_LIMIT,
     })
     expect(
       screen.getByRole('link', { name: /open scene/i }),

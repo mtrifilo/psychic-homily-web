@@ -733,9 +733,22 @@ type SceneArtistResponse struct {
 	IsActive  bool    `json:"is_active"`
 	// BandcampEmbedURL is the artist's embeddable Bandcamp /album|/track URL
 	// (artists.bandcamp_embed_url, PSY-1187/1188/1189), nil when the artist has
-	// none. The /atlas scene preview plays the first active artist that has one
-	// as the scene's "instant payoff" track (PSY-1224).
+	// none. The /atlas preview's player now uses the scene-level
+	// RepresentativeEmbed (PSY-1294) rather than scanning this per-artist field,
+	// but it stays on the roster payload.
 	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
+}
+
+// SceneRepresentativeEmbed identifies the single band whose Bandcamp embed the
+// /atlas scene preview plays as the scene's "instant payoff" (PSY-1294). Unlike
+// the client-side pick it replaced, it is computed over the FULL metro roster
+// (not the fetched page), so a scene's only embed-having band can't silently
+// fall below the fetched window. Active bands are preferred (active-first
+// ordering); a dormant band is the fallback when no active band has an embed.
+type SceneRepresentativeEmbed struct {
+	EmbedURL   string `json:"embed_url"`
+	ArtistName string `json:"artist_name"`
+	ArtistSlug string `json:"artist_slug"`
 }
 
 // ──────────────────────────────────────────────
@@ -1035,6 +1048,14 @@ type SceneServiceInterface interface {
 	// recency window (a band is active if it has a show within it or upcoming);
 	// it is NOT a membership filter, so the returned total is the whole roster.
 	GetActiveArtists(city, state string, activeWindowDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
+	// GetRepresentativeEmbed returns the single band whose Bandcamp embed
+	// represents the scene — the first band with a non-null bandcamp_embed_url in
+	// the roster's active-first ordering, computed over the FULL metro roster (not
+	// a fetched page). nil when no band based here has an embed. Lets the /atlas
+	// preview's player be independent of the fetched roster window (PSY-1294).
+	// Same roster scope (artistPredicate) and active-first ordering as
+	// GetActiveArtists; activeWindowDays defines "active" identically.
+	GetRepresentativeEmbed(city, state string, activeWindowDays int) (*SceneRepresentativeEmbed, error)
 	ParseSceneSlug(slug string) (string, string, error)
 	// Scene registry (PSY-1339): scenes materialize a row lazily so id-keyed
 	// features (follows) can reference them. GetOrCreateSceneID canonicalizes

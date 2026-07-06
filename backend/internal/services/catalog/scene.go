@@ -58,6 +58,16 @@ const (
 	// ≤7-day slice of a scene's upcoming shows that drives the Atlas globe's
 	// pulse treatment and the preview panel's "This week" row.
 	sceneThisWeekDays = 7
+
+	// sceneRosterActiveOrderBy is the canonical active-first roster ordering,
+	// shared by GetActiveArtists (the paginated roster) and GetRepresentativeEmbed
+	// (the full-roster embed pick) so the "representative" embed matches the top of
+	// the displayed roster. a.id is the final UNIQUE tiebreak — without it a tie on
+	// the first three keys is nondeterministic under LIMIT/pagination, which would
+	// let the embed (a single LIMIT 1 row) flip between homonym bands (PSY-1294
+	// review). Columns are aliases/`a.`-qualified, so both queries must SELECT
+	// is_active + show_count and alias the artists table `a`.
+	sceneRosterActiveOrderBy = "is_active DESC, show_count DESC, a.name ASC, a.id ASC"
 )
 
 // usCountry is the country passed to the geocoder when resolving a scene's
@@ -639,7 +649,7 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 			GROUP BY sa.artist_id
 		) ss ON ss.artist_id = a.id
 		WHERE `+ap+`
-		ORDER BY is_active DESC, show_count DESC, a.name ASC
+		ORDER BY `+sceneRosterActiveOrderBy+`
 		LIMIT ? OFFSET ?
 	`, rowsArgs...).Scan(&rows).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get scene artists: %w", err)
@@ -664,6 +674,84 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 	}
 
 	return results, total, nil
+}
+
+// GetRepresentativeEmbed returns the single band whose Bandcamp embed represents
+// the scene — the top band with a non-null bandcamp_embed_url in the same
+// active-first ordering as GetActiveArtists, computed over the FULL metro roster
+// (PSY-1294). Returns nil when no band based here has an embed. This is the
+// full-roster FALLBACK: the handler first looks for the embed in the fetched
+// roster page (where the top embed-having band almost always is) and only calls
+// this when the page has none but the roster is larger, so it decouples the
+// /atlas preview's player from the fetched window without a query per preview.
+func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	scope := s.scopeFor(city, state)
+	if n, err := s.verifiedVenueCount(scope); err != nil {
+		return nil, fmt.Errorf("failed to count venues: %w", err)
+	} else if n < sceneMinVenues {
+		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
+	}
+
+	ap, aargs := s.artistPredicate(scope, "a")
+	activeCutoff := time.Now().UTC().AddDate(0, 0, -activeWindowDays)
+
+	type embedRow struct {
+		Slug             *string `gorm:"column:slug"`
+		Name             string  `gorm:"column:name"`
+		BandcampEmbedURL string  `gorm:"column:bandcamp_embed_url"`
+	}
+
+	// Same active-first ordering as GetActiveArtists (shared sceneRosterActiveOrderBy
+	// const), restricted to bands that HAVE an embed, top 1. The is_active and
+	// show_count SELECT aliases are REQUIRED by that ORDER BY and must stay even
+	// though embedRow ignores them — dropping them makes Postgres fail to resolve
+	// the ORDER BY. Active bands surface first; a dormant band is the fallback
+	// (PSY-1294 decision). Placeholder order mirrors GetActiveArtists: cutoff
+	// (SELECT), status (subquery), then the roster predicate args.
+	args := append([]any{activeCutoff, catalogm.ShowStatusApproved}, aargs...)
+	var row embedRow
+	result := s.db.Raw(`
+		SELECT a.slug, a.name, a.bandcamp_embed_url,
+		       COALESCE(ss.last_show >= ?, false) AS is_active,
+		       COALESCE(ss.show_count, 0) AS show_count
+		FROM artists a
+		LEFT JOIN (
+			SELECT sa.artist_id,
+			       COUNT(DISTINCT s.id) AS show_count,
+			       MAX(s.event_date) AS last_show
+			FROM show_artists sa
+			JOIN shows s ON s.id = sa.show_id
+			WHERE s.status = ?
+			GROUP BY sa.artist_id
+		) ss ON ss.artist_id = a.id
+		WHERE `+ap+` AND a.bandcamp_embed_url IS NOT NULL AND a.bandcamp_embed_url <> ''
+		ORDER BY `+sceneRosterActiveOrderBy+`
+		LIMIT 1
+	`, args...).Scan(&row)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get representative embed: %w", result.Error)
+	}
+	// No matching row leaves `row` zero-valued. The WHERE filters to a non-empty
+	// bandcamp_embed_url, so an empty URL here unambiguously means no band based in
+	// this metro has an embed — the preview shows no player. (Uses the file's
+	// zero-value no-row idiom, cf. parseSceneSlugParts.)
+	if row.BandcampEmbedURL == "" {
+		return nil, nil
+	}
+
+	slug := ""
+	if row.Slug != nil {
+		slug = *row.Slug
+	}
+	return &contracts.SceneRepresentativeEmbed{
+		EmbedURL:   row.BandcampEmbedURL,
+		ArtistName: row.Name,
+		ArtistSlug: slug,
+	}, nil
 }
 
 // parseSceneSlugParts splits a scene slug "city-state" into its raw lowercase

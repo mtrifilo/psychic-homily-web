@@ -7,6 +7,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -106,6 +107,10 @@ type GetSceneActiveArtistsResponse struct {
 	Body struct {
 		Artists []*contracts.SceneArtistResponse `json:"artists" doc:"The scene's roster — bands based in the metro, active ones (is_active) first"`
 		Total   int64                            `json:"total" doc:"Total roster size (all bands based in the metro), NOT just the active subset"`
+		// RepresentativeEmbed is chosen over the FULL roster (active-first), so the
+		// preview's player is independent of the returned page (PSY-1294). null when
+		// no band based in the metro has a Bandcamp embed.
+		RepresentativeEmbed *contracts.SceneRepresentativeEmbed `json:"representative_embed" doc:"The single band whose Bandcamp embed represents the scene — computed over the full metro roster, so it's independent of the returned page. Populated on the first page only (offset 0); null on later pages, and null when no band based here has an embed."`
 	}
 }
 
@@ -141,8 +146,53 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 	resp := &GetSceneActiveArtistsResponse{}
 	resp.Body.Artists = artists
 	resp.Body.Total = total
+	resp.Body.RepresentativeEmbed = h.representativeEmbed(ctx, city, state, period, req.Offset, artists, total)
 
 	return resp, nil
+}
+
+// representativeEmbed picks the scene's instant-payoff embed for the /atlas
+// preview (PSY-1294): the top embed-having band in the active-first roster,
+// chosen over the FULL roster so it can't silently fall below the fetched
+// window. The roster is active-first ordered, so on the first page the top
+// embed-having band is almost always already in `page` — derive it there for
+// free (no second query). Only when the page holds none but the roster is larger
+// do we scan the full roster for one (the coverage case). The player is
+// secondary payoff: a lookup failure logs and yields no player rather than
+// failing the roster response — which the full scene page also depends on
+// (mirrors the non-fatal secondary lookups in artist_graph_card.go). Returned
+// only for the first page (offset 0) — it's a scene-level field, not per-page.
+//
+// This runs for EVERY consumer of GET /scenes/{slug}/artists, including the full
+// scene page (SceneDetail), which ignores the field — accepted because the
+// common case is free (the embed comes from `page`) and the full-roster fallback
+// fires only when the first page holds no embed but the roster is larger (rare,
+// and scene-page loads are infrequent). Gate behind an opt-in param if that
+// fallback ever shows up as measurable load.
+func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state string, activeWindowDays, offset int, page []*contracts.SceneArtistResponse, total int64) *contracts.SceneRepresentativeEmbed {
+	if offset != 0 {
+		return nil
+	}
+	for _, a := range page {
+		if a.BandcampEmbedURL != nil && *a.BandcampEmbedURL != "" {
+			return &contracts.SceneRepresentativeEmbed{
+				EmbedURL:   *a.BandcampEmbedURL,
+				ArtistName: a.Name,
+				ArtistSlug: a.Slug,
+			}
+		}
+	}
+	if int64(len(page)) >= total {
+		// The page IS the whole roster — no embed-having band exists anywhere.
+		return nil
+	}
+	embed, err := h.sceneService.GetRepresentativeEmbed(city, state, activeWindowDays)
+	if err != nil {
+		logger.FromContext(ctx).Warn("scene-artists: representative embed lookup failed",
+			"city", city, "state", state, "error", err)
+		return nil
+	}
+	return embed
 }
 
 // ============================================================================
