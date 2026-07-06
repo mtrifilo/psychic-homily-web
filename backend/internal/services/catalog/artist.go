@@ -933,6 +933,11 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		dateCondition = "shows.event_date >= ?"
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
 	}
+	// Deterministic tiebreak on equal event_date (id ASC) — without it the
+	// Pluck below is implementation-defined on a tie, and would then disagree
+	// with GetNextShowForArtist (whose First appends the same shows.id) about
+	// which show is "next" for an artist double-booked on one date (PSY-1352).
+	orderDirection += ", shows.id ASC"
 
 	// Count total shows matching the filter
 	var total int64
@@ -1086,7 +1091,11 @@ func (s *ArtistService) GetNextShowForArtist(artistID uint, timezone string) (*c
 		Joins("JOIN show_artists ON show_artists.show_id = shows.id").
 		Where("show_artists.artist_id = ? AND shows.status = ? AND shows.event_date >= ?",
 			artistID, catalogm.ShowStatusApproved, startOfTodayUTC).
+		// Explicit shows.id tiebreak so a same-event_date tie is deterministic
+		// AND matches GetShowsForArtist (PSY-1352). (First would also append the
+		// pk, but stating it keeps the two paths' intent visibly identical.)
 		Order("shows.event_date ASC").
+		Order("shows.id ASC").
 		First(&show).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
