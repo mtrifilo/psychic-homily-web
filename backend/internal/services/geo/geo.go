@@ -513,9 +513,9 @@ func (g *offlineGeocoder) ResolveMetro(city, state, country string) (Metro, bool
 		return Metro{}, false // miss, non-US, or US place not in any CBSA
 	}
 	if _, admin1 := g.resolveCountry(state, country); admin1 != "" {
-		// A US state was given — trust the metro only if it actually pinned THIS
-		// place. A mismatch means bestCity fell back to the highest-population
-		// namesake (admin1 is a preference, not a hard filter), so refuse.
+		// A US state was given. bestCity hard-filters to same-state rows, so a hit
+		// already pins THIS place and a mismatch is unreachable — kept as a
+		// defensive guard in case bestCity's filtering ever changes.
 		if best.admin1 != admin1 {
 			return Metro{}, false
 		}
@@ -528,9 +528,11 @@ func (g *offlineGeocoder) ResolveMetro(city, state, country string) (Metro, bool
 }
 
 // bestCity selects the populated place a (city, state, country) refers to: it
-// filters the name's candidates by a confident country, prefers an exact US-state
-// (admin1) match, then takes the highest-population row. Shared by Resolve and
-// ResolveMetro so coordinates/timezone and metro always describe the SAME place.
+// hard-filters the name's candidates by a confident country and, when one is
+// resolved, a confident US state (admin1) — returning a miss rather than a
+// wrong-country or wrong-state guess — then takes the highest-population row.
+// Shared by Resolve and ResolveMetro so coordinates/timezone and metro always
+// describe the SAME place.
 func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) {
 	cityKey := foldKey(city)
 	if cityKey == "" {
@@ -546,19 +548,28 @@ func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) 
 	// If we know the country, restrict to it. A confident country with no
 	// in-country match returns a miss rather than a wrong-country guess.
 	if iso != "" {
-		var filtered []cityRow
+		var byCountry []cityRow
 		for _, c := range candidates {
 			if c.country == iso {
-				filtered = append(filtered, c)
+				byCountry = append(byCountry, c)
 			}
 		}
-		if len(filtered) == 0 {
+		if len(byCountry) == 0 {
 			return cityRow{}, false
 		}
-		candidates = filtered
+		candidates = byCountry
 	}
 
-	// Prefer an exact US-state (admin1) match when we have one.
+	// A confident US state is a HARD filter, not a preference: with no same-state
+	// namesake in the dataset, refuse rather than fall back to the highest-
+	// population namesake in another state — that fallback carried the wrong
+	// timezone. Sidney, NE (pop ~6,800) is below the cities15000 threshold, so a
+	// NE-pinned lookup found only Sidney, OH and returned America/New_York
+	// (PSY-1012). A miss leaves venue.timezone NULL, so render/anchoring falls back
+	// to the state->tz map (utils.EventLocation -> America/Chicago for NE, a
+	// Nebraska zone, not Ohio's Eastern). Mirrors the confident-country hard filter
+	// above and the refuse-to-guess policy ResolveMetro/ResolveUSState enforce
+	// (PSY-1244).
 	if admin1 != "" {
 		var byAdmin []cityRow
 		for _, c := range candidates {
@@ -566,9 +577,10 @@ func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) 
 				byAdmin = append(byAdmin, c)
 			}
 		}
-		if len(byAdmin) > 0 {
-			candidates = byAdmin
+		if len(byAdmin) == 0 {
+			return cityRow{}, false
 		}
+		candidates = byAdmin
 	}
 
 	best := candidates[0]
