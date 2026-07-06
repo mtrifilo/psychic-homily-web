@@ -1,7 +1,7 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
-import { rematchRadioPlaysChunked } from "../lib/radio";
+import { rematchRadioPlaysChunked, rematchRadioPlays, dedupeArtistNames, aggregateRematchResults } from "../lib/radio";
 import { expandInlineRosters, type RosterItem } from "../lib/roster";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
@@ -124,6 +124,24 @@ export function groupByType(
   return groups;
 }
 
+/** Artist/label names from a batch file — scoped post-confirm radio rematch. */
+export function batchRematchNames(items: BatchItem[]): {
+  artistNames: string[];
+  labelNames: string[];
+} {
+  const artists: string[] = [];
+  const labels: string[] = [];
+  for (const item of items) {
+    if (typeof item.name !== "string" || !item.name.trim()) continue;
+    if (item.entity_type === "artist") artists.push(item.name);
+    if (item.entity_type === "label") labels.push(item.name);
+  }
+  return {
+    artistNames: dedupeArtistNames(artists),
+    labelNames: dedupeArtistNames(labels),
+  };
+}
+
 // -- Core batch logic --
 
 /**
@@ -180,16 +198,29 @@ export async function processBatch(
     display.warn("Dry run. Use --confirm to execute.");
   } else if (result.totalCreated > 0 || result.totalUpdated > 0) {
     try {
-      const rematch = await rematchRadioPlaysChunked(client);
-      if (rematch.matched > 0) {
+      const { artistNames, labelNames } = batchRematchNames(items);
+      const artistResult =
+        artistNames.length > 0
+          ? await rematchRadioPlaysChunked(client, { artistNames })
+          : { namesProcessed: 0, total: 0, matched: 0, unmatched: 0 };
+      const labelResults = [];
+      for (const labelName of labelNames) {
+        labelResults.push(await rematchRadioPlays(client, { labelName }));
+      }
+      const labelAgg = aggregateRematchResults(labelResults);
+      const matched = artistResult.matched + labelAgg.matched;
+      const total = artistResult.total + labelAgg.total;
+      const unmatched = artistResult.unmatched + labelAgg.unmatched;
+      const namesProcessed = artistResult.namesProcessed + labelNames.length;
+      if (matched > 0) {
         display.info(
-          `Radio rematch linked ${rematch.matched} play(s) across ${rematch.namesProcessed} name(s) ` +
-            `(${rematch.unmatched} still unmatched of ${rematch.total} scanned).`,
+          `Radio rematch linked ${matched} play(s) across ${namesProcessed} batch name(s) ` +
+            `(${unmatched} still unmatched of ${total} scanned).`,
         );
-      } else {
+      } else if (namesProcessed > 0) {
         display.info(
-          `Radio rematch: no new play links across ${rematch.namesProcessed} name(s) ` +
-            `(${rematch.total} unmatched plays scanned).`,
+          `Radio rematch: no new play links across ${namesProcessed} batch name(s) ` +
+            `(${total} unmatched plays scanned).`,
         );
       }
     } catch (err) {

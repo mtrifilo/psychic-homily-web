@@ -3,6 +3,7 @@ import {
   parseBatchInput,
   validateBatchItems,
   groupByType,
+  batchRematchNames,
 } from "../src/commands/batch";
 
 // -- parseBatchInput --
@@ -188,6 +189,20 @@ describe("groupByType", () => {
 
     expect(labelIdx).toBeLessThan(artistIdx);
     expect(artistIdx).toBeLessThan(releaseIdx);
+  });
+});
+
+describe("batchRematchNames", () => {
+  test("collects deduped artist and label names from batch items", () => {
+    const names = batchRematchNames([
+      { entity_type: "artist", name: "Metric" },
+      { entity_type: "artist", name: "Metric" },
+      { entity_type: "label", name: "4AD" },
+      { entity_type: "release", title: "LP" },
+      { entity_type: "artist", name: "  " },
+    ]);
+    expect(names.artistNames).toEqual(["Metric"]);
+    expect(names.labelNames).toEqual(["4AD"]);
   });
 });
 
