@@ -247,6 +247,148 @@ func TestGetSceneActiveArtists_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+// PSY-1294 page-first: the representative embed is the top embed-having band
+// already in the fetched roster page — derived from the page, so no full-roster
+// fallback query runs.
+func TestGetSceneActiveArtists_RepresentativeEmbedFromPage(t *testing.T) {
+	embedURL := "https://band-a.bandcamp.com/album/x"
+	fallbackCalled := false
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{
+				{ID: 1, Slug: "no-embed", Name: "No Embed"},
+				{ID: 2, Slug: "band-a", Name: "Band A", BandcampEmbedURL: &embedURL},
+			}, 2, nil
+		},
+		GetRepresentativeEmbedFn: func(city, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
+			fallbackCalled = true
+			return nil, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneActiveArtistsRequest{Slug: "phoenix-az", Period: 90, Limit: 20}
+	resp, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.RepresentativeEmbed == nil {
+		t.Fatal("expected representative_embed derived from the page")
+	}
+	if resp.Body.RepresentativeEmbed.EmbedURL != embedURL {
+		t.Errorf("unexpected embed url: %s", resp.Body.RepresentativeEmbed.EmbedURL)
+	}
+	if resp.Body.RepresentativeEmbed.ArtistName != "Band A" {
+		t.Errorf("unexpected embed artist: %s", resp.Body.RepresentativeEmbed.ArtistName)
+	}
+	if fallbackCalled {
+		t.Error("full-roster fallback should NOT run when the page already has an embed")
+	}
+}
+
+// PSY-1294 coverage case: the fetched page has no embed-having band but the
+// roster is larger, so the handler scans the full roster (passing the request's
+// active window).
+func TestGetSceneActiveArtists_RepresentativeEmbedFallbackScan(t *testing.T) {
+	var capturedWindow int
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			// One page row, no embed, but total says more bands exist below it.
+			return []*contracts.SceneArtistResponse{{ID: 1, Slug: "no-embed", Name: "No Embed"}}, 5, nil
+		},
+		GetRepresentativeEmbedFn: func(city, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
+			capturedWindow = activeWindowDays
+			return &contracts.SceneRepresentativeEmbed{
+				EmbedURL:   "https://deep-cut.bandcamp.com/album/x",
+				ArtistName: "Deep Cut",
+				ArtistSlug: "deep-cut",
+			}, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneActiveArtistsRequest{Slug: "phoenix-az", Period: 90, Limit: 20}
+	resp, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.RepresentativeEmbed == nil {
+		t.Fatal("expected representative_embed from the full-roster fallback")
+	}
+	if resp.Body.RepresentativeEmbed.ArtistName != "Deep Cut" {
+		t.Errorf("unexpected embed artist: %s", resp.Body.RepresentativeEmbed.ArtistName)
+	}
+	if capturedWindow != 90 {
+		t.Errorf("expected the request period (90) passed to the fallback, got %d", capturedWindow)
+	}
+}
+
+// The page has no embed and IS the whole roster (len >= total) → nil, and no
+// fallback scan (there can be no embed-having band below the page).
+func TestGetSceneActiveArtists_RepresentativeEmbedNil(t *testing.T) {
+	fallbackCalled := false
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{{ID: 1, Slug: "band-a", Name: "Band A"}}, 1, nil
+		},
+		GetRepresentativeEmbedFn: func(city, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
+			fallbackCalled = true
+			return nil, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneActiveArtistsRequest{Slug: "phoenix-az", Period: 90, Limit: 20}
+	resp, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.RepresentativeEmbed != nil {
+		t.Errorf("expected nil representative_embed, got %+v", resp.Body.RepresentativeEmbed)
+	}
+	if fallbackCalled {
+		t.Error("no full-roster scan when the page is already the whole roster")
+	}
+	if len(resp.Body.Artists) != 1 {
+		t.Errorf("roster still returns alongside a nil embed; got %d artists", len(resp.Body.Artists))
+	}
+}
+
+// The representative embed is SECONDARY payoff: a fallback-scan failure logs and
+// yields no player, but must NOT fail the roster response (no 500) — the full
+// scene page depends on this same endpoint.
+func TestGetSceneActiveArtists_RepresentativeEmbedErrorIsNonFatal(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{{ID: 1, Slug: "no-embed", Name: "No Embed"}}, 5, nil
+		},
+		GetRepresentativeEmbedFn: func(city, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
+			return nil, fmt.Errorf("database connection lost")
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneActiveArtistsRequest{Slug: "phoenix-az", Period: 90, Limit: 20}
+	resp, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("embed failure must not fail the roster response: %v", err)
+	}
+	if resp.Body.RepresentativeEmbed != nil {
+		t.Error("expected nil representative_embed after a fallback error")
+	}
+	if len(resp.Body.Artists) != 1 {
+		t.Errorf("roster still returns despite the embed error; got %d artists", len(resp.Body.Artists))
+	}
+}
+
 // ============================================================================
 // GetSceneGraphHandler Tests
 // ============================================================================

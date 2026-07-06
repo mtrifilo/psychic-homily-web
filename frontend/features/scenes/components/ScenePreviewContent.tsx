@@ -23,12 +23,12 @@ function formatShowDate(isoDate: string): string {
   })
 }
 
-// How many roster rows the preview lists. We fetch a WIDER slice (below) so the
-// embed search isn't capped to the shown few — a scene's only Bandcamp-having
-// active band can rank below the visible list (PSY-1224 review). Full-roster
-// coverage (a backend "representative embed") is the deferred complete fix.
-const PREVIEW_ARTIST_LIMIT = 6
-export const EMBED_SEARCH_LIMIT = 24
+// How many roster rows the preview lists — and the fetch size. The player no
+// longer comes from this roster: the backend picks a "representative embed" over
+// the FULL metro roster (PSY-1294), so we no longer over-fetch to embed-search a
+// band ranked below the shown few (the PSY-1224 deferred complete fix, now done).
+// Exported for the fetch-contract tests.
+export const PREVIEW_ARTIST_LIMIT = 6
 // Cap the bill names in a "This week" row — the panel is one narrow column
 // and a festival-sized bill would wrap it into a paragraph.
 const SHOW_BILL_NAME_LIMIT = 3
@@ -61,7 +61,7 @@ export function ScenePreviewContent({
 }) {
   const { data, isLoading, isError } = useSceneArtists({
     slug: scene.slug,
-    limit: EMBED_SEARCH_LIMIT,
+    limit: PREVIEW_ARTIST_LIMIT,
   })
   const artists = data?.artists ?? []
   // "This week" (PSY-1309): the scene's next shows in the 7-day window —
@@ -70,15 +70,15 @@ export function ScenePreviewContent({
   const { data: showsData } = useSceneShows(scene.slug)
   const weekShows = showsData?.shows ?? []
 
-  // The "instant payoff": play the first ACTIVE local band that has an
-  // embeddable Bandcamp track, so opening a scene yields something to HEAR
-  // immediately, not just a list (PSY-1224). The roster is active-first ordered,
-  // so this is the most prominent active band with a track. Rendered only when
-  // one exists — absence is the graceful empty state (no player). When one
-  // exists, MusicEmbed owns its own loading state and degrades to a Bandcamp
-  // link if the track can't be resolved.
-  const embedArtist = artists.find((a) => a.is_active && a.bandcamp_embed_url)
-  // Display only the top few; the embed may come from further down the roster.
+  // The "instant payoff": play the scene's representative embed so opening a
+  // scene yields something to HEAR immediately, not just a list (PSY-1224). The
+  // backend chooses it over the FULL metro roster (active-first, PSY-1294), so
+  // it's independent of the fetched page above — a scene's only embed-having
+  // band can't fall below the window. Rendered only when one exists; absence
+  // (null) is the graceful empty state (no player). MusicEmbed owns its own
+  // loading state and degrades to a Bandcamp link if the track can't resolve.
+  const embed = data?.representative_embed
+  // Defensive display cap (the fetch already returns exactly this many).
   const displayArtists = artists.slice(0, PREVIEW_ARTIST_LIMIT)
 
   return (
@@ -90,15 +90,15 @@ export function ScenePreviewContent({
         <FollowButton entityType="scenes" entityId={scene.slug} compact />
         <SceneNotifyModeToggle slug={scene.slug} />
       </div>
-      {embedArtist && (
+      {embed && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Listen
           </h3>
           <div className="mt-2">
             <MusicEmbed
-              bandcampAlbumUrl={embedArtist.bandcamp_embed_url}
-              artistName={embedArtist.name}
+              bandcampAlbumUrl={embed.embed_url}
+              artistName={embed.artist_name}
               compact
             />
           </div>

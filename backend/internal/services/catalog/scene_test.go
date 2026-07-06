@@ -1039,6 +1039,152 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_NotFound() {
 }
 
 // =============================================================================
+// GetRepresentativeEmbed Tests (PSY-1294)
+// =============================================================================
+
+// The representative embed is chosen over the FULL roster: it surfaces an
+// embed-having band even when a HIGHER-ranked band (more shows) has no embed —
+// the coverage gap the client-side, window-capped pick left open.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_PicksEmbedPastHigherRankedBand() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("RE V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("RE V2", "Phoenix", "AZ")
+
+	// Top-ranked active band (most shows) has NO embed — it must be skipped.
+	topNoEmbed := suite.createArtistIn("AAA Top No Embed", "Phoenix", "AZ")
+	// Lower-ranked active band (fewer shows) HAS an embed.
+	const embedURL = "https://withembed.bandcamp.com/album/x"
+	withEmbed := &catalogm.Artist{
+		Name:             "ZZZ With Embed",
+		Slug:             stringPtr("zzz-with-embed"),
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr(embedURL),
+	}
+	suite.Require().NoError(suite.db.Create(withEmbed).Error)
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	// topNoEmbed gets more shows → outranks withEmbed in the active-first order.
+	suite.createApprovedShow("T1", v1.ID, topNoEmbed.ID, user.ID, future)
+	suite.createApprovedShow("T2", v2.ID, topNoEmbed.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("W1", v1.ID, withEmbed.ID, user.ID, future.AddDate(0, 0, 2))
+
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Phoenix", "AZ", 180)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(embed, "an embed-having band exists in the roster")
+	suite.Equal(embedURL, embed.EmbedURL)
+	suite.Equal("ZZZ With Embed", embed.ArtistName)
+	suite.Equal("zzz-with-embed", embed.ArtistSlug)
+}
+
+// Active-first: with two embed-having bands, the ACTIVE one wins even when the
+// inactive one sorts first alphabetically.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_PrefersActiveBand() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("RE2 V1", "Phoenix", "AZ")
+	// Second verified venue only exists to clear the scene threshold (2 venues).
+	suite.createVerifiedVenue("RE2 V2", "Phoenix", "AZ")
+
+	// Inactive band (no show) whose name sorts BEFORE the active one — proving
+	// is_active DESC beats the name tiebreak.
+	inactiveWithEmbed := &catalogm.Artist{
+		Name:             "AAA Inactive Embed",
+		Slug:             stringPtr("aaa-inactive-embed"),
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr("https://inactive.bandcamp.com/album/x"),
+	}
+	suite.Require().NoError(suite.db.Create(inactiveWithEmbed).Error)
+
+	const activeURL = "https://active.bandcamp.com/album/y"
+	activeWithEmbed := &catalogm.Artist{
+		Name:             "ZZZ Active Embed",
+		Slug:             stringPtr("zzz-active-embed"),
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr(activeURL),
+	}
+	suite.Require().NoError(suite.db.Create(activeWithEmbed).Error)
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("A1", v1.ID, activeWithEmbed.ID, user.ID, future)
+
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Phoenix", "AZ", 180)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(embed)
+	suite.Equal(activeURL, embed.EmbedURL, "the ACTIVE band wins over the inactive one")
+	suite.Equal("ZZZ Active Embed", embed.ArtistName)
+}
+
+// PSY-1294 decision "active-first, else any": when NO active band has an embed
+// but a dormant one does, the dormant band is the fallback (not silence). Also
+// pins scope — a touring act based elsewhere with an embed is NOT chosen.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_FallsBackToDormantAndRespectsScope() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("RE3 V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("RE3 V2", "Phoenix", "AZ")
+
+	// The only ACTIVE Phoenix band has no embed.
+	activeNoEmbed := suite.createArtistIn("Active No Embed", "Phoenix", "AZ")
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("AN1", v1.ID, activeNoEmbed.ID, user.ID, future)
+
+	// A dormant (no show) Phoenix band DOES have an embed — the fallback.
+	const dormantURL = "https://dormant.bandcamp.com/album/x"
+	dormantLocal := &catalogm.Artist{
+		Name:             "Dormant Local",
+		Slug:             stringPtr("dormant-local"),
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr(dormantURL),
+	}
+	suite.Require().NoError(suite.db.Create(dormantLocal).Error)
+
+	// A touring act based in LA with an embed must be excluded by scope, even
+	// though it played a Phoenix venue (upcoming show) — proving the roster is
+	// metro-residence, not played-here.
+	tourer := &catalogm.Artist{
+		Name:             "LA Tourer Embed",
+		Slug:             stringPtr("la-tourer-embed"),
+		City:             stringPtr("Los Angeles"),
+		State:            stringPtr("CA"),
+		Metro:            seedMetro("Los Angeles", "CA"),
+		BandcampEmbedURL: stringPtr("https://tourer.bandcamp.com/album/z"),
+	}
+	suite.Require().NoError(suite.db.Create(tourer).Error)
+	suite.createApprovedShow("Tour", v2.ID, tourer.ID, user.ID, future.AddDate(0, 0, 1))
+
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Phoenix", "AZ", 180)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(embed, "a dormant local band's embed is the fallback")
+	suite.Equal(dormantURL, embed.EmbedURL)
+	suite.Equal("Dormant Local", embed.ArtistName)
+	suite.Equal("dormant-local", embed.ArtistSlug)
+}
+
+// A valid scene where no band based here has an embed → nil (the preview shows
+// no player), NOT an error.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_NilWhenNoBandHasEmbed() {
+	suite.seedSceneData() // 3 venues, 3 bands, none with an embed
+
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Phoenix", "AZ", 180)
+	suite.Require().NoError(err)
+	suite.Nil(embed, "no embed-having band → nil, not an error")
+}
+
+// An unknown scene returns the scene-not-found error, same as the roster query.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_NotFound() {
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Nowhere", "XX", 180)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "scene not found")
+	suite.Nil(embed)
+}
+
+// =============================================================================
 // ParseSceneSlug Tests
 // =============================================================================
 

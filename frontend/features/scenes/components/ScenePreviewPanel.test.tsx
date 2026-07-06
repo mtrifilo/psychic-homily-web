@@ -49,7 +49,7 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
 }))
 
 import { ScenePreviewPanel } from './ScenePreviewPanel'
-import { EMBED_SEARCH_LIMIT } from './ScenePreviewContent'
+import { PREVIEW_ARTIST_LIMIT } from './ScenePreviewContent'
 
 const scene: SceneListItem = {
   city: 'Chicago',
@@ -86,12 +86,12 @@ describe('ScenePreviewPanel', () => {
     expect(
       screen.getByRole('link', { name: /open scene/i }),
     ).toHaveAttribute('href', '/scenes/chicago-il')
-    // Pins the roster fetch contract: this slug, and the WIDER embed-search
-    // limit (not the displayed count) so the player isn't capped to the shown
-    // few (PSY-1224 review).
+    // Pins the roster fetch contract: this slug and the display-sized limit. The
+    // player no longer comes from this roster (the backend picks it over the full
+    // roster — PSY-1294), so we no longer over-fetch beyond the shown few.
     expect(mockUseSceneArtists).toHaveBeenCalledWith({
       slug: 'chicago-il',
-      limit: EMBED_SEARCH_LIMIT,
+      limit: PREVIEW_ARTIST_LIMIT,
     })
   })
 
@@ -224,21 +224,21 @@ describe('ScenePreviewPanel', () => {
     expect(screen.getByText(/no artists based here yet/i)).toBeInTheDocument()
   })
 
-  // PSY-1224: the "instant payoff" — play the first active local band that has an
-  // embeddable Bandcamp track.
-  it('plays the first active artist that has a Bandcamp embed', () => {
+  // PSY-1224/PSY-1294: the "instant payoff" — the preview plays the scene's
+  // representative embed, chosen by the BACKEND over the full metro roster. The
+  // component just renders whatever `representative_embed` the response carries;
+  // the selection logic (active-first, below-window coverage, dormant fallback)
+  // lives in the scene service and is covered by its integration tests.
+  it('plays the scene representative embed from the response', () => {
     mockUseSceneArtists.mockReturnValue({
       data: {
-        artists: [
-          {
-            id: 1,
-            slug: 'band-a',
-            name: 'Band A',
-            is_active: true,
-            bandcamp_embed_url: 'https://band-a.bandcamp.com/album/x',
-          },
-        ],
+        artists: [{ id: 1, slug: 'band-a', name: 'Band A', is_active: true }],
         total: 1,
+        representative_embed: {
+          embed_url: 'https://band-a.bandcamp.com/album/x',
+          artist_name: 'Band A',
+          artist_slug: 'band-a',
+        },
       },
       isLoading: false,
     })
@@ -246,6 +246,7 @@ describe('ScenePreviewPanel', () => {
 
     expect(screen.getByRole('heading', { name: 'Listen' })).toBeInTheDocument()
     expect(screen.getByTestId('music-embed')).toBeInTheDocument()
+    expect(mockMusicEmbed).toHaveBeenCalledTimes(1)
     expect(mockMusicEmbed).toHaveBeenCalledWith(
       expect.objectContaining({
         bandcampAlbumUrl: 'https://band-a.bandcamp.com/album/x',
@@ -254,65 +255,31 @@ describe('ScenePreviewPanel', () => {
     )
   })
 
-  it('skips inactive bands and active bands without an embed when choosing the track', () => {
-    mockUseSceneArtists.mockReturnValue({
-      data: {
-        artists: [
-          { id: 1, slug: 'a', name: 'Active No Embed', is_active: true },
-          {
-            id: 2,
-            slug: 'b',
-            name: 'Inactive With Embed',
-            is_active: false,
-            bandcamp_embed_url: 'https://b.bandcamp.com/album/y',
-          },
-          {
-            id: 3,
-            slug: 'c',
-            name: 'Active With Embed',
-            is_active: true,
-            bandcamp_embed_url: 'https://c.bandcamp.com/album/z',
-          },
-        ],
-        total: 3,
-      },
-      isLoading: false,
-    })
-    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
-
-    expect(mockMusicEmbed).toHaveBeenCalledTimes(1)
-    expect(mockMusicEmbed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        artistName: 'Active With Embed',
-        bandcampAlbumUrl: 'https://c.bandcamp.com/album/z',
-      }),
-    )
-  })
-
-  it('embeds a band ranked below the displayed list (wider fetch than display)', () => {
-    // Six active bands without embeds fill the visible list; a 7th active band
-    // with an embed must still be chosen for the player even though it's not
-    // shown — the whole point of fetching wider than we display.
+  it('plays the representative embed even when its band is not in the shown roster', () => {
+    // The whole point of PSY-1294: the embed source is decoupled from the fetched
+    // roster. Six bands fill the shown list; the representative embed is a band
+    // that isn't among them, and it still plays.
     const visible = Array.from({ length: 6 }, (_, i) => ({
       id: i + 1,
       slug: `band-${i}`,
       name: `Band ${i}`,
       is_active: true,
     }))
-    const deepCut = {
-      id: 99,
-      slug: 'deep-cut',
-      name: 'Deep Cut',
-      is_active: true,
-      bandcamp_embed_url: 'https://deep-cut.bandcamp.com/album/x',
-    }
     mockUseSceneArtists.mockReturnValue({
-      data: { artists: [...visible, deepCut], total: 7 },
+      data: {
+        artists: visible,
+        total: 7,
+        representative_embed: {
+          embed_url: 'https://deep-cut.bandcamp.com/album/x',
+          artist_name: 'Deep Cut',
+          artist_slug: 'deep-cut',
+        },
+      },
       isLoading: false,
     })
     renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
 
-    // The player uses the deep-roster band (its name shows in the embed)...
+    // The player uses the representative band (its name shows in the embed)...
     expect(mockMusicEmbed).toHaveBeenCalledWith(
       expect.objectContaining({
         artistName: 'Deep Cut',
@@ -320,27 +287,19 @@ describe('ScenePreviewPanel', () => {
       }),
     )
     expect(screen.getByTestId('music-embed')).toHaveTextContent('Deep Cut')
-    // ...but the displayed roster is capped — Deep Cut isn't a list entry.
+    // ...but it's not one of the shown roster rows.
     expect(
       screen.queryByRole('link', { name: 'Deep Cut' }),
     ).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Band 0' })).toBeInTheDocument()
   })
 
-  it('shows no player when no active artist has an embed (graceful empty)', () => {
+  it('shows no player when the scene has no representative embed (graceful empty)', () => {
     mockUseSceneArtists.mockReturnValue({
       data: {
-        artists: [
-          { id: 1, slug: 'a', name: 'Active No Embed', is_active: true },
-          {
-            id: 2,
-            slug: 'b',
-            name: 'Inactive With Embed',
-            is_active: false,
-            bandcamp_embed_url: 'https://b.bandcamp.com/album/y',
-          },
-        ],
-        total: 2,
+        artists: [{ id: 1, slug: 'a', name: 'Band A', is_active: true }],
+        total: 1,
+        representative_embed: null,
       },
       isLoading: false,
     })
