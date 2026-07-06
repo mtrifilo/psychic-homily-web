@@ -1255,12 +1255,13 @@ type episodeFeedScope func(*gorm.DB) *gorm.DB
 // (even 0-track) and a windowless episode carrying a playlist stay. `prefix` qualifies
 // the columns ("re." in the joined feed query, "" in a single-table query); the one ?
 // binds the "now" instant. Every aired-only surface — the "Latest playlists" feed
-// (episodeRows), the shows-directory latest date (ListShows), the now-playing "Latest"
-// selector (latestEpisodeForShow), and the most-active-show pick (mostActiveShow) —
-// shares this single air-window definition. The first three also pair it with an
-// `air_date <= today` bound; mostActiveShow gates on the window alone, so the four
-// agree except for the practically-unreachable case of a windowless future-dated
-// episode that already carries plays.
+// (episodeRows), the shows-directory latest date (ListShows), the now-playing per-show
+// "Latest" selector (latestEpisodeForShow), and the station-wide now-playing fallback
+// (latestStationPlayedEpisode, PSY-1374) — shares this single air-window definition,
+// each paired with an `air_date <= today` bound. latestStationPlayedEpisode ALSO
+// requires an EXISTing radio_plays row (it needs a real playlist to display, not merely
+// an aired slot), which airedEpisodeVisibleSQL alone does not guarantee for a windowed
+// but 0-track episode.
 func airedEpisodeVisibleSQL(prefix string) string {
 	return fmt.Sprintf(
 		"((%[1]sstarts_at IS NOT NULL AND %[1]sstarts_at <= ?) OR (%[1]sstarts_at IS NULL AND %[1]splay_count > 0))",
@@ -1289,9 +1290,10 @@ func airedEpisodeVisibleSQL(prefix string) string {
 // sink to its aired slot the instant its window passes, so by-date resolution
 // and offset pagination can shift across that instant (accepted: once per
 // airing, today's rows only). Used by the "Latest playlists" feeds
-// (episodeRows), the per-show archive (GetEpisodes), the now-playing
-// latest-episode selector (latestEpisodeForShow), and the by-date detail
-// lookup (GetEpisodeByShowAndDate) so they all pick the same same-day winner.
+// (episodeRows), the per-show archive (GetEpisodes), the now-playing per-show
+// latest-episode selector (latestEpisodeForShow), the station-wide now-playing
+// fallback (latestStationPlayedEpisode), and the by-date detail lookup
+// (GetEpisodeByShowAndDate) so they all pick the same same-day winner.
 // `prefix` qualifies the columns ("re." in the joined feed query, "" in
 // single-table queries) and MUST be a compile-time literal — the result is
 // interpolated into ORDER BY unparameterized.
