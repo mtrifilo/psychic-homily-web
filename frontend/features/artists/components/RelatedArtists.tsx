@@ -29,6 +29,7 @@ import { ArtistGraphVisualization, ConnectionPanelDismissContext, dismissConnect
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import { GraphAccessibleTree } from '@/components/graph/GraphAccessibleTree'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTreeModel'
 import {
   buildExpandAnnouncement,
@@ -321,6 +322,23 @@ interface ArtistGraphDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+// PSY-1371: modal fallback when the graph chunk fails to load. Message only —
+// the Dialog's own close (X / Esc) is the recovery (dismissing returns to the
+// intact artist page); a second "Close" would just duplicate it, and a page
+// reload — InlineGraph's recovery — would be heavy-handed from a modal.
+function EgoGraphLoadError() {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center py-16 text-center"
+    >
+      <p className="text-sm text-muted-foreground">
+        The similar-artists graph couldn’t load. Close this and try again.
+      </p>
+    </div>
+  )
+}
+
 export function ArtistGraphDialog({
   artistId,
   artistSlug,
@@ -394,24 +412,39 @@ export function ArtistGraphDialog({
           measured width at the real dialog inner width and breaking the loop.
         */}
         <div ref={containerRefCallback} className="min-w-0 w-full overflow-hidden">
-          {containerWidth !== null && (
-            <ConnectionPanelDismissContext.Provider value={connectionDismissRef}>
-              <RecenteringGraph
-                originalArtistId={artistId}
-                originalArtistSlug={artistSlug}
-                originalArtistName={artistName}
-                containerWidth={containerWidth}
-                activeTypes={activeTypes}
-                onToggleType={toggleType}
-                trail={trail}
-                setTrail={setTrail}
-                slugToIdCache={slugToIdCache}
-                setSlugToIdCache={setSlugToIdCache}
-                announcement={announcement}
-                setAnnouncement={setAnnouncement}
-              />
-            </ConnectionPanelDismissContext.Provider>
-          )}
+          {/*
+            PSY-1371: the graph loads react-force-graph-2d as a dynamic(ssr:false)
+            chunk. In the App Router a failed chunk fetch (deploy skew / CDN flake)
+            THROWS to the nearest error boundary — with none here it would hit
+            app/error.tsx and replace the whole artist page. Contain it to the
+            dialog: report to Sentry (artist-ego-graph) and show a recoverable
+            card. A visible fallback (not self-hide) because the graph IS this
+            dialog's content — an empty dialog reads as broken; Close is the
+            modal-appropriate recovery (a page reload would nuke the artist page).
+          */}
+          <GraphSectionErrorBoundary
+            sentryTag="artist-ego-graph"
+            fallback={<EgoGraphLoadError />}
+          >
+            {containerWidth !== null && (
+              <ConnectionPanelDismissContext.Provider value={connectionDismissRef}>
+                <RecenteringGraph
+                  originalArtistId={artistId}
+                  originalArtistSlug={artistSlug}
+                  originalArtistName={artistName}
+                  containerWidth={containerWidth}
+                  activeTypes={activeTypes}
+                  onToggleType={toggleType}
+                  trail={trail}
+                  setTrail={setTrail}
+                  slugToIdCache={slugToIdCache}
+                  setSlugToIdCache={setSlugToIdCache}
+                  announcement={announcement}
+                  setAnnouncement={setAnnouncement}
+                />
+              </ConnectionPanelDismissContext.Provider>
+            )}
+          </GraphSectionErrorBoundary>
         </div>
       </DialogContent>
     </Dialog>
