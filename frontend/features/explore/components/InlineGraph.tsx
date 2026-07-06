@@ -22,30 +22,26 @@
  * PSY-511; canvas touch handling isn't usable at small widths.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useShow } from '@/features/shows'
 import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
 
 const GRAPH_HEIGHT_PX = 480
-const INTERSECTION_ROOT_MARGIN = '200px'
 
-// Placeholder reserving the graph's natural height (CLS budget). Reused
-// as the dynamic-import loading fallback AND the pre-mount / data-loading
-// skeleton below, so the two can't drift apart.
-function GraphSkeleton() {
-  return (
-    <div
-      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
-      style={{ minHeight: GRAPH_HEIGHT_PX }}
-      aria-hidden="true"
-    />
-  )
-}
+// This surface's lazy-mount placeholder shape (CLS budget): a 16/9 aspect box
+// with a min-height floor. The one element is reused as the dynamic-import
+// loading fallback AND the pre-mount / data-loading skeleton so they can't
+// drift apart. (The shared base look lives in GraphSkeleton — PSY-1347.)
+const graphSkeleton = (
+  <GraphSkeleton className="aspect-[16/9]" style={{ minHeight: GRAPH_HEIGHT_PX }} />
+)
 
 // Visible, announced fallback for when the ForceGraphView chunk fails to
 // load. next/dynamic does NOT throw a failed chunk fetch to an error
@@ -53,6 +49,13 @@ function GraphSkeleton() {
 // the user would sit on the aria-hidden skeleton forever. The graph is an
 // optional below-the-fold section, so a failure must be perceivable but
 // must not take down the rest of /explore.
+//
+// ⚠️ KNOWN CONTRADICTION (tracked in PSY-1359): HomeSceneGraph documents the
+// OPPOSITE — that the App Router THROWS a failed chunk fetch to the nearest
+// error boundary rather than re-invoking `loading` with `error`, which would
+// make this error-path dead code. PSY-1347 extracted only the shared hook +
+// skeleton; reconciling this dynamic-wrapper/error-boundary discrepancy (and
+// fixing whichever side is wrong) is deliberately deferred to PSY-1359.
 function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
   return (
     <div
@@ -101,7 +104,7 @@ const ForceGraphView = dynamic(
     // Error path (e.g. a deploy rotated the hashed chunk while the page
     // was open): a perceivable, recoverable state, not an infinite skeleton.
     loading: ({ error, retry }) =>
-      error ? <GraphLoadError onRetry={retry} /> : <GraphSkeleton />,
+      error ? <GraphLoadError onRetry={retry} /> : graphSkeleton,
   },
 )
 
@@ -116,45 +119,10 @@ interface InlineGraphProps {
 
 export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps) {
   const router = useRouter()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [isMounted, setIsMounted] = useState(false)
-
-  // Lazy-mount via IntersectionObserver. Pre-mount with a 200px root
-  // margin so the data is in flight before the placeholder is fully
-  // on-screen; once mounted, we never tear down (the user has shown
-  // intent by scrolling here).
-  useEffect(() => {
-    if (isMounted) return
-    const node = containerRef.current
-    if (!node || typeof IntersectionObserver === 'undefined') {
-      // SSR / very old browsers — fall back to immediate mount. React 19.2:
-      // defer the setState to a microtask so it lands after the effect returns
-      // instead of synchronously in the effect body (set-state-in-effect /
-      // cascading render). The two-phase render (placeholder → mounted) is
-      // preserved exactly.
-      let cancelled = false
-      Promise.resolve().then(() => {
-        if (!cancelled) setIsMounted(true)
-      })
-      return () => {
-        cancelled = true
-      }
-    }
-    const observer = new IntersectionObserver(
-      entries => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setIsMounted(true)
-            observer.disconnect()
-            return
-          }
-        }
-      },
-      { rootMargin: INTERSECTION_ROOT_MARGIN },
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [isMounted])
+  // Lazy-mount on scroll intent (shared hook — PSY-1347). Pre-loads 200px
+  // before the placeholder is fully on-screen; once mounted the data hooks
+  // below start fetching and it never tears down.
+  const { containerRef, isMounted } = useLazyGraphMount()
 
   // Width measurement only kicks in after mount; the shared callback-ref +
   // ResizeObserver hook covers the null-on-first-render mount pattern.
@@ -199,7 +167,7 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
   // Reserves the graph's natural height so the section below doesn't
   // shift when the canvas mounts (CLS budget). Same element the dynamic
   // import shows while the ForceGraphView chunk loads.
-  const skeleton = <GraphSkeleton />
+  const skeleton = graphSkeleton
 
   return (
     <div ref={containerRef} className="w-full">

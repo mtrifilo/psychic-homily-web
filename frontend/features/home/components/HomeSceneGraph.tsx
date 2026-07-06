@@ -28,7 +28,7 @@
  * never break on a graph problem.
  */
 
-import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, useCallback, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import dynamic from 'next/dynamic'
@@ -39,6 +39,8 @@ import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
 } from '@/components/graph/useContainerWidth'
+import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
+import { GraphSkeleton as BaseGraphSkeleton } from '@/components/graph/GraphSkeleton'
 // Deep imports, deliberately NOT the '@/features/scenes' barrel: the barrel
 // re-exports the scenes component tree (SceneDetailView / AtlasGlobe / …)
 // whose module bodies run top-level dynamic() calls the bundler can't drop,
@@ -55,7 +57,6 @@ import {
 import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
 
 const GRAPH_HEIGHT_PX = 560
-const INTERSECTION_ROOT_MARGIN = '200px'
 
 /**
  * One shared height contract for every non-canvas box (skeleton, teaser,
@@ -71,15 +72,13 @@ const INTERSECTION_ROOT_MARGIN = '200px'
  */
 const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[560px]'
 
-// Height-reserving placeholder (CLS budget) — shared by the pre-mount
-// state, the data-loading state, and the dynamic-import fallback.
-function GraphSkeleton() {
-  return (
-    <div
-      className={`w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse ${PLACEHOLDER_HEIGHT_CLASS}`}
-      aria-hidden="true"
-    />
-  )
+// This surface's height-reserving placeholder (CLS budget) — the shared
+// `GraphSkeleton` base look (PSY-1347) plus the responsive height contract
+// above. Named distinctly from the shared primitive to avoid shadowing it.
+// Used by the pre-mount state, the data-loading state, and the dynamic-import
+// fallback so they can't drift apart.
+function SceneGraphSkeleton() {
+  return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
 }
 
 // PSY-868 pattern: split ForceGraphView (and react-force-graph underneath)
@@ -93,7 +92,7 @@ const ForceGraphView = dynamic(
     })),
   {
     ssr: false,
-    loading: () => <GraphSkeleton />,
+    loading: () => <SceneGraphSkeleton />,
   },
 )
 
@@ -125,36 +124,11 @@ class SectionErrorBoundary extends Component<
 }
 
 export function HomeSceneGraph() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [isMounted, setIsMounted] = useState(false)
-
-  // Lazy-mount on scroll intent (InlineGraph's observer shape, incl. the
-  // React 19 defer-to-microtask fallback when IntersectionObserver is
-  // unavailable). Once mounted, never tears down.
-  useEffect(() => {
-    if (isMounted) return
-    const node = containerRef.current
-    if (!node || typeof IntersectionObserver === 'undefined') {
-      let cancelled = false
-      Promise.resolve().then(() => {
-        if (!cancelled) setIsMounted(true)
-      })
-      return () => {
-        cancelled = true
-      }
-    }
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries.some(e => e.isIntersecting)) {
-          setIsMounted(true)
-          observer.disconnect()
-        }
-      },
-      { rootMargin: INTERSECTION_ROOT_MARGIN },
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [isMounted])
+  // Lazy-mount on scroll intent (shared hook — PSY-1347, incl. the React 19
+  // defer-to-microtask fallback when IntersectionObserver is unavailable).
+  // Once mounted, never tears down; the section's data hooks only run behind
+  // this gate.
+  const { containerRef, isMounted } = useLazyGraphMount()
 
   return (
     <div ref={containerRef} className="w-full">
@@ -163,7 +137,7 @@ export function HomeSceneGraph() {
           <HomeSceneGraphSection />
         </SectionErrorBoundary>
       ) : (
-        <GraphSkeleton />
+        <SceneGraphSkeleton />
       )}
     </div>
   )
@@ -274,7 +248,7 @@ function HomeSceneGraphSection() {
   // query settled — while loading we hold the skeleton instead.)
   if (scenesQuery.isError) return null
   if (!scenesQuery.isLoading && scenes.length === 0) return null
-  if (!scene) return <GraphSkeleton />
+  if (!scene) return <SceneGraphSkeleton />
 
   const sceneHref = `/scenes/${scene.slug}`
 
@@ -313,7 +287,7 @@ function HomeSceneGraphSection() {
       <div ref={refCallback} className="w-full">
         {/* Pre-measurement: hold the (responsive) height so the section
             can't shift the radio section below when the state settles. */}
-        {containerWidth === null && <GraphSkeleton />}
+        {containerWidth === null && <SceneGraphSkeleton />}
 
         {/* Static teaser below the canvas-usability gate (PSY-511): no
             canvas touch handling at small widths — link out instead. */}
@@ -393,7 +367,7 @@ function HomeSceneGraphSection() {
               </Link>
             </div>
           ) : (
-            <GraphSkeleton />
+            <SceneGraphSkeleton />
           ))}
       </div>
 
