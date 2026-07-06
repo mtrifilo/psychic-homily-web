@@ -303,29 +303,35 @@ func TestSkipRateLimitForAuthenticated_NonAdminJWTBypasses(t *testing.T) {
 	}
 }
 
-// A phk_ API token bypasses too (admin-only, trusted) — mirrors the admin variant.
-func TestSkipRateLimitForAuthenticated_APITokenBypasses(t *testing.T) {
+// SECURITY (adversarial-review CRITICAL): a phk_ API token does NOT bypass this
+// limiter. The prefix is trusted WITHOUT validation (isTrustedAPIToken), and
+// these are public reads with no downstream auth, so honoring it would let a
+// forged `Authorization: Bearer phk_x` header defeat the limiter for free.
+func TestSkipRateLimitForAuthenticated_ForgedAPITokenIsLimited(t *testing.T) {
 	base := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
 	mw := SkipRateLimitForAuthenticated(newTestJWTService(), base)
-
-	hits := 0
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for i := 0; i < 5; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)
-		req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"secret")
-		req.RemoteAddr = "9.9.9.9:1003"
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("request %d: status = %d, want 200 (API token must bypass)", i, rr.Code)
-		}
+	// First forged-token request passes (under the limit)...
+	req1 := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)
+	req1.Header.Set("Authorization", "Bearer "+APITokenPrefix+"forged")
+	req1.RemoteAddr = "9.9.9.9:1003"
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first request: status = %d, want 200", rr1.Code)
 	}
-	if hits != 5 {
-		t.Errorf("handler hits = %d, want 5", hits)
+
+	// ...the second is 429'd — the phk_ prefix grants NO bypass here.
+	req2 := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)
+	req2.Header.Set("Authorization", "Bearer "+APITokenPrefix+"forged")
+	req2.RemoteAddr = "9.9.9.9:1004"
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Errorf("second forged-token request: status = %d, want 429 (phk_ must NOT bypass the public-read limiter)", rr2.Code)
 	}
 }

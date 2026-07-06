@@ -10,25 +10,37 @@ import (
 
 // PSY-1362: rate limiting for public, unauthenticated read endpoints (graph-card,
 // artist/show/venue/label/scene reads, etc.), mounted globally in
-// cmd/server/main.go. The limiter bypasses any authenticated request (see
-// middleware.SkipRateLimitForAuthenticated), so only anonymous traffic is
-// throttled — which is why it can safely be a global middleware rather than a
-// per-route mount.
+// cmd/server/main.go. Two properties keep a single global mount safe:
+//   - it only ever limits ANONYMOUS traffic (any authenticated request bypasses,
+//     see middleware.SkipRateLimitForAuthenticated), so it never throttles
+//     logged-in users and needs no per-route wiring; and
+//   - it only limits READ methods (GET/HEAD) — writes keep their own dedicated
+//     limiters (auth, tag, report, show-create), so a shared read budget can't
+//     429 an unrelated anonymous write (e.g. a login after heavy browsing).
 
-// DisablePublicReadRateLimitsEnvVar is a PRODUCTION kill-switch: set to "1" to
-// replace the public-read limiter with a pass-through noop. Unlike
-// DisableAuthRateLimitsEnvVar this is deliberately NOT testenv-gated (no
-// ENVIRONMENT allow-list, no boot refusal) — it must be usable in prod/staging
-// to roll the limiter back if 429 rates spike after a deploy, and to disable it
-// for CI/E2E runs whose workers share one IP. It only ever loosens limits, so
-// enabling it anywhere is safe.
-const DisablePublicReadRateLimitsEnvVar = "DISABLE_PUBLIC_READ_RATE_LIMITS"
+// EnablePublicReadRateLimitsEnvVar is an OPT-IN flag: the limiter is a
+// pass-through noop unless this is set to "1". Opt-in (not a default-on
+// kill-switch) is what makes the ticket's "observe 429 on stage before prod"
+// rollout real: ship inert everywhere, enable on stage, watch 429 rates, then
+// enable in prod. It also keeps CI/E2E runs (whose workers share one IP)
+// unthrottled without any harness change, and de-risks the KeyByIP/proxy
+// assumption below — prod is only ever enabled after stage confirms real client
+// IPs reach the limiter. Matches the codebase's ENABLE_* rollout convention
+// (e.g. the artist-enrichment sweeps).
+//
+// KeyByIP/proxy PREREQUISITE: the underlying limiter keys on r.RemoteAddr via
+// httprate.KeyByIP (like every existing limiter here). If the backend sits behind
+// a proxy/LB that does not preserve the client IP in RemoteAddr, all anonymous
+// traffic collapses onto one bucket. Verify real client IPs reach the limiter on
+// stage (429 rates behave per-abuser, not site-wide) before enabling in prod; if
+// not, front it with a trusted-proxy RealIP step first.
+const EnablePublicReadRateLimitsEnvVar = "ENABLE_PUBLIC_READ_RATE_LIMITS"
 
-// IsPublicReadRateLimitDisabled reports whether the public-read limiter should
-// be a noop. Reuses the "==1" flag convention (testenv.IsFlagEnabled) but NOT
-// the environment gate — see the const doc.
-func IsPublicReadRateLimitDisabled(getenv func(string) string) bool {
-	return testenv.IsFlagEnabled(DisablePublicReadRateLimitsEnvVar, getenv)
+// IsPublicReadRateLimitEnabled reports whether the public-read limiter is active.
+// Reuses the "==1" flag convention (testenv.IsFlagEnabled) but NOT the
+// environment gate — this is a rollout switch, honored in every environment.
+func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
+	return testenv.IsFlagEnabled(EnablePublicReadRateLimitsEnvVar, getenv)
 }
 
 // infraPathsExemptFromRateLimit are exact request paths a global anonymous
@@ -39,16 +51,35 @@ func IsPublicReadRateLimitDisabled(getenv func(string) string) bool {
 var infraPathsExemptFromRateLimit = []string{"/health"}
 
 // PublicReadRateLimiter returns the chi middleware that throttles anonymous
-// public-read traffic to middleware.APIRequestsPerMinute (100) per IP, bypassing
-// any authenticated request AND the infra paths above. Returns a pass-through
-// noop when the kill-switch is set. Mounted once, globally, before route
-// registration.
+// public-READ traffic (GET/HEAD) to middleware.APIRequestsPerMinute (100) per IP,
+// bypassing any authenticated request and the infra paths above. Returns a
+// pass-through noop unless the opt-in flag is set. Mounted once, globally, before
+// route registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) string) func(http.Handler) http.Handler {
-	if IsPublicReadRateLimitDisabled(getenv) {
+	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
 	limiter := middleware.SkipRateLimitForAuthenticated(jwtService, middleware.RateLimitAPIEndpoints())
-	return skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
+	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
+	return limitReadMethodsOnly(limiter)
+}
+
+// limitReadMethodsOnly applies the limiter only to safe read methods (GET/HEAD).
+// Writes (POST/PUT/PATCH/DELETE) pass through — this ticket scopes to public
+// READS, and writes keep their own dedicated limiters, so a shared read budget
+// must not throttle an unrelated anonymous write. (OPTIONS never reaches here:
+// the CORS middleware short-circuits preflight upstream.)
+func limitReadMethodsOnly(limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				limited.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // skipRateLimitForPaths wraps a limiter so exact-match paths bypass it entirely.
