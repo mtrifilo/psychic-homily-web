@@ -37,6 +37,150 @@ describe('pickDefaultScene', () => {
     ]
     expect(pickDefaultScene(scenes)?.slug).toBe('good')
   })
+
+  describe('geo personalization (PSY-1346)', () => {
+    const scenes = [
+      scene({
+        slug: 'chicago-il',
+        city: 'Chicago',
+        state: 'IL',
+        upcoming_show_count: 17,
+        latitude: 41.88,
+        longitude: -87.63,
+      }),
+      scene({
+        slug: 'phoenix-az',
+        city: 'Phoenix',
+        state: 'AZ',
+        upcoming_show_count: 4,
+        latitude: 33.45,
+        longitude: -112.07,
+      }),
+    ]
+
+    it('falls back to the liveliest scene when geo is absent', () => {
+      expect(pickDefaultScene(scenes, null)?.slug).toBe('chicago-il')
+      expect(pickDefaultScene(scenes, undefined)?.slug).toBe('chicago-il')
+    })
+
+    it('picks the visitor’s scene on an exact city/state match (over the liveliest)', () => {
+      expect(
+        pickDefaultScene(scenes, { city: 'Phoenix', state: 'AZ' })?.slug,
+      ).toBe('phoenix-az')
+    })
+
+    it('falls back to the liveliest scene when the matched scene has no upcoming shows', () => {
+      // The visitor's own scene is a match but inactive — the homepage must not
+      // open on a dead graph, so the liveliest (active) scene wins instead.
+      const withDeadLocal = [
+        scene({
+          slug: 'chicago-il',
+          city: 'Chicago',
+          state: 'IL',
+          upcoming_show_count: 17,
+        }),
+        scene({
+          slug: 'quietville-nv',
+          city: 'Quietville',
+          state: 'NV',
+          upcoming_show_count: 0,
+        }),
+      ]
+      expect(
+        pickDefaultScene(withDeadLocal, { city: 'Quietville', state: 'NV' })
+          ?.slug,
+      ).toBe('chicago-il')
+    })
+
+    it('matches case- and whitespace-insensitively (Vercel spelling vs stored casing)', () => {
+      expect(
+        pickDefaultScene(scenes, { city: '  phoenix ', state: 'az' })?.slug,
+      ).toBe('phoenix-az')
+    })
+
+    it('applies the activity floor to the nearest tier too (inactive nearest → liveliest)', () => {
+      // Visitor near an inactive scene, with the only active scene far away:
+      // the floor still rejects the (nearest but dead) match → liveliest wins.
+      const scenesWithDeadNearest = [
+        scene({
+          slug: 'chicago-il',
+          city: 'Chicago',
+          state: 'IL',
+          upcoming_show_count: 17,
+          latitude: 41.88,
+          longitude: -87.63,
+        }),
+        scene({
+          slug: 'tucson-az',
+          city: 'Tucson',
+          state: 'AZ',
+          upcoming_show_count: 0,
+          latitude: 32.22,
+          longitude: -110.97,
+        }),
+      ]
+      // Visitor in Mesa, AZ (no scene) is nearest to Tucson, but Tucson is
+      // inactive → falls back to the liveliest (Chicago), not the dead nearest.
+      expect(
+        pickDefaultScene(scenesWithDeadNearest, {
+          city: 'Mesa',
+          state: 'AZ',
+          latitude: 33.42,
+          longitude: -111.83,
+        })?.slug,
+      ).toBe('chicago-il')
+    })
+
+    it('picks the nearest scene by haversine when the exact city has no scene', () => {
+      // Tucson, AZ has no scene here; its coords are far closer to Phoenix
+      // than to Chicago.
+      expect(
+        pickDefaultScene(scenes, {
+          city: 'Tucson',
+          state: 'AZ',
+          latitude: 32.22,
+          longitude: -110.97,
+        })?.slug,
+      ).toBe('phoenix-az')
+    })
+
+    it('falls back to the liveliest scene when the exact city misses and no coords are supplied', () => {
+      expect(
+        pickDefaultScene(scenes, { city: 'Nowhere', state: 'XX' })?.slug,
+      ).toBe('chicago-il')
+    })
+
+    it('ignores scenes the geocoder could not place when computing the nearest', () => {
+      const withUnplaced = [
+        scene({
+          slug: 'chicago-il',
+          city: 'Chicago',
+          state: 'IL',
+          upcoming_show_count: 17,
+          latitude: null,
+          longitude: null,
+        }),
+        scene({
+          slug: 'phoenix-az',
+          city: 'Phoenix',
+          state: 'AZ',
+          upcoming_show_count: 4,
+          latitude: 33.45,
+          longitude: -112.07,
+        }),
+      ]
+      // Visitor near Chicago, but Chicago has no centroid → nearest placeable
+      // is Phoenix (rather than "no default").
+      expect(
+        pickDefaultScene(withUnplaced, {
+          city: 'Evanston',
+          state: 'IL',
+          latitude: 42.05,
+          longitude: -87.69,
+        })?.slug,
+      ).toBe('phoenix-az')
+    })
+  })
 })
 
 describe('pickSurpriseScene', () => {

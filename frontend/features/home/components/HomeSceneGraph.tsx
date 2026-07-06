@@ -52,6 +52,7 @@ import {
   pickDefaultScene,
   pickSurpriseScene,
 } from './homeSceneGraphScenes'
+import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
 
 const GRAPH_HEIGHT_PX = 560
 const INTERSECTION_ROOT_MARGIN = '200px'
@@ -177,11 +178,31 @@ function HomeSceneGraphSection() {
     () => scenesQuery.data?.scenes ?? [],
     [scenesQuery.data?.scenes],
   )
-  const defaultScene = useMemo(() => pickDefaultScene(scenes), [scenes])
+  // Geo-personalize the default (PSY-1346): a visitor in a scene-city lands on
+  // THEIR scene, not just the liveliest one. Non-blocking (like the shows
+  // filter's useGeoDefaultCity): geo is null until it resolves, so the section
+  // shows its liveliest default immediately and swaps to the geo scene when the
+  // suggestion arrives — a warm session cache resolves synchronously, so the
+  // common case shows the geo scene from the first render with no swap.
+  // "Surprise me" still wins below.
+  const geoSuggestion = useGeoDefaultScene()
+  const defaultScene = useMemo(
+    () => pickDefaultScene(scenes, geoSuggestion),
+    [scenes, geoSuggestion],
+  )
 
   // The user's "Surprise me" pick; null = the liveliest-scene default.
   const [surpriseSlug, setSurpriseSlug] = useState<string | null>(null)
-  const scene = scenes.find(s => s.slug === surpriseSlug) ?? defaultScene
+  // The scene the visitor engaged (first node click), pinned so a LATE
+  // (cold-cache) geo resolution can't swap the graph out from under them —
+  // the ticket's "geo must never override user interaction" rule. A node
+  // click isn't a scene pick like "Surprise me", but it is interaction; without
+  // this, clicking a node on the liveliest graph before /api/geo resolves would
+  // silently close the panel and remount a different scene. Surprise-me's slug
+  // still wins over the pin (an explicit re-pick).
+  const [pinnedSlug, setPinnedSlug] = useState<string | null>(null)
+  const scene =
+    scenes.find(s => s.slug === (surpriseSlug ?? pinnedSlug)) ?? defaultScene
 
   // Node selection → context panel (PSY-1345). Cleared whenever the scene
   // identity changes (the selected artist belongs to the outgoing scene's
@@ -231,10 +252,15 @@ function HomeSceneGraphSection() {
 
   // Click selects (opens the context panel); navigation happens via the
   // panel's "Open page →". Clicking the already-selected node deselects —
-  // a second click reads as "put it away".
-  const handleNodeClick = useCallback((node: GraphNode) => {
-    setSelectedNode(prev => (prev?.id === node.id ? null : node))
-  }, [])
+  // a second click reads as "put it away". The first click also pins the
+  // current scene (see pinnedSlug) so a late geo resolution won't yank it.
+  const handleNodeClick = useCallback(
+    (node: GraphNode) => {
+      setPinnedSlug(prev => prev ?? scene?.slug ?? null)
+      setSelectedNode(prev => (prev?.id === node.id ? null : node))
+    },
+    [scene?.slug],
+  )
 
   const handlePanelClose = useCallback(() => {
     setSelectedNode(null)

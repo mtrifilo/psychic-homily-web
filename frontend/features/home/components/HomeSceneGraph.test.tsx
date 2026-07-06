@@ -67,6 +67,14 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
     useArtistGraphCard(opts),
 }))
 
+// Geo default (PSY-1346) — mock so the default-scene pick is deterministic.
+// Default: no geo (null) → liveliest scene, the pre-PSY-1346 behavior every
+// existing test relies on. Geo-specific tests override the return.
+const useGeoDefaultScene = vi.fn()
+vi.mock('../hooks/useGeoDefaultScene', () => ({
+  useGeoDefaultScene: () => useGeoDefaultScene(),
+}))
+
 function scene(overrides: Partial<SceneListItem> & { slug: string }): SceneListItem {
   return {
     city: 'Phoenix',
@@ -138,6 +146,7 @@ beforeEach(() => {
   useScenes.mockReset().mockReturnValue({ data: { scenes: SCENES, count: SCENES.length }, isLoading: false, isError: false })
   useSceneGraph.mockReset().mockReturnValue({ data: GRAPH, isLoading: false, isError: false })
   useArtistGraphCard.mockReset().mockReturnValue({ data: undefined, isError: false })
+  useGeoDefaultScene.mockReset().mockReturnValue(null)
   setContainerWidth(1024)
 })
 
@@ -160,6 +169,49 @@ describe('HomeSceneGraph', () => {
       'aria-label',
       expect.stringContaining('Knowledge graph of the Chicago scene: 2 artists'),
     )
+  })
+
+  it('defaults to the visitor’s own scene when geo matches one (PSY-1346)', async () => {
+    // Chicago is the liveliest, but a Phoenix visitor should land on Phoenix
+    // (Phoenix is active — upcoming_show_count 4 — so it clears the floor).
+    useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
+    render(<HomeSceneGraph />)
+    expect(
+      await screen.findByRole('heading', { name: 'The Phoenix scene, mapped' }),
+    ).toBeInTheDocument()
+  })
+
+  it('pins the scene the visitor is exploring so a late geo resolution cannot swap it (PSY-1346)', async () => {
+    // Cold cache: geo resolves to null first → the liveliest scene (Chicago).
+    useGeoDefaultScene.mockReturnValue(null)
+    const { rerender } = render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+    ).toBeInTheDocument()
+
+    // Geo resolves LATE to Phoenix — but the visitor already engaged a node, so
+    // the scene must stay Chicago and the panel must remain open (the ticket's
+    // "geo must never override user interaction" rule).
+    useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
+    rerender(<HomeSceneGraph />)
+    expect(
+      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+  })
+
+  it('lets "Surprise me" win over the geo default (PSY-1346)', async () => {
+    // Geo would default to Phoenix; a surprise rotation must still move off it.
+    useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
+    render(<HomeSceneGraph />)
+    await screen.findByRole('heading', { name: 'The Phoenix scene, mapped' })
+    fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
+    // Only one other scene exists, so the rotation is deterministic.
+    expect(
+      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+    ).toBeInTheDocument()
   })
 
   it('"Surprise me" rotates to another scene', async () => {
