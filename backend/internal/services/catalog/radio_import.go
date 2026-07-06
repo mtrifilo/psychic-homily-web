@@ -1390,8 +1390,9 @@ func (s *RadioService) episodeAirWindow(showID uint, ep RadioEpisodeImport, now 
 
 // importEpisode imports a single episode and its playlist. A brand-new episode is
 // created and its playlist fetched. An episode that already exists heals a missing
-// air window (PSY-1152/PSY-1238) and, if it has aired with an incomplete playlist,
-// runs a post-air backfill re-fetch (PSY-1154) — otherwise it is a dedup skip.
+// air window (PSY-1152/PSY-1238) and re-fetches its playlist when it is aired +
+// incomplete (post-air backfill, PSY-1154) or airing right now + incomplete (live
+// refresh, PSY-1370) — otherwise it is a dedup skip. See reimportExistingEpisode.
 func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provider RadioPlaylistProvider) (*contracts.EpisodeImportResult, error) {
 	now := time.Now()
 
@@ -1663,6 +1664,21 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 	isAired := phase == catalogm.RadioEpisodeStatusAired
 	newState, newAttempts := catalogm.ComputePlaylistState(
 		isAired, playsImported > 0, fetchFailed, episode.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts)
+
+	// PSY-1370: 'partial' is monotonic within the live window. A live re-fetch that
+	// returns nothing (transient empty/failed provider round — now reachable every
+	// tick, where before PSY-1370 a live episode was never re-fetched) computes back to
+	// 'pending' via ComputePlaylistState's non-aired branch; hold it at 'partial' so a
+	// momentary blip doesn't erase "this show already has tracks". play_count is already
+	// max()-guarded; this keeps the state label from flapping alongside it. Live-only:
+	// the aired give-up path (pending→unavailable) and the scheduled/pending cases are
+	// untouched.
+	if phase == catalogm.RadioEpisodeStatusLive &&
+		episode.PlaylistState == catalogm.RadioPlaylistStatePartial &&
+		newState == catalogm.RadioPlaylistStatePending {
+		newState = catalogm.RadioPlaylistStatePartial
+	}
+
 	newStatus := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, newState, now)
 
 	updates := map[string]any{

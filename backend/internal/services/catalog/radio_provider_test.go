@@ -2436,23 +2436,32 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_RejectsFarFuture
 }
 
 // TestImportEpisode_LiveRefresh (PSY-1370): a re-list of an episode airing right now
-// with an incomplete playlist RE-FETCHES it (tracks accumulate → partial), whereas a
-// scheduled (not-yet-started) episode is left untouched. Before PSY-1370 the live case
-// was a dedup skip, so an on-air show's playlist stayed frozen at its pre-air snapshot.
+// with an incomplete playlist RE-FETCHES it, and repeated ticks GROW the playlist
+// (pending → partial → more), never burning a post-air attempt; a transient empty/
+// failed live re-fetch holds 'partial' (monotonic) rather than regressing it; a
+// scheduled episode is left untouched. Before PSY-1370 the live case was a dedup skip,
+// so an on-air show's playlist stayed frozen at its pre-air snapshot.
+// (Station name is deliberately non-colliding — the seed migration ships a "KEXP" row,
+// so a createStation("KEXP") here would fail when the test runs in isolation.)
 func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_LiveRefresh() {
-	station := suite.createStation("KEXP")
+	station := suite.createStation("Test Live Station")
 	show := suite.createShow(station.ID, "Live Show")
 	now := time.Now()
+	liveStart, liveEnd := now.Add(-30*time.Minute), now.Add(30*time.Minute)
 
-	// Provider now returns two tracks (the show has started airing them).
+	// The provider's response is swapped between ticks to simulate a growing live
+	// playlist, then a transient failure.
+	var playlist []RadioPlayImport
+	var fail bool
 	mockProvider := &mockPlaylistProvider{
 		fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
-			return []RadioPlayImport{{Position: 0, ArtistName: "A"}, {Position: 1, ArtistName: "B"}}, nil
+			if fail {
+				return nil, fmt.Errorf("transient provider blip")
+			}
+			return playlist, nil
 		},
 	}
 
-	// (1) LIVE + pending + 0 plays (the pre-air empty snapshot shape) → re-fetch imports the tracks.
-	liveStart, liveEnd := now.Add(-30*time.Minute), now.Add(30*time.Minute)
 	liveExt := "ep-live"
 	live := &catalogm.RadioEpisode{
 		ShowID: show.ID, AirDate: "2026-06-16", ExternalID: &liveExt,
@@ -2460,24 +2469,41 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_LiveRefresh() {
 		PlaylistState: catalogm.RadioPlaylistStatePending, PlaylistFetchAttempts: 0, PlayCount: 0,
 	}
 	suite.Require().NoError(suite.db.Create(live).Error)
+	reimport := RadioEpisodeImport{ExternalID: "ep-live", AirDate: "2026-06-16", StartsAt: &liveStart, EndsAt: &liveEnd}
 
-	res, err := suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
-		ExternalID: "ep-live", AirDate: "2026-06-16", StartsAt: &liveStart, EndsAt: &liveEnd,
-	}, mockProvider)
+	// (1) First live tick: the pre-air empty snapshot re-fetches and imports 2 tracks → partial.
+	playlist = []RadioPlayImport{{Position: 0, ArtistName: "A"}, {Position: 1, ArtistName: "B"}}
+	res, err := suite.radioService.importEpisode(show.ID, reimport, mockProvider)
 	suite.Require().NoError(err)
 	suite.Equal(2, res.PlaysImported, "live re-fetch imports the newly-aired tracks")
-
-	var got catalogm.RadioEpisode
-	suite.Require().NoError(suite.db.First(&got, live.ID).Error)
+	got := suite.reloadEp(live.ID)
 	suite.Equal(catalogm.RadioPlaylistStatePartial, got.PlaylistState, "live snapshot → partial")
 	suite.Equal(2, got.PlayCount)
 	suite.Equal(0, got.PlaylistFetchAttempts, "a live re-fetch never burns a post-air attempt")
 
-	var plays int64
-	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", live.ID).Count(&plays)
-	suite.Equal(int64(2), plays)
+	// (2) Next tick: the playlist has grown to 4 tracks → play_count climbs, still partial.
+	playlist = []RadioPlayImport{
+		{Position: 0, ArtistName: "A"}, {Position: 1, ArtistName: "B"},
+		{Position: 2, ArtistName: "C"}, {Position: 3, ArtistName: "D"},
+	}
+	_, err = suite.radioService.importEpisode(show.ID, reimport, mockProvider)
+	suite.Require().NoError(err)
+	got = suite.reloadEp(live.ID)
+	suite.Equal(catalogm.RadioPlaylistStatePartial, got.PlaylistState)
+	suite.Equal(4, got.PlayCount, "the live playlist grows across ticks")
+	suite.Equal(0, got.PlaylistFetchAttempts)
 
-	// (2) SCHEDULED (not started) → dedup skip, NOT re-fetched (playlist doesn't exist yet).
+	// (3) Transient failure this tick → 'partial' holds (monotonic), play_count unchanged, no attempt burned.
+	fail = true
+	_, err = suite.radioService.importEpisode(show.ID, reimport, mockProvider)
+	suite.Require().NoError(err)
+	got = suite.reloadEp(live.ID)
+	suite.Equal(catalogm.RadioPlaylistStatePartial, got.PlaylistState, "a transient blip must not regress partial → pending")
+	suite.Equal(4, got.PlayCount, "play_count never decreases on a failed re-fetch")
+	suite.Equal(0, got.PlaylistFetchAttempts, "a failed LIVE re-fetch does not advance toward unavailable")
+	fail = false
+
+	// (4) SCHEDULED (not started) → dedup skip, NOT re-fetched (playlist doesn't exist yet).
 	schedStart, schedEnd := now.Add(1*time.Hour), now.Add(2*time.Hour)
 	schedExt := "ep-scheduled"
 	sched := &catalogm.RadioEpisode{
@@ -2486,13 +2512,15 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_LiveRefresh() {
 		PlaylistState: catalogm.RadioPlaylistStatePending, PlaylistFetchAttempts: 0, PlayCount: 0,
 	}
 	suite.Require().NoError(suite.db.Create(sched).Error)
-
-	res2, err := suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
+	res4, err := suite.radioService.importEpisode(show.ID, RadioEpisodeImport{
 		ExternalID: "ep-scheduled", AirDate: "2026-06-16", StartsAt: &schedStart, EndsAt: &schedEnd,
 	}, mockProvider)
 	suite.Require().NoError(err)
-	suite.Equal(0, res2.PlaysImported, "a scheduled episode is not re-fetched")
-	var schedPlays int64
-	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", sched.ID).Count(&schedPlays)
-	suite.Equal(int64(0), schedPlays)
+	suite.Equal(0, res4.PlaysImported, "a scheduled episode is not re-fetched")
+}
+
+func (suite *RadioImportIntegrationTestSuite) reloadEp(id uint) catalogm.RadioEpisode {
+	var ep catalogm.RadioEpisode
+	suite.Require().NoError(suite.db.First(&ep, id).Error)
+	return ep
 }

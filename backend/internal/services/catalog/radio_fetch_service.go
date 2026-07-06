@@ -619,19 +619,22 @@ func (s *RadioFetchService) runSlotFetchCycle() {
 	}
 	s.lastSlotFetchAt = now
 
-	due, err := s.radioService.ShowsWithSlotBoundariesIn(from, now)
-	if err != nil {
-		s.logger.Error("radio slot fetch: listing due shows failed", "error", err)
-		return
+	// The two work lists are independent (boundary-due shows and live-incomplete shows),
+	// so a failure in one must not starve the other — each is logged and skipped, and
+	// the cycle proceeds with whatever it did get. `due` starts empty and both merge
+	// into it. (PSY-1370: the boundary query used to hard-return on error, which would
+	// have starved live refresh too — symmetric log-and-continue instead.)
+	due := make(map[uint][]uint)
+	if boundary, err := s.radioService.ShowsWithSlotBoundariesIn(from, now); err != nil {
+		s.logger.Error("radio slot fetch: listing boundary-due shows failed", "error", err)
+	} else {
+		mergeShowWorkLists(due, boundary)
 	}
-
 	// PSY-1370: also refresh shows airing RIGHT NOW with an incomplete playlist, so an
-	// on-air show's tracks grow every tick — not only at the slot boundary. Merged into
-	// the same per-show scoped-fetch work list (deduped), so a show that is both at a
-	// boundary and live this tick is fetched once. A query failure here must not starve
-	// the boundary fetches, so it's logged and the cycle proceeds with `due` alone.
-	live, err := s.radioService.ShowsWithLiveIncompleteEpisodes(now)
-	if err != nil {
+	// on-air show's tracks grow every tick — not only at the slot boundary. Deduped into
+	// the same per-show scoped-fetch work list, so a show that is both at a boundary and
+	// live this tick is fetched once.
+	if live, err := s.radioService.ShowsWithLiveIncompleteEpisodes(now); err != nil {
 		s.logger.Error("radio slot fetch: listing live incomplete shows failed", "error", err)
 	} else {
 		mergeShowWorkLists(due, live)
