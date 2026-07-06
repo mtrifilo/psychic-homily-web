@@ -20,6 +20,10 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+func radioSyncStationID(id uint) *uint {
+	return &id
+}
+
 // RunStationSync is the unified ingestion orchestrator (PSY-1134/PSY-1135, phase P2
 // of the Radio Ingestion Redesign). Every ingestion path flows through here so
 // each run leaves ONE durable, queryable trace in radio_sync_runs (with
@@ -180,7 +184,7 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 	// the DB default; GORM's skip-zero-value-with-default makes that subtle, and
 	// the lifecycle CHECK requires running ⟺ finished_at NULL).
 	run := catalogm.RadioSyncRun{
-		StationID:   stationID,
+		StationID:   radioSyncStationID(stationID),
 		ShowID:      opts.ShowID,
 		RunType:     opts.Mode,
 		Trigger:     opts.Trigger,
@@ -527,7 +531,7 @@ func terminalStatus(hardErr bool, errCount int) string {
 func (s *RadioService) recordSkippedRun(stationID uint, opts RunStationSyncOpts) uint {
 	now := time.Now()
 	run := catalogm.RadioSyncRun{
-		StationID:      stationID,
+		StationID:      radioSyncStationID(stationID),
 		ShowID:         opts.ShowID,
 		RunType:        opts.Mode,
 		Trigger:        opts.Trigger,

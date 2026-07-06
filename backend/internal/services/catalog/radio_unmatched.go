@@ -26,6 +26,12 @@ type ReMatchChunkedResult struct {
 	NamesProcessed int
 }
 
+// UnmatchedArtistNameFilter optionally scopes distinct-name enumeration for chunked rematch.
+type UnmatchedArtistNameFilter struct {
+	StationID *uint
+	ShowID    *uint
+}
+
 // GetUnmatchedPlays returns unmatched plays grouped by artist_name,
 // optionally filtered by station_id, with pagination.
 func (s *RadioService) GetUnmatchedPlays(stationID uint, limit, offset int) ([]*contracts.UnmatchedPlayGroup, int64, error) {
@@ -532,7 +538,7 @@ func (s *RadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 // listUnmatchedArtistNamesPage returns the next page of distinct unmatched
 // artist_name values in ascending order. afterName is the cursor (empty for the
 // first page); uses keyset pagination so large archives don't pay OFFSET cost.
-func (s *RadioService) listUnmatchedArtistNamesPage(afterName string, limit int) ([]string, error) {
+func (s *RadioService) listUnmatchedArtistNamesPage(afterName string, limit int, filter UnmatchedArtistNameFilter) ([]string, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -544,13 +550,21 @@ func (s *RadioService) listUnmatchedArtistNamesPage(afterName string, limit int)
 		ArtistName string `gorm:"column:artist_name"`
 	}
 	var rows []nameRow
-	q := s.db.Table("radio_plays").
-		Select("DISTINCT artist_name").
-		Where("artist_id IS NULL")
-	if afterName != "" {
-		q = q.Where("artist_name > ?", afterName)
+	q := s.db.Table("radio_plays rp").
+		Select("DISTINCT rp.artist_name").
+		Where("rp.artist_id IS NULL")
+	if filter.ShowID != nil {
+		q = q.Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
+			Where("re.show_id = ?", *filter.ShowID)
+	} else if filter.StationID != nil {
+		q = q.Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
+			Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
+			Where("rsh.station_id = ?", *filter.StationID)
 	}
-	err := q.Order("artist_name ASC").Limit(limit).Find(&rows).Error
+	if afterName != "" {
+		q = q.Where("rp.artist_name > ?", afterName)
+	}
+	err := q.Order("rp.artist_name ASC").Limit(limit).Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("listing unmatched artist names: %w", err)
 	}
@@ -565,7 +579,9 @@ func (s *RadioService) listUnmatchedArtistNamesPage(afterName string, limit int)
 // ReMatchUnmatchedChunked rematches unmatched plays by sweeping distinct
 // artist_name values in bounded pages. ctx is checked between pages so a
 // shutdown can abandon a long sweep without waiting for the full archive.
-func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int) (*ReMatchChunkedResult, error) {
+// When runID is non-zero, progress is written to the radio_sync_runs row and
+// isSyncRunCancelled is polled between names (PSY-1364).
+func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int, filter UnmatchedArtistNameFilter, runID uint) (*ReMatchChunkedResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -575,13 +591,17 @@ func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int
 
 	agg := &ReMatchChunkedResult{}
 	var afterName string
+	var sinceLastProgress int
 
 	for {
 		if err := ctx.Err(); err != nil {
 			return agg, err
 		}
+		if runID != 0 && s.isSyncRunCancelled(runID) {
+			return agg, context.Canceled
+		}
 
-		names, err := s.listUnmatchedArtistNamesPage(afterName, pageSize)
+		names, err := s.listUnmatchedArtistNamesPage(afterName, pageSize, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -593,6 +613,9 @@ func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int
 			if err := ctx.Err(); err != nil {
 				return agg, err
 			}
+			if runID != 0 && s.isSyncRunCancelled(runID) {
+				return agg, context.Canceled
+			}
 			result, err := s.ReMatchUnmatchedWithFilter(&contracts.ReMatchRequest{ArtistName: name})
 			if err != nil {
 				return nil, err
@@ -602,6 +625,14 @@ func (s *RadioService) ReMatchUnmatchedChunked(ctx context.Context, pageSize int
 			agg.Unmatched += result.Unmatched
 			agg.PersistErrors += result.PersistErrors
 			agg.NamesProcessed++
+
+			if runID != 0 {
+				sinceLastProgress++
+				if sinceLastProgress >= 10 {
+					sinceLastProgress = 0
+					s.writeRematchRunProgress(runID, agg)
+				}
+			}
 		}
 
 		afterName = names[len(names)-1]

@@ -23,6 +23,9 @@ const (
 	// CodeRadioSyncNotCancellable is returned when a cancel targets a run that is
 	// no longer running (already terminal) (PSY-1135). Mapped to HTTP 409.
 	CodeRadioSyncNotCancellable = "RADIO_SYNC_NOT_CANCELLABLE"
+	// CodeRadioRematchAlreadyRunning is returned when a bulk rematch trigger fires
+	// while another rematch run is still status=running (PSY-1364). HTTP 409.
+	CodeRadioRematchAlreadyRunning = "RADIO_REMATCH_ALREADY_RUNNING"
 )
 
 // RadioError represents a radio-related error with additional context.
@@ -124,5 +127,14 @@ func ErrRadioSyncNotCancellable(runID uint, status string) *RadioError {
 	return &RadioError{
 		Code:    CodeRadioSyncNotCancellable,
 		Message: fmt.Sprintf("Sync run %d cannot be cancelled (status: %s)", runID, status),
+	}
+}
+
+// ErrRadioRematchAlreadyRunning creates a conflict error when a bulk rematch is
+// requested while another rematch run is in flight (PSY-1364). HTTP 409.
+func ErrRadioRematchAlreadyRunning() *RadioError {
+	return &RadioError{
+		Code:    CodeRadioRematchAlreadyRunning,
+		Message: "A rematch run is already in progress",
 	}
 }

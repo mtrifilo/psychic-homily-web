@@ -49,7 +49,7 @@ func TestSyncRunToResponse(t *testing.T) {
 	t.Run("station-scoped run omits show + window", func(t *testing.T) {
 		run := &catalogm.RadioSyncRun{
 			ID:        7,
-			StationID: 3,
+			StationID: radioSyncStationID(3),
 			Station:   catalogm.RadioStation{Name: "KEXP"},
 			RunType:   catalogm.RadioSyncRunTypeFetch,
 			Trigger:   catalogm.RadioSyncRunTriggerManual,
@@ -74,7 +74,7 @@ func TestSyncRunToResponse(t *testing.T) {
 		detail := "boom"
 		run := &catalogm.RadioSyncRun{
 			ID:               9,
-			StationID:        3,
+			StationID:        radioSyncStationID(3),
 			Station:          catalogm.RadioStation{Name: "WFMU"},
 			ShowID:           &showID,
 			Show:             &catalogm.RadioShow{Name: "Sample Show"},
@@ -161,7 +161,7 @@ func (suite *RadioSyncManualIntegrationTestSuite) seedStation() *catalogm.RadioS
 // seedRunningRun opens a radio_sync_runs row in the 'running' state for a station.
 func (suite *RadioSyncManualIntegrationTestSuite) seedRunningRun(stationID uint) *catalogm.RadioSyncRun {
 	run := &catalogm.RadioSyncRun{
-		StationID: stationID,
+		StationID: radioSyncStationID(stationID),
 		RunType:   catalogm.RadioSyncRunTypeFetch,
 		Trigger:   catalogm.RadioSyncRunTriggerManual,
 		Status:    catalogm.RadioSyncRunStatusRunning,
@@ -290,4 +290,36 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerShowBackfill_OpensR
 	}, 5*time.Second, 20*time.Millisecond, "the backfill run should complete in the background")
 	suite.Equal(1, final.EpisodesImported)
 	suite.Equal(1, final.PlaysImported)
+}
+
+func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_OpensRunAndCompletes() {
+	resp, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
+	suite.Require().NoError(err)
+	suite.Require().NotZero(resp.ID)
+	suite.Equal(catalogm.RadioSyncRunTypeRematch, resp.RunType)
+	suite.Equal(catalogm.RadioSyncRunStatusRunning, resp.Status)
+	suite.Nil(resp.StationID)
+
+	var final *contracts.RadioSyncRunResponse
+	suite.Require().Eventually(func() bool {
+		r, e := suite.radioService.GetSyncRun(resp.ID)
+		if e != nil {
+			return false
+		}
+		final = r
+		return r.Status == catalogm.RadioSyncRunStatusSuccess
+	}, 5*time.Second, 20*time.Millisecond, "global rematch run should complete")
+	suite.NotNil(final)
+}
+
+func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_RejectsConcurrentRun() {
+	first, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
+	suite.Require().NoError(err)
+	suite.Require().NotZero(first.ID)
+
+	_, err = suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
+	suite.Require().Error(err)
+	var radioErr *apperrors.RadioError
+	suite.Require().ErrorAs(err, &radioErr)
+	suite.Equal(apperrors.CodeRadioRematchAlreadyRunning, radioErr.Code)
 }

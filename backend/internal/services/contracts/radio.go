@@ -745,6 +745,9 @@ type MatchResult struct {
 	Matched       int `json:"matched"`
 	Unmatched     int `json:"unmatched"`
 	PersistErrors int `json:"persist_errors,omitempty"`
+	// Run is set when a bulk rematch was enqueued asynchronously (PSY-1364). Poll
+	// GET /admin/radio/sync-runs/{id} for progress; single-name rematch leaves this nil.
+	Run *RadioSyncRunResponse `json:"run,omitempty"`
 }
 
 // ReMatchRequest optionally scopes a radio rematch to a single artist or label
@@ -752,6 +755,12 @@ type MatchResult struct {
 type ReMatchRequest struct {
 	ArtistName string `json:"artist_name,omitempty" doc:"Rematch only plays with this artist_name" example:"Boy Harsher"`
 	LabelName  string `json:"label_name,omitempty" doc:"Rematch only plays with this label_name" example:"Sacred Bones"`
+}
+
+// GlobalRematchRequest scopes a bulk async rematch job (PSY-1364).
+type GlobalRematchRequest struct {
+	StationID *uint `json:"station_id,omitempty"`
+	ShowID    *uint `json:"show_id,omitempty"`
 }
 
 // ──────────────────────────────────────────────
@@ -802,16 +811,17 @@ type BulkLinkResult struct {
 // partial status, derived unmatched count, and the structured per-run error list
 // the old import-job DTO could not represent.
 type RadioSyncRunResponse struct {
-	ID          uint   `json:"id"`
-	StationID   uint   `json:"station_id"`
-	StationName string `json:"station_name"`
+	ID uint `json:"id"`
+	// StationID is omitted on global rematch runs (no station filter).
+	StationID   *uint  `json:"station_id,omitempty"`
+	StationName string `json:"station_name,omitempty"`
 	// ShowID/ShowName are set for show-scoped runs — backfills AND the PSY-1333
 	// slot fetches (run_type='fetch' with a show scope); nil for station-scoped
 	// discover/fetch runs.
 	ShowID   *uint   `json:"show_id,omitempty"`
 	ShowName *string `json:"show_name,omitempty"`
 
-	RunType string `json:"run_type"` // discover | fetch | backfill
+	RunType string `json:"run_type"` // discover | fetch | backfill | rematch
 	Trigger string `json:"trigger"`  // scheduled | manual | auto_backfill
 	Status  string `json:"status"`   // running | success | partial | failed | skipped | cancelled
 
@@ -958,6 +968,7 @@ type RadioServiceInterface interface {
 	// in the background. Discover/fetch are station-scoped; backfill is show-scoped.
 	TriggerStationSync(stationID uint, mode string) (*RadioSyncRunResponse, error)
 	TriggerShowBackfill(showID uint, since, until string) (*RadioSyncRunResponse, error)
+	TriggerGlobalRematch(opts GlobalRematchRequest) (*RadioSyncRunResponse, error)
 	GetSyncRun(runID uint) (*RadioSyncRunResponse, error)
 	CancelSyncRun(runID uint) error
 	// Observability feeds (PSY-1129/P5). ListSyncRuns returns recent runs newest-first

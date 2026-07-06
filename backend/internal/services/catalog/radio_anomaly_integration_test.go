@@ -19,7 +19,7 @@ func (s *RadioSyncSuite) seedFetchRunsAt(stationID uint, plays []int, status str
 		started := base.Add(time.Duration(i) * time.Minute)
 		finished := started.Add(time.Second)
 		run := catalogm.RadioSyncRun{
-			StationID:     stationID,
+			StationID:     radioSyncStationID(stationID),
 			RunType:       catalogm.RadioSyncRunTypeFetch,
 			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
 			Status:        status,

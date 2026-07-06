@@ -14,7 +14,7 @@ import (
 // and the finished_at the lifecycle CHECK requires once the status is terminal.
 func (s *RadioSyncSuite) seedSyncRun(stationID uint, status string, startedAt time.Time) catalogm.RadioSyncRun {
 	run := catalogm.RadioSyncRun{
-		StationID: stationID,
+		StationID: radioSyncStationID(stationID),
 		RunType:   catalogm.RadioSyncRunTypeFetch,
 		Trigger:   catalogm.RadioSyncRunTriggerScheduled,
 		Status:    status,
@@ -108,7 +108,8 @@ func (s *RadioSyncSuite) TestListSyncRuns_PerStationMissing404AndScoping() {
 	s.Require().NoError(err)
 	s.Equal(int64(1), aTotal)
 	s.Require().Len(aRuns, 1)
-	s.Equal(a.ID, aRuns[0].StationID)
+	s.Require().NotNil(aRuns[0].StationID)
+	s.Equal(a.ID, *aRuns[0].StationID)
 
 	global, gTotal, err := s.svc.ListSyncRuns(nil, "", "", 50, 0)
 	s.Require().NoError(err)

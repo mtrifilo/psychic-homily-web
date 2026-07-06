@@ -524,7 +524,7 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_ProcessesAllDistinctNa
 	s.createTestArtist("Alpha Artist", "alpha-chunk")
 	s.createTestArtist("Beta Artist", "beta-chunk")
 
-	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2)
+	result, err := s.svc.ReMatchUnmatchedChunked(context.Background(), 2, UnmatchedArtistNameFilter{}, 0)
 	s.Require().NoError(err)
 	s.Equal(3, result.NamesProcessed)
 	s.Equal(3, result.Total)
@@ -545,7 +545,7 @@ func (s *RadioUnmatchedSuite) TestReMatchUnmatchedChunked_HonorsContextCancel() 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, err := s.svc.ReMatchUnmatchedChunked(ctx, 2)
+	result, err := s.svc.ReMatchUnmatchedChunked(ctx, 2, UnmatchedArtistNameFilter{}, 0)
 	s.Require().Error(err)
 	s.ErrorIs(err, context.Canceled)
 	s.Equal(0, result.NamesProcessed)
