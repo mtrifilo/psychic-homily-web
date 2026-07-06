@@ -122,8 +122,8 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	for range 5 {
 		s.Require().NoError(s.db.Create(&catalogm.RadioSyncRun{
 			StationID: st.ID, RunType: catalogm.RadioSyncRunTypeFetch,
-			Trigger: catalogm.RadioSyncRunTriggerScheduled,
-			Status:  catalogm.RadioSyncRunStatusSuccess,
+			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
+			Status:        catalogm.RadioSyncRunStatusSuccess,
 			PlaysImported: 100,
 			StartedAt:     time.Now().Add(-time.Hour), FinishedAt: ptrTime(time.Now().Add(-time.Hour)),
 		}).Error)
@@ -132,9 +132,9 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 	for range 10 {
 		s.Require().NoError(s.db.Create(&catalogm.RadioSyncRun{
 			StationID: st.ID, ShowID: &show.ID,
-			RunType: catalogm.RadioSyncRunTypeFetch,
-			Trigger: catalogm.RadioSyncRunTriggerScheduled,
-			Status:  catalogm.RadioSyncRunStatusSuccess,
+			RunType:       catalogm.RadioSyncRunTypeFetch,
+			Trigger:       catalogm.RadioSyncRunTriggerScheduled,
+			Status:        catalogm.RadioSyncRunStatusSuccess,
 			PlaysImported: 0,
 			StartedAt:     time.Now().Add(-30 * time.Minute), FinishedAt: ptrTime(time.Now().Add(-30 * time.Minute)),
 		}).Error)

@@ -1436,7 +1436,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %q", errInvalidAirDate, ep.AirDate)
 	}
-	if airDay.After(now.UTC().Truncate(24 * time.Hour).AddDate(0, 0, futureAirDateToleranceDays)) {
+	if airDay.After(now.UTC().Truncate(24*time.Hour).AddDate(0, 0, futureAirDateToleranceDays)) {
 		return nil, fmt.Errorf("%w: air_date %s is beyond now+%dd", errFutureAirDate, ep.AirDate, futureAirDateToleranceDays)
 	}
 
