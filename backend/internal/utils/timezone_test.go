@@ -76,6 +76,16 @@ func TestEventLocation(t *testing.T) {
 		assert.Equal(t, "America/New_York", EventLocation(ptr(""), "NY").String())
 	})
 
+	// PSY-1012: the geocoder now returns a miss (→ NULL venue timezone) for a
+	// sub-threshold US town whose confident state has no same-state dataset
+	// namesake, so the fallback zone IS the resolved zone. Pin the states the fix
+	// depends on — Sidney, NE and Evanston, WY — so a regression in StateTimezones
+	// can't silently leave the geocoder fix delivering the wrong zone.
+	t.Run("sub-threshold-town states fall back to their predominant zone", func(t *testing.T) {
+		assert.Equal(t, "America/Chicago", EventLocation(nil, "NE").String()) // Sidney, NE → Central
+		assert.Equal(t, "America/Denver", EventLocation(nil, "WY").String())  // Evanston, WY → Mountain
+	})
+
 	t.Run("malformed venue timezone falls through to state, not UTC", func(t *testing.T) {
 		// A bad IANA string must NOT collapse to UTC when a valid state exists.
 		assert.Equal(t, "America/Chicago", EventLocation(ptr("Mars/Olympus"), "TX").String())
