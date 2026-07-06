@@ -271,6 +271,43 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailRes
 	return resp, nil
 }
 
+// GetArtistSummary retrieves an artist's identity fields ONLY — no
+// `buildArtistStats` (5 scalar subqueries). For hot composition endpoints that
+// need the artist's identity but discard the stats block (the graph-card,
+// PSY-1352). Response shape matches GetArtist with `Stats` left nil.
+func (s *ArtistService) GetArtistSummary(artistID uint) (*contracts.ArtistDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var artist catalogm.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	return s.buildArtistResponse(&artist), nil
+}
+
+// GetArtistSummaryBySlug is GetArtistSummary keyed by slug (see PSY-1352).
+func (s *ArtistService) GetArtistSummaryBySlug(slug string) (*contracts.ArtistDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var artist catalogm.Artist
+	if err := s.db.Where("slug = ?", slug).First(&artist).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrArtistNotFound(0)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	return s.buildArtistResponse(&artist), nil
+}
+
 // GetArtists retrieves artists with optional filtering
 func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
@@ -896,6 +933,11 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		dateCondition = "shows.event_date >= ?"
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
 	}
+	// Deterministic tiebreak on equal event_date (id ASC) — without it the
+	// Pluck below is implementation-defined on a tie, and would then disagree
+	// with GetNextShowForArtist (whose First appends the same shows.id) about
+	// which show is "next" for an artist double-booked on one date (PSY-1352).
+	orderDirection += ", shows.id ASC"
 
 	// Count total shows matching the filter
 	var total int64
@@ -1023,6 +1065,76 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	}
 
 	return responses, total, nil
+}
+
+// GetNextShowForArtist returns the artist's SOONEST upcoming approved show (with
+// its venue), or nil when there is none — the graph-card's "next show" glance
+// (PSY-1352). Unlike GetShowsForArtist it skips the redundant existence check
+// (the caller already resolved the artist), the discarded total COUNT, and the
+// full-bill preload the card never renders — ~3 queries instead of ~9.
+func (s *ArtistService) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	startOfTodayUTC := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).UTC()
+
+	// Soonest upcoming approved show the artist is on, in one query (join +
+	// order + implicit LIMIT 1). No existence check, no COUNT, no bill preload.
+	var show catalogm.Show
+	err = s.db.
+		Joins("JOIN show_artists ON show_artists.show_id = shows.id").
+		Where("show_artists.artist_id = ? AND shows.status = ? AND shows.event_date >= ?",
+			artistID, catalogm.ShowStatusApproved, startOfTodayUTC).
+		// Explicit shows.id tiebreak so a same-event_date tie is deterministic
+		// AND matches GetShowsForArtist (PSY-1352). (First would also append the
+		// pk, but stating it keeps the two paths' intent visibly identical.)
+		Order("shows.event_date ASC").
+		Order("shows.id ASC").
+		First(&show).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // no upcoming show is a valid empty result, not an error
+		}
+		return nil, fmt.Errorf("failed to get next show: %w", err)
+	}
+
+	resp := &contracts.ArtistShowResponse{
+		ID:             show.ID,
+		Title:          show.Title,
+		EventDate:      show.EventDate,
+		Price:          show.Price,
+		AgeRequirement: show.AgeRequirement,
+	}
+
+	// Attach the venue in ONE query (junction → venue join), degrading to no
+	// venue when the show has none — same shape GetShowsForArtist builds, minus
+	// the bill and its extra round-trip.
+	var venue catalogm.Venue
+	if err := s.db.
+		Joins("JOIN show_venues ON show_venues.venue_id = venues.id").
+		Where("show_venues.show_id = ?", show.ID).
+		First(&venue).Error; err == nil {
+		var venueSlug string
+		if venue.Slug != nil {
+			venueSlug = *venue.Slug
+		}
+		resp.Venue = &contracts.ArtistShowVenueResponse{
+			ID:       venue.ID,
+			Slug:     venueSlug,
+			Name:     venue.Name,
+			City:     venue.City,
+			State:    venue.State,
+			Timezone: venue.Timezone,
+		}
+	}
+
+	return resp, nil
 }
 
 // ──────────────────────────────────────────────
