@@ -329,6 +329,22 @@ describe('visibleLabelScenes — proximity declutter (PSY-1330)', () => {
     expect(labelled.map((s) => s.city)).toEqual(['Minneapolis', 'Chicago'])
   })
 
+  it('treats a NaN/Infinity coordinate like a missing one (kept, never suppresses)', () => {
+    // hasFiniteCoords excludes NaN/Infinity, not just null/undefined (adversarial
+    // round-1 fix): a malformed-coord scene is never a proximity-collision
+    // candidate. The densest here has a NaN latitude — it must be kept AND must not
+    // block the real Minneapolis/St. Paul pair from decluttering normally.
+    const nanCity = {
+      city: 'Malformed',
+      upcoming_show_count: 200,
+      latitude: NaN,
+      longitude: -93.1,
+    }
+    const labelled = visibleLabelScenes([nanCity, minneapolis, stPaul], 40)
+    // NaN city kept (unmeasurable); the real pair still declutters (St. Paul dropped).
+    expect(labelled.map((s) => s.city)).toEqual(['Malformed', 'Minneapolis'])
+  })
+
   it('does NOT declutter scenes without coordinates (count-only fixtures unchanged)', () => {
     // The pre-PSY-1330 behavior: no coords → nothing to measure → both kept. This
     // pins that the count-only tests above are not silently altered by the pass.
