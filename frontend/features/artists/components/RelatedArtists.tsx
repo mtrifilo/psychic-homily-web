@@ -323,9 +323,13 @@ interface ArtistGraphDialogProps {
 }
 
 // PSY-1371: modal fallback when the graph chunk fails to load. Message only —
-// the Dialog's own close (X / Esc) is the recovery (dismissing returns to the
-// intact artist page); a second "Close" would just duplicate it, and a page
-// reload — InlineGraph's recovery — would be heavy-handed from a modal.
+// the Dialog's own close (X / Esc) dismisses back to the intact artist page.
+// The copy deliberately does NOT promise a retry: react-force-graph-2d is a
+// module-scope dynamic import, so React.lazy caches a rejected chunk fetch and
+// reopening the dialog re-throws the same rejection (see GraphSectionErrorBoundary
+// — a full reload is the only real recovery). We don't offer a reload button
+// because it's heavy-handed from a modal for an optional feature; the graph page
+// itself keeps working, so "close and keep browsing" is the honest guidance.
 function EgoGraphLoadError() {
   return (
     <div
@@ -333,7 +337,7 @@ function EgoGraphLoadError() {
       className="flex flex-col items-center justify-center py-16 text-center"
     >
       <p className="text-sm text-muted-foreground">
-        The similar-artists graph couldn’t load. Close this and try again.
+        The similar-artists graph couldn’t load. Close this to keep browsing.
       </p>
     </div>
   )
@@ -417,10 +421,10 @@ export function ArtistGraphDialog({
             chunk. In the App Router a failed chunk fetch (deploy skew / CDN flake)
             THROWS to the nearest error boundary — with none here it would hit
             app/error.tsx and replace the whole artist page. Contain it to the
-            dialog: report to Sentry (artist-ego-graph) and show a recoverable
-            card. A visible fallback (not self-hide) because the graph IS this
-            dialog's content — an empty dialog reads as broken; Close is the
-            modal-appropriate recovery (a page reload would nuke the artist page).
+            dialog: report to Sentry (artist-ego-graph) and show a visible card
+            (not self-hide — the graph IS this dialog's content, so an empty dialog
+            reads as broken). Close returns to the intact page; see EgoGraphLoadError
+            for why the copy doesn't promise an in-dialog retry.
           */}
           <GraphSectionErrorBoundary
             sentryTag="artist-ego-graph"

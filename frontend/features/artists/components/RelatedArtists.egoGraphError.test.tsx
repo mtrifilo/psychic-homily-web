@@ -46,6 +46,9 @@ vi.mock('./ArtistGraph', async () => {
       throw new Error('chunk fetch failed')
     },
     ConnectionPanelDismissContext: createContext(null),
+    // RelatedArtists also imports this for the Dialog's onEscapeKeyDown; stubbed
+    // so the mock is a complete stand-in (not exercised here — no Esc keypress).
+    dismissConnectionPanelOnEscape: vi.fn(),
   }
 })
 
