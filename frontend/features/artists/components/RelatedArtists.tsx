@@ -33,6 +33,7 @@ import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTree
 import {
   buildExpandAnnouncement,
   buildCollapseAnnouncement,
+  buildCollapseAllAnnouncement,
   buildExpandErrorAnnouncement,
   buildFilterAnnouncement,
 } from '@/components/graph/graphAnnouncements'
@@ -734,7 +735,10 @@ function RecenteringGraph({
     generationRef.current += 1 // cancel any in-flight expand — the user asked for zero expansions
     setExpansions(new Map())
     setExpandingIds(new Set())
-  }, [])
+    // PSY-1304: bulk collapse is a graph state change like single-collapse —
+    // announce it too (AC3), so keyboard/SR users aren't left without feedback.
+    setAnnouncement(buildCollapseAllAnnouncement())
+  }, [setAnnouncement])
 
   // PSY-361: announce each re-center to assistive tech, after the new payload
   // renders (keyed on the graph's actual center.id, never a stale center while

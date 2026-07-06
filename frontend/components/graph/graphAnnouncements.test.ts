@@ -3,6 +3,7 @@ import {
   buildExpandAnnouncement,
   buildCollapseAnnouncement,
   buildExpandErrorAnnouncement,
+  buildCollapseAllAnnouncement,
   buildFilterAnnouncement,
 } from './graphAnnouncements'
 
@@ -22,6 +23,10 @@ describe('graphAnnouncements', () => {
 
   it('expand error: names the node + prompts retry', () => {
     expect(buildExpandErrorAnnouncement('Dehd')).toBe("Couldn't load connections for Dehd. Try again.")
+  })
+
+  it('collapse-all: names the bulk reset', () => {
+    expect(buildCollapseAllAnnouncement()).toBe('Collapsed all expansions back to the starting graph.')
   })
 
   it('filter: reflects shown/hidden', () => {

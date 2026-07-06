@@ -302,3 +302,22 @@ describe('accessible tree — code-review fixes (PSY-1304)', () => {
     expect(screen.getByText(/Couldn.t load connections for a2\. Try again\./)).toBeInTheDocument()
   })
 })
+
+describe('accessible tree — adversarial-review fix (PSY-1304)', () => {
+  beforeEach(() => {
+    vizProps = null
+    fetchCalls.length = 0
+    mockUseArtistGraph.mockReturnValue({ data: baseGraph, isFetching: false })
+  })
+
+  it('announces the bulk Collapse-all (AC3), not just single collapses', async () => {
+    renderDialog()
+    // Expand a node so the Collapse-all control appears.
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'Enter' })
+    await act(async () => {
+      fetchCalls[0].resolve(exp2)
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Collapse all/i }))
+    expect(screen.getByText('Collapsed all expansions back to the starting graph.')).toBeInTheDocument()
+  })
+})

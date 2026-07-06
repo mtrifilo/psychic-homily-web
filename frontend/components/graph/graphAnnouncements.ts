@@ -33,6 +33,11 @@ export function buildExpandErrorAnnouncement(nodeName: string): string {
   return `Couldn't load connections for ${nodeName}. Try again.`
 }
 
+/** "Collapsed all expansions…" — after the Collapse-all bulk reset. */
+export function buildCollapseAllAnnouncement(): string {
+  return 'Collapsed all expansions back to the starting graph.'
+}
+
 /**
  * "Shared bills connections shown/hidden." — after a type-filter toggle.
  * `label` is the human relationship-type label (e.g. "Shared bills").
