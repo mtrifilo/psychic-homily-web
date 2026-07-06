@@ -192,12 +192,12 @@ func TestBackfillAndLiveRefreshAreMutuallyExclusive(t *testing.T) {
 	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	ptr := func(tm time.Time) *time.Time { return &tm }
 	for _, now := range []time.Time{
-		time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC),               // scheduled
-		start,                                                      // exactly at starts_at (live begins)
-		time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC),            // live
-		end,                                                        // exactly at ends_at (still live)
-		end.Add(time.Nanosecond),                                   // one ns past → aired
-		time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC),            // aired
+		time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC), // scheduled
+		start, // exactly at starts_at (live begins)
+		time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC), // live
+		end,                      // exactly at ends_at (still live)
+		end.Add(time.Nanosecond), // one ns past → aired
+		time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC), // aired
 	} {
 		backfill := ShouldBackfillPlaylist(ptr(start), ptr(end), RadioPlaylistStatePending, 0, 5, now)
 		live := ShouldRefreshLivePlaylist(ptr(start), ptr(end), RadioPlaylistStatePending, now)
@@ -263,13 +263,13 @@ func TestNormalizeWindowHealPlaylistState(t *testing.T) {
 	ptr := func(tm time.Time) *time.Time { return &tm }
 
 	cases := []struct {
-		name                 string
-		hadWindow            bool
-		starts               *time.Time
-		state                string
-		attempts, playCount  int
-		wantState            string
-		wantAttempts         int
+		name                string
+		hadWindow           bool
+		starts              *time.Time
+		state               string
+		attempts, playCount int
+		wantState           string
+		wantAttempts        int
 	}{
 		{"new window + unavailable + no plays → pending, 0", false, ptr(start), RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStatePending, 0},
 		{"new window + pending with attempts → pending, 0", false, ptr(start), RadioPlaylistStatePending, 2, 0, RadioPlaylistStatePending, 0},
