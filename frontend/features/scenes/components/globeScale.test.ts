@@ -176,12 +176,14 @@ describe('visibleLabelScenes', () => {
     expect(visibleLabelScenes(scenes, 10)).toEqual([minneapolis, stPaul, chicago])
   })
 
-  it('declutters an adjacent dense pair at the continental threshold (the AC case)', () => {
-    // At the default continental zoom (altitude 1.8 → threshold 120), of the
-    // ~10mi-apart Minneapolis/St. Paul pair only the denser Minneapolis keeps its
-    // label, so the two are distinguishable without overlap. St. Paul's label
-    // returns as you zoom in (threshold drops). The PSY-1229 floor must NOT
-    // disturb this: at least one scene clears the threshold, so no fallback.
+  it('excludes a sub-threshold neighbor via the COUNT gate at the continental threshold', () => {
+    // At the default continental zoom (altitude 1.8 → threshold 120), St. Paul (95)
+    // does not clear the count gate, so only Minneapolis (187) labels. This is the
+    // COUNT gate, NOT the PSY-1330 proximity declutter — that fires only when BOTH
+    // cities clear the gate (see the "proximity declutter" describe block below).
+    // St. Paul's label returns as you zoom in (the threshold drops). The PSY-1229
+    // floor must NOT disturb this: at least one scene clears the threshold, so no
+    // fallback.
     const continental = labelMinCountForAltitude(1.8)
     const labelled = visibleLabelScenes([minneapolis, stPaul], continental)
     expect(labelled).toEqual([minneapolis])
@@ -247,6 +249,35 @@ describe('visibleLabelScenes — top-K quiet-season floor (PSY-1229)', () => {
 
   it('returns an empty array when there are no scenes at all', () => {
     expect(visibleLabelScenes([], 120)).toEqual([])
+  })
+
+  it('does NOT proximity-declutter the floor — the K guarantee wins over overlap', () => {
+    // A seasonal dip where the K densest happen to include an adjacent pair (~37 km
+    // apart, inside the 60 km continental radius). The floor must still return K
+    // labels (never-fewer-than-K, PSY-1229) even though those two would overlap —
+    // the PSY-1330 declutter is deliberately skipped on this safety-net path.
+    const adjacentA = {
+      city: 'AdjA',
+      upcoming_show_count: 90,
+      latitude: 40.0,
+      longitude: -75.0,
+    }
+    const adjacentB = {
+      city: 'AdjB',
+      upcoming_show_count: 80,
+      latitude: 40.3,
+      longitude: -75.2,
+    }
+    const rest = [
+      { city: 'C', upcoming_show_count: 70 },
+      { city: 'D', upcoming_show_count: 60 },
+      { city: 'E', upcoming_show_count: 50 },
+      { city: 'F', upcoming_show_count: 40 },
+    ]
+    const labelled = visibleLabelScenes([adjacentA, adjacentB, ...rest], 120)
+    // Both adjacent cities survive AND the floor still returns exactly K.
+    expect(labelled).toHaveLength(LABEL_TOP_K_FLOOR)
+    expect(labelled.map((s) => s.city)).toEqual(['AdjA', 'AdjB', 'C', 'D', 'E'])
   })
 })
 
@@ -337,6 +368,27 @@ describe('visibleLabelScenes — proximity declutter (PSY-1330)', () => {
     const labelled = visibleLabelScenes([bigA, bigB], 120)
     expect(labelled).toEqual([bigA]) // denser kept, closer-and-less-dense dropped
   })
+
+  it('resolves an exact-count tie between co-located scenes by input order', () => {
+    // Two equal-count cities within the band-40 radius: compareScenesByActivity
+    // ties (returns 0), so the stable sort preserves input order and the
+    // FIRST-listed survives. Pins the documented tie behavior — a future secondary
+    // sort key in the shared compareScenesByActivity would flip this and fail here.
+    const first = {
+      city: 'First',
+      upcoming_show_count: 100,
+      latitude: 44.98,
+      longitude: -93.27,
+    }
+    const second = {
+      city: 'Second',
+      upcoming_show_count: 100,
+      latitude: 44.95,
+      longitude: -93.09,
+    }
+    expect(visibleLabelScenes([first, second], 40)).toEqual([first])
+    expect(visibleLabelScenes([second, first], 40)).toEqual([second])
+  })
 })
 
 describe('labelDeclutterRadiusKm', () => {
@@ -361,6 +413,24 @@ describe('labelDeclutterRadiusKm', () => {
 
   it('exposes the band map as the single tuning knob', () => {
     expect(LABEL_DECLUTTER_KM_BY_MIN_COUNT[40]).toBe(30)
+  })
+
+  it('covers every gated band labelMinCountForAltitude can return (the two maps cannot drift)', () => {
+    // Every non-zero threshold the altitude→count step function can produce must
+    // have a declutter reach, or that band silently ships overlapping labels. Sweep
+    // the altitude range finely so a newly-added band boundary is caught here.
+    const gatedThresholds = new Set<number>()
+    for (let i = 0; i <= 60; i++) {
+      const min = labelMinCountForAltitude(i * 0.05)
+      if (min > 0) gatedThresholds.add(min)
+    }
+    expect(gatedThresholds.size).toBeGreaterThan(0)
+    for (const threshold of gatedThresholds) {
+      expect(
+        labelDeclutterRadiusKm(threshold),
+        `gated band ${threshold} must have a declutter reach`,
+      ).toBeGreaterThan(0)
+    }
   })
 })
 
