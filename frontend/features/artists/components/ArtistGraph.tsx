@@ -15,21 +15,23 @@ import { EdgeLegend } from '@/components/graph/EdgeLegend'
 import { ConnectionPanel } from '@/components/graph/ConnectionPanel'
 import { aggregatePairConnections, useConnectionInspect } from '@/components/graph/useConnectionInspect'
 import { mergeProvenanceEntities, useConnectionProvenance } from '@/components/graph/useConnectionProvenance'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
 import type { ArtistGraph as ArtistGraphData } from '../types'
 
-function GraphSkeleton() {
-  return (
-    <div className="flex items-center justify-center bg-muted/20 rounded-lg border border-border/50" style={{ height: 400 }}>
-      <div className="flex flex-col items-center gap-2 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin" />
-        <span className="text-sm">Loading graph...</span>
-      </div>
+// Ego-dialog chunk-loading state: the shared GraphSkeleton primitive (PSY-1359)
+// with a visible spinner + label as `children` — in a modal an announced
+// indicator beats the aria-hidden pulse the below-the-fold surfaces use.
+const graphSkeleton = (
+  <GraphSkeleton style={{ height: 400 }}>
+    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+      <Loader2 className="h-6 w-6 animate-spin" />
+      <span className="text-sm">Loading graph...</span>
     </div>
-  )
-}
+  </GraphSkeleton>
+)
 
 // `next/dynamic` strips the upstream component's generic parameters (see
 // react-force-graph-2d's `FCwithRef = <NodeType, LinkType>(...)`), so under
@@ -39,7 +41,7 @@ function GraphSkeleton() {
 // cast — runtime behaviour is unchanged.
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false,
-  loading: () => <GraphSkeleton />,
+  loading: () => graphSkeleton,
 }) as unknown as ComponentType<
   ForceGraphProps<GraphNode, GraphLink> & {
     ref?: MutableRefObject<ForceGraphMethods<GraphNode, GraphLink> | undefined>

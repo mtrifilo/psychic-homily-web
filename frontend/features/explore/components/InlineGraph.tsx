@@ -23,13 +23,14 @@
  */
 
 import { useCallback } from 'react'
-import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import { createLazyForceGraphView } from '@/components/graph/lazyForceGraphView'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useShow } from '@/features/shows'
 import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
 
@@ -43,19 +44,14 @@ const graphSkeleton = (
   <GraphSkeleton className="aspect-[16/9]" style={{ minHeight: GRAPH_HEIGHT_PX }} />
 )
 
-// Visible, announced fallback for when the ForceGraphView chunk fails to
-// load. next/dynamic does NOT throw a failed chunk fetch to an error
-// boundary — it re-invokes `loading` with `error` set — so without this
-// the user would sit on the aria-hidden skeleton forever. The graph is an
-// optional below-the-fold section, so a failure must be perceivable but
-// must not take down the rest of /explore.
-//
-// ⚠️ KNOWN CONTRADICTION (tracked in PSY-1359): HomeSceneGraph documents the
-// OPPOSITE — that the App Router THROWS a failed chunk fetch to the nearest
-// error boundary rather than re-invoking `loading` with `error`, which would
-// make this error-path dead code. PSY-1347 extracted only the shared hook +
-// skeleton; reconciling this dynamic-wrapper/error-boundary discrepancy (and
-// fixing whichever side is wrong) is deliberately deferred to PSY-1359.
+// Visible, announced fallback for when the ForceGraphView chunk fails to load
+// (e.g. a deploy rotated the hashed chunk while the page was open). The App
+// Router THROWS a failed chunk fetch to the nearest error boundary — it does
+// NOT re-invoke `loading` with `error` — so this renders as the fallback of the
+// GraphSectionErrorBoundary wrapping the mount below, and `onRetry` is the
+// boundary's reset (PSY-1359, reconciled with HomeSceneGraph). The graph is an
+// optional below-the-fold section, so a failure must be perceivable but must
+// not take down the rest of /explore.
 function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
   return (
     <div
@@ -79,34 +75,11 @@ function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
   )
 }
 
-// ForceGraphView is /explore's only static reach into the shared graph
-// chunk: a static import keeps it (and that chunk) in /explore's initial
-// JS even though the graph is below the fold and IntersectionObserver-
-// gated. dynamic(ssr:false) splits the wrapper into its own async chunk
-// fetched only when the graph mounts; the heavy renderer underneath
-// (react-force-graph-2d) is already lazy. The canvas never renders
-// server-side, so ssr:false costs nothing. See PSY-868.
-//
-// Peer ForceGraphView consumers (Scene / Venue / Collection graphs) keep
-// the static import on purpose: there the graph IS the page's primary
-// content, not a below-the-fold widget on a perf-budgeted landing page,
-// so the split would only add a chunk round-trip. The homepage section
-// (HomeSceneGraph, PSY-1344) is the other below-the-fold consumer and
-// splits the same way; extraction of this shared shell is PSY-1347.
-const ForceGraphView = dynamic(
-  () =>
-    import('@/components/graph/ForceGraphView').then(m => ({
-      default: m.ForceGraphView,
-    })),
-  {
-    ssr: false,
-    // Happy path: the height-reserving skeleton while the chunk downloads.
-    // Error path (e.g. a deploy rotated the hashed chunk while the page
-    // was open): a perceivable, recoverable state, not an infinite skeleton.
-    loading: ({ error, retry }) =>
-      error ? <GraphLoadError onRetry={retry} /> : graphSkeleton,
-  },
-)
+// Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk fetched
+// only when the graph mounts, so the heavy renderer stays out of /explore's
+// initial JS (PSY-868). `loading` is the happy-path skeleton; a failed chunk fetch
+// throws to the GraphSectionErrorBoundary at the mount (App Router).
+const ForceGraphView = createLazyForceGraphView(graphSkeleton)
 
 interface InlineGraphProps {
   /** Featured bill slug — drives the show-detail fetch for lineup. */
@@ -180,16 +153,30 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
           <>
             {graphLoading && skeleton}
             {graphData && graphData.nodes.length > 0 && (
-              <ForceGraphView
-                nodes={graphData.nodes}
-                links={graphData.links}
-                /* clusters omitted → ForceGraphView's stable EMPTY_CLUSTERS default
-                   (a fresh [] here would destabilize centroids per render — PSY-1217) */
-                containerWidth={containerWidth}
-                height={GRAPH_HEIGHT_PX}
-                ariaLabel={`Knowledge graph anchored to ${billTitle}: ${graphData.nodes.length} artists.`}
-                onNodeClick={handleNodeClick}
-              />
+              // A failed ForceGraphView chunk fetch throws here (App Router);
+              // the boundary catches it, reports to Sentry, and shows the
+              // recoverable GraphLoadError card instead of letting it bubble
+              // uncaught and take down /explore (PSY-1359). Retry is a full
+              // reload — the only reliable recovery: the dominant failure is a
+              // deploy rotating the hashed chunk, so the open page's baked-in
+              // chunk URL 404s no matter how often it re-imports; only fresh HTML
+              // carries the new URL (and React.lazy caches the rejected import
+              // anyway, so a boundary reset would just re-throw).
+              <GraphSectionErrorBoundary
+                sentryTag="explore-inline-graph"
+                fallback={<GraphLoadError onRetry={() => window.location.reload()} />}
+              >
+                <ForceGraphView
+                  nodes={graphData.nodes}
+                  links={graphData.links}
+                  /* clusters omitted → ForceGraphView's stable EMPTY_CLUSTERS default
+                     (a fresh [] here would destabilize centroids per render — PSY-1217) */
+                  containerWidth={containerWidth}
+                  height={GRAPH_HEIGHT_PX}
+                  ariaLabel={`Knowledge graph anchored to ${billTitle}: ${graphData.nodes.length} artists.`}
+                  onNodeClick={handleNodeClick}
+                />
+              </GraphSectionErrorBoundary>
             )}
             {!graphLoading && (!graphData || graphData.nodes.length === 0) && (
               <div className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground">
