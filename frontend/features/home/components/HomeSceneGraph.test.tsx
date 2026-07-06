@@ -154,7 +154,7 @@ describe('HomeSceneGraph', () => {
   it('renders the liveliest scene in the heading with the CTA link to its scene page', async () => {
     render(<HomeSceneGraph />)
     expect(
-      await screen.findByRole('heading', { name: 'The Chicago scene, mapped' }),
+      await screen.findByRole('heading', { name: 'Chicago music graph' }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: /explore the full graph/i }),
@@ -177,7 +177,7 @@ describe('HomeSceneGraph', () => {
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
     render(<HomeSceneGraph />)
     expect(
-      await screen.findByRole('heading', { name: 'The Phoenix scene, mapped' }),
+      await screen.findByRole('heading', { name: 'Phoenix music graph' }),
     ).toBeInTheDocument()
   })
 
@@ -188,7 +188,7 @@ describe('HomeSceneGraph', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
     expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+      screen.getByRole('heading', { name: 'Chicago music graph' }),
     ).toBeInTheDocument()
 
     // Geo resolves LATE to Phoenix — but the visitor already engaged a node, so
@@ -197,7 +197,7 @@ describe('HomeSceneGraph', () => {
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
     rerender(<HomeSceneGraph />)
     expect(
-      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+      screen.getByRole('heading', { name: 'Chicago music graph' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
   })
@@ -206,21 +206,21 @@ describe('HomeSceneGraph', () => {
     // Geo would default to Phoenix; a surprise rotation must still move off it.
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Phoenix scene, mapped' })
+    await screen.findByRole('heading', { name: 'Phoenix music graph' })
     fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
     // Only one other scene exists, so the rotation is deterministic.
     expect(
-      screen.getByRole('heading', { name: 'The Chicago scene, mapped' }),
+      screen.getByRole('heading', { name: 'Chicago music graph' }),
     ).toBeInTheDocument()
   })
 
   it('"Surprise me" rotates to another scene', async () => {
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene, mapped' })
+    await screen.findByRole('heading', { name: 'Chicago music graph' })
     fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
     // Only one other scene exists, so the rotation is deterministic.
     expect(
-      screen.getByRole('heading', { name: 'The Phoenix scene, mapped' }),
+      screen.getByRole('heading', { name: 'Phoenix music graph' }),
     ).toBeInTheDocument()
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ slug: 'phoenix-az' }),
@@ -230,7 +230,7 @@ describe('HomeSceneGraph', () => {
   it('self-hides entirely when the scenes list errors', async () => {
     useScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     const { container } = render(<HomeSceneGraph />)
-    expect(screen.queryByRole('heading', { name: /scene, mapped/i })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /music graph/i })).toBeNull()
     // The wrapper stays (observer target) but carries no section content.
     expect(container.querySelector('section')).toBeNull()
   })
@@ -244,7 +244,7 @@ describe('HomeSceneGraph', () => {
   it('renders the small-screen teaser (no canvas) below the graph breakpoint', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene, mapped' })
+    await screen.findByRole('heading', { name: 'Chicago music graph' })
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     expect(
       screen.getByRole('link', { name: /see the chicago scene/i }),
@@ -261,7 +261,7 @@ describe('HomeSceneGraph', () => {
       isPlaceholderData: true, // …but stale for the current key
     })
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene, mapped' })
+    await screen.findByRole('heading', { name: 'Chicago music graph' })
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     expect(screen.queryByText(/not enough connected artists/i)).toBeNull()
   })
@@ -285,7 +285,7 @@ describe('HomeSceneGraph', () => {
   it('does not fetch the graph payload below the canvas gate (teaser never reads it)', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene, mapped' })
+    await screen.findByRole('heading', { name: 'Chicago music graph' })
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false }),
     )

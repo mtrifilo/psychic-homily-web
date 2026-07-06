@@ -289,7 +289,7 @@ function HomeSceneGraphSection() {
           aria-live="polite"
           className="text-2xl font-semibold tracking-tight text-foreground"
         >
-          The {scene.city} scene, mapped
+          {scene.city} music graph
         </h2>
         <div className="flex items-center gap-4 text-sm">
           {scenes.length > 1 && (

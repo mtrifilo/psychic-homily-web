@@ -76,15 +76,16 @@ test.describe('Homepage', () => {
 
     // Scene-graph section (PSY-1344). Lazy-mounted on scroll intent, and the
     // heading names whichever seeded scene is liveliest — assert the stable
-    // "…scene, mapped" suffix. The e2e seed carries a metro'd Phoenix scene
-    // (PSY-1319), so the section must not self-hide. Scroll deterministically
-    // to the section BELOW it (radio renders immediately) rather than a
-    // magic wheel delta, so content growth can't strand the observer.
+    // "… music graph" suffix (PSY-1358 copy). The e2e seed carries a metro'd
+    // Phoenix scene (PSY-1319), so the section must not self-hide. Scroll
+    // deterministically to the section BELOW it (radio renders immediately)
+    // rather than a magic wheel delta, so content growth can't strand the
+    // observer.
     await page
       .getByRole('heading', { name: /latest radio shows/i })
       .scrollIntoViewIfNeeded()
     await expect(
-      page.getByRole('heading', { name: /scene, mapped$/i })
+      page.getByRole('heading', { name: /music graph$/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
       page.getByRole('link', { name: /explore the full graph/i })
