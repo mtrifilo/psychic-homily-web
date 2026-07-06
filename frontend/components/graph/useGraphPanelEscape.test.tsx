@@ -1,14 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
 
-import { useCaptureEscape, type UseCaptureEscapeOptions } from './useCaptureEscape'
+import { useGraphPanelEscape, type UseGraphPanelEscapeOptions } from './useGraphPanelEscape'
 
-function Listener({ onEscape, options }: { onEscape: () => void; options?: UseCaptureEscapeOptions }) {
-  useCaptureEscape(onEscape, options)
+function Listener({ onEscape, options }: { onEscape: () => void; options?: UseGraphPanelEscapeOptions }) {
+  useGraphPanelEscape(onEscape, options)
   return null
 }
 
-describe('useCaptureEscape', () => {
+describe('useGraphPanelEscape', () => {
   it('fires onEscape on a document capture-phase Escape', () => {
     const onEscape = vi.fn()
     render(<Listener onEscape={onEscape} />)
@@ -83,5 +83,20 @@ describe('useCaptureEscape', () => {
     // Same key from a non-input target is still handled.
     fireEvent.keyDown(document.body, { key: 'Escape' })
     expect(onEscape).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignoreFromInput also leaves an Escape targeted inside a [role="dialog"] for that dialog', () => {
+    const onEscape = vi.fn()
+    const { getByRole } = render(
+      <>
+        <div role="dialog" aria-label="palette">
+          <button type="button">focusable</button>
+        </div>
+        <Listener onEscape={onEscape} options={{ ignoreFromInput: true }} />
+      </>,
+    )
+    // The button lives inside the dialog — an Escape from there is the dialog's.
+    fireEvent.keyDown(getByRole('button', { name: 'focusable' }), { key: 'Escape' })
+    expect(onEscape).not.toHaveBeenCalled()
   })
 })

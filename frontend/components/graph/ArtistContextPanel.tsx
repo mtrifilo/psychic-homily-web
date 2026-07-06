@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 import { formatShowDate } from '@/lib/utils/formatters'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import { GraphPanelShell } from './GraphPanelShell'
-import { useCaptureEscape } from './useCaptureEscape'
+import { useGraphPanelEscape } from './useGraphPanelEscape'
 
 export interface ArtistContextPanelProps {
   /** Name of the selected node — rendered immediately, before the card loads. */
@@ -66,7 +66,7 @@ export function ArtistContextPanel({
   // ignoreFromInput: a CommandPalette Escape must dismiss the palette alone
   // (PSY-1313 layered-dismiss lesson), so an input/[role=dialog]-targeted
   // Escape is left for that control.
-  useCaptureEscape(onClose, { ignoreFromInput: true })
+  useGraphPanelEscape(onClose, { ignoreFromInput: true })
 
   const loading = !card && !isError
   const location = card && (card.city || card.state)

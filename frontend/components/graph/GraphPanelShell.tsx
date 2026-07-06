@@ -11,7 +11,7 @@
  * caller supplies the header content, the body, and the per-panel spacing
  * (padding / max-height / vertical rhythm differ) via `className`.
  *
- * Escape handling is NOT here — it lives in useCaptureEscape so the coordinated
+ * Escape handling is NOT here — it lives in useGraphPanelEscape so the coordinated
  * innermost-first dismissal is shared across both panels regardless of chrome.
  */
 

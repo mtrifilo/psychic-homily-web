@@ -19,12 +19,12 @@ vi.mock('next/link', () => ({
 // Escape on document in the CAPTURE phase, and stopPropagation does NOT
 // stop sibling listeners on the same target/phase — one keypress must close
 // exactly ONE panel (the /graph-Observatory coexistence contract). PSY-1360
-// sharpens that into innermost-first: the coordinated useCaptureEscape stack
+// sharpens that into innermost-first: the coordinated useGraphPanelEscape stack
 // closes the most-recently-mounted panel first, deterministically (before, the
 // FIRST-mounted / outermost panel won by registration order).
 describe('graph panel Esc layering (innermost-first, PSY-1360)', () => {
   // Real open/close state so a closed panel actually UNMOUNTS — popping its
-  // useCaptureEscape token off the shared stack. A mock onClose would leave both
+  // useGraphPanelEscape token off the shared stack. A mock onClose would leave both
   // panels mounted and couldn't distinguish innermost-first from a dead listener.
   function StackedPanels() {
     const [artistOpen, setArtistOpen] = useState(true)

@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils'
 import { buildLinkLabelText, edgeTypeLabel, type EdgeTooltipLink } from './edgeGrammar'
 import { EdgeSwatch } from './EdgeLegend'
 import { GraphPanelShell } from './GraphPanelShell'
-import { useCaptureEscape } from './useCaptureEscape'
+import { useGraphPanelEscape } from './useGraphPanelEscape'
 
 /** Phase-2 (PSY-1335) provenance entity — rendered as a link when present. */
 export interface ConnectionEntity {
@@ -107,7 +107,7 @@ export function ConnectionPanel({
   // Escape from the fullscreen overlay (both call sites gate upstream, but this
   // keeps the invariant local).
   const hasConnections = connections.length > 0
-  useCaptureEscape(onClose, { enabled: hasConnections })
+  useGraphPanelEscape(onClose, { enabled: hasConnections })
 
   if (connections.length === 0) return null
 
