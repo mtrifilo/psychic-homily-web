@@ -18,6 +18,9 @@ const (
 	// BookmarkEntityScene follows a scenes-registry row (PSY-1339) — the
 	// lazily-materialized identity for a computed metro scene.
 	BookmarkEntityScene BookmarkEntityType = "scene"
+	// BookmarkEntityRadioShow follows a radio_shows row (PSY-1356) — enables
+	// the Following Feed's "followed radio show → new episode" signal.
+	BookmarkEntityRadioShow BookmarkEntityType = "radio_show"
 )
 
 // BookmarkAction represents the type of bookmark action
