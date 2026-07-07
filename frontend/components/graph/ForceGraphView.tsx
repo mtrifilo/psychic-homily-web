@@ -128,6 +128,9 @@ export interface GraphLink {
 // ──────────────────────────────────────────────
 const FORCE_X_STRENGTH = 0.15
 const FORCE_Y_STRENGTH = 0.15
+// PSY-1380: gentle pull-to-origin used ONLY when a graph has no cluster
+// centroids and no isolates (InlineGraph), where nothing else anchors position.
+const RECENTER_STRENGTH = 0.05
 const LINK_STRENGTH_INTRA = 0.7
 const LINK_STRENGTH_CROSS = 0.1
 const CHARGE_STRENGTH = -120
@@ -478,13 +481,34 @@ export function ForceGraphView({
 
     // PSY-1380: kill react-force-graph's default forceCenter. It translates the
     // layout so the centroid of ALL nodes sits at (0,0) — but the isolate shelf
-    // pins 12 nodes below center, so to balance the centroid it shoves the few
+    // pins many nodes below center, so to balance the centroid it shoves the few
     // connected nodes FAR up (measured: 12·235 + 4·(-705) = 0), ballooning the
     // bbox vertically until zoomToFit zooms out and the graph reads as empty in
-    // mostly-isolate scenes. Our clusterX/clusterY forces already anchor
-    // non-isolates to their cluster centroid, so the center force is redundant
-    // as well as harmful here.
+    // mostly-isolate scenes (most scenes are majority-isolate).
     fg.d3Force('center', null)
+
+    // forceCenter was the ONLY absolute-position anchor for a consumer that
+    // passes no clusters AND has no isolates (InlineGraph): its clusterX/clusterY
+    // are no-ops (empty centroids) and the shelf never runs, so without a
+    // replacement its layout drifts (link+charge conserve no absolute position).
+    // Give exactly that case a gentle per-node pull to origin. Unlike forceCenter
+    // it pulls each node toward 0 INDEPENDENTLY rather than balancing the aggregate
+    // centroid, so the isolate shelf can't hijack it into the vertical blowup
+    // above. Clustered / has-isolate graphs keep their own anchors and skip this.
+    const hasAbsoluteAnchor =
+      centroids.size > 0 || renderData.nodes.some(n => n.is_isolate)
+    fg.d3Force(
+      'recenter',
+      hasAbsoluteAnchor
+        ? null
+        : (alpha: number) => {
+            for (const node of renderData.nodes) {
+              if (node.x == null || node.y == null) continue
+              node.x += (0 - node.x) * RECENTER_STRENGTH * alpha
+              node.y += (0 - node.y) * RECENTER_STRENGTH * alpha
+            }
+          },
+    )
 
     fg.d3ReheatSimulation()
   }, [renderData, centroids, containerWidth, graphHeight])
