@@ -424,6 +424,80 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBill
 	suite.Assert().InDelta(0.12, float64(rel.Score), 0.001)
 }
 
+// PSY-1332: a pair that no longer qualifies (here: a minShows revert) is removed
+// on the next derive, so the stored graph converges instead of keeping a dead
+// edge at its last score forever.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBills_ReconcileRemovesStaleOnThresholdRevert() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	show := suite.createShow("Show 1")
+	suite.addArtistToShow(show, a1)
+	suite.addArtistToShow(show, a2)
+
+	// One shared show qualifies at minShows=1.
+	_, err := suite.svc.DeriveSharedBills(1)
+	suite.Require().NoError(err)
+	rel, err := suite.svc.GetRelationship(a1, a2, "shared_bills")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(rel)
+
+	// Threshold reverts to 2 — the one-off pair no longer qualifies. Before
+	// PSY-1332 the edge would linger; the reconcile must delete it.
+	count, err := suite.svc.DeriveSharedBills(2)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(0), count)
+
+	rel, err = suite.svc.GetRelationship(a1, a2, "shared_bills")
+	suite.Require().NoError(err)
+	suite.Assert().Nil(rel, "stale one-off edge should be reconciled away, not linger")
+}
+
+// PSY-1332: the reconcile deletes votes on a removed edge (the votes FK is
+// ON DELETE NO ACTION, so a plain delete would otherwise fail) and never touches
+// manual edges or other relationship types.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBills_ReconcileCascadesVotesSparesManual() {
+	a1 := suite.createArtist("Band A")
+	a2 := suite.createArtist("Band B")
+	a3 := suite.createArtist("Band C")
+	show := suite.createShow("Show 1")
+	suite.addArtistToShow(show, a1)
+	suite.addArtistToShow(show, a2)
+
+	// Auto-derived shared_bills edge (a1,a2), then a user votes on it.
+	_, err := suite.svc.DeriveSharedBills(1)
+	suite.Require().NoError(err)
+	user := suite.createUser("voter")
+	err = suite.db.Exec(
+		"INSERT INTO artist_relationship_votes (source_artist_id, target_artist_id, relationship_type, user_id, direction) VALUES (?, ?, ?, ?, 1)",
+		a1, a2, "shared_bills", user.ID).Error
+	suite.Require().NoError(err)
+
+	// A MANUAL edge of a different type that the reconcile must never sweep.
+	manual, err := suite.svc.CreateRelationship(a1, a3, "similar", false)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(manual)
+
+	// The show's lineup goes away → the shared_bills pair no longer qualifies.
+	suite.Require().NoError(suite.db.Exec("DELETE FROM show_artists WHERE show_id = ?", show).Error)
+	_, err = suite.svc.DeriveSharedBills(1)
+	suite.Require().NoError(err)
+
+	// Stale voted edge gone, and its vote cascaded (no FK error; none left).
+	rel, err := suite.svc.GetRelationship(a1, a2, "shared_bills")
+	suite.Require().NoError(err)
+	suite.Assert().Nil(rel, "stale voted edge should be deleted")
+	var votes int64
+	suite.db.Table("artist_relationship_votes").
+		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?", a1, a2, "shared_bills").
+		Count(&votes)
+	suite.Assert().Equal(int64(0), votes, "votes on the removed edge should be cascaded")
+
+	// Manual 'similar' edge (different type + not auto_derived) untouched.
+	manualAfter, err := suite.svc.GetRelationship(a1, a3, "similar")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(manualAfter, "manual edge of a different type must not be reconciled")
+}
+
 // ──────────────────────────────────────────────
 // Shared-label derivation (PSY-1323 roster normalization)
 // ──────────────────────────────────────────────
