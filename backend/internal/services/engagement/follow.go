@@ -9,6 +9,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -400,21 +401,21 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 			// ORDER BY … LIMIT 1 is an index seek — no N+1 per followed show).
 			// station_id is NOT NULL, so the inner join never drops a live show.
 			//
-			// last_episode_date is the most recent AIRED episode, gated at DATE
-			// granularity (air_date <= CURRENT_DATE): WFMU pre-publishes upcoming
-			// episode rows, so an ungated MAX would surface a future date under
-			// the "last-aired" UI label (the PSY-1374 footgun). This is
-			// deliberately COARSER than the catalog directory's visibility gate
-			// (airedEpisodeVisibleSQL + station-local-today, which also excludes
-			// windowed-not-yet-aired-today and 0-track windowless placeholders):
-			// that gate is single-station-scoped, whereas this query spans every
-			// followed show across stations/timezones at once, so
-			// per-station-local-today isn't expressible in one query. The two
-			// surfaces can therefore differ by up to a day for a same-day
-			// placeholder — acceptable for a date label (owner-approved
-			// date-granularity gate; see PSY-1356). to_char pins YYYY-MM-DD (a
-			// raw date scan can arrive as an RFC3339 timestamp; see
-			// catalog.normalizeDate).
+			// last_episode_date = the show's most recent AIRED episode, gated on
+			// the STATION-LOCAL date, NOT the DB's UTC CURRENT_DATE. WFMU-style
+			// providers pre-publish an episode row dated for the station's local
+			// "tomorrow", and every onboarded station runs at <= 0 UTC offset, so
+			// a bare UTC gate would surface that not-yet-aired row as "last-aired"
+			// every evening (the PSY-1374 footgun). The tz expression mirrors
+			// catalog.stationLocalToday: pg_timezone_names resolves st.timezone
+			// case-insensitively and COALESCEs an unknown/NULL zone to UTC, so a
+			// bad tz string can't error the query. Residual (accepted,
+			// date-granularity): an episode airing LATER today still shows today's
+			// date — excluding a windowed-not-yet-aired same-day row would need
+			// airedEpisodeVisibleSQL's starts_at/play_count checks, which are
+			// single-station-scoped and don't fit this multi-station query. See
+			// PSY-1356 for the aired-gate decision. to_char pins YYYY-MM-DD (a raw
+			// date scan can arrive as an RFC3339 timestamp; see catalog.normalizeDate).
 			var shows []struct {
 				ID              uint
 				Name            string
@@ -424,15 +425,26 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 				StationSlug     string
 				LastEpisodeDate *string
 			}
-			s.db.Table("radio_shows AS rs").
+			if err := s.db.Table("radio_shows AS rs").
 				Select(`rs.id, rs.name, rs.slug, rs.host_name,
 					st.name AS station_name, st.slug AS station_slug,
 					(SELECT to_char(e.air_date, 'YYYY-MM-DD') FROM radio_episodes e
-					 WHERE e.show_id = rs.id AND e.air_date <= CURRENT_DATE
+					 WHERE e.show_id = rs.id
+					   AND e.air_date <= (now() AT TIME ZONE COALESCE(
+					         (SELECT name FROM pg_timezone_names
+					          WHERE lower(name) = lower(btrim(st.timezone, E' \t\n\r'))),
+					         'UTC'))::date
 					 ORDER BY e.air_date DESC LIMIT 1) AS last_episode_date`).
 				Joins("JOIN radio_stations st ON st.id = rs.station_id").
 				Where("rs.id IN ?", ids).
-				Find(&shows)
+				Find(&shows).Error; err != nil {
+				// Best-effort enrichment, like the sibling per-type lookups above —
+				// but this JOIN + correlated tz subquery is the most failure-prone
+				// of them, so LOG rather than degrade silently to blank rows on a
+				// schema/SQL regression (the following list still renders).
+				logger.Default().Error("get_user_following_radio_enrich_failed",
+					"user_id", userID, "show_id_count", len(ids), "error", err.Error())
+			}
 			for _, sh := range shows {
 				entityNames[entityKey{t, sh.ID}] = struct{ Name, Slug string }{sh.Name, sh.Slug}
 				radioEnriched[sh.ID] = radioFollowFields{

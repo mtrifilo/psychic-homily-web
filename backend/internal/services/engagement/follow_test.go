@@ -13,6 +13,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -203,10 +204,25 @@ func (suite *FollowServiceIntegrationTestSuite) createTestLabel(name string) uin
 
 // createTestRadioShow creates a station + show (+ optional host + episodes) and
 // returns the show id. host="" leaves host_name NULL; airDates are "YYYY-MM-DD".
+// The station has no timezone (NULL → the enrichment query's aired gate falls
+// back to UTC).
 func (suite *FollowServiceIntegrationTestSuite) createTestRadioShow(
 	showName, showSlug, stationName, stationSlug, host string, airDates ...string,
 ) uint {
+	return suite.createTestRadioShowTZ(showName, showSlug, stationName, stationSlug, "", host, airDates...)
+}
+
+// createTestRadioShowTZ is createTestRadioShow with an explicit station IANA
+// timezone (timezone="" leaves it NULL). Used to exercise the station-local
+// aired gate in last_episode_date.
+func (suite *FollowServiceIntegrationTestSuite) createTestRadioShowTZ(
+	showName, showSlug, stationName, stationSlug, timezone, host string, airDates ...string,
+) uint {
 	station := &catalogm.RadioStation{Name: stationName, Slug: stationSlug}
+	if timezone != "" {
+		tz := timezone
+		station.Timezone = &tz
+	}
 	suite.Require().NoError(suite.db.Create(station).Error)
 
 	var hostPtr *string
@@ -837,7 +853,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowEn
 
 // The aired-gate: a followed show with a pre-published FUTURE episode must
 // surface its most recent PAST episode as last_episode_date, not the future one
-// (WFMU pre-publishes upcoming rows — the PSY-1374 footgun).
+// (WFMU pre-publishes upcoming rows — the PSY-1374 footgun). No station tz here,
+// so the gate resolves via the UTC fallback; +14d is unambiguously future in
+// every zone.
 func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowExcludesFutureEpisode() {
 	user := suite.createTestUser()
 	past := time.Now().AddDate(0, 0, -3).Format("2006-01-02")
@@ -851,6 +869,57 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowEx
 	suite.Require().Len(following, 1)
 	suite.Require().NotNil(following[0].LastEpisodeDate)
 	suite.Equal(past, *following[0].LastEpisodeDate, "future pre-published episode must not win last_episode_date")
+}
+
+// The gate must be STATION-LOCAL, not the DB's UTC date. This is a DETERMINISTIC
+// regression guard: it uses two stations at opposite UTC extremes whose
+// date-divergence windows union to a full 24h, so a revert to a bare UTC gate
+// (e.g. `<= CURRENT_DATE`) fails at least one assertion regardless of what time
+// of day CI runs.
+//
+//   - EAST station (Pacific/Kiritimati, UTC+14): its local date runs AHEAD of
+//     UTC (differs for UTC 10:00–24:00). An episode dated the station's LOCAL
+//     today must be INCLUDED; a UTC gate would drop it whenever the station date
+//     is UTC+1.
+//   - WEST station (Etc/GMT+12, UTC-12): its local date runs BEHIND UTC (differs
+//     for UTC 00:00–12:00). An episode dated the station's LOCAL tomorrow must be
+//     EXCLUDED (local yesterday is the latest aired); a UTC gate would admit it
+//     whenever the station date is UTC-1.
+//
+// Dates are computed in each station's own tz to match what the SQL resolves.
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowStationLocalGateDeterministic() {
+	user := suite.createTestUser()
+
+	const eastTZ, westTZ = "Pacific/Kiritimati", "Etc/GMT+12" // UTC+14, UTC-12
+	eastLoc, err := time.LoadLocation(eastTZ)
+	suite.Require().NoError(err)
+	westLoc, err := time.LoadLocation(westTZ)
+	suite.Require().NoError(err)
+
+	eastToday := time.Now().In(eastLoc).Format("2006-01-02")
+	westYesterday := time.Now().In(westLoc).AddDate(0, 0, -1).Format("2006-01-02")
+	westTomorrow := time.Now().In(westLoc).AddDate(0, 0, 1).Format("2006-01-02")
+
+	eastShow := suite.createTestRadioShowTZ("East", "east-show", "East Station", "east-station", eastTZ, "", eastToday)
+	westShow := suite.createTestRadioShowTZ("West", "west-show", "West Station", "west-station", westTZ, "", westYesterday, westTomorrow)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", eastShow))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", westShow))
+
+	following, _, err := suite.followService.GetUserFollowing(user.ID, "radio_show", 10, 0)
+	suite.Require().NoError(err)
+	byID := make(map[uint]*contracts.FollowingEntityResponse, len(following))
+	for _, f := range following {
+		byID[f.EntityID] = f
+	}
+
+	suite.Require().NotNil(byID[eastShow], "east show must be in the following list")
+	suite.Require().NotNil(byID[eastShow].LastEpisodeDate, "east station-local-today must be INCLUDED (UTC gate would drop it during the UTC+1 window)")
+	suite.Equal(eastToday, *byID[eastShow].LastEpisodeDate)
+
+	suite.Require().NotNil(byID[westShow], "west show must be in the following list")
+	suite.Require().NotNil(byID[westShow].LastEpisodeDate)
+	suite.Equal(westYesterday, *byID[westShow].LastEpisodeDate,
+		"west station-local-tomorrow must be EXCLUDED (UTC gate would admit it during the UTC-1 window)")
 }
 
 // AC (c): follower count + follow status resolve for radio_show through the
