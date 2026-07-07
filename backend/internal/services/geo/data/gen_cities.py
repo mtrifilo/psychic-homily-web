@@ -92,7 +92,11 @@ def main(cities_path, xlsx_path):
 
     # Pass 1: parse every row, and group US rows by (asciiname, admin1) so we can
     # detect a name that carries DISAGREEING timezones within one state and record
-    # that group's canonical winner (highest admin rank, then population).
+    # that group's canonical winner (highest admin rank, then population). The key is
+    # the raw asciiname (not the Go foldKey, which also expands St./Ft./Mt.), so an
+    # abbreviation-variant conflict pair ("St. X" vs "Saint X", same state, different
+    # tz) would escape this dedup — none exist in the current data, and the Go query
+    # folds both forms symmetrically, so re-verify only if a future refresh adds one.
     parsed = []
     groups = {}
     with open(cities_path, encoding='utf-8') as f:
