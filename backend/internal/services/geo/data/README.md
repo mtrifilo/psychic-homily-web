@@ -34,7 +34,8 @@ fully offline (no API, key, or rate limit).
 cd /tmp
 curl -sL https://download.geonames.org/export/dump/cities1000.zip -o cities1000.zip && unzip -o cities1000.zip
 curl -sL https://download.geonames.org/export/dump/countryInfo.txt -o countryInfo.txt
-# CBSA delineation (county -> CBSA). Bump the year to the latest available.
+# CBSA delineation (county -> CBSA). Keep the year that matches the committed file
+# (see Provenance) unless you intend to refresh the metro definitions too.
 curl -sL https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2023/delineation-files/list1_2023.xlsx -o list1.xlsx
 
 pip install pandas openpyxl
@@ -45,3 +46,24 @@ grep -v '^#' countryInfo.txt | awk -F'\t' 'NF>=5 && $1!="" {print $1"\t"$5}' > c
 ```
 
 Then move `cities.tsv` / `countries.tsv` into this directory.
+
+## Provenance
+
+The committed `cities.tsv` was generated from:
+- **GeoNames `cities1000`** (populated places ≥ 1,000 + admin seats). Some rows have
+  `population = 0` — those are GeoNames administrative seats (county seats etc.),
+  not data errors; they only win a lookup when they're the sole candidate for a state.
+- **US Census/OMB CBSA delineation `list1_2023.xlsx`** (2023 vintage) — pinned so
+  the county→metro mapping is reproducible; bump it only to intentionally refresh
+  the metro definitions (which also shifts scene/metro keys downstream).
+
+`gen_cities.py` de-duplicates same-name, same-state rows whose IANA timezones
+disagree, keeping the higher GeoNames admin rank (a county seat over a mis-placed
+duplicate) so the geocoder's max-population pick can't select a wrong-zone row.
+
+Verify a regeneration matches the committed artifact:
+
+```
+$ shasum -a 256 cities.tsv
+e34387f2c4ea35ba51e8d66a89a048c68ea700a22a5f9eebd2f652b8724e894b  cities.tsv
+```

@@ -52,6 +52,24 @@ CONSOLIDATED = {
 }
 
 
+# GeoNames feature-code priority for resolving same-name, same-state rows whose
+# timezones DISAGREE. The higher administrative rank is the canonical place for a
+# name in a state (a county seat / PPLA2 beats a generic PPL duplicate), so we keep
+# it and drop the conflicting minority rows — otherwise the geocoder's plain
+# max-population pick can select a mis-placed duplicate with the wrong zone. This
+# fixes GeoNames data-quality collisions like the two "Morehead, KY" rows: the real
+# Rowan-County seat (PPLA2, America/New_York) vs a western-KY PPL duplicate
+# (America/Chicago) that outweighs it on population (PSY-1377). Lower = higher
+# priority; ties fall back to population. Only conflicting-timezone groups are
+# deduped — same-zone duplicates are harmless and pass through untouched.
+FEATURE_RANK = {'PPLC': 0, 'PPLA': 1, 'PPLA2': 2, 'PPLA3': 3, 'PPLA4': 4, 'PPLA5': 5}
+DEFAULT_RANK = 9  # PPL and everything else
+
+
+def _rank(fcode):
+    return FEATURE_RANK.get(fcode, DEFAULT_RANK)
+
+
 def load_crosswalk(xlsx_path):
     """5-digit county FIPS -> (cbsa_code, cbsa_title)."""
     df = pd.read_excel(xlsx_path, skiprows=2)  # 2 title rows precede the header
@@ -71,33 +89,65 @@ def main(cities_path, xlsx_path):
     # CBSA code -> friendly name, for the CONSOLIDATED overrides (so a hand-mapped
     # consolidated city gets the SAME name the county join gives its neighbors).
     code_to_name = {code: name for code, name in xw.values()}
+
+    # Pass 1: parse every row, and group US rows by (asciiname, admin1) so we can
+    # detect a name that carries DISAGREEING timezones within one state and record
+    # that group's canonical winner (highest admin rank, then population).
+    parsed = []
+    groups = {}
     with open(cities_path, encoding='utf-8') as f:
         for line in f:
             p = line.rstrip('\n').split('\t')
             if len(p) < 19:
                 continue
-            name, ascii_, country = p[1], p[2], p[8]
+            name, ascii_, fcode, country = p[1], p[2], p[7], p[8]
             admin1, admin2, pop = p[10], p[11], p[14]
             lat, lng, tz = p[4], p[5], p[17]
-            cbsa_code = cbsa_name = ''
-            aliases = []
-            if country == 'US':
-                sf = STATE_FIPS.get(admin1.upper())
-                if sf and admin2:
-                    hit = xw.get(sf + admin2.zfill(3))
-                    if hit:
-                        cbsa_code, cbsa_name = hit
-                if not cbsa_code:
-                    override = CONSOLIDATED.get((ascii_, admin1.upper()))
-                    if override:
-                        cbsa_code, aliases = override
-                        cbsa_name = code_to_name.get(cbsa_code, '')
-            row = [name, ascii_, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]
-            print('\t'.join(row))
-            # Emit alias rows (e.g. "New York" for the "New York City" entry) so a
-            # common stored form resolves to the same place + metro.
-            for alias in aliases:
-                print('\t'.join([alias, alias, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]))
+            idx = len(parsed)
+            parsed.append((name, ascii_, country, admin1, admin2, pop, lat, lng, tz))
+            if country == 'US' and tz:
+                try:
+                    pop_i = int(pop)
+                except ValueError:
+                    pop_i = 0
+                key = (ascii_.lower(), admin1.upper())
+                rank = _rank(fcode)
+                g = groups.get(key)
+                if g is None:
+                    groups[key] = {'tzs': {tz}, 'best': idx, 'rank': rank, 'pop': pop_i}
+                else:
+                    g['tzs'].add(tz)
+                    if rank < g['rank'] or (rank == g['rank'] and pop_i > g['pop']):
+                        g['best'], g['rank'], g['pop'] = idx, rank, pop_i
+
+    # Pass 2: emit. Drop a US row only when its (name, admin1) group has conflicting
+    # timezones AND this row is not the canonical winner — so a plain max-pop query
+    # can't pick a wrong-tz duplicate (e.g. the western-KY "Morehead" PPL over the
+    # real Rowan-County PPLA2 seat). Everything else passes through unchanged.
+    for idx, (name, ascii_, country, admin1, admin2, pop, lat, lng, tz) in enumerate(parsed):
+        if country == 'US' and tz:
+            g = groups[(ascii_.lower(), admin1.upper())]
+            if len(g['tzs']) > 1 and g['best'] != idx:
+                continue
+        cbsa_code = cbsa_name = ''
+        aliases = []
+        if country == 'US':
+            sf = STATE_FIPS.get(admin1.upper())
+            if sf and admin2:
+                hit = xw.get(sf + admin2.zfill(3))
+                if hit:
+                    cbsa_code, cbsa_name = hit
+            if not cbsa_code:
+                override = CONSOLIDATED.get((ascii_, admin1.upper()))
+                if override:
+                    cbsa_code, aliases = override
+                    cbsa_name = code_to_name.get(cbsa_code, '')
+        row = [name, ascii_, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]
+        print('\t'.join(row))
+        # Emit alias rows (e.g. "New York" for the "New York City" entry) so a
+        # common stored form resolves to the same place + metro.
+        for alias in aliases:
+            print('\t'.join([alias, alias, country, admin1, pop, lat, lng, tz, cbsa_code, cbsa_name]))
 
 
 if __name__ == '__main__':

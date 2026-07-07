@@ -369,11 +369,11 @@ func CanonicalCountryName(s string) (string, bool) {
 
 func newOfflineGeocoder() *offlineGeocoder {
 	g := &offlineGeocoder{
-		// Sized for the cities1000 tier (~170k rows, each indexed under its folded
-		// name + ascii-name key) so the one-time cold-start load doesn't rehash
-		// (PSY-1377; was 40000 for cities15000's ~34k rows). byMetro is bounded by
-		// the ~900 CBSA codes regardless of tier.
-		byCity:      make(map[string][]cityRow, 200000),
+		// Sized for the cities1000 tier: ~170k rows, each indexed under BOTH its
+		// folded name and ascii-name key (~205k distinct inserts when they differ),
+		// so the one-time cold-start load doesn't rehash (PSY-1377; was 40000 for
+		// cities15000's ~34k rows). byMetro is bounded by the ~900 CBSA codes.
+		byCity:      make(map[string][]cityRow, 250000),
 		byMetro:     make(map[string][]cityRow, 1000),
 		nameToISO:   make(map[string]string, 512),
 		isoToName:   make(map[string]string, 256),
@@ -614,7 +614,10 @@ func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) 
 //
 // "Unambiguous" is scoped to the embedded, population-filtered dataset; a tiny
 // same-name town it omits won't shift the answer, which is acceptable for the
-// scene use case (real metros).
+// scene use case (real metros). The cities1000 tier (PSY-1377) intentionally
+// widens the ambiguous set: some names unambiguous under cities15000 now span two+
+// states (Sidney, Evanston), so this correctly refuses them — the safe direction,
+// callers defer to a stronger source.
 func (g *offlineGeocoder) ResolveUSState(city string) (string, USStateStatus) {
 	cityKey := foldKey(city)
 	if cityKey == "" {

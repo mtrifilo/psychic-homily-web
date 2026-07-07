@@ -44,6 +44,22 @@ func TestResolve(t *testing.T) {
 		// panhandle, so it resolves to America/Boise — NOT the OR predominant Pacific
 		// zone the cities15000 state fallback would have given.
 		{"OR Mountain panhandle town resolves to Boise", "Ontario", "OR", "", "America/Boise", true},
+		// FL panhandle (Central), sub-15k — was a miss → FL-predominant Eastern.
+		{"FL panhandle town resolves to Central", "Marianna", "FL", "", "America/Chicago", true},
+		// The Arizona exclave the research flagged: the Navajo Nation observes DST
+		// (America/Denver) inside otherwise-no-DST Arizona (America/Phoenix). GeoNames
+		// assigns the zone per PLACE, so a Navajo town and a non-Navajo town in the
+		// SAME state resolve to different zones — something a state-level fallback
+		// fundamentally can't do.
+		{"AZ Navajo Nation town → Denver", "Kayenta", "AZ", "", "America/Denver", true},
+		{"AZ non-Navajo town → Phoenix", "Wickenburg", "AZ", "", "America/Phoenix", true},
+		// Same-name, same-state timezone collision (PSY-1377 gen_cities.py dedup):
+		// cities1000 shipped two "Morehead, KY" rows — the real Rowan-County seat
+		// (PPLA2, Eastern) and a mis-placed western-KY PPL duplicate (Central) with a
+		// HIGHER population. A plain max-pop pick returns the wrong Central zone; the
+		// generation-time admin-rank dedup keeps only the county seat, so this
+		// resolves to America/New_York.
+		{"same-name same-state tz collision resolves to the county seat", "Morehead", "KY", "", "America/New_York", true},
 		// PSY-1012's hard filter still guards the remaining long tail: a confident US
 		// state with NO same-name row ANYWHERE in the dataset must MISS (-> NULL ->
 		// state fallback), not return a wrong-state namesake. Pasadena is in MD/TX/CA
@@ -179,6 +195,14 @@ func TestResolveUSState(t *testing.T) {
 		{"tokyo is not a US place", "Tokyo", "", USStateNotFound},
 		{"unknown city is not found", "Nowherecityville", "", USStateNotFound},
 		{"empty city is not found", "", "", USStateNotFound},
+		// PSY-1377: the cities1000 tier expands the set of multi-state names. Sidney
+		// (now in NE/OH/IA/IL/ME/NY/MT...) and Evanston (IL/WY) were unambiguous under
+		// cities15000 (only the largest namesake was present); they are now correctly
+		// AMBIGUOUS, so a bare-city home-state inference refuses rather than guessing
+		// the biggest one (the PSY-1244 safe direction). Callers defer to a stronger
+		// source (an explicit state, or MusicBrainz).
+		{"sidney is now multi-state ambiguous (cities1000)", "Sidney", "", USStateAmbiguous},
+		{"evanston is now multi-state ambiguous (cities1000)", "Evanston", "", USStateAmbiguous},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
