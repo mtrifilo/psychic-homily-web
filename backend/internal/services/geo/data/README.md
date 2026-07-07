@@ -14,8 +14,10 @@ fully offline (no API, key, or rate limit).
 
 ## Files
 
-- **`cities.tsv`** — slimmed from GeoNames `cities15000.txt` (populated places
-  with population ≥ 15,000). Tab-separated columns:
+- **`cities.tsv`** — slimmed from GeoNames `cities1000.txt` (populated places
+  with population ≥ 1,000, plus admin seats — PSY-1377, upgraded from cities15000
+  so sub-15k towns in split-timezone states resolve to their exact IANA zone
+  instead of a state-level fallback). Tab-separated columns:
   `name, asciiname, countryCode, admin1, population, latitude, longitude,
   timezone, cbsaCode, cbsaName`. The last two are the US Census CBSA (metro/micro
   area) the place's county rolls up to — **US rows only**, empty otherwise — and
@@ -30,13 +32,13 @@ fully offline (no API, key, or rate limit).
 
 ```bash
 cd /tmp
-curl -sL https://download.geonames.org/export/dump/cities15000.zip -o cities15000.zip && unzip -o cities15000.zip
+curl -sL https://download.geonames.org/export/dump/cities1000.zip -o cities1000.zip && unzip -o cities1000.zip
 curl -sL https://download.geonames.org/export/dump/countryInfo.txt -o countryInfo.txt
 # CBSA delineation (county -> CBSA). Bump the year to the latest available.
 curl -sL https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2023/delineation-files/list1_2023.xlsx -o list1.xlsx
 
 pip install pandas openpyxl
-python3 "$OLDPWD/internal/services/geo/data/gen_cities.py" cities15000.txt list1.xlsx > cities.tsv
+python3 "$OLDPWD/internal/services/geo/data/gen_cities.py" cities1000.txt list1.xlsx > cities.tsv
 
 # countries: ISO2, name
 grep -v '^#' countryInfo.txt | awk -F'\t' 'NF>=5 && $1!="" {print $1"\t"$5}' > countries.tsv

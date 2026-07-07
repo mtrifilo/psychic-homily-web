@@ -5,7 +5,7 @@
 // a show reads correctly for any viewer anywhere in the world. The previous
 // approach guessed the zone from a US-state lookup that defaulted everything
 // non-US to America/Phoenix. GeoNames gives us the IANA zone per city directly
-// (cities15000 column 18), so a single offline lookup yields (lat, lng, tz) with
+// (the GeoNames timezone column), so a single offline lookup yields (lat, lng, tz) with
 // no external API, key, or rate limit.
 //
 // Timezone resolution tolerates city-centroid precision — we only need the point
@@ -563,13 +563,14 @@ func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) 
 	// A confident US state is a HARD filter, not a preference: with no same-state
 	// namesake in the dataset, refuse rather than fall back to the highest-
 	// population namesake in another state — that fallback carried the wrong
-	// timezone. Sidney, NE (pop ~6,800) is below the cities15000 threshold, so a
-	// NE-pinned lookup found only Sidney, OH and returned America/New_York
-	// (PSY-1012). A miss leaves venue.timezone NULL, so render/anchoring falls back
-	// to the state->tz map (utils.EventLocation -> America/Chicago for NE, a
-	// Nebraska zone, not Ohio's Eastern). Mirrors the confident-country hard filter
-	// above and the refuse-to-guess policy ResolveMetro/ResolveUSState enforce
-	// (PSY-1244).
+	// timezone (PSY-1012). E.g. a "Pasadena, FL" lookup finds Pasadena in MD/TX/CA
+	// but not FL, so it misses instead of returning the biggest namesake's zone. A
+	// miss leaves venue.timezone NULL, so render/anchoring falls back to the
+	// state->tz map (utils.EventLocation). The cities1000 tier (PSY-1377) shrank this
+	// long tail — most sub-15k towns now have their own row and exact zone — but the
+	// filter still guards places below pop 1000 or otherwise absent. Mirrors the
+	// confident-country hard filter above and the refuse-to-guess policy
+	// ResolveMetro/ResolveUSState enforce (PSY-1244).
 	if admin1 != "" {
 		var byAdmin []cityRow
 		for _, c := range candidates {

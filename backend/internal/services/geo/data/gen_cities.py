@@ -13,11 +13,11 @@ GeoNames gives admin1 (2-letter state) + admin2 (3-digit county FIPS); we prefix
 the state FIPS to get the 5-digit county code the Census crosswalk keys on.
 
 Inputs (download first — see README.md):
-    cities15000.txt   GeoNames populated places (pop >= 15,000)
+    cities1000.txt    GeoNames populated places (pop >= 1,000 + admin seats)
     list1.xlsx        Census/OMB CBSA delineation file (county -> CBSA)
 
 Requires: pandas + openpyxl (pip install pandas openpyxl).
-Usage: python3 gen_cities.py cities15000.txt list1.xlsx > cities.tsv
+Usage: python3 gen_cities.py cities1000.txt list1.xlsx > cities.tsv
 """
 import sys
 import pandas as pd

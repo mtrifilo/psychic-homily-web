@@ -31,24 +31,26 @@ func TestResolve(t *testing.T) {
 		{"st. paul abbreviated → Chicago tz", "St. Paul", "MN", "", "America/Chicago", true},
 		{"st. petersburg FL pinned → New York tz", "St. Petersburg", "FL", "", "America/New_York", true},
 		{"berlin germany", "Berlin", "", "Germany", "Europe/Berlin", true},
-		// PSY-1012: a confident US state with NO same-state namesake must MISS, not
-		// fall back to a wrong-state namesake's zone. Sidney is only in the dataset
-		// as Sidney, OH (Eastern); Sidney, NE is below the cities15000 threshold, so
-		// a NE-pinned lookup used to return America/New_York. It now misses, leaving
-		// venue.timezone NULL so the state->tz fallback (Chicago) wins. Resolve and
-		// ResolveMetro both route through bestCity's hard filter, so both refuse this.
-		{"sub-threshold town, confident state, no same-state row → miss", "Sidney", "NE", "", "", false},
-		// Pasadena is in MD/TX/CA but not FL, so an FL-pinned lookup misses rather
-		// than returning the highest-population namesake (Pasadena TX / Chicago).
+		// PSY-1377: the cities1000 tier now INCLUDES these sub-15k split-zone towns,
+		// so they resolve to their EXACT zone rather than missing. Sidney, NE (pop
+		// ~6.9k, Mountain panhandle) and Evanston, WY (~12k) both resolve to
+		// America/Denver — pinned to their own state over the same-named Eastern/
+		// Central namesakes (Sidney OH, Evanston IL) by bestCity's admin1 hard filter.
+		// (Under cities15000 these were misses that fell back to the state's
+		// predominant zone — wrong for a minority-zone panhandle town; PSY-1012.)
+		{"sub-15k split-zone town resolves to its exact zone (cities1000)", "Sidney", "NE", "", "America/Denver", true},
+		{"second split-zone town resolves exactly", "Evanston", "WY", "", "America/Denver", true},
+		// A third zone: Ontario, OR (pop ~11k) sits in Oregon's Mountain-time
+		// panhandle, so it resolves to America/Boise — NOT the OR predominant Pacific
+		// zone the cities15000 state fallback would have given.
+		{"OR Mountain panhandle town resolves to Boise", "Ontario", "OR", "", "America/Boise", true},
+		// PSY-1012's hard filter still guards the remaining long tail: a confident US
+		// state with NO same-name row ANYWHERE in the dataset must MISS (-> NULL ->
+		// state fallback), not return a wrong-state namesake. Pasadena is in MD/TX/CA
+		// but not FL, even at cities1000.
 		{"confident state pins no namesake → miss", "Pasadena", "FL", "", "", false},
-		// A second spot-check in a different zone: Evanston is in the dataset only as
-		// Evanston, IL (Central) — Evanston, WY (pop ~12k) is below the threshold — so
-		// a WY-pinned lookup misses instead of returning Illinois's Central zone,
-		// leaving the WY state fallback (Mountain) to apply.
-		{"sub-threshold town in a Mountain state → miss", "Evanston", "WY", "", "", false},
-		// No regression: a same-state namesake still resolves. Pasadena, MD is in the
-		// dataset, so an MD-pinned lookup returns its Eastern zone (not the larger
-		// TX/CA namesakes).
+		// No regression: a same-state namesake still resolves. Pasadena, MD returns
+		// its Eastern zone (not the larger TX/CA namesakes).
 		{"same-state namesake still resolves", "Pasadena", "MD", "", "America/New_York", true},
 		{"amsterdam state-holds-country-code", "Amsterdam", "NL", "Netherlands", "Europe/Amsterdam", true},
 		{"montreal by country name", "Montreal", "QC", "Canada", "America/Toronto", true},
@@ -111,13 +113,25 @@ func TestLookupPointers(t *testing.T) {
 		}
 	})
 
-	// PSY-1012: a confident US state with no same-state namesake must miss here too,
-	// so the venue write path stores NULL and the state->tz fallback (Chicago for
-	// NE) applies at render — instead of persisting Sidney, OH's America/New_York.
-	t.Run("confident state, no same-state row returns all nil", func(t *testing.T) {
+	// PSY-1377: a sub-15k split-zone town now IN the cities1000 tier resolves to its
+	// exact zone through the write seam — Sidney, NE -> America/Denver (was a miss ->
+	// NULL -> state fallback under cities15000).
+	t.Run("cities1000 sub-15k town returns its exact zone", func(t *testing.T) {
 		lat, lng, tz := LookupPointers(g, "Sidney", "NE", "")
+		if lat == nil || lng == nil || tz == nil {
+			t.Fatalf("expected non-nil pointers for Sidney,NE, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+		if *tz != "America/Denver" {
+			t.Errorf("tz = %q, want America/Denver", *tz)
+		}
+	})
+
+	// PSY-1012's miss seam still holds for a genuinely absent town: a confident state
+	// with no same-name row anywhere -> all nil -> SQL NULL -> state fallback.
+	t.Run("absent town under a confident state returns all nil", func(t *testing.T) {
+		lat, lng, tz := LookupPointers(g, "Pasadena", "FL", "")
 		if lat != nil || lng != nil || tz != nil {
-			t.Errorf("expected all nil for Sidney,NE, got lat=%v lng=%v tz=%v", lat, lng, tz)
+			t.Errorf("expected all nil for Pasadena,FL, got lat=%v lng=%v tz=%v", lat, lng, tz)
 		}
 	})
 

@@ -76,14 +76,16 @@ func TestEventLocation(t *testing.T) {
 		assert.Equal(t, "America/New_York", EventLocation(ptr(""), "NY").String())
 	})
 
-	// PSY-1012: the geocoder now returns a miss (→ NULL venue timezone) for a
-	// sub-threshold US town whose confident state has no same-state dataset
-	// namesake, so the fallback zone IS the resolved zone. Pin the states the fix
-	// depends on — Sidney, NE and Evanston, WY — so a regression in StateTimezones
-	// can't silently leave the geocoder fix delivering the wrong zone.
-	t.Run("sub-threshold-town states fall back to their predominant zone", func(t *testing.T) {
-		assert.Equal(t, "America/Chicago", EventLocation(nil, "NE").String()) // Sidney, NE → Central
-		assert.Equal(t, "America/Denver", EventLocation(nil, "WY").String())  // Evanston, WY → Mountain
+	// PSY-1012/PSY-1377: the geocoder still returns a miss (→ NULL venue timezone)
+	// for a town absent from the embedded gazetteer (sub-1000-pop or non-US), and
+	// the state->tz fallback then IS the resolved zone. (Sub-15k split-zone towns
+	// like Sidney, NE and Evanston, WY are no longer examples — cities1000 now
+	// resolves them to their exact zone, PSY-1377.) Pin split-zone states here so a
+	// regression in StateTimezones can't silently deliver the wrong fallback for the
+	// remaining absent-town tail.
+	t.Run("split-zone states fall back to their predominant zone", func(t *testing.T) {
+		assert.Equal(t, "America/Chicago", EventLocation(nil, "NE").String()) // NE predominant → Central
+		assert.Equal(t, "America/Denver", EventLocation(nil, "WY").String())  // WY → Mountain
 	})
 
 	t.Run("malformed venue timezone falls through to state, not UTC", func(t *testing.T) {
