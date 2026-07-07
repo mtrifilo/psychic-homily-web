@@ -184,4 +184,14 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.pauseAnimation).toHaveBeenCalled()
     expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
   })
+
+  // PSY-1380: react-force-graph's default forceCenter balances the centroid of
+  // ALL nodes to (0,0). When most nodes are isolates pinned to the bottom shelf,
+  // that shoves the few connected nodes far up to compensate, ballooning the
+  // bbox vertically until zoomToFit zooms out and the graph reads as empty. The
+  // cluster forces already anchor non-isolates, so the center force is removed.
+  it('removes the built-in center force so the isolate shelf cannot balloon the layout (PSY-1380)', () => {
+    renderGraph()
+    expect(h.graph.d3Force).toHaveBeenCalledWith('center', null)
+  })
 })

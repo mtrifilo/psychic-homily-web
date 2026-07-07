@@ -476,6 +476,16 @@ export function ForceGraphView({
       chargeForce.strength(CHARGE_STRENGTH)
     }
 
+    // PSY-1380: kill react-force-graph's default forceCenter. It translates the
+    // layout so the centroid of ALL nodes sits at (0,0) — but the isolate shelf
+    // pins 12 nodes below center, so to balance the centroid it shoves the few
+    // connected nodes FAR up (measured: 12·235 + 4·(-705) = 0), ballooning the
+    // bbox vertically until zoomToFit zooms out and the graph reads as empty in
+    // mostly-isolate scenes. Our clusterX/clusterY forces already anchor
+    // non-isolates to their cluster centroid, so the center force is redundant
+    // as well as harmful here.
+    fg.d3Force('center', null)
+
     fg.d3ReheatSimulation()
   }, [renderData, centroids, containerWidth, graphHeight])
 
