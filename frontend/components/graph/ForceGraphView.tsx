@@ -102,6 +102,9 @@ export interface GraphNode {
   cluster_id?: string
   /** True when the node has zero in-scope edges (post any filter). */
   is_isolate?: boolean
+  /** True when selecting this node opens a playable embed — drives the canvas
+   * playable-marker ring (PSY-1379). Mirrors the backend SceneGraphNode flag. */
+  has_playable_audio?: boolean
 }
 
 /**
@@ -133,6 +136,13 @@ const LINK_STRENGTH_CROSS = 0.1
 const CHARGE_STRENGTH = -120
 const NODE_RADIUS = 8
 const ISOLATE_RADIUS = 5
+
+// PSY-1379: playable-audio ring color. A saturated violet, deliberately outside
+// the warm Okabe-Ito cluster palette AND distinct from the green (#22c55e)
+// upcoming-show dot, so the marker reads unambiguously on both themes and against
+// any cluster fill. Hardcoded like the show-dot color (functional indicator, not
+// a cluster/theme token). Exported for the marker test.
+export const PLAYABLE_RING_COLOR = '#a855f7'
 
 // zoomToFit pads the NODE bbox — labels aren't measured, so shelf-END labels
 // can clip at the canvas edge. Deliberately small: a pad wide enough for the
@@ -791,6 +801,20 @@ export function ForceGraphView({
       ctx.lineWidth = 1
       ctx.strokeStyle = node.is_isolate ? 'rgba(148, 163, 184, 0.5)' : fill
       ctx.stroke()
+
+      // PSY-1379: playable-audio marker — a ring hugging the node so playability
+      // is scannable at a glance (selecting the node opens a MusicEmbed). Violet
+      // keeps it distinct from the green upcoming-show dot below AND from the warm
+      // Okabe-Ito cluster fills; it hugs the circle (vs a corner badge) so it never
+      // collides with the post-frame labels. Drawn inside the globalAlpha block so
+      // it dims with hover-focus like the rest of the node.
+      if (node.has_playable_audio) {
+        ctx.beginPath()
+        ctx.arc(x, y, radius + 2.5, 0, Math.PI * 2)
+        ctx.lineWidth = 1.5
+        ctx.strokeStyle = PLAYABLE_RING_COLOR
+        ctx.stroke()
+      }
 
       if (node.upcoming_show_count > 0) {
         ctx.beginPath()

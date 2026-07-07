@@ -158,6 +158,9 @@ export interface SceneGraphNode {
   cluster_id: string
   /** True when the artist has zero in-scene edges (post type-filter). */
   is_isolate: boolean
+  /** True when selecting this node opens a playable embed (Bandcamp or an
+   * embeddable Spotify URL) — drives the canvas playable-marker ring (PSY-1379). */
+  has_playable_audio: boolean
 }
 
 export interface SceneGraphLink {
