@@ -13,9 +13,11 @@ const palette: GraphPalette = {
 
 describe('genreFamilyColor', () => {
   it('resolves a family key to its palette slot hex', () => {
-    // punk_hardcore -> colorIndex 3, folk_country -> colorIndex 0 (see genreFamilies.ts)
+    // colorIndex per genreFamilies.ts: punk_hardcore=3, jazz_experimental=0 (the
+    // rarest, on the warm chart-1 slot), folk_country=6, pop_soul=7.
     expect(genreFamilyColor(palette, 'punk_hardcore')).toBe('c3')
-    expect(genreFamilyColor(palette, 'folk_country')).toBe('c0')
+    expect(genreFamilyColor(palette, 'jazz_experimental')).toBe('c0')
+    expect(genreFamilyColor(palette, 'folk_country')).toBe('c6')
     expect(genreFamilyColor(palette, 'pop_soul')).toBe('c7')
   })
 
@@ -63,11 +65,11 @@ describe('GENRE_FAMILIES taxonomy integrity', () => {
     )
   })
 
-  it('keeps the common families off the orange chart-1 slot', () => {
+  it('assigns the ambiguous chart-1 (warm) slot to exactly the rarest family', () => {
     // chart-1 (colorIndex 0) reads close to the no-data DOT_COLOR_BASE orange, so
-    // the catalog's common families must not land there (genreFamilies.ts doc).
+    // exactly ONE family — the rarest — may take it, never a common one
+    // (genreFamilies.ts doc). Guards a future 9th family from grabbing the slot.
     const onChart1 = GENRE_FAMILIES.filter((f) => f.colorIndex === 0).map((f) => f.key)
-    expect(onChart1).not.toContain('punk_hardcore')
-    expect(onChart1).not.toContain('rock_indie')
+    expect(onChart1).toEqual(['jazz_experimental'])
   })
 })

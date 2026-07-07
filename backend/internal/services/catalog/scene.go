@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -171,7 +172,9 @@ func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
 // fallback so its key matches the Go-side `g.Metro == ""` branch. Artists with
 // neither a metro nor a home city+state are excluded (unattributable to a scene).
 // The caller rolls these up to genre families (dominantGenreFamily) for the Atlas
-// dot tint (PSY-1315).
+// dot tint (PSY-1315). The GROUP BY references the scene_key SELECT alias — valid
+// in PostgreSQL (this project's only DB), which resolves output-column names in
+// GROUP BY.
 func (s *SceneService) sceneGenreCounts() (map[string][]contracts.GenreCount, error) {
 	type genreRow struct {
 		SceneKey string `gorm:"column:scene_key"`
@@ -258,20 +261,37 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
 
+	results := make([]*contracts.SceneListResponse, 0, len(groups))
+	if len(groups) == 0 {
+		return results, nil // no scenes qualify -> skip the genre scan entirely
+	}
+
 	// Dominant genre family per scene for the Atlas dot tint (PSY-1315), in ONE
 	// batched query — group the genre distribution of artists BASED in each scene
 	// by the SAME key ListScenes groups venues by (a.metro CBSA, or city|state for a
-	// fallback scene), so there is no per-scene N+1. This metro-keyed roster is a
-	// coarser match than the detail page's GetSceneGenreDistribution (which also
-	// folds in PSY-1237 NULL-metro member-place artists), which is fine for a dot
-	// color. Aggregation into families + the confident-dominance test happen in Go
-	// (dominantGenreFamily) so the SQL stays a plain grouped scan.
-	genresByScene, err := s.sceneGenreCounts()
-	if err != nil {
-		return nil, err
+	// fallback scene), so there is no per-scene N+1. Aggregation into families + the
+	// confident-dominance test happen in Go (dominantGenreFamily) so the SQL stays a
+	// plain grouped scan.
+	//
+	// Metro-keyed roster caveat: this counts artists by a.metro (+ city|state
+	// fallback) only — NOT the fuller roster GetSceneGenreDistribution builds for the
+	// scene detail page, which ALSO folds in PSY-1237 NULL-metro member-place artists
+	// via a per-metro geo lookup. For a big metro (NYC/Boston/Chicago) those
+	// member-place artists can be a LARGE share of the roster, so the globe dot's
+	// dominant family can differ from — even out-rank — the detail page's. That is
+	// intentional and permanent: a dot color is a coarse discovery signal, and
+	// aligning the two would mean joining the geo member-place set into this bulk
+	// query (cost not worth it for a tint). Do NOT "fix" the divergence.
+	//
+	// The tint is cosmetic, so a failure here must NOT blank the whole scene list:
+	// on error, log and continue with no genre data (a nil map reads as no genres ->
+	// dominantGenreFamily returns "" -> every dot keeps the default orange).
+	genresByScene, gErr := s.sceneGenreCounts()
+	if gErr != nil {
+		slog.Default().Error("scene genre aggregation failed; rendering scenes untinted", "error", gErr)
+		genresByScene = nil
 	}
 
-	results := make([]*contracts.SceneListResponse, 0, len(groups))
 	for i := range groups {
 		g := &groups[i]
 

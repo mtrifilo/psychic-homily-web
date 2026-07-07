@@ -9,9 +9,10 @@
  * that is missing here leaves the dot un-tinted with no legend entry.
  *
  * Color is a fixed `--chart-1..8` slot per family (reusing the PSY-1083 graph
- * palette, colorblind-safe). The index assignment deliberately keeps the catalog's
- * most common families OFF `--chart-1` (a warm orange close to the no-data
- * DOT_COLOR_BASE) so a tinted dot never reads as an untinted one.
+ * palette, colorblind-safe). `--chart-1` is a warm orange close to the no-data
+ * DOT_COLOR_BASE, so exactly one family must take it — the RAREST one
+ * (jazz_experimental), minimizing how often a tinted dot could be mistaken for an
+ * untinted one. Every other family gets a distinctly non-orange slot.
  */
 
 import {
@@ -29,16 +30,17 @@ export interface GenreFamily {
 }
 
 // Order = legend order. colorIndex is the palette slot, NOT the array position:
-// punk/rock/electronic (the common families here) take distinctly non-orange
-// slots; folk takes chart-1 (warm) since it's less common. See the file doc.
+// every family gets a distinctly non-orange slot EXCEPT the rarest
+// (jazz_experimental), which takes the warm chart-1 nearest the no-data orange.
+// See the file doc.
 export const GENRE_FAMILIES: readonly GenreFamily[] = [
   { key: 'punk_hardcore', label: 'Punk & Hardcore', colorIndex: 3 }, // chart-4 (red)
   { key: 'rock_indie', label: 'Rock & Indie', colorIndex: 2 }, // chart-3 (gold)
   { key: 'electronic', label: 'Electronic', colorIndex: 5 }, // chart-6 (blue)
   { key: 'metal', label: 'Metal', colorIndex: 1 }, // chart-2 (green)
   { key: 'hip_hop', label: 'Hip-Hop & Rap', colorIndex: 4 }, // chart-5 (tan)
-  { key: 'folk_country', label: 'Folk & Country', colorIndex: 0 }, // chart-1 (warm)
-  { key: 'jazz_experimental', label: 'Jazz & Experimental', colorIndex: 6 }, // chart-7 (purple)
+  { key: 'folk_country', label: 'Folk & Country', colorIndex: 6 }, // chart-7 (purple)
+  { key: 'jazz_experimental', label: 'Jazz & Experimental', colorIndex: 0 }, // chart-1 (warm) — rarest, on the ambiguous slot
   { key: 'pop_soul', label: 'Pop, R&B & Soul', colorIndex: 7 }, // chart-8 (teal)
 ]
 

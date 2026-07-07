@@ -6,25 +6,29 @@
  * The color key for the Atlas globe's dominant-genre dot tint. A fixed key (all
  * eight families, not just the ones currently on screen) since the family ->
  * color mapping is stable and the point of a legend is to teach the whole scheme.
- * Collapsible so it doesn't crowd the globe; open by default so the tint is
- * self-explanatory on arrival. Swatches use the same PSY-1083 `--chart-N` tokens
- * as the dots (via clusterColorCSS), so they track the theme with no JS.
+ * Collapsible so it doesn't crowd the globe. The open state is OWNED BY AtlasGlobe
+ * (controlled via props): this component is unmounted while a scene preview is
+ * open, so local state would reset the collapse on every preview open/close cycle.
+ * Swatches use the same PSY-1083 `--chart-N` tokens as the dots (via
+ * clusterColorCSS), so they track the theme with no JS.
  */
 
-import { useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { clusterColorCSS } from '@/components/graph/graphPalette'
 import { GENRE_FAMILIES } from '../genreFamilies'
 import { DOT_COLOR_BASE } from './globeScale'
 
-export function GenreLegend() {
-  const [open, setOpen] = useState(true)
+interface GenreLegendProps {
+  open: boolean
+  onToggle: () => void
+}
 
+export function GenreLegend({ open, onToggle }: GenreLegendProps) {
   return (
     <div className="absolute bottom-4 right-4 z-10 w-44 rounded-lg border border-border bg-background/90 text-xs backdrop-blur">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={onToggle}
         aria-expanded={open}
         aria-controls="atlas-genre-legend"
         className="flex w-full items-center justify-between gap-2 px-3 py-1.5 font-medium text-foreground/90 transition-colors hover:text-primary"

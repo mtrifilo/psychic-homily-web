@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"reflect"
+	"sort"
 	"testing"
 
 	"psychic-homily-backend/internal/services/contracts"
@@ -119,5 +121,30 @@ func TestGenreFamilyMapIntegrity(t *testing.T) {
 		if !known[fam] {
 			t.Errorf("slug %q maps to family %q which is not in genreFamilyKeys", slug, fam)
 		}
+	}
+}
+
+// TestGenreFamilyKeys_PinnedContract pins the exact set of family keys the backend
+// can emit, as a hardcoded sorted list mirroring the frontend's identical pin in
+// genreFamilies.test.ts. The two snapshot tests each guard their own side; neither
+// crosses the language boundary, so this pin is the tripwire: changing a backend
+// key turns THIS test red, which is the reminder to update the frontend
+// GENRE_FAMILIES too. Without it, adding a 9th family here passes all backend tests
+// while the frontend silently renders that family untinted with no legend entry.
+func TestGenreFamilyKeys_PinnedContract(t *testing.T) {
+	got := append([]string(nil), genreFamilyKeys...)
+	sort.Strings(got)
+	want := []string{
+		"electronic",
+		"folk_country",
+		"hip_hop",
+		"jazz_experimental",
+		"metal",
+		"pop_soul",
+		"punk_hardcore",
+		"rock_indie",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("genreFamilyKeys = %v, want %v (keep in sync with frontend GENRE_FAMILIES)", got, want)
 	}
 }

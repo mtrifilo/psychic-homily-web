@@ -1472,3 +1472,70 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetGenreDiversityIndex_Succes
 	// With nearly even distribution across 6 genres, expect high diversity
 	suite.Greater(index, 0.8)
 }
+
+// TestListScenes_DominantGenre exercises the full ListScenes -> dominant_genre
+// wiring end-to-end (the batched sceneGenreCounts query + the scene-key match + the
+// family rollup). The pure dominantGenreFamily unit tests don't touch the SQL or
+// the key derivation, so a silent metro/city|state key mismatch would leave every
+// dot untinted with nothing failing — this guards that. Phoenix's roster is
+// punk-dominant, so its dot tints.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DominantGenre() {
+	suite.seedSceneData() // Phoenix qualifies as a scene (3 venues, 5 shows)
+	user := suite.createUser()
+	punk := suite.createGenreTag("punk", "punk")
+	electronic := suite.createGenreTag("electronic", "electronic")
+
+	// 5 punk + 2 electronic Phoenix artists -> punk 5/7 = 71% (>= 40%), total 7
+	// (>= the tagged-artist floor). The 3 untagged seedSceneData artists don't count.
+	for i := 0; i < 5; i++ {
+		a := suite.createArtist(fmt.Sprintf("Punk Band %d", i))
+		suite.tagArtist(a.ID, punk, user.ID)
+	}
+	for i := 0; i < 2; i++ {
+		a := suite.createArtist(fmt.Sprintf("Electro Band %d", i))
+		suite.tagArtist(a.ID, electronic, user.ID)
+	}
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+
+	found := false
+	for _, sc := range scenes {
+		if sc.City == "Phoenix" && sc.State == "AZ" {
+			suite.Equal("punk_hardcore", sc.DominantGenre)
+			found = true
+		}
+	}
+	suite.Require().True(found, "Phoenix scene should be present in ListScenes")
+}
+
+// TestListScenes_DominantGenre_NeutralWhenMixed pins the orange-stays-orange path:
+// a scene with no family clearing the >=40% confidence threshold emits "".
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DominantGenre_NeutralWhenMixed() {
+	suite.seedSceneData()
+	user := suite.createUser()
+	punk := suite.createGenreTag("punk", "punk")
+	electronic := suite.createGenreTag("electronic", "electronic")
+	folk := suite.createGenreTag("folk", "folk")
+
+	// 2 punk + 2 electronic + 2 folk -> each family 2/6 = 33% (< 40%), total 6
+	// (>= floor, so this exercises the <40% path, not the floor). No confident
+	// dominant family, so the dot stays neutral.
+	tags := []uint{punk, punk, electronic, electronic, folk, folk}
+	for i, tag := range tags {
+		a := suite.createArtist(fmt.Sprintf("Mixed Band %d", i))
+		suite.tagArtist(a.ID, tag, user.ID)
+	}
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+
+	found := false
+	for _, sc := range scenes {
+		if sc.City == "Phoenix" && sc.State == "AZ" {
+			suite.Equal("", sc.DominantGenre, "mixed scene must stay neutral")
+			found = true
+		}
+	}
+	suite.Require().True(found, "Phoenix scene should be present")
+}

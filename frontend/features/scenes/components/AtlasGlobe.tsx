@@ -110,6 +110,10 @@ export function AtlasGlobe() {
   const [pov, setPov] = useState<GlobePov | null>(null)
   const [selected, setSelected] = useState<PlaceableScene | null>(null)
   const closePreview = useCallback(() => setSelected(null), [])
+  // Owned here (not in GenreLegend) so a user's collapse survives opening/closing a
+  // scene preview, which unmounts the legend (PSY-1315 adversarial review).
+  const [legendOpen, setLegendOpen] = useState(true)
+  const toggleLegend = useCallback(() => setLegendOpen((o) => !o), [])
 
   // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
@@ -254,7 +258,7 @@ export function AtlasGlobe() {
         <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
         {/* Genre color key (PSY-1315). Hidden while a preview is open — that
             docks the right edge, and you're reading one scene, not scanning. */}
-        {!selected && <GenreLegend />}
+        {!selected && <GenreLegend open={legendOpen} onToggle={toggleLegend} />}
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"
