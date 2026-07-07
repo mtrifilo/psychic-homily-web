@@ -334,6 +334,18 @@ func TestRateLimitPublicReadsByAuthState_UsersOnSameIPDoNotCollide(t *testing.T)
 	}
 }
 
+// Mounting the per-user limiter standalone (no RateLimitPublicReadsByAuthState to
+// stash the user id) FAILS LOUD — httprate turns the key-func error into a 428 —
+// rather than silently collapsing every request into one shared "user:0" bucket
+// (adversarial-review MEDIUM).
+func TestRateLimitPublicReadUserEndpoints_StandaloneFailsLoud(t *testing.T) {
+	handler := RateLimitPublicReadUserEndpoints()(okHandler())
+	rr := serve(handler, readReq("9.9.9.9:1000", ""))
+	if rr.Code != http.StatusPreconditionRequired {
+		t.Errorf("standalone per-user limiter: status = %d, want 428 (misuse must fail loud, not key user:0)", rr.Code)
+	}
+}
+
 // SECURITY (PSY-1362 CRITICAL, preserved): a forged phk_ carries no session JWT,
 // so it is routed as ANONYMOUS (per-IP) — it does NOT get the higher per-user cap.
 func TestRateLimitPublicReadsByAuthState_ForgedAPITokenIsAnonymous(t *testing.T) {

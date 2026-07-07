@@ -100,7 +100,10 @@ func (s *JWTService) SessionUserID(tokenString string) (uint, bool) {
 		return 0, false
 	}
 	uid, ok := claims["user_id"].(float64)
-	if !ok || uid < 0 {
+	// Reject <= 0: DB user ids are serial and start at 1, so 0/negative is never a
+	// real user. Rejecting 0 also keeps it distinct from any "unset" default in
+	// downstream keying (adversarial-review).
+	if !ok || uid < 1 {
 		return 0, false
 	}
 	return uint(uid), true

@@ -8,12 +8,13 @@ import (
 	"psychic-homily-backend/internal/testenv"
 )
 
-// PSY-1362: rate limiting for public, unauthenticated read endpoints (graph-card,
-// artist/show/venue/label/scene reads, etc.), mounted globally in
-// cmd/server/main.go. Two properties keep a single global mount safe:
-//   - it only ever limits ANONYMOUS traffic (any authenticated request bypasses,
-//     see middleware.SkipRateLimitForAuthenticated), so it never throttles
-//     logged-in users and needs no per-route wiring; and
+// PSY-1362/1373: rate limiting for public read endpoints (graph-card, artist/
+// show/venue/label/scene reads, etc.), mounted globally in cmd/server/main.go.
+// Two properties keep a single global mount safe:
+//   - it keys by AUTH STATE (middleware.RateLimitPublicReadsByAuthState):
+//     anonymous → per-IP (APIRequestsPerMinute); authenticated → per-USER
+//     (PublicReadUserRequestsPerMinute, PSY-1373). Per-user keying means it never
+//     collides shared-IP logged-in users, so it needs no per-route wiring; and
 //   - it only limits READ methods (GET/HEAD) — writes keep their own dedicated
 //     limiters (auth, tag, report, show-create), so a shared read budget can't
 //     429 an unrelated anonymous write (e.g. a login after heavy browsing).

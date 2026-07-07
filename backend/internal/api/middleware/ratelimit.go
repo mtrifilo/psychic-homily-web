@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -175,10 +176,18 @@ func isAdminTokenRequest(jwtService *auth.JWTService, r *http.Request) bool {
 type rateLimitUserIDKey struct{}
 
 // rateLimitUserKeyFunc keys the authenticated per-user limiter by the user id
-// stashed in context. Only ever called for requests RateLimitPublicReadsByAuthState
-// routed as authenticated, so the id is always present.
+// RateLimitPublicReadsByAuthState stashes in context. If the value is absent it
+// FAILS LOUD (httprate turns a key-func error into a 428) rather than silently
+// keying every request as "user:0" — so mounting RateLimitPublicReadUserEndpoints
+// standalone (without the router that sets the id) is a detectable misuse, not a
+// single shared 300/min bucket for the whole site (adversarial-review MEDIUM).
 func rateLimitUserKeyFunc(r *http.Request) (string, error) {
-	uid, _ := r.Context().Value(rateLimitUserIDKey{}).(uint)
+	uid, ok := r.Context().Value(rateLimitUserIDKey{}).(uint)
+	if !ok {
+		return "", fmt.Errorf(
+			"rateLimitUserKeyFunc: no authenticated user id in context; " +
+				"RateLimitPublicReadUserEndpoints must be mounted via RateLimitPublicReadsByAuthState")
+	}
 	return "user:" + strconv.FormatUint(uint64(uid), 10), nil
 }
 
@@ -211,6 +220,16 @@ func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 // without validation) — a forged prefix must not grant the higher authenticated
 // cap on these no-downstream-auth public reads. Only an unforgeable JWT with a
 // user_id claim routes to the per-user limiter; everything else is anonymous.
+//
+// RESIDUAL (adversarial-review, tracked as a follow-up): the per-user cap bounds a
+// SINGLE account. It does not bound aggregate throughput from one IP running many
+// scripted accounts — there is no per-IP ceiling on authenticated traffic (adding
+// one would re-introduce the shared-IP collisions per-user keying exists to avoid).
+// Scripted multi-account scraping is partially mitigated by the per-IP signup
+// limiter on /auth/register (10/min, wired inline in routes/auth.go) and by each
+// account being a bannable identity; full mitigation (per-IP ceiling / signup
+// friction / bot detection) is a deeper effort beyond this ticket's "a single
+// account can't scrape unmetered" AC — tracked in PSY-1378.
 func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, anonLimiter, userLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		anon := anonLimiter(next)
