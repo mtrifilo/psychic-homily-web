@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -1153,12 +1154,11 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 		return 0, fmt.Errorf("failed to query shared bills: %w", err)
 	}
 
-	var upserted int64
-	now := time.Now()
-
+	runStart := time.Now()
+	rels := make([]catalogm.ArtistRelationship, 0, len(rows))
 	for _, row := range rows {
 		// Compute recency-weighted score
-		monthsSince := now.Sub(row.LastShared).Hours() / (24 * 30)
+		monthsSince := runStart.Sub(row.LastShared).Hours() / (24 * 30)
 		score := float32(math.Min(float64(row.SharedCount)/10.0, 1.0))
 		// Boost for recency
 		if monthsSince < 3 {
@@ -1171,38 +1171,17 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 		})
 		detailRaw := json.RawMessage(detail)
 
-		// Upsert
-		var existing catalogm.ArtistRelationship
-		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			row.ArtistA, row.ArtistB, catalogm.RelationshipTypeSharedBills).First(&existing).Error
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			rel := &catalogm.ArtistRelationship{
-				SourceArtistID:   row.ArtistA,
-				TargetArtistID:   row.ArtistB,
-				RelationshipType: catalogm.RelationshipTypeSharedBills,
-				Score:            score,
-				AutoDerived:      true,
-				Detail:           &detailRaw,
-			}
-			if err := s.db.Create(rel).Error; err == nil {
-				upserted++
-			} else {
-				slog.Warn("shared_bills derive: create failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
-			}
-		} else if err == nil {
-			if err := s.db.Model(&existing).Updates(map[string]interface{}{
-				"score":  score,
-				"detail": &detailRaw,
-			}).Error; err == nil {
-				upserted++
-			} else {
-				slog.Warn("shared_bills derive: update failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
-			}
-		}
+		rels = append(rels, catalogm.ArtistRelationship{
+			SourceArtistID:   row.ArtistA,
+			TargetArtistID:   row.ArtistB,
+			RelationshipType: catalogm.RelationshipTypeSharedBills,
+			Score:            score,
+			AutoDerived:      true,
+			Detail:           &detailRaw,
+		})
 	}
 
-	return upserted, nil
+	return s.upsertAndReconcileDerived(catalogm.RelationshipTypeSharedBills, rels, runStart)
 }
 
 // sharedLabelRow represents the result of the shared-labels co-occurrence query.
@@ -1262,8 +1241,8 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 		return 0, fmt.Errorf("failed to query shared labels: %w", err)
 	}
 
-	var upserted int64
-
+	runStart := time.Now()
+	rels := make([]catalogm.ArtistRelationship, 0, len(rows))
 	for _, row := range rows {
 		// Score: roster-normalized shared-label weight (cap at 1.0). A pair
 		// alone on a 2-artist label scores 1.0; a pair on an N-artist roster
@@ -1280,37 +1259,90 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 		})
 		detailRaw := json.RawMessage(detail)
 
-		// Upsert
-		var existing catalogm.ArtistRelationship
-		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			row.ArtistA, row.ArtistB, catalogm.RelationshipTypeSharedLabel).First(&existing).Error
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			rel := &catalogm.ArtistRelationship{
-				SourceArtistID:   row.ArtistA,
-				TargetArtistID:   row.ArtistB,
-				RelationshipType: catalogm.RelationshipTypeSharedLabel,
-				Score:            score,
-				AutoDerived:      true,
-				Detail:           &detailRaw,
-			}
-			if err := s.db.Create(rel).Error; err == nil {
-				upserted++
-			} else {
-				slog.Warn("shared_label derive: create failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
-			}
-		} else if err == nil {
-			if err := s.db.Model(&existing).Updates(map[string]interface{}{
-				"score":  score,
-				"detail": &detailRaw,
-			}).Error; err == nil {
-				upserted++
-			} else {
-				slog.Warn("shared_label derive: update failed", "artist_a", row.ArtistA, "artist_b", row.ArtistB, "error", err)
-			}
-		}
+		rels = append(rels, catalogm.ArtistRelationship{
+			SourceArtistID:   row.ArtistA,
+			TargetArtistID:   row.ArtistB,
+			RelationshipType: catalogm.RelationshipTypeSharedLabel,
+			Score:            score,
+			AutoDerived:      true,
+			Detail:           &detailRaw,
+		})
 	}
 
+	return s.upsertAndReconcileDerived(catalogm.RelationshipTypeSharedLabel, rels, runStart)
+}
+
+// derivedUpsertBatchSize chunks the reconcile upsert so a large derive
+// (shared_label spans every co-labeled pair) never builds one oversized INSERT.
+const derivedUpsertBatchSize = 500
+
+// upsertAndReconcileDerived persists a freshly derived relationship set for one
+// type and reconciles the stored graph to it (PSY-1332):
+//
+//   - Batch upsert: one INSERT ... ON CONFLICT DO UPDATE per chunk instead of a
+//     per-row SELECT-then-write, so a derive cycle's round-trips scale with the
+//     derived set (chunked), not 2×N. Only score/detail/updated_at are updated
+//     on conflict, so per-user votes (a separate FK'd table) and created_at
+//     survive an update.
+//   - Reconcile: every fresh row is stamped updated_at = runStart, so any
+//     auto_derived row of this type left with an older updated_at was NOT in the
+//     fresh derive — the pair no longer qualifies (a minShows revert, or
+//     deleted/unapproved shows / roster changes) — and is deleted. Without this
+//     the stored table diverges from the current derive forever. Votes on a
+//     removed edge are deleted first: the votes FK is ON DELETE NO ACTION, and
+//     the edge no longer exists (maintainer decision, PSY-1332).
+//
+// The whole thing runs in one transaction so the upsert + stale-sweep are atomic
+// (a reader never sees a half-reconciled graph; a failure leaves the prior graph
+// intact). Only the given relationship type and only auto_derived rows are
+// touched — manual edges and other types are never swept.
+func (s *ArtistRelationshipService) upsertAndReconcileDerived(relType string, rels []catalogm.ArtistRelationship, runStart time.Time) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+
+	var upserted int64
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if len(rels) > 0 {
+			// Stamp the run marker on every fresh row (insert + conflict-update),
+			// so rows the derive didn't touch keep an older updated_at.
+			for i := range rels {
+				rels[i].CreatedAt = runStart
+				rels[i].UpdatedAt = runStart
+			}
+			res := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "source_artist_id"}, {Name: "target_artist_id"}, {Name: "relationship_type"}},
+				DoUpdates: clause.AssignmentColumns([]string{"score", "detail", "updated_at"}),
+			}).CreateInBatches(&rels, derivedUpsertBatchSize)
+			if res.Error != nil {
+				return fmt.Errorf("%s batch upsert: %w", relType, res.Error)
+			}
+			upserted = res.RowsAffected
+		}
+
+		// Delete votes for stale rows first — the FK from artist_relationship_votes
+		// is ON DELETE NO ACTION, so a plain relationship delete would fail on any
+		// voted stale row.
+		if err := tx.Exec(`
+			DELETE FROM artist_relationship_votes
+			WHERE (source_artist_id, target_artist_id, relationship_type) IN (
+				SELECT source_artist_id, target_artist_id, relationship_type
+				FROM artist_relationships
+				WHERE relationship_type = ? AND auto_derived = true AND updated_at < ?
+			)`, relType, runStart).Error; err != nil {
+			return fmt.Errorf("%s reconcile votes: %w", relType, err)
+		}
+		if err := tx.Exec(`
+			DELETE FROM artist_relationships
+			WHERE relationship_type = ? AND auto_derived = true AND updated_at < ?`,
+			relType, runStart).Error; err != nil {
+			return fmt.Errorf("%s reconcile stale rows: %w", relType, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
 	return upserted, nil
 }
 
