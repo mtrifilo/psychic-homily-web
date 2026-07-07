@@ -184,4 +184,36 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.pauseAnimation).toHaveBeenCalled()
     expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
   })
+
+  // PSY-1380: react-force-graph's default forceCenter balances the centroid of
+  // ALL nodes to (0,0). When most nodes are isolates pinned to the bottom shelf,
+  // that shoves the few connected nodes far up to compensate, ballooning the
+  // bbox vertically until zoomToFit zooms out and the graph reads as empty. The
+  // cluster forces already anchor non-isolates, so the center force is removed.
+  it('removes the built-in center force so the isolate shelf cannot balloon the layout (PSY-1380)', () => {
+    renderGraph()
+    expect(h.graph.d3Force).toHaveBeenCalledWith('center', null)
+  })
+
+  // PSY-1380: forceCenter was the only absolute anchor for a no-cluster,
+  // no-isolate graph (InlineGraph). With it gone, add a gentle pull-to-origin
+  // for exactly that case; graphs that already anchor (clusters or isolates) get
+  // a null recenter so it never fights their layout.
+  it('adds a recenter fallback for no-cluster/no-isolate graphs (PSY-1380)', () => {
+    renderGraph() // baseProps: no clusters, no isolates
+    const call = h.graph.d3Force.mock.calls.find(c => c[0] === 'recenter')
+    expect(call).toBeDefined()
+    expect(typeof call![1]).toBe('function')
+  })
+
+  it('skips the recenter fallback when the graph has cluster anchors (PSY-1380)', () => {
+    renderGraph({
+      nodes: [
+        { id: 1, name: 'A', slug: 'a', upcoming_show_count: 0, cluster_id: 'rock' },
+        { id: 2, name: 'B', slug: 'b', upcoming_show_count: 0, cluster_id: 'rock' },
+      ],
+      clusters: [{ id: 'rock', label: 'Rock', size: 2, color_index: 0 }],
+    })
+    expect(h.graph.d3Force).toHaveBeenCalledWith('recenter', null)
+  })
 })
