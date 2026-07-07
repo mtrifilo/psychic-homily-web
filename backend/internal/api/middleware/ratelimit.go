@@ -55,6 +55,23 @@ const (
 	// hit it — but finite, so one throwaway signup can't scrape unmetered. Keyed
 	// by user id, so shared-IP logged-in users each get their own bucket.
 	PublicReadUserRequestsPerMinute = 300
+
+	// PublicReadAuthenticatedIPCeilingPerMinute is a COARSE per-IP backstop applied
+	// to authenticated public reads IN ADDITION to the per-user cap above (PSY-1378).
+	// The per-user cap bounds a SINGLE account; it does nothing against one origin
+	// running many scripted accounts (N accounts = N × 300/min from one IP, since
+	// account creation is only loosely throttled at 10/min). This ceiling bounds
+	// that aggregate: an authenticated request must pass BOTH the per-user cap and
+	// this per-IP ceiling (stricter wins).
+	//
+	// Deliberately HIGH relative to the per-user cap (≈3× 300/min) so it is a
+	// scraper backstop, not a shared-IP throttle: a real human almost never sustains
+	// even 300/min, so a legitimate small office of logged-in users stays well under
+	// 1000/min aggregate (PSY-1362/1373's shared-IP requirement). Bucketed
+	// separately from the anonymous per-IP limiter (APIRequestsPerMinute), so
+	// authenticated and anonymous traffic from one IP never share a counter. Tune
+	// upward if legitimate campus/office NAT is observed hitting it on stage.
+	PublicReadAuthenticatedIPCeilingPerMinute = 1000
 )
 
 // RateLimitAuthEndpoints creates a strict rate limiter for authentication endpoints
@@ -204,9 +221,26 @@ func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 	)
 }
 
+// RateLimitPublicReadAuthenticatedIPCeiling is the COARSE per-IP backstop for
+// authenticated public reads (PSY-1378): PublicReadAuthenticatedIPCeilingPerMinute
+// per IP, keyed by r.RemoteAddr. It is chained on the authenticated path of
+// RateLimitPublicReadsByAuthState INSIDE the per-user limiter (see the ORDER note
+// there) so that one IP running many scripted accounts is bounded in aggregate —
+// the per-user cap alone only meters a single account. Its own httprate store means
+// it never shares a counter with the anonymous per-IP limiter (RateLimitAPIEndpoints).
+func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler {
+	return httprate.Limit(
+		PublicReadAuthenticatedIPCeilingPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
 // RateLimitPublicReadsByAuthState routes each request to the right limiter:
 // authenticated (a cryptographically-verified session JWT) → a per-USER bucket
-// (userLimiter, higher cap); anonymous → a per-IP bucket (anonLimiter).
+// (userLimiter, higher cap) additionally guarded by a coarse per-IP ceiling
+// (ipCeilingLimiter, PSY-1378); anonymous → a per-IP bucket (anonLimiter).
 //
 // PSY-1373: this replaces the old full bypass for authenticated users. A full
 // bypass meant one throwaway signup defeated the anti-scraping limit entirely
@@ -221,19 +255,33 @@ func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 // cap on these no-downstream-auth public reads. Only an unforgeable JWT with a
 // user_id claim routes to the per-user limiter; everything else is anonymous.
 //
-// RESIDUAL (adversarial-review, tracked as a follow-up): the per-user cap bounds a
-// SINGLE account. It does not bound aggregate throughput from one IP running many
-// scripted accounts — there is no per-IP ceiling on authenticated traffic (adding
-// one would re-introduce the shared-IP collisions per-user keying exists to avoid).
-// Scripted multi-account scraping is partially mitigated by the per-IP signup
-// limiter on /auth/register (10/min, wired inline in routes/auth.go) and by each
-// account being a bannable identity; full mitigation (per-IP ceiling / signup
-// friction / bot detection) is a deeper effort beyond this ticket's "a single
-// account can't scrape unmetered" AC — tracked in PSY-1378.
-func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, anonLimiter, userLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+// AGGREGATE PER-IP BOUND (PSY-1378): the per-user cap bounds a SINGLE account. On
+// its own it does not bound aggregate throughput from one IP running many scripted
+// accounts (N accounts = N × the per-user cap). ipCeilingLimiter closes that: it is
+// a coarse per-IP backstop chained on the authenticated path so an authenticated
+// read must pass BOTH the per-user cap and the ceiling (stricter wins). It is
+// bucketed separately from anonLimiter, so authenticated and anonymous traffic from
+// one IP never share a counter, and it sits far above any legit single-office
+// aggregate. Signup remains additionally throttled per-IP at /auth/register (10/min).
+//
+// ORDER — per-user OUTER, ceiling INNER: httprate increments a limiter's counter
+// whenever the request clears that limiter's own limit, regardless of whether a
+// downstream limiter then rejects it. So the ceiling must sit INSIDE the per-user
+// cap: a single account spamming past its own per-user cap is 429'd by the OUTER
+// per-user limiter and never reaches (nor increments) the shared per-IP ceiling —
+// otherwise one misbehaving account's rejected retries (~17/s → 1000/min) could
+// deplete the ceiling and collaterally 429 every OTHER authenticated user on the
+// same IP, re-introducing the shared-IP false-positives per-user keying exists to
+// avoid. With this order the ceiling counts only requests that cleared the per-user
+// cap (real delivered throughput), while the multi-account aggregate bound still
+// holds (e.g. 4 accounts × 300/min = 1200 > 1000 trips the ceiling).
+func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		anon := anonLimiter(next)
-		user := userLimiter(next)
+		// Authenticated path: per-user cap OUTER, per-IP ceiling INNER (see the
+		// ORDER note above). Request must clear both; a single account's own-cap
+		// rejections stop at the per-user limiter and never touch the ceiling.
+		user := userLimiter(ipCeilingLimiter(next))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if uid, ok := sessionUserID(jwtService, r); ok {
 				ctx := context.WithValue(r.Context(), rateLimitUserIDKey{}, uid)

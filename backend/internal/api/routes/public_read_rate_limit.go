@@ -56,16 +56,20 @@ var infraPathsExemptFromRateLimit = []string{"/health"}
 // per IP, and authenticated requests to middleware.PublicReadUserRequestsPerMinute
 // (300) per USER (PSY-1373 — a finite per-user cap instead of a full bypass, so a
 // throwaway signup can't scrape unmetered while shared-IP logged-in users stay
-// un-collided). Infra paths above are exempt. Returns a pass-through noop unless
-// the opt-in flag is set. Mounted once, globally, before route registration.
+// un-collided), further backstopped by a coarse per-IP ceiling on authenticated
+// traffic (middleware.PublicReadAuthenticatedIPCeilingPerMinute, 1000/min, PSY-1378)
+// so one IP running many scripted accounts is bounded in aggregate. Infra paths
+// above are exempt. Returns a pass-through noop unless the opt-in flag is set.
+// Mounted once, globally, before route registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
-		middleware.RateLimitAPIEndpoints(),            // anonymous → per-IP
-		middleware.RateLimitPublicReadUserEndpoints(), // authenticated → per-user
+		middleware.RateLimitAPIEndpoints(),                       // anonymous → per-IP
+		middleware.RateLimitPublicReadUserEndpoints(),            // authenticated → per-user
+		middleware.RateLimitPublicReadAuthenticatedIPCeiling(),   // authenticated → coarse per-IP ceiling (PSY-1378)
 	)
 	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
 	return limitReadMethodsOnly(limiter)

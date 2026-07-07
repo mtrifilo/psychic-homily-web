@@ -245,13 +245,31 @@ func okHandler() http.Handler {
 }
 
 // authStateMW builds the router with 1-req/min anon (per-IP) and per-user limiters
-// — trivially saturable so tests can assert routing + isolation.
+// — trivially saturable so tests can assert routing + isolation. The per-IP
+// authenticated ceiling is set generously high (1000) so it never interferes with
+// the routing/isolation assertions; ceiling behavior has its own helper below.
 func authStateMW(jwtService *auth.JWTService) func(http.Handler) http.Handler {
 	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
 	perUser := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	return RateLimitPublicReadsByAuthState(jwtService, anon, perUser)
+	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	return RateLimitPublicReadsByAuthState(jwtService, anon, perUser, ipCeiling)
+}
+
+// authStateMWWithCeiling saturates the per-IP authenticated ceiling directly for
+// the PSY-1378 aggregate-bound tests: the per-user limiter stays generous (1000) so
+// the ceiling — not the per-user cap — is what trips, isolating the behavior under
+// test. anon stays at 1 (unused on the authenticated path).
+func authStateMWWithCeiling(jwtService *auth.JWTService, ceiling int) func(http.Handler) http.Handler {
+	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	perUser := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	ipCeiling := httprate.Limit(ceiling, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	return RateLimitPublicReadsByAuthState(jwtService, anon, perUser, ipCeiling)
 }
 
 func readReq(remoteAddr, bearer string) *http.Request {
@@ -357,5 +375,116 @@ func TestRateLimitPublicReadsByAuthState_ForgedAPITokenIsAnonymous(t *testing.T)
 	// Same IP → the anonymous per-IP bucket 429s it (no per-user bypass).
 	if rr := serve(handler, readReq("9.9.9.9:1001", APITokenPrefix+"forged")); rr.Code != http.StatusTooManyRequests {
 		t.Errorf("second forged (same IP): status = %d, want 429 (phk_ gets no per-user bucket)", rr.Code)
+	}
+}
+
+// --- Per-IP authenticated ceiling (PSY-1378) ---
+
+// THE crux of PSY-1378: the per-user cap alone lets one IP multiply throughput by
+// spinning up many accounts. The per-IP ceiling bounds that aggregate — distinct
+// users behind ONE IP share the ceiling bucket, so past the ceiling a fresh account
+// (whose own generous per-user cap is untouched) is still 429'd.
+func TestRateLimitPublicReadsByAuthState_AuthenticatedIPCeilingBoundsMultipleAccounts(t *testing.T) {
+	jwtService := newTestJWTService()
+	mkToken := func(id uint) string {
+		u := &authm.User{Email: strPtr("scraper@example.com")}
+		u.ID = id
+		tok, err := jwtService.CreateToken(u)
+		if err != nil {
+			t.Fatalf("CreateToken(%d): %v", id, err)
+		}
+		return tok
+	}
+	// Ceiling of 2 authenticated reads/min per IP; per-user cap is generous (1000),
+	// so only the ceiling can trip here.
+	handler := authStateMWWithCeiling(jwtService, 2)(okHandler())
+
+	const sharedIP = "7.7.7.7:2000"
+	// Two DIFFERENT accounts from the same IP each get one request — fills the ceiling.
+	if rr := serve(handler, readReq(sharedIP, mkToken(1))); rr.Code != http.StatusOK {
+		t.Fatalf("account 1 first: status = %d, want 200", rr.Code)
+	}
+	if rr := serve(handler, readReq(sharedIP, mkToken(2))); rr.Code != http.StatusOK {
+		t.Fatalf("account 2 first: status = %d, want 200", rr.Code)
+	}
+	// A THIRD fresh account from the same IP is 429'd by the aggregate ceiling,
+	// even though its own per-user bucket is untouched — one origin can't multiply
+	// throughput by adding accounts.
+	if rr := serve(handler, readReq(sharedIP, mkToken(3))); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("account 3 (same IP, ceiling exhausted): status = %d, want 429", rr.Code)
+	}
+}
+
+// The ceiling is PER-IP, not a single global bucket: exhausting one IP's ceiling
+// must not throttle authenticated users on a DIFFERENT IP (else the fix would DoS
+// the whole site the moment one scraper is active).
+func TestRateLimitPublicReadsByAuthState_AuthenticatedIPCeilingIsPerIP(t *testing.T) {
+	jwtService := newTestJWTService()
+	u := &authm.User{Email: strPtr("fan@example.com")}
+	u.ID = 55
+	token, err := jwtService.CreateToken(u)
+	if err != nil {
+		t.Fatalf("CreateToken: %v", err)
+	}
+	handler := authStateMWWithCeiling(jwtService, 1)(okHandler())
+
+	// Exhaust IP-A's ceiling (limit 1).
+	if rr := serve(handler, readReq("1.1.1.1:100", token)); rr.Code != http.StatusOK {
+		t.Fatalf("IP-A first: status = %d, want 200", rr.Code)
+	}
+	if rr := serve(handler, readReq("1.1.1.1:101", token)); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("IP-A second: status = %d, want 429 (ceiling exhausted)", rr.Code)
+	}
+	// Same user (generous per-user cap) on a DIFFERENT IP still gets through — the
+	// ceiling did not collapse into one global bucket.
+	if rr := serve(handler, readReq("2.2.2.2:100", token)); rr.Code != http.StatusOK {
+		t.Errorf("IP-B first (different IP): status = %d, want 200 (ceiling is per-IP, not global)", rr.Code)
+	}
+}
+
+// ORDER regression (adversarial review): a single account spamming PAST ITS OWN
+// per-user cap must NOT deplete the shared per-IP ceiling and collaterally 429 a
+// DIFFERENT user on the same IP. This only holds when the per-user limiter is OUTER
+// (rejected retries never reach/increment the ceiling); with the ceiling outer,
+// httprate increments it on every attempt that clears 1000/min regardless of the
+// per-user rejection, re-creating the shared-IP collision per-user keying prevents.
+func TestRateLimitPublicReadsByAuthState_OwnCapRejectionsDoNotDrainSharedCeiling(t *testing.T) {
+	jwtService := newTestJWTService()
+	mkToken := func(id uint) string {
+		u := &authm.User{Email: strPtr("u@example.com")}
+		u.ID = id
+		tok, err := jwtService.CreateToken(u)
+		if err != nil {
+			t.Fatalf("CreateToken(%d): %v", id, err)
+		}
+		return tok
+	}
+	// Tight per-user cap (1), small ceiling (2). Per-user is OUTER, ceiling INNER.
+	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	perUser := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	ipCeiling := httprate.Limit(2, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	handler := RateLimitPublicReadsByAuthState(jwtService, anon, perUser, ipCeiling)(okHandler())
+
+	const sharedIP = "3.3.3.3:400"
+	tokenA, tokenB := mkToken(1), mkToken(2)
+
+	// A's first read passes (per-user 1/1, ceiling 1/2).
+	if rr := serve(handler, readReq(sharedIP, tokenA)); rr.Code != http.StatusOK {
+		t.Fatalf("A first: status = %d, want 200", rr.Code)
+	}
+	// A now hammers past its OWN per-user cap 20×. Each is 429'd by the OUTER
+	// per-user limiter and must NOT increment the shared ceiling (still 1/2).
+	for i := 0; i < 20; i++ {
+		if rr := serve(handler, readReq(sharedIP, tokenA)); rr.Code != http.StatusTooManyRequests {
+			t.Fatalf("A retry %d: status = %d, want 429 (own per-user cap)", i, rr.Code)
+		}
+	}
+	// B (fresh per-user bucket) on the SAME IP still gets through: the ceiling has
+	// budget left (2/2) because A's rejected retries never reached it.
+	if rr := serve(handler, readReq(sharedIP, tokenB)); rr.Code != http.StatusOK {
+		t.Errorf("B first (same IP as spamming A): status = %d, want 200 (A's own-cap rejections must not drain the shared ceiling)", rr.Code)
 	}
 }
