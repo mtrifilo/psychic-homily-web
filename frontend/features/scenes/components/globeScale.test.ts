@@ -478,6 +478,25 @@ describe('sceneDotColor (PSY-1312)', () => {
   })
 })
 
+describe('sceneDotColor genre tint base (PSY-1315)', () => {
+  const GENRE = '#e0b66e' // a resolved family hex, standing in for genreFamilyColor(...)
+
+  it('uses the genre base color when nothing is hovered/selected/followed', () => {
+    expect(sceneDotColor('phoenix-az', null, null, null, GENRE)).toBe(GENRE)
+  })
+
+  it('falls back to the default orange when the scene has no genre base', () => {
+    expect(sceneDotColor('phoenix-az', null, null, null, undefined)).toBe(DOT_COLOR_BASE)
+  })
+
+  it('hover/select/follow all override the genre base', () => {
+    const followed = new Set(['phoenix-az'])
+    expect(sceneDotColor('phoenix-az', 'phoenix-az', null, null, GENRE)).toBe(DOT_COLOR_HOVERED)
+    expect(sceneDotColor('phoenix-az', null, 'phoenix-az', null, GENRE)).toBe(DOT_COLOR_SELECTED)
+    expect(sceneDotColor('phoenix-az', null, null, followed, GENRE)).toBe(DOT_COLOR_FOLLOWED)
+  })
+})
+
 describe('compareScenesByActivity', () => {
   it('orders liveliest first', () => {
     const scenes = [

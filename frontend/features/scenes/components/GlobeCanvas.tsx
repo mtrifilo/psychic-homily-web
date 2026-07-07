@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
+import { useGraphPalette } from '@/components/graph/graphPalette'
 import type { GlobePov, PlaceableScene } from './globeTypes'
+import { genreFamilyColor } from '../genreFamilies'
 import {
   DOT_HOVER_RADIUS_SCALE,
   labelMinCountForAltitude,
@@ -110,14 +112,25 @@ export default function GlobeCanvas({
   const [hoveredSlug, setHoveredSlug] = useState<string | null>(null)
   const selectedSlug = selected?.slug ?? null
 
+  // Resolved theme palette for the dominant-genre dot tint (PSY-1315). Stable
+  // between theme changes (useGraphPalette memoizes on the <html> class), so it
+  // doesn't churn pointColor per render; on a theme toggle it re-resolves and the
+  // dots re-tint — the same one-per-theme-change cost as the graph surfaces.
+  const palette = useGraphPalette()
+
   const handlePointHover = useCallback((point: object | null) => {
     setHoveredSlug(point ? (point as PlaceableScene).slug : null)
   }, [])
 
   const pointColor = useCallback(
-    (d: object) =>
-      sceneDotColor((d as PlaceableScene).slug, hoveredSlug, selectedSlug, followedSlugs),
-    [hoveredSlug, selectedSlug, followedSlugs],
+    (d: object) => {
+      const s = d as PlaceableScene
+      // A scene's dominant genre family (when confident) tints its resting dot;
+      // hover/select/follow still override it inside sceneDotColor.
+      const genreBase = genreFamilyColor(palette, s.dominant_genre)
+      return sceneDotColor(s.slug, hoveredSlug, selectedSlug, followedSlugs, genreBase)
+    },
+    [hoveredSlug, selectedSlug, followedSlugs, palette],
   )
   const pointRadius = useCallback(
     (d: object) => {

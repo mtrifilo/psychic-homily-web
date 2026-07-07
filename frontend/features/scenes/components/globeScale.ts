@@ -98,17 +98,21 @@ export const DOT_COLOR_FOLLOWED = '#7ee8fa'
 export const DOT_HOVER_RADIUS_SCALE = 1.2
 
 // Precedence: selected > hovered > followed > base — the transient affordance
-// states stay legible on top of the persistent "my scene" marking.
+// states stay legible on top of the persistent "my scene" marking. `baseColor` is
+// the scene's dominant-genre-family tint (PSY-1315) when it has one; it replaces
+// the default orange as the resting color, but the interaction/follow affordances
+// still win so hover/select/follow stay legible over any tint.
 export function sceneDotColor(
   slug: string,
   hoveredSlug: string | null,
   selectedSlug: string | null,
   followedSlugs?: ReadonlySet<string> | null,
+  baseColor?: string,
 ): string {
   if (selectedSlug !== null && slug === selectedSlug) return DOT_COLOR_SELECTED
   if (hoveredSlug !== null && slug === hoveredSlug) return DOT_COLOR_HOVERED
   if (followedSlugs != null && followedSlugs.has(slug)) return DOT_COLOR_FOLLOWED
-  return DOT_COLOR_BASE
+  return baseColor ?? DOT_COLOR_BASE
 }
 
 // ── Label text size ───────────────────────────────────────────────────────
