@@ -8,12 +8,13 @@ import (
 	"psychic-homily-backend/internal/testenv"
 )
 
-// PSY-1362: rate limiting for public, unauthenticated read endpoints (graph-card,
-// artist/show/venue/label/scene reads, etc.), mounted globally in
-// cmd/server/main.go. Two properties keep a single global mount safe:
-//   - it only ever limits ANONYMOUS traffic (any authenticated request bypasses,
-//     see middleware.SkipRateLimitForAuthenticated), so it never throttles
-//     logged-in users and needs no per-route wiring; and
+// PSY-1362/1373: rate limiting for public read endpoints (graph-card, artist/
+// show/venue/label/scene reads, etc.), mounted globally in cmd/server/main.go.
+// Two properties keep a single global mount safe:
+//   - it keys by AUTH STATE (middleware.RateLimitPublicReadsByAuthState):
+//     anonymous → per-IP (APIRequestsPerMinute); authenticated → per-USER
+//     (PublicReadUserRequestsPerMinute, PSY-1373). Per-user keying means it never
+//     collides shared-IP logged-in users, so it needs no per-route wiring; and
 //   - it only limits READ methods (GET/HEAD) — writes keep their own dedicated
 //     limiters (auth, tag, report, show-create), so a shared read budget can't
 //     429 an unrelated anonymous write (e.g. a login after heavy browsing).
@@ -50,16 +51,22 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 // should do.
 var infraPathsExemptFromRateLimit = []string{"/health"}
 
-// PublicReadRateLimiter returns the chi middleware that throttles anonymous
-// public-READ traffic (GET/HEAD) to middleware.APIRequestsPerMinute (100) per IP,
-// bypassing any authenticated request and the infra paths above. Returns a
-// pass-through noop unless the opt-in flag is set. Mounted once, globally, before
-// route registration.
+// PublicReadRateLimiter returns the chi middleware that throttles public-READ
+// traffic (GET/HEAD): anonymous requests to middleware.APIRequestsPerMinute (100)
+// per IP, and authenticated requests to middleware.PublicReadUserRequestsPerMinute
+// (300) per USER (PSY-1373 — a finite per-user cap instead of a full bypass, so a
+// throwaway signup can't scrape unmetered while shared-IP logged-in users stay
+// un-collided). Infra paths above are exempt. Returns a pass-through noop unless
+// the opt-in flag is set. Mounted once, globally, before route registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
-	limiter := middleware.SkipRateLimitForAuthenticated(jwtService, middleware.RateLimitAPIEndpoints())
+	limiter := middleware.RateLimitPublicReadsByAuthState(
+		jwtService,
+		middleware.RateLimitAPIEndpoints(),            // anonymous → per-IP
+		middleware.RateLimitPublicReadUserEndpoints(), // authenticated → per-user
+	)
 	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
 	return limitReadMethodsOnly(limiter)
 }
