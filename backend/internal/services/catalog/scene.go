@@ -1115,6 +1115,10 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	// 4. Batch query upcoming-show-count for every node (mirror GetArtistGraph §4).
 	upcomingByArtist := s.batchUpcomingShowCount(artistIDs)
 
+	// 4b. Batch query playable-audio for every node (PSY-1379): which artists have
+	// an embed the node-select panel will actually play, so the canvas can mark them.
+	playableByArtist := batchArtistPlayableAudio(s.db, artistIDs)
+
 	// 5. Query in-scope relationships — both endpoints in the scene's artist set.
 	var links []sceneRelationshipRow
 	if !noEdgesByFilter {
@@ -1173,6 +1177,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 			UpcomingShowCount: upcomingByArtist[r.ArtistID],
 			ClusterID:         clusterByArtist[r.ArtistID],
 			IsIsolate:         !connected[r.ArtistID],
+			HasPlayableAudio:  playableByArtist[r.ArtistID],
 		})
 	}
 

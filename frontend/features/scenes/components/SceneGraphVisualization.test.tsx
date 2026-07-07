@@ -68,7 +68,7 @@ const data: SceneGraphResponse = {
       upcoming_show_count: 0,
       cluster_id: 'v_1',
       is_isolate: false,
-    },
+      has_playable_audio: false,    },
   ],
   links: [],
 }

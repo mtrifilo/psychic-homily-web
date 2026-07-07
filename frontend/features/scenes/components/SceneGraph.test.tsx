@@ -31,7 +31,7 @@ const mockData: SceneGraphResponse = {
       upcoming_show_count: 0,
       cluster_id: 'v_1',
       is_isolate: false,
-    },
+      has_playable_audio: false,    },
     {
       id: 2,
       name: 'Sundressed',
@@ -39,7 +39,7 @@ const mockData: SceneGraphResponse = {
       upcoming_show_count: 1,
       cluster_id: 'v_1',
       is_isolate: false,
-    },
+      has_playable_audio: false,    },
     {
       id: 3,
       name: 'Numb Bats',
@@ -47,7 +47,7 @@ const mockData: SceneGraphResponse = {
       upcoming_show_count: 0,
       cluster_id: 'v_2',
       is_isolate: false,
-    },
+      has_playable_audio: false,    },
     {
       id: 4,
       name: 'Lonely Lounge',
@@ -55,7 +55,7 @@ const mockData: SceneGraphResponse = {
       upcoming_show_count: 0,
       cluster_id: 'other',
       is_isolate: true,
-    },
+      has_playable_audio: false,    },
   ],
   links: [
     { source_id: 1, target_id: 2, type: 'shared_bills', score: 0.5, is_cross_cluster: false },

@@ -820,6 +820,11 @@ type SceneGraphNode struct {
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	ClusterID         string `json:"cluster_id"` // matches SceneGraphCluster.ID; "other" for tail
 	IsIsolate         bool   `json:"is_isolate"` // true when the artist has no in-scene edges (post type-filter)
+	// HasPlayableAudio is true when selecting this node opens a playable embed
+	// (PSY-1379): a stored Bandcamp embed URL, or a Spotify URL the frontend can
+	// embed. Mirrors the ArtistContextPanel `hasPlayableAudio` gate so the canvas
+	// marker never promises a player the select panel won't render.
+	HasPlayableAudio bool `json:"has_playable_audio"`
 }
 
 // SceneGraphLink represents an in-scene relationship between two artists.

@@ -137,7 +137,7 @@ describe('scene types contract', () => {
       upcoming_show_count: 0,
       cluster_id: 'v_1',
       is_isolate: false,
-    }
+      has_playable_audio: false,    }
     // city/state are optional.
     const locatedNode: SceneGraphNode = { ...node, city: 'Phoenix', state: 'AZ' }
 
@@ -180,7 +180,7 @@ describe('scene types contract', () => {
           upcoming_show_count: 0,
           cluster_id: 'v_1',
           is_isolate: false,
-        },
+          has_playable_audio: false,        },
         {
           id: 2,
           name: 'Sundressed',
@@ -188,7 +188,7 @@ describe('scene types contract', () => {
           upcoming_show_count: 1,
           cluster_id: 'v_1',
           is_isolate: false,
-        },
+          has_playable_audio: false,        },
       ],
       links: [
         {

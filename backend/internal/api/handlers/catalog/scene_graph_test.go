@@ -298,6 +298,44 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_IsolatedNodes() {
 	}
 }
 
+// TestSceneGraph_HasPlayableAudio: a node is flagged playable when the artist has
+// a Bandcamp embed URL or an embeddable Spotify URL, and NOT flagged when its
+// Spotify URL is one the frontend embed can't render — mirroring the
+// ArtistContextPanel gate so the canvas marker never promises a dead player (PSY-1379).
+func (s *SceneGraphIntegrationSuite) TestSceneGraph_HasPlayableAudio() {
+	venue := s.seedSceneVenue("Valley Bar", "Phoenix", "AZ")
+	s.seedSceneVenue("Crescent Ballroom", "Phoenix", "AZ") // second verified venue
+
+	now := time.Now().UTC()
+	bandcamp := s.seedSceneArtist("Has-Bandcamp")
+	spotify := s.seedSceneArtist("Has-Spotify")
+	badSpotify := s.seedSceneArtist("Has-Unembeddable-Spotify")
+	none := s.seedSceneArtist("No-Audio")
+	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, bandcamp.ID)
+	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, spotify.ID)
+	s.seedShowAtVenue(now.AddDate(0, -3, 0), venue, badSpotify.ID)
+	s.seedShowAtVenue(now.AddDate(0, -4, 0), venue, none.ID)
+
+	s.deps.DB.Model(bandcamp).Update("bandcamp_embed_url", "https://has-bandcamp.bandcamp.com/album/x")
+	s.deps.DB.Model(spotify).Update("spotify", "https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4")
+	// Short id: passes the artist handler's lenient validator but parseSpotifyEmbed
+	// can't embed it — must NOT be flagged, or the marker is a dead affordance.
+	s.deps.DB.Model(badSpotify).Update("spotify", "https://open.spotify.com/artist/short")
+
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil, "venue")
+	s.Require().NoError(err)
+	s.Require().Len(graph.Nodes, 4)
+
+	playable := make(map[uint]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		playable[n.ID] = n.HasPlayableAudio
+	}
+	s.True(playable[bandcamp.ID], "bandcamp embed URL → playable")
+	s.True(playable[spotify.ID], "embeddable spotify URL → playable")
+	s.False(playable[badSpotify.ID], "unembeddable spotify URL → NOT playable (no dead marker)")
+	s.False(playable[none.ID], "no audio → not playable")
+}
+
 // TestSceneGraph_PrimaryVenueClusters: 6 artists at Valley Bar + 6 at Crescent
 // produce two first-class clusters; cluster_id on each node points at the right
 // bucket; cluster sizes match. Stored shared_bills relationships add edges,
