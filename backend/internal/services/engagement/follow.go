@@ -400,14 +400,21 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 			// ORDER BY … LIMIT 1 is an index seek — no N+1 per followed show).
 			// station_id is NOT NULL, so the inner join never drops a live show.
 			//
-			// last_episode_date is the most recent AIRED episode (air_date <=
-			// CURRENT_DATE): WFMU pre-publishes upcoming episode rows, so an
-			// ungated MAX would surface a FUTURE date under the "last-aired" UI
-			// label (the PSY-1374 footgun). Mirrors the catalog LatestAirDate
-			// semantics. to_char pins YYYY-MM-DD (a raw date scan can arrive as
-			// an RFC3339 timestamp; see catalog.normalizeDate). CURRENT_DATE is
-			// server (UTC) date — station-local-tz precision is a deferred
-			// nicety (date granularity is sufficient for this row).
+			// last_episode_date is the most recent AIRED episode, gated at DATE
+			// granularity (air_date <= CURRENT_DATE): WFMU pre-publishes upcoming
+			// episode rows, so an ungated MAX would surface a future date under
+			// the "last-aired" UI label (the PSY-1374 footgun). This is
+			// deliberately COARSER than the catalog directory's visibility gate
+			// (airedEpisodeVisibleSQL + station-local-today, which also excludes
+			// windowed-not-yet-aired-today and 0-track windowless placeholders):
+			// that gate is single-station-scoped, whereas this query spans every
+			// followed show across stations/timezones at once, so
+			// per-station-local-today isn't expressible in one query. The two
+			// surfaces can therefore differ by up to a day for a same-day
+			// placeholder — acceptable for a date label (owner-approved
+			// date-granularity gate; see PSY-1356). to_char pins YYYY-MM-DD (a
+			// raw date scan can arrive as an RFC3339 timestamp; see
+			// catalog.normalizeDate).
 			var shows []struct {
 				ID              uint
 				Name            string

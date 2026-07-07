@@ -853,6 +853,42 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowEx
 	suite.Equal(past, *following[0].LastEpisodeDate, "future pre-published episode must not win last_episode_date")
 }
 
+// AC (c): follower count + follow status resolve for radio_show through the
+// entity-type-generic paths (real DB — not a handler mock). These methods have
+// no per-type switch, so this guards against a future refactor special-casing
+// radio_show breaking count/status resolution.
+func (suite *FollowServiceIntegrationTestSuite) TestRadioShow_CountAndStatusResolve() {
+	user := suite.createTestUser()
+	showID := suite.createTestRadioShow("Count Show", "count-show", "Count Station", "count-station", "DJ", "2026-07-02")
+
+	isFollowing, err := suite.followService.IsFollowing(user.ID, "radio_show", showID)
+	suite.Require().NoError(err)
+	suite.False(isFollowing)
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", showID))
+
+	isFollowing, err = suite.followService.IsFollowing(user.ID, "radio_show", showID)
+	suite.Require().NoError(err)
+	suite.True(isFollowing)
+
+	count, err := suite.followService.GetFollowerCount("radio_show", showID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), count)
+
+	batchCounts, err := suite.followService.GetBatchFollowerCounts("radio_show", []uint{showID})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), batchCounts[showID])
+
+	batchFollowing, err := suite.followService.GetBatchUserFollowing(user.ID, "radio_show", []uint{showID})
+	suite.Require().NoError(err)
+	suite.True(batchFollowing[showID])
+
+	suite.Require().NoError(suite.followService.Unfollow(user.ID, "radio_show", showID))
+	count, err = suite.followService.GetFollowerCount("radio_show", showID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), count)
+}
+
 // A followed show with no episodes (and no host) yields the station fields but
 // nil host_name / last_episode_date — the outer join must not drop the row.
 func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowNoEpisodesNoHost() {
