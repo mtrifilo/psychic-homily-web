@@ -369,7 +369,11 @@ func CanonicalCountryName(s string) (string, bool) {
 
 func newOfflineGeocoder() *offlineGeocoder {
 	g := &offlineGeocoder{
-		byCity:      make(map[string][]cityRow, 40000),
+		// Sized for the cities1000 tier (~170k rows, each indexed under its folded
+		// name + ascii-name key) so the one-time cold-start load doesn't rehash
+		// (PSY-1377; was 40000 for cities15000's ~34k rows). byMetro is bounded by
+		// the ~900 CBSA codes regardless of tier.
+		byCity:      make(map[string][]cityRow, 200000),
 		byMetro:     make(map[string][]cityRow, 1000),
 		nameToISO:   make(map[string]string, 512),
 		isoToName:   make(map[string]string, 256),
