@@ -650,6 +650,145 @@ func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 
 // --- GetFollowersListHandler ---
 
+// --- Radio-show follow target (PSY-1356) ---
+
+// The plural URL segment "radio-shows" must map to the singular bookmark type
+// "radio_show" — the naming is hyphen→underscore, which the trailing-'s' strip
+// in TestFollowEntityHandler_AllEntityTypes can't express, so it's pinned here.
+func TestFollowEntityHandler_RadioShow(t *testing.T) {
+	var capturedType string
+	mock := &testhelpers.MockFollowService{
+		FollowFn: func(_ uint, et string, _ uint) error {
+			capturedType = et
+			return nil
+		},
+	}
+	h := NewFollowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &FollowRequest{EntityType: "radio-shows", EntityID: "7"}
+
+	if _, err := h.FollowEntityHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedType != "radio_show" {
+		t.Errorf("expected entity type 'radio_show', got '%s'", capturedType)
+	}
+}
+
+func TestUnfollowEntityHandler_RadioShow(t *testing.T) {
+	var capturedType string
+	mock := &testhelpers.MockFollowService{
+		UnfollowFn: func(_ uint, et string, _ uint) error {
+			capturedType = et
+			return nil
+		},
+	}
+	h := NewFollowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UnfollowRequest{EntityType: "radio-shows", EntityID: "7"}
+
+	if _, err := h.UnfollowEntityHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedType != "radio_show" {
+		t.Errorf("expected entity type 'radio_show', got '%s'", capturedType)
+	}
+}
+
+// The FollowButton status/count path is the batch endpoint; it must accept the
+// "radio-shows" plural (AC: follow status + count resolve for radio-shows).
+func TestBatchFollowHandler_AcceptsRadioShows(t *testing.T) {
+	var capturedType string
+	mock := &testhelpers.MockFollowService{
+		GetBatchFollowerCountsFn: func(entityType string, entityIDs []uint) (map[uint]int64, error) {
+			capturedType = entityType
+			result := make(map[uint]int64)
+			for _, id := range entityIDs {
+				result[id] = 0
+			}
+			return result, nil
+		},
+	}
+	h := NewFollowHandler(mock)
+	req := &BatchFollowRequest{}
+	req.Body.EntityType = "radio-shows" // plural form
+	req.Body.EntityIDs = []int{7}
+
+	if _, err := h.BatchFollowHandler(context.Background(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedType != "radio_show" {
+		t.Errorf("expected entity type 'radio_show', got '%s'", capturedType)
+	}
+}
+
+func TestGetMyFollowingHandler_RadioShowTypeFilter(t *testing.T) {
+	var capturedType string
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
+			capturedType = entityType
+			return nil, 0, nil
+		},
+	}
+	h := NewFollowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &GetMyFollowingRequest{Type: "radio_show", Limit: 20}
+
+	if _, err := h.GetMyFollowingHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedType != "radio_show" {
+		t.Errorf("expected type=radio_show passed through, got %s", capturedType)
+	}
+}
+
+// The handler passes the service's enriched radio fields through unchanged.
+func TestGetMyFollowingHandler_RadioShowEnrichedFieldsPassThrough(t *testing.T) {
+	station, stationSlug, host, lastEp := "WFMU", "wfmu", "Gary", "2026-07-05"
+	following := []*contracts.FollowingEntityResponse{
+		{
+			EntityType:      "radio_show",
+			EntityID:        7,
+			Name:            "Techtonic",
+			Slug:            "techtonic",
+			FollowedAt:      time.Now().UTC(),
+			StationName:     &station,
+			StationSlug:     &stationSlug,
+			HostName:        &host,
+			LastEpisodeDate: &lastEp,
+		},
+	}
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(_ uint, _ string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
+			return following, 1, nil
+		},
+	}
+	h := NewFollowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &GetMyFollowingRequest{Type: "radio_show", Limit: 20}
+
+	resp, err := h.GetMyFollowingHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Following) != 1 {
+		t.Fatalf("expected 1 following, got %d", len(resp.Body.Following))
+	}
+	got := resp.Body.Following[0]
+	if got.StationSlug == nil || *got.StationSlug != "wfmu" {
+		t.Errorf("expected station_slug=wfmu, got %v", got.StationSlug)
+	}
+	if got.StationName == nil || *got.StationName != "WFMU" {
+		t.Errorf("expected station_name=WFMU, got %v", got.StationName)
+	}
+	if got.HostName == nil || *got.HostName != "Gary" {
+		t.Errorf("expected host_name=Gary, got %v", got.HostName)
+	}
+	if got.LastEpisodeDate == nil || *got.LastEpisodeDate != "2026-07-05" {
+		t.Errorf("expected last_episode_date=2026-07-05, got %v", got.LastEpisodeDate)
+	}
+}
+
 func TestGetFollowersListHandler_InvalidEntityType(t *testing.T) {
 	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &GetFollowersListRequest{EntityType: "shows", EntityID: "1", Limit: 20}

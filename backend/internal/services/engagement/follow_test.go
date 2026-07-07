@@ -26,6 +26,12 @@ func TestFollowService_UserEntityTypeAccepted(t *testing.T) {
 	assert.Equal(t, "user", FollowEntityUser)
 }
 
+// PSY-1356: ensure "radio_show" is accepted as a valid follow entity type.
+func TestFollowService_RadioShowEntityTypeAccepted(t *testing.T) {
+	assert.True(t, validFollowEntityTypes[string(engagementm.BookmarkEntityRadioShow)])
+	assert.Equal(t, "radio_show", string(engagementm.BookmarkEntityRadioShow))
+}
+
 func TestFollowService_InvalidEntityType(t *testing.T) {
 	svc := &FollowService{db: &gorm.DB{}}
 
@@ -118,6 +124,10 @@ func (suite *FollowServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	// FK order: episodes → shows → stations (episode.show_id, show.station_id).
+	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
+	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
+	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -189,6 +199,33 @@ func (suite *FollowServiceIntegrationTestSuite) createTestLabel(name string) uin
 	err := suite.db.Create(label).Error
 	suite.Require().NoError(err)
 	return label.ID
+}
+
+// createTestRadioShow creates a station + show (+ optional host + episodes) and
+// returns the show id. host="" leaves host_name NULL; airDates are "YYYY-MM-DD".
+func (suite *FollowServiceIntegrationTestSuite) createTestRadioShow(
+	showName, showSlug, stationName, stationSlug, host string, airDates ...string,
+) uint {
+	station := &catalogm.RadioStation{Name: stationName, Slug: stationSlug}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	var hostPtr *string
+	if host != "" {
+		hostPtr = &host
+	}
+	show := &catalogm.RadioShow{
+		StationID: station.ID,
+		Name:      showName,
+		Slug:      showSlug,
+		HostName:  hostPtr,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	for _, d := range airDates {
+		ep := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: d}
+		suite.Require().NoError(suite.db.Create(ep).Error)
+	}
+	return show.ID
 }
 
 func (suite *FollowServiceIntegrationTestSuite) createTestFestival(name string) uint {
@@ -743,4 +780,142 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollowUnfollowCycle() {
 	isFollowing, err = suite.followService.IsFollowing(user.ID, "artist", artistID)
 	suite.Require().NoError(err)
 	suite.True(isFollowing)
+}
+
+// =============================================================================
+// Group 10: Radio-show follow target (PSY-1356)
+// =============================================================================
+
+func (suite *FollowServiceIntegrationTestSuite) TestFollow_RadioShow() {
+	user := suite.createTestUser()
+	showID := suite.createTestRadioShow("Show A", "show-a", "Station A", "station-a", "Host A", "2026-07-01")
+
+	err := suite.followService.Follow(user.ID, "radio_show", showID)
+	suite.Require().NoError(err)
+
+	var count int64
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			user.ID, engagementm.BookmarkEntityRadioShow, showID, engagementm.BookmarkActionFollow).
+		Count(&count)
+	suite.Equal(int64(1), count)
+}
+
+// TestGetUserFollowing_RadioShowEnriched pins AC #2: the radio-show row carries
+// station_name, station_slug, host_name, and the MOST RECENT episode's air_date
+// (not the first-inserted), on top of the base name/slug (the show's).
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowEnriched() {
+	user := suite.createTestUser()
+	// Episodes inserted out of order — the latest (2026-07-05) must win.
+	showID := suite.createTestRadioShow(
+		"Techtonic", "techtonic", "WFMU", "wfmu", "Gary the DJ",
+		"2026-06-28", "2026-07-05", "2026-07-01",
+	)
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", showID))
+
+	following, total, err := suite.followService.GetUserFollowing(user.ID, "radio_show", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(following, 1)
+
+	f := following[0]
+	suite.Equal("radio_show", f.EntityType)
+	suite.Equal(showID, f.EntityID)
+	suite.Equal("Techtonic", f.Name) // base name = show name
+	suite.Equal("techtonic", f.Slug) // base slug = show slug
+	suite.Require().NotNil(f.StationName)
+	suite.Equal("WFMU", *f.StationName)
+	suite.Require().NotNil(f.StationSlug)
+	suite.Equal("wfmu", *f.StationSlug)
+	suite.Require().NotNil(f.HostName)
+	suite.Equal("Gary the DJ", *f.HostName)
+	suite.Require().NotNil(f.LastEpisodeDate)
+	// Exact YYYY-MM-DD (to_char pins the format) and the latest of the three.
+	suite.Equal("2026-07-05", *f.LastEpisodeDate)
+}
+
+// The aired-gate: a followed show with a pre-published FUTURE episode must
+// surface its most recent PAST episode as last_episode_date, not the future one
+// (WFMU pre-publishes upcoming rows — the PSY-1374 footgun).
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowExcludesFutureEpisode() {
+	user := suite.createTestUser()
+	past := time.Now().AddDate(0, 0, -3).Format("2006-01-02")
+	future := time.Now().AddDate(0, 0, 14).Format("2006-01-02")
+	showID := suite.createTestRadioShow("Prepubbed", "prepubbed", "WFMU", "wfmu", "DJ", past, future)
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", showID))
+
+	following, _, err := suite.followService.GetUserFollowing(user.ID, "radio_show", 10, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(following, 1)
+	suite.Require().NotNil(following[0].LastEpisodeDate)
+	suite.Equal(past, *following[0].LastEpisodeDate, "future pre-published episode must not win last_episode_date")
+}
+
+// A followed show with no episodes (and no host) yields the station fields but
+// nil host_name / last_episode_date — the outer join must not drop the row.
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_RadioShowNoEpisodesNoHost() {
+	user := suite.createTestUser()
+	showID := suite.createTestRadioShow("Fresh Show", "fresh-show", "KEXP", "kexp", "")
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", showID))
+
+	following, _, err := suite.followService.GetUserFollowing(user.ID, "radio_show", 10, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(following, 1)
+
+	f := following[0]
+	suite.Equal("Fresh Show", f.Name)
+	suite.Require().NotNil(f.StationName)
+	suite.Equal("KEXP", *f.StationName)
+	suite.Nil(f.HostName)        // host_name NULL → nil
+	suite.Nil(f.LastEpisodeDate) // no episodes → nil
+}
+
+// Non-radio follows must never carry the radio-only fields (additive-only).
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_NonRadioHasNilEnrichedFields() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Enriched Nil Artist")
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
+
+	following, _, err := suite.followService.GetUserFollowing(user.ID, "artist", 10, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(following, 1)
+
+	f := following[0]
+	suite.Nil(f.StationName)
+	suite.Nil(f.StationSlug)
+	suite.Nil(f.HostName)
+	suite.Nil(f.LastEpisodeDate)
+}
+
+// The all-types (no filter) path must enrich radio rows AND leave others' radio
+// fields nil in the same response.
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_AllTypesEnrichesOnlyRadio() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Mixed Artist")
+	showID := suite.createTestRadioShow("Mixed Show", "mixed-show", "Mixed Station", "mixed-station", "DJ Mixed", "2026-07-04")
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "radio_show", showID))
+
+	following, total, err := suite.followService.GetUserFollowing(user.ID, "", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(following, 2)
+
+	for _, f := range following {
+		switch f.EntityType {
+		case "radio_show":
+			suite.Require().NotNil(f.StationSlug)
+			suite.Equal("mixed-station", *f.StationSlug)
+			suite.Require().NotNil(f.LastEpisodeDate)
+			suite.Equal("2026-07-04", *f.LastEpisodeDate)
+		case "artist":
+			suite.Nil(f.StationSlug)
+			suite.Nil(f.LastEpisodeDate)
+		}
+	}
 }

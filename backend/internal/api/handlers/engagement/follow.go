@@ -24,11 +24,14 @@ func NewFollowHandler(followService contracts.FollowServiceInterface) *FollowHan
 }
 
 // validFollowEntityTypes maps plural URL path segments to singular bookmark entity types.
+// Note: scenes follow their own slug-addressed routes (see scene_follow.go), so
+// "scenes" is intentionally absent here.
 var validFollowEntityTypes = map[string]string{
-	"artists":   "artist",
-	"venues":    "venue",
-	"labels":    "label",
-	"festivals": "festival",
+	"artists":     "artist",
+	"venues":      "venue",
+	"labels":      "label",
+	"festivals":   "festival",
+	"radio-shows": "radio_show",
 }
 
 // parseEntityType converts a plural URL entity type to singular, returning an error if invalid.
@@ -46,7 +49,7 @@ func parseEntityType(entityType string) (string, error) {
 
 // FollowRequest is the request for POST /{entity_type}/{entity_id}/follow
 type FollowRequest struct {
-	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals)"`
+	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals, radio-shows)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
 }
 
@@ -60,7 +63,7 @@ type FollowResponse struct {
 
 // UnfollowRequest is the request for DELETE /{entity_type}/{entity_id}/follow
 type UnfollowRequest struct {
-	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals)"`
+	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals, radio-shows)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
 }
 
@@ -74,7 +77,7 @@ type UnfollowResponse struct {
 
 // GetFollowersRequest is the request for GET /{entity_type}/{entity_id}/followers
 type GetFollowersRequest struct {
-	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals)"`
+	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals, radio-shows)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
 }
 
@@ -91,7 +94,7 @@ type GetFollowersResponse struct {
 // BatchFollowRequest is the request for POST /follows/batch
 type BatchFollowRequest struct {
 	Body struct {
-		EntityType string `json:"entity_type" doc:"Entity type (artist, venue, label, festival)"`
+		EntityType string `json:"entity_type" doc:"Entity type (artist, venue, label, festival, radio_show); plural URL forms also accepted"`
 		EntityIDs  []int  `json:"entity_ids" validate:"required,max=100" doc:"List of entity IDs (max 100)"`
 	}
 }
@@ -111,7 +114,7 @@ type BatchFollowResponse struct {
 
 // GetMyFollowingRequest is the request for GET /me/following
 type GetMyFollowingRequest struct {
-	Type   string `query:"type" default:"all" doc:"Entity type filter: artist, venue, label, festival, or all"`
+	Type   string `query:"type" default:"all" doc:"Entity type filter: artist, venue, label, festival, scene, radio_show, or all"`
 	Limit  int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of items per page"`
 	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
@@ -128,7 +131,7 @@ type GetMyFollowingResponse struct {
 
 // GetFollowersListRequest is the request for GET /{entity_type}/{entity_id}/followers/list
 type GetFollowersListRequest struct {
-	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals)"`
+	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals, radio-shows)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of followers per page"`
 	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
@@ -159,7 +162,7 @@ func (h *FollowHandler) FollowEntityHandler(ctx context.Context, req *FollowRequ
 
 	singular, err := parseEntityType(req.EntityType)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, or festivals")
+		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, festivals, or radio-shows")
 	}
 
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
@@ -218,7 +221,7 @@ func (h *FollowHandler) UnfollowEntityHandler(ctx context.Context, req *Unfollow
 
 	singular, err := parseEntityType(req.EntityType)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, or festivals")
+		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, festivals, or radio-shows")
 	}
 
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
@@ -273,7 +276,7 @@ func (h *FollowHandler) GetFollowersHandler(ctx context.Context, req *GetFollowe
 
 	singular, err := parseEntityType(req.EntityType)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, or festivals")
+		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, festivals, or radio-shows")
 	}
 
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
@@ -349,7 +352,7 @@ func (h *FollowHandler) BatchFollowHandler(ctx context.Context, req *BatchFollow
 			}
 		}
 		if !valid {
-			return nil, huma.Error400BadRequest("Invalid entity type. Must be: artist, venue, label, or festival")
+			return nil, huma.Error400BadRequest("Invalid entity type. Must be: artist, venue, label, festival, or radio_show")
 		}
 	}
 
@@ -422,8 +425,8 @@ func (h *FollowHandler) GetMyFollowingHandler(ctx context.Context, req *GetMyFol
 
 	// Validate type filter
 	entityTypeFilter := req.Type
-	if entityTypeFilter != "artist" && entityTypeFilter != "venue" && entityTypeFilter != "label" && entityTypeFilter != "festival" && entityTypeFilter != "scene" && entityTypeFilter != "all" && entityTypeFilter != "" {
-		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', 'scene', or 'all'")
+	if entityTypeFilter != "artist" && entityTypeFilter != "venue" && entityTypeFilter != "label" && entityTypeFilter != "festival" && entityTypeFilter != "scene" && entityTypeFilter != "radio_show" && entityTypeFilter != "all" && entityTypeFilter != "" {
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', 'scene', 'radio_show', or 'all'")
 	}
 	if entityTypeFilter == "all" || entityTypeFilter == "" {
 		entityTypeFilter = ""
@@ -482,7 +485,7 @@ func (h *FollowHandler) GetFollowersListHandler(ctx context.Context, req *GetFol
 
 	singular, err := parseEntityType(req.EntityType)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, or festivals")
+		return nil, huma.Error400BadRequest("Invalid entity type. Must be: artists, venues, labels, festivals, or radio-shows")
 	}
 
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)

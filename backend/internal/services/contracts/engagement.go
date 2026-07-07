@@ -128,6 +128,16 @@ type FollowingEntityResponse struct {
 	Name       string    `json:"name"`
 	Slug       string    `json:"slug"`
 	FollowedAt time.Time `json:"followed_at"`
+
+	// Radio-show-only enriched fields (PSY-1356), nil for every other entity
+	// type — additive so the base shape is unchanged. StationSlug is required
+	// to build the two-segment radio href /radio/{station_slug}/{show_slug}
+	// (the base Slug carries the show slug). LastEpisodeDate is the show's most
+	// recent radio_episodes.air_date.
+	StationName     *string `json:"station_name,omitempty"`
+	StationSlug     *string `json:"station_slug,omitempty"`
+	HostName        *string `json:"host_name,omitempty"`
+	LastEpisodeDate *string `json:"last_episode_date,omitempty"`
 }
 
 // FollowerResponse represents a follower of an entity.

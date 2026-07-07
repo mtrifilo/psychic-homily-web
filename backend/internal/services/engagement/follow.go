@@ -22,12 +22,13 @@ const FollowEntityUser = "user"
 // validFollowEntityTypes lists entity types that support following.
 // Shows use going/interested (attendance) instead of follow.
 var validFollowEntityTypes = map[string]bool{
-	string(engagementm.BookmarkEntityArtist):   true,
-	string(engagementm.BookmarkEntityVenue):    true,
-	string(engagementm.BookmarkEntityLabel):    true,
-	string(engagementm.BookmarkEntityFestival): true,
-	string(engagementm.BookmarkEntityScene):    true,
-	FollowEntityUser:                           true,
+	string(engagementm.BookmarkEntityArtist):    true,
+	string(engagementm.BookmarkEntityVenue):     true,
+	string(engagementm.BookmarkEntityLabel):     true,
+	string(engagementm.BookmarkEntityFestival):  true,
+	string(engagementm.BookmarkEntityScene):     true,
+	string(engagementm.BookmarkEntityRadioShow): true,
+	FollowEntityUser:                            true,
 }
 
 // FollowService handles follow/unfollow operations on entities.
@@ -307,6 +308,17 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 	}
 	entityNames := make(map[entityKey]struct{ Name, Slug string })
 
+	// radioEnriched holds the radio-show-only fields (PSY-1356) that don't fit
+	// the shared {Name, Slug} shape. Keyed by radio_show id; populated only when
+	// the followed set includes radio shows.
+	type radioFollowFields struct {
+		StationName     string
+		StationSlug     string
+		HostName        *string
+		LastEpisodeDate *string
+	}
+	radioEnriched := make(map[uint]radioFollowFields)
+
 	// Collect IDs by type
 	idsByType := make(map[string][]uint)
 	for _, b := range bookmarks {
@@ -382,6 +394,47 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 			for _, f := range festivals {
 				entityNames[entityKey{t, f.ID}] = struct{ Name, Slug string }{f.Name, f.Slug}
 			}
+		case string(engagementm.BookmarkEntityRadioShow):
+			// One query: show ⋈ station, plus a correlated latest-episode lookup
+			// (idx_radio_episodes_show is (show_id, air_date DESC), so the
+			// ORDER BY … LIMIT 1 is an index seek — no N+1 per followed show).
+			// station_id is NOT NULL, so the inner join never drops a live show.
+			//
+			// last_episode_date is the most recent AIRED episode (air_date <=
+			// CURRENT_DATE): WFMU pre-publishes upcoming episode rows, so an
+			// ungated MAX would surface a FUTURE date under the "last-aired" UI
+			// label (the PSY-1374 footgun). Mirrors the catalog LatestAirDate
+			// semantics. to_char pins YYYY-MM-DD (a raw date scan can arrive as
+			// an RFC3339 timestamp; see catalog.normalizeDate). CURRENT_DATE is
+			// server (UTC) date — station-local-tz precision is a deferred
+			// nicety (date granularity is sufficient for this row).
+			var shows []struct {
+				ID              uint
+				Name            string
+				Slug            string
+				HostName        *string
+				StationName     string
+				StationSlug     string
+				LastEpisodeDate *string
+			}
+			s.db.Table("radio_shows AS rs").
+				Select(`rs.id, rs.name, rs.slug, rs.host_name,
+					st.name AS station_name, st.slug AS station_slug,
+					(SELECT to_char(e.air_date, 'YYYY-MM-DD') FROM radio_episodes e
+					 WHERE e.show_id = rs.id AND e.air_date <= CURRENT_DATE
+					 ORDER BY e.air_date DESC LIMIT 1) AS last_episode_date`).
+				Joins("JOIN radio_stations st ON st.id = rs.station_id").
+				Where("rs.id IN ?", ids).
+				Find(&shows)
+			for _, sh := range shows {
+				entityNames[entityKey{t, sh.ID}] = struct{ Name, Slug string }{sh.Name, sh.Slug}
+				radioEnriched[sh.ID] = radioFollowFields{
+					StationName:     sh.StationName,
+					StationSlug:     sh.StationSlug,
+					HostName:        sh.HostName,
+					LastEpisodeDate: sh.LastEpisodeDate,
+				}
+			}
 		}
 	}
 
@@ -389,13 +442,24 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 	responses := make([]*contracts.FollowingEntityResponse, 0, len(bookmarks))
 	for _, b := range bookmarks {
 		info := entityNames[entityKey{string(b.EntityType), b.EntityID}]
-		responses = append(responses, &contracts.FollowingEntityResponse{
+		resp := &contracts.FollowingEntityResponse{
 			EntityType: string(b.EntityType),
 			EntityID:   b.EntityID,
 			Name:       info.Name,
 			Slug:       info.Slug,
 			FollowedAt: b.CreatedAt,
-		})
+		}
+		// Attach radio-show-only enriched fields (PSY-1356). rf is a fresh copy
+		// each iteration, so taking its field addresses is safe.
+		if b.EntityType == engagementm.BookmarkEntityRadioShow {
+			if rf, ok := radioEnriched[b.EntityID]; ok {
+				resp.StationName = &rf.StationName
+				resp.StationSlug = &rf.StationSlug
+				resp.HostName = rf.HostName
+				resp.LastEpisodeDate = rf.LastEpisodeDate
+			}
+		}
+		responses = append(responses, resp)
 	}
 
 	return responses, total, nil
