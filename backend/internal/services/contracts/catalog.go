@@ -665,6 +665,12 @@ type SceneListResponse struct {
 	// a geocoder miss; the scene still lists, just unplaceable.
 	Latitude  *float64 `json:"latitude,omitempty"`
 	Longitude *float64 `json:"longitude,omitempty"`
+	// DominantGenre is the scene's dominant genre-family key (PSY-1315) when one
+	// family holds a confident share (>= 40%) of the roster's genre mass, else ""
+	// (omitted). The Atlas globe tints the scene's dot by this family; "" keeps the
+	// default orange. Family keys are owned by the catalog service's genre-family
+	// map and mirrored by the frontend's GENRE_FAMILIES.
+	DominantGenre string `json:"dominant_genre,omitempty"`
 }
 
 // SceneShowSummary is one upcoming show in a scene's "This week" preview row

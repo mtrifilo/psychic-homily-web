@@ -21,6 +21,7 @@ import {
 } from './globeTypes'
 import { pickDriftScene } from './drift'
 import { AtlasSearch } from './AtlasSearch'
+import { GenreLegend } from './GenreLegend'
 import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
@@ -251,6 +252,9 @@ export function AtlasGlobe() {
           triggerRef={searchTriggerRef}
         />
         <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
+        {/* Genre color key (PSY-1315). Hidden while a preview is open — that
+            docks the right edge, and you're reading one scene, not scanning. */}
+        {!selected && <GenreLegend />}
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"

@@ -20,6 +20,11 @@ export interface SceneListItem {
   // plotted on the globe.
   latitude?: number | null
   longitude?: number | null
+  // Dominant genre-family key for the globe dot tint (PSY-1315), present only when
+  // one family holds ≥40% of the scene roster's genre mass; absent (undefined) for
+  // a mixed / no-data scene, which keeps the default orange dot. Values are the
+  // family keys in genreFamilies.ts (mirrors the backend catalog genre-family map).
+  dominant_genre?: string
 }
 
 export interface SceneListResponse {

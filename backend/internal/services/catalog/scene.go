@@ -164,6 +164,43 @@ func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
 	return n, nil
 }
 
+// sceneGenreCounts returns each scene's genre distribution (per-genre distinct
+// artist counts) keyed by the SAME key ListScenes groups on — the artist's CBSA
+// metro, or lower/trimmed city|state for a non-metro roster — in one grouped query
+// (no per-scene N+1). NULLIF folds an empty-string metro into the city|state
+// fallback so its key matches the Go-side `g.Metro == ""` branch. Artists with
+// neither a metro nor a home city+state are excluded (unattributable to a scene).
+// The caller rolls these up to genre families (dominantGenreFamily) for the Atlas
+// dot tint (PSY-1315).
+func (s *SceneService) sceneGenreCounts() (map[string][]contracts.GenreCount, error) {
+	type genreRow struct {
+		SceneKey string `gorm:"column:scene_key"`
+		Slug     string `gorm:"column:slug"`
+		Count    int    `gorm:"column:count"`
+	}
+	var rows []genreRow
+	err := s.db.Raw(`
+		SELECT COALESCE(NULLIF(a.metro, ''), LOWER(TRIM(a.city)) || '|' || LOWER(TRIM(a.state))) AS scene_key,
+		       t.slug AS slug,
+		       COUNT(DISTINCT a.id) AS count
+		FROM artists a
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = a.id
+		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
+		WHERE (a.metro IS NOT NULL AND a.metro <> '')
+		   OR (a.city IS NOT NULL AND a.city <> '' AND a.state IS NOT NULL AND a.state <> '')
+		GROUP BY scene_key, t.slug
+	`).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate scene genres: %w", err)
+	}
+
+	out := make(map[string][]contracts.GenreCount)
+	for _, r := range rows {
+		out[r.SceneKey] = append(out[r.SceneKey], contracts.GenreCount{Slug: r.Slug, Count: r.Count})
+	}
+	return out, nil
+}
+
 // ListScenes returns the metros — and non-US / no-CBSA fallback cities — that
 // meet scene thresholds: 2+ verified venues AND 3+ approved shows (past or
 // upcoming). Verified venues roll up to their Census CBSA (PSY-1255 step C), so
@@ -221,6 +258,19 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
 
+	// Dominant genre family per scene for the Atlas dot tint (PSY-1315), in ONE
+	// batched query — group the genre distribution of artists BASED in each scene
+	// by the SAME key ListScenes groups venues by (a.metro CBSA, or city|state for a
+	// fallback scene), so there is no per-scene N+1. This metro-keyed roster is a
+	// coarser match than the detail page's GetSceneGenreDistribution (which also
+	// folds in PSY-1237 NULL-metro member-place artists), which is fine for a dot
+	// color. Aggregation into families + the confident-dominance test happen in Go
+	// (dominantGenreFamily) so the SQL stays a plain grouped scan.
+	genresByScene, err := s.sceneGenreCounts()
+	if err != nil {
+		return nil, err
+	}
+
 	results := make([]*contracts.SceneListResponse, 0, len(groups))
 	for i := range groups {
 		g := &groups[i]
@@ -244,6 +294,13 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			lat, lng, _ = geo.LookupPointers(s.geocoder, city, state, "")
 		}
 
+		// Match the genre aggregation on the SAME key the venue groups use: the CBSA
+		// for a metro scene, else the lower/trimmed city|state of a fallback scene.
+		sceneKey := g.Metro
+		if sceneKey == "" {
+			sceneKey = strings.ToLower(strings.TrimSpace(g.City)) + "|" + strings.ToLower(strings.TrimSpace(g.State))
+		}
+
 		results = append(results, &contracts.SceneListResponse{
 			City:              city,
 			State:             state,
@@ -254,6 +311,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			ShowsThisWeek:     g.ThisWeekCount,
 			Latitude:          lat,
 			Longitude:         lng,
+			DominantGenre:     dominantGenreFamily(genresByScene[sceneKey]),
 		})
 	}
 
