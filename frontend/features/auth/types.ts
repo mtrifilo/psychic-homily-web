@@ -64,7 +64,11 @@ export interface ContributionStats {
 
 export interface PublicProfileResponse {
   username: string
+  /** Raw bio markdown source, preserved for the edit form. */
   bio?: string
+  /** Bio rendered to server-sanitized HTML (goldmark + bluemonday). Read this
+   * for display; falls back to `bio` when absent (e.g. empty bio). */
+  bio_html?: string
   avatar_url?: string
   display_name?: string
   first_name?: string

@@ -140,6 +140,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 	resp := &contracts.PublicProfileResponse{
 		Username:          username_str,
 		Bio:               user.Bio,
+		BioHTML:           renderBioHTML(user.Bio),
 		AvatarURL:         user.AvatarURL,
 		DisplayName:       user.DisplayName,
 		FirstName:         user.FirstName,
@@ -235,6 +236,7 @@ func (s *ContributorProfileService) GetOwnProfile(userID uint) (*contracts.Publi
 	return &contracts.PublicProfileResponse{
 		Username:          username,
 		Bio:               user.Bio,
+		BioHTML:           renderBioHTML(user.Bio),
 		AvatarURL:         user.AvatarURL,
 		DisplayName:       user.DisplayName,
 		FirstName:         user.FirstName,
@@ -723,6 +725,17 @@ func (s *ContributorProfileService) DeleteSection(userID uint, sectionID uint) e
 	}
 
 	return nil
+}
+
+// renderBioHTML renders a user's raw bio markdown to sanitized HTML using the
+// shared profileMarkdown renderer (goldmark + bluemonday), mirroring profile
+// sections. Returns "" when the bio is nil or empty so the response omits
+// bio_html.
+func renderBioHTML(bio *string) string {
+	if bio == nil {
+		return ""
+	}
+	return profileMarkdown.Render(*bio)
 }
 
 func buildSectionResponses(sections []authm.UserProfileSection) []*contracts.ProfileSectionResponse {

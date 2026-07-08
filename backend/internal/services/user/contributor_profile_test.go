@@ -134,6 +134,50 @@ func TestBuildSectionResponse_RendersContentHTML(t *testing.T) {
 	})
 }
 
+// TestRenderBioHTML verifies the profile bio is rendered to sanitized HTML using
+// the same goldmark + bluemonday policy as profile sections, so the bio renders
+// as markdown on the public profile instead of showing raw source.
+func TestRenderBioHTML(t *testing.T) {
+	t.Run("RendersMarkdownToHTML", func(t *testing.T) {
+		bio := "I like **post-punk**, [shows](https://example.com), and:\n\n* one\n* two"
+		html := renderBioHTML(&bio)
+
+		assert.Contains(t, html, "<strong>post-punk</strong>")
+		assert.Contains(t, html, `href="https://example.com"`)
+		assert.Contains(t, html, "<li>one</li>")
+	})
+
+	t.Run("SanitizesScriptTags", func(t *testing.T) {
+		bio := "Hello <script>alert('xss')</script> world"
+		html := renderBioHTML(&bio)
+
+		assert.NotContains(t, html, "<script>")
+		assert.NotContains(t, html, "alert('xss')")
+	})
+
+	t.Run("StripsDisallowedHeadingTagsKeepingText", func(t *testing.T) {
+		// The shared policy allows h3-h6 but not h1/h2 (reserved for page
+		// structure); bluemonday drops the tag while keeping its text. This
+		// matches sections, comments, and field notes.
+		bio := "# Wow\n\n## whoah!"
+		html := renderBioHTML(&bio)
+
+		assert.NotContains(t, html, "<h1>")
+		assert.NotContains(t, html, "<h2>")
+		assert.Contains(t, html, "Wow")
+		assert.Contains(t, html, "whoah!")
+	})
+
+	t.Run("NilBioYieldsEmptyHTML", func(t *testing.T) {
+		assert.Empty(t, renderBioHTML(nil))
+	})
+
+	t.Run("EmptyBioYieldsEmptyHTML", func(t *testing.T) {
+		empty := ""
+		assert.Empty(t, renderBioHTML(&empty))
+	})
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -267,6 +311,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.Require().NotNil(profile)
 	suite.Equal("contributor1", profile.Username)
 	suite.Equal("Music enthusiast", *profile.Bio)
+	// Bio is also exposed as server-sanitized HTML for markdown rendering.
+	suite.Contains(profile.BioHTML, "Music enthusiast")
 	suite.Equal("Test", *profile.FirstName)
 	suite.Equal("public", profile.ProfileVisibility)
 	suite.Equal(user.CreatedAt.Unix(), profile.JoinedAt.Unix())
@@ -336,6 +382,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Su
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
 	suite.Equal("ownprofile", profile.Username)
+	// Owner profile also exposes the bio as server-sanitized HTML.
+	suite.Contains(profile.BioHTML, "Music enthusiast")
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_PrivateBypassesVisibility() {
