@@ -73,10 +73,16 @@ func main() {
 
 func loadEnv() {
 	if envFile != "" {
-		if err := godotenv.Load(envFile); err != nil {
+		// Overload (not Load) so an explicit --env is AUTHORITATIVE: godotenv.Load
+		// silently skips keys already present in the process environment, so a
+		// stray exported DATABASE_URL (e.g. pointing at prod) would win over
+		// `--env .env.stage` and a live run could hit the wrong database. Overload
+		// makes the named file the source of truth for the keys it defines. The
+		// redacted target banner printed in main() remains the last-line check.
+		if err := godotenv.Overload(envFile); err != nil {
 			log.Fatalf("load env file %s: %v", envFile, err)
 		}
-		log.Printf("loaded env from %s", envFile)
+		log.Printf("loaded env from %s (authoritative)", envFile)
 		return
 	}
 	for _, ef := range []string{".env.development", ".env"} {
