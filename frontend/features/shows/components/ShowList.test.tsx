@@ -27,6 +27,22 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams(),
 }))
 
+// nuqs `useQueryState` is bridged to the SAME mocked searchParams the component
+// uses for legacy/tags, so tests keep a single URL source of truth. `createParser`
+// (used by cityParams) stays real. The cities setter is a mock tests assert on —
+// the component writes `?cities=` through it, not through the router.
+const mockSetCities = vi.fn()
+vi.mock('nuqs', async importOriginal => {
+  const actual = await importOriginal<typeof import('nuqs')>()
+  return {
+    ...actual,
+    useQueryState: (key: string, parser: { parse: (v: string) => unknown }) => {
+      const raw = mockSearchParams().get(key)
+      return [raw != null ? parser.parse(raw) : null, mockSetCities]
+    },
+  }
+})
+
 // Mock show hooks
 const mockUseUpcomingShows = vi.fn()
 const mockUseShowCities = vi.fn()
@@ -43,9 +59,10 @@ vi.mock('../hooks/useAttendance', () => ({
   useBatchAttendance: () => ({ data: {} }),
 }))
 
-// Mock profile hooks
+// Mock profile hooks (controllable so tests can set favorite_cities)
+const mockUseProfile = vi.fn(() => ({ data: null as unknown }))
 vi.mock('@/features/auth', () => ({
-  useProfile: () => ({ data: null as unknown }),
+  useProfile: () => mockUseProfile(),
   useSetFavoriteCities: () => ({ mutate: vi.fn() }),
 }))
 
@@ -74,8 +91,22 @@ vi.mock('./ShowListSkeleton', () => ({
 }))
 
 vi.mock('@/components/filters', () => ({
-  CityFilters: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="city-filters">{children}</div>
+  CityFilters: ({
+    children,
+    onFilterChange,
+  }: {
+    children?: React.ReactNode
+    onFilterChange?: (cities: Array<{ city: string; state: string }>) => void
+  }) => (
+    <div data-testid="city-filters">
+      <button
+        data-testid="mock-select-city"
+        onClick={() => onFilterChange?.([{ city: 'Tucson', state: 'AZ' }])}
+      >
+        select Tucson
+      </button>
+      {children}
+    </div>
   ),
 }))
 
@@ -129,6 +160,7 @@ describe('ShowList', () => {
     mockSearchParams.mockReturnValue({
       get: vi.fn((_key: string): string | null => null),
     })
+    mockUseProfile.mockReturnValue({ data: null as unknown })
     mockUseShowCities.mockReturnValue({
       data: { cities: [] },
       isLoading: false,
@@ -499,6 +531,113 @@ describe('ShowList', () => {
       })
       render(<ShowList />)
       expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  // PSY-1388: the favorite-city default is DERIVED during render, not seeded
+  // into the URL by a mount effect. This is the fix for the default being
+  // dropped after client-side navigation.
+  describe('favorites default (derived, no URL write)', () => {
+    const setShows = (shows: ShowResponse[] = [makeShow()]) =>
+      mockUseUpcomingShows.mockReturnValue({
+        data: { shows, pagination: { has_more: false, next_cursor: null, limit: 20 } },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+    const authedWithFavorite = () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: 1 } as never,
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseProfile.mockReturnValue({
+        data: {
+          user: { preferences: { favorite_cities: [{ city: 'Phoenix', state: 'AZ' }] } },
+        },
+      })
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', show_count: 5 }] },
+        isLoading: false,
+        isFetching: false,
+      })
+    }
+
+    it('filters by the favorite city on a bare URL WITHOUT writing to the URL', () => {
+      authedWithFavorite()
+      setShows()
+
+      render(<ShowList />)
+
+      // Filtered by the favorite — derived during render...
+      expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+        expect.objectContaining({ cities: [{ city: 'Phoenix', state: 'AZ' }] }),
+      )
+      // ...and nothing was written to the URL. Regression guard: the default is
+      // derived, not seeded, so client-side navigation can't drop it.
+      expect(mockSetCities).not.toHaveBeenCalled()
+      expect(mockReplace).not.toHaveBeenCalled()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('treats ?cities=all as explicit all-cities, overriding the favorite default', () => {
+      authedWithFavorite()
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null => (key === 'cities' ? 'all' : null)),
+      })
+      setShows()
+
+      render(<ShowList />)
+
+      expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+        expect.objectContaining({ cities: undefined }),
+      )
+    })
+
+    it('"Clear filters" resets to all-cities in a single navigation (no nuqs/router race)', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null =>
+          key === 'cities' ? 'Phoenix,AZ' : null,
+        ),
+      })
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', show_count: 5 }] },
+        isLoading: false,
+        isFetching: false,
+      })
+      setShows([]) // empty result → the in-list "Clear filters" affordance renders
+
+      render(<ShowList />)
+      await user.click(screen.getByText('Clear filters'))
+
+      // A single router push (not a competing nuqs setCities) — avoids nuqs
+      // aborting its throttled queue on a foreign history update.
+      expect(mockPush).toHaveBeenCalledWith('/shows?cities=all', { scroll: false })
+      expect(mockSetCities).not.toHaveBeenCalled()
+    })
+
+    it('selecting a city writes that selection via nuqs', async () => {
+      const user = userEvent.setup()
+      mockUseShowCities.mockReturnValue({
+        data: {
+          cities: [
+            { city: 'Tucson', state: 'AZ', show_count: 3 },
+            { city: 'Phoenix', state: 'AZ', show_count: 5 },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+      })
+      setShows()
+
+      render(<ShowList />)
+      await user.click(screen.getByTestId('mock-select-city'))
+
+      expect(mockSetCities).toHaveBeenCalledWith([{ city: 'Tucson', state: 'AZ' }])
     })
   })
 })

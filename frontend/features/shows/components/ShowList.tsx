@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useCallback, useMemo, useTransition, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { useQueryState } from 'nuqs'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
 import { useSavedShowBatch } from '../hooks/useSavedShows'
 import { useBatchAttendance } from '../hooks/useAttendance'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useProfile, useSetFavoriteCities } from '@/features/auth'
+import { useProfile } from '@/features/auth'
 import type { ShowResponse } from '../types'
 import type { CityState } from '@/components/filters'
 import { cn } from '@/lib/utils'
@@ -17,9 +18,10 @@ import { ShowCard } from './ShowCard'
 import { ShowListSkeleton } from './ShowListSkeleton'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 import {
-  parseCitiesParam,
   buildCitiesParam,
   citiesEqual,
+  citiesParser,
+  ALL_CITIES,
 } from '@/components/filters/cityParams'
 import {
   useGeoDefaultCity,
@@ -41,19 +43,40 @@ export function ShowList() {
   const isAdmin = user?.is_admin ?? false
   const [isPending, startTransition] = useTransition()
   const { data: profileData } = useProfile()
-  const hasAppliedDefaults = useRef(false)
   const { density, setDensity } = useDensity('shows')
 
-  // Parse multi-city or legacy single-city from URL
-  const citiesParam = searchParams.get('cities')
+  // Read favorites from profile — the per-user default city.
+  const favoriteCities: CityState[] = useMemo(() => {
+    const prefs = profileData?.user?.preferences
+    if (!prefs?.favorite_cities) return []
+    return prefs.favorite_cities
+  }, [profileData?.user?.preferences])
+
+  // `?cities=` is the source of truth, read/written via nuqs. Three states:
+  //   null        → param absent → apply the default (favorites/geo), derived below
+  //   ALL_CITIES  → ?cities=all → explicit "all cities"
+  //   CityState[] → explicit selection
+  // Filter changes push a history entry so the back button steps through them.
+  const [citiesState, setCities] = useQueryState(
+    'cities',
+    citiesParser.withOptions({ history: 'push', startTransition })
+  )
+
+  // Legacy single-city params (?city=&state=) — read-only, for back-compat.
   const legacyCity = searchParams.get('city')
   const legacyState = searchParams.get('state')
 
+  // The effective city filter, DERIVED during render — never seeded into the
+  // URL by an effect. A bare /shows resolves to the user's favorite; an explicit
+  // ?cities=all or ?cities=<pick> wins. Deriving (rather than writing the
+  // default from a mount effect) is what makes the default survive client-side
+  // navigation: the URL, not a mount ref, is the source of truth.
   const selectedCities: CityState[] = useMemo(() => {
-    if (citiesParam) return parseCitiesParam(citiesParam)
+    if (citiesState === ALL_CITIES) return []
+    if (citiesState) return citiesState
     if (legacyCity && legacyState) return [{ city: legacyCity, state: legacyState }]
-    return []
-  }, [citiesParam, legacyCity, legacyState])
+    return favoriteCities
+  }, [citiesState, legacyCity, legacyState, favoriteCities])
 
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
@@ -61,37 +84,12 @@ export function ShowList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  // Read favorites from profile
-  const favoriteCities: CityState[] = useMemo(() => {
-    const prefs = profileData?.user?.preferences
-    if (!prefs?.favorite_cities) return []
-    return prefs.favorite_cities
-  }, [profileData?.user?.preferences])
-
-  // Apply favorites as default URL params on initial load (no URL params + not yet applied)
-  useEffect(() => {
-    if (
-      !hasAppliedDefaults.current &&
-      favoriteCities.length > 0 &&
-      !citiesParam &&
-      !legacyCity &&
-      !legacyState
-    ) {
-      hasAppliedDefaults.current = true
-      const params = new URLSearchParams()
-      params.set('cities', buildCitiesParam(favoriteCities))
-      startTransition(() => {
-        router.replace(`/shows?${params.toString()}`, { scroll: false })
-      })
-    }
-  }, [favoriteCities, citiesParam, legacyCity, legacyState, router])
-
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-  // Any explicit selection already present (URL param or legacy single-city)
+  // Any explicit selection (?cities=<pick>, ?cities=all, or legacy single-city)
   // means geo must not seed. Authed favorites also stand the geo hook down
   // (handled inside the hook via favoriteCities + isAuthenticated).
-  const hasExistingSelection = !!citiesParam || !!(legacyCity && legacyState)
+  const hasExistingSelection = citiesState !== null || !!(legacyCity && legacyState)
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [accumulatedShows, setAccumulatedShows] = useState<ShowResponse[]>([])
 
@@ -170,18 +168,31 @@ export function ShowList() {
     }
   }, [data])
 
-  const writeParams = useCallback(
-    (
-      nextCities: CityState[] = selectedCities,
-      nextTags: string[] = selectedTags,
-      nextMatch: 'all' | 'any' = tagMatch
-    ) => {
+  // City filter changes write the `?cities=` param via nuqs (which preserves
+  // other params). An empty selection becomes the explicit ALL_CITIES sentinel
+  // (?cities=all), NOT a bare URL — a bare URL means "apply my default".
+  const handleFilterChange = useCallback(
+    (cities: CityState[]) => {
+      // Any manual city change is an override — block a still-in-flight geo seed
+      // and drop the affordance.
+      notifyUserInteracted()
       setCursor(undefined)
       setAccumulatedShows([])
-      const params = new URLSearchParams()
-      if (nextCities.length > 0) {
-        params.set('cities', buildCitiesParam(nextCities))
-      }
+      void setCities(cities.length > 0 ? cities : ALL_CITIES)
+    },
+    [notifyUserInteracted, setCities]
+  )
+
+  // Tag changes rewrite only the tag params via the router, preserving the raw
+  // `?cities=` state (absent / all / selection) so a tag change never
+  // materializes the derived default into the URL.
+  const writeTags = useCallback(
+    (nextTags: string[], nextMatch: 'all' | 'any') => {
+      setCursor(undefined)
+      setAccumulatedShows([])
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('tags')
+      params.delete('tag_match')
       if (nextTags.length > 0) {
         params.set('tags', buildTagsParam(nextTags))
         if (nextMatch === 'any') params.set('tag_match', 'any')
@@ -193,25 +204,32 @@ export function ShowList() {
         })
       })
     },
-    [selectedCities, selectedTags, tagMatch, router]
+    [searchParams, router]
   )
 
-  const handleFilterChange = (cities: CityState[]) => {
-    // Any manual city change is an override — block a still-in-flight geo seed
-    // and drop the affordance.
-    notifyUserInteracted()
-    writeParams(cities, selectedTags, tagMatch)
-  }
-
   const handleTagsChange = useCallback(
-    (nextTags: string[]) => writeParams(selectedCities, nextTags, tagMatch),
-    [selectedCities, tagMatch, writeParams]
+    (nextTags: string[]) => writeTags(nextTags, tagMatch),
+    [tagMatch, writeTags]
   )
 
   const handleTagsClear = useCallback(
-    () => writeParams(selectedCities, [], tagMatch),
-    [selectedCities, tagMatch, writeParams]
+    () => writeTags([], tagMatch),
+    [tagMatch, writeTags]
   )
+
+  // "Clear filters" (the empty-state affordance) resets tags AND cities in a
+  // SINGLE navigation. Doing it as two writes would race: the router push for
+  // tags and nuqs's throttled `setCities` fire in the same tick, and nuqs's
+  // adapter aborts its pending queue when it sees a foreign history update — so
+  // the `?cities=all` reset could be silently dropped. One write avoids that.
+  const handleClearFilters = useCallback(() => {
+    notifyUserInteracted()
+    setCursor(undefined)
+    setAccumulatedShows([])
+    startTransition(() => {
+      router.push('/shows?cities=all', { scroll: false })
+    })
+  }, [notifyUserInteracted, router])
 
   // Determine if "Save as default" / "Clear defaults" should show
   const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
@@ -309,10 +327,7 @@ export function ShowList() {
             </p>
             {(selectedTags.length > 0 || selectedCities.length > 0) && (
               <button
-                onClick={() => {
-                  if (selectedTags.length > 0) handleTagsClear()
-                  if (selectedCities.length > 0) handleFilterChange([])
-                }}
+                onClick={handleClearFilters}
                 className="mt-4 text-primary hover:underline"
               >
                 Clear filters
