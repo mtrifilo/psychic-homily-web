@@ -247,15 +247,15 @@ func TestMarkdownRendering(t *testing.T) {
 		assert.Contains(t, html, "<h3>")
 	})
 
-	t.Run("Heading1Stripped", func(t *testing.T) {
+	t.Run("Heading1Allowed", func(t *testing.T) {
 		html := svc.renderMarkdown("# Heading 1")
-		// h1 is not in our allowed list, so it should be stripped
-		assert.NotContains(t, html, "<h1>")
+		// All heading levels render so markdown behaves as users expect.
+		assert.Contains(t, html, "<h1>")
 	})
 
-	t.Run("Heading2Stripped", func(t *testing.T) {
+	t.Run("Heading2Allowed", func(t *testing.T) {
 		html := svc.renderMarkdown("## Heading 2")
-		assert.NotContains(t, html, "<h2>")
+		assert.Contains(t, html, "<h2>")
 	})
 }
 

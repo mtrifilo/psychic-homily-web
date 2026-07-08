@@ -208,8 +208,13 @@ type ContributionStats struct {
 
 // PublicProfileResponse is the response for the public profile endpoint.
 type PublicProfileResponse struct {
-	Username          string                    `json:"username"`
-	Bio               *string                   `json:"bio,omitempty"`
+	Username string `json:"username"`
+	// Bio is the raw markdown source, preserved for edit-form round-tripping.
+	Bio *string `json:"bio,omitempty"`
+	// BioHTML is Bio rendered to sanitized HTML (goldmark + bluemonday), mirroring
+	// profile-section content. Read this for display; keep Bio for editing.
+	// Omitted when Bio is empty.
+	BioHTML           string                    `json:"bio_html,omitempty"`
 	AvatarURL         *string                   `json:"avatar_url,omitempty"`
 	DisplayName       *string                   `json:"display_name,omitempty"`
 	FirstName         *string                   `json:"first_name,omitempty"`

@@ -310,9 +310,19 @@ export function PublicProfile({ username }: PublicProfileProps) {
                 }
               />
               {hasBio ? (
-                <p className="mt-2 text-sm leading-relaxed whitespace-pre-line">
-                  {profile.bio}
-                </p>
+                /* bio_html is server-sanitized (goldmark + bluemonday),
+                   matching profile sections; fall back to raw bio when absent
+                   (e.g. empty bio omits bio_html). */
+                profile.bio_html ? (
+                  <div
+                    className="mt-2 prose prose-sm dark:prose-invert max-w-none"
+                    dangerouslySetInnerHTML={{ __html: profile.bio_html }}
+                  />
+                ) : (
+                  <p className="mt-2 text-sm leading-relaxed whitespace-pre-line">
+                    {profile.bio}
+                  </p>
+                )
               ) : isOwner ? (
                 <ProfileEmptyPrompt
                   message="Add a short bio so people know who you are — the scenes you haunt, what you're into."

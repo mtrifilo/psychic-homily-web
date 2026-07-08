@@ -297,6 +297,26 @@ describe('PublicProfile', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders bio_html as markdown when provided (not raw source)', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        bio: 'I like **post-punk** and:\n\n* one\n* two',
+        bio_html:
+          '<p>I like <strong>post-punk</strong> and:</p><ul><li>one</li><li>two</li></ul>',
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+
+    // Rendered markup, not the raw markdown source.
+    expect(screen.getByText('post-punk').tagName).toBe('STRONG')
+    expect(screen.getByText('one').tagName).toBe('LI')
+    // The raw markdown asterisks/bullets must not leak through.
+    expect(screen.queryByText(/\*\*post-punk\*\*/)).not.toBeInTheDocument()
+  })
+
   it('does not render bio when not provided', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({ bio: undefined }),
