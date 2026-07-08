@@ -155,17 +155,15 @@ func TestRenderBioHTML(t *testing.T) {
 		assert.NotContains(t, html, "alert('xss')")
 	})
 
-	t.Run("StripsDisallowedHeadingTagsKeepingText", func(t *testing.T) {
-		// The shared policy allows h3-h6 but not h1/h2 (reserved for page
-		// structure); bluemonday drops the tag while keeping its text. This
-		// matches sections, comments, and field notes.
-		bio := "# Wow\n\n## whoah!"
+	t.Run("RendersAllHeadingLevels", func(t *testing.T) {
+		// All heading levels render (h1-h6) so `#`/`##` behave as users expect,
+		// matching sections, comments, and field notes.
+		bio := "# Wow\n\n## whoah!\n\n### small"
 		html := renderBioHTML(&bio)
 
-		assert.NotContains(t, html, "<h1>")
-		assert.NotContains(t, html, "<h2>")
-		assert.Contains(t, html, "Wow")
-		assert.Contains(t, html, "whoah!")
+		assert.Contains(t, html, "<h1>Wow</h1>")
+		assert.Contains(t, html, "<h2>whoah!</h2>")
+		assert.Contains(t, html, "<h3>small</h3>")
 	})
 
 	t.Run("NilBioYieldsEmptyHTML", func(t *testing.T) {

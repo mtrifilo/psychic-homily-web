@@ -10,7 +10,9 @@ import (
 // MarkdownRenderer renders user-submitted markdown to sanitized HTML.
 // Uses goldmark for markdown → HTML conversion and bluemonday for XSS sanitization.
 // Allowed tags match the comments/field-notes policy: p, br, strong/em, code/pre,
-// lists, blockquote, headings h3-h6, and anchor links with href.
+// lists, blockquote, headings h1-h6, and anchor links with href. All six heading
+// levels are allowed so `#`/`##` render as headings, matching standard markdown
+// expectations (prose styling sizes them; consumers render inside a prose scope).
 type MarkdownRenderer struct {
 	md       goldmark.Markdown
 	sanitize *bluemonday.Policy
@@ -27,7 +29,7 @@ func NewMarkdownRenderer() *MarkdownRenderer {
 		"code", "pre",
 		"ul", "ol", "li",
 		"blockquote",
-		"h3", "h4", "h5", "h6",
+		"h1", "h2", "h3", "h4", "h5", "h6",
 	)
 	policy.RequireNoFollowOnLinks(true)
 	policy.AddTargetBlankToFullyQualifiedLinks(true)
