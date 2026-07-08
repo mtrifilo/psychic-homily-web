@@ -214,6 +214,44 @@ describe('VenueBillNetwork', () => {
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
   })
 
+  it('does not infinite-loop on mobile widths for sparse venues (React #185 regression)', async () => {
+    // Regression for the venue-page mobile crash. At < 640px with a sparse
+    // venue the section used to `return null`, which unmounted the
+    // useContainerWidth ref node; the hook's cleanup resets the measured width
+    // to null on unmount, so the node remounted → remeasured (< 640) →
+    // returned null → unmounted … forever ("Maximum update depth exceeded",
+    // React #185). Desktop never hit it: the early-return required a
+    // sub-breakpoint measured width, and the canvas never renders on mobile.
+    // The measuring wrapper must now stay mounted; only its content is gated.
+    ro.setWidth(400)
+    const hooks = await import('../hooks/useVenues')
+    vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+      data: {
+        ...mockData,
+        // 9 shows (< MIN_GRAPH_SHOWS=10) AND all-isolate → tooSparse=true,
+        // mirroring the real Valley Bar payload that crashed on mobile.
+        venue: { ...mockData.venue, show_count: 9, edge_count: 0 },
+        nodes: mockData.nodes.map(n => ({ ...n, is_isolate: true })),
+        links: [],
+      },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+
+    // Rendering must not throw — the old code threw React #185 here.
+    expect(() =>
+      renderWithProviders(
+        <VenueBillNetwork venueIdOrSlug={1} venueName="Sparse Mobile Bar" />,
+      ),
+    ).not.toThrow()
+
+    // Mobile + sparse hides the whole section (content + canvas), matching the
+    // prior "return null" behavior — just without unmounting the measuring node.
+    expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Who plays together here/)).not.toBeInTheDocument()
+  })
+
   it('returns null while loading', async () => {
     const hooks = await import('../hooks/useVenues')
     vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({

@@ -109,13 +109,22 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   if (isLoading) return null
   if (!data) return null
 
-  // Even when graphAvailable is false, keep the section header + filter
-  // visible at desktop widths so the user understands WHY the graph isn't
-  // showing and can re-scope the window. Mobile users see nothing — matches
-  // the SceneGraph mobile gate.
-  if (containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse) {
-    return null
-  }
+  // Mobile + sparse: render nothing visible, but do NOT `return null` here.
+  // Returning null would unmount the `useContainerWidth` ref node, and the
+  // hook's cleanup resets the measured width to null on unmount — so the node
+  // would remount → remeasure (< breakpoint) → return null → unmount … in an
+  // infinite loop (React #185 "Maximum update depth exceeded"). It only
+  // reproduced on mobile: this branch needs a sub-breakpoint measured width,
+  // and the graph canvas never renders below the breakpoint, so desktop never
+  // reached it. Instead we keep a stable, zero-height measuring wrapper
+  // mounted (see the return below) and gate the section CONTENT on this flag.
+  // This matches the six peer graph surfaces (SceneGraph, StationGraph,
+  // CollectionGraph, InlineGraph, HomeSceneGraph, BillComposition): the ref
+  // node lives for the component's lifetime; only its children are width-gated.
+  // Desktop still shows the header + filter (below) so the user understands
+  // WHY the graph isn't drawing and can re-scope the window.
+  const hideSection =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
 
   // Time-window filter — three radio-style buttons + the year picker.
   // Inline keeps the markup co-located with the `setWindow` handler; the
@@ -197,50 +206,62 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
 
   return (
     <>
+      {/* Measuring wrapper — ALWAYS mounted so the useContainerWidth ref never
+          detaches (see the `hideSection` note above). Its box is intentionally
+          bare (no padding/margin) so the measured width is a pure function of
+          the grid track, never of `hideSection`; a state-dependent box could
+          straddle the breakpoint and reintroduce the measure↔gate loop.
+          PSY-1034/PSY-949: `min-w-0` is load-bearing here — the ResizeObserver
+          feeds THIS element's measured width to the graph as an explicit pixel
+          width. Without it the canvas's min-content width can push this node
+          wider than its grid track, re-firing the RO with a larger width and
+          ballooning the layout. Do NOT remove it. aria-hidden/inert (PSY-517):
+          while the fullscreen overlay is open the inline copy is hidden from
+          assistive tech so the overlay is the single graph surface. */}
       <div
         ref={containerRefCallback}
-        // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
-        // palette (`/venues/{slug}#graph`). `scroll-mt-20` accounts for the
-        // sticky header on the entity layout.
-        // PSY-1034/PSY-949: `min-w-0` is load-bearing — the ResizeObserver
-        // below feeds this element's measured width to the graph as an explicit
-        // pixel width. Without `min-w-0` the canvas's min-content width can push
-        // this container wider than its grid track, which re-fires the RO with a
-        // larger width and balloons the layout. Do NOT remove it.
-        id="graph"
-        className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
-        // Hide inline copy from assistive tech while the overlay is open —
-        // the overlay's own header is the single source of truth in that mode.
+        className="min-w-0"
         aria-hidden={isFullscreen || undefined}
         inert={isFullscreen || undefined}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          {sectionHeader}
-          {expandButton}
-        </div>
+        {!hideSection && (
+          <div
+            // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
+            // palette (`/venues/{slug}#graph`). `scroll-mt-20` accounts for the
+            // sticky header on the entity layout. `min-w-0` mirrors the wrapper
+            // as a belt-and-suspenders cap on the canvas's min-content width.
+            id="graph"
+            className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              {sectionHeader}
+              {expandButton}
+            </div>
 
-        <div className="mb-3">{windowFilter}</div>
+            <div className="mb-3">{windowFilter}</div>
 
-        {tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
-          <p className="text-sm text-muted-foreground mt-2">
-            Not enough booked-together activity yet to draw the network. Try a
-            wider window or check back as more shows are approved.
-          </p>
-        )}
+            {tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
+              <p className="text-sm text-muted-foreground mt-2">
+                Not enough booked-together activity yet to draw the network. Try a
+                wider window or check back as more shows are approved.
+              </p>
+            )}
 
-        {graphAvailable && !isFullscreen && (
-          <div className="space-y-3 mt-2">
-            <SceneGraphVisualizationStyleAdapter
-              data={data}
-              venueName={venueName}
-              containerWidth={containerWidth!}
-            />
+            {graphAvailable && !isFullscreen && (
+              <div className="space-y-3 mt-2">
+                <SceneGraphVisualizationStyleAdapter
+                  data={data}
+                  venueName={venueName}
+                  containerWidth={containerWidth!}
+                />
 
-            <p className="text-xs text-muted-foreground">
-              Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
-              shared shows AT THIS VENUE in the active window. Click any artist to open their
-              page.
-            </p>
+                <p className="text-xs text-muted-foreground">
+                  Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
+                  shared shows AT THIS VENUE in the active window. Click any artist to open their
+                  page.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
