@@ -5,7 +5,7 @@
 // a show reads correctly for any viewer anywhere in the world. The previous
 // approach guessed the zone from a US-state lookup that defaulted everything
 // non-US to America/Phoenix. GeoNames gives us the IANA zone per city directly
-// (cities15000 column 18), so a single offline lookup yields (lat, lng, tz) with
+// (the GeoNames timezone column), so a single offline lookup yields (lat, lng, tz) with
 // no external API, key, or rate limit.
 //
 // Timezone resolution tolerates city-centroid precision — we only need the point
@@ -369,7 +369,11 @@ func CanonicalCountryName(s string) (string, bool) {
 
 func newOfflineGeocoder() *offlineGeocoder {
 	g := &offlineGeocoder{
-		byCity:      make(map[string][]cityRow, 40000),
+		// Sized for the cities1000 tier: ~170k rows, each indexed under BOTH its
+		// folded name and ascii-name key (~205k distinct inserts when they differ),
+		// so the one-time cold-start load doesn't rehash (PSY-1377; was 40000 for
+		// cities15000's ~34k rows). byMetro is bounded by the ~900 CBSA codes.
+		byCity:      make(map[string][]cityRow, 250000),
 		byMetro:     make(map[string][]cityRow, 1000),
 		nameToISO:   make(map[string]string, 512),
 		isoToName:   make(map[string]string, 256),
@@ -563,13 +567,14 @@ func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) 
 	// A confident US state is a HARD filter, not a preference: with no same-state
 	// namesake in the dataset, refuse rather than fall back to the highest-
 	// population namesake in another state — that fallback carried the wrong
-	// timezone. Sidney, NE (pop ~6,800) is below the cities15000 threshold, so a
-	// NE-pinned lookup found only Sidney, OH and returned America/New_York
-	// (PSY-1012). A miss leaves venue.timezone NULL, so render/anchoring falls back
-	// to the state->tz map (utils.EventLocation -> America/Chicago for NE, a
-	// Nebraska zone, not Ohio's Eastern). Mirrors the confident-country hard filter
-	// above and the refuse-to-guess policy ResolveMetro/ResolveUSState enforce
-	// (PSY-1244).
+	// timezone (PSY-1012). E.g. a "Pasadena, FL" lookup finds Pasadena in MD/TX/CA
+	// but not FL, so it misses instead of returning the biggest namesake's zone. A
+	// miss leaves venue.timezone NULL, so render/anchoring falls back to the
+	// state->tz map (utils.EventLocation). The cities1000 tier (PSY-1377) shrank this
+	// long tail — most sub-15k towns now have their own row and exact zone — but the
+	// filter still guards places below pop 1000 or otherwise absent. Mirrors the
+	// confident-country hard filter above and the refuse-to-guess policy
+	// ResolveMetro/ResolveUSState enforce (PSY-1244).
 	if admin1 != "" {
 		var byAdmin []cityRow
 		for _, c := range candidates {
@@ -609,7 +614,10 @@ func (g *offlineGeocoder) bestCity(city, state, country string) (cityRow, bool) 
 //
 // "Unambiguous" is scoped to the embedded, population-filtered dataset; a tiny
 // same-name town it omits won't shift the answer, which is acceptable for the
-// scene use case (real metros).
+// scene use case (real metros). The cities1000 tier (PSY-1377) intentionally
+// widens the ambiguous set: some names unambiguous under cities15000 now span two+
+// states (Sidney, Evanston), so this correctly refuses them — the safe direction,
+// callers defer to a stronger source.
 func (g *offlineGeocoder) ResolveUSState(city string) (string, USStateStatus) {
 	cityKey := foldKey(city)
 	if cityKey == "" {
