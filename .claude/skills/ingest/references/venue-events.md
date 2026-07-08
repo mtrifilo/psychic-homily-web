@@ -14,11 +14,11 @@ Always dry-run + two QA scans + explicit OK before `--confirm`.
 ## Workflow
 
 1. **Try upstream JSON API first** — grep page/JS for Ticketmaster, SeeTickets, DICE, WordPress REST. Hit JSON directly; cross-check visible card count in browser.
-2. **Otherwise render + scrape** — `curl` if server-rendered; browser MCP if JS.
+2. **Otherwise render + scrape** — `curl` if server-rendered; browser MCP if JS **or if `curl` is bot-blocked** (HTTP 406/403 from Fastly/varnish TLS-fingerprinting — server-rendered ≠ curl-able, e.g. Pabst Theater Group). Inside the browser session a same-origin `fetch()` reaches any JSON feed the page uses **and** inherits the page's trust — bypassing both the bot-block and CORS (Pabst's `/events/calendar/YYYY/MM` feed; First Avenue's `fetch` loop).
 3. **Discover structure once** — card selector, pagination, date format.
 4. **Extract all pages** — loop pagination; infer year when month rolls Dec→Jan. Save scratch to workspace path (not `/tmp` for MCP `filePath`); **delete before commit**.
-5. **Transform programmatically** — skeleton below; room→city map; music-only filters; don't auto-split `and`/`&` in band names.
-6. **Dry-run + two QA scans:** (a) artist-skip false-positives — pre-create via `POST /admin/artists`; (b) headliner sanity — grep for `presents|featuring| with |aftershow|pass$|hosted by`.
+5. **Transform programmatically** — skeleton below; room→city map; music-only filters; don't auto-split `and`/`&` in band names. A source's own genre/category/tag field is a **hint, not a clean filter** — cross-check per title (Pabst `Category` files a jazz fest and a wine tasting under the same codes; LH-ST `data-tags`). Titles carrying no identifiable artist (battle-of-the-bands, a bare festival name) → **skip, don't invent an artist**.
+6. **Dry-run + two QA scans:** (a) artist-skip false-positives — pre-create via `POST /admin/artists` (also when the *existing* match is itself a malformed co-bill mashup, e.g. "Blimey and Tommy Oeffling and The B-Team" — pre-create the clean act, flag the mashup for split); (b) headliner sanity — grep for `presents|featuring| with |aftershow|pass$|hosted by`.
 7. **Confirm + ingest.** 0-show → site changed, re-inspect.
 8. **Register + stamp:**
    ```bash
@@ -26,7 +26,7 @@ Always dry-run + two QA scans + explicit OK before `--confirm`.
    bun run src/entry.ts --env <env> sources register venue <id> "<events_url>"
    bun run src/entry.ts --env <env> sources refresh venue <id>
    ```
-   Multi-room: register each venue entity, shared URL.
+   Multi-room org: register each **core** venue entity against the shared URL. **Off-site co-promotions** — a show the org presents at a venue whose own calendar lives elsewhere (Cactus Club→Anodyne, Pabst→Mo's Irish Pub/Fiserv Forum) — create the venue but do **not** register it against this URL.
 
 Manual fix-ups: `PATCH /admin/artists/{id}`, `PUT /shows/{id}`, `POST /admin/artists`, `DELETE /artists/{id}`.
 
