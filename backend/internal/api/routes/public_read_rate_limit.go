@@ -75,11 +75,20 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) stri
 	return limitReadMethodsOnly(limiter)
 }
 
+// SaveCountsBatchPath is the batch save-count endpoint. It is declared once and
+// used by BOTH the route registration and the read-via-POST allowlist below, so
+// the two cannot silently drift apart — a rename that reached only one of them
+// would quietly leave the endpoint unmetered.
+const SaveCountsBatchPath = "/shows/saves/batch"
+
 // readViaPostPaths are POST endpoints that are semantically READS: the request
 // body only carries a batch of entity IDs, and the response is public data.
 // They must share the public-read budget — otherwise an anonymous caller gets
 // an unmetered batch aggregate query simply because the endpoint takes a body.
-var readViaPostPaths = []string{"/shows/saves/batch"}
+//
+// NOTE: /follows/batch has the same shape and is still unmetered. It predates
+// this list and is tracked separately; do not assume this list is exhaustive.
+var readViaPostPaths = []string{SaveCountsBatchPath}
 
 // limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
 // the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/

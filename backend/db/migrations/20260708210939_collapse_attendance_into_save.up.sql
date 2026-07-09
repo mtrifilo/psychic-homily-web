@@ -29,7 +29,24 @@
 -- below would be renamed to 'save' by the UPDATE and collide with a 'save' row
 -- the same user already holds — a unique violation that aborts the migration
 -- and fails the new container's boot. SHARE ROW EXCLUSIVE blocks concurrent
--- INSERT/UPDATE/DELETE on the table for the (sub-second) duration.
+-- INSERT/UPDATE/DELETE on the table for the duration.
+--
+-- lock_timeout is not optional. Without it the LOCK waits indefinitely on a
+-- long-running writer, and because Postgres queues lock requests FIFO, every
+-- subsequent write to user_bookmarks (saves, follows, bookmarks — across all
+-- entity types, not just shows) piles up behind it. That turns a moment of
+-- contention into a spreading write freeze AND hangs the container boot, since
+-- the entrypoint runs `migrate up` synchronously before starting the server.
+--
+-- On timeout this migration fails. Be clear about what that costs: golang-migrate
+-- marks the version dirty on ANY failure (verified: a failed migration leaves
+-- schema_migrations.dirty = true, and the next `migrate up` refuses with
+-- "Dirty database version N. Fix and force version"). Recovery is manual —
+-- `migrate force <N-1>` and redeploy. That is NOT specific to the timeout: the
+-- unique violation this LOCK prevents would dirty the database exactly the same
+-- way. The timeout only bounds how long we wait before failing, and spares the
+-- table a FIFO write freeze while we wait.
+SET LOCAL lock_timeout = '5s';
 LOCK TABLE user_bookmarks IN SHARE ROW EXCLUSIVE MODE;
 
 WITH ranked AS (

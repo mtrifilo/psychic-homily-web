@@ -20,7 +20,9 @@ func setupSavedShowRoutes(rc RouteContext) {
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/shows/{show_id}/saves", savedShowHandler.GetSaveCountHandler)
-	huma.Post(optionalAuthGroup, "/shows/saves/batch", savedShowHandler.BatchSaveCountsHandler)
+	// SaveCountsBatchPath, not a literal: the read-via-POST rate-limit allowlist
+	// keys off the same constant.
+	huma.Post(optionalAuthGroup, SaveCountsBatchPath, savedShowHandler.BatchSaveCountsHandler)
 
 	// Protected saved show endpoints (the user's own private list)
 	huma.Post(rc.Protected, "/saved-shows/{show_id}", savedShowHandler.SaveShowHandler)

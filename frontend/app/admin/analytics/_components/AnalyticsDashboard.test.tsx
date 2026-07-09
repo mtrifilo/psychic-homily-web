@@ -336,7 +336,7 @@ describe('COLORS palette invariants (PSY-908)', () => {
     ],
     'Content Curation': ['tags_added', 'tag_votes', 'collection_items'],
     'Requests & Voting': ['requests', 'request_votes'],
-    'Social Engagement': ['bookmarks', 'follows', 'revisions'],
+    'Social Engagement': ['bookmarks', 'follows', 'saves', 'revisions'],
     'Show Approval': ['approved', 'rejected'],
   }
 
@@ -344,6 +344,9 @@ describe('COLORS palette invariants (PSY-908)', () => {
     'assigns a distinct token to every series in the %s chart',
     (_chart, keys) => {
       const tokens = keys.map((k) => COLORS[k])
+      // A key missing from COLORS resolves to `undefined`, which would still be
+      // "distinct" from the real tokens and slip past the Set check below.
+      expect(tokens.every((t) => typeof t === 'string')).toBe(true)
       expect(new Set(tokens).size).toBe(keys.length)
     }
   )

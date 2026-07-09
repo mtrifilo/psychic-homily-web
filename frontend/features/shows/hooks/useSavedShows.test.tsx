@@ -436,6 +436,90 @@ describe('useSaveShowToggle', () => {
     })
   })
 
+  // A cached batch that doesn't contain this show must be left alone entirely —
+  // in both the optimistic apply and the rollback (symmetric `entry` guards).
+  it('leaves unrelated batch caches untouched', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const otherBatchKey = queryKeys.savedShows.countBatch([2000, 2001], true)
+    const untouched = {
+      '2000': { save_count: 1, is_saved: false },
+      '2001': { save_count: 2, is_saved: true },
+    }
+    queryClient.setQueryData(otherBatchKey, untouched)
+    mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
+
+    // Toggle a show that appears in NO cached batch.
+    const { result } = renderHook(() => useSaveShowToggle(9999, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await act(async () => {
+      try {
+        await result.current.toggle()
+      } catch {
+        // expected
+      }
+    })
+
+    expect(queryClient.getQueryData(otherBatchKey)).toEqual(untouched)
+  })
+
+  // Regression: a batch cache entry is SHARED across every show in the list.
+  // Rolling back a failed toggle by restoring the whole snapshot would erase a
+  // sibling show's save that succeeded while our request was in flight.
+  it('rollback does not clobber a sibling show in the same batch', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const batchKey = queryKeys.savedShows.countBatch([1900, 1901], true)
+    queryClient.setQueryData(batchKey, {
+      '1900': { save_count: 4, is_saved: false },
+      '1901': { save_count: 9, is_saved: false },
+    })
+
+    // Show 1900's save hangs, then fails.
+    let rejectSave: (e: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise((_res, rej) => { rejectSave = rej })
+    )
+
+    const { result } = renderHook(() => useSaveShowToggle(1900, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    let failing: Promise<void>
+    await act(async () => {
+      failing = result.current.toggle().catch(() => {})
+      await Promise.resolve()
+    })
+
+    // Meanwhile a sibling show in the SAME batch is saved successfully.
+    queryClient.setQueryData(batchKey, (prev: Record<string, { save_count: number; is_saved: boolean }>) => ({
+      ...prev,
+      '1901': { save_count: 10, is_saved: true },
+    }))
+
+    await act(async () => {
+      rejectSave(new Error('Network error'))
+      await failing!
+    })
+
+    const after = queryClient.getQueryData(batchKey) as Record<
+      string,
+      { save_count: number; is_saved: boolean }
+    >
+    // 1900 rolls back to its pre-toggle value...
+    expect(after['1900']).toEqual({ save_count: 4, is_saved: false })
+    // ...and 1901's successful save survives.
+    expect(after['1901']).toEqual({ save_count: 10, is_saved: true })
+  })
+
   // The shows list (the highest-traffic surface) reads save data from the BATCH
   // cache, so the batch branch of the optimistic update needs its own guard.
   it('optimistically patches the cached BATCH entry, keyed via the real helper', async () => {

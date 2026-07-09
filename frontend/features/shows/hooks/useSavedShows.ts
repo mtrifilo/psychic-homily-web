@@ -211,9 +211,21 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
         await saveShow.mutateAsync(showId)
       }
     } catch (error) {
+      // The single-show key holds only this show, so restoring it wholesale is
+      // safe. A batch entry is SHARED by every show in the list, so restore
+      // only this show's slot onto the CURRENT object — replacing the whole
+      // snapshot would erase a sibling show's save that succeeded in the
+      // meantime.
       queryClient.setQueryData(countQueryKey, previousCount)
-      for (const [key, data] of previousBatches) {
-        queryClient.setQueryData(key, data)
+      for (const [key, snapshot] of previousBatches) {
+        queryClient.setQueryData<Record<string, SaveCountEntry>>(
+          key,
+          (current) => {
+            const priorEntry = snapshot?.[String(showId)]
+            if (!current || !priorEntry) return current
+            return { ...current, [String(showId)]: priorEntry }
+          }
+        )
       }
       // The optimistic premise (`isSaved`) may itself have been stale — e.g. the
       // row was already unsaved from another tab. Restoring the snapshot only
