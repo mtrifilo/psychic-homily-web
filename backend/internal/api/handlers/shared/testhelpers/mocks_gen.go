@@ -153,6 +153,7 @@ func (m *MockAnalyticsService) GetEngagementMetrics(months int) (*contracts.Enga
 		RequestVotes:    []contracts.EngagementMetric{},
 		Revisions:       []contracts.EngagementMetric{},
 		Follows:         []contracts.EngagementMetric{},
+		Saves:           []contracts.EngagementMetric{},
 	}, nil
 }
 func (m *MockAnalyticsService) GetCommunityHealth() (*contracts.CommunityHealthResponse, error) {

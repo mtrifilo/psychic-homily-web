@@ -178,6 +178,42 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetBatchSaveCounts_EmptyI
 	suite.Empty(counts)
 }
 
+// The public count must never become a side channel revealing that a hidden
+// show exists and has engagement. A non-approved show reports 0 — the same as
+// an approved show nobody saved — so there is no existence oracle.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetSaveCount_HiddenShowsReportZero() {
+	owner := suite.createTestUser()
+	user := suite.createTestUser()
+
+	approved := suite.createApprovedShow("Public Show", owner.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, approved.ID))
+
+	for _, status := range []catalogm.ShowStatus{
+		catalogm.ShowStatusPending,
+		catalogm.ShowStatusRejected,
+		catalogm.ShowStatusPrivate,
+	} {
+		hidden := suite.createApprovedShow("Hidden "+string(status), owner.ID)
+		suite.Require().NoError(
+			suite.db.Model(&catalogm.Show{}).Where("id = ?", hidden.ID).
+				Update("status", status).Error,
+		)
+		// The show IS saved — only its visibility hides the count.
+		suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, hidden.ID))
+
+		count, err := suite.savedShowService.GetSaveCount(hidden.ID)
+		suite.Require().NoError(err)
+		suite.Equal(0, count, "a %s show must not expose its save count", status)
+
+		batch, err := suite.savedShowService.GetBatchSaveCounts([]uint{approved.ID, hidden.ID})
+		suite.Require().NoError(err)
+		suite.Equal(1, batch[approved.ID], "the approved show still reports its count")
+		zero, present := batch[hidden.ID]
+		suite.True(present, "hidden show is zero-filled, not omitted (no existence oracle)")
+		suite.Equal(0, zero)
+	}
+}
+
 func (suite *SavedShowServiceIntegrationTestSuite) TestSaveShow_Success() {
 	user := suite.createTestUser()
 	show := suite.createApprovedShow("Save Me", user.ID)

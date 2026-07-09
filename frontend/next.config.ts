@@ -105,7 +105,14 @@ const nextConfig: NextConfig = {
         destination: '/collections/:slug',
         permanent: true,
       },
-      // "following" consolidated into Library
+      // "my-shows" and "following" consolidated into Library. The /my-shows page
+      // is gone, which is exactly why this redirect must stay: stale bookmarks,
+      // emails and search-engine entries still point at it.
+      {
+        source: '/my-shows',
+        destination: '/library',
+        permanent: false,
+      },
       {
         source: '/following',
         destination: '/library',

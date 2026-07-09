@@ -21,6 +21,16 @@
 --
 -- No explicit BEGIN/COMMIT: golang-migrate runs each migration file inside its
 -- own transaction.
+--
+-- The LOCK is load-bearing. Each container runs `migrate up` on boot
+-- (docker-entrypoint.sh), so during a rolling deploy this migration can run
+-- while the OUTGOING container is still serving the old attendance endpoints.
+-- Without the lock, a `going` row inserted between the DELETE and the UPDATE
+-- below would be renamed to 'save' by the UPDATE and collide with a 'save' row
+-- the same user already holds — a unique violation that aborts the migration
+-- and fails the new container's boot. SHARE ROW EXCLUSIVE blocks concurrent
+-- INSERT/UPDATE/DELETE on the table for the (sub-second) duration.
+LOCK TABLE user_bookmarks IN SHARE ROW EXCLUSIVE MODE;
 
 WITH ranked AS (
     SELECT

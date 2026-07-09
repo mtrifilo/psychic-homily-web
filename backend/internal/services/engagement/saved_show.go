@@ -263,11 +263,11 @@ func (s *SavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map[uin
 	return s.bookmark.GetBookmarkedEntityIDs(userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, showIDs)
 }
 
-// GetSaveCount returns how many users have saved a show.
+// GetSaveCount returns the public save count for a show.
 //
-// This count is public. It is an aggregate only — no endpoint anywhere exposes
-// which users saved a show, so a user's saved list stays private while the
-// count doubles as a buzz signal for visitors.
+// The count is an aggregate only — no endpoint anywhere exposes which users
+// saved a show, so a user's saved list stays private while the count doubles as
+// a buzz signal for visitors.
 func (s *SavedShowService) GetSaveCount(showID uint) (int, error) {
 	counts, err := s.GetBatchSaveCounts([]uint{showID})
 	if err != nil {
@@ -276,10 +276,20 @@ func (s *SavedShowService) GetSaveCount(showID uint) (int, error) {
 	return counts[showID], nil
 }
 
-// GetBatchSaveCounts returns save counts for multiple shows in a single query.
+// GetBatchSaveCounts returns public save counts for multiple shows in a single
+// query.
 //
-// Every requested show ID is present in the returned map, zero-filled when it
-// has no saves, so callers can distinguish "requested, and nobody saved it"
+// Only APPROVED shows contribute a count. A show can be saved while it is
+// pending, rejected, or private (SaveShow deliberately allows any status), and
+// GET /shows/{id} already 404s those for anyone but the submitter and admins.
+// Without the status filter the public count would be a side channel revealing
+// that a hidden show exists and has engagement — enumerable across the whole
+// sequential ID space via the batch endpoint.
+//
+// Hidden shows are reported as 0 rather than omitted or 404'd, which is what
+// makes this safe: an unlisted show is indistinguishable from an approved show
+// nobody has saved, so there is no existence oracle. Every requested ID is
+// present in the map, zero-filled, so callers can still distinguish "requested"
 // from "not requested".
 func (s *SavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int, error) {
 	if s.db == nil {
@@ -301,11 +311,13 @@ func (s *SavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int, err
 	var rows []countRow
 
 	err := s.db.Model(&engagementm.UserBookmark{}).
-		Select("entity_id, COUNT(*) as count").
-		Where("entity_type = ? AND entity_id IN ? AND action = ?",
+		Select("user_bookmarks.entity_id, COUNT(*) as count").
+		Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
+		Where("user_bookmarks.entity_type = ? AND user_bookmarks.entity_id IN ? AND user_bookmarks.action = ?",
 			engagementm.BookmarkEntityShow, showIDs, engagementm.BookmarkActionSave,
 		).
-		Group("entity_id").
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Group("user_bookmarks.entity_id").
 		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch save counts: %w", err)

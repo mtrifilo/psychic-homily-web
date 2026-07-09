@@ -361,9 +361,13 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_Empt
 	suite.Len(resp.RequestVotes, 6)
 	suite.Len(resp.Revisions, 6)
 	suite.Len(resp.Follows, 6)
+	suite.Len(resp.Saves, 6)
 
 	// All should be 0
 	for _, m := range resp.Bookmarks {
+		suite.Equal(0, m.Count)
+	}
+	for _, m := range resp.Saves {
 		suite.Equal(0, m.Count)
 	}
 }
@@ -384,11 +388,15 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_With
 	suite.createRequestVote(req.ID, user.ID, 1)
 	suite.createRevision(user.ID, "artist", artist.ID)
 	suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
+	// A non-show `save` must NOT land in the Saves series (entity_type filter).
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, artist.ID, engagementm.BookmarkActionBookmark)
 
 	resp, err := suite.service.GetEngagementMetrics(1)
 	suite.Require().NoError(err)
 
-	suite.Equal(1, resp.Bookmarks[0].Count)
+	// Bookmarks is the coarse total (save + bookmark, any entity): the show
+	// save and the release bookmark both land here.
+	suite.Equal(2, resp.Bookmarks[0].Count)
 	suite.Equal(1, resp.TagsAdded[0].Count)
 	suite.Equal(1, resp.TagVotes[0].Count)
 	suite.Equal(1, resp.CollectionItems[0].Count)
@@ -396,6 +404,8 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_With
 	suite.Equal(1, resp.RequestVotes[0].Count)
 	suite.Equal(1, resp.Revisions[0].Count)
 	suite.Equal(1, resp.Follows[0].Count)
+	// Saves isolates show saves: the release bookmark above is excluded.
+	suite.Equal(1, resp.Saves[0].Count)
 }
 
 // =============================================================================

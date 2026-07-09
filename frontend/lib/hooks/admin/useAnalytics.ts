@@ -29,6 +29,8 @@ export interface EngagementMetrics {
   request_votes: MonthlyCount[]
   revisions: MonthlyCount[]
   follows: MonthlyCount[]
+  /** Show saves (action='save'). Replaced the going/interested attendance series. */
+  saves: MonthlyCount[]
 }
 
 export interface WeeklyContribution {

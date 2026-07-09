@@ -162,7 +162,7 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
     const countQueryKey = queryKeys.savedShows.count(showId, true)
     // Prefix filter: patches every cached batch, regardless of its show-id set
     // or auth flag, so a row's count moves the instant the heart is clicked.
-    const countBatchPrefix = ['savedShows', 'countBatch']
+    const countBatchPrefix = queryKeys.savedShows.countBatchPrefix
     const delta = isSaved ? -1 : 1
 
     // Cancel in-flight reads so stale responses don't overwrite the optimistic update
@@ -171,34 +171,38 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
       queryClient.cancelQueries({ queryKey: countBatchPrefix }),
     ])
 
-    const applyDelta = (dir: number) => {
-      queryClient.setQueryData<ShowSaveCount>(countQueryKey, (prev) =>
-        prev
-          ? {
-              ...prev,
-              save_count: Math.max(0, prev.save_count + dir),
-              is_saved: dir > 0,
-            }
-          : prev
-      )
+    // Snapshot the exact prior values. Rollback restores them verbatim rather
+    // than re-applying the inverse delta: `save_count` is clamped at 0, so
+    // inverting -1 on an already-clamped 0 would resurrect a phantom +1.
+    const previousCount = queryClient.getQueryData<ShowSaveCount>(countQueryKey)
+    const previousBatches = queryClient.getQueriesData<
+      Record<string, SaveCountEntry>
+    >({ queryKey: countBatchPrefix })
 
-      queryClient.setQueriesData<Record<string, SaveCountEntry>>(
-        { queryKey: countBatchPrefix },
-        (prev) => {
-          const entry = prev?.[String(showId)]
-          if (!prev || !entry) return prev
-          return {
+    queryClient.setQueryData<ShowSaveCount>(countQueryKey, (prev) =>
+      prev
+        ? {
             ...prev,
-            [String(showId)]: {
-              save_count: Math.max(0, entry.save_count + dir),
-              is_saved: dir > 0,
-            },
+            save_count: Math.max(0, prev.save_count + delta),
+            is_saved: delta > 0,
           }
-        }
-      )
-    }
+        : prev
+    )
 
-    applyDelta(delta)
+    queryClient.setQueriesData<Record<string, SaveCountEntry>>(
+      { queryKey: countBatchPrefix },
+      (prev) => {
+        const entry = prev?.[String(showId)]
+        if (!prev || !entry) return prev
+        return {
+          ...prev,
+          [String(showId)]: {
+            save_count: Math.max(0, entry.save_count + delta),
+            is_saved: delta > 0,
+          },
+        }
+      }
+    )
 
     try {
       if (isSaved) {
@@ -207,8 +211,14 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
         await saveShow.mutateAsync(showId)
       }
     } catch (error) {
-      // Rollback on error
-      applyDelta(-delta)
+      queryClient.setQueryData(countQueryKey, previousCount)
+      for (const [key, data] of previousBatches) {
+        queryClient.setQueryData(key, data)
+      }
+      // The optimistic premise (`isSaved`) may itself have been stale — e.g. the
+      // row was already unsaved from another tab. Restoring the snapshot only
+      // undoes our guess, so re-sync from the server rather than trusting it.
+      queryClient.invalidateQueries({ queryKey: queryKeys.savedShows.all })
       throw error
     }
   }

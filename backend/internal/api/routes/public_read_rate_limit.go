@@ -75,16 +75,28 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) stri
 	return limitReadMethodsOnly(limiter)
 }
 
-// limitReadMethodsOnly applies the limiter only to safe read methods (GET/HEAD).
-// Writes (POST/PUT/PATCH/DELETE) pass through — this ticket scopes to public
-// READS, and writes keep their own dedicated limiters, so a shared read budget
-// must not throttle an unrelated anonymous write. (OPTIONS never reaches here:
-// the CORS middleware short-circuits preflight upstream.)
+// readViaPostPaths are POST endpoints that are semantically READS: the request
+// body only carries a batch of entity IDs, and the response is public data.
+// They must share the public-read budget — otherwise an anonymous caller gets
+// an unmetered batch aggregate query simply because the endpoint takes a body.
+var readViaPostPaths = []string{"/shows/saves/batch"}
+
+// limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
+// the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/
+// DELETE) pass through — they keep their own dedicated limiters, so a shared
+// read budget must not throttle an unrelated anonymous write. (OPTIONS never
+// reaches here: the CORS middleware short-circuits preflight upstream.)
 func limitReadMethodsOnly(limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	readPosts := make(map[string]bool, len(readViaPostPaths))
+	for _, p := range readViaPostPaths {
+		readPosts[p] = true
+	}
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead
+			isReadViaPost := r.Method == http.MethodPost && readPosts[r.URL.Path]
+			if isRead || isReadViaPost {
 				limited.ServeHTTP(w, r)
 				return
 			}

@@ -167,6 +167,7 @@ var customDefaults = map[string]methodDefault{
 		RequestVotes:    []contracts.EngagementMetric{},
 		Revisions:       []contracts.EngagementMetric{},
 		Follows:         []contracts.EngagementMetric{},
+		Saves:           []contracts.EngagementMetric{},
 	}, nil`,
 	},
 	"MockAnalyticsService.GetCommunityHealth": {

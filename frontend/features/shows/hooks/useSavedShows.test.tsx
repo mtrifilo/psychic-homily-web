@@ -34,6 +34,8 @@ vi.mock('@/lib/queryClient', () => ({
         isAuthenticated,
         showId,
       ],
+      all: ['savedShows'],
+      countBatchPrefix: ['savedShows', 'countBatch'],
       countBatch: (showIds: number[], isAuthenticated: boolean) => [
         'savedShows',
         'countBatch',
@@ -47,7 +49,8 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
-// Import hooks after mocks are set up
+// Import hooks after mocks are set up (queryKeys resolves to the mock above)
+import { queryKeys } from '@/lib/queryClient'
 import {
   useSavedShows,
   useSaveShow,
@@ -396,6 +399,82 @@ describe('useSaveShowToggle', () => {
     expect(
       (queryClient.getQueryData(countKey) as { save_count: number }).save_count
     ).toBe(0)
+  })
+
+  // Regression: rollback must restore the SNAPSHOT, not re-invert the delta.
+  // Re-inverting against an already-clamped 0 resurrects a phantom +1.
+  it('rollback after a clamped unsave does not resurrect a phantom count', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const countKey = ['savedShows', 'count', true, 1700]
+    queryClient.setQueryData(countKey, {
+      show_id: 1700,
+      save_count: 0,
+      is_saved: true,
+    })
+    mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useSaveShowToggle(1700, true), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await act(async () => {
+      try {
+        await result.current.toggle()
+      } catch {
+        // expected
+      }
+    })
+
+    expect(queryClient.getQueryData(countKey)).toEqual({
+      show_id: 1700,
+      save_count: 0,
+      is_saved: true,
+    })
+  })
+
+  // The shows list (the highest-traffic surface) reads save data from the BATCH
+  // cache, so the batch branch of the optimistic update needs its own guard.
+  it('optimistically patches the cached BATCH entry, keyed via the real helper', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const batchKey = queryKeys.savedShows.countBatch([1800, 1801], true)
+    queryClient.setQueryData(batchKey, {
+      '1800': { save_count: 4, is_saved: false },
+      '1801': { save_count: 9, is_saved: false },
+    })
+
+    let resolveSave: (v: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise((res) => { resolveSave = res })
+    )
+
+    const { result } = renderHook(() => useSaveShowToggle(1800, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    let toggling: Promise<void>
+    await act(async () => {
+      toggling = result.current.toggle()
+      await Promise.resolve()
+    })
+
+    // Only the toggled show moves; its sibling in the same batch is untouched.
+    expect(queryClient.getQueryData(batchKey)).toEqual({
+      '1800': { save_count: 5, is_saved: true },
+      '1801': { save_count: 9, is_saved: false },
+    })
+
+    await act(async () => {
+      resolveSave({ message: 'Saved' })
+      await toggling!
+    })
   })
 
   it('exposes error from save mutation', async () => {

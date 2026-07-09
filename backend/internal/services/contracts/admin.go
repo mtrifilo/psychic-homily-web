@@ -322,6 +322,11 @@ type EngagementMetricsResponse struct {
 	RequestVotes    []EngagementMetric `json:"request_votes"`
 	Revisions       []EngagementMetric `json:"revisions"`
 	Follows         []EngagementMetric `json:"follows"`
+	// Saves counts show saves specifically. It overlaps with Bookmarks (which
+	// spans save + bookmark across all entity types) on purpose: Bookmarks is
+	// the coarse engagement total, Saves isolates the show-radar signal that
+	// replaced going/interested.
+	Saves []EngagementMetric `json:"saves"`
 }
 
 // TopContributor represents a user ranked by contribution count.

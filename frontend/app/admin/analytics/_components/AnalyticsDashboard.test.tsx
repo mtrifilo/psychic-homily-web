@@ -80,6 +80,7 @@ const mockEngagementData = {
   request_votes: [{ month: '2025-10', count: 15 }],
   revisions: [{ month: '2025-10', count: 8 }],
   follows: [{ month: '2025-10', count: 25 }],
+  saves: [{ month: '2025-10', count: 18 }],
 }
 
 const mockCommunityData = {

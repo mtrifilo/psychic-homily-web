@@ -838,7 +838,7 @@ describe('PublicProfile', () => {
     renderWithProviders(<PublicProfile username="alice" />)
 
     expect(screen.getByText('Get started')).toBeInTheDocument()
-    expect(screen.getByText('Log a show you attended')).toBeInTheDocument()
+    expect(screen.getByText("Save a show you're into")).toBeInTheDocument()
     expect(screen.getByText('Follow artists you love')).toBeInTheDocument()
     expect(
       screen.getByText('Start your first collection')

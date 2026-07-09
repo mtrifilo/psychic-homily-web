@@ -95,6 +95,7 @@ type GetEngagementMetricsResponse struct {
 		RequestVotes    []EngagementMetricResponse `json:"request_votes"`
 		Revisions       []EngagementMetricResponse `json:"revisions"`
 		Follows         []EngagementMetricResponse `json:"follows"`
+		Saves           []EngagementMetricResponse `json:"saves"`
 	}
 }
 
@@ -120,6 +121,7 @@ func (h *AnalyticsHandler) GetEngagementMetricsHandler(ctx context.Context, req 
 	resp.Body.RequestVotes = toEngagementMetricResponse(data.RequestVotes)
 	resp.Body.Revisions = toEngagementMetricResponse(data.Revisions)
 	resp.Body.Follows = toEngagementMetricResponse(data.Follows)
+	resp.Body.Saves = toEngagementMetricResponse(data.Saves)
 	return resp, nil
 }
 

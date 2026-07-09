@@ -143,6 +143,10 @@ export function getQueryClient() {
   }
 }
 
+// Shared by queryKeys.savedShows.countBatch and its prefix, so the optimistic
+// update in useSaveShowToggle patches exactly the keys the query writes.
+const SAVED_SHOWS_COUNT_BATCH_PREFIX = ['savedShows', 'countBatch'] as const
+
 // Query key factory for consistent key generation
 export const queryKeys = {
   // Authentication queries
@@ -237,8 +241,12 @@ export const queryKeys = {
     // for a show the user had already saved.
     count: (showId: number, isAuthenticated: boolean) =>
       ['savedShows', 'count', isAuthenticated, showId] as const,
+    // Prefix, exported so the optimistic-update path can patch every cached
+    // batch without re-typing the key segments (a rename here would otherwise
+    // silently stop matching).
+    countBatchPrefix: SAVED_SHOWS_COUNT_BATCH_PREFIX,
     countBatch: (showIds: number[], isAuthenticated: boolean) =>
-      ['savedShows', 'countBatch', isAuthenticated, showIds] as const,
+      [...SAVED_SHOWS_COUNT_BATCH_PREFIX, isAuthenticated, showIds] as const,
   },
 
   // User's submitted shows
