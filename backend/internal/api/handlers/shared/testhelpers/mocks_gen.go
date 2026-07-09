@@ -153,7 +153,6 @@ func (m *MockAnalyticsService) GetEngagementMetrics(months int) (*contracts.Enga
 		RequestVotes:    []contracts.EngagementMetric{},
 		Revisions:       []contracts.EngagementMetric{},
 		Follows:         []contracts.EngagementMetric{},
-		Attendance:      []contracts.EngagementMetric{},
 	}, nil
 }
 func (m *MockAnalyticsService) GetCommunityHealth() (*contracts.CommunityHealthResponse, error) {
@@ -463,74 +462,6 @@ func (m *MockArtistService) MergeArtists(canonicalID uint, mergeFromID uint) (*c
 		return m.MergeArtistsFn(canonicalID, mergeFromID)
 	}
 	return nil, nil
-}
-
-// ============================================================================
-// Mock: AttendanceServiceInterface
-// ============================================================================
-
-type MockAttendanceService struct {
-	SetAttendanceFn            func(uint, uint, string) error
-	RemoveAttendanceFn         func(uint, uint) error
-	GetUserAttendanceFn        func(uint, uint) (string, error)
-	GetAttendanceCountsFn      func(uint) (*contracts.AttendanceCountsResponse, error)
-	GetBatchAttendanceCountsFn func([]uint) (map[uint]*contracts.AttendanceCountsResponse, error)
-	GetBatchUserAttendanceFn   func(uint, []uint) (map[uint]string, error)
-	GetUserAttendingShowsFn    func(uint, string, int, int) ([]*contracts.AttendingShowResponse, int64, error)
-	GetUserAttendedShowsFn     func(uint, int, int) ([]*contracts.AttendingShowResponse, int64, error)
-}
-
-func (m *MockAttendanceService) SetAttendance(userID uint, showID uint, status string) error {
-	if m.SetAttendanceFn != nil {
-		return m.SetAttendanceFn(userID, showID, status)
-	}
-	return nil
-}
-func (m *MockAttendanceService) RemoveAttendance(userID uint, showID uint) error {
-	if m.RemoveAttendanceFn != nil {
-		return m.RemoveAttendanceFn(userID, showID)
-	}
-	return nil
-}
-func (m *MockAttendanceService) GetUserAttendance(userID uint, showID uint) (string, error) {
-	if m.GetUserAttendanceFn != nil {
-		return m.GetUserAttendanceFn(userID, showID)
-	}
-	return "", nil
-}
-func (m *MockAttendanceService) GetAttendanceCounts(showID uint) (*contracts.AttendanceCountsResponse, error) {
-	if m.GetAttendanceCountsFn != nil {
-		return m.GetAttendanceCountsFn(showID)
-	}
-	return &contracts.AttendanceCountsResponse{ShowID: showID}, nil
-}
-func (m *MockAttendanceService) GetBatchAttendanceCounts(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
-	if m.GetBatchAttendanceCountsFn != nil {
-		return m.GetBatchAttendanceCountsFn(showIDs)
-	}
-	result := make(map[uint]*contracts.AttendanceCountsResponse)
-	for _, id := range showIDs {
-		result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
-	}
-	return result, nil
-}
-func (m *MockAttendanceService) GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error) {
-	if m.GetBatchUserAttendanceFn != nil {
-		return m.GetBatchUserAttendanceFn(userID, showIDs)
-	}
-	return make(map[uint]string), nil
-}
-func (m *MockAttendanceService) GetUserAttendingShows(userID uint, status string, limit int, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
-	if m.GetUserAttendingShowsFn != nil {
-		return m.GetUserAttendingShowsFn(userID, status, limit, offset)
-	}
-	return nil, 0, nil
-}
-func (m *MockAttendanceService) GetUserAttendedShows(userID uint, limit int, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
-	if m.GetUserAttendedShowsFn != nil {
-		return m.GetUserAttendedShowsFn(userID, limit, offset)
-	}
-	return nil, 0, nil
 }
 
 // ============================================================================
@@ -3111,11 +3042,13 @@ func (m *MockRevisionService) Rollback(revisionID uint, adminUserID uint) error 
 // ============================================================================
 
 type MockSavedShowService struct {
-	SaveShowFn          func(uint, uint) error
-	UnsaveShowFn        func(uint, uint) error
-	GetUserSavedShowsFn func(uint, int, int) ([]*contracts.SavedShowResponse, int64, error)
-	IsShowSavedFn       func(uint, uint) (bool, error)
-	GetSavedShowIDsFn   func(uint, []uint) (map[uint]bool, error)
+	SaveShowFn           func(uint, uint) error
+	UnsaveShowFn         func(uint, uint) error
+	GetUserSavedShowsFn  func(uint, int, int) ([]*contracts.SavedShowResponse, int64, error)
+	IsShowSavedFn        func(uint, uint) (bool, error)
+	GetSavedShowIDsFn    func(uint, []uint) (map[uint]bool, error)
+	GetSaveCountFn       func(uint) (int, error)
+	GetBatchSaveCountsFn func([]uint) (map[uint]int, error)
 }
 
 func (m *MockSavedShowService) SaveShow(userID uint, showID uint) error {
@@ -3147,6 +3080,22 @@ func (m *MockSavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map
 		return m.GetSavedShowIDsFn(userID, showIDs)
 	}
 	return nil, nil
+}
+func (m *MockSavedShowService) GetSaveCount(showID uint) (int, error) {
+	if m.GetSaveCountFn != nil {
+		return m.GetSaveCountFn(showID)
+	}
+	return 0, nil
+}
+func (m *MockSavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int, error) {
+	if m.GetBatchSaveCountsFn != nil {
+		return m.GetBatchSaveCountsFn(showIDs)
+	}
+	result := make(map[uint]int)
+	for _, id := range showIDs {
+		result[id] = 0
+	}
+	return result, nil
 }
 
 // ============================================================================
@@ -4346,7 +4295,6 @@ var _ contracts.AnalyticsServiceInterface = (*MockAnalyticsService)(nil)
 var _ contracts.ArtistRelationshipServiceInterface = (*MockArtistRelationshipService)(nil)
 var _ contracts.ArtistReportServiceInterface = (*MockArtistReportService)(nil)
 var _ contracts.ArtistServiceInterface = (*MockArtistService)(nil)
-var _ contracts.AttendanceServiceInterface = (*MockAttendanceService)(nil)
 var _ contracts.AuditLogServiceInterface = (*MockAuditLogService)(nil)
 var _ contracts.AuthServiceInterface = (*MockAuthService)(nil)
 var _ contracts.AutoPromotionServiceInterface = (*MockAutoPromotionService)(nil)

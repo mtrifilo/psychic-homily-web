@@ -3,8 +3,7 @@
 import { useState, useCallback, useMemo, useTransition, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
-import { useSavedShowBatch } from '../hooks/useSavedShows'
-import { useBatchAttendance } from '../hooks/useAttendance'
+import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
 import type { ShowResponse } from '../types'
@@ -158,8 +157,7 @@ export function ShowList() {
     [accumulatedShows, data?.shows]
   )
   const allShowIds = useMemo(() => allShows.map(s => s.id), [allShows])
-  const { data: savedShowIds } = useSavedShowBatch(allShowIds, isAuthenticated)
-  const { data: batchAttendance } = useBatchAttendance(allShowIds)
+  const { data: saveCounts } = useShowSaveCountBatch(allShowIds, isAuthenticated)
 
   const handleLoadMore = useCallback(() => {
     if (data?.pagination.next_cursor) {
@@ -333,9 +331,8 @@ export function ShowList() {
                   show={show}
                   isAdmin={isAdmin}
                   userId={user?.id}
-                  isSaved={savedShowIds?.has(show.id)}
+                  saveData={saveCounts?.[String(show.id)]}
                   density={density}
-                  attendanceData={batchAttendance?.[String(show.id)]}
                 />
               ))}
             </div>

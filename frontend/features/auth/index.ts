@@ -23,8 +23,6 @@ export type {
   ActivityHeatmapResponse,
   FollowingEntity,
   UserFollowingResponse,
-  AttendedShow,
-  AttendedShowsResponse,
   AuthoredFieldNote,
   UserFieldNotesResponse,
 } from './types'
@@ -78,7 +76,6 @@ export {
   useActivityHeatmap,
   usePercentileRankings,
   useUserFollowing,
-  useUserAttendedShows,
   useUserFieldNotes,
   useOwnContributorProfile,
   useOwnContributions,

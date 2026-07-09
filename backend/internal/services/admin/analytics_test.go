@@ -361,7 +361,6 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_Empt
 	suite.Len(resp.RequestVotes, 6)
 	suite.Len(resp.Revisions, 6)
 	suite.Len(resp.Follows, 6)
-	suite.Len(resp.Attendance, 6)
 
 	// All should be 0
 	for _, m := range resp.Bookmarks {
@@ -385,7 +384,6 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_With
 	suite.createRequestVote(req.ID, user.ID, 1)
 	suite.createRevision(user.ID, "artist", artist.ID)
 	suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
-	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
 
 	resp, err := suite.service.GetEngagementMetrics(1)
 	suite.Require().NoError(err)
@@ -398,7 +396,6 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_With
 	suite.Equal(1, resp.RequestVotes[0].Count)
 	suite.Equal(1, resp.Revisions[0].Count)
 	suite.Equal(1, resp.Follows[0].Count)
-	suite.Equal(1, resp.Attendance[0].Count)
 }
 
 // =============================================================================

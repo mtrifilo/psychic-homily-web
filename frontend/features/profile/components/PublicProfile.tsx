@@ -15,7 +15,6 @@ import { ProfileEmptyPrompt } from './ProfileEmptyPrompt'
 import { ProfileSectionAction } from './ProfileSectionAction'
 import { ProfileFollowing } from './ProfileFollowing'
 import { ProfileCollections } from './ProfileCollections'
-import { ProfileAttendedShows } from './ProfileAttendedShows'
 import { ProfileFieldNotes } from './ProfileFieldNotes'
 import { ProfileStatsSidebar } from './ProfileStatsSidebar'
 import { usePublicProfile } from '@/features/auth'
@@ -346,7 +345,6 @@ export function PublicProfile({ username }: PublicProfileProps) {
 
               <ProfileCollections username={username} isOwner={isOwner} />
 
-              <ProfileAttendedShows username={username} />
               <ProfileFieldNotes username={username} />
 
               {/* Recent activity (contribution timeline) was removed per the

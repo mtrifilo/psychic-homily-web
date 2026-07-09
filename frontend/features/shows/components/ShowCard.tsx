@@ -20,13 +20,12 @@ import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from './ShowForm'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
-import { AttendanceButton } from './AttendanceButton'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { ShowResponse, ArtistResponse, AttendanceCounts } from '../types'
+import type { ShowResponse, ArtistResponse } from '../types'
 
 /**
  * Check if an artist has any music available (Bandcamp embed, Spotify, or Bandcamp profile)
@@ -150,12 +149,11 @@ export interface ShowCardProps {
   show: ShowResponse
   isAdmin: boolean
   userId?: string
-  isSaved?: boolean
+  saveData?: { save_count: number; is_saved: boolean }
   density?: ShowCardDensity
-  attendanceData?: AttendanceCounts
 }
 
-export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortable', attendanceData }: ShowCardProps) {
+export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortable' }: ShowCardProps) {
   const { user } = useAuthContext()
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -343,8 +341,6 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
 
                 {/* Action buttons row */}
                 <div className="flex items-center gap-0.5">
-                  <AttendanceButton showId={show.id} compact attendanceData={attendanceData} />
-
                   {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
                     hasArtistMusic && (
                       <Button
@@ -369,7 +365,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                       showId={show.id}
                       variant="ghost"
                       size="sm"
-                      isSaved={isSaved}
+                      saveData={saveData}
                     />
                   )}
 
@@ -580,9 +576,6 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
 
               {/* Action buttons row */}
               <div className="flex items-center gap-0.5">
-                {/* Attendance (Going/Interested) */}
-                <AttendanceButton showId={show.id} compact attendanceData={attendanceData} />
-
                 {/* Expand Button - only show if artists have music */}
                 {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
                   hasArtistMusic && (
@@ -609,7 +602,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                     showId={show.id}
                     variant="ghost"
                     size="sm"
-                    isSaved={isSaved}
+                    saveData={saveData}
                   />
                 )}
 

@@ -262,3 +262,60 @@ func (s *SavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map[uin
 
 	return s.bookmark.GetBookmarkedEntityIDs(userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, showIDs)
 }
+
+// GetSaveCount returns how many users have saved a show.
+//
+// This count is public. It is an aggregate only — no endpoint anywhere exposes
+// which users saved a show, so a user's saved list stays private while the
+// count doubles as a buzz signal for visitors.
+func (s *SavedShowService) GetSaveCount(showID uint) (int, error) {
+	counts, err := s.GetBatchSaveCounts([]uint{showID})
+	if err != nil {
+		return 0, err
+	}
+	return counts[showID], nil
+}
+
+// GetBatchSaveCounts returns save counts for multiple shows in a single query.
+//
+// Every requested show ID is present in the returned map, zero-filled when it
+// has no saves, so callers can distinguish "requested, and nobody saved it"
+// from "not requested".
+func (s *SavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := make(map[uint]int, len(showIDs))
+	if len(showIDs) == 0 {
+		return result, nil
+	}
+	for _, id := range showIDs {
+		result[id] = 0
+	}
+
+	type countRow struct {
+		EntityID uint
+		Count    int
+	}
+	var rows []countRow
+
+	err := s.db.Model(&engagementm.UserBookmark{}).
+		Select("entity_id, COUNT(*) as count").
+		Where("entity_type = ? AND entity_id IN ? AND action = ?",
+			engagementm.BookmarkEntityShow, showIDs, engagementm.BookmarkActionSave,
+		).
+		Group("entity_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch save counts: %w", err)
+	}
+
+	for _, row := range rows {
+		if _, requested := result[row.EntityID]; requested {
+			result[row.EntityID] = row.Count
+		}
+	}
+
+	return result, nil
+}

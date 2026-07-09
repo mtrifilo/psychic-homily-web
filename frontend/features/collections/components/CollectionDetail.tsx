@@ -517,7 +517,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 {/* PSY-352: Like toggle. Primary in every viewer state.
                     Authenticated viewers toggle; anonymous viewers are routed
                     to sign-in on click (D4 — same returnTo redirect as
-                    FollowButton / AttendanceButton so they land back here
+                    FollowButton / SaveButton so they land back here
                     after signing in). Aggregate count only — privacy
                     decision: no list of likers exposed. */}
                 <Button

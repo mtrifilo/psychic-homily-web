@@ -131,7 +131,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createTestUser(username str
 }
 
 func (suite *LeaderboardServiceIntegrationTestSuite) createUserWithHiddenContributions(username string) *authm.User {
-	privJSON := `{"contributions":"hidden","saved_shows":"hidden","attendance":"hidden","following":"count_only","collections":"visible","last_active":"visible","profile_sections":"visible"}`
+	privJSON := `{"contributions":"hidden","saved_shows":"hidden","following":"count_only","collections":"visible","last_active":"visible","profile_sections":"visible"}`
 	raw := json.RawMessage(privJSON)
 	user := &authm.User{
 		Email:             stringPtr(fmt.Sprintf("%s-%d@test.com", username, time.Now().UnixNano())),

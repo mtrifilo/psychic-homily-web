@@ -6,7 +6,7 @@ import {
 } from '../fixtures/test-fixtures-reset'
 import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
 
-// Auth-gated buttons (FollowButton, AttendanceButton) redirect to /auth
+// Auth-gated buttons (FollowButton, SaveButton) redirect to /auth
 // when useAuthContext returns isAuthenticated=false at click time. The
 // buttons render regardless of auth state (only tooltip copy differs),
 // so visibility checks don't gate against the SSR-pre-hydration → client
@@ -22,25 +22,27 @@ async function waitForAuthHydrated(page: Page) {
   ).toBeVisible({ timeout: 10_000 })
 }
 
-// PSY-457: backfill E2E coverage for follow + going/interested flows.
+// PSY-457: backfill E2E coverage for follow + save flows.
 // PSY-430: pin to reserved artist + show seeded by setup-db.sh so parallel
 // mutating tests in other files don't race on the same .first() row.
 const RESERVED_ARTIST_SLUG = 'e2e-follow-test'
 const RESERVED_ARTIST_NAME = 'E2E [follow-test]'
 const RESERVED_ARTIST_URL = `/artists/${RESERVED_ARTIST_SLUG}`
 
+// Slug is seeded by e2e/setup-db.sh and also borrowed by navigation.spec /
+// not-found.spec, so it keeps its historical name.
 const RESERVED_SHOW_SLUG = 'e2e-attendance-test'
 const RESERVED_SHOW_TITLE = 'E2E [attendance-test]'
 const RESERVED_SHOW_URL = `/shows/${RESERVED_SHOW_SLUG}`
 
-test.describe('Follow and attendance', () => {
+test.describe('Follow and save', () => {
   // Tests share DB state with the same per-worker user, so they must not
   // run in parallel within this file.
   test.describe.configure({ mode: 'serial' })
 
   // PSY-470: the in-test cleanup at the happy-path tail only runs when the
   // test passes. When a mid-test failure skips it (see PSY-465), the shared
-  // reserved artist/show rows leak follower/attendance count into the next
+  // reserved artist/show rows leak follower/save count into the next
   // repeat and cause cascading `followers_count` mismatches across workers.
   // workerCleanup (PSY-432) only fires on worker teardown, not between
   // tests. Scope the reset to just `user_bookmarks` — narrower than the
@@ -149,7 +151,7 @@ test.describe('Follow and attendance', () => {
     ).toBeVisible({ timeout: 5_000 })
   })
 
-  test('mark show as going round-trip surfaces in Library', { tag: '@smoke' }, async ({
+  test('save a show round-trip surfaces in Library', { tag: '@smoke' }, async ({
     authenticatedPage,
   }) => {
     await authenticatedPage.goto(RESERVED_SHOW_URL)
@@ -164,44 +166,45 @@ test.describe('Follow and attendance', () => {
 
     await waitForAuthHydrated(authenticatedPage)
 
-    // Going button initial state: no count suffix on a fresh reserved show
-    // (accessible name = "Going").
-    const goingButton = authenticatedPage.getByRole('button', {
-      name: 'Going',
+    // SaveButton's accessible name carries the public save count once it is
+    // non-zero. A fresh reserved show has zero saves, so the name is bare.
+    const saveButton = authenticatedPage.getByRole('button', {
+      name: 'Add to My List',
       exact: true,
     })
-    await expect(goingButton).toBeVisible({ timeout: 5_000 })
+    await expect(saveButton).toBeVisible({ timeout: 5_000 })
 
-    // Click Going — wait for POST /shows/{id}/attendance to complete so DB
-    // state is settled before we navigate to Library.
+    // Click Save — wait for POST /saved-shows/{id} to complete so DB state is
+    // settled before we navigate to Library.
     await Promise.all([
       authenticatedPage.waitForResponse(
         (resp) =>
-          /\/shows\/\d+\/attendance$/.test(resp.url()) &&
+          /\/saved-shows\/\d+$/.test(resp.url()) &&
           resp.request().method() === 'POST',
         { timeout: 10_000 }
       ),
-      goingButton.click(),
+      saveButton.click(),
     ])
 
-    // Button's accessible name now includes the going count ("Going 1").
-    await expect(
-      authenticatedPage.getByRole('button', { name: /^Going\s*1$/ })
-    ).toBeVisible({ timeout: 5_000 })
+    // Saved state flips the label and surfaces the now-public count of 1.
+    const savedButton = authenticatedPage.getByRole('button', {
+      name: 'Remove from My List (1 saved)',
+      exact: true,
+    })
+    await expect(savedButton).toBeVisible({ timeout: 5_000 })
 
-    // Navigate to Library Shows tab and verify the attending show surfaces
-    // under the "Going / Interested" section via AttendingShowCard.
+    // Navigate to Library Shows tab and verify the saved show surfaces there.
+    // SavedShowCard's link text is the artist billing, not the show title —
+    // the show title is the <article>'s accessible name, so assert on that.
     await authenticatedPage.goto('/library?tab=shows')
     await expect(
       authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
-      authenticatedPage.getByRole('link', { name: RESERVED_SHOW_TITLE })
+      authenticatedPage.getByRole('article', { name: RESERVED_SHOW_TITLE })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Cleanup: navigate back and unmark attendance so the test is
-    // idempotent. Clicking the same status (Going) while already going
-    // removes attendance via DELETE.
+    // Cleanup: navigate back and unsave so the test is idempotent.
     await authenticatedPage.goto(RESERVED_SHOW_URL)
     await expect(
       authenticatedPage
@@ -214,18 +217,18 @@ test.describe('Follow and attendance', () => {
     await Promise.all([
       authenticatedPage.waitForResponse(
         (resp) =>
-          /\/shows\/\d+\/attendance$/.test(resp.url()) &&
+          /\/saved-shows\/\d+$/.test(resp.url()) &&
           resp.request().method() === 'DELETE',
         { timeout: 10_000 }
       ),
       authenticatedPage
-        .getByRole('button', { name: /^Going\s*1$/ })
+        .getByRole('button', { name: 'Remove from My List (1 saved)', exact: true })
         .click(),
     ])
 
-    // Button should revert to "Going" with no count.
+    // Button reverts to the unsaved label, and the count drops back to zero.
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Going', exact: true })
+      authenticatedPage.getByRole('button', { name: 'Add to My List', exact: true })
     ).toBeVisible({ timeout: 5_000 })
   })
 })

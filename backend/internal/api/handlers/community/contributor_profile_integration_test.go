@@ -32,7 +32,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) SetupSuite() {
 	s.handler = NewContributorProfileHandler(
 		s.profileService, s.deps.UserService,
 		engagement.NewFollowService(s.deps.DB),
-		engagement.NewAttendanceService(s.deps.DB),
 		engagement.NewCommentService(s.deps.DB, utils.NewMarkdownRenderer()),
 	)
 }
@@ -236,7 +235,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Su
 	req.Body = contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyVisible,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyCountOnly,
 		Following:       contracts.PrivacyVisible,
 		Collections:     contracts.PrivacyVisible,
 		LastActive:      contracts.PrivacyHidden,
@@ -248,7 +246,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Su
 	s.NotNil(resp)
 	s.True(resp.Body.Success)
 	s.Equal(contracts.PrivacyHidden, resp.Body.Settings.LastActive)
-	s.Equal(contracts.PrivacyCountOnly, resp.Body.Settings.Attendance)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_InvalidLevel() {
@@ -259,7 +256,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_In
 	req.Body = contracts.PrivacySettings{
 		Contributions:   "invalid_level",
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -278,7 +274,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Bi
 	req.Body = contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyVisible,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyCountOnly, // binary-only field
@@ -342,7 +337,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_P
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -365,7 +359,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_P
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyCountOnly,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -850,7 +843,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_PrivacyS
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyVisible,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -913,7 +905,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Priva
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -936,7 +927,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Priva
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyCountOnly,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -1160,99 +1150,6 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_UserNot
 		Username: "ghost-user", Type: "all", Limit: 20, Offset: 0,
 	})
 	testhelpers.AssertHumaError(s.T(), err, 404)
-}
-
-// =============================================================================
-// GetUserAttendedShowsHandler
-// =============================================================================
-
-func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_VisiblePastOnlyDesc() {
-	target := s.createUserWithUsername("diaryuser")
-	settings := contracts.DefaultPrivacySettings()
-	settings.Attendance = contracts.PrivacyVisible
-	s.setPrivacySettings(target, settings)
-
-	venue := s.createVenueEntity("Rebel Lounge", "rebel-lounge")
-	now := time.Now().UTC()
-	older := s.createShowAt("Older Past Show", now.AddDate(0, -2, 0), venue)
-	recent := s.createShowAt("Recent Past Show", now.AddDate(0, -1, 0), venue)
-	future := s.createShowAt("Future Show", now.AddDate(0, 1, 0), venue)
-	pastInterested := s.createShowAt("Interested Past Show", now.AddDate(0, -3, 0), venue)
-
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, older.ID, engagementm.BookmarkActionGoing)
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, recent.ID, engagementm.BookmarkActionGoing)
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, future.ID, engagementm.BookmarkActionGoing)
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, pastInterested.ID, engagementm.BookmarkActionInterested)
-
-	resp, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
-		Username: "diaryuser", Limit: 20, Offset: 0,
-	})
-	s.Require().NoError(err)
-	// Future "going" and past "interested" are both excluded from the diary.
-	s.Equal(int64(2), resp.Body.Total)
-	s.Require().Len(resp.Body.Shows, 2)
-	// Most recent first.
-	s.Equal("Recent Past Show", resp.Body.Shows[0].Title)
-	s.Equal("Older Past Show", resp.Body.Shows[1].Title)
-	s.Equal("going", resp.Body.Shows[0].Status)
-	// Venue enrichment survives the join.
-	s.Require().NotNil(resp.Body.Shows[0].VenueName)
-	s.Equal("Rebel Lounge", *resp.Body.Shows[0].VenueName)
-}
-
-func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_DefaultVisible() {
-	// No stored privacy settings: the default for `attendance` is VISIBLE
-	// (PSY-1045 flipped it from hidden, 2026-06-09) — anonymous viewers see
-	// the diary. This guards the new default contract.
-	target := s.createUserWithUsername("diarydefault")
-	show := s.createShowAt("Past Default Show", time.Now().UTC().AddDate(0, -1, 0), nil)
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
-
-	resp, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
-		Username: "diarydefault", Limit: 20, Offset: 0,
-	})
-	s.Require().NoError(err)
-	s.Equal(int64(1), resp.Body.Total)
-	s.Require().Len(resp.Body.Shows, 1)
-}
-
-func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_ExplicitHidden() {
-	// Users who explicitly hide attendance: anonymous viewers get a 404,
-	// while the owner still sees the diary.
-	target := s.createUserWithUsername("diaryhidden")
-	settings := contracts.DefaultPrivacySettings()
-	settings.Attendance = contracts.PrivacyHidden
-	s.setPrivacySettings(target, settings)
-	show := s.createShowAt("Past Hidden Show", time.Now().UTC().AddDate(0, -1, 0), nil)
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
-
-	_, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
-		Username: "diaryhidden", Limit: 20, Offset: 0,
-	})
-	testhelpers.AssertHumaError(s.T(), err, 404)
-
-	resp, err := s.handler.GetUserAttendedShowsHandler(testhelpers.CtxWithUser(target), &GetUserAttendedShowsRequest{
-		Username: "diaryhidden", Limit: 20, Offset: 0,
-	})
-	s.Require().NoError(err)
-	s.Equal(int64(1), resp.Body.Total)
-	s.Require().Len(resp.Body.Shows, 1)
-}
-
-func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_CountOnly() {
-	target := s.createUserWithUsername("diarycount")
-	settings := contracts.DefaultPrivacySettings()
-	settings.Attendance = contracts.PrivacyCountOnly
-	s.setPrivacySettings(target, settings)
-	show := s.createShowAt("Past Counted Show", time.Now().UTC().AddDate(0, -1, 0), nil)
-	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
-
-	resp, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
-		Username: "diarycount", Limit: 20, Offset: 0,
-	})
-	s.Require().NoError(err)
-	s.Equal(int64(1), resp.Body.Total)
-	s.Empty(resp.Body.Shows)
 }
 
 // =============================================================================

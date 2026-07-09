@@ -427,7 +427,6 @@ describe('useOwnContributorProfile', () => {
       privacy_settings: {
         contributions: 'visible',
         saved_shows: 'count_only',
-        attendance: 'visible',
         following: 'hidden',
         collections: 'visible',
         last_active: 'visible',
@@ -641,7 +640,6 @@ describe('useUpdatePrivacy', () => {
       privacy_settings: {
         contributions: 'visible',
         saved_shows: 'hidden',
-        attendance: 'count_only',
         following: 'hidden',
         collections: 'visible',
         last_active: 'hidden',
@@ -656,7 +654,6 @@ describe('useUpdatePrivacy', () => {
 
     const privacyInput = {
       saved_shows: 'hidden' as const,
-      attendance: 'count_only' as const,
       last_active: 'hidden' as const,
     }
 

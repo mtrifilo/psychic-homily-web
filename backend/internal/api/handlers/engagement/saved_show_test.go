@@ -272,74 +272,238 @@ func TestCheckSavedHandler_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
-// --- CheckBatchSavedHandler ---
+// --- GetSaveCountHandler (public, optional auth) ---
+//
+// The save COUNT is public; is_saved is per-caller. These tests pin that split:
+// an anonymous caller must receive the count and is_saved=false, never another
+// user's state.
 
-func TestCheckBatchSavedHandler_NoAuth(t *testing.T) {
-	h := testSavedShowHandler()
-	req := &CheckBatchSavedRequest{}
-	req.Body.ShowIDs = []int{1, 2}
+func TestGetSaveCountHandler_Anonymous_ReturnsCountWithoutIsSaved(t *testing.T) {
+	mock := &testhelpers.MockSavedShowService{
+		GetSaveCountFn: func(showID uint) (int, error) { return 7, nil },
+		IsShowSavedFn: func(_, _ uint) (bool, error) {
+			t.Fatal("IsShowSaved must not be called for an anonymous request")
+			return false, nil
+		},
+	}
+	h := NewSavedShowHandler(mock)
 
-	_, err := h.CheckBatchSavedHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 401)
-}
-
-func TestCheckBatchSavedHandler_EmptyList(t *testing.T) {
-	h := NewSavedShowHandler(&testhelpers.MockSavedShowService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &CheckBatchSavedRequest{}
-	req.Body.ShowIDs = []int{}
-
-	resp, err := h.CheckBatchSavedHandler(ctx, req)
+	resp, err := h.GetSaveCountHandler(context.Background(), &GetSaveCountRequest{ShowID: "42"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Body.SavedShowIDs) != 0 {
-		t.Errorf("expected empty list, got %v", resp.Body.SavedShowIDs)
+	if resp.Body.ShowID != 42 {
+		t.Errorf("expected show_id 42, got %d", resp.Body.ShowID)
+	}
+	if resp.Body.SaveCount != 7 {
+		t.Errorf("expected save_count 7, got %d", resp.Body.SaveCount)
+	}
+	if resp.Body.IsSaved {
+		t.Error("anonymous caller must never receive is_saved=true")
 	}
 }
 
-func TestCheckBatchSavedHandler_Success(t *testing.T) {
+func TestGetSaveCountHandler_Authenticated_IncludesOwnIsSaved(t *testing.T) {
+	var sawUserID uint
 	mock := &testhelpers.MockSavedShowService{
-		GetSavedShowIDsFn: func(userID uint, showIDs []uint) (map[uint]bool, error) {
-			return map[uint]bool{1: true, 3: true}, nil
+		GetSaveCountFn: func(_ uint) (int, error) { return 3, nil },
+		IsShowSavedFn: func(userID, _ uint) (bool, error) {
+			sawUserID = userID
+			return true, nil
+		},
+	}
+	h := NewSavedShowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 9})
+
+	resp, err := h.GetSaveCountHandler(ctx, &GetSaveCountRequest{ShowID: "42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.SaveCount != 3 {
+		t.Errorf("expected save_count 3, got %d", resp.Body.SaveCount)
+	}
+	if !resp.Body.IsSaved {
+		t.Error("expected is_saved=true for the authenticated saver")
+	}
+	// is_saved must be scoped to the caller from context, never a request param.
+	if sawUserID != 9 {
+		t.Errorf("expected IsShowSaved scoped to user 9, got %d", sawUserID)
+	}
+}
+
+func TestGetSaveCountHandler_InvalidShowID(t *testing.T) {
+	h := testSavedShowHandler()
+
+	_, err := h.GetSaveCountHandler(context.Background(), &GetSaveCountRequest{ShowID: "abc"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetSaveCountHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockSavedShowService{
+		GetSaveCountFn: func(_ uint) (int, error) { return 0, fmt.Errorf("db error") },
+	}
+	h := NewSavedShowHandler(mock)
+
+	_, err := h.GetSaveCountHandler(context.Background(), &GetSaveCountRequest{ShowID: "42"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+func TestGetSaveCountHandler_IsSavedFailureStillServesPublicCount(t *testing.T) {
+	mock := &testhelpers.MockSavedShowService{
+		GetSaveCountFn: func(_ uint) (int, error) { return 5, nil },
+		IsShowSavedFn:  func(_, _ uint) (bool, error) { return false, fmt.Errorf("db error") },
+	}
+	h := NewSavedShowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.GetSaveCountHandler(ctx, &GetSaveCountRequest{ShowID: "42"})
+	if err != nil {
+		t.Fatalf("is_saved failure must be non-fatal, got %v", err)
+	}
+	if resp.Body.SaveCount != 5 {
+		t.Errorf("expected the public count to survive, got %d", resp.Body.SaveCount)
+	}
+	if resp.Body.IsSaved {
+		t.Error("is_saved must stay false when the lookup failed")
+	}
+}
+
+// --- BatchSaveCountsHandler (public, optional auth) ---
+
+func TestBatchSaveCountsHandler_EmptyList(t *testing.T) {
+	h := NewSavedShowHandler(&testhelpers.MockSavedShowService{})
+	req := &BatchSaveCountsRequest{}
+	req.Body.ShowIDs = []int{}
+
+	resp, err := h.BatchSaveCountsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Saves) != 0 {
+		t.Errorf("expected empty map, got %v", resp.Body.Saves)
+	}
+}
+
+func TestBatchSaveCountsHandler_Anonymous_ZeroFillsAndHidesIsSaved(t *testing.T) {
+	mock := &testhelpers.MockSavedShowService{
+		GetBatchSaveCountsFn: func(showIDs []uint) (map[uint]int, error) {
+			return map[uint]int{1: 4, 2: 0}, nil
+		},
+		GetSavedShowIDsFn: func(_ uint, _ []uint) (map[uint]bool, error) {
+			t.Fatal("GetSavedShowIDs must not be called for an anonymous request")
+			return nil, nil
+		},
+	}
+	h := NewSavedShowHandler(mock)
+	req := &BatchSaveCountsRequest{}
+	req.Body.ShowIDs = []int{1, 2}
+
+	resp, err := h.BatchSaveCountsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Saves["1"].SaveCount != 4 {
+		t.Errorf("expected show 1 save_count 4, got %d", resp.Body.Saves["1"].SaveCount)
+	}
+	// A show nobody saved is present with a zero count, not omitted.
+	entry, ok := resp.Body.Saves["2"]
+	if !ok {
+		t.Fatal("expected show 2 to be present with a zero count")
+	}
+	if entry.SaveCount != 0 || entry.IsSaved {
+		t.Errorf("expected zero-filled, unsaved entry, got %+v", entry)
+	}
+	if resp.Body.Saves["1"].IsSaved {
+		t.Error("anonymous caller must never receive is_saved=true")
+	}
+}
+
+func TestBatchSaveCountsHandler_Authenticated_MergesOwnIsSaved(t *testing.T) {
+	mock := &testhelpers.MockSavedShowService{
+		GetBatchSaveCountsFn: func(_ []uint) (map[uint]int, error) {
+			return map[uint]int{1: 4, 2: 2}, nil
+		},
+		GetSavedShowIDsFn: func(userID uint, _ []uint) (map[uint]bool, error) {
+			return map[uint]bool{1: true, 2: false}, nil
 		},
 	}
 	h := NewSavedShowHandler(mock)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &CheckBatchSavedRequest{}
-	req.Body.ShowIDs = []int{1, 2, 3}
+	req := &BatchSaveCountsRequest{}
+	req.Body.ShowIDs = []int{1, 2}
 
-	resp, err := h.CheckBatchSavedHandler(ctx, req)
+	resp, err := h.BatchSaveCountsHandler(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Body.SavedShowIDs) != 2 {
-		t.Errorf("expected 2 saved IDs, got %d", len(resp.Body.SavedShowIDs))
+	if !resp.Body.Saves["1"].IsSaved {
+		t.Error("expected show 1 is_saved=true")
+	}
+	if resp.Body.Saves["2"].IsSaved {
+		t.Error("expected show 2 is_saved=false")
+	}
+	if resp.Body.Saves["2"].SaveCount != 2 {
+		t.Errorf("expected show 2 save_count 2, got %d", resp.Body.Saves["2"].SaveCount)
 	}
 }
 
-func TestCheckBatchSavedHandler_NegativeID(t *testing.T) {
-	mock := &testhelpers.MockSavedShowService{}
-	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &CheckBatchSavedRequest{}
+func TestBatchSaveCountsHandler_NegativeID(t *testing.T) {
+	h := NewSavedShowHandler(&testhelpers.MockSavedShowService{})
+	req := &BatchSaveCountsRequest{}
 	req.Body.ShowIDs = []int{1, -5, 3}
 
-	_, err := h.CheckBatchSavedHandler(ctx, req)
+	_, err := h.BatchSaveCountsHandler(context.Background(), req)
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestCheckBatchSavedHandler_ServiceError(t *testing.T) {
+func TestBatchSaveCountsHandler_OverCap(t *testing.T) {
+	h := NewSavedShowHandler(&testhelpers.MockSavedShowService{})
+	req := &BatchSaveCountsRequest{}
+	req.Body.ShowIDs = make([]int, 201)
+	for i := range req.Body.ShowIDs {
+		req.Body.ShowIDs[i] = i + 1
+	}
+
+	_, err := h.BatchSaveCountsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestBatchSaveCountsHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockSavedShowService{
+		GetBatchSaveCountsFn: func(_ []uint) (map[uint]int, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := NewSavedShowHandler(mock)
+	req := &BatchSaveCountsRequest{}
+	req.Body.ShowIDs = []int{1, 2}
+
+	_, err := h.BatchSaveCountsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+func TestBatchSaveCountsHandler_IsSavedFailureStillServesPublicCounts(t *testing.T) {
+	mock := &testhelpers.MockSavedShowService{
+		GetBatchSaveCountsFn: func(_ []uint) (map[uint]int, error) {
+			return map[uint]int{1: 4}, nil
+		},
 		GetSavedShowIDsFn: func(_ uint, _ []uint) (map[uint]bool, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewSavedShowHandler(mock)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &CheckBatchSavedRequest{}
-	req.Body.ShowIDs = []int{1, 2}
+	req := &BatchSaveCountsRequest{}
+	req.Body.ShowIDs = []int{1}
 
-	_, err := h.CheckBatchSavedHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 500)
+	resp, err := h.BatchSaveCountsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("is_saved failure must be non-fatal, got %v", err)
+	}
+	if resp.Body.Saves["1"].SaveCount != 4 {
+		t.Errorf("expected the public count to survive, got %d", resp.Body.Saves["1"].SaveCount)
+	}
+	if resp.Body.Saves["1"].IsSaved {
+		t.Error("is_saved must stay false when the lookup failed")
+	}
 }

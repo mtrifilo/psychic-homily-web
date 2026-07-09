@@ -322,7 +322,6 @@ type EngagementMetricsResponse struct {
 	RequestVotes    []EngagementMetric `json:"request_votes"`
 	Revisions       []EngagementMetric `json:"revisions"`
 	Follows         []EngagementMetric `json:"follows"`
-	Attendance      []EngagementMetric `json:"attendance"`
 }
 
 // TopContributor represents a user ranked by contribution count.

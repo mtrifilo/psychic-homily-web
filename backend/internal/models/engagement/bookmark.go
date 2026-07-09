@@ -27,11 +27,11 @@ const (
 type BookmarkAction string
 
 const (
-	BookmarkActionSave       BookmarkAction = "save"
-	BookmarkActionFollow     BookmarkAction = "follow"
-	BookmarkActionBookmark   BookmarkAction = "bookmark"
-	BookmarkActionGoing      BookmarkAction = "going"
-	BookmarkActionInterested BookmarkAction = "interested"
+	// BookmarkActionSave is the single "keep this on my radar" action for shows.
+	// A user's saved list is private; only the per-show save count is public.
+	BookmarkActionSave     BookmarkAction = "save"
+	BookmarkActionFollow   BookmarkAction = "follow"
+	BookmarkActionBookmark BookmarkAction = "bookmark"
 )
 
 // UserBookmark represents a generic user-entity relationship

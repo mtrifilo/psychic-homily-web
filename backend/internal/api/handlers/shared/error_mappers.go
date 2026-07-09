@@ -124,27 +124,6 @@ func MapFollowError(err error) error {
 	return nil
 }
 
-// MapAttendanceError converts an AttendanceError to an appropriate Huma HTTP
-// error. Returns nil if err is not a *apperrors.AttendanceError.
-//
-// PSY-761: replaces the 422-for-everything behaviour of the attendance
-// handlers. Show-not-found → 404; invalid status → 422 (semantic validation);
-// infrastructure fault → 500. Idempotent set/clear has no conflict path.
-func MapAttendanceError(err error) error {
-	var attendanceErr *apperrors.AttendanceError
-	if errors.As(err, &attendanceErr) {
-		switch attendanceErr.Code {
-		case apperrors.CodeAttendanceShowNotFound:
-			return huma.Error404NotFound(attendanceErr.Message)
-		case apperrors.CodeAttendanceInvalidStatus:
-			return huma.Error422UnprocessableEntity(attendanceErr.Message)
-		case apperrors.CodeAttendanceInternal:
-			return huma.Error500InternalServerError(attendanceErr.Message)
-		}
-	}
-	return nil
-}
-
 // MapNotificationFilterError converts a NotificationFilterError to an
 // appropriate Huma HTTP error. Returns nil if err is not a
 // *apperrors.NotificationFilterError.

@@ -32,7 +32,7 @@ type User struct {
 	AvatarURL           *string          `json:"avatar_url" gorm:"column:avatar_url"`
 	Bio                 *string          `json:"bio"`
 	ProfileVisibility   string           `json:"profile_visibility" gorm:"column:profile_visibility;not null;default:'public'"`
-	PrivacySettings     *json.RawMessage `json:"privacy_settings" gorm:"column:privacy_settings;type:jsonb;not null;default:'{\"contributions\":\"visible\",\"saved_shows\":\"hidden\",\"attendance\":\"visible\",\"following\":\"visible\",\"collections\":\"visible\",\"last_active\":\"visible\",\"profile_sections\":\"visible\"}'"`
+	PrivacySettings     *json.RawMessage `json:"privacy_settings" gorm:"column:privacy_settings;type:jsonb;not null;default:'{\"contributions\":\"visible\",\"saved_shows\":\"hidden\",\"following\":\"visible\",\"collections\":\"visible\",\"last_active\":\"visible\",\"profile_sections\":\"visible\"}'"`
 	NavMode             string           `json:"nav_mode" gorm:"column:nav_mode;not null;default:'top'"` // Global nav chrome preference: 'top' | 'side' (PSY-1115)
 	UserTier            string           `json:"user_tier" gorm:"column:user_tier;not null;default:'new_user'"`
 	IsActive            bool             `json:"is_active" gorm:"default:true"`

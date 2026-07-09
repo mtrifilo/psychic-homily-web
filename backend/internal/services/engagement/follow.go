@@ -21,7 +21,7 @@ import (
 const FollowEntityUser = "user"
 
 // validFollowEntityTypes lists entity types that support following.
-// Shows use going/interested (attendance) instead of follow.
+// Shows use save instead of follow.
 var validFollowEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityArtist):    true,
 	string(engagementm.BookmarkEntityVenue):     true,

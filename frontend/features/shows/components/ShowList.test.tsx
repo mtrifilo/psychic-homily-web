@@ -36,11 +36,7 @@ vi.mock('../hooks/useShows', () => ({
 }))
 
 vi.mock('../hooks/useSavedShows', () => ({
-  useSavedShowBatch: () => ({ data: new Set<number>() }),
-}))
-
-vi.mock('../hooks/useAttendance', () => ({
-  useBatchAttendance: () => ({ data: {} }),
+  useShowSaveCountBatch: () => ({ data: {} }),
 }))
 
 // Mock profile hooks

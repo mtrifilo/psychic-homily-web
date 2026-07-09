@@ -141,7 +141,6 @@ func TestAnalyticsHandler_Engagement_Success(t *testing.T) {
 				RequestVotes:    []contracts.EngagementMetric{},
 				Revisions:       []contracts.EngagementMetric{},
 				Follows:         []contracts.EngagementMetric{},
-				Attendance:      []contracts.EngagementMetric{},
 			}, nil
 		},
 	})

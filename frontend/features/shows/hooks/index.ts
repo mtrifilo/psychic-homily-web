@@ -42,19 +42,11 @@ export {
 
 export {
   useSavedShows,
-  useSavedShowBatch,
-  useIsShowSaved,
   useSaveShow,
   useUnsaveShow,
   useSaveShowToggle,
+  useShowSaveCount,
+  useShowSaveCountBatch,
 } from './useSavedShows'
 
 export { useMySubmissions } from './useMySubmissions'
-
-export {
-  useShowAttendance,
-  useBatchAttendance,
-  useSetAttendance,
-  useRemoveAttendance,
-  useMyShows,
-} from './useAttendance'

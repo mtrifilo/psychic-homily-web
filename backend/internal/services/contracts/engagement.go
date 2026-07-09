@@ -94,30 +94,6 @@ type CalendarTokenStatusResponse struct {
 }
 
 // ──────────────────────────────────────────────
-// Attendance types (going/interested)
-// ──────────────────────────────────────────────
-
-// AttendanceCountsResponse contains going and interested counts for a show
-type AttendanceCountsResponse struct {
-	ShowID          uint `json:"show_id"`
-	GoingCount      int  `json:"going_count"`
-	InterestedCount int  `json:"interested_count"`
-}
-
-// AttendingShowResponse represents a show the user is attending or interested in
-type AttendingShowResponse struct {
-	ShowID    uint      `json:"show_id"`
-	Title     string    `json:"title"`
-	Slug      string    `json:"slug"`
-	EventDate time.Time `json:"event_date"`
-	Status    string    `json:"status"` // "going" or "interested"
-	VenueName *string   `json:"venue_name"`
-	VenueSlug *string   `json:"venue_slug"`
-	City      *string   `json:"city"`
-	State     *string   `json:"state"`
-}
-
-// ──────────────────────────────────────────────
 // Follow types
 // ──────────────────────────────────────────────
 
@@ -158,6 +134,8 @@ type SavedShowServiceInterface interface {
 	GetUserSavedShows(userID uint, limit, offset int) ([]*SavedShowResponse, int64, error)
 	IsShowSaved(userID, showID uint) (bool, error)
 	GetSavedShowIDs(userID uint, showIDs []uint) (map[uint]bool, error)
+	GetSaveCount(showID uint) (int, error)
+	GetBatchSaveCounts(showIDs []uint) (map[uint]int, error)
 }
 
 // ──────────────────────────────────────────────
@@ -173,22 +151,6 @@ type BookmarkServiceInterface interface {
 	GetUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, limit, offset int) ([]engagementm.UserBookmark, int64, error)
 	GetUserBookmarksByEntityType(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) ([]engagementm.UserBookmark, error)
 	CountUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) (int64, error)
-}
-
-// ──────────────────────────────────────────────
-// Attendance Service Interface
-// ──────────────────────────────────────────────
-
-// AttendanceServiceInterface defines the contract for show attendance (going/interested) operations.
-type AttendanceServiceInterface interface {
-	SetAttendance(userID, showID uint, status string) error
-	RemoveAttendance(userID, showID uint) error
-	GetUserAttendance(userID, showID uint) (string, error)
-	GetAttendanceCounts(showID uint) (*AttendanceCountsResponse, error)
-	GetBatchAttendanceCounts(showIDs []uint) (map[uint]*AttendanceCountsResponse, error)
-	GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error)
-	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
-	GetUserAttendedShows(userID uint, limit, offset int) ([]*AttendingShowResponse, int64, error)
 }
 
 // ──────────────────────────────────────────────

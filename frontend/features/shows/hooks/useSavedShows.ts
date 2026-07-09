@@ -7,8 +7,9 @@ import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import type {
   SavedShowsListResponse,
   SaveShowResponse,
-  CheckSavedResponse,
-  CheckBatchSavedResponse,
+  ShowSaveCount,
+  SaveCountEntry,
+  BatchSaveCountsResponse,
 } from '../types'
 
 interface UseSavedShowsOptions {
@@ -43,44 +44,52 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
 }
 
 /**
- * Hook to batch-check which shows are saved by the current user.
- * Replaces N individual useIsShowSaved calls with a single POST request.
+ * Hook to fetch a single show's public save count (plus the caller's own
+ * is_saved when authenticated). Uses optional auth, so it works logged-out.
  */
-export const useSavedShowBatch = (showIds: number[], enabled: boolean) => {
+export const useShowSaveCount = (
+  showId: number,
+  isAuthenticated: boolean,
+  enabled: boolean = true
+) => {
   return useQuery({
-    queryKey: queryKeys.savedShows.batch(showIds),
-    queryFn: async (): Promise<CheckBatchSavedResponse> => {
-      return apiRequest<CheckBatchSavedResponse>(
-        API_ENDPOINTS.SAVED_SHOWS.CHECK_BATCH,
+    queryKey: queryKeys.savedShows.count(showId, isAuthenticated),
+    queryFn: async (): Promise<ShowSaveCount> => {
+      return apiRequest<ShowSaveCount>(API_ENDPOINTS.SAVE_COUNTS.SHOW(showId), {
+        method: 'GET',
+      })
+    },
+    enabled: showId > 0 && enabled,
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch save counts for many shows in one request.
+ *
+ * Uses optional auth, so it serves anonymous visitors (counts only) and
+ * authenticated ones (counts + is_saved) from the same endpoint. This single
+ * call replaces the two the shows list used to fire — one for public counts,
+ * one for the viewer's own saved state.
+ */
+export const useShowSaveCountBatch = (
+  showIds: number[],
+  isAuthenticated: boolean
+) => {
+  return useQuery({
+    queryKey: queryKeys.savedShows.countBatch(showIds, isAuthenticated),
+    queryFn: async (): Promise<Record<string, SaveCountEntry>> => {
+      const response = await apiRequest<BatchSaveCountsResponse>(
+        API_ENDPOINTS.SAVE_COUNTS.BATCH,
         {
           method: 'POST',
           body: JSON.stringify({ show_ids: showIds }),
         }
       )
+      return response.saves
     },
-    select: (data) => new Set(data.saved_show_ids),
-    enabled: showIds.length > 0 && enabled,
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-/**
- * Hook to check if a specific show is saved
- * Requires authentication
- */
-export const useIsShowSaved = (showId: number | string | null, isAuthenticated: boolean, enabled: boolean = true) => {
-  return useQuery({
-    queryKey: queryKeys.savedShows.check(String(showId)),
-    queryFn: async (): Promise<CheckSavedResponse> => {
-      return apiRequest<CheckSavedResponse>(
-        API_ENDPOINTS.SAVED_SHOWS.CHECK(showId!),
-        {
-          method: 'GET',
-        }
-      )
-    },
-    enabled: Boolean(showId) && isAuthenticated && enabled,
-    staleTime: 30 * 1000, // 30 seconds (shorter since save state can change)
+    enabled: showIds.length > 0,
+    staleTime: 2 * 60 * 1000,
   })
 }
 
@@ -101,13 +110,9 @@ export const useSaveShow = () => {
         }
       )
     },
-    onSuccess: (_data, showId) => {
-      // Invalidate saved shows list
+    onSuccess: () => {
+      // Re-sync the user's list and every cached save count from the server.
       invalidateQueries.savedShows()
-      // Invalidate the specific show's saved status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.check(String(showId)),
-      })
     },
   })
 }
@@ -129,40 +134,71 @@ export const useUnsaveShow = () => {
         }
       )
     },
-    onSuccess: (_data, showId) => {
-      // Invalidate saved shows list
+    onSuccess: () => {
+      // Re-sync the user's list and every cached save count from the server.
       invalidateQueries.savedShows()
-      // Invalidate the specific show's saved status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.check(String(showId)),
-      })
     },
   })
 }
 
 /**
- * Combined hook that provides save/unsave toggle functionality
- * Includes optimistic updates for better UX
+ * Save/unsave toggle with optimistic updates.
+ *
+ * `isSaved` is supplied by the caller rather than fetched here: every caller
+ * already holds it, from either the batch or the single save-count query, both
+ * of which return is_saved alongside the public count. Re-querying it would
+ * mean two requests for the same fact.
  */
-export const useSaveShowToggle = (showId: number, isAuthenticated: boolean, batchIsSaved?: boolean) => {
+export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
   const queryClient = useQueryClient()
-  const { data: savedStatus } = useIsShowSaved(showId, isAuthenticated, batchIsSaved === undefined)
   const saveShow = useSaveShow()
   const unsaveShow = useUnsaveShow()
 
-  const isSaved = batchIsSaved ?? savedStatus?.is_saved ?? false
   const isLoading = saveShow.isPending || unsaveShow.isPending
 
   const toggle = async () => {
-    const checkQueryKey = queryKeys.savedShows.check(String(showId))
+    // Toggling requires auth, so the authenticated variant of the key is the
+    // only one that can be live for this user.
+    const countQueryKey = queryKeys.savedShows.count(showId, true)
+    // Prefix filter: patches every cached batch, regardless of its show-id set
+    // or auth flag, so a row's count moves the instant the heart is clicked.
+    const countBatchPrefix = ['savedShows', 'countBatch']
+    const delta = isSaved ? -1 : 1
 
-    // Cancel any in-flight check queries so stale responses don't overwrite the optimistic update
-    await queryClient.cancelQueries({ queryKey: checkQueryKey })
+    // Cancel in-flight reads so stale responses don't overwrite the optimistic update
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: countQueryKey }),
+      queryClient.cancelQueries({ queryKey: countBatchPrefix }),
+    ])
 
-    // Optimistic update
-    queryClient.setQueryData(checkQueryKey, {
-      is_saved: !isSaved,
-    })
+    const applyDelta = (dir: number) => {
+      queryClient.setQueryData<ShowSaveCount>(countQueryKey, (prev) =>
+        prev
+          ? {
+              ...prev,
+              save_count: Math.max(0, prev.save_count + dir),
+              is_saved: dir > 0,
+            }
+          : prev
+      )
+
+      queryClient.setQueriesData<Record<string, SaveCountEntry>>(
+        { queryKey: countBatchPrefix },
+        (prev) => {
+          const entry = prev?.[String(showId)]
+          if (!prev || !entry) return prev
+          return {
+            ...prev,
+            [String(showId)]: {
+              save_count: Math.max(0, entry.save_count + dir),
+              is_saved: dir > 0,
+            },
+          }
+        }
+      )
+    }
+
+    applyDelta(delta)
 
     try {
       if (isSaved) {
@@ -172,15 +208,12 @@ export const useSaveShowToggle = (showId: number, isAuthenticated: boolean, batc
       }
     } catch (error) {
       // Rollback on error
-      queryClient.setQueryData(checkQueryKey, {
-        is_saved: isSaved,
-      })
+      applyDelta(-delta)
       throw error
     }
   }
 
   return {
-    isSaved,
     isLoading,
     toggle,
     error: saveShow.error || unsaveShow.error,

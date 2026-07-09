@@ -29,7 +29,6 @@ export interface EngagementMetrics {
   request_votes: MonthlyCount[]
   revisions: MonthlyCount[]
   follows: MonthlyCount[]
-  attendance: MonthlyCount[]
 }
 
 export interface WeeklyContribution {

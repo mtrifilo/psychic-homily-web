@@ -31,9 +31,8 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useMyShows } from '@/features/shows'
 import { useSavedShows, useMySubmissions } from '@/features/shows'
-import type { AttendingShow, SavedShowResponse, ShowResponse } from '@/features/shows'
+import type { SavedShowResponse, ShowResponse } from '@/features/shows'
 import { useMyFollowing, useUnfollow } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
@@ -115,69 +114,8 @@ function EmptyState({
 }
 
 // ---------------------------------------------------------------------------
-// Shows tab — attending (going/interested) shows
+// Shows tab — the user's saved shows
 // ---------------------------------------------------------------------------
-
-function AttendingShowCard({ show }: { show: AttendingShow }) {
-  return (
-    <article className="border-b border-border/50 py-4 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Link
-              href={`/shows/${show.slug || show.show_id}`}
-              className="text-base font-semibold leading-tight hover:text-primary transition-colors truncate"
-            >
-              {show.title}
-            </Link>
-            <Badge
-              variant={show.status === 'going' ? 'default' : 'secondary'}
-              className="shrink-0 text-xs"
-            >
-              {show.status === 'going' ? (
-                <CalendarCheck className="h-3 w-3 mr-1" />
-              ) : (
-                <Star className="h-3 w-3 mr-1" />
-              )}
-              {show.status === 'going' ? 'Going' : 'Interested'}
-            </Badge>
-          </div>
-
-          <div className="text-sm text-muted-foreground">
-            {show.venue_name && (
-              <>
-                {show.venue_slug ? (
-                  <Link
-                    href={`/venues/${show.venue_slug}`}
-                    className="text-primary/80 hover:text-primary font-medium transition-colors"
-                  >
-                    {show.venue_name}
-                  </Link>
-                ) : (
-                  <span className="text-primary/80 font-medium">{show.venue_name}</span>
-                )}
-                {(show.city || show.state) && (
-                  <span className="text-muted-foreground/80">
-                    {' '}&middot; {[show.city, show.state].filter(Boolean).join(', ')}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="text-right shrink-0">
-          <div className="text-sm font-medium text-primary">
-            {formatShowDate(show.event_date, show.state ?? undefined)}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {formatShowTime(show.event_date, show.state ?? undefined)}
-          </div>
-        </div>
-      </div>
-    </article>
-  )
-}
 
 function SavedShowCard({ show }: { show: SavedShowResponse }) {
   const venue = show.venues[0]
@@ -236,22 +174,9 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
 }
 
 function ShowsTab() {
-  const [attendingOffset, setAttendingOffset] = useState(0)
-  const limit = 20
-
-  const { data: attendingData, isLoading: attendingLoading, error: attendingError, isFetching: attendingFetching } =
-    useMyShows({ status: 'all', limit, offset: attendingOffset })
-
-  const { data: savedData, isLoading: savedLoading, error: savedError } = useSavedShows()
-
-  const attendingShows = attendingData?.shows ?? []
-  const attendingTotal = attendingData?.total ?? 0
-  const attendingHasMore = attendingOffset + limit < attendingTotal
+  const { data: savedData, isLoading, error } = useSavedShows()
 
   const savedShows = savedData?.shows ?? []
-
-  const isLoading = attendingLoading || savedLoading
-  const hasAnyContent = attendingShows.length > 0 || savedShows.length > 0
 
   if (isLoading) {
     return (
@@ -261,7 +186,7 @@ function ShowsTab() {
     )
   }
 
-  if (attendingError && savedError) {
+  if (error) {
     return (
       <div className="text-center text-destructive py-12">
         <p>Failed to load your shows. Please try again later.</p>
@@ -274,64 +199,20 @@ function ShowsTab() {
       {/* Calendar feed subscription */}
       <CalendarFeedSection />
 
-      {!hasAnyContent ? (
+      {savedShows.length === 0 ? (
         <EmptyState
           icon={Calendar}
           title="No shows saved yet"
-          description="Mark shows as Going/Interested or save them to see them here."
+          description="Save shows to see them here."
           browseHref="/shows"
           browseLabel="Browse Shows"
         />
       ) : (
-        <>
-          {/* Attending shows section */}
-          {attendingShows.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Going / Interested
-              </h3>
-              <div className={attendingFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
-                <section className="w-full">
-                  {attendingShows.map((show) => (
-                    <AttendingShowCard key={`${show.show_id}-${show.status}`} show={show} />
-                  ))}
-                </section>
-
-                {attendingHasMore && (
-                  <div className="text-center py-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => setAttendingOffset((prev) => prev + limit)}
-                      disabled={attendingFetching}
-                    >
-                      {attendingFetching ? 'Loading...' : 'Load More'}
-                    </Button>
-                  </div>
-                )}
-
-                {attendingTotal > 0 && (
-                  <p className="text-center text-xs text-muted-foreground mt-1">
-                    {Math.min(attendingOffset + limit, attendingTotal)} of {attendingTotal} attending
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Saved shows section */}
-          {savedShows.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Saved
-              </h3>
-              <section className="w-full">
-                {savedShows.map((show) => (
-                  <SavedShowCard key={show.id} show={show} />
-                ))}
-              </section>
-            </div>
-          )}
-        </>
+        <section className="w-full">
+          {savedShows.map((show) => (
+            <SavedShowCard key={show.id} show={show} />
+          ))}
+        </section>
       )}
     </div>
   )

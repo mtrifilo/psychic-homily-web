@@ -175,7 +175,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         )}
       </div>
 
-      {/* Action cluster (attendance + save + admin status toggles) */}
+      {/* Action cluster (save + collect + report + admin status toggles) */}
       {actions && (
         <div className="flex flex-col items-start sm:items-end gap-2 sm:shrink-0">
           {actions}

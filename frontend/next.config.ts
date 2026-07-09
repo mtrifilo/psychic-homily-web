@@ -105,12 +105,7 @@ const nextConfig: NextConfig = {
         destination: '/collections/:slug',
         permanent: true,
       },
-      // "my-shows" and "following" consolidated into Library
-      {
-        source: '/my-shows',
-        destination: '/library',
-        permanent: false,
-      },
+      // "following" consolidated into Library
       {
         source: '/following',
         destination: '/library',

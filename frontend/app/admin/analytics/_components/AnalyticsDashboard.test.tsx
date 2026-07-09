@@ -80,7 +80,6 @@ const mockEngagementData = {
   request_votes: [{ month: '2025-10', count: 15 }],
   revisions: [{ month: '2025-10', count: 8 }],
   follows: [{ month: '2025-10', count: 25 }],
-  attendance: [{ month: '2025-10', count: 40 }],
 }
 
 const mockCommunityData = {
@@ -336,7 +335,7 @@ describe('COLORS palette invariants (PSY-908)', () => {
     ],
     'Content Curation': ['tags_added', 'tag_votes', 'collection_items'],
     'Requests & Voting': ['requests', 'request_votes'],
-    'Social Engagement': ['bookmarks', 'follows', 'attendance', 'revisions'],
+    'Social Engagement': ['bookmarks', 'follows', 'revisions'],
     'Show Approval': ['approved', 'rejected'],
   }
 

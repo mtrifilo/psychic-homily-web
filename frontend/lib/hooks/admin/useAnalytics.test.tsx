@@ -108,7 +108,6 @@ describe('useAnalytics hooks', () => {
         request_votes: [{ month: '2026-01', count: 12 }],
         revisions: [{ month: '2026-01', count: 8 }],
         follows: [{ month: '2026-01', count: 25 }],
-        attendance: [{ month: '2026-01', count: 40 }],
       }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 
@@ -134,7 +133,6 @@ describe('useAnalytics hooks', () => {
         request_votes: [],
         revisions: [],
         follows: [],
-        attendance: [],
       })
 
       const { result } = renderHook(() => useEngagementMetrics(24), {
