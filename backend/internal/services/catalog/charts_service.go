@@ -117,10 +117,11 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 // namesByOwnerID runs a two-column enrichment query — it must SELECT the
 // owning entity's id AS owner_id plus a name, bind exactly one `IN ?` on ids,
 // and own its ORDER BY (which fixes the name order in the result slices) —
-// and folds the rows into owner_id → names. `what` labels the error. Shared
-// by every chart-module name enrichment so the empty-input and error
-// conventions can't drift between modules. Returns a nil map on empty input
-// (lookups on nil maps are safe no-ops).
+// and folds the rows into owner_id → names. `what` labels the error. The
+// query must be a compile-time constant, never interpolated. Shared by every
+// chart-module name enrichment so the empty-input and error conventions
+// can't drift between modules. Returns a nil map on empty input (lookups on
+// nil maps are safe no-ops).
 func (s *ChartsService) namesByOwnerID(query string, ids []uint, what string) (map[uint][]string, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -135,6 +136,13 @@ func (s *ChartsService) namesByOwnerID(query string, ids []uint, what string) (m
 	}
 	names := make(map[uint][]string)
 	for _, r := range rows {
+		// A zero owner id means the query broke the AS owner_id contract —
+		// gorm's Scan leaves unmatched columns at zero WITHOUT erroring, so
+		// without this guard every name would silently fold under key 0 and
+		// the module would ship empty enrichment. Fail loudly instead.
+		if r.OwnerID == 0 {
+			return nil, fmt.Errorf("%s enrichment query is missing the AS owner_id alias", what)
+		}
 		names[r.OwnerID] = append(names[r.OwnerID], r.Name)
 	}
 	return names, nil
@@ -964,8 +972,8 @@ const newReleaseDateSQL = `COALESCE(r.release_date, (r.created_at AT TIME ZONE '
 // window — the honest "what came out / arrived recently" list, with NO
 // engagement inputs. Future-dated releases (announced but not yet out) are
 // excluded until their release day, mirroring the played-by-now convention of
-// the show charts. Ties on the day break by created_at then id so pagination
-// stays deterministic.
+// the show charts. Ties on the day break by created_at then id, so the
+// ordering is fully deterministic (which full-list pagination will rely on).
 func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -981,6 +989,16 @@ func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) 
 		ReleaseType string     `gorm:"column:release_type"`
 		ReleaseDate *time.Time `gorm:"column:release_date"`
 		AddedAt     time.Time  `gorm:"column:added_at"`
+	}
+
+	// formatDay renders the DATE scan back to the contract's day-grain
+	// YYYY-MM-DD string (pgx scans DATE as midnight-UTC time.Time).
+	formatDay := func(t *time.Time) *string {
+		if t == nil {
+			return nil
+		}
+		s := t.Format("2006-01-02")
+		return &s
 	}
 
 	query := `
@@ -1017,7 +1035,7 @@ func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) 
 			Title:       r.Title,
 			Slug:        r.Slug,
 			ReleaseType: r.ReleaseType,
-			ReleaseDate: r.ReleaseDate,
+			ReleaseDate: formatDay(r.ReleaseDate),
 			AddedAt:     r.AddedAt,
 			ArtistNames: []string{},
 			LabelNames:  []string{},

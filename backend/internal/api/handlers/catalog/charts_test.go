@@ -751,7 +751,8 @@ func TestChartsHandler_MostAnticipated_ExplicitLimitForwarded(t *testing.T) {
 // ============================================================================
 
 func TestChartsHandler_NewReleases_Success(t *testing.T) {
-	released := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	released := "2026-07-03"
+	addedAt := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
 	h := NewChartsHandler(&testhelpers.MockChartsService{
 		GetNewReleasesFn: func(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
 			if window != contracts.ChartWindowQuarter {
@@ -761,7 +762,7 @@ func TestChartsHandler_NewReleases_Success(t *testing.T) {
 				t.Errorf("expected limit=20, got %d", limit)
 			}
 			return []contracts.NewRelease{
-				{ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: released, ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"}},
+				{ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: addedAt, ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"}},
 			}, nil
 		},
 	})

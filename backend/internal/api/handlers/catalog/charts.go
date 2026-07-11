@@ -528,19 +528,19 @@ type GetNewReleasesRequest struct {
 }
 
 // NewReleaseResponse is a single release in the response. release_date is
-// the world release date; added_at is when the release entered the graph. A
-// null release_date means the row surfaced by its graph-added day (the
-// graph-new tell); rows with a known world date always order and window by
-// it.
+// the world release date as a day-grain YYYY-MM-DD string (matching the
+// release contracts); added_at is when the release entered the graph. A null
+// release_date means the row surfaced by its graph-added day (the graph-new
+// tell); rows with a known world date always order and window by it.
 type NewReleaseResponse struct {
-	ReleaseID   uint       `json:"release_id"`
-	Title       string     `json:"title"`
-	Slug        string     `json:"slug"`
-	ReleaseType string     `json:"release_type"`
-	ReleaseDate *time.Time `json:"release_date"`
-	AddedAt     time.Time  `json:"added_at"`
-	ArtistNames []string   `json:"artist_names"`
-	LabelNames  []string   `json:"label_names"`
+	ReleaseID   uint      `json:"release_id"`
+	Title       string    `json:"title"`
+	Slug        string    `json:"slug"`
+	ReleaseType string    `json:"release_type"`
+	ReleaseDate *string   `json:"release_date"`
+	AddedAt     time.Time `json:"added_at"`
+	ArtistNames []string  `json:"artist_names"`
+	LabelNames  []string  `json:"label_names"`
 }
 
 // GetNewReleasesResponse is the Huma response for GET /charts/new-releases

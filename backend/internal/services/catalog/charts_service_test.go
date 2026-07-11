@@ -1666,19 +1666,25 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_WindowBoundar
 	suite.createDatedRelease("Thirty One", dateStr(today.AddDate(0, 0, -31)), now.AddDate(0, 0, -200))
 	suite.createDatedRelease("Sixty", dateStr(today.AddDate(0, 0, -60)), now.AddDate(0, 0, -200))
 	suite.createDatedRelease("Ancient", dateStr(today.AddDate(0, 0, -200)), now.AddDate(0, 0, -200))
+	// The same edges through the COALESCE FALLBACK branch (nil release_date →
+	// UTC day of created_at) — this is the session-TZ-sensitive cast, so the
+	// edge must be pinned on this branch too, not just via release_date.
+	suite.createDatedRelease("Fallback Edge Thirty", nil, today.AddDate(0, 0, -30))
+	suite.createDatedRelease("Fallback Thirty One", nil, today.AddDate(0, 0, -31))
 
 	month, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, 20)
 	suite.Require().NoError(err)
-	suite.Require().Len(month, 1, "month window keeps the inclusive 30-day edge, drops day 31")
-	suite.Equal("Edge Thirty", month[0].Title)
+	suite.Require().Len(month, 2, "month window keeps the inclusive 30-day edge on both branches, drops day 31")
+	titles := []string{month[0].Title, month[1].Title}
+	suite.ElementsMatch([]string{"Edge Thirty", "Fallback Edge Thirty"}, titles)
 
 	quarter, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20)
 	suite.Require().NoError(err)
-	suite.Len(quarter, 3, "quarter adds days 31 and 60")
+	suite.Len(quarter, 5, "quarter adds days 31 (both branches) and 60")
 
 	allTime, err := suite.chartsService.GetNewReleases(contracts.ChartWindowAllTime, 20)
 	suite.Require().NoError(err)
-	suite.Len(allTime, 4)
+	suite.Len(allTime, 6)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ExcludesFutureDated() {
