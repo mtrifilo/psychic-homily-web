@@ -536,3 +536,86 @@ func TestChartsHandler_VenueOpenerEndpoints_InvalidWindow422(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================================
+// Tests: GetOnTheRadioArtistsHandler
+// ============================================================================
+
+func TestChartsHandler_OnTheRadio_Success(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetOnTheRadioArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+			if window != contracts.ChartWindowQuarter {
+				t.Errorf("expected default window=quarter, got %q", window)
+			}
+			if limit != 20 {
+				t.Errorf("expected limit=20, got %d", limit)
+			}
+			return []contracts.OnTheRadioArtist{
+				{ArtistID: 3, Name: "Airwave Act", Slug: "airwave-act", City: "Seattle", State: "WA", PlayCount: 42, StationCount: 2, IsNew: true},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetOnTheRadioArtistsHandler(context.Background(), &GetOnTheRadioArtistsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
+	}
+	if len(resp.Body.Artists) != 1 {
+		t.Fatalf("expected 1 artist, got %d", len(resp.Body.Artists))
+	}
+	a := resp.Body.Artists[0]
+	if a.Name != "Airwave Act" || a.PlayCount != 42 || a.StationCount != 2 || !a.IsNew {
+		t.Errorf("unexpected mapping: %+v", a)
+	}
+}
+
+func TestChartsHandler_OnTheRadio_WindowPassthrough(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetOnTheRadioArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+			if window != contracts.ChartWindowMonth {
+				t.Errorf("expected window=month, got %q", window)
+			}
+			return []contracts.OnTheRadioArtist{}, nil
+		},
+	})
+
+	resp, err := h.GetOnTheRadioArtistsHandler(context.Background(), &GetOnTheRadioArtistsRequest{Window: "month"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "month" {
+		t.Errorf("expected echoed window=month, got %q", resp.Body.Window)
+	}
+}
+
+func TestChartsHandler_OnTheRadio_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetOnTheRadioArtistsFn: func(contracts.ChartWindow, int) ([]contracts.OnTheRadioArtist, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetOnTheRadioArtistsHandler(context.Background(), &GetOnTheRadioArtistsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_OnTheRadio_InvalidWindow422 exercises the huma enum-tag
+// validation chain (per the dead-validate-tag gotcha: assert the 422, don't
+// trust the tag).
+func TestChartsHandler_OnTheRadio_InvalidWindow422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/on-the-radio", h.GetOnTheRadioArtistsHandler)
+
+	if resp := api.Get("/charts/on-the-radio?window=bogus"); resp.Code != 422 {
+		t.Errorf("expected 422 for window=bogus, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/on-the-radio?window=all_time"); resp.Code != 200 {
+		t.Errorf("expected 200 for window=all_time, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/on-the-radio"); resp.Code != 200 {
+		t.Errorf("expected 200 for absent window, got %d", resp.Code)
+	}
+}
