@@ -2,11 +2,12 @@
 
 import { useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { useQueryState } from 'nuqs'
 import { useArtists, useArtistCities } from '../hooks/useArtists'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
-import { parseCitiesParam, buildCitiesParam } from '@/components/filters/cityParams'
+import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
@@ -29,11 +30,18 @@ export function ArtistList() {
   // "0 artists" confusion where most artists have city: null. Users can
   // still filter by city on /artists manually — the URL drives state.
 
-  // Parse multi-city from URL
-  const citiesParam = searchParams.get('cities')
+  // `?cities=` via nuqs (shared parser). /artists has NO derived default —
+  // absent (null) simply means "all artists" (PSY-496 above) — so unlike
+  // /shows, clearing writes a bare URL, not the ALL_CITIES sentinel. The
+  // sentinel is still tolerated on deep links (?cities=all → []).
+  const [citiesState, setCities] = useQueryState(
+    'cities',
+    citiesParser.withOptions({ history: 'push', startTransition })
+  )
   const selectedCities: CityState[] = useMemo(() => {
-    return parseCitiesParam(citiesParam)
-  }, [citiesParam])
+    if (citiesState === ALL_CITIES || citiesState === null) return []
+    return citiesState
+  }, [citiesState])
 
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
@@ -48,16 +56,21 @@ export function ArtistList() {
     tagMatch,
   })
 
-  const writeParams = useCallback(
-    (
-      nextCities: CityState[] = selectedCities,
-      nextTags: string[] = selectedTags,
-      nextMatch: 'all' | 'any' = tagMatch
-    ) => {
-      const params = new URLSearchParams()
-      if (nextCities.length > 0) {
-        params.set('cities', buildCitiesParam(nextCities))
-      }
+  // City changes write `?cities=` via nuqs (empty → null → bare URL; no
+  // default derivation on /artists, see PSY-496 note above).
+  const handleFilterChange = useCallback(
+    (cities: CityState[]) => {
+      void setCities(cities.length > 0 ? cities : null)
+    },
+    [setCities]
+  )
+
+  // Tag changes rewrite only the tag params, preserving `?cities=` verbatim.
+  const writeTags = useCallback(
+    (nextTags: string[], nextMatch: 'all' | 'any') => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('tags')
+      params.delete('tag_match')
       if (nextTags.length > 0) {
         params.set('tags', buildTagsParam(nextTags))
         if (nextMatch === 'any') params.set('tag_match', 'any')
@@ -69,23 +82,26 @@ export function ArtistList() {
         })
       })
     },
-    [selectedCities, selectedTags, tagMatch, router]
+    [searchParams, router]
   )
 
-  const handleFilterChange = (cities: CityState[]) => {
-    writeParams(cities, selectedTags, tagMatch)
-  }
-
   const handleTagsChange = useCallback(
-    (nextTags: string[]) => {
-      writeParams(selectedCities, nextTags, tagMatch)
-    },
-    [selectedCities, tagMatch, writeParams]
+    (nextTags: string[]) => writeTags(nextTags, tagMatch),
+    [tagMatch, writeTags]
   )
 
   const handleTagsClear = useCallback(() => {
-    writeParams(selectedCities, [], tagMatch)
-  }, [selectedCities, tagMatch, writeParams])
+    writeTags([], tagMatch)
+  }, [tagMatch, writeTags])
+
+  // "Clear filters" resets tags AND cities in a SINGLE navigation — mixing a
+  // router push (tags) with nuqs's throttled setCities in one tick races
+  // (nuqs aborts its queue on a foreign history update; see PSY-1388).
+  const handleClearFilters = useCallback(() => {
+    startTransition(() => {
+      router.push('/artists', { scroll: false })
+    })
+  }, [router])
 
   // Only show full spinner on FIRST load (no data yet)
   if ((isLoading && !data) || (citiesLoading && !citiesData)) {
@@ -174,10 +190,7 @@ export function ArtistList() {
             </p>
             {hasAnyFilter && (
               <button
-                onClick={() => {
-                  if (hasTagFilter) handleTagsClear()
-                  if (selectedCities.length > 0) handleFilterChange([])
-                }}
+                onClick={handleClearFilters}
                 className="mt-4 text-primary hover:underline"
               >
                 Clear filters

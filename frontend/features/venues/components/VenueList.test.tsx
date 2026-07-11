@@ -14,6 +14,20 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams(),
 }))
 
+// nuqs `useQueryState` bridged to the same mocked searchParams (single URL
+// source of truth); the real citiesParser runs. The setter is asserted on.
+const mockSetCities = vi.fn()
+vi.mock('nuqs', async importOriginal => {
+  const actual = await importOriginal<typeof import('nuqs')>()
+  return {
+    ...actual,
+    useQueryState: (key: string, parser: { parse: (v: string) => unknown }) => {
+      const raw = mockSearchParams().get(key)
+      return [raw != null ? parser.parse(raw) : null, mockSetCities]
+    },
+  }
+})
+
 // Mock venue hooks
 const mockUseVenues = vi.fn()
 const mockUseVenueCities = vi.fn()

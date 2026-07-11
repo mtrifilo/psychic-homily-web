@@ -15,6 +15,20 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
+// nuqs `useQueryState` bridged to the same mocked searchParams (single URL
+// source of truth); the real citiesParser runs. The setter is asserted on.
+const mockSetCities = vi.fn()
+vi.mock('nuqs', async importOriginal => {
+  const actual = await importOriginal<typeof import('nuqs')>()
+  return {
+    ...actual,
+    useQueryState: (key: string, parser: { parse: (v: string) => unknown }) => {
+      const raw = mockGet(key)
+      return [raw != null ? parser.parse(raw) : null, mockSetCities]
+    },
+  }
+})
+
 // Mock hooks
 const mockUseArtists = vi.fn()
 const mockUseArtistCities = vi.fn()
@@ -390,6 +404,25 @@ describe('ArtistList', () => {
           cities: [{ city: 'Phoenix', state: 'AZ' }],
         })
       )
+    })
+
+    it('clearing the city filter writes null via nuqs (bare URL — no sentinel on /artists)', async () => {
+      const user = userEvent.setup()
+      mockUseArtistCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', artist_count: 5 }] },
+        isLoading: false,
+        isFetching: false,
+      })
+      mockGet.mockImplementation((key: string) =>
+        key === 'cities' ? 'Phoenix,AZ' : null
+      )
+
+      renderWithProviders(<ArtistList />)
+      await user.click(screen.getByTestId('clear-filters'))
+
+      // No derived default on /artists → empty selection clears the param
+      // (null), unlike /shows' explicit ALL_CITIES sentinel (PSY-1390).
+      expect(mockSetCities).toHaveBeenCalledWith(null)
     })
   })
 })
