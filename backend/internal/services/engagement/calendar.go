@@ -185,7 +185,7 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 	}
 
 	// Fetch saved shows (large limit to get all relevant shows)
-	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, 500, 0)
+	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, 500, 0, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch saved shows: %w", err)
 	}

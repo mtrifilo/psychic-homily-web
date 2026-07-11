@@ -52,8 +52,9 @@ type UnsaveShowResponse struct {
 
 // GetSavedShowsRequest represents the HTTP request for listing saved shows
 type GetSavedShowsRequest struct {
-	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of shows per page"`
-	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of shows per page"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	TimeFilter string `query:"time_filter" required:"false" enum:"upcoming,past" doc:"Partition by show date in the venue's local timezone: 'upcoming' (event date today or later, soonest first) or 'past' (event date before today, most recent first). Omitted: all saved shows, most recently saved first."`
 }
 
 // GetSavedShowsResponse represents the HTTP response for listing saved shows
@@ -218,10 +219,12 @@ func (h *SavedShowHandler) GetSavedShowsHandler(ctx context.Context, req *GetSav
 		"user_id", user.ID,
 		"limit", limit,
 		"offset", offset,
+		"time_filter", req.TimeFilter,
 	)
 
-	// Get saved shows
-	shows, total, err := h.savedShowService.GetUserSavedShows(user.ID, limit, offset)
+	// Get saved shows (huma's enum validation guarantees TimeFilter is
+	// "", "upcoming", or "past" here)
+	shows, total, err := h.savedShowService.GetUserSavedShows(user.ID, limit, offset, req.TimeFilter)
 	if err != nil {
 		logger.FromContext(ctx).Error("get_saved_shows_failed",
 			"user_id", user.ID,
