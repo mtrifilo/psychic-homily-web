@@ -685,8 +685,9 @@ type GetPersonalChartsStatsResponse struct {
 	// CacheControl is no-store: auth is cookie-based, so nothing else marks
 	// this per-user response uncacheable — without it a browser's heuristic
 	// cache (or any future proxy in front of the otherwise-public /charts/*)
-	// could replay one user's private stats to another. Same convention as
-	// the calendar and unsubscribe handlers.
+	// could replay one user's private stats to another. Same intent as the
+	// calendar/unsubscribe handlers (per-user responses marked uncacheable;
+	// those are chi handlers setting the header imperatively).
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		SavedShows      int                       `json:"saved_shows"`
