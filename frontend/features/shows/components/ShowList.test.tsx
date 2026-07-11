@@ -441,9 +441,10 @@ describe('ShowList', () => {
     })
   })
 
-  // IP-geo soft default (PSY-946). ShowList consumes the real
-  // useGeoDefaultCity hook, driven here via a mocked /api/geo fetch + the
-  // useShowCities has-shows list, and seeds `?cities=` via router.replace.
+  // IP-geo soft default (PSY-946, derived PSY-1391). ShowList consumes the
+  // real useGeoDefaultCity hook, driven here via a mocked /api/geo fetch + the
+  // useShowCities has-shows list; the derived value folds into the effective
+  // filter — nothing is written to the URL.
   describe('IP-geo default city (PSY-946)', () => {
     function mockGeoFetch(geo: { city: string; state: string } | null) {
       return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -483,14 +484,20 @@ describe('ShowList', () => {
       window.sessionStorage.clear()
     })
 
-    it('seeds the canonical geo city onto ?cities= for an anon visitor with shows', async () => {
+    it('derives the canonical geo city for an anon visitor with shows (no URL write)', async () => {
       mockGeoFetch({ city: 'Omaha', state: 'NE' })
       render(<ShowList />)
+      // The geo default is DERIVED into the effective filter...
       await waitFor(() =>
-        expect(mockReplace).toHaveBeenCalledWith('/shows?cities=Omaha%2CNE', {
-          scroll: false,
-        }),
+        expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cities: [{ city: 'Omaha', state: 'NE' }],
+          }),
+        ),
       )
+      // ...and never seeded onto the URL.
+      expect(mockReplace).not.toHaveBeenCalled()
+      expect(mockSetCities).not.toHaveBeenCalled()
     })
 
     it('does NOT seed when the geo city has no shows', async () => {

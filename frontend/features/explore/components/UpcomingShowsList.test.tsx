@@ -294,7 +294,7 @@ describe('UpcomingShowsList', () => {
       offset: 0,
     }
 
-    it('seeds the geo city for an anon visitor when it has upcoming shows', async () => {
+    it('derives the geo city for an anon visitor when it has upcoming shows (no URL write)', async () => {
       mockShowCities = [
         { city: 'Phoenix', state: 'AZ', show_count: 5 },
         { city: 'Omaha', state: 'NE', show_count: 3 },
@@ -307,10 +307,13 @@ describe('UpcomingShowsList', () => {
       render(
         <UpcomingShowsList geoDefaultCity={{ city: 'Omaha', state: 'NE' }} />,
       )
-      // The effect seeds via router.replace with the canonical city,state.
-      expect(mockReplace).toHaveBeenCalledWith('/explore?cities=Omaha%2CNE', {
-        scroll: false,
-      })
+      // The geo default is DERIVED into the selection (PSY-1391)...
+      expect(await screen.findByTestId('selected-labels')).toHaveTextContent(
+        'Omaha,NE',
+      )
+      // ...and never written to the URL.
+      expect(mockReplace).not.toHaveBeenCalled()
+      expect(mockSetCities).not.toHaveBeenCalled()
     })
 
     it('does NOT seed when the geo city has no upcoming shows', async () => {
@@ -345,7 +348,7 @@ describe('UpcomingShowsList', () => {
       expect(mockReplace).not.toHaveBeenCalled()
     })
 
-    it('matches the geo city case/whitespace-insensitively, seeding PH canonical casing', () => {
+    it('matches the geo city case/whitespace-insensitively, deriving PH canonical casing', async () => {
       mockShowCities = [{ city: 'Omaha', state: 'NE', show_count: 3 }]
       mockUseExploreUpcomingShows.mockReturnValue({
         data: omahaShow,
@@ -355,10 +358,12 @@ describe('UpcomingShowsList', () => {
       render(
         <UpcomingShowsList geoDefaultCity={{ city: ' omaha ', state: 'ne' }} />,
       )
-      // Seeds the canonical "Omaha,NE" from the cities list, not the raw header.
-      expect(mockReplace).toHaveBeenCalledWith('/explore?cities=Omaha%2CNE', {
-        scroll: false,
-      })
+      // Derives the canonical "Omaha,NE" from the cities list, not the raw
+      // header — and never writes it to the URL.
+      expect(await screen.findByTestId('selected-labels')).toHaveTextContent(
+        'Omaha,NE',
+      )
+      expect(mockReplace).not.toHaveBeenCalled()
     })
 
     it('lets authed favorites win over geo (resolution order)', () => {

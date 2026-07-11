@@ -17,7 +17,6 @@ import { ShowCard } from './ShowCard'
 import { ShowListSkeleton } from './ShowListSkeleton'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 import {
-  buildCitiesParam,
   citiesEqual,
   citiesParser,
   ALL_CITIES,
@@ -65,18 +64,6 @@ export function ShowList() {
   const legacyCity = searchParams.get('city')
   const legacyState = searchParams.get('state')
 
-  // The effective city filter, DERIVED during render — never seeded into the
-  // URL by an effect. A bare /shows resolves to the user's favorite; an explicit
-  // ?cities=all or ?cities=<pick> wins. Deriving (rather than writing the
-  // default from a mount effect) is what makes the default survive client-side
-  // navigation: the URL, not a mount ref, is the source of truth.
-  const selectedCities: CityState[] = useMemo(() => {
-    if (citiesState === ALL_CITIES) return []
-    if (citiesState) return citiesState
-    if (legacyCity && legacyState) return [{ city: legacyCity, state: legacyState }]
-    return favoriteCities
-  }, [citiesState, legacyCity, legacyState, favoriteCities])
-
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
   const tagMatchParam = searchParams.get('tag_match')
@@ -118,19 +105,10 @@ export function ShowList() {
 
   // IP-geo soft default for anon visitors (PSY-946). /shows reads geo via the
   // `/api/geo` edge route handler client-side (the page stays ISR — it must
-  // not read `next/headers`). Seeds the canonical city onto `?cities=` via the
-  // same router.replace mechanism favorites use; favorites and an existing
-  // `?cities=`/legacy selection both win (the hook stands down).
-  const onSeedGeo = useCallback(
-    (city: CityState) => {
-      const params = new URLSearchParams()
-      params.set('cities', buildCitiesParam([city]))
-      startTransition(() => {
-        router.replace(`/shows?${params.toString()}`, { scroll: false })
-      })
-    },
-    [router]
-  )
+  // not read `next/headers`). The hook RETURNS the derived canonical city;
+  // it's folded into the derived selection below (never written to the URL).
+  // Favorites and an existing `?cities=`/legacy selection both win (the hook
+  // stands down).
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
     cities,
     isAuthenticated,
@@ -138,8 +116,21 @@ export function ShowList() {
     favoriteCities,
     hasExistingSelection,
     enableClientFetch: true,
-    onSeed: onSeedGeo,
   })
+
+  // The effective city filter, DERIVED during render — never seeded into the
+  // URL by an effect. A bare /shows resolves to the user's favorite (or, for
+  // anon visitors, the geo default); an explicit ?cities=all or ?cities=<pick>
+  // wins. Deriving (rather than writing the default from a mount effect) is
+  // what makes the default survive client-side navigation: the URL, not a
+  // mount ref, is the source of truth.
+  const selectedCities: CityState[] = useMemo(() => {
+    if (citiesState === ALL_CITIES) return []
+    if (citiesState) return citiesState
+    if (legacyCity && legacyState) return [{ city: legacyCity, state: legacyState }]
+    if (favoriteCities.length > 0) return favoriteCities
+    return appliedGeoDefault ? [appliedGeoDefault] : []
+  }, [citiesState, legacyCity, legacyState, favoriteCities, appliedGeoDefault])
 
   const { data, isLoading, isFetching, error, refetch } = useUpcomingShows({
     timezone,

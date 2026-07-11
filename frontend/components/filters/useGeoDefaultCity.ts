@@ -13,9 +13,13 @@ import { citiesEqual } from './cityParams'
  * Extracted from /explore's `UpcomingShowsList` reconciliation logic (PSY-926)
  * so the SAME resolution-order, has-shows gate, canonical-city match, and
  * "from your location — change" affordance run on all three city-filter
- * surfaces: /explore, /shows, and home. The seeding MECHANISM differs per
- * surface (URL `?cities=` vs local state), so the hook decides WHAT to seed
- * and the caller wires its own `onSeed`.
+ * surfaces: /explore, /shows, and home.
+ *
+ * The hook RETURNS the derived geo default; it never writes it anywhere (no
+ * URL seeding, no setState into the caller). Callers fold the value into
+ * their own render-derived selection (URL value ?? favorites ?? geo). The
+ * only effect inside is the `/api/geo` fetch itself — a genuine
+ * external-system sync.
  *
  * Two geo SOURCES, one hook (see the two-read-paths note in
  * `lib/geo-default.ts`):
@@ -27,15 +31,14 @@ import { citiesEqual } from './cityParams'
  *     sessionStorage so cross-page navigation doesn't re-fetch.
  *
  * Resolution order (mirrors PSY-926, unchanged):
- *   1. authed user with `favoriteCities` → seed favorites (caller's concern;
- *      pass `favoriteCities` so the hook stands down — it never overrides
- *      favorites),
- *   2. anon + geo city that HAS upcoming shows in PH's data → seed the
- *      CANONICAL city from `cities` (never the raw header — injection-safe),
+ *   1. authed user with `favoriteCities` → favorites (caller's concern; pass
+ *      `favoriteCities` so the hook stands down — it never overrides them),
+ *   2. anon + geo city that HAS upcoming shows in PH's data → the CANONICAL
+ *      city from `cities` (never the raw header — injection-safe),
  *   3. otherwise → no default ("All cities").
  *
- * The seeded value is always the canonical PH `{city,state}` from `cities`, so
- * the `?cities=` it produces matches the backend filter exactly.
+ * The returned value is always the canonical PH `{city,state}` from `cities`,
+ * so the selection it produces matches the backend filter exactly.
  */
 
 /**
@@ -69,22 +72,21 @@ interface UseGeoDefaultCityParams {
   /** Fetch `/api/geo` client-side (/shows + home). Mutually exclusive in
    *  practice with `geoFromServer`. */
   enableClientFetch?: boolean
-  /** Called once with the canonical city the hook decides to seed. The caller
-   *  wires its surface's mechanism (router.replace for URL surfaces,
-   *  setSelectedCities for state surfaces). */
-  onSeed: (city: CityState) => void
 }
 
 interface UseGeoDefaultCityResult {
-  /** The geo city currently seeded (and not yet overridden by the user), or
-   *  null. Drives the "Showing {City}, {ST} (from your location)" affordance.
-   *  Null whenever the selection isn't the geo default. */
+  /** The canonical has-shows geo city to use as the anon fallback default,
+   *  DERIVED — the hook never writes it anywhere. Callers fold it into their
+   *  own derived selection (URL value ?? favorites ?? this). Null whenever
+   *  ineligible (authed / favorites present / existing selection / user has
+   *  interacted / auth still resolving) or no has-shows match. Also drives the
+   *  "Showing {City}, {ST} (from your location)" affordance. */
   appliedGeoDefault: CityState | null
-  /** Call from the surface's filter-change / "change" handler so the
-   *  affordance never lingers over a user-chosen selection. Also permanently
-   *  blocks a still-in-flight geo fetch from seeding AFTER the user has acted
-   *  (the client-fetch surfaces resolve geo async, so this race is real;
-   *  /explore's server prop resolves before mount, so it's a no-op there). */
+  /** Call from the surface's filter-change / "change" handler. Flips the hook
+   *  permanently ineligible so the affordance drops and a late-resolving
+   *  `/api/geo` fetch can never surface a default over the user's choice —
+   *  the old seed-effect race is gone structurally (nothing is written), but
+   *  without this a slow fetch could still flash the derived default in. */
   notifyUserInteracted: () => void
 }
 
@@ -182,52 +184,33 @@ export function useGeoDefaultCity({
   hasExistingSelection,
   geoFromServer,
   enableClientFetch = false,
-  onSeed,
 }: UseGeoDefaultCityParams): UseGeoDefaultCityResult {
-  const hasAppliedDefaults = useRef(false)
-  // Set once the user interacts with the filter. Permanently blocks seeding —
-  // guards the async race where the `/api/geo` fetch resolves AFTER the user
-  // has already chosen (or cleared) a city on the client-fetch surfaces.
-  const userInteracted = useRef(false)
+  // Set once the user interacts with the filter. State (not a ref): the
+  // derived default below must recompute — and the affordance drop — on the
+  // very next render after the flip.
+  const [userInteracted, setUserInteracted] = useState(false)
 
-  // Eligibility for the geo lookup: only anon visitors with no favorites, no
-  // existing selection, and no prior interaction, once auth has settled. Gates
-  // BOTH the client fetch (efficiency: an authed / favorited visitor never
-  // hits the edge) and the seed effect below.
-  //
-  // Reading `userInteracted.current` during render is intentional and safe
-  // here: the ONLY writer is `notifyUserInteracted`, which also calls
-  // `setAppliedGeoDefault(null)`. That state update forces a re-render, so the
-  // recomputed `eligible` (and the gated fetch) always observe the flip — the
-  // ref never goes stale relative to render. It's a ref, not state, so the
-  // async `/api/geo` resolution can't re-seed over a user choice that landed
-  // first (see the seed effect's `userInteracted.current` guard below).
-  //
-  // The disable spans down through `useGeoSource` because the rule taints
-  // every render value derived from the ref (here `eligible`), so the gated
-  // hook call re-reports without it.
-  /* eslint-disable react-hooks/refs */
+  // Eligibility: only anon visitors with no favorites, no existing selection,
+  // and no prior interaction, once auth has settled. Gates BOTH the client
+  // fetch (efficiency: an authed / favorited visitor never hits the edge) and
+  // the derived default. Waiting on authLoading matters: deriving the anon
+  // geo default while auth is still resolving could wrongly show geo for a
+  // user who turns out to be authenticated (whose favorites should win).
   const eligible =
     !authLoading &&
     !isAuthenticated &&
     favoriteCities.length === 0 &&
     !hasExistingSelection &&
-    !userInteracted.current
+    !userInteracted
 
   const rawGeo = useGeoSource(geoFromServer, enableClientFetch, eligible)
-  /* eslint-enable react-hooks/refs */
-  // Tracks that the CURRENT selection was auto-applied from the IP-geo
-  // suggestion (vs. a user / favorites / URL choice). Drives the affordance;
-  // cleared the moment the user touches the filter.
-  const [appliedGeoDefault, setAppliedGeoDefault] = useState<CityState | null>(
-    null,
-  )
 
   // The geo suggestion reconciled against PH's has-shows data via the shared
   // two-tier `matchByGeo` (exact city/state, else nearest has-shows city by
   // haversine — PSY-981; full contract on `matchByGeo`). Returns the CANONICAL
-  // {city,state} from `cities` (so the seed matches the backend filter exactly)
-  // — never the raw header (injection-safe) — else null ("no default").
+  // {city,state} from `cities` (so the value matches the backend filter
+  // exactly) — never the raw header (injection-safe) — else null ("no
+  // default").
   const geoCityWithShows: CityState | null = useMemo(() => {
     if (!rawGeo || cities.length === 0) return null
     const match = matchByGeo(cities, rawGeo, {
@@ -239,40 +222,15 @@ export function useGeoDefaultCity({
     return match ? { city: match.city, state: match.state } : null
   }, [rawGeo, cities])
 
-  // Seed once when: no existing selection, auth settled, anon, favorites empty,
-  // and the geo city has shows. Guarded by hasAppliedDefaults so it runs once.
-  useEffect(() => {
-    if (hasAppliedDefaults.current) return
-    // The user already acted (possibly before the async geo fetch resolved) —
-    // never seed over their intent.
-    if (userInteracted.current) return
-    if (hasExistingSelection) return
-    // Wait for auth to settle — seeding the anon geo default while auth is
-    // still resolving could wrongly seed geo for a user who turns out to be
-    // authenticated (whose favorites should win, or who gets "All cities").
-    if (authLoading) return
-    // Favorites win (caller seeds them) and authed-no-favorites gets no geo.
-    if (isAuthenticated || favoriteCities.length > 0) return
-    if (!geoCityWithShows) return
+  // DERIVED, never written: the old seed effect (hasAppliedDefaults ref +
+  // onSeed → router.replace / setState) reconstructed the default via a
+  // side-effect, which raced auth/profile timing and client-side navigation.
+  // Deriving it makes those races structurally impossible — ineligibility
+  // (favorites arriving, a URL selection, user interaction) nulls the value
+  // on the same render.
+  const appliedGeoDefault = eligible ? geoCityWithShows : null
 
-    hasAppliedDefaults.current = true
-    setAppliedGeoDefault(geoCityWithShows)
-    onSeed(geoCityWithShows)
-  }, [
-    hasExistingSelection,
-    authLoading,
-    isAuthenticated,
-    favoriteCities,
-    geoCityWithShows,
-    onSeed,
-  ])
-
-  const notifyUserInteracted = useCallback(() => {
-    userInteracted.current = true
-    // Also block a later seed pass and drop the affordance immediately.
-    hasAppliedDefaults.current = true
-    setAppliedGeoDefault(null)
-  }, [])
+  const notifyUserInteracted = useCallback(() => setUserInteracted(true), [])
 
   return { appliedGeoDefault, notifyUserInteracted }
 }

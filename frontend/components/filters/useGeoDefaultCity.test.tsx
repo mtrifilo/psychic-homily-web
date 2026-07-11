@@ -4,7 +4,7 @@ import {
   useGeoDefaultCity,
   shouldShowGeoAffordance,
 } from './useGeoDefaultCity'
-import type { CityState, CityWithCount } from './CityFilters'
+import type { CityWithCount } from './CityFilters'
 import type { GeoLocation } from '@/lib/geo-default'
 
 
@@ -51,7 +51,6 @@ function baseParams(overrides: Partial<HookParams> = {}): HookParams {
     authLoading: false,
     favoriteCities: [],
     hasExistingSelection: false,
-    onSeed: vi.fn(),
     ...overrides,
   }
 }
@@ -89,136 +88,137 @@ describe('shouldShowGeoAffordance', () => {
   })
 })
 
+// The hook RETURNS the derived default (appliedGeoDefault); it never seeds a
+// URL or caller state. These tests assert on the returned value only.
 describe('useGeoDefaultCity — server-prop path (/explore)', () => {
-  it('seeds the canonical geo city for an anon visitor when it has shows', () => {
-    const onSeed = vi.fn()
+  it('derives the canonical geo city for an anon visitor when it has shows', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(
-        baseParams({ geoFromServer: { city: 'Omaha', state: 'NE' }, onSeed }),
+        baseParams({ geoFromServer: { city: 'Omaha', state: 'NE' } }),
       ),
     )
-    expect(onSeed).toHaveBeenCalledWith({ city: 'Omaha', state: 'NE' })
     expect(result.current.appliedGeoDefault).toEqual({
       city: 'Omaha',
       state: 'NE',
     })
   })
 
-  it('matches case/whitespace-insensitively and seeds the PH canonical casing', () => {
-    const onSeed = vi.fn()
-    renderHook(() =>
-      useGeoDefaultCity(
-        baseParams({ geoFromServer: { city: ' omaha ', state: 'ne' }, onSeed }),
-      ),
-    )
-    // Seeds the canonical "Omaha,NE" from the cities list, not the raw header.
-    expect(onSeed).toHaveBeenCalledWith({ city: 'Omaha', state: 'NE' })
-  })
-
-  it('does NOT seed when the geo city has no shows', () => {
-    const onSeed = vi.fn()
+  it('matches case/whitespace-insensitively, returning the PH canonical casing', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(
-        baseParams({ geoFromServer: { city: 'Tucson', state: 'AZ' }, onSeed }),
+        baseParams({ geoFromServer: { city: ' omaha ', state: 'ne' } }),
       ),
     )
-    expect(onSeed).not.toHaveBeenCalled()
+    // The canonical "Omaha,NE" from the cities list, not the raw header.
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Omaha',
+      state: 'NE',
+    })
+  })
+
+  it('derives null when the geo city has no shows', () => {
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({ geoFromServer: { city: 'Tucson', state: 'AZ' } }),
+      ),
+    )
     expect(result.current.appliedGeoDefault).toBeNull()
   })
 
-  it('does NOT seed when there is no geo default (null)', () => {
-    const onSeed = vi.fn()
-    renderHook(() =>
-      useGeoDefaultCity(baseParams({ geoFromServer: null, onSeed })),
+  it('derives null when there is no geo default (null)', () => {
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ geoFromServer: null })),
     )
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
-  it('does NOT seed for an authed user (favorites are the caller’s concern)', () => {
-    const onSeed = vi.fn()
-    renderHook(() =>
+  it('derives null for an authed user (favorites are the caller’s concern)', () => {
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           isAuthenticated: true,
           geoFromServer: { city: 'Omaha', state: 'NE' },
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
-  it('does NOT seed when favorites are present (favorites win)', () => {
-    const onSeed = vi.fn()
-    renderHook(() =>
+  it('derives null when favorites are present (favorites win)', () => {
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           isAuthenticated: true,
           favoriteCities: [{ city: 'Phoenix', state: 'AZ' }],
           geoFromServer: { city: 'Omaha', state: 'NE' },
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
-  it('waits for auth to settle before seeding the anon geo default', () => {
-    const onSeed = vi.fn()
-    const { rerender } = renderHook(
+  it('waits for auth to settle before deriving the anon geo default', () => {
+    const { result, rerender } = renderHook(
       (props: HookParams) => useGeoDefaultCity(props),
       {
         initialProps: baseParams({
           authLoading: true,
           geoFromServer: { city: 'Omaha', state: 'NE' },
-          onSeed,
         }),
       },
     )
-    expect(onSeed).not.toHaveBeenCalled()
-    // Auth settles → now it seeds.
+    expect(result.current.appliedGeoDefault).toBeNull()
+    // Auth settles → the default derives on the same render pass.
     rerender(
       baseParams({
         authLoading: false,
         geoFromServer: { city: 'Omaha', state: 'NE' },
-        onSeed,
       }),
     )
-    expect(onSeed).toHaveBeenCalledWith({ city: 'Omaha', state: 'NE' })
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Omaha',
+      state: 'NE',
+    })
   })
 
-  it('does NOT seed when a selection already exists (hasExistingSelection)', () => {
-    const onSeed = vi.fn()
-    renderHook(() =>
+  it('derives null when a selection already exists (hasExistingSelection)', () => {
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           hasExistingSelection: true,
           geoFromServer: { city: 'Omaha', state: 'NE' },
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
-  it('seeds only once even as inputs change', () => {
-    const onSeed = vi.fn()
-    const { rerender } = renderHook(
+  it('nulls the derived default the moment a selection appears (favorites arriving late)', () => {
+    // The old seed effect raced this exact transition; the derived value
+    // reconciles on the same render the favorites arrive.
+    const { result, rerender } = renderHook(
       (props: HookParams) => useGeoDefaultCity(props),
       {
         initialProps: baseParams({
           geoFromServer: { city: 'Omaha', state: 'NE' },
-          onSeed,
         }),
       },
     )
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Omaha',
+      state: 'NE',
+    })
     rerender(
-      baseParams({ geoFromServer: { city: 'Omaha', state: 'NE' }, onSeed }),
+      baseParams({
+        geoFromServer: { city: 'Omaha', state: 'NE' },
+        isAuthenticated: true,
+        favoriteCities: [{ city: 'Phoenix', state: 'AZ' }],
+      }),
     )
-    expect(onSeed).toHaveBeenCalledTimes(1)
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
-  it('drops the affordance after notifyUserInteracted', () => {
+  it('drops the derived default after notifyUserInteracted', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({ geoFromServer: { city: 'Omaha', state: 'NE' } }),
@@ -252,36 +252,41 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     )
   }
 
-  it('fetches /api/geo and seeds the canonical city on mount', async () => {
+  it('fetches /api/geo and derives the canonical city', async () => {
     const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
-    const onSeed = vi.fn()
-    renderHook(() =>
-      useGeoDefaultCity(baseParams({ enableClientFetch: true, onSeed })),
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
     )
     await waitFor(() =>
-      expect(onSeed).toHaveBeenCalledWith({ city: 'Omaha', state: 'NE' }),
+      expect(result.current.appliedGeoDefault).toEqual({
+        city: 'Omaha',
+        state: 'NE',
+      }),
     )
     expect(fetchSpy).toHaveBeenCalledWith('/api/geo')
   })
 
   it('caches the response in sessionStorage (cross-page reuse, no re-fetch)', async () => {
     const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
-    const onSeed1 = vi.fn()
     const first = renderHook(() =>
-      useGeoDefaultCity(baseParams({ enableClientFetch: true, onSeed: onSeed1 })),
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
     )
-    await waitFor(() => expect(onSeed1).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(first.result.current.appliedGeoDefault).not.toBeNull(),
+    )
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     first.unmount()
 
     // A second mount (simulating navigation to another surface) reads the
-    // cached value synchronously — no second fetch.
-    const onSeed2 = vi.fn()
-    renderHook(() =>
-      useGeoDefaultCity(baseParams({ enableClientFetch: true, onSeed: onSeed2 })),
+    // cached value — no second fetch.
+    const second = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
     )
     await waitFor(() =>
-      expect(onSeed2).toHaveBeenCalledWith({ city: 'Omaha', state: 'NE' }),
+      expect(second.result.current.appliedGeoDefault).toEqual({
+        city: 'Omaha',
+        state: 'NE',
+      }),
     )
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
@@ -294,14 +299,13 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
 
   it('does NOT fetch for an authed visitor (efficiency: no wasted edge request)', () => {
     const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
-    const onSeed = vi.fn()
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
-        baseParams({ isAuthenticated: true, enableClientFetch: true, onSeed }),
+        baseParams({ isAuthenticated: true, enableClientFetch: true }),
       ),
     )
     expect(fetchSpy).not.toHaveBeenCalled()
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
   it('does NOT fetch for an anon visitor with favorites (efficiency gate)', () => {
@@ -319,36 +323,63 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
 
   it('does NOT fetch while auth is still loading, then fetches once it settles to anon', async () => {
     const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
-    const onSeed = vi.fn()
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       (props: HookParams) => useGeoDefaultCity(props),
       {
         initialProps: baseParams({
           authLoading: true,
           enableClientFetch: true,
-          onSeed,
         }),
       },
     )
     expect(fetchSpy).not.toHaveBeenCalled()
-    rerender(
-      baseParams({ authLoading: false, enableClientFetch: true, onSeed }),
-    )
+    rerender(baseParams({ authLoading: false, enableClientFetch: true }))
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/geo'))
     await waitFor(() =>
-      expect(onSeed).toHaveBeenCalledWith({ city: 'Omaha', state: 'NE' }),
+      expect(result.current.appliedGeoDefault).toEqual({
+        city: 'Omaha',
+        state: 'NE',
+      }),
     )
   })
 
-  it('does not seed when the fetched city has no shows', async () => {
+  it('derives null when the fetched city has no shows', async () => {
     mockGeoFetch({ city: 'Tucson', state: 'AZ' })
-    const onSeed = vi.fn()
-    renderHook(() =>
-      useGeoDefaultCity(baseParams({ enableClientFetch: true, onSeed })),
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
     )
-    // Give the effect a tick; assert no seed.
-    await waitFor(() => expect(window.sessionStorage.getItem('ph-geo-default-city')).not.toBeNull())
-    expect(onSeed).not.toHaveBeenCalled()
+    // Give the fetch a tick; the derived default stays null.
+    await waitFor(() =>
+      expect(
+        window.sessionStorage.getItem('ph-geo-default-city'),
+      ).not.toBeNull(),
+    )
+    expect(result.current.appliedGeoDefault).toBeNull()
+  })
+
+  it('never surfaces a late-resolving fetch after the user has interacted', async () => {
+    // The async race the old seed effect guarded with refs: the user acts
+    // BEFORE /api/geo resolves. The derived value must stay null afterwards.
+    let resolveFetch: (r: Response) => void = () => {}
+    vi.spyOn(globalThis, 'fetch').mockReturnValue(
+      new Promise<Response>(resolve => {
+        resolveFetch = resolve
+      }),
+    )
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
+    )
+    act(() => result.current.notifyUserInteracted())
+    // Fetch resolves AFTER the interaction.
+    act(() =>
+      resolveFetch(
+        new Response(
+          JSON.stringify({ geo: { city: 'Omaha', state: 'NE' } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+    await waitFor(() => expect(result.current.appliedGeoDefault).toBeNull())
   })
 
   it('ignores a malformed cached value without crashing (defensive shape check)', () => {
@@ -359,35 +390,32 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
       JSON.stringify({ geo: { city: 123, state: 'AZ' } }),
     )
     const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
-    const onSeed = vi.fn()
-    expect(() =>
-      renderHook(() =>
-        useGeoDefaultCity(baseParams({ enableClientFetch: true, onSeed })),
-      ),
-    ).not.toThrow()
-    // Cache hit short-circuits the fetch; the malformed value yields no seed.
+    let result: { current: { appliedGeoDefault: unknown } } | undefined
+    expect(() => {
+      result = renderHook(() =>
+        useGeoDefaultCity(baseParams({ enableClientFetch: true })),
+      ).result
+    }).not.toThrow()
+    // Cache hit short-circuits the fetch; the malformed value derives nothing.
     expect(fetchSpy).not.toHaveBeenCalled()
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result?.current.appliedGeoDefault ?? null).toBeNull()
   })
 })
 
 describe('useGeoDefaultCity — nearest has-shows city by haversine (PSY-981)', () => {
-  it('seeds Phoenix for a Paradise Valley visitor whose exact city has no shows', () => {
+  it('derives Phoenix for a Paradise Valley visitor whose exact city has no shows', () => {
     // The motivating case: Paradise Valley, AZ is a Phoenix suburb with no PH
     // shows. With the visitor's coords + city centroids, the hook picks the
     // geographically NEAREST has-shows city (Phoenix, ~15 km away) over Tucson
     // (~160 km) and Omaha (~1,200 km). No exact "Paradise Valley" match exists.
-    const onSeed = vi.fn()
     const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           cities: [PHOENIX, TUCSON, OMAHA],
           geoFromServer: PARADISE_VALLEY,
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).toHaveBeenCalledWith({ city: 'Phoenix', state: 'AZ' })
     expect(result.current.appliedGeoDefault).toEqual({
       city: 'Phoenix',
       state: 'AZ',
@@ -395,10 +423,9 @@ describe('useGeoDefaultCity — nearest has-shows city by haversine (PSY-981)', 
   })
 
   it('prefers the EXACT city match over the nearest, even when coords are present', () => {
-    // A visitor IN Tucson (which HAS shows) must seed Tucson, not the nearest-
-    // by-distance result — tier 1 (exact match) wins over tier 2 (nearest).
-    const onSeed = vi.fn()
-    renderHook(() =>
+    // A visitor IN Tucson (which HAS shows) must derive Tucson, not the
+    // nearest-by-distance result — tier 1 (exact match) wins over tier 2.
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           cities: [PHOENIX, TUCSON, OMAHA],
@@ -408,85 +435,84 @@ describe('useGeoDefaultCity — nearest has-shows city by haversine (PSY-981)', 
             latitude: TUCSON.latitude,
             longitude: TUCSON.longitude,
           },
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).toHaveBeenCalledWith({ city: 'Tucson', state: 'AZ' })
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Tucson',
+      state: 'AZ',
+    })
   })
 
   it('falls back to NO default when the exact city has no shows AND coords are absent', () => {
     // Pre-PSY-981 behavior preserved: no coords → no nearest computation → the
-    // exact-miss case yields no seed (never worse than before).
-    const onSeed = vi.fn()
+    // exact-miss case yields no default (never worse than before).
     const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           cities: [PHOENIX, TUCSON, OMAHA],
           // Paradise Valley, no lat/long → exact-match only, which misses.
           geoFromServer: { city: 'Paradise Valley', state: 'AZ' },
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).not.toHaveBeenCalled()
     expect(result.current.appliedGeoDefault).toBeNull()
   })
 
   it('falls back to NO default when no show-city carries a centroid (uncoded cities)', () => {
     // The backend geocoder missed every show city (coords undefined). The
-    // nearest computation has no candidates → no seed; exact-match for a
+    // nearest computation has no candidates → no default; exact-match for a
     // visitor whose own city is on the list would still work (covered above).
-    const onSeed = vi.fn()
     const citiesNoCentroid: CityWithCount[] = [
       { city: 'Phoenix', state: 'AZ', count: 5 },
       { city: 'Tucson', state: 'AZ', count: 2 },
     ]
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           cities: citiesNoCentroid,
           geoFromServer: PARADISE_VALLEY,
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 
   it('skips uncoded cities as distance candidates but still uses coded ones', () => {
     // Cottonwood (1 show) is too small for the GeoNames slice → no centroid →
     // it must NOT be chosen as nearest; Phoenix (coded) wins for the suburb.
-    const onSeed = vi.fn()
     const cottonwood: CityWithCount = { city: 'Cottonwood', state: 'AZ', count: 1 }
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           cities: [cottonwood, PHOENIX, TUCSON],
           geoFromServer: PARADISE_VALLEY,
-          onSeed,
         }),
       ),
     )
-    expect(onSeed).toHaveBeenCalledWith({ city: 'Phoenix', state: 'AZ' })
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Phoenix',
+      state: 'AZ',
+    })
   })
 
-  it('seeds the nearest via the client-fetch path too (home / /shows parity)', async () => {
+  it('derives the nearest via the client-fetch path too (home / /shows parity)', async () => {
     // The same nearest logic must fire on the client-fetch surfaces, not just
     // /explore's server prop — home and /shows fetch /api/geo with coords.
     mockGeoFetchPV(PARADISE_VALLEY)
-    const onSeed = vi.fn()
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
           cities: [PHOENIX, TUCSON, OMAHA],
           enableClientFetch: true,
-          onSeed,
         }),
       ),
     )
     await waitFor(() =>
-      expect(onSeed).toHaveBeenCalledWith({ city: 'Phoenix', state: 'AZ' }),
+      expect(result.current.appliedGeoDefault).toEqual({
+        city: 'Phoenix',
+        state: 'AZ',
+      }),
     )
   })
 })
