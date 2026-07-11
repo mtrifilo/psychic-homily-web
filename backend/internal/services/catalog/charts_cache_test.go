@@ -200,3 +200,132 @@ func TestChartsCached_SingleFlight(t *testing.T) {
 		}
 	}
 }
+
+// TestChartsCached_RefreshInFlightNotSwept: an expired entry being REFRESHED
+// is marked in-flight (zero expires) and must survive an at-cap sweep — the
+// hot masthead key mid-refresh is exactly the entry the cap policy protects.
+func TestChartsCached_RefreshInFlightNotSwept(t *testing.T) {
+	t0 := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	c, now := cacheAt(t0)
+
+	// Fill the hot key, then let it expire.
+	if _, err := chartsCached(c, "hot", time.Minute, func() (string, error) { return "v1", nil }); err != nil {
+		t.Fatal(err)
+	}
+	*now = t0.Add(2 * time.Minute)
+
+	// Start a refresh that blocks mid-fetch.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan string)
+	go func() {
+		v, _ := chartsCached(c, "hot", time.Minute, func() (string, error) {
+			close(started)
+			<-release
+			return "v2", nil
+		})
+		done <- v
+	}()
+	<-started
+
+	// While the refresh is in flight, an at-cap sweep runs (fill to cap and
+	// force acquire's sweep path). The hot entry must NOT be deleted.
+	for i := 0; len(c.entries) < chartsCacheMaxEntries; i++ {
+		c.entries[fmt.Sprintf("filler-%d", i)] = &chartsCacheEntry{expires: t0.Add(time.Second)} // long-expired
+	}
+	c.acquire("trigger-sweep")
+	c.mu.Lock()
+	_, hotSurvived := c.entries["hot"]
+	c.mu.Unlock()
+	if !hotSurvived {
+		t.Fatal("in-flight refresh entry must survive the at-cap sweep")
+	}
+
+	close(release)
+	if v := <-done; v != "v2" {
+		t.Fatalf("refresh result lost: %q", v)
+	}
+	// And the refreshed value is served from cache afterwards.
+	calls := 0
+	v, _ := chartsCached(c, "hot", time.Minute, func() (string, error) { calls++; return "v3", nil })
+	if v != "v2" || calls != 0 {
+		t.Fatalf("refreshed value must be cached (got %q, %d fetches)", v, calls)
+	}
+}
+
+// TestChartsCached_PanicDropsEntry: a panicking fetch must not leak a
+// permanently unsweepable zero-expires slot; the panic propagates.
+func TestChartsCached_PanicDropsEntry(t *testing.T) {
+	c, _ := cacheAt(time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("panic must propagate")
+			}
+		}()
+		_, _ = chartsCached(c, "boom", time.Minute, func() (int, error) { panic("fetch exploded") })
+	}()
+
+	if len(c.entries) != 0 {
+		t.Fatalf("panicking fetch must drop its entry, have %d", len(c.entries))
+	}
+}
+
+// TestChartsCached_FailedRefreshStaysSweepable: when a refresh errors, the
+// stale entry must be expired-but-nonzero (sweepable, retried next request) —
+// not zero-expires, which would squat a slot as fake in-flight forever.
+func TestChartsCached_FailedRefreshStaysSweepable(t *testing.T) {
+	t0 := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	c, now := cacheAt(t0)
+
+	if _, err := chartsCached(c, "k", time.Minute, func() (string, error) { return "v1", nil }); err != nil {
+		t.Fatal(err)
+	}
+	*now = t0.Add(2 * time.Minute)
+	if _, err := chartsCached(c, "k", time.Minute, func() (string, error) { return "", fmt.Errorf("refresh failed") }); err == nil {
+		t.Fatal("expected refresh error")
+	}
+
+	c.mu.Lock()
+	entry := c.entries["k"]
+	c.mu.Unlock()
+	if entry == nil {
+		t.Fatal("filled entry must survive a failed refresh (stale value kept)")
+	}
+	if entry.expires.IsZero() {
+		t.Fatal("failed refresh must not leave the entry marked in-flight (unsweepable)")
+	}
+
+	// Next request retries the fetch (error was not cached).
+	v, err := chartsCached(c, "k", time.Minute, func() (string, error) { return "v2", nil })
+	if err != nil || v != "v2" {
+		t.Fatalf("retry after failed refresh: %q %v", v, err)
+	}
+}
+
+// TestChartsCache_ConcurrentAtCap exercises the sweep/fill interleaving under
+// the race detector: concurrent fetch completions (expires writes) while
+// at-cap acquires sweep (expires reads). Run with -race locally/CI.
+func TestChartsCache_ConcurrentAtCap(t *testing.T) {
+	c := newChartsCache() // real clock: expiry values irrelevant, the race is the point
+
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				key := fmt.Sprintf("k-%d-%d", g, i%64)
+				ttl := time.Duration(i%3) * time.Millisecond // some entries expire immediately
+				_, _ = chartsCached(c, key, ttl, func() (int, error) {
+					if i%7 == 0 {
+						return 0, fmt.Errorf("transient")
+					}
+					return i, nil
+				})
+			}
+		}(g)
+	}
+	wg.Wait()
+}

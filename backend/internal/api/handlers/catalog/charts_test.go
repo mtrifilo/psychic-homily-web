@@ -460,8 +460,8 @@ func TestChartsHandler_BusiestVenues_Success(t *testing.T) {
 				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.BusiestVenue{
-				{VenueID: 1, Name: "Empty Bottle", Slug: "empty-bottle", City: "Chicago", State: "IL", ShowCount: 41},
-			}, 1, nil
+				{VenueID: 1, Name: "Empty Bottle", Slug: "empty-bottle", City: "Chicago", State: "IL", ShowCount: 41, Rank: 1},
+			}, 9, nil
 		},
 	})
 
@@ -472,8 +472,11 @@ func TestChartsHandler_BusiestVenues_Success(t *testing.T) {
 	if resp.Body.Window != "quarter" {
 		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
 	}
-	if len(resp.Body.Venues) != 1 || resp.Body.Venues[0].ShowCount != 41 || resp.Body.Venues[0].Name != "Empty Bottle" {
+	if len(resp.Body.Venues) != 1 || resp.Body.Venues[0].ShowCount != 41 || resp.Body.Venues[0].Name != "Empty Bottle" || resp.Body.Venues[0].Rank != 1 {
 		t.Errorf("unexpected mapping: %+v", resp.Body.Venues)
+	}
+	if resp.Body.Total != 9 {
+		t.Errorf("expected total=9 echoed, got %d", resp.Body.Total)
 	}
 }
 
@@ -494,8 +497,8 @@ func TestChartsHandler_OpenersToWatch_Success(t *testing.T) {
 				t.Errorf("expected window=month, got %q", window)
 			}
 			return []contracts.OpenerToWatch{
-				{ArtistID: 2, Name: "Dizzy Mavis", Slug: "dizzy-mavis", City: "Phoenix", State: "AZ", SupportSlotCount: 11},
-			}, 1, nil
+				{ArtistID: 2, Name: "Dizzy Mavis", Slug: "dizzy-mavis", City: "Phoenix", State: "AZ", SupportSlotCount: 11, Rank: 4},
+			}, 17, nil
 		},
 	})
 
@@ -506,8 +509,11 @@ func TestChartsHandler_OpenersToWatch_Success(t *testing.T) {
 	if resp.Body.Window != "month" {
 		t.Errorf("expected echoed window=month, got %q", resp.Body.Window)
 	}
-	if len(resp.Body.Artists) != 1 || resp.Body.Artists[0].SupportSlotCount != 11 {
+	if len(resp.Body.Artists) != 1 || resp.Body.Artists[0].SupportSlotCount != 11 || resp.Body.Artists[0].Rank != 4 {
 		t.Errorf("unexpected mapping: %+v", resp.Body.Artists)
+	}
+	if resp.Body.Total != 17 {
+		t.Errorf("expected total=17 echoed, got %d", resp.Body.Total)
 	}
 }
 
@@ -554,8 +560,8 @@ func TestChartsHandler_OnTheRadio_Success(t *testing.T) {
 				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.OnTheRadioArtist{
-				{ArtistID: 3, Name: "Airwave Act", Slug: "airwave-act", City: "Seattle", State: "WA", PlayCount: 42, StationCount: 2, IsNew: true},
-			}, 1, nil
+				{ArtistID: 3, Name: "Airwave Act", Slug: "airwave-act", City: "Seattle", State: "WA", PlayCount: 42, StationCount: 2, IsNew: true, Rank: 2},
+			}, 33, nil
 		},
 	})
 
@@ -570,8 +576,11 @@ func TestChartsHandler_OnTheRadio_Success(t *testing.T) {
 		t.Fatalf("expected 1 artist, got %d", len(resp.Body.Artists))
 	}
 	a := resp.Body.Artists[0]
-	if a.Name != "Airwave Act" || a.PlayCount != 42 || a.StationCount != 2 || !a.IsNew {
+	if a.Name != "Airwave Act" || a.PlayCount != 42 || a.StationCount != 2 || !a.IsNew || a.Rank != 2 {
 		t.Errorf("unexpected mapping: %+v", a)
+	}
+	if resp.Body.Total != 33 {
+		t.Errorf("expected total=33 echoed, got %d", resp.Body.Total)
 	}
 }
 
@@ -1208,8 +1217,8 @@ func TestChartsHandler_ModuleTagDefaults(t *testing.T) {
 	}
 }
 
-// TestChartsHandler_PublicCacheControl pins the public max-age headers:
-// modules mirror the 5-minute service TTL, the masthead pair mirrors 60s.
+// TestChartsHandler_PublicCacheControl pins the public max-age headers —
+// deliberately a fraction of the server TTLs since the two layers stack.
 func TestChartsHandler_PublicCacheControl(t *testing.T) {
 	h := testChartsHandler()
 	_, api := humatest.New(t)
@@ -1217,13 +1226,13 @@ func TestChartsHandler_PublicCacheControl(t *testing.T) {
 	huma.Get(api, "/charts/summary", h.GetChartsSummaryHandler)
 	huma.Get(api, "/charts/freshly-added", h.GetFreshlyAddedHandler)
 
-	if cc := api.Get("/charts/most-active-artists").Header().Get("Cache-Control"); cc != "public, max-age=300" {
-		t.Errorf("module endpoints must be public max-age=300, got %q", cc)
+	if cc := api.Get("/charts/most-active-artists").Header().Get("Cache-Control"); cc != "public, max-age=60" {
+		t.Errorf("module endpoints must be public max-age=60 (a fraction of the server TTL), got %q", cc)
 	}
-	if cc := api.Get("/charts/summary").Header().Get("Cache-Control"); cc != "public, max-age=60" {
-		t.Errorf("summary must be public max-age=60, got %q", cc)
+	if cc := api.Get("/charts/summary").Header().Get("Cache-Control"); cc != "public, max-age=30" {
+		t.Errorf("summary must be public max-age=30, got %q", cc)
 	}
-	if cc := api.Get("/charts/freshly-added").Header().Get("Cache-Control"); cc != "public, max-age=60" {
-		t.Errorf("ticker must be public max-age=60, got %q", cc)
+	if cc := api.Get("/charts/freshly-added").Header().Get("Cache-Control"); cc != "public, max-age=30" {
+		t.Errorf("ticker must be public max-age=30, got %q", cc)
 	}
 }

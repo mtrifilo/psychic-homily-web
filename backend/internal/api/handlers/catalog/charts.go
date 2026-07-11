@@ -25,6 +25,18 @@ func NewChartsHandler(
 	}
 }
 
+// Client-side sharing headers for the public chart surfaces (same pattern as
+// the radio guide). Deliberately a FRACTION of the server-side TTLs in
+// charts_cache.go: client and server staleness stack additively, so a full
+// server-TTL max-age would double the designed tiers. These values bound
+// worst-case staleness at ~6min for module pages (60s client + 5min server)
+// and ~90s for the masthead (30s + 60s). The authed personal stats endpoint
+// stays no-store.
+const (
+	chartsModuleCacheControl   = "public, max-age=60"
+	chartsMastheadCacheControl = "public, max-age=30"
+)
+
 // --- GetTrendingShows ---
 
 // GetTrendingShowsRequest is the Huma request for GET /charts/trending-shows
@@ -106,10 +118,8 @@ type MostAnticipatedShowResponse struct {
 
 // GetMostAnticipatedShowsResponse is the Huma response for GET /charts/most-anticipated
 type GetMostAnticipatedShowsResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Mode  string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks (paginated); soonest_upcoming = date-ordered fallback, counts/ranks omitted, offset ignored"`
@@ -131,7 +141,7 @@ func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req 
 		return nil, huma.Error500InternalServerError("Failed to get most-anticipated shows")
 	}
 
-	resp := &GetMostAnticipatedShowsResponse{CacheControl: "public, max-age=300"}
+	resp := &GetMostAnticipatedShowsResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Mode = string(data.Mode)
 	resp.Body.Total = data.Total
 	resp.Body.Shows = make([]MostAnticipatedShowResponse, len(data.Shows))
@@ -170,10 +180,8 @@ type MostActiveArtistResponse struct {
 
 // GetMostActiveArtistsResponse is the Huma response for GET /charts/most-active-artists
 type GetMostActiveArtistsResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window  string                     `json:"window"`
@@ -194,7 +202,7 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 		return nil, huma.Error500InternalServerError("Failed to get most-active artists")
 	}
 
-	resp := &GetMostActiveArtistsResponse{CacheControl: "public, max-age=300"}
+	resp := &GetMostActiveArtistsResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
 	resp.Body.Total = total
 	resp.Body.Artists = make([]MostActiveArtistResponse, len(data))
@@ -238,10 +246,8 @@ type BusiestVenueResponse struct {
 
 // GetBusiestVenuesResponse is the Huma response for GET /charts/busiest-venues
 type GetBusiestVenuesResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window string                 `json:"window"`
@@ -264,7 +270,7 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 		return nil, huma.Error500InternalServerError("Failed to get busiest venues")
 	}
 
-	resp := &GetBusiestVenuesResponse{CacheControl: "public, max-age=300"}
+	resp := &GetBusiestVenuesResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
 	resp.Body.Total = total
 	resp.Body.Venues = make([]BusiestVenueResponse, len(data))
@@ -304,10 +310,8 @@ type OpenerToWatchResponse struct {
 
 // GetOpenersToWatchResponse is the Huma response for GET /charts/openers-to-watch
 type GetOpenersToWatchResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window  string                  `json:"window"`
@@ -328,7 +332,7 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 		return nil, huma.Error500InternalServerError("Failed to get openers to watch")
 	}
 
-	resp := &GetOpenersToWatchResponse{CacheControl: "public, max-age=300"}
+	resp := &GetOpenersToWatchResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
 	resp.Body.Total = total
 	resp.Body.Artists = make([]OpenerToWatchResponse, len(data))
@@ -370,10 +374,8 @@ type OnTheRadioArtistResponse struct {
 
 // GetOnTheRadioArtistsResponse is the Huma response for GET /charts/on-the-radio
 type GetOnTheRadioArtistsResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window  string                     `json:"window"`
@@ -397,7 +399,7 @@ func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *Ge
 		return nil, huma.Error500InternalServerError("Failed to get on-the-radio artists")
 	}
 
-	resp := &GetOnTheRadioArtistsResponse{CacheControl: "public, max-age=300"}
+	resp := &GetOnTheRadioArtistsResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
 	resp.Body.Total = total
 	resp.Body.Artists = make([]OnTheRadioArtistResponse, len(data))
@@ -600,10 +602,8 @@ type NewReleaseResponse struct {
 
 // GetNewReleasesResponse is the Huma response for GET /charts/new-releases
 type GetNewReleasesResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window   string               `json:"window"`
@@ -627,7 +627,7 @@ func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewRe
 		return nil, huma.Error500InternalServerError("Failed to get new releases")
 	}
 
-	resp := &GetNewReleasesResponse{CacheControl: "public, max-age=300"}
+	resp := &GetNewReleasesResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
 	resp.Body.Total = total
 	resp.Body.Releases = make([]NewReleaseResponse, len(data))
@@ -649,10 +649,8 @@ type GetChartsSummaryRequest struct {
 // GetChartsSummaryResponse is the Huma response for GET /charts/summary —
 // the masthead proof-of-life stat strip.
 type GetChartsSummaryResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window       string `json:"window"`
@@ -674,7 +672,7 @@ func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetCha
 		return nil, huma.Error500InternalServerError("Failed to get charts summary")
 	}
 
-	resp := &GetChartsSummaryResponse{CacheControl: "public, max-age=60"}
+	resp := &GetChartsSummaryResponse{CacheControl: chartsMastheadCacheControl}
 	resp.Body.Window = string(window)
 	resp.Body.ShowsAdded = data.ShowsAdded
 	resp.Body.NewArtists = data.NewArtists
@@ -702,10 +700,8 @@ type FreshlyAddedItemResponse struct {
 
 // GetFreshlyAddedResponse is the Huma response for GET /charts/freshly-added
 type GetFreshlyAddedResponse struct {
-	// CacheControl mirrors the service-side TTL: these payloads are public,
-	// identical for every viewer, and stale-tolerant, so browsers and any
-	// shared cache may reuse them (same pattern as the radio guide). The
-	// authed personal stats endpoint stays no-store.
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Items []FreshlyAddedItemResponse `json:"items"`
@@ -723,7 +719,7 @@ func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFres
 		return nil, huma.Error500InternalServerError("Failed to get freshly added items")
 	}
 
-	resp := &GetFreshlyAddedResponse{CacheControl: "public, max-age=60"}
+	resp := &GetFreshlyAddedResponse{CacheControl: chartsMastheadCacheControl}
 	resp.Body.Items = make([]FreshlyAddedItemResponse, len(data))
 	for i, item := range data {
 		// Direct conversion (field-identical structs): a one-sided field add
@@ -894,8 +890,8 @@ func normalizeChartWindow(window string) contracts.ChartWindow {
 
 // normalizeChartsLimit clamps the limit param to a valid range [1, 50],
 // defaulting to 20. LEGACY endpoints only (trending/popular/active/hot +
-// summary/ticker/overview) — the paginated module endpoints use
-// normalizeModuleLimit.
+// summary/ticker/overview) — the paginated module endpoints rely on their
+// huma default/minimum/maximum tags instead.
 func normalizeChartsLimit(limit int) int {
 	if limit <= 0 {
 		return 20

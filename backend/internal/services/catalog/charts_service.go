@@ -17,11 +17,14 @@ import (
 // and release tables.
 type ChartsService struct {
 	db *gorm.DB
-	// cache is the in-process TTL cache for the public chart surfaces (see
-	// charts_cache.go). nil disables caching entirely — the integration test
-	// suite constructs ChartsService without it so per-test DB state stays
-	// authoritative.
-	cache *chartsCache
+	// cache holds the module pages (client-controlled key space, capped);
+	// mastheadCache holds only the summary + ticker so module-key overflow
+	// can never starve the hottest, shortest-TTL entries of a slot. nil
+	// caches disable caching entirely — the integration test suite
+	// constructs ChartsService without them so per-test DB state stays
+	// authoritative. See charts_cache.go.
+	cache         *chartsCache
+	mastheadCache *chartsCache
 }
 
 // NewChartsService creates a new charts service.
@@ -29,7 +32,11 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &ChartsService{db: database, cache: newChartsCache()}
+	return &ChartsService{
+		db:            database,
+		cache:         newChartsCache(),
+		mastheadCache: newChartsCache(),
+	}
 }
 
 // GetTrendingShows returns upcoming shows ranked by save count.
@@ -140,7 +147,10 @@ func (s *ChartsService) chartCoreCount(coreSQL string, args []any, what string) 
 // the module's SELECT is missing the COUNT(*) OVER() AS total column (or its
 // scan field) — gorm zero-fills unmatched columns silently, so fail loudly
 // instead of shipping Total=0 next to a populated page.
-func (s *ChartsService) resolveChartPageTotal(pageTotal, rowCount, offset int, coreSQL string, args []any, what string) (int, error) {
+// countKey caches the re-count offset-independently (chartCountKey), so a
+// client walking junk beyond-the-end offsets pays the count aggregation once
+// per TTL rather than per request.
+func (s *ChartsService) resolveChartPageTotal(pageTotal, rowCount, offset int, coreSQL string, args []any, countKey, what string) (int, error) {
 	if rowCount > 0 {
 		if pageTotal <= 0 {
 			return 0, fmt.Errorf("%s page query is missing the COUNT(*) OVER() AS total column", what)
@@ -148,7 +158,9 @@ func (s *ChartsService) resolveChartPageTotal(pageTotal, rowCount, offset int, c
 		return pageTotal, nil
 	}
 	if offset > 0 {
-		return s.chartCoreCount(coreSQL, args, what)
+		return chartsCached(s.cache, countKey, chartsModuleTTL, func() (int, error) {
+			return s.chartCoreCount(coreSQL, args, what)
+		})
 	}
 	return 0, nil
 }
@@ -347,7 +359,8 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*con
 	if len(ranked) > 0 {
 		pageTotal = ranked[0].Total
 	}
-	total, err := s.resolveChartPageTotal(pageTotal, len(ranked), offset, rankedCoreSQL, rankedCoreArgs, "most-anticipated shows")
+	total, err := s.resolveChartPageTotal(pageTotal, len(ranked), offset, rankedCoreSQL, rankedCoreArgs,
+		chartCountKey("most-anticipated", "all"), "most-anticipated shows")
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +541,8 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 	if len(rows) > 0 {
 		pageTotal = rows[0].Total
 	}
-	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs, "most-active artists")
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("most-active-artists", string(window.OrDefault())), "most-active artists")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -665,7 +679,8 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, l
 	if len(rows) > 0 {
 		pageTotal = rows[0].Total
 	}
-	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs, "busiest venues")
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("busiest-venues", string(window.OrDefault())), "busiest venues")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -754,7 +769,8 @@ func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, 
 	if len(rows) > 0 {
 		pageTotal = rows[0].Total
 	}
-	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs, "openers to watch")
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("openers-to-watch", string(window.OrDefault())), "openers to watch")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -875,7 +891,8 @@ func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindo
 	if len(rows) > 0 {
 		pageTotal = rows[0].Total
 	}
-	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs, "on-the-radio artists")
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("on-the-radio", string(window.OrDefault())), "on-the-radio artists")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1212,7 +1229,8 @@ func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, lim
 	if len(rows) > 0 {
 		pageTotal = rows[0].Total
 	}
-	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs, "new releases")
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("new-releases", string(window.OrDefault())), "new releases")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1332,7 +1350,7 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contrac
 	// Shortest TTL on the page: the summary is the single heaviest aggregate
 	// call, and masthead numbers tolerate 60s staleness invisibly.
 	key := fmt.Sprintf("summary|%s", window.OrDefault())
-	return chartsCached(s.cache, key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
+	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
 		return s.getChartsSummaryUncached(window)
 	})
 }
@@ -1432,7 +1450,7 @@ func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem
 	// Masthead TTL with the summary: the ticker's four ORDER BY created_at
 	// DESC branches are also covered by the cost-lever created_at indexes.
 	key := fmt.Sprintf("freshly-added|%d", limit)
-	return chartsCached(s.cache, key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
+	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
 		return s.getFreshlyAddedUncached(limit)
 	})
 }

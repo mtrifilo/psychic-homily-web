@@ -2279,3 +2279,152 @@ func (suite *ChartsServiceIntegrationTestSuite) TestChartsCache_ServesCachedWith
 	suite.Len(uncached, 2)
 	suite.Equal(2, uncachedTotal)
 }
+
+// TestGetBusiestVenues_PaginationRanksAndTotal: rank continuity + total
+// consistency for the venues module (each module hand-wires its total column
+// and rank mapping, so coverage doesn't transfer between modules).
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_PaginationRanksAndTotal() {
+	user := suite.createUser("busiest-paged@test.com")
+	artist := suite.createArtist("Venue Filler Band")
+	past := time.Now().UTC().AddDate(0, 0, -15)
+	// Three venues with 3/2/1 shows.
+	for i, name := range []string{"Hall A", "Hall B", "Hall C"} {
+		venue := suite.createVenue(name, "Phoenix", "AZ")
+		for n := 0; n < 3-i; n++ {
+			suite.createApprovedShow(fmt.Sprintf("%s show %d", name, n), venue.ID, artist.ID, user.ID, past.AddDate(0, 0, n))
+		}
+	}
+
+	page1, total1, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 2, 0)
+	suite.Require().NoError(err)
+	page2, total2, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 2, 2)
+	suite.Require().NoError(err)
+
+	suite.Equal(3, total1)
+	suite.Equal(3, total2)
+	suite.Require().Len(page1, 2)
+	suite.Require().Len(page2, 1)
+	suite.Equal([]int{1, 2}, []int{page1[0].Rank, page1[1].Rank})
+	suite.Equal(3, page2[0].Rank)
+	suite.Equal("Hall A", page1[0].Name)
+	suite.Equal("Hall C", page2[0].Name)
+
+	// Beyond the end: empty page, true total.
+	empty, deepTotal, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 2, 50)
+	suite.Require().NoError(err)
+	suite.Empty(empty)
+	suite.Equal(3, deepTotal)
+}
+
+// TestGetOpenersToWatch_PaginationRanksAndTotal: support-slot artists (never
+// headlining) paged with continuous ranks and a consistent post-HAVING total.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_PaginationRanksAndTotal() {
+	user := suite.createUser("openers-paged@test.com")
+	venue := suite.createVenue("Opener Hall", "Phoenix", "AZ")
+	headliner := suite.createArtist("Perma Headliner")
+	past := time.Now().UTC().AddDate(0, 0, -10)
+
+	// Three openers with 3/2/1 support slots (position 1 = support; the
+	// headliner occupies position 0 on every bill).
+	for i, name := range []string{"Opener A", "Opener B", "Opener C"} {
+		opener := suite.createArtist(name)
+		for n := 0; n < 3-i; n++ {
+			show := suite.createApprovedShow(fmt.Sprintf("%s bill %d", name, n), venue.ID, headliner.ID, user.ID, past.AddDate(0, 0, n))
+			err := suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: opener.ID, Position: 1}).Error
+			suite.Require().NoError(err)
+		}
+	}
+
+	page1, total1, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 2, 0)
+	suite.Require().NoError(err)
+	page2, total2, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 2, 2)
+	suite.Require().NoError(err)
+
+	// The headliner is excluded by the HAVING filter, so the total counts
+	// only the three qualifying openers.
+	suite.Equal(3, total1)
+	suite.Equal(3, total2)
+	suite.Require().Len(page1, 2)
+	suite.Require().Len(page2, 1)
+	suite.Equal([]int{1, 2}, []int{page1[0].Rank, page1[1].Rank})
+	suite.Equal(3, page2[0].Rank)
+	suite.Equal("Opener A", page1[0].Name)
+}
+
+// TestGetOnTheRadioArtists_PaginationRanksAndTotal: the radio module's paged
+// ranks/total over resolved plays.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_PaginationRanksAndTotal() {
+	show := suite.createRadioStack("Paged FM", "paged-fm", nil)
+	// Three artists with 3/2/1 plays on aired windowed episodes. Distinct
+	// daysAgo per episode — (show_id, air_date) is unique.
+	for i, name := range []string{"Radio A", "Radio B", "Radio C"} {
+		artist := suite.createArtist(name)
+		for n := 0; n < 3-i; n++ {
+			suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 5+i*3+n).ID, &artist.ID, n+1, false)
+		}
+	}
+
+	page1, total1, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 2, 0)
+	suite.Require().NoError(err)
+	page2, total2, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 2, 2)
+	suite.Require().NoError(err)
+
+	suite.Equal(3, total1)
+	suite.Equal(3, total2)
+	suite.Require().Len(page1, 2)
+	suite.Require().Len(page2, 1)
+	suite.Equal([]int{1, 2}, []int{page1[0].Rank, page1[1].Rank})
+	suite.Equal(3, page2[0].Rank)
+	suite.Equal("Radio A", page1[0].Name)
+	suite.Equal(3, page1[0].PlayCount)
+}
+
+// =============================================================================
+// resolveChartPageTotal / appendPageArgs unit tests
+// =============================================================================
+
+// TestResolveChartPageTotal_NonDBBranches pins the loud missing-total guard —
+// the defense against gorm's silent zero-fill when a module SELECT drops the
+// COUNT(*) OVER() AS total column — plus the empty-first-page zero.
+func TestResolveChartPageTotal_NonDBBranches(t *testing.T) {
+	s := &ChartsService{} // no DB: these branches must not touch it
+
+	total, err := s.resolveChartPageTotal(7, 2, 0, "", nil, "k", "test module")
+	if err != nil || total != 7 {
+		t.Fatalf("rows with total must pass through: %d %v", total, err)
+	}
+
+	if _, err := s.resolveChartPageTotal(0, 2, 0, "", nil, "k", "test module"); err == nil {
+		t.Fatal("rows with zero total must fail loudly (missing COUNT(*) OVER() column)")
+	}
+
+	total, err = s.resolveChartPageTotal(0, 0, 0, "", nil, "k", "test module")
+	if err != nil || total != 0 {
+		t.Fatalf("empty first page must be a genuine zero: %d %v", total, err)
+	}
+}
+
+// TestAppendPageArgs_CopiesNotAliases pins the load-bearing copy: appending
+// in place would alias coreArgs' backing array, which the beyond-the-end
+// re-count reuses verbatim.
+func TestAppendPageArgs_CopiesNotAliases(t *testing.T) {
+	core := make([]any, 2, 8) // spare capacity so an aliasing append WOULD write in place
+	core[0], core[1] = "a", "b"
+
+	paged := appendPageArgs(core, 10, 20)
+	if len(paged) != 4 || paged[2] != 10 || paged[3] != 20 {
+		t.Fatalf("unexpected paged args: %v", paged)
+	}
+
+	// Mutating the paged slice must not reach core's backing array.
+	paged[0] = "mutated"
+	if core[0] != "a" {
+		t.Fatal("appendPageArgs must copy — paged args alias the core args")
+	}
+	// And extending core must not corrupt paged.
+	core = append(core, "c")
+	if paged[2] != 10 {
+		t.Fatalf("core append corrupted paged args: %v", paged)
+	}
+	_ = core
+}

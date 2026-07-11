@@ -269,8 +269,10 @@ type ChartsOverview struct {
 // ──────────────────────────────────────────────
 
 // ChartsServiceInterface defines the contract for top charts / trending content.
-// limit preconditions: callers pass limit >= 1 (the HTTP layer clamps via
-// normalizeChartsLimit); services do not re-validate.
+// Param preconditions (services do not re-validate): limit >= 1 and, on the
+// paginated module methods, offset >= 0. The legacy methods' limits are
+// clamped Go-side (normalizeChartsLimit); the paginated module endpoints
+// enforce theirs via huma default/minimum/maximum tags at the HTTP layer.
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
 	GetMostAnticipatedShows(limit, offset int) (*MostAnticipatedShows, error)
