@@ -21,14 +21,9 @@
  * cache) so first paint is synchronous; applying a city refetches.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useTransition,
-} from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useMemo, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { useQueryState } from 'nuqs'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { useExploreUpcomingShows } from '../hooks'
@@ -39,9 +34,10 @@ import { useProfile } from '@/features/auth'
 import { useShowCities } from '@/features/shows'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import {
-  parseCitiesParam,
   buildCitiesParam,
   citiesEqual,
+  citiesParser,
+  ALL_CITIES,
 } from '@/components/filters/cityParams'
 import {
   useGeoDefaultCity,
@@ -106,22 +102,32 @@ export function UpcomingShowsList({
   geoDefaultCity = null,
 }: UpcomingShowsListProps) {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading } = useAuthContext()
   const { data: profileData } = useProfile()
   const [, startTransition] = useTransition()
-  const hasAppliedFavorites = useRef(false)
-
-  const citiesParam = searchParams.get('cities')
-  const selectedCities = useMemo(
-    () => parseCitiesParam(citiesParam),
-    [citiesParam],
-  )
 
   const favoriteCities: CityState[] = useMemo(
     () => profileData?.user?.preferences?.favorite_cities ?? [],
     [profileData?.user?.preferences],
   )
+
+  // `?cities=` via nuqs: null (absent → apply the default) | ALL_CITIES
+  // (explicit all) | an explicit selection. Filter changes push a history
+  // entry so the back button steps through them.
+  const [citiesState, setCities] = useQueryState(
+    'cities',
+    citiesParser.withOptions({ history: 'push', startTransition }),
+  )
+
+  // The effective selection, DERIVED during render — a bare /explore resolves
+  // to the authed user's favorites; an explicit ?cities= wins. Deriving
+  // (instead of seeding the default into the URL from a mount effect) is what
+  // makes the default survive client-side navigation.
+  const selectedCities: CityState[] = useMemo(() => {
+    if (citiesState === ALL_CITIES) return []
+    if (citiesState) return citiesState
+    return favoriteCities
+  }, [citiesState, favoriteCities])
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const { data: citiesData } = useShowCities({ timezone })
@@ -142,22 +148,6 @@ export function UpcomingShowsList({
     [citiesData],
   )
 
-  // Seed authed favorites onto the URL on first load (when no `?cities=`).
-  // Geo seeding for anon visitors is delegated to the shared hook below;
-  // favorites win because the hook stands down whenever favorites are present.
-  useEffect(() => {
-    if (hasAppliedFavorites.current || citiesParam) return
-    if (authLoading) return
-    if (favoriteCities.length === 0) return
-
-    hasAppliedFavorites.current = true
-    const params = new URLSearchParams()
-    params.set('cities', buildCitiesParam(favoriteCities))
-    startTransition(() => {
-      router.replace(`/explore?${params.toString()}`, { scroll: false })
-    })
-  }, [favoriteCities, authLoading, citiesParam, router])
-
   // IP-geo soft default for anon visitors (PSY-926, shared hook PSY-946). The
   // hook reconciles the server-read `geoDefaultCity` against the has-shows
   // data and seeds the canonical city via router.replace. /explore reads geo
@@ -177,7 +167,7 @@ export function UpcomingShowsList({
     isAuthenticated,
     authLoading,
     favoriteCities,
-    hasExistingSelection: !!citiesParam,
+    hasExistingSelection: citiesState !== null,
     geoFromServer: geoDefaultCity,
     onSeed: onSeedGeo,
   })
@@ -187,19 +177,17 @@ export function UpcomingShowsList({
     cities: selectedCities.length > 0 ? selectedCities : undefined,
   })
 
+  // City changes write `?cities=` via nuqs. An empty selection becomes the
+  // explicit ALL_CITIES sentinel (?cities=all), NOT a bare URL — a bare URL
+  // means "apply my default" (favorites/geo).
   const handleFilterChange = useCallback(
     (cities: CityState[]) => {
       // Any manual filter change is an override — the geo affordance must
       // not linger over a user-chosen selection.
       notifyUserInteracted()
-      const params = new URLSearchParams()
-      if (cities.length > 0) params.set('cities', buildCitiesParam(cities))
-      const qs = params.toString()
-      startTransition(() => {
-        router.push(qs ? `/explore?${qs}` : '/explore', { scroll: false })
-      })
+      void setCities(cities.length > 0 ? cities : ALL_CITIES)
     },
-    [router, notifyUserInteracted],
+    [setCities, notifyUserInteracted],
   )
 
   // True when the geo default is still the active selection (exactly the one

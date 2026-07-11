@@ -43,6 +43,35 @@ vi.mock('next/navigation', () => ({
     new URLSearchParams(mockCitiesParam ? `cities=${mockCitiesParam}` : ''),
 }))
 
+// nuqs `useQueryState` is bridged to the SAME mockCitiesParam the router mock
+// tracks, so tests keep one URL source of truth. The real citiesParser
+// parse/serialize run (via the passed parser), so the ALL_CITIES sentinel and
+// wire format are genuinely exercised. The setter updates mockCitiesParam the
+// way a real URL write would, so rerender-based tests observe the new state.
+const mockSetCities = vi.fn()
+vi.mock('nuqs', async importOriginal => {
+  const actual = await importOriginal<typeof import('nuqs')>()
+  return {
+    ...actual,
+    useQueryState: (
+      _key: string,
+      parser: {
+        parse: (v: string) => unknown
+        serialize?: (v: never) => string
+      },
+    ) => {
+      const state = mockCitiesParam != null ? parser.parse(mockCitiesParam) : null
+      const set = (value: unknown) => {
+        mockSetCities(value)
+        mockCitiesParam =
+          value == null ? null : (parser.serialize?.(value as never) ?? String(value))
+        return Promise.resolve(new URLSearchParams())
+      }
+      return [state, set]
+    },
+  }
+})
+
 let mockShowCities: Array<{ city: string; state: string; show_count: number }> = []
 vi.mock('@/features/shows', () => ({
   useShowCities: () => ({ data: { cities: mockShowCities } }),
@@ -124,6 +153,7 @@ describe('UpcomingShowsList', () => {
     // mockClear (not mockReset) preserves the param-tracking implementation.
     mockReplace.mockClear()
     mockPush.mockClear()
+    mockSetCities.mockClear()
     mockIsAuthenticated = false
     mockAuthLoading = false
     mockProfileData = undefined
@@ -346,13 +376,17 @@ describe('UpcomingShowsList', () => {
         error: null,
       })
       // Geo says Omaha, but the authed user favorites Phoenix → favorites win.
+      // PSY-1389: favorites are DERIVED during render, never written to the
+      // URL — so the selection is Phoenix with zero router/nuqs writes, and
+      // the geo hook stands down.
       render(
         <UpcomingShowsList geoDefaultCity={{ city: 'Omaha', state: 'NE' }} />,
       )
-      expect(mockReplace).toHaveBeenCalledWith(
-        '/explore?cities=Phoenix%2CAZ',
-        { scroll: false },
+      expect(screen.getByTestId('selected-labels')).toHaveTextContent(
+        'Phoenix,AZ',
       )
+      expect(mockReplace).not.toHaveBeenCalled()
+      expect(mockSetCities).not.toHaveBeenCalled()
     })
 
     it('does NOT apply geo for an authed user with no favorites', () => {
@@ -436,14 +470,57 @@ describe('UpcomingShowsList', () => {
         <UpcomingShowsList geoDefaultCity={{ city: 'Omaha', state: 'NE' }} />,
       )
       fireEvent.click(screen.getByTestId('geo-default-change'))
-      // "change" pushes to /explore (all cities) and drops the affordance.
-      expect(mockPush).toHaveBeenCalledWith('/explore', { scroll: false })
+      // "change" writes the explicit ALL_CITIES sentinel (a bare URL would
+      // mean "apply my default" and could re-derive the same geo city).
+      expect(mockSetCities).toHaveBeenCalledWith('all')
       rerender(
         <UpcomingShowsList geoDefaultCity={{ city: 'Omaha', state: 'NE' }} />,
       )
       expect(
         screen.queryByTestId('geo-default-affordance'),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-1389: the favorites default is DERIVED during render, not seeded into
+  // the URL by a mount effect — the fix for the default being dropped after
+  // client-side navigation.
+  describe('favorites default (derived, no URL write)', () => {
+    beforeEach(() => {
+      mockIsAuthenticated = true
+      mockProfileData = {
+        user: {
+          preferences: { favorite_cities: [{ city: 'Phoenix', state: 'AZ' }] },
+        },
+      }
+      mockShowCities = [
+        { city: 'Phoenix', state: 'AZ', show_count: 5 },
+        { city: 'Omaha', state: 'NE', show_count: 3 },
+      ]
+      mockUseExploreUpcomingShows.mockReturnValue({
+        data: sampleResponse,
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    it('selects the favorite on a bare URL WITHOUT writing to the URL', () => {
+      render(<UpcomingShowsList />)
+
+      expect(screen.getByTestId('selected-labels')).toHaveTextContent(
+        'Phoenix,AZ',
+      )
+      // Regression guard: derived, not seeded — navigation can't drop it.
+      expect(mockReplace).not.toHaveBeenCalled()
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(mockSetCities).not.toHaveBeenCalled()
+    })
+
+    it('treats ?cities=all as explicit all-cities, overriding the favorite', () => {
+      mockCitiesParam = 'all'
+      render(<UpcomingShowsList />)
+
+      expect(screen.getByTestId('selected-count')).toHaveTextContent('0')
     })
   })
 })
