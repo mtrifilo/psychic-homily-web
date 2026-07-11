@@ -474,10 +474,11 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 
 	// GROUP BY a.id alone: the artists PK makes the selected columns
 	// functionally dependent, so the aggregate hashes an 8-byte key instead of
-	// the full text tuple. The tzn join resolves each station's timezone once,
-	// case-insensitively, COALESCE-ing unknown/legacy values to UTC rather
-	// than erroring out of AT TIME ZONE on this public endpoint — the same
-	// pattern as the "Latest playlists" feed (episodeRows).
+	// the full text tuple. The sibling show-chart modules predate this and
+	// enumerate every selected column — both forms are correct; prefer this
+	// one, it matters more here (radio_plays outgrows show_artists by orders
+	// of magnitude). The aired pair (station-local date bound + air-window
+	// gate) is the shared radio.go definition — see stationLocalAiredDateBoundSQL.
 	query := `
 		SELECT
 			a.id AS artist_id,
@@ -493,9 +494,9 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 		JOIN radio_shows rsh ON rsh.id = re.show_id
 		JOIN radio_stations rst ON rst.id = rsh.station_id
 		JOIN artists a ON a.id = rp.artist_id
-		LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone, E' \t\n\r'))
+		` + stationTimezoneJoinSQL + `
 		WHERE ` + pseudoArtistExclusionSQL + `
-			AND re.air_date <= (?::timestamptz AT TIME ZONE COALESCE(tzn.name, 'UTC'))::date
+			AND ` + stationLocalAiredDateBoundSQL("re.") + `
 			AND ` + airedEpisodeVisibleSQL("re.")
 	args := []any{now, now}
 	if start != nil {

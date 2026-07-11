@@ -1133,24 +1133,29 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_WindowB
 	show := suite.createRadioStack("KTEST", "ktest", nil)
 	artist := suite.createArtist("Windowed Band")
 
+	// 30 sits exactly ON the month window's inclusive lower edge
+	// (chartWindowStart truncates to midnight of the day 30 days back); 31 is
+	// the first excluded day. Pinning both guards the >= vs > off-by-one.
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 10).ID, &artist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 30).ID, &artist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 31).ID, &artist.ID, 1, false)
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 60).ID, &artist.ID, 1, false)
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 200).ID, &artist.ID, 1, false)
 
 	month, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, 20)
 	suite.Require().NoError(err)
 	suite.Require().Len(month, 1)
-	suite.Equal(1, month[0].PlayCount, "month window counts only the 10-day-old play")
+	suite.Equal(2, month[0].PlayCount, "month window counts the 10-day play plus the inclusive 30-day edge, never the 31-day one")
 
 	quarter, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
 	suite.Require().NoError(err)
 	suite.Require().Len(quarter, 1)
-	suite.Equal(2, quarter[0].PlayCount, "quarter window adds the 60-day-old play")
+	suite.Equal(4, quarter[0].PlayCount, "quarter window adds the 31- and 60-day plays")
 
 	allTime, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowAllTime, 20)
 	suite.Require().NoError(err)
 	suite.Require().Len(allTime, 1)
-	suite.Equal(3, allTime[0].PlayCount, "all_time counts every aired play")
+	suite.Equal(5, allTime[0].PlayCount, "all_time counts every aired play")
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_StationCountCollapsesNetworks() {
