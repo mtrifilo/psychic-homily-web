@@ -1,8 +1,9 @@
 'use client'
 
 import { Heart } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { useSaveShowToggle } from '@/features/shows'
+import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useState } from 'react'
 
@@ -11,7 +12,12 @@ interface SaveButtonProps {
   variant?: 'default' | 'ghost' | 'outline'
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
-  isSaved?: boolean
+  /**
+   * Pre-fetched data from the batch save-count endpoint, avoids an extra
+   * request. Bundled (rather than two loose props) so a caller cannot supply
+   * the count without the viewer's own saved state — mirrors FollowButton.
+   */
+  saveData?: { save_count: number; is_saved: boolean }
 }
 
 export function SaveButton({
@@ -19,33 +25,53 @@ export function SaveButton({
   variant = 'ghost',
   size = 'sm',
   showLabel = false,
-  isSaved: batchIsSaved,
+  saveData,
 }: SaveButtonProps) {
   const { isAuthenticated } = useAuthContext()
-  const { isSaved, isLoading, toggle, error } = useSaveShowToggle(showId, isAuthenticated, batchIsSaved)
-  const [showError, setShowError] = useState(false)
+  const router = useRouter()
+  const pathname = usePathname()
 
-  // Don't render if not authenticated
-  if (!isAuthenticated) {
-    return null
-  }
+  // List views pass saveData in from one batched request. Standalone usages
+  // (show detail page, library rows) fetch their own.
+  const { data: single } = useShowSaveCount(showId, isAuthenticated, !saveData)
+  const data = saveData ?? single
+
+  const isSaved = data?.is_saved ?? false
+  const saveCount = data?.save_count ?? 0
+
+  const { isLoading, toggle, error } = useSaveShowToggle(showId, isSaved)
+  const [showError, setShowError] = useState(false)
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault() // Prevent any parent link clicks
     e.stopPropagation()
 
+    // Matches FollowButton: render for anonymous visitors so the public save
+    // count stays visible, and send them to sign-in on click.
+    if (!isAuthenticated) {
+      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+      return
+    }
+
     try {
       setShowError(false)
       await toggle()
-    } catch (err) {
+    } catch {
       setShowError(true)
       // Auto-hide error after 3 seconds
       setTimeout(() => setShowError(false), 3000)
     }
   }
 
+  const label = !isAuthenticated
+    ? 'Sign in to save'
+    : isSaved
+      ? 'Remove from My List'
+      : 'Add to My List'
+
   const iconSize = size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
   const buttonSize = size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
+  const hasCount = saveCount > 0
 
   return (
     <div className="relative">
@@ -54,9 +80,9 @@ export function SaveButton({
         size="icon"
         onClick={handleClick}
         disabled={isLoading}
-        className={`${buttonSize} p-0 ${showLabel ? 'w-auto px-3 gap-2' : ''}`}
-        title={isSaved ? 'Remove from My List' : 'Add to My List'}
-        aria-label={isSaved ? 'Remove from My List' : 'Add to My List'}
+        className={`${buttonSize} p-0 ${showLabel || hasCount ? 'w-auto px-3 gap-1.5' : ''}`}
+        title={label}
+        aria-label={hasCount ? `${label} (${saveCount} saved)` : label}
       >
         <Heart
           className={`${iconSize} transition-all ${
@@ -65,6 +91,11 @@ export function SaveButton({
               : 'text-muted-foreground hover:text-foreground'
           } ${isLoading ? 'opacity-50' : ''}`}
         />
+        {hasCount && (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {saveCount}
+          </span>
+        )}
         {showLabel && (
           <span className="text-sm">
             {isSaved ? 'Saved' : 'Save'}

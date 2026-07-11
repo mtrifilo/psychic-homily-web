@@ -8,7 +8,6 @@ import type { PrivacySettings } from '@/features/auth'
 const basePrivacySettings: PrivacySettings = {
   contributions: 'visible',
   saved_shows: 'visible',
-  attendance: 'visible',
   following: 'visible',
   collections: 'visible',
   last_active: 'visible',
@@ -145,7 +144,6 @@ describe('PrivacySettingsPanel', () => {
       expect(screen.getByText('Privacy Controls')).toBeInTheDocument()
       expect(screen.getByText('Contributions')).toBeInTheDocument()
       expect(screen.getByText('Saved Shows')).toBeInTheDocument()
-      expect(screen.getByText('Attendance')).toBeInTheDocument()
       expect(screen.getByText('Following')).toBeInTheDocument()
       expect(screen.getByText('Collections')).toBeInTheDocument()
       expect(screen.getByText('Last Active')).toBeInTheDocument()
@@ -154,16 +152,16 @@ describe('PrivacySettingsPanel', () => {
 
     it('renders three privacy-level buttons (Visible / Count Only / Hidden) per privacy field', () => {
       render(<PrivacySettingsPanel />)
-      // 5 three-level fields × 3 buttons = 15 buttons; plus the Save button
+      // 4 three-level fields × 3 buttons = 12 buttons; plus the Save button
       expect(
         screen.getAllByRole('button', { name: /^Visible$/i })
-      ).toHaveLength(5)
+      ).toHaveLength(4)
       expect(
         screen.getAllByRole('button', { name: /^Count Only$/i })
-      ).toHaveLength(5)
+      ).toHaveLength(4)
       expect(
         screen.getAllByRole('button', { name: /^Hidden$/i })
-      ).toHaveLength(5)
+      ).toHaveLength(4)
     })
   })
 
@@ -368,7 +366,7 @@ describe('PrivacySettingsPanel', () => {
       expect(payload.last_active).toBe('visible')
     })
 
-    it('sends the full PrivacySettings payload (all 7 fields) on save', () => {
+    it('sends the full PrivacySettings payload (all 6 fields) on save', () => {
       render(<PrivacySettingsPanel />)
       // Make any change so the save button enables
       act(() => {
@@ -382,7 +380,6 @@ describe('PrivacySettingsPanel', () => {
       expect(payload).toEqual({
         contributions: 'hidden',
         saved_shows: 'visible',
-        attendance: 'visible',
         following: 'visible',
         collections: 'visible',
         last_active: 'visible',

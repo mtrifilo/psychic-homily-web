@@ -872,7 +872,7 @@ describe('CollectionDetail', () => {
       expect(btn).not.toHaveAttribute('aria-pressed')
 
       await user.click(btn)
-      // Same returnTo redirect as FollowButton / AttendanceButton so the
+      // Same returnTo redirect as FollowButton / SaveButton so the
       // viewer lands back on this collection after signing in.
       expect(mockPush).toHaveBeenCalledWith(
         '/auth?returnTo=%2Fcollections%2Ftest-collection'

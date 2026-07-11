@@ -157,14 +157,6 @@ export interface SaveShowResponse {
   message: string
 }
 
-export interface CheckSavedResponse {
-  is_saved: boolean
-}
-
-export interface CheckBatchSavedResponse {
-  saved_show_ids: number[]
-}
-
 // User's submitted shows response
 export interface MySubmissionsResponse {
   shows: ShowResponse[]
@@ -261,33 +253,19 @@ export interface CalendarTokenDeleteResponse {
   message: string
 }
 
-// Attendance (going/interested) types
-export interface AttendanceCounts {
+// Public save-count types. The count is an aggregate visible to everyone;
+// is_saved reflects the requesting user and is always false when anonymous.
+export interface ShowSaveCount {
   show_id: number
-  going_count: number
-  interested_count: number
-  user_status?: string // "going" | "interested" | "" (empty when no status)
+  save_count: number
+  is_saved: boolean
 }
 
-export interface BatchAttendanceResponse {
-  attendance: Record<string, AttendanceCounts>
+export interface SaveCountEntry {
+  save_count: number
+  is_saved: boolean
 }
 
-export interface AttendingShow {
-  show_id: number
-  title: string
-  slug: string
-  event_date: string // ISO date string
-  status: string // "going" | "interested"
-  venue_name?: string | null
-  venue_slug?: string | null
-  city?: string | null
-  state?: string | null
-}
-
-export interface MyShowsResponse {
-  shows: AttendingShow[]
-  total: number
-  limit: number
-  offset: number
+export interface BatchSaveCountsResponse {
+  saves: Record<string, SaveCountEntry>
 }

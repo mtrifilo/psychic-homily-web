@@ -87,7 +87,6 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupTagRoutes(rc)
 	setupArtistRelationshipRoutes(rc)
 	setupSceneRoutes(rc)
-	setupAttendanceRoutes(rc)
 	setupFollowRoutes(rc)
 	setupNotificationFilterRoutes(rc)
 	setupChartsRoutes(rc)

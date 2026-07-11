@@ -4,7 +4,7 @@
  * Pre-seeds the TanStack Query cache for `/auth/profile` on the server so
  * `useProfile()` resolves from cache on first paint. Without this, hydrated
  * detail pages paint instantly but auth-gated action buttons
- * (AttendanceButton, SaveButton, etc.) are interactive while
+ * (SaveButton, etc.) are interactive while
  * `isAuthenticated` is still `false` — a click before the client profile
  * fetch settles routes the user to `/auth?returnTo=…` instead of firing
  * the intended POST.

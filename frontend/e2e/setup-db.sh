@@ -338,7 +338,7 @@ VALUES
   )
 ON CONFLICT DO NOTHING;
 
--- PSY-457: reserved artist for follow-and-attendance.spec.ts. Dedicated row
+-- PSY-457: reserved artist for follow-and-save.spec.ts. Dedicated row
 -- (not Calexico) so cross-worker follow tests don't race on a shared artist.
 INSERT INTO artists (name, slug, created_at, updated_at)
 VALUES (
@@ -415,7 +415,9 @@ BEGIN
   INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
   INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
 
-  -- PSY-457: follow-and-attendance.spec.ts "mark going/interested"
+  -- PSY-457: follow-and-save.spec.ts "save a show round-trip". The slug keeps
+  -- its historical `e2e-attendance-test` name because navigation.spec.ts and
+  -- not-found.spec.ts also consume it.
   -- Dedicated show so parallel workers don't race on e2e-collection-saved-show.
   INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
   VALUES (

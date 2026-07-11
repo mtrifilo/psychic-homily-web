@@ -254,45 +254,106 @@ func (h *SavedShowHandler) GetSavedShowsHandler(ctx context.Context, req *GetSav
 	}, nil
 }
 
-// CheckBatchSavedRequest represents the HTTP request for batch checking saved shows
-type CheckBatchSavedRequest struct {
+// GetSaveCountRequest represents the HTTP request for a show's public save count
+type GetSaveCountRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
+}
+
+// GetSaveCountResponse carries a show's public save count, plus — for an
+// authenticated caller only — whether that caller saved the show themselves.
+type GetSaveCountResponse struct {
 	Body struct {
-		ShowIDs []int `json:"show_ids" validate:"required,max=200" doc:"List of show IDs to check (max 200)"`
+		ShowID    uint `json:"show_id"`
+		SaveCount int  `json:"save_count"`
+		IsSaved   bool `json:"is_saved"`
 	}
 }
 
-// CheckBatchSavedResponse represents the HTTP response for batch checking saved shows
-type CheckBatchSavedResponse struct {
-	Body struct {
-		SavedShowIDs []int `json:"saved_show_ids"`
-	}
-}
-
-// CheckBatchSavedHandler handles POST /saved-shows/check-batch
-func (h *SavedShowHandler) CheckBatchSavedHandler(ctx context.Context, req *CheckBatchSavedRequest) (*CheckBatchSavedResponse, error) {
+// GetSaveCountHandler handles GET /shows/{show_id}/saves
+// Uses optional auth: the count is public; is_saved is false for anonymous callers.
+func (h *SavedShowHandler) GetSaveCountHandler(ctx context.Context, req *GetSaveCountRequest) (*GetSaveCountResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Get authenticated user
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid show ID")
 	}
 
+	count, err := h.savedShowService.GetSaveCount(uint(showID))
+	if err != nil {
+		logger.FromContext(ctx).Error("get_save_count_failed",
+			"show_id", showID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get save count (request_id: %s)", requestID),
+		)
+	}
+
+	resp := &GetSaveCountResponse{}
+	resp.Body.ShowID = uint(showID)
+	resp.Body.SaveCount = count
+
+	if user := middleware.GetUserFromContext(ctx); user != nil {
+		isSaved, err := h.savedShowService.IsShowSaved(user.ID, uint(showID))
+		if err != nil {
+			// Non-fatal: the public count is the primary payload.
+			logger.FromContext(ctx).Warn("get_save_count_is_saved_failed",
+				"user_id", user.ID,
+				"show_id", showID,
+				"error", err.Error(),
+			)
+		} else {
+			resp.Body.IsSaved = isSaved
+		}
+	}
+
+	return resp, nil
+}
+
+// BatchSaveCountsRequest represents the HTTP request for batch save counts.
+//
+// The `validate:` struct tag is not enforced by huma in this codebase, so the
+// cap below is checked explicitly in the handler.
+type BatchSaveCountsRequest struct {
+	Body struct {
+		ShowIDs []int `json:"show_ids" doc:"List of show IDs (max 200)"`
+	}
+}
+
+// BatchSaveCountsEntry is the per-show payload of the batch save-count response.
+type BatchSaveCountsEntry struct {
+	SaveCount int  `json:"save_count"`
+	IsSaved   bool `json:"is_saved"`
+}
+
+// BatchSaveCountsResponse maps show ID (as a string key) to its save data.
+type BatchSaveCountsResponse struct {
+	Body struct {
+		Saves map[string]*BatchSaveCountsEntry `json:"saves"`
+	}
+}
+
+// BatchSaveCountsHandler handles POST /shows/saves/batch
+//
+// Uses optional auth. This single call replaces what used to be two round-trips
+// from the shows list — one for public counts, one for the viewer's own saved
+// state — so is_saved is populated here rather than via /saved-shows/check-batch.
+func (h *SavedShowHandler) BatchSaveCountsHandler(ctx context.Context, req *BatchSaveCountsRequest) (*BatchSaveCountsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	resp := &BatchSaveCountsResponse{}
+	resp.Body.Saves = make(map[string]*BatchSaveCountsEntry)
+
 	if len(req.Body.ShowIDs) == 0 {
-		return &CheckBatchSavedResponse{
-			Body: struct {
-				SavedShowIDs []int `json:"saved_show_ids"`
-			}{
-				SavedShowIDs: []int{},
-			},
-		}, nil
+		return resp, nil
 	}
 
 	if len(req.Body.ShowIDs) > 200 {
 		return nil, huma.Error400BadRequest("Maximum 200 show IDs allowed")
 	}
 
-	// Convert to []uint
 	showIDs := make([]uint, len(req.Body.ShowIDs))
 	for i, id := range req.Body.ShowIDs {
 		if id <= 0 {
@@ -301,35 +362,41 @@ func (h *SavedShowHandler) CheckBatchSavedHandler(ctx context.Context, req *Chec
 		showIDs[i] = uint(id)
 	}
 
-	// Batch check
-	savedMap, err := h.savedShowService.GetSavedShowIDs(user.ID, showIDs)
+	countsMap, err := h.savedShowService.GetBatchSaveCounts(showIDs)
 	if err != nil {
-		logger.FromContext(ctx).Error("check_batch_saved_failed",
-			"user_id", user.ID,
+		logger.FromContext(ctx).Error("batch_save_counts_failed",
 			"count", len(showIDs),
 			"error", err.Error(),
 			"request_id", requestID,
 		)
 		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to check saved shows (request_id: %s)", requestID),
+			fmt.Sprintf("Failed to get save counts (request_id: %s)", requestID),
 		)
 	}
 
-	// Convert map to list of saved IDs
-	savedIDs := make([]int, 0, len(savedMap))
-	for id, saved := range savedMap {
-		if saved {
-			savedIDs = append(savedIDs, int(id))
+	for showID, count := range countsMap {
+		resp.Body.Saves[strconv.FormatUint(uint64(showID), 10)] = &BatchSaveCountsEntry{SaveCount: count}
+	}
+
+	if user := middleware.GetUserFromContext(ctx); user != nil {
+		savedMap, err := h.savedShowService.GetSavedShowIDs(user.ID, showIDs)
+		if err != nil {
+			// Non-fatal: the public counts are the primary payload.
+			logger.FromContext(ctx).Warn("batch_save_counts_is_saved_failed",
+				"user_id", user.ID,
+				"count", len(showIDs),
+				"error", err.Error(),
+			)
+		} else {
+			for showID, saved := range savedMap {
+				if entry, ok := resp.Body.Saves[strconv.FormatUint(uint64(showID), 10)]; ok {
+					entry.IsSaved = saved
+				}
+			}
 		}
 	}
 
-	return &CheckBatchSavedResponse{
-		Body: struct {
-			SavedShowIDs []int `json:"saved_show_ids"`
-		}{
-			SavedShowIDs: savedIDs,
-		},
-	}, nil
+	return resp, nil
 }
 
 // CheckSavedHandler handles GET /saved-shows/{show_id}/check

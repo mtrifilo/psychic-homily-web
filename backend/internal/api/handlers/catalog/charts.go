@@ -33,17 +33,15 @@ type GetTrendingShowsRequest struct {
 
 // TrendingShowResponse is a single trending show in the response.
 type TrendingShowResponse struct {
-	ShowID          uint      `json:"show_id"`
-	Title           string    `json:"title"`
-	Slug            string    `json:"slug"`
-	Date            time.Time `json:"date"`
-	VenueName       string    `json:"venue_name"`
-	VenueSlug       string    `json:"venue_slug"`
-	City            string    `json:"city"`
-	ArtistNames     []string  `json:"artist_names"`
-	GoingCount      int       `json:"going_count"`
-	InterestedCount int       `json:"interested_count"`
-	TotalAttendance int       `json:"total_attendance"`
+	ShowID      uint      `json:"show_id"`
+	Title       string    `json:"title"`
+	Slug        string    `json:"slug"`
+	Date        time.Time `json:"date"`
+	VenueName   string    `json:"venue_name"`
+	VenueSlug   string    `json:"venue_slug"`
+	City        string    `json:"city"`
+	ArtistNames []string  `json:"artist_names"`
+	SaveCount   int       `json:"save_count"`
 }
 
 // GetTrendingShowsResponse is the Huma response for GET /charts/trending-shows
@@ -67,17 +65,15 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 	resp.Body.Shows = make([]TrendingShowResponse, len(data))
 	for i, s := range data {
 		resp.Body.Shows[i] = TrendingShowResponse{
-			ShowID:          s.ShowID,
-			Title:           s.Title,
-			Slug:            s.Slug,
-			Date:            s.Date,
-			VenueName:       s.VenueName,
-			VenueSlug:       s.VenueSlug,
-			City:            s.City,
-			ArtistNames:     s.ArtistNames,
-			GoingCount:      s.GoingCount,
-			InterestedCount: s.InterestedCount,
-			TotalAttendance: s.TotalAttendance,
+			ShowID:      s.ShowID,
+			Title:       s.Title,
+			Slug:        s.Slug,
+			Date:        s.Date,
+			VenueName:   s.VenueName,
+			VenueSlug:   s.VenueSlug,
+			City:        s.City,
+			ArtistNames: s.ArtistNames,
+			SaveCount:   s.SaveCount,
 		}
 	}
 	return resp, nil
@@ -325,17 +321,15 @@ func (h *ChartsHandler) GetChartsOverviewHandler(ctx context.Context, _ *GetChar
 	resp.Body.TrendingShows = make([]TrendingShowResponse, len(data.TrendingShows))
 	for i, s := range data.TrendingShows {
 		resp.Body.TrendingShows[i] = TrendingShowResponse{
-			ShowID:          s.ShowID,
-			Title:           s.Title,
-			Slug:            s.Slug,
-			Date:            s.Date,
-			VenueName:       s.VenueName,
-			VenueSlug:       s.VenueSlug,
-			City:            s.City,
-			ArtistNames:     s.ArtistNames,
-			GoingCount:      s.GoingCount,
-			InterestedCount: s.InterestedCount,
-			TotalAttendance: s.TotalAttendance,
+			ShowID:      s.ShowID,
+			Title:       s.Title,
+			Slug:        s.Slug,
+			Date:        s.Date,
+			VenueName:   s.VenueName,
+			VenueSlug:   s.VenueSlug,
+			City:        s.City,
+			ArtistNames: s.ArtistNames,
+			SaveCount:   s.SaveCount,
 		}
 	}
 

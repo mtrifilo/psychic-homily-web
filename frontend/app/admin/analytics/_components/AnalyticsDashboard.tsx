@@ -80,7 +80,7 @@ export const COLORS = {
   // Social Engagement (4 series)
   bookmarks: 'var(--chart-1)',
   follows: 'var(--chart-2)',
-  attendance: 'var(--chart-3)',
+  saves: 'var(--chart-3)',
   revisions: 'var(--chart-4)',
   // Show Approval Trends (semantic)
   approved: 'var(--chart-2)',
@@ -371,7 +371,7 @@ function EngagementSection({ months }: { months: MonthRange }) {
   const socialData = mergeMonthlyData({
     bookmarks: data.bookmarks,
     follows: data.follows,
-    attendance: data.attendance,
+    saves: data.saves,
     revisions: data.revisions,
   })
 
@@ -496,12 +496,12 @@ function EngagementSection({ months }: { months: MonthRange }) {
               />
               <Area
                 type="monotone"
-                dataKey="attendance"
-                stroke={COLORS.attendance}
-                fill={COLORS.attendance}
+                dataKey="saves"
+                stroke={COLORS.saves}
+                fill={COLORS.saves}
                 fillOpacity={0.15}
                 strokeWidth={2}
-                name="Attendance"
+                name="Show Saves"
               />
               <Area
                 type="monotone"

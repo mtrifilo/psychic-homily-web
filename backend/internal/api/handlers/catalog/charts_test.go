@@ -59,7 +59,7 @@ func TestChartsHandler_TrendingShows_Success(t *testing.T) {
 				t.Errorf("expected limit=20, got %d", limit)
 			}
 			return []contracts.TrendingShow{
-				{ShowID: 1, Title: "Big Show", Slug: "big-show", GoingCount: 10, InterestedCount: 5, TotalAttendance: 15, VenueName: "The Venue", City: "Phoenix"},
+				{ShowID: 1, Title: "Big Show", Slug: "big-show", SaveCount: 15, VenueName: "The Venue", City: "Phoenix"},
 			}, nil
 		},
 	})
@@ -71,8 +71,8 @@ func TestChartsHandler_TrendingShows_Success(t *testing.T) {
 	if len(resp.Body.Shows) != 1 {
 		t.Fatalf("expected 1 show, got %d", len(resp.Body.Shows))
 	}
-	if resp.Body.Shows[0].TotalAttendance != 15 {
-		t.Errorf("expected total_attendance=15, got %d", resp.Body.Shows[0].TotalAttendance)
+	if resp.Body.Shows[0].SaveCount != 15 {
+		t.Errorf("expected save_count=15, got %d", resp.Body.Shows[0].SaveCount)
 	}
 	if resp.Body.Shows[0].Title != "Big Show" {
 		t.Errorf("expected title='Big Show', got %s", resp.Body.Shows[0].Title)
@@ -304,7 +304,7 @@ func TestChartsHandler_Overview_Success(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
 		GetChartsOverviewFn: func() (*contracts.ChartsOverview, error) {
 			return &contracts.ChartsOverview{
-				TrendingShows:  []contracts.TrendingShow{{ShowID: 1, Title: "Show", TotalAttendance: 5}},
+				TrendingShows:  []contracts.TrendingShow{{ShowID: 1, Title: "Show", SaveCount: 5}},
 				PopularArtists: []contracts.PopularArtist{{ArtistID: 1, Name: "Artist", Score: 10}},
 				ActiveVenues:   []contracts.ActiveVenue{{VenueID: 1, Name: "Venue", Score: 7}},
 				HotReleases:    []contracts.HotRelease{{ReleaseID: 1, Title: "Release", ArtistNames: []string{"A"}, BookmarkCount: 3}},

@@ -37,12 +37,6 @@ vi.mock('./ProfileFollowing', () => ({
   ),
 }))
 
-vi.mock('./ProfileAttendedShows', () => ({
-  ProfileAttendedShows: ({ username }: { username: string }) => (
-    <div data-testid="profile-attended-shows">Attended for {username}</div>
-  ),
-}))
-
 vi.mock('./ProfileCollections', () => ({
   ProfileCollections: ({ username }: { username: string }) => (
     <div data-testid="profile-collections">Collections for {username}</div>
@@ -478,7 +472,6 @@ describe('PublicProfile', () => {
           request_votes_cast: 0,
           collection_items_added: 0,
           collection_subscriptions: 0,
-          shows_attended: 0,
           reports_filed: 0,
           reports_resolved: 0,
           followers_count: 0,
@@ -633,7 +626,6 @@ describe('PublicProfile', () => {
           request_votes_cast: 0,
           collection_items_added: 0,
           collection_subscriptions: 0,
-          shows_attended: 0,
           reports_filed: 0,
           reports_resolved: 0,
           followers_count: 0,
@@ -686,7 +678,6 @@ describe('PublicProfile', () => {
           request_votes_cast: 0,
           collection_items_added: 0,
           collection_subscriptions: 0,
-          shows_attended: 0,
           reports_filed: 0,
           reports_resolved: 0,
           followers_count: 0,
@@ -800,21 +791,15 @@ describe('PublicProfile', () => {
     expect(screen.getByText('Bio')).toBeInTheDocument()
     expect(screen.getByTestId('profile-following')).toBeInTheDocument()
     expect(screen.getByTestId('profile-collections')).toBeInTheDocument()
-    expect(screen.getByTestId('profile-attended-shows')).toBeInTheDocument()
     expect(screen.getByTestId('profile-field-notes')).toBeInTheDocument()
 
-    // Bio (content) precedes the following section in the DOM, and the
-    // attended-shows diary precedes field notes — the content-first order.
+    // Bio (content) precedes the following section in the DOM — the
+    // content-first order.
     const bio = screen.getByText('Desert-scene lifer.')
     const following = screen.getByTestId('profile-following')
-    const attended = screen.getByTestId('profile-attended-shows')
-    const notes = screen.getByTestId('profile-field-notes')
     expect(
       bio.compareDocumentPosition(following) &
         Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
-      attended.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
   })
 
@@ -838,7 +823,6 @@ describe('PublicProfile', () => {
           request_votes_cast: 0,
           collection_items_added: 0,
           collection_subscriptions: 0,
-          shows_attended: 0,
           reports_filed: 0,
           reports_resolved: 0,
           followers_count: 0,
@@ -854,7 +838,7 @@ describe('PublicProfile', () => {
     renderWithProviders(<PublicProfile username="alice" />)
 
     expect(screen.getByText('Get started')).toBeInTheDocument()
-    expect(screen.getByText('Log a show you attended')).toBeInTheDocument()
+    expect(screen.getByText("Save a show you're into")).toBeInTheDocument()
     expect(screen.getByText('Follow artists you love')).toBeInTheDocument()
     expect(
       screen.getByText('Start your first collection')
@@ -887,7 +871,6 @@ describe('PublicProfile', () => {
           request_votes_cast: 0,
           collection_items_added: 0,
           collection_subscriptions: 0,
-          shows_attended: 0,
           reports_filed: 0,
           reports_resolved: 0,
           followers_count: 0,

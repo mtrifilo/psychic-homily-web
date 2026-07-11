@@ -15,7 +15,6 @@ import { ProfileEmptyPrompt } from './ProfileEmptyPrompt'
 import { ProfileSectionAction } from './ProfileSectionAction'
 import { ProfileFollowing } from './ProfileFollowing'
 import { ProfileCollections } from './ProfileCollections'
-import { ProfileAttendedShows } from './ProfileAttendedShows'
 import { ProfileFieldNotes } from './ProfileFieldNotes'
 import { ProfileStatsSidebar } from './ProfileStatsSidebar'
 import { usePublicProfile } from '@/features/auth'
@@ -116,8 +115,8 @@ interface PublicProfileProps {
  * The public profile as a content-first identity hub (PSY-1045).
  *
  * Layout: identity header, then a two-column body — the user's CONTENT
- * (bio + custom sections, following, collections, concert diary, field
- * notes) leads in the main column, while the contribution dashboard is
+ * (bio + custom sections, following, collections, field notes) leads in the
+ * main column, while the contribution dashboard is
  * demoted to a compact, expandable sidebar card. This inverts the previous
  * stats-first layout per the Gazelle "identity hub, not a stats dump"
  * direction (docs/features/profile-redesign.md).
@@ -346,7 +345,6 @@ export function PublicProfile({ username }: PublicProfileProps) {
 
               <ProfileCollections username={username} isOwner={isOwner} />
 
-              <ProfileAttendedShows username={username} />
               <ProfileFieldNotes username={username} />
 
               {/* Recent activity (contribution timeline) was removed per the

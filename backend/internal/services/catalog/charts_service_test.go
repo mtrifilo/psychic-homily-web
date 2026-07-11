@@ -164,13 +164,13 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_WithData() 
 	show1 := suite.createApprovedShow("Popular Show", venue.ID, artist.ID, user1.ID, future)
 	show2 := suite.createApprovedShow("Less Popular Show", venue.ID, artist.ID, user1.ID, future.AddDate(0, 0, 1))
 
-	// Show 1 has 3 attendees (2 going, 1 interested)
-	suite.createBookmark(user1.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionGoing)
-	suite.createBookmark(user2.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionGoing)
-	suite.createBookmark(user3.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionInterested)
+	// Show 1 has 3 saves
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(user2.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(user3.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionSave)
 
-	// Show 2 has 1 attendee
-	suite.createBookmark(user1.ID, engagementm.BookmarkEntityShow, show2.ID, engagementm.BookmarkActionGoing)
+	// Show 2 has 1 save
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityShow, show2.ID, engagementm.BookmarkActionSave)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
 	suite.Require().NoError(err)
@@ -179,15 +179,13 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_WithData() 
 	// Most popular show first
 	suite.Equal(show1.ID, shows[0].ShowID)
 	suite.Equal("Popular Show", shows[0].Title)
-	suite.Equal(2, shows[0].GoingCount)
-	suite.Equal(1, shows[0].InterestedCount)
-	suite.Equal(3, shows[0].TotalAttendance)
+	suite.Equal(3, shows[0].SaveCount)
 	suite.Equal("Crescent Ballroom", shows[0].VenueName)
 	suite.Equal("Phoenix", shows[0].City)
 
 	// Less popular show second
 	suite.Equal(show2.ID, shows[1].ShowID)
-	suite.Equal(1, shows[1].TotalAttendance)
+	suite.Equal(1, shows[1].SaveCount)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_ExcludesPastShows() {
@@ -198,12 +196,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_ExcludesPas
 	// Past show
 	past := time.Now().UTC().AddDate(0, 0, -7)
 	pastShow := suite.createApprovedShow("Past Show", venue.ID, artist.ID, user.ID, past)
-	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, pastShow.ID, engagementm.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, pastShow.ID, engagementm.BookmarkActionSave)
 
 	// Future show
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	futureShow := suite.createApprovedShow("Future Show", venue.ID, artist.ID, user.ID, future)
-	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, futureShow.ID, engagementm.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, futureShow.ID, engagementm.BookmarkActionSave)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
 	suite.Require().NoError(err)
@@ -223,7 +221,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_RespectsLim
 			venue.ID, artist.ID, user.ID,
 			future.AddDate(0, 0, i),
 		)
-		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave)
 	}
 
 	shows, err := suite.chartsService.GetTrendingShows(3)
@@ -244,9 +242,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_WithoutBook
 	suite.Require().Len(shows, 1)
 	suite.Equal(show.ID, shows[0].ShowID)
 	suite.Equal("Unbookmarked Show", shows[0].Title)
-	suite.Equal(0, shows[0].GoingCount)
-	suite.Equal(0, shows[0].InterestedCount)
-	suite.Equal(0, shows[0].TotalAttendance)
+	suite.Equal(0, shows[0].SaveCount)
 	suite.Equal("No Bookmark Venue", shows[0].VenueName)
 }
 
@@ -260,17 +256,17 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_BookmarkedR
 	unbookmarked := suite.createApprovedShow("Unbookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
 	// Show with bookmarks (same date)
 	bookmarked := suite.createApprovedShow("Bookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
-	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, bookmarked.ID, engagementm.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, bookmarked.ID, engagementm.BookmarkActionSave)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
 	suite.Require().NoError(err)
 	suite.Require().Len(shows, 2)
 	// Bookmarked show should be first
 	suite.Equal(bookmarked.ID, shows[0].ShowID)
-	suite.Equal(1, shows[0].TotalAttendance)
+	suite.Equal(1, shows[0].SaveCount)
 	// Unbookmarked show second
 	suite.Equal(unbookmarked.ID, shows[1].ShowID)
-	suite.Equal(0, shows[1].TotalAttendance)
+	suite.Equal(0, shows[1].SaveCount)
 }
 
 // =============================================================================
@@ -586,7 +582,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsOverview_LimitsToFi
 			venue.ID, artist.ID, user.ID,
 			future.AddDate(0, 0, i),
 		)
-		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave)
 		suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
 	}
 

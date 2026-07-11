@@ -2,8 +2,7 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
-import { useSavedShowBatch } from '../hooks/useSavedShows'
-import { useBatchAttendance } from '../hooks/useAttendance'
+import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
@@ -103,8 +102,7 @@ export function HomeShowList() {
     () => data?.shows?.map(s => s.id) ?? [],
     [data?.shows]
   )
-  const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)
-  const { data: batchAttendance } = useBatchAttendance(showIds)
+  const { data: saveCounts } = useShowSaveCountBatch(showIds, isAuthenticated)
 
   // Determine if "Save as default" / "Clear defaults" should show
   const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
@@ -173,8 +171,7 @@ export function HomeShowList() {
                 key={show.id}
                 show={show}
                 isAdmin={isAdmin}
-                isSaved={savedShowIds?.has(show.id)}
-                attendanceData={batchAttendance?.[String(show.id)]}
+                saveData={saveCounts?.[String(show.id)]}
               />
             ))}
           </div>

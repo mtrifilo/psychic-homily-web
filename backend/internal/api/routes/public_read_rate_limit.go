@@ -75,16 +75,37 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) stri
 	return limitReadMethodsOnly(limiter)
 }
 
-// limitReadMethodsOnly applies the limiter only to safe read methods (GET/HEAD).
-// Writes (POST/PUT/PATCH/DELETE) pass through — this ticket scopes to public
-// READS, and writes keep their own dedicated limiters, so a shared read budget
-// must not throttle an unrelated anonymous write. (OPTIONS never reaches here:
-// the CORS middleware short-circuits preflight upstream.)
+// SaveCountsBatchPath is the batch save-count endpoint. It is declared once and
+// used by BOTH the route registration and the read-via-POST allowlist below, so
+// the two cannot silently drift apart — a rename that reached only one of them
+// would quietly leave the endpoint unmetered.
+const SaveCountsBatchPath = "/shows/saves/batch"
+
+// readViaPostPaths are POST endpoints that are semantically READS: the request
+// body only carries a batch of entity IDs, and the response is public data.
+// They must share the public-read budget — otherwise an anonymous caller gets
+// an unmetered batch aggregate query simply because the endpoint takes a body.
+//
+// NOTE: /follows/batch has the same shape and is still unmetered. It predates
+// this list and is tracked separately; do not assume this list is exhaustive.
+var readViaPostPaths = []string{SaveCountsBatchPath}
+
+// limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
+// the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/
+// DELETE) pass through — they keep their own dedicated limiters, so a shared
+// read budget must not throttle an unrelated anonymous write. (OPTIONS never
+// reaches here: the CORS middleware short-circuits preflight upstream.)
 func limitReadMethodsOnly(limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	readPosts := make(map[string]bool, len(readViaPostPaths))
+	for _, p := range readViaPostPaths {
+		readPosts[p] = true
+	}
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead
+			isReadViaPost := r.Method == http.MethodPost && readPosts[r.URL.Path]
+			if isRead || isReadViaPost {
 				limited.ServeHTTP(w, r)
 				return
 			}

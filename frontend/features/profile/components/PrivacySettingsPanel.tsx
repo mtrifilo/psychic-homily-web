@@ -45,11 +45,6 @@ const privacyFields: {
     description: 'Shows you have saved to your list',
   },
   {
-    key: 'attendance',
-    label: 'Attendance',
-    description: 'Shows you have attended',
-  },
-  {
     key: 'following',
     label: 'Following',
     description: 'Artists and venues you follow',
@@ -188,7 +183,6 @@ export function PrivacySettingsPanel() {
     const input: UpdatePrivacyInput = {
       contributions: localPrivacy.contributions,
       saved_shows: localPrivacy.saved_shows,
-      attendance: localPrivacy.attendance,
       following: localPrivacy.following,
       collections: localPrivacy.collections,
       last_active: localPrivacy.last_active,

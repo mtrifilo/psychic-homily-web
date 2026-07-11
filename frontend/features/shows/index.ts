@@ -25,8 +25,6 @@ export type {
   SavedShowResponse,
   SavedShowsListResponse,
   SaveShowResponse,
-  CheckSavedResponse,
-  CheckBatchSavedResponse,
   MySubmissionsResponse,
   ShowCity,
   ShowCitiesResponse,
@@ -42,10 +40,9 @@ export type {
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
-  AttendanceCounts,
-  BatchAttendanceResponse,
-  AttendingShow,
-  MyShowsResponse,
+  ShowSaveCount,
+  SaveCountEntry,
+  BatchSaveCountsResponse,
 } from './types'
 
 // Hooks
@@ -93,29 +90,20 @@ export {
 
 export {
   useSavedShows,
-  useSavedShowBatch,
-  useIsShowSaved,
   useSaveShow,
   useUnsaveShow,
   useSaveShowToggle,
+  useShowSaveCount,
+  useShowSaveCountBatch,
 } from './hooks'
 
 export { useMySubmissions } from './hooks'
-
-export {
-  useShowAttendance,
-  useBatchAttendance,
-  useSetAttendance,
-  useRemoveAttendance,
-  useMyShows,
-} from './hooks'
 
 // Utilities
 export { dedupArtistShows, dedupVenueShows } from './utils'
 
 // Components
 export {
-  AttendanceButton,
   ShowDetail,
   ShowCard,
   ShowForm,
@@ -136,7 +124,6 @@ export {
 } from './components'
 
 export type {
-  AttendanceButtonProps,
   ShowCardDensity,
   ShowCardProps,
   ShowListContext,

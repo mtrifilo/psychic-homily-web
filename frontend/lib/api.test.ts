@@ -107,8 +107,11 @@ describe('API Module', () => {
       expect(API_ENDPOINTS.SAVED_SHOWS.SAVE(5)).toBe(
         `${API_BASE_URL}/saved-shows/5`
       )
-      expect(API_ENDPOINTS.SAVED_SHOWS.CHECK('10')).toBe(
-        `${API_BASE_URL}/saved-shows/10/check`
+      expect(API_ENDPOINTS.SAVE_COUNTS.SHOW(10)).toBe(
+        `${API_BASE_URL}/shows/10/saves`
+      )
+      expect(API_ENDPOINTS.SAVE_COUNTS.BATCH).toBe(
+        `${API_BASE_URL}/shows/saves/batch`
       )
     })
 

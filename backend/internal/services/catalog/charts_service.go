@@ -27,7 +27,7 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 	return &ChartsService{db: database}
 }
 
-// GetTrendingShows returns upcoming shows ranked by total attendance (going + interested).
+// GetTrendingShows returns upcoming shows ranked by save count.
 // Only includes future shows with approved status. Shows without engagement data are
 // included and ranked by soonest date, so the chart is never empty when shows exist.
 func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
@@ -38,16 +38,14 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	now := time.Now().UTC()
 
 	type trendingRow struct {
-		ShowID          uint      `gorm:"column:show_id"`
-		Title           string    `gorm:"column:title"`
-		Slug            string    `gorm:"column:slug"`
-		Date            time.Time `gorm:"column:event_date"`
-		VenueName       string    `gorm:"column:venue_name"`
-		VenueSlug       string    `gorm:"column:venue_slug"`
-		City            string    `gorm:"column:city"`
-		GoingCount      int       `gorm:"column:going_count"`
-		InterestedCount int       `gorm:"column:interested_count"`
-		TotalAttendance int       `gorm:"column:total_attendance"`
+		ShowID    uint      `gorm:"column:show_id"`
+		Title     string    `gorm:"column:title"`
+		Slug      string    `gorm:"column:slug"`
+		Date      time.Time `gorm:"column:event_date"`
+		VenueName string    `gorm:"column:venue_name"`
+		VenueSlug string    `gorm:"column:venue_slug"`
+		City      string    `gorm:"column:city"`
+		SaveCount int       `gorm:"column:save_count"`
 	}
 
 	var rows []trendingRow
@@ -60,21 +58,19 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 			COALESCE(v.name, '') AS venue_name,
 			COALESCE(v.slug, '') AS venue_slug,
 			COALESCE(v.city, '') AS city,
-			COALESCE(SUM(CASE WHEN ub.action = 'going' THEN 1 ELSE 0 END), 0) AS going_count,
-			COALESCE(SUM(CASE WHEN ub.action = 'interested' THEN 1 ELSE 0 END), 0) AS interested_count,
-			COALESCE(COUNT(ub.id), 0) AS total_attendance
+			COALESCE(COUNT(ub.id), 0) AS save_count
 		FROM shows s
 		LEFT JOIN show_venues sv ON sv.show_id = s.id
 		LEFT JOIN venues v ON v.id = sv.venue_id
 		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
 			AND ub.entity_type = ?
-			AND ub.action IN (?, ?)
+			AND ub.action = ?
 		WHERE s.status = ?
 			AND s.event_date >= ?
 		GROUP BY s.id, s.title, s.slug, s.event_date, v.name, v.slug, v.city
-		ORDER BY total_attendance DESC, s.event_date ASC
+		ORDER BY save_count DESC, s.event_date ASC
 		LIMIT ?
-	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested,
+	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
 		catalogm.ShowStatusApproved, now, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trending shows: %w", err)
@@ -84,17 +80,15 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	showIDs := make([]uint, len(rows))
 	for i, r := range rows {
 		results[i] = contracts.TrendingShow{
-			ShowID:          r.ShowID,
-			Title:           r.Title,
-			Slug:            r.Slug,
-			Date:            r.Date,
-			VenueName:       r.VenueName,
-			VenueSlug:       r.VenueSlug,
-			City:            r.City,
-			ArtistNames:     []string{},
-			GoingCount:      r.GoingCount,
-			InterestedCount: r.InterestedCount,
-			TotalAttendance: r.TotalAttendance,
+			ShowID:      r.ShowID,
+			Title:       r.Title,
+			Slug:        r.Slug,
+			Date:        r.Date,
+			VenueName:   r.VenueName,
+			VenueSlug:   r.VenueSlug,
+			City:        r.City,
+			ArtistNames: []string{},
+			SaveCount:   r.SaveCount,
 		}
 		showIDs[i] = r.ShowID
 	}

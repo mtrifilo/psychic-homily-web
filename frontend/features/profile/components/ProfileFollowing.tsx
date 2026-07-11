@@ -14,7 +14,7 @@ interface ProfileFollowingProps {
 
 // Following lists artists/venues/labels/festivals. Tag-following does not
 // exist in the backend (PSY-1045 dropped the mocked TAGS row), and shows use
-// going/save actions rather than follow, so neither appears here.
+// the save action rather than follow, so neither appears here.
 const TYPE_ROWS: Array<{
   type: FollowingEntity['entity_type']
   label: string

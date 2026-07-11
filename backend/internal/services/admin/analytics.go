@@ -195,7 +195,8 @@ func (s *AnalyticsService) GetEngagementMetrics(months int) (*contracts.Engageme
 
 	resp := &contracts.EngagementMetricsResponse{}
 
-	// Bookmarks — save/bookmark actions (exclude follow, going, interested as they're counted separately)
+	// Bookmarks — save/bookmark actions (excludes follow, which is counted separately).
+	// Show saves land here: they carry action = 'save'.
 	bookmarks, err := s.queryEngagementMetricWithCondition(
 		"user_bookmarks",
 		"action IN ('save', 'bookmark')",
@@ -259,16 +260,18 @@ func (s *AnalyticsService) GetEngagementMetrics(months int) (*contracts.Engageme
 	}
 	resp.Follows = fillEngagementGaps(follows, monthKeys)
 
-	// Attendance — user_bookmarks with action IN ('going', 'interested')
-	attendance, err := s.queryEngagementMetricWithCondition(
+	// Saves — show saves (action='save', entity_type='show'). Replaces the old
+	// going/interested attendance series. Deliberately narrower than Bookmarks
+	// above, which also counts release bookmarks.
+	saves, err := s.queryEngagementMetricWithCondition(
 		"user_bookmarks",
-		"action IN ('going', 'interested')",
+		"action = 'save' AND entity_type = 'show'",
 		since,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying attendance: %w", err)
+		return nil, fmt.Errorf("querying saves: %w", err)
 	}
-	resp.Attendance = fillEngagementGaps(attendance, monthKeys)
+	resp.Saves = fillEngagementGaps(saves, monthKeys)
 
 	return resp, nil
 }

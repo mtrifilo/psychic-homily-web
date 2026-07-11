@@ -23,7 +23,6 @@ import type {
   ActivityHeatmapResponse,
   PercentileRankings,
   UserFollowingResponse,
-  AttendedShowsResponse,
   UserFieldNotesResponse,
 } from '../types'
 
@@ -161,34 +160,6 @@ export function useUserFollowing(
 interface UsePaginationOptions {
   limit?: number
   offset?: number
-}
-
-/**
- * Hook to fetch a user's concert diary: past approved shows they marked
- * "going", most recent first.
- */
-export function useUserAttendedShows(
-  username: string,
-  options: UsePaginationOptions = {}
-) {
-  const { limit = 20, offset = 0 } = options
-
-  const params = new URLSearchParams()
-  params.set('limit', String(limit))
-  params.set('offset', String(offset))
-
-  return useQuery({
-    queryKey: queryKeys.contributor.attendedShows(username),
-    queryFn: async (): Promise<AttendedShowsResponse> => {
-      return apiRequest<AttendedShowsResponse>(
-        `${API_ENDPOINTS.USERS.ATTENDED_SHOWS(username)}?${params.toString()}`,
-        { method: 'GET' }
-      )
-    },
-    enabled: Boolean(username),
-    staleTime: 5 * 60 * 1000,
-    retry: false, // 404 = hidden by privacy settings — don't hammer it
-  })
 }
 
 /**

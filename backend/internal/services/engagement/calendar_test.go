@@ -268,6 +268,14 @@ func (m *mockSavedShowSvc) IsShowSaved(_, _ uint) (bool, error) { return false, 
 func (m *mockSavedShowSvc) GetSavedShowIDs(_ uint, _ []uint) (map[uint]bool, error) {
 	return nil, nil
 }
+func (m *mockSavedShowSvc) GetSaveCount(_ uint) (int, error) { return 0, nil }
+func (m *mockSavedShowSvc) GetBatchSaveCounts(showIDs []uint) (map[uint]int, error) {
+	result := make(map[uint]int, len(showIDs))
+	for _, id := range showIDs {
+		result[id] = 0
+	}
+	return result, nil
+}
 
 func ptrString(s string) *string { return &s }
 

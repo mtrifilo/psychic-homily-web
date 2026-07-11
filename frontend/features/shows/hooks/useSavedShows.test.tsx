@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createWrapper } from '@/test/utils'
 
 // Create mocks
@@ -12,9 +13,12 @@ vi.mock('@/lib/api', () => ({
   API_ENDPOINTS: {
     SAVED_SHOWS: {
       LIST: '/saved-shows',
-      CHECK: (id: number | string) => `/saved-shows/${id}/check`,
       SAVE: (id: number) => `/saved-shows/${id}`,
       UNSAVE: (id: number) => `/saved-shows/${id}`,
+    },
+    SAVE_COUNTS: {
+      SHOW: (id: number) => `/shows/${id}/saves`,
+      BATCH: '/shows/saves/batch',
     },
   },
 }))
@@ -24,7 +28,20 @@ vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     savedShows: {
       list: () => ['savedShows', 'list'],
-      check: (showId: string) => ['savedShows', 'check', showId],
+      count: (showId: number, isAuthenticated: boolean) => [
+        'savedShows',
+        'count',
+        isAuthenticated,
+        showId,
+      ],
+      all: ['savedShows'],
+      countBatchPrefix: ['savedShows', 'countBatch'],
+      countBatch: (showIds: number[], isAuthenticated: boolean) => [
+        'savedShows',
+        'countBatch',
+        isAuthenticated,
+        showIds,
+      ],
     },
   },
   createInvalidateQueries: () => ({
@@ -32,10 +49,10 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
-// Import hooks after mocks are set up
+// Import hooks after mocks are set up (queryKeys resolves to the mock above)
+import { queryKeys } from '@/lib/queryClient'
 import {
   useSavedShows,
-  useIsShowSaved,
   useSaveShow,
   useUnsaveShow,
   useSaveShowToggle,
@@ -100,70 +117,6 @@ describe('useSavedShows', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
   })
 
-})
-
-describe('useIsShowSaved', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
-  it('checks if a show is saved', async () => {
-    mockApiRequest.mockResolvedValueOnce({ is_saved: true })
-
-    const { result } = renderHook(() => useIsShowSaved(123, true), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      '/saved-shows/123/check',
-      expect.objectContaining({
-        method: 'GET',
-      })
-    )
-  })
-
-  it('does not fetch when showId is null', async () => {
-    const { result } = renderHook(() => useIsShowSaved(null, true), {
-      wrapper: createWrapper(),
-    })
-
-    expect(result.current.isFetching).toBe(false)
-    expect(mockApiRequest).not.toHaveBeenCalled()
-  })
-
-  it('accepts string showId', async () => {
-    mockApiRequest.mockResolvedValueOnce({ is_saved: true })
-
-    const { result } = renderHook(() => useIsShowSaved('789', true), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      '/saved-shows/789/check',
-      expect.objectContaining({
-        method: 'GET',
-      })
-    )
-  })
-
-  it('handles check errors', async () => {
-    const error = new Error('Show not found')
-    Object.assign(error, { status: 404 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useIsShowSaved(999, true), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
 })
 
 describe('useSaveShow', () => {
@@ -304,47 +257,17 @@ describe('useSaveShowToggle', () => {
     mockInvalidateSavedShows.mockReset()
   })
 
-  it('returns isSaved false when show is not saved', async () => {
-    mockApiRequest.mockResolvedValueOnce({ is_saved: false })
-
-    const { result } = renderHook(() => useSaveShowToggle(700, true), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isSaved).toBe(false))
-
-    expect(result.current.isLoading).toBe(false)
-  })
-
-  it('returns isSaved true when show is saved', async () => {
-    mockApiRequest.mockResolvedValueOnce({ is_saved: true })
-
-    const { result } = renderHook(() => useSaveShowToggle(800, true), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isSaved).toBe(true))
-  })
-
   it('toggle saves an unsaved show', async () => {
-    // First call: check if saved (false)
-    mockApiRequest.mockResolvedValueOnce({ is_saved: false })
-    // Second call: save the show
     mockApiRequest.mockResolvedValueOnce({ message: 'Saved' })
 
-    const { result } = renderHook(() => useSaveShowToggle(900, true), {
+    const { result } = renderHook(() => useSaveShowToggle(900, false), {
       wrapper: createWrapper(),
     })
 
-    // Wait for initial check to complete
-    await waitFor(() => expect(result.current.isSaved).toBe(false))
-
-    // Toggle (should save)
     await act(async () => {
       await result.current.toggle()
     })
 
-    // Verify save was called
     expect(mockApiRequest).toHaveBeenCalledWith(
       '/saved-shows/900',
       expect.objectContaining({ method: 'POST' })
@@ -352,67 +275,298 @@ describe('useSaveShowToggle', () => {
   })
 
   it('toggle unsaves a saved show', async () => {
-    // First call: check if saved (true)
-    mockApiRequest.mockResolvedValueOnce({ is_saved: true })
-    // Second call: unsave the show
     mockApiRequest.mockResolvedValueOnce({ message: 'Unsaved' })
 
     const { result } = renderHook(() => useSaveShowToggle(1000, true), {
       wrapper: createWrapper(),
     })
 
-    // Wait for initial check to complete
-    await waitFor(() => expect(result.current.isSaved).toBe(true))
-
-    // Toggle (should unsave)
     await act(async () => {
       await result.current.toggle()
     })
 
-    // Verify unsave was called
     expect(mockApiRequest).toHaveBeenCalledWith(
       '/saved-shows/1000',
       expect.objectContaining({ method: 'DELETE' })
     )
   })
 
-  it('rolls back optimistic update on error', async () => {
-    // First call: check if saved (false)
-    mockApiRequest.mockResolvedValueOnce({ is_saved: false })
-    // Second call: save fails
-    const error = new Error('Network error')
-    mockApiRequest.mockRejectedValueOnce(error)
+  // Optimistic-update guard: assert the CACHE is patched, not just that a
+  // request fired. A render-only stub of `toggle` would pass a request-only
+  // assertion even with the optimistic wiring deleted.
 
-    const { result } = renderHook(() => useSaveShowToggle(1100, true), {
-      wrapper: createWrapper(),
+  it('optimistically bumps the cached count before the mutation resolves', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const countKey = ['savedShows', 'count', true, 1400]
+    queryClient.setQueryData(countKey, {
+      show_id: 1400,
+      save_count: 4,
+      is_saved: false,
     })
 
-    // Wait for initial check to complete
-    await waitFor(() => expect(result.current.isSaved).toBe(false))
+    // Hold the mutation open so we can observe the pre-resolution cache state.
+    let resolveSave: (v: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise((res) => { resolveSave = res })
+    )
 
-    // Toggle (should attempt to save and fail)
+    const { result } = renderHook(() => useSaveShowToggle(1400, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    let toggling: Promise<void>
+    await act(async () => {
+      toggling = result.current.toggle()
+      await Promise.resolve()
+    })
+
+    // Optimistic: count +1 and is_saved flipped BEFORE the server replied.
+    expect(queryClient.getQueryData(countKey)).toEqual({
+      show_id: 1400,
+      save_count: 5,
+      is_saved: true,
+    })
+
+    await act(async () => {
+      resolveSave({ message: 'Saved' })
+      await toggling!
+    })
+  })
+
+  it('rolls the cached count back when the mutation fails', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const countKey = ['savedShows', 'count', true, 1500]
+    queryClient.setQueryData(countKey, {
+      show_id: 1500,
+      save_count: 4,
+      is_saved: false,
+    })
+
+    mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useSaveShowToggle(1500, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
     await act(async () => {
       try {
         await result.current.toggle()
       } catch {
-        // Expected to throw
+        // expected
       }
     })
 
-    // Should have an error
-    expect(result.current.error).toBeDefined()
+    // Rollback restores the pre-toggle count and saved state.
+    expect(queryClient.getQueryData(countKey)).toEqual({
+      show_id: 1500,
+      save_count: 4,
+      is_saved: false,
+    })
+  })
+
+  it('never drives the cached count negative', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const countKey = ['savedShows', 'count', true, 1600]
+    // Server said 0 saves but our local state thinks we saved it — unsaving
+    // must clamp at 0 rather than render "-1".
+    queryClient.setQueryData(countKey, {
+      show_id: 1600,
+      save_count: 0,
+      is_saved: true,
+    })
+    mockApiRequest.mockResolvedValueOnce({ message: 'Unsaved' })
+
+    const { result } = renderHook(() => useSaveShowToggle(1600, true), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await act(async () => {
+      await result.current.toggle()
+    })
+
+    expect(
+      (queryClient.getQueryData(countKey) as { save_count: number }).save_count
+    ).toBe(0)
+  })
+
+  // Regression: rollback must restore the SNAPSHOT, not re-invert the delta.
+  // Re-inverting against an already-clamped 0 resurrects a phantom +1.
+  it('rollback after a clamped unsave does not resurrect a phantom count', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const countKey = ['savedShows', 'count', true, 1700]
+    queryClient.setQueryData(countKey, {
+      show_id: 1700,
+      save_count: 0,
+      is_saved: true,
+    })
+    mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useSaveShowToggle(1700, true), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await act(async () => {
+      try {
+        await result.current.toggle()
+      } catch {
+        // expected
+      }
+    })
+
+    expect(queryClient.getQueryData(countKey)).toEqual({
+      show_id: 1700,
+      save_count: 0,
+      is_saved: true,
+    })
+  })
+
+  // A cached batch that doesn't contain this show must be left alone entirely —
+  // in both the optimistic apply and the rollback (symmetric `entry` guards).
+  it('leaves unrelated batch caches untouched', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const otherBatchKey = queryKeys.savedShows.countBatch([2000, 2001], true)
+    const untouched = {
+      '2000': { save_count: 1, is_saved: false },
+      '2001': { save_count: 2, is_saved: true },
+    }
+    queryClient.setQueryData(otherBatchKey, untouched)
+    mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
+
+    // Toggle a show that appears in NO cached batch.
+    const { result } = renderHook(() => useSaveShowToggle(9999, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await act(async () => {
+      try {
+        await result.current.toggle()
+      } catch {
+        // expected
+      }
+    })
+
+    expect(queryClient.getQueryData(otherBatchKey)).toEqual(untouched)
+  })
+
+  // Regression: a batch cache entry is SHARED across every show in the list.
+  // Rolling back a failed toggle by restoring the whole snapshot would erase a
+  // sibling show's save that succeeded while our request was in flight.
+  it('rollback does not clobber a sibling show in the same batch', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const batchKey = queryKeys.savedShows.countBatch([1900, 1901], true)
+    queryClient.setQueryData(batchKey, {
+      '1900': { save_count: 4, is_saved: false },
+      '1901': { save_count: 9, is_saved: false },
+    })
+
+    // Show 1900's save hangs, then fails.
+    let rejectSave: (e: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise((_res, rej) => { rejectSave = rej })
+    )
+
+    const { result } = renderHook(() => useSaveShowToggle(1900, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    let failing: Promise<void>
+    await act(async () => {
+      failing = result.current.toggle().catch(() => {})
+      await Promise.resolve()
+    })
+
+    // Meanwhile a sibling show in the SAME batch is saved successfully.
+    queryClient.setQueryData(batchKey, (prev: Record<string, { save_count: number; is_saved: boolean }>) => ({
+      ...prev,
+      '1901': { save_count: 10, is_saved: true },
+    }))
+
+    await act(async () => {
+      rejectSave(new Error('Network error'))
+      await failing!
+    })
+
+    const after = queryClient.getQueryData(batchKey) as Record<
+      string,
+      { save_count: number; is_saved: boolean }
+    >
+    // 1900 rolls back to its pre-toggle value...
+    expect(after['1900']).toEqual({ save_count: 4, is_saved: false })
+    // ...and 1901's successful save survives.
+    expect(after['1901']).toEqual({ save_count: 10, is_saved: true })
+  })
+
+  // The shows list (the highest-traffic surface) reads save data from the BATCH
+  // cache, so the batch branch of the optimistic update needs its own guard.
+  it('optimistically patches the cached BATCH entry, keyed via the real helper', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const batchKey = queryKeys.savedShows.countBatch([1800, 1801], true)
+    queryClient.setQueryData(batchKey, {
+      '1800': { save_count: 4, is_saved: false },
+      '1801': { save_count: 9, is_saved: false },
+    })
+
+    let resolveSave: (v: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise((res) => { resolveSave = res })
+    )
+
+    const { result } = renderHook(() => useSaveShowToggle(1800, false), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    let toggling: Promise<void>
+    await act(async () => {
+      toggling = result.current.toggle()
+      await Promise.resolve()
+    })
+
+    // Only the toggled show moves; its sibling in the same batch is untouched.
+    expect(queryClient.getQueryData(batchKey)).toEqual({
+      '1800': { save_count: 5, is_saved: true },
+      '1801': { save_count: 9, is_saved: false },
+    })
+
+    await act(async () => {
+      resolveSave({ message: 'Saved' })
+      await toggling!
+    })
   })
 
   it('exposes error from save mutation', async () => {
-    mockApiRequest.mockResolvedValueOnce({ is_saved: false })
-    const error = new Error('Save failed')
-    mockApiRequest.mockRejectedValueOnce(error)
+    mockApiRequest.mockRejectedValueOnce(new Error('Save failed'))
 
-    const { result } = renderHook(() => useSaveShowToggle(1200, true), {
+    const { result } = renderHook(() => useSaveShowToggle(1200, false), {
       wrapper: createWrapper(),
     })
-
-    await waitFor(() => expect(result.current.isSaved).toBe(false))
 
     await act(async () => {
       try {
@@ -422,20 +576,16 @@ describe('useSaveShowToggle', () => {
       }
     })
 
-    expect(result.current.error).toBeDefined()
+    await waitFor(() => expect(result.current.error).toBeDefined())
   })
 
   it('exposes error from unsave mutation', async () => {
-    mockApiRequest.mockResolvedValueOnce({ is_saved: true })
-    const error = new Error('Unsave failed')
-    mockApiRequest.mockRejectedValueOnce(error)
+    mockApiRequest.mockRejectedValueOnce(new Error('Unsave failed'))
 
     const { result } = renderHook(() => useSaveShowToggle(1300, true), {
       wrapper: createWrapper(),
     })
 
-    await waitFor(() => expect(result.current.isSaved).toBe(true))
-
     await act(async () => {
       try {
         await result.current.toggle()
@@ -444,6 +594,6 @@ describe('useSaveShowToggle', () => {
       }
     })
 
-    expect(result.current.error).toBeDefined()
+    await waitFor(() => expect(result.current.error).toBeDefined())
   })
 })

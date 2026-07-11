@@ -34,19 +34,17 @@ func (w ChartWindow) OrDefault() ChartWindow {
 	}
 }
 
-// TrendingShow represents a show ranked by attendance (going + interested).
+// TrendingShow represents a show ranked by how many users have saved it.
 type TrendingShow struct {
-	ShowID          uint      `json:"show_id"`
-	Title           string    `json:"title"`
-	Slug            string    `json:"slug"`
-	Date            time.Time `json:"date"`
-	VenueName       string    `json:"venue_name"`
-	VenueSlug       string    `json:"venue_slug"`
-	City            string    `json:"city"`
-	ArtistNames     []string  `json:"artist_names"`
-	GoingCount      int       `json:"going_count"`
-	InterestedCount int       `json:"interested_count"`
-	TotalAttendance int       `json:"total_attendance"`
+	ShowID      uint      `json:"show_id"`
+	Title       string    `json:"title"`
+	Slug        string    `json:"slug"`
+	Date        time.Time `json:"date"`
+	VenueName   string    `json:"venue_name"`
+	VenueSlug   string    `json:"venue_slug"`
+	City        string    `json:"city"`
+	ArtistNames []string  `json:"artist_names"`
+	SaveCount   int       `json:"save_count"`
 }
 
 // PopularArtist represents an artist ranked by followers and upcoming shows.
