@@ -166,7 +166,9 @@ type GetBusiestVenuesResponse struct {
 	}
 }
 
-// GetBusiestVenuesHandler handles GET /charts/busiest-venues
+// GetBusiestVenuesHandler handles GET /charts/busiest-venues — venues by
+// shows HOSTED in the window (past tense). Contrast /charts/active-venues,
+// which scores venues by upcoming shows + follows.
 func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBusiestVenuesRequest) (*GetBusiestVenuesResponse, error) {
 	limit := normalizeChartsLimit(req.Limit)
 	window := normalizeChartWindow(req.Window)
@@ -323,7 +325,9 @@ type GetActiveVenuesResponse struct {
 	}
 }
 
-// GetActiveVenuesHandler handles GET /charts/active-venues
+// GetActiveVenuesHandler handles GET /charts/active-venues — venues scored by
+// UPCOMING shows + follows. Contrast /charts/busiest-venues, which counts
+// past shows hosted in a window.
 func (h *ChartsHandler) GetActiveVenuesHandler(ctx context.Context, req *GetActiveVenuesRequest) (*GetActiveVenuesResponse, error) {
 	limit := normalizeChartsLimit(req.Limit)
 

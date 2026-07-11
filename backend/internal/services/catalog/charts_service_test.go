@@ -1021,3 +1021,33 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_NullSetTyp
 	suite.Equal(opener.ID, artists[0].ArtistID)
 	suite.Equal(1, artists[0].SupportSlotCount, "NULL set_type at position>0 is a support slot")
 }
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_ExcludesPendingShows() {
+	user := suite.createUser("bv-pending@test.com")
+	venue := suite.createVenue("Pending Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Pending Band")
+
+	now := time.Now().UTC()
+	pending := suite.createApprovedShow("Pending Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+
+	venues, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(venues, "pending shows never count toward hosted-show totals")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_ExcludesPendingShows() {
+	user := suite.createUser("otw-pending@test.com")
+	venue := suite.createVenue("Pending OTW Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Pending Top")
+	opener := suite.createArtist("Pending Opener")
+
+	now := time.Now().UTC()
+	pending := suite.createApprovedShow("Pending Bill", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(pending.ID, opener.ID, 1, "opener")
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists, "pending shows never contribute support slots")
+}

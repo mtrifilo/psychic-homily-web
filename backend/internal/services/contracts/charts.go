@@ -115,7 +115,12 @@ type OpenerToWatch struct {
 	SupportSlotCount int    `json:"support_slot_count"`
 }
 
-// ChartsOverview contains condensed top-5 versions of all charts for dashboard use.
+// ChartsOverview contains condensed top-5 versions of the four original
+// charts (trending shows, popular artists, active venues, hot releases).
+// The windowed module charts (most-active-artists, busiest-venues,
+// openers-to-watch, …) are separate endpoints and intentionally NOT included
+// here — the overview payload gets reworked wholesale with the Broadsheet
+// frontend.
 type ChartsOverview struct {
 	TrendingShows  []TrendingShow  `json:"trending_shows"`
 	PopularArtists []PopularArtist `json:"popular_artists"`
