@@ -192,12 +192,17 @@ type pagedChartRows[T any] struct {
 }
 
 // cachedChartPage is the single owner of the windowed modules' cache-key
-// scheme (module|window|limit|offset) and the pagedChartRows pack/unpack.
+// scheme (module|window|scene|limit|offset) and the pagedChartRows
+// pack/unpack. scene is "" for the global (unscoped) page — the empty segment
+// keeps global and scoped keys disjoint. Scene is client-controlled like
+// offset/limit, so its key cardinality rides on the same entry cap +
+// run-uncached overflow rule (shape validation at the HTTP layer bounds it to
+// short numeric strings).
 // NOTE: pages cache independently, so two pages of one window can come from
 // snapshots up to a TTL apart — totals (and most-anticipated's mode) are
 // per-response facts, not cross-page guarantees.
-func cachedChartPage[T any](c *chartsCache, module string, window string, limit, offset int, fetch func() ([]T, int, error)) ([]T, int, error) {
-	key := module + "|" + window + "|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
+func cachedChartPage[T any](c *chartsCache, module string, window string, scene string, limit, offset int, fetch func() ([]T, int, error)) ([]T, int, error) {
+	key := module + "|" + window + "|" + scene + "|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
 	page, err := chartsCached(c, key, chartsModuleTTL, func() (pagedChartRows[T], error) {
 		rows, total, err := fetch()
 		return pagedChartRows[T]{rows: rows, total: total}, err
@@ -208,6 +213,7 @@ func cachedChartPage[T any](c *chartsCache, module string, window string, limit,
 // chartCountKey is the offset-independent cache key for a module's full-set
 // count — the beyond-the-end re-count caches under it so a client walking
 // junk offsets pays the count aggregation once per TTL, not per request.
-func chartCountKey(module, window string) string {
-	return "count|" + module + "|" + window
+// scene follows the cachedChartPage segment convention ("" = global).
+func chartCountKey(module, window, scene string) string {
+	return "count|" + module + "|" + window + "|" + scene
 }

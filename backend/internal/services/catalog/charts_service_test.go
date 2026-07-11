@@ -645,7 +645,7 @@ func TestChartWindowStart(t *testing.T) {
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Empty() {
-	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists)
 }
@@ -661,17 +661,17 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowB
 	suite.createApprovedShow("Old Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -200))
 	suite.createApprovedShow("Future Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
 
-	month, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowMonth, 20, 0)
+	month, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowMonth, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(month, 1)
 	suite.Equal(1, month[0].ShowCount)
 
-	quarter, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	quarter, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(quarter, 1)
 	suite.Equal(2, quarter[0].ShowCount)
 
-	allTime, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowAllTime, 20, 0)
+	allTime, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowAllTime, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(allTime, 1)
 	suite.Equal(3, allTime[0].ShowCount, "future shows never count, even all-time")
@@ -699,7 +699,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Headlin
 	s4 := suite.createApprovedShow("Latest Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -5))
 	suite.addArtistToShow(s4.ID, support.ID, 1, "performer")
 
-	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 2)
 
@@ -735,7 +735,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Orderin
 		suite.createApprovedShow(fmt.Sprintf("Gamma %d", i), venue.ID, gamma.ID, user.ID, now.AddDate(0, 0, -10-i))
 	}
 
-	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 3)
 	suite.Equal("Gamma", artists[0].Name)
@@ -743,7 +743,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Orderin
 	suite.Equal("Beta", artists[2].Name)
 
 	// Limit is respected.
-	limited, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 1, 0)
+	limited, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 1, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(limited, 1)
 	suite.Equal("Gamma", limited[0].Name)
@@ -770,7 +770,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Exclude
 	// Artist with only future shows never appears.
 	suite.createApprovedShow("Future Booked", venue.ID, futureArtist.ID, user.ID, now.AddDate(0, 0, 30))
 
-	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists)
 }
@@ -788,7 +788,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_LastSho
 	suite.createApprovedShow("Evening", venueB.ID, artist.ID, user.ID, sameDay)
 
 	for i := 0; i < 3; i++ {
-		artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+		artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 		suite.Require().NoError(err)
 		suite.Require().Len(artists, 1)
 		suite.Equal(2, artists[0].ShowCount)
@@ -806,7 +806,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Exclude
 	cancelled := suite.createApprovedShow("Cancelled Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -5))
 	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
 
-	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 1)
 	suite.Equal(1, artists[0].ShowCount, "cancelled shows were never played")
@@ -827,7 +827,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowE
 	suite.createApprovedShow("Edge Show", venue.ID, artist.ID, user.ID, midnight.AddDate(0, 0, -90))
 	suite.createApprovedShow("Outside Show", venue.ID, artist.ID, user.ID, midnight.AddDate(0, 0, -91))
 
-	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 1)
 	suite.Equal(1, artists[0].ShowCount, "exactly-90-days-ago is inside the quarter window; 91 is not")
@@ -838,7 +838,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowE
 // =============================================================================
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_Empty() {
-	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20, 0)
+	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(venues)
 }
@@ -856,12 +856,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_WindowsAndC
 	cancelled := suite.createApprovedShow("Cancelled", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -5))
 	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
 
-	month, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowMonth, 20, 0)
+	month, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowMonth, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(month, 1)
 	suite.Equal(1, month[0].ShowCount)
 
-	quarter, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20, 0)
+	quarter, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(quarter, 1)
 	suite.Equal(2, quarter[0].ShowCount)
@@ -869,7 +869,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_WindowsAndC
 	suite.Equal("Phoenix", quarter[0].City)
 	suite.Equal("AZ", quarter[0].State)
 
-	allTime, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowAllTime, 20, 0)
+	allTime, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowAllTime, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(allTime, 1)
 	suite.Equal(3, allTime[0].ShowCount, "future + cancelled shows never count")
@@ -894,7 +894,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_OrderingTie
 	dual := suite.createApprovedShow("Dual", gamma.ID, artist.ID, user.ID, now.AddDate(0, 0, -3))
 	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: dual.ID, VenueID: alpha.ID}).Error)
 
-	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20, 0)
+	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(venues, 3)
 	suite.Equal("Alpha Hall", venues[0].Name, "3 shows incl. the dual-venue one")
@@ -911,7 +911,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_OrderingTie
 // =============================================================================
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_Empty() {
-	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists)
 }
@@ -933,7 +933,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CountsSupp
 	s3 := suite.createApprovedShow("Bill 3", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
 	suite.addArtistToShow(s3.ID, opener.ID, 2, "special_guest")
 
-	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 1, "the headliner (position 0) must not appear")
 	suite.Equal(opener.ID, artists[0].ArtistID)
@@ -958,7 +958,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_AnyHeadlin
 	s3 := suite.createApprovedShow("Co-headline", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s3.ID, sometimes.ID, 2, "headliner")
 
-	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists, "any headline slot in-window excludes the artist entirely")
 }
@@ -978,13 +978,13 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_HeadlineEx
 	s2 := suite.createApprovedShow("Now Opens B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s2.ID, riser.ID, 1, "opener")
 
-	quarter, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	quarter, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(quarter, 1, "old headline slot is outside the window — riser qualifies")
 	suite.Equal(riser.ID, quarter[0].ArtistID)
 	suite.Equal(2, quarter[0].SupportSlotCount)
 
-	allTime, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowAllTime, 20, 0)
+	allTime, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowAllTime, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(allTime, "all-time window sees the old headline slot and excludes")
 }
@@ -1002,7 +1002,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CancelledS
 	suite.addArtistToShow(s2.ID, opener.ID, 1, "opener")
 	suite.Require().NoError(suite.db.Model(s2).Update("is_cancelled", true).Error)
 
-	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 1)
 	suite.Equal(1, artists[0].SupportSlotCount)
@@ -1022,7 +1022,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_NullSetTyp
 		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)",
 		s1.ID, opener.ID).Error)
 
-	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 1)
 	suite.Equal(opener.ID, artists[0].ArtistID)
@@ -1038,7 +1038,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_ExcludesPen
 	pending := suite.createApprovedShow("Pending Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -10))
 	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
 
-	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20, 0)
+	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(venues, "pending shows never count toward hosted-show totals")
 }
@@ -1054,7 +1054,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_ExcludesPe
 	suite.addArtistToShow(pending.ID, opener.ID, 1, "opener")
 	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
 
-	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists, "pending shows never contribute support slots")
 }
@@ -1126,7 +1126,7 @@ func (suite *ChartsServiceIntegrationTestSuite) createRadioStack(name, slug stri
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Empty() {
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists)
 }
@@ -1144,17 +1144,17 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_WindowB
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 60).ID, &artist.ID, 1, false)
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 200).ID, &artist.ID, 1, false)
 
-	month, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, 20, 0)
+	month, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(month, 1)
 	suite.Equal(2, month[0].PlayCount, "month window counts the 10-day play plus the inclusive 30-day edge, never the 31-day one")
 
-	quarter, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	quarter, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(quarter, 1)
 	suite.Equal(4, quarter[0].PlayCount, "quarter window adds the 31- and 60-day plays")
 
-	allTime, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowAllTime, 20, 0)
+	allTime, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowAllTime, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(allTime, 1)
 	suite.Equal(5, allTime[0].PlayCount, "all_time counts every aired play")
@@ -1175,7 +1175,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Station
 	suite.createRadioPlay(suite.createWindowedEpisode(substream.ID, 8).ID, &broad.ID, 1, false)
 	suite.createRadioPlay(suite.createWindowedEpisode(standalone.ID, 9).ID, &broad.ID, 1, false)
 
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 2)
 
@@ -1200,7 +1200,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_IsNewWi
 	// is_new only on a play OUTSIDE the month window — must not leak in.
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 60).ID, &staleFlag.ID, 1, true)
 
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 2)
 
@@ -1251,7 +1251,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Exclude
 	suite.Require().NoError(suite.db.Create(airedEp).Error)
 	suite.createRadioPlay(airedEp.ID, &windowlessArtist.ID, 1, false)
 
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 1, "only the aired windowless play survives the gates")
 	suite.Equal("Windowless Aired", artists[0].Name)
@@ -1272,14 +1272,14 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Orderin
 	betaOne := suite.createArtist("Beta Oneplay")
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 7).ID, &betaOne.ID, 1, false)
 
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(artists, 3)
 	suite.Equal("Zed Twoplays", artists[0].Name, "play count ranks first")
 	suite.Equal("Alpha Oneplay", artists[1].Name, "ties break by name")
 	suite.Equal("Beta Oneplay", artists[2].Name)
 
-	limited, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 2, 0)
+	limited, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
 	suite.Len(limited, 2)
 }
@@ -1300,7 +1300,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Exclude
 	}
 	suite.Require().NoError(suite.db.Create(pseudo).Error)
 
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(artists, "pseudo-artist background-music plays never chart, even when resolved")
 }
@@ -1339,7 +1339,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_AiredBo
 		suite.createRadioPlay(upcomingEp.ID, &upcomingArtist.ID, 1, false)
 	}
 
-	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20, 0)
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 
 	names := make([]string, len(artists))
@@ -1393,7 +1393,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 	suite.createSaves(subFloor.ID, savers, 2)
 	suite.createApprovedShow("No Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 6))
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Require().Len(result.Shows, 5, "only floor-clearing shows rank; 2-save and 0-save shows stay out")
@@ -1430,7 +1430,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Fall
 	}
 	soonest := suite.createApprovedShow("Soonest Zero Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 2))
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 5, "fallback lists ALL upcoming shows, floor ignored")
@@ -1457,7 +1457,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Excl
 	suite.createSaves(pending.ID, savers, 3)
 	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Empty(result.Shows, "past and pending shows appear in neither mode")
@@ -1479,7 +1479,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Resp
 		suite.createSaves(show.ID, savers, 3)
 	}
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(5, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 5, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Len(result.Shows, 5)
@@ -1503,7 +1503,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Smal
 
 	// The mode is about how many shows QUALIFY, not how many were requested:
 	// a compact 2-row widget must still get ranked mode when 6 shows qualify.
-	result, err := suite.chartsService.GetMostAnticipatedShows(2, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 2, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "a limit below the qualifying minimum must not force fallback")
 	suite.Require().Len(result.Shows, 2)
@@ -1532,7 +1532,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mult
 
 	// Fallback mode (1 qualifying < 5): the two-venue show must still be ONE
 	// row, carrying the lowest-venue_id pick.
-	result, err := suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 1, "a multi-venue show is one row, not one per venue")
@@ -1544,7 +1544,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mult
 		show := suite.createApprovedShow(fmt.Sprintf("MV Pad %d", i), venueA.ID, artist.ID, user.ID, now.AddDate(0, 0, 20+i))
 		suite.createSaves(show.ID, savers, 3)
 	}
-	result, err = suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err = suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Len(result.Shows, 5, "5 distinct qualifying shows — the two-venue show counted once")
@@ -1565,7 +1565,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Excl
 	suite.createSaves(cancelled.ID, savers, 3)
 	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Empty(result.Shows, "a cancelled show never appears in either mode, saves or not")
@@ -1588,7 +1588,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Incl
 	tonight := suite.createApprovedShow("Tonight Show", venue.ID, artist.ID, user.ID, today)
 	suite.createSaves(tonight.ID, savers, 3)
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 1, "a show happening today must count as upcoming in fallback mode")
@@ -1598,7 +1598,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Incl
 		show := suite.createApprovedShow(fmt.Sprintf("TD Pad %d", i), venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 15+i))
 		suite.createSaves(show.ID, savers, 3)
 	}
-	result, err = suite.chartsService.GetMostAnticipatedShows(20, 0)
+	result, err = suite.chartsService.GetMostAnticipatedShows("", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "today's show is the 5th qualifier — it must count toward ranked mode")
 	suite.Require().Len(result.Shows, 5)
@@ -1634,7 +1634,7 @@ func dateStr(t time.Time) *string {
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_Empty() {
-	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20, 0)
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(releases)
 }
@@ -1647,7 +1647,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_CoalescedDate
 	// which is NEWER than the world-dated release above.
 	suite.createDatedRelease("Graph New", nil, now.AddDate(0, 0, -2))
 
-	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, 20, 0)
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(releases, 2)
 	suite.Equal("Graph New", releases[0].Title, "coalesced date orders the graph-added fallback above an older world date")
@@ -1672,17 +1672,17 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_WindowBoundar
 	suite.createDatedRelease("Fallback Edge Thirty", nil, today.AddDate(0, 0, -30))
 	suite.createDatedRelease("Fallback Thirty One", nil, today.AddDate(0, 0, -31))
 
-	month, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, 20, 0)
+	month, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(month, 2, "month window keeps the inclusive 30-day edge on both branches, drops day 31")
 	titles := []string{month[0].Title, month[1].Title}
 	suite.ElementsMatch([]string{"Edge Thirty", "Fallback Edge Thirty"}, titles)
 
-	quarter, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20, 0)
+	quarter, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Len(quarter, 5, "quarter adds days 31 (both branches) and 60")
 
-	allTime, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowAllTime, 20, 0)
+	allTime, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowAllTime, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Len(allTime, 6)
 }
@@ -1692,7 +1692,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ExcludesFutur
 	suite.createDatedRelease("Announced Preorder", dateStr(now.AddDate(0, 0, 14)), now.AddDate(0, 0, -1))
 	included := suite.createDatedRelease("Out Today", dateStr(now), now.AddDate(0, 0, -10))
 
-	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20, 0)
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(releases, 1, "a future release_date stays out until its release day; today counts")
 	suite.Equal(included.ID, releases[0].ReleaseID)
@@ -1705,7 +1705,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_NoEngagementD
 	suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, older.ID, engagementm.BookmarkActionBookmark)
 	newer := suite.createDatedRelease("Newer No Bookmarks", dateStr(now.AddDate(0, 0, -2)), now.AddDate(0, 0, -2))
 
-	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20, 0)
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(releases, 2)
 	suite.Equal(newer.ID, releases[0].ReleaseID, "date orders the list; bookmarks must not")
@@ -1723,7 +1723,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ArtistAndLabe
 
 	bare := suite.createDatedRelease("Bare Release", dateStr(now.AddDate(0, 0, -4)), now.AddDate(0, 0, -4))
 
-	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20, 0)
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(releases, 2)
 	suite.Equal([]string{"First Credit", "Second Credit"}, releases[0].ArtistNames, "artist credits in position order")
@@ -1738,7 +1738,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_RespectsLimit
 	for i := 0; i < 4; i++ {
 		suite.createDatedRelease(fmt.Sprintf("Limit Release %d", i), dateStr(now.AddDate(0, 0, -1-i)), now.AddDate(0, 0, -1-i))
 	}
-	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 2, 0)
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(releases, 2)
 	suite.Equal("Limit Release 0", releases[0].Title, "newest first")
@@ -1755,7 +1755,7 @@ func (suite *ChartsServiceIntegrationTestSuite) setCreatedAt(table string, id ui
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_Empty() {
-	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter)
+	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter, "")
 	suite.Require().NoError(err)
 	suite.Equal(&contracts.ChartsSummary{}, summary)
 }
@@ -1801,14 +1801,14 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_WindowScope
 	pseudo := &catalogm.RadioPlay{EpisodeID: pseudoEp.ID, Position: 1, ArtistName: "Music behind DJ: Somebody"}
 	suite.Require().NoError(suite.db.Create(pseudo).Error)
 
-	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth)
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
 	suite.Require().NoError(err)
 	suite.Equal(1, month.ShowsAdded, "only the approved show added inside the month window")
 	suite.Equal(1, month.NewArtists, "only the show artist was created inside the month window; the others are backdated")
 	suite.Equal(1, month.NewReleases)
 	suite.Equal(2, month.RadioPlays, "matched + unmatched aired in-window plays; pseudo and out-of-window excluded")
 
-	quarter, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter)
+	quarter, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter, "")
 	suite.Require().NoError(err)
 	suite.Equal(2, quarter.ShowsAdded, "quarter adds the 40-day-old show; pending never counts")
 	suite.Equal(3, quarter.NewArtists, "quarter picks up the two 40-day-old artists")
@@ -1839,7 +1839,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 	suite.createApprovedShow("Old Metro Show", metroA1.ID, artist.ID, user.ID, now.AddDate(0, 0, -60))
 	suite.createApprovedShow("Upcoming Show", metroA1.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
 
-	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth)
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
 	suite.Require().NoError(err)
 	suite.Equal(2, month.ActiveScenes, "shared metro collapses to one scene; the (city,state) fallback is a second; unverified/old/upcoming never count")
 }
@@ -1860,14 +1860,14 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedN
 	suite.Require().NoError(suite.db.Create(station).Error)
 	suite.setCreatedAt("radio_stations", station.ID, now.Add(-4*time.Hour))
 
-	items, err := suite.chartsService.GetFreshlyAdded(20)
+	items, err := suite.chartsService.GetFreshlyAdded(20, "")
 	suite.Require().NoError(err)
 	suite.Require().Len(items, 4)
 	types := []string{items[0].EntityType, items[1].EntityType, items[2].EntityType, items[3].EntityType}
 	suite.Equal([]string{"release", "venue", "artist", "station"}, types, "interleaved strictly by added time, newest first")
 	suite.Equal("Ticker Release", items[0].Name)
 
-	limited, err := suite.chartsService.GetFreshlyAdded(2)
+	limited, err := suite.chartsService.GetFreshlyAdded(2, "")
 	suite.Require().NoError(err)
 	suite.Require().Len(limited, 2)
 	suite.Equal("release", limited[0].EntityType)
@@ -1884,7 +1884,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 	suite.createVenue("Spam Venue", "Phoenix", "AZ")
 	suite.createArtist("Spam Artist")
 
-	items, err := suite.chartsService.GetFreshlyAdded(20)
+	items, err := suite.chartsService.GetFreshlyAdded(20, "")
 	suite.Require().NoError(err)
 	suite.Empty(items, "unverified venues and unanchored artists never reach the ticker")
 
@@ -1904,7 +1904,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 	showAnchored := suite.createArtist("Show Anchored")
 	suite.createApprovedShow("Gate Approved", hiddenVenue.ID, showAnchored.ID, user.ID, time.Now().UTC().AddDate(0, 0, 6))
 
-	items, err = suite.chartsService.GetFreshlyAdded(20)
+	items, err = suite.chartsService.GetFreshlyAdded(20, "")
 	suite.Require().NoError(err)
 	names := make([]string, len(items))
 	for i, it := range items {
@@ -2099,11 +2099,11 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_RankCon
 		[]int{5, 4, 3, 2, 1},
 	)
 
-	page1, total1, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 2, 0)
+	page1, total1, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
-	page2, total2, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 2, 2)
+	page2, total2, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
-	page3, total3, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 2, 4)
+	page3, total3, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 2, 4)
 	suite.Require().NoError(err)
 
 	// Total is consistent on every page.
@@ -2135,7 +2135,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_EqualCo
 	suite.seedArtistsWithShowCounts([]string{"Zeta Tie", "Alpha Tie"}, []int{2, 2})
 
 	for run := 0; run < 3; run++ {
-		rows, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 10, 0)
+		rows, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 10, 0)
 		suite.Require().NoError(err)
 		suite.Equal(2, total)
 		suite.Require().Len(rows, 2)
@@ -2152,7 +2152,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_EqualCo
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_BeyondEndOffsetReportsRealTotal() {
 	suite.seedArtistsWithShowCounts([]string{"Solo"}, []int{1})
 
-	rows, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 10, 100)
+	rows, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 10, 100)
 	suite.Require().NoError(err)
 	suite.Empty(rows)
 	suite.Equal(1, total, "beyond-the-end page must report the real total")
@@ -2163,7 +2163,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_PaginationRan
 		suite.createRelease(fmt.Sprintf("Paged Release %d", i))
 	}
 
-	page, total, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 2, 2)
+	page, total, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(5, total)
 	suite.Require().Len(page, 2)
@@ -2172,7 +2172,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_PaginationRan
 
 	// Same-day releases tie-break by created_at DESC then id DESC — verify
 	// the page ordering is reproducible.
-	again, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 2, 2)
+	again, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(page[0].ReleaseID, again[0].ReleaseID)
 	suite.Equal(page[1].ReleaseID, again[1].ReleaseID)
@@ -2197,7 +2197,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 	}
 
 	// Page 2 of size 2: still ranked (6 qualify), ranks continue at 3.
-	result, err := suite.chartsService.GetMostAnticipatedShows(2, 2)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Equal(6, result.Total)
@@ -2210,7 +2210,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 
 	// Beyond-the-end offset: mode STAYS ranked (total >= floor), empty page,
 	// true total.
-	deep, err := suite.chartsService.GetMostAnticipatedShows(2, 100)
+	deep, err := suite.chartsService.GetMostAnticipatedShows("", 2, 100)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, deep.Mode)
 	suite.Equal(6, deep.Total)
@@ -2230,7 +2230,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Fall
 	suite.createApprovedShow("Later", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 1))
 	suite.createApprovedShow("Latest", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 2))
 
-	result, err := suite.chartsService.GetMostAnticipatedShows(2, 2)
+	result, err := suite.chartsService.GetMostAnticipatedShows("", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Equal(3, result.Total, "fallback total is its own universe (all upcoming shows)")
@@ -2253,7 +2253,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestChartsCache_ServesCachedWith
 
 	suite.seedArtistsWithShowCounts([]string{"Cache Band"}, []int{1})
 
-	first, total, err := cachedService.GetMostActiveArtists(contracts.ChartWindowQuarter, 10, 0)
+	first, total, err := cachedService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 10, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(first, 1)
 	suite.Equal(1, total)
@@ -2262,19 +2262,19 @@ func (suite *ChartsServiceIntegrationTestSuite) TestChartsCache_ServesCachedWith
 	suite.seedArtistsWithShowCounts([]string{"Post Cache Band"}, []int{3})
 
 	// ...the cached service still serves the TTL-fresh page,
-	second, cachedTotal, err := cachedService.GetMostActiveArtists(contracts.ChartWindowQuarter, 10, 0)
+	second, cachedTotal, err := cachedService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 10, 0)
 	suite.Require().NoError(err)
 	suite.Len(second, 1, "within TTL the cached page must be served unchanged")
 	suite.Equal(1, cachedTotal)
 
 	// ...a DIFFERENT key (other window) computes fresh and sees both bands,
-	fresh, freshTotal, err := cachedService.GetMostActiveArtists(contracts.ChartWindowAllTime, 10, 0)
+	fresh, freshTotal, err := cachedService.GetMostActiveArtists(contracts.ChartWindowAllTime, "", 10, 0)
 	suite.Require().NoError(err)
 	suite.Len(fresh, 2, "a different cache key must not serve the stale page")
 	suite.Equal(2, freshTotal)
 
 	// ...and the suite's cache-less service sees the new data on the SAME key.
-	uncached, uncachedTotal, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 10, 0)
+	uncached, uncachedTotal, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 10, 0)
 	suite.Require().NoError(err)
 	suite.Len(uncached, 2)
 	suite.Equal(2, uncachedTotal)
@@ -2295,9 +2295,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_PaginationR
 		}
 	}
 
-	page1, total1, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 2, 0)
+	page1, total1, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
-	page2, total2, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 2, 2)
+	page2, total2, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 
 	suite.Equal(3, total1)
@@ -2310,7 +2310,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_PaginationR
 	suite.Equal("Hall C", page2[0].Name)
 
 	// Beyond the end: empty page, true total.
-	empty, deepTotal, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 2, 50)
+	empty, deepTotal, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 2, 50)
 	suite.Require().NoError(err)
 	suite.Empty(empty)
 	suite.Equal(3, deepTotal)
@@ -2335,9 +2335,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_Pagination
 		}
 	}
 
-	page1, total1, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 2, 0)
+	page1, total1, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
-	page2, total2, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 2, 2)
+	page2, total2, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 
 	// The headliner is excluded by the HAVING filter, so the total counts
@@ -2364,9 +2364,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Paginat
 		}
 	}
 
-	page1, total1, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 2, 0)
+	page1, total1, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
-	page2, total2, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 2, 2)
+	page2, total2, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 
 	suite.Equal(3, total1)
@@ -2427,4 +2427,321 @@ func TestAppendPageArgs_CopiesNotAliases(t *testing.T) {
 		t.Fatalf("core append corrupted paged args: %v", paged)
 	}
 	_ = core
+}
+
+// =============================================================================
+// Scene scoping tests (charts scene dimension)
+// =============================================================================
+
+// Real CBSA codes so geo.MetroPrincipalByCBSA can resolve display identity
+// where a test asserts it; as scoping keys they are plain string equality.
+const (
+	phoenixCBSA = "38060"
+	chicagoCBSA = "16980"
+	laCBSA      = "31080"
+	unknownCBSA = "99999"
+)
+
+// The fixture helpers predate the metro columns, so scene tests pin metros
+// the way the geocoder/backfill write paths would — direct column updates.
+func (suite *ChartsServiceIntegrationTestSuite) setArtistMetro(a *catalogm.Artist, metro string) {
+	suite.Require().NoError(suite.db.Model(a).Update("metro", metro).Error)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) setVenueMetro(v *catalogm.Venue, metro string, verified bool) {
+	suite.Require().NoError(suite.db.Model(v).Updates(map[string]any{"metro": metro, "verified": verified}).Error)
+}
+
+// Artist modules scope on the ARTIST's home metro, not where the shows
+// happened: the fixtures cross them (Phoenix artist plays a Chicago venue and
+// vice versa) so venue-metro scoping would return exactly the wrong artist.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_SceneScopesByArtistHomeMetro() {
+	user := suite.createUser("scene-artists@test.com")
+	phxArtist := suite.createArtist("Phoenix Band")
+	suite.setArtistMetro(phxArtist, phoenixCBSA)
+	chiArtist := suite.createArtist("Chicago Band")
+	suite.setArtistMetro(chiArtist, chicagoCBSA)
+	chiVenue := suite.createVenue("Empty Bottle", "Chicago", "IL")
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+	phxVenue := suite.createVenue("Valley Bar", "Phoenix", "AZ")
+	suite.setVenueMetro(phxVenue, phoenixCBSA, true)
+
+	past := time.Now().UTC().AddDate(0, 0, -5)
+	suite.createApprovedShow("PHX band in Chicago", chiVenue.ID, phxArtist.ID, user.ID, past)
+	suite.createApprovedShow("CHI band in Phoenix", phxVenue.ID, chiArtist.ID, user.ID, past)
+
+	global, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Len(global, 2)
+	suite.Equal(2, total)
+
+	phx, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, phoenixCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(phx, 1, "scene must select by artist home metro, not venue metro")
+	suite.Equal("Phoenix Band", phx[0].Name)
+	suite.Equal(1, total)
+
+	chi, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, chicagoCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(chi, 1)
+	suite.Equal("Chicago Band", chi[0].Name)
+	suite.Equal(1, total)
+
+	// Unknown-but-well-formed scene: empty valid envelope, never an error.
+	none, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, unknownCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Empty(none)
+	suite.Equal(0, total)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_SceneScopesByVenueMetro() {
+	user := suite.createUser("scene-venues@test.com")
+	artist := suite.createArtist("Touring Band")
+	phxVenue := suite.createVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.setVenueMetro(phxVenue, phoenixCBSA, true)
+	chiVenue := suite.createVenue("Thalia Hall", "Chicago", "IL")
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+
+	past := time.Now().UTC().AddDate(0, 0, -5)
+	suite.createApprovedShow("PHX show", phxVenue.ID, artist.ID, user.ID, past)
+	suite.createApprovedShow("CHI show", chiVenue.ID, artist.ID, user.ID, past)
+
+	phx, total, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, phoenixCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(phx, 1)
+	suite.Equal("Crescent Ballroom", phx[0].Name)
+	suite.Equal(1, total)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_SceneScopesByArtistHomeMetro() {
+	radioShow := suite.createRadioStack("KSCENE", "kscene", nil)
+	phxArtist := suite.createArtist("Phoenix Airwaves")
+	suite.setArtistMetro(phxArtist, phoenixCBSA)
+	chiArtist := suite.createArtist("Chicago Airwaves")
+	suite.setArtistMetro(chiArtist, chicagoCBSA)
+
+	ep := suite.createWindowedEpisode(radioShow.ID, 5)
+	suite.createRadioPlay(ep.ID, &phxArtist.ID, 1, false)
+	suite.createRadioPlay(ep.ID, &chiArtist.ID, 2, false)
+
+	phx, total, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, phoenixCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(phx, 1)
+	suite.Equal("Phoenix Airwaves", phx[0].Name)
+	suite.Equal(1, total)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_SceneScopesByCreditedArtistMetro() {
+	phxArtist := suite.createArtist("Phoenix Presser")
+	suite.setArtistMetro(phxArtist, phoenixCBSA)
+	chiArtist := suite.createArtist("Chicago Presser")
+	suite.setArtistMetro(chiArtist, chicagoCBSA)
+
+	phxRelease := suite.createRelease("Desert LP")
+	suite.addArtistToRelease(phxArtist.ID, phxRelease.ID)
+	chiRelease := suite.createRelease("Lake LP")
+	suite.addArtistToRelease(chiArtist.ID, chiRelease.ID)
+	suite.createRelease("Orphan LP") // no credited artists -> never in any scene
+
+	global, total, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Len(global, 3)
+	suite.Equal(3, total)
+
+	phx, total, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, phoenixCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(phx, 1)
+	suite.Equal("Desert LP", phx[0].Title)
+	suite.Equal(1, total)
+}
+
+// Mode is decided per scope: the same dataset can be ranked globally and in a
+// big scene while a thin scene falls back — and the scoped fallback must list
+// only the scene's upcoming shows, never the global calendar.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_ModePerScope() {
+	users := []*authm.User{
+		suite.createUser("scene-saves-1@test.com"),
+		suite.createUser("scene-saves-2@test.com"),
+		suite.createUser("scene-saves-3@test.com"),
+	}
+	artist := suite.createArtist("Anticipated Band")
+	phxVenue := suite.createVenue("Rebel Lounge", "Phoenix", "AZ")
+	suite.setVenueMetro(phxVenue, phoenixCBSA, true)
+	chiVenue := suite.createVenue("Metro Chicago", "Chicago", "IL")
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+
+	future := time.Now().UTC().AddDate(0, 0, 10)
+	for i := 0; i < 5; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("PHX hit %d", i), phxVenue.ID, artist.ID, users[0].ID, future.AddDate(0, 0, i))
+		for _, u := range users {
+			suite.createBookmark(u.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave)
+		}
+	}
+	chiShow := suite.createApprovedShow("CHI hit", chiVenue.ID, artist.ID, users[0].ID, future)
+	for _, u := range users {
+		suite.createBookmark(u.ID, engagementm.BookmarkEntityShow, chiShow.ID, engagementm.BookmarkActionSave)
+	}
+
+	global, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, global.Mode)
+	suite.Equal(6, global.Total)
+
+	phx, err := suite.chartsService.GetMostAnticipatedShows(phoenixCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, phx.Mode, "5 qualifying shows in-scene keep ranked mode")
+	suite.Equal(5, phx.Total)
+	for _, s := range phx.Shows {
+		suite.Equal("Rebel Lounge", s.VenueName)
+	}
+
+	chi, err := suite.chartsService.GetMostAnticipatedShows(chicagoCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, chi.Mode, "1 qualifying show < min-qualifying flips the SCOPED mode to fallback")
+	suite.Require().Len(chi.Shows, 1, "scoped fallback lists the scene's upcoming shows only")
+	suite.Equal("CHI hit", chi.Shows[0].Title)
+	suite.Nil(chi.Shows[0].SaveCount, "fallback omits counts even though the show cleared the floor")
+	suite.Equal(1, chi.Total)
+
+	none, err := suite.chartsService.GetMostAnticipatedShows(unknownCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, none.Mode)
+	suite.Empty(none.Shows)
+	suite.Equal(0, none.Total)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartScenes_FloorWindowAndDisplay() {
+	user := suite.createUser("scene-list@test.com")
+	artist := suite.createArtist("Roster Band")
+
+	phx1 := suite.createVenue("Phx Room A", "Tempe", "AZ")
+	suite.setVenueMetro(phx1, phoenixCBSA, true)
+	phx2 := suite.createVenue("Phx Room B", "Mesa", "AZ")
+	suite.setVenueMetro(phx2, phoenixCBSA, true)
+	chi := suite.createVenue("Chi Room", "Chicago", "IL")
+	suite.setVenueMetro(chi, chicagoCBSA, true)
+	laUnverified := suite.createVenue("LA Room", "Los Angeles", "CA")
+	suite.setVenueMetro(laUnverified, laCBSA, false)
+	fallback := suite.createVenue("Fallback Hall", "Winnipeg", "MB")
+	suite.Require().NoError(suite.db.Model(fallback).Update("verified", true).Error)
+
+	now := time.Now().UTC()
+	// Phoenix: exactly the floor of in-window shows (3 at venue A, 2 at venue
+	// B), plus one out-of-window and one future show that must not count.
+	for i := 0; i < 3; i++ {
+		suite.createApprovedShow(fmt.Sprintf("PHX A %d", i), phx1.ID, artist.ID, user.ID, now.AddDate(0, 0, -(5+i)))
+	}
+	for i := 0; i < 2; i++ {
+		suite.createApprovedShow(fmt.Sprintf("PHX B %d", i), phx2.ID, artist.ID, user.ID, now.AddDate(0, 0, -(20+i)))
+	}
+	suite.createApprovedShow("PHX ancient", phx1.ID, artist.ID, user.ID, now.AddDate(0, 0, -200))
+	suite.createApprovedShow("PHX future", phx1.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
+	// Chicago: one below the floor.
+	for i := 0; i < 4; i++ {
+		suite.createApprovedShow(fmt.Sprintf("CHI %d", i), chi.ID, artist.ID, user.ID, now.AddDate(0, 0, -(5+i)))
+	}
+	// LA: above the floor but the venue is unverified.
+	for i := 0; i < 5; i++ {
+		suite.createApprovedShow(fmt.Sprintf("LA %d", i), laUnverified.ID, artist.ID, user.ID, now.AddDate(0, 0, -(5+i)))
+	}
+	// Fallback (no metro): above the floor but not a CBSA scene.
+	for i := 0; i < 5; i++ {
+		suite.createApprovedShow(fmt.Sprintf("WPG %d", i), fallback.ID, artist.ID, user.ID, now.AddDate(0, 0, -(5+i)))
+	}
+
+	scenes, err := suite.chartsService.GetChartScenes(contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1, "only the metro at/above the floor with verified venues qualifies")
+	suite.Equal(phoenixCBSA, scenes[0].Metro)
+	suite.Equal(5, scenes[0].ShowCount, "out-of-window and future shows never count")
+	suite.Equal("Phoenix", scenes[0].City, "display identity is the metro principal city, not a member city")
+	suite.Equal("AZ", scenes[0].State)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_SceneScoped() {
+	user := suite.createUser("scene-summary@test.com")
+	phxArtist := suite.createArtist("Phx Summary Band")
+	suite.setArtistMetro(phxArtist, phoenixCBSA)
+	chiArtist := suite.createArtist("Chi Summary Band")
+	suite.setArtistMetro(chiArtist, chicagoCBSA)
+	phxVenue := suite.createVenue("Phx Summary Venue", "Phoenix", "AZ")
+	suite.setVenueMetro(phxVenue, phoenixCBSA, true)
+	chiVenue := suite.createVenue("Chi Summary Venue", "Chicago", "IL")
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+
+	past := time.Now().UTC().AddDate(0, 0, -5)
+	suite.createApprovedShow("Phx summary show", phxVenue.ID, phxArtist.ID, user.ID, past)
+	suite.createApprovedShow("Chi summary show", chiVenue.ID, chiArtist.ID, user.ID, past)
+
+	release := suite.createRelease("Phx Summary LP")
+	suite.addArtistToRelease(phxArtist.ID, release.ID)
+
+	radioShow := suite.createRadioStack("KSUM", "ksum", nil)
+	ep := suite.createWindowedEpisode(radioShow.ID, 5)
+	suite.createRadioPlay(ep.ID, &phxArtist.ID, 1, false)
+	suite.createRadioPlay(ep.ID, nil, 2, false) // unmatched: counts globally, never in a scene
+
+	global, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter, "")
+	suite.Require().NoError(err)
+	suite.Equal(2, global.ShowsAdded)
+	suite.Equal(2, global.NewArtists)
+	suite.Equal(1, global.NewReleases)
+	suite.Equal(2, global.RadioPlays, "global radio count includes the unmatched play")
+	suite.Equal(2, global.ActiveScenes)
+
+	phx, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter, phoenixCBSA)
+	suite.Require().NoError(err)
+	suite.Equal(1, phx.ShowsAdded)
+	suite.Equal(1, phx.NewArtists)
+	suite.Equal(1, phx.NewReleases)
+	suite.Equal(1, phx.RadioPlays, "scoped radio count is resolved scene-artist plays only")
+	suite.Equal(1, phx.ActiveScenes, "a scoped active-scenes count degenerates to 0/1 by construction")
+
+	none, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter, unknownCBSA)
+	suite.Require().NoError(err)
+	suite.Equal(0, none.ShowsAdded)
+	suite.Equal(0, none.NewArtists)
+	suite.Equal(0, none.NewReleases)
+	suite.Equal(0, none.RadioPlays)
+	suite.Equal(0, none.ActiveScenes)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_SceneScoped() {
+	user := suite.createUser("scene-ticker@test.com")
+	phxArtist := suite.createArtist("Phx Ticker Band")
+	suite.setArtistMetro(phxArtist, phoenixCBSA)
+	chiArtist := suite.createArtist("Chi Ticker Band")
+	suite.setArtistMetro(chiArtist, chicagoCBSA)
+	phxVenue := suite.createVenue("Phx Ticker Venue", "Phoenix", "AZ")
+	suite.setVenueMetro(phxVenue, phoenixCBSA, true)
+	chiVenue := suite.createVenue("Chi Ticker Venue", "Chicago", "IL")
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+
+	past := time.Now().UTC().AddDate(0, 0, -5)
+	suite.createApprovedShow("Phx anchor show", phxVenue.ID, phxArtist.ID, user.ID, past)
+	suite.createApprovedShow("Chi anchor show", chiVenue.ID, chiArtist.ID, user.ID, past)
+	release := suite.createRelease("Phx Ticker LP")
+	suite.addArtistToRelease(phxArtist.ID, release.ID)
+	suite.createRadioStack("KTIK", "ktik", nil) // station: global ticker only
+
+	global, err := suite.chartsService.GetFreshlyAdded(20, "")
+	suite.Require().NoError(err)
+	globalTypes := make(map[string]int)
+	for _, item := range global {
+		globalTypes[item.EntityType]++
+	}
+	suite.Equal(1, globalTypes["station"], "global ticker includes stations")
+
+	phx, err := suite.chartsService.GetFreshlyAdded(20, phoenixCBSA)
+	suite.Require().NoError(err)
+	names := make([]string, 0, len(phx))
+	for _, item := range phx {
+		suite.NotEqual("station", item.EntityType, "scoped ticker drops the station branch")
+		names = append(names, item.Name)
+	}
+	suite.Contains(names, "Phx Ticker Band")
+	suite.Contains(names, "Phx Ticker Venue")
+	suite.Contains(names, "Phx Ticker LP")
+	suite.NotContains(names, "Chi Ticker Band")
+	suite.NotContains(names, "Chi Ticker Venue")
 }

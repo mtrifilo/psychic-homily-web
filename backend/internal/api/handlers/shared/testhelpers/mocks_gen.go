@@ -633,14 +633,15 @@ func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) (
 
 type MockChartsService struct {
 	GetTrendingShowsFn        func(int) ([]contracts.TrendingShow, error)
-	GetMostAnticipatedShowsFn func(int, int) (*contracts.MostAnticipatedShows, error)
-	GetMostActiveArtistsFn    func(contracts.ChartWindow, int, int) ([]contracts.MostActiveArtist, int, error)
-	GetBusiestVenuesFn        func(contracts.ChartWindow, int, int) ([]contracts.BusiestVenue, int, error)
-	GetOpenersToWatchFn       func(contracts.ChartWindow, int, int) ([]contracts.OpenerToWatch, int, error)
-	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, int, int) ([]contracts.OnTheRadioArtist, int, error)
-	GetNewReleasesFn          func(contracts.ChartWindow, int, int) ([]contracts.NewRelease, int, error)
-	GetChartsSummaryFn        func(contracts.ChartWindow) (*contracts.ChartsSummary, error)
-	GetFreshlyAddedFn         func(int) ([]contracts.FreshlyAddedItem, error)
+	GetMostAnticipatedShowsFn func(string, int, int) (*contracts.MostAnticipatedShows, error)
+	GetMostActiveArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.MostActiveArtist, int, error)
+	GetBusiestVenuesFn        func(contracts.ChartWindow, string, int, int) ([]contracts.BusiestVenue, int, error)
+	GetOpenersToWatchFn       func(contracts.ChartWindow, string, int, int) ([]contracts.OpenerToWatch, int, error)
+	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.OnTheRadioArtist, int, error)
+	GetNewReleasesFn          func(contracts.ChartWindow, string, int, int) ([]contracts.NewRelease, int, error)
+	GetChartsSummaryFn        func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
+	GetFreshlyAddedFn         func(int, string) ([]contracts.FreshlyAddedItem, error)
+	GetChartScenesFn          func(contracts.ChartWindow) ([]contracts.ChartScene, error)
 	GetPersonalChartsStatsFn  func(uint) (*contracts.PersonalChartsStats, error)
 	GetPopularArtistsFn       func(int) ([]contracts.PopularArtist, error)
 	GetActiveVenuesFn         func(int) ([]contracts.ActiveVenue, error)
@@ -654,54 +655,60 @@ func (m *MockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingSho
 	}
 	return []contracts.TrendingShow{}, nil
 }
-func (m *MockChartsService) GetMostAnticipatedShows(limit int, offset int) (*contracts.MostAnticipatedShows, error) {
+func (m *MockChartsService) GetMostAnticipatedShows(scene string, limit int, offset int) (*contracts.MostAnticipatedShows, error) {
 	if m.GetMostAnticipatedShowsFn != nil {
-		return m.GetMostAnticipatedShowsFn(limit, offset)
+		return m.GetMostAnticipatedShowsFn(scene, limit, offset)
 	}
 	return &contracts.MostAnticipatedShows{
 		Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
 		Shows: []contracts.MostAnticipatedShow{},
 	}, nil
 }
-func (m *MockChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int, offset int) ([]contracts.MostActiveArtist, int, error) {
+func (m *MockChartsService) GetMostActiveArtists(window contracts.ChartWindow, scene string, limit int, offset int) ([]contracts.MostActiveArtist, int, error) {
 	if m.GetMostActiveArtistsFn != nil {
-		return m.GetMostActiveArtistsFn(window, limit, offset)
+		return m.GetMostActiveArtistsFn(window, scene, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *MockChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int, offset int) ([]contracts.BusiestVenue, int, error) {
+func (m *MockChartsService) GetBusiestVenues(window contracts.ChartWindow, scene string, limit int, offset int) ([]contracts.BusiestVenue, int, error) {
 	if m.GetBusiestVenuesFn != nil {
-		return m.GetBusiestVenuesFn(window, limit, offset)
+		return m.GetBusiestVenuesFn(window, scene, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *MockChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit int, offset int) ([]contracts.OpenerToWatch, int, error) {
+func (m *MockChartsService) GetOpenersToWatch(window contracts.ChartWindow, scene string, limit int, offset int) ([]contracts.OpenerToWatch, int, error) {
 	if m.GetOpenersToWatchFn != nil {
-		return m.GetOpenersToWatchFn(window, limit, offset)
+		return m.GetOpenersToWatchFn(window, scene, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *MockChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit int, offset int) ([]contracts.OnTheRadioArtist, int, error) {
+func (m *MockChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, scene string, limit int, offset int) ([]contracts.OnTheRadioArtist, int, error) {
 	if m.GetOnTheRadioArtistsFn != nil {
-		return m.GetOnTheRadioArtistsFn(window, limit, offset)
+		return m.GetOnTheRadioArtistsFn(window, scene, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *MockChartsService) GetNewReleases(window contracts.ChartWindow, limit int, offset int) ([]contracts.NewRelease, int, error) {
+func (m *MockChartsService) GetNewReleases(window contracts.ChartWindow, scene string, limit int, offset int) ([]contracts.NewRelease, int, error) {
 	if m.GetNewReleasesFn != nil {
-		return m.GetNewReleasesFn(window, limit, offset)
+		return m.GetNewReleasesFn(window, scene, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
 	if m.GetChartsSummaryFn != nil {
-		return m.GetChartsSummaryFn(window)
+		return m.GetChartsSummaryFn(window, scene)
 	}
 	return &contracts.ChartsSummary{}, nil
 }
-func (m *MockChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem, error) {
+func (m *MockChartsService) GetFreshlyAdded(limit int, scene string) ([]contracts.FreshlyAddedItem, error) {
 	if m.GetFreshlyAddedFn != nil {
-		return m.GetFreshlyAddedFn(limit)
+		return m.GetFreshlyAddedFn(limit, scene)
+	}
+	return nil, nil
+}
+func (m *MockChartsService) GetChartScenes(window contracts.ChartWindow) ([]contracts.ChartScene, error) {
+	if m.GetChartScenesFn != nil {
+		return m.GetChartScenesFn(window)
 	}
 	return nil, nil
 }

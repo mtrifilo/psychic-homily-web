@@ -264,6 +264,19 @@ type ChartsOverview struct {
 	HotReleases    []HotRelease    `json:"hot_releases"`
 }
 
+// ChartScene is one option in the charts scene switcher: a US Census CBSA
+// metro with at least the coverage floor of in-window shows. Metro is the
+// value the module endpoints accept as `scene`; City/State are the metro's
+// principal-city display identity (the same identity the scenes directory
+// shows). Fallback (city|state) scenes — non-US or no-CBSA — are not chart
+// scopes and never appear here.
+type ChartScene struct {
+	Metro     string `json:"metro"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	ShowCount int    `json:"show_count"`
+}
+
 // ──────────────────────────────────────────────
 // Charts Service Interface
 // ──────────────────────────────────────────────
@@ -273,16 +286,20 @@ type ChartsOverview struct {
 // paginated module methods, offset >= 0. The legacy methods' limits are
 // clamped Go-side (normalizeChartsLimit); the paginated module endpoints
 // enforce theirs via huma default/minimum/maximum tags at the HTTP layer.
+// `scene` is a CBSA metro code or "" for global — shape-validated at the HTTP
+// layer (pattern tag); an unknown-but-well-formed scene yields empty results
+// with a valid envelope, never an error.
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
-	GetMostAnticipatedShows(limit, offset int) (*MostAnticipatedShows, error)
-	GetMostActiveArtists(window ChartWindow, limit, offset int) ([]MostActiveArtist, int, error)
-	GetBusiestVenues(window ChartWindow, limit, offset int) ([]BusiestVenue, int, error)
-	GetOpenersToWatch(window ChartWindow, limit, offset int) ([]OpenerToWatch, int, error)
-	GetOnTheRadioArtists(window ChartWindow, limit, offset int) ([]OnTheRadioArtist, int, error)
-	GetNewReleases(window ChartWindow, limit, offset int) ([]NewRelease, int, error)
-	GetChartsSummary(window ChartWindow) (*ChartsSummary, error)
-	GetFreshlyAdded(limit int) ([]FreshlyAddedItem, error)
+	GetMostAnticipatedShows(scene string, limit, offset int) (*MostAnticipatedShows, error)
+	GetMostActiveArtists(window ChartWindow, scene string, limit, offset int) ([]MostActiveArtist, int, error)
+	GetBusiestVenues(window ChartWindow, scene string, limit, offset int) ([]BusiestVenue, int, error)
+	GetOpenersToWatch(window ChartWindow, scene string, limit, offset int) ([]OpenerToWatch, int, error)
+	GetOnTheRadioArtists(window ChartWindow, scene string, limit, offset int) ([]OnTheRadioArtist, int, error)
+	GetNewReleases(window ChartWindow, scene string, limit, offset int) ([]NewRelease, int, error)
+	GetChartsSummary(window ChartWindow, scene string) (*ChartsSummary, error)
+	GetFreshlyAdded(limit int, scene string) ([]FreshlyAddedItem, error)
+	GetChartScenes(window ChartWindow) ([]ChartScene, error)
 	GetPersonalChartsStats(userID uint) (*PersonalChartsStats, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
