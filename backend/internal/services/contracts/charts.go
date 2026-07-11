@@ -62,7 +62,9 @@ const (
 
 // MostAnticipatedShow is one row of the most-anticipated module. SaveCount
 // is nil in soonest-upcoming fallback mode — omitted from the payload, never
-// zero — so a sub-floor count can't leak into the UI.
+// zero — so a sub-floor count can't leak into the UI. Rank follows the same
+// rule: present (1-based, offset-stable) in ranked mode, nil in fallback
+// (a date-ordered fallback list has no rank to claim).
 type MostAnticipatedShow struct {
 	ShowID      uint      `json:"show_id"`
 	Title       string    `json:"title"`
@@ -73,11 +75,21 @@ type MostAnticipatedShow struct {
 	City        string    `json:"city"`
 	ArtistNames []string  `json:"artist_names"`
 	SaveCount   *int      `json:"save_count,omitempty"`
+	Rank        *int      `json:"rank,omitempty"`
 }
 
 // MostAnticipatedShows is the mode-discriminated most-anticipated payload.
+// Total counts the FULL set the active mode displays — qualifying shows in
+// ranked mode, all upcoming approved shows in fallback mode. Pagination
+// applies to ranked mode only; fallback ignores offset (it is the module's
+// floor, not a ranked list — a paginating client must key off mode, never
+// off total alone). Pages are cached independently server-side, so mode and
+// total are per-response facts: two pages of one window can come from
+// snapshots up to a cache TTL apart, and a client must re-check mode on
+// every page rather than assume cross-page consistency.
 type MostAnticipatedShows struct {
 	Mode  MostAnticipatedMode   `json:"mode"`
+	Total int                   `json:"total"`
 	Shows []MostAnticipatedShow `json:"shows"`
 }
 
@@ -126,6 +138,7 @@ type MostActiveArtist struct {
 	LastShowDate  *time.Time `json:"last_show_date"`
 	LastShowSlug  string     `json:"last_show_slug"`
 	LastShowVenue string     `json:"last_show_venue"`
+	Rank          int        `json:"rank"`
 }
 
 // BusiestVenue represents a venue ranked by shows hosted within a window.
@@ -136,6 +149,7 @@ type BusiestVenue struct {
 	City      string `json:"city"`
 	State     string `json:"state"`
 	ShowCount int    `json:"show_count"`
+	Rank      int    `json:"rank"`
 }
 
 // OpenerToWatch represents an artist ranked by support slots played within a
@@ -147,6 +161,7 @@ type OpenerToWatch struct {
 	City             string `json:"city"`
 	State            string `json:"state"`
 	SupportSlotCount int    `json:"support_slot_count"`
+	Rank             int    `json:"rank"`
 }
 
 // NewRelease is one row of the windowed new-releases module: date-ordered,
@@ -169,6 +184,7 @@ type NewRelease struct {
 	AddedAt     time.Time `json:"added_at"`
 	ArtistNames []string  `json:"artist_names"`
 	LabelNames  []string  `json:"label_names"`
+	Rank        int       `json:"rank"`
 }
 
 // OnTheRadioArtist represents an artist ranked by resolved radio plays within
@@ -184,6 +200,7 @@ type OnTheRadioArtist struct {
 	PlayCount    int    `json:"play_count"`
 	StationCount int    `json:"station_count"`
 	IsNew        bool   `json:"is_new"`
+	Rank         int    `json:"rank"`
 }
 
 // ChartsSummary is the masthead proof-of-life stat strip: window-scoped
@@ -256,12 +273,12 @@ type ChartsOverview struct {
 // normalizeChartsLimit); services do not re-validate.
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
-	GetMostAnticipatedShows(limit int) (*MostAnticipatedShows, error)
-	GetMostActiveArtists(window ChartWindow, limit int) ([]MostActiveArtist, error)
-	GetBusiestVenues(window ChartWindow, limit int) ([]BusiestVenue, error)
-	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
-	GetOnTheRadioArtists(window ChartWindow, limit int) ([]OnTheRadioArtist, error)
-	GetNewReleases(window ChartWindow, limit int) ([]NewRelease, error)
+	GetMostAnticipatedShows(limit, offset int) (*MostAnticipatedShows, error)
+	GetMostActiveArtists(window ChartWindow, limit, offset int) ([]MostActiveArtist, int, error)
+	GetBusiestVenues(window ChartWindow, limit, offset int) ([]BusiestVenue, int, error)
+	GetOpenersToWatch(window ChartWindow, limit, offset int) ([]OpenerToWatch, int, error)
+	GetOnTheRadioArtists(window ChartWindow, limit, offset int) ([]OnTheRadioArtist, int, error)
+	GetNewReleases(window ChartWindow, limit, offset int) ([]NewRelease, int, error)
 	GetChartsSummary(window ChartWindow) (*ChartsSummary, error)
 	GetFreshlyAdded(limit int) ([]FreshlyAddedItem, error)
 	GetPersonalChartsStats(userID uint) (*PersonalChartsStats, error)

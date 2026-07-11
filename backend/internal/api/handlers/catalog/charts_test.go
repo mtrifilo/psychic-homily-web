@@ -96,7 +96,7 @@ func TestChartsHandler_TrendingShows_CustomLimit(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if receivedLimit != 10 {
-		t.Errorf("expected limit=10, got %d", receivedLimit)
+		t.Errorf("expected limit=10 forwarded, got %d", receivedLimit)
 	}
 }
 
@@ -366,21 +366,21 @@ func TestChartsHandler_Overview_ServiceError(t *testing.T) {
 func TestChartsHandler_MostActiveArtists_Success(t *testing.T) {
 	lastShow := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
 			if window != contracts.ChartWindowQuarter {
 				t.Errorf("expected default window=quarter, got %q", window)
 			}
-			if limit != 20 {
-				t.Errorf("expected limit=20, got %d", limit)
+			if limit != 10 {
+				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.MostActiveArtist{
 				{ArtistID: 1, Name: "Busy Band", Slug: "busy-band", City: "Phoenix", State: "AZ",
 					ShowCount: 14, HeadlinePct: 50, LastShowDate: &lastShow, LastShowSlug: "a-show", LastShowVenue: "The Venue"},
-			}, nil
+			}, 1, nil
 		},
 	})
 
-	resp, err := h.GetMostActiveArtistsHandler(context.Background(), &GetMostActiveArtistsRequest{})
+	resp, err := h.GetMostActiveArtistsHandler(context.Background(), &GetMostActiveArtistsRequest{Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -398,11 +398,11 @@ func TestChartsHandler_MostActiveArtists_Success(t *testing.T) {
 
 func TestChartsHandler_MostActiveArtists_WindowPassthrough(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
 			if window != contracts.ChartWindowMonth {
 				t.Errorf("expected window=month, got %q", window)
 			}
-			return []contracts.MostActiveArtist{}, nil
+			return []contracts.MostActiveArtist{}, 0, nil
 		},
 	})
 
@@ -417,8 +417,8 @@ func TestChartsHandler_MostActiveArtists_WindowPassthrough(t *testing.T) {
 
 func TestChartsHandler_MostActiveArtists_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostActiveArtistsFn: func(contracts.ChartWindow, int) ([]contracts.MostActiveArtist, error) {
-			return nil, fmt.Errorf("db exploded")
+		GetMostActiveArtistsFn: func(contracts.ChartWindow, int, int) ([]contracts.MostActiveArtist, int, error) {
+			return nil, 0, fmt.Errorf("db exploded")
 		},
 	})
 
@@ -452,20 +452,20 @@ func TestChartsHandler_MostActiveArtists_InvalidWindow422(t *testing.T) {
 
 func TestChartsHandler_BusiestVenues_Success(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetBusiestVenuesFn: func(window contracts.ChartWindow, limit int) ([]contracts.BusiestVenue, error) {
+		GetBusiestVenuesFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.BusiestVenue, int, error) {
 			if window != contracts.ChartWindowQuarter {
 				t.Errorf("expected default window=quarter, got %q", window)
 			}
-			if limit != 20 {
-				t.Errorf("expected limit=20, got %d", limit)
+			if limit != 10 {
+				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.BusiestVenue{
 				{VenueID: 1, Name: "Empty Bottle", Slug: "empty-bottle", City: "Chicago", State: "IL", ShowCount: 41},
-			}, nil
+			}, 1, nil
 		},
 	})
 
-	resp, err := h.GetBusiestVenuesHandler(context.Background(), &GetBusiestVenuesRequest{})
+	resp, err := h.GetBusiestVenuesHandler(context.Background(), &GetBusiestVenuesRequest{Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -479,8 +479,8 @@ func TestChartsHandler_BusiestVenues_Success(t *testing.T) {
 
 func TestChartsHandler_BusiestVenues_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetBusiestVenuesFn: func(contracts.ChartWindow, int) ([]contracts.BusiestVenue, error) {
-			return nil, fmt.Errorf("db exploded")
+		GetBusiestVenuesFn: func(contracts.ChartWindow, int, int) ([]contracts.BusiestVenue, int, error) {
+			return nil, 0, fmt.Errorf("db exploded")
 		},
 	})
 	_, err := h.GetBusiestVenuesHandler(context.Background(), &GetBusiestVenuesRequest{})
@@ -489,13 +489,13 @@ func TestChartsHandler_BusiestVenues_ServiceError(t *testing.T) {
 
 func TestChartsHandler_OpenersToWatch_Success(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetOpenersToWatchFn: func(window contracts.ChartWindow, limit int) ([]contracts.OpenerToWatch, error) {
+		GetOpenersToWatchFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
 			if window != contracts.ChartWindowMonth {
 				t.Errorf("expected window=month, got %q", window)
 			}
 			return []contracts.OpenerToWatch{
 				{ArtistID: 2, Name: "Dizzy Mavis", Slug: "dizzy-mavis", City: "Phoenix", State: "AZ", SupportSlotCount: 11},
-			}, nil
+			}, 1, nil
 		},
 	})
 
@@ -513,8 +513,8 @@ func TestChartsHandler_OpenersToWatch_Success(t *testing.T) {
 
 func TestChartsHandler_OpenersToWatch_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetOpenersToWatchFn: func(contracts.ChartWindow, int) ([]contracts.OpenerToWatch, error) {
-			return nil, fmt.Errorf("db exploded")
+		GetOpenersToWatchFn: func(contracts.ChartWindow, int, int) ([]contracts.OpenerToWatch, int, error) {
+			return nil, 0, fmt.Errorf("db exploded")
 		},
 	})
 	_, err := h.GetOpenersToWatchHandler(context.Background(), &GetOpenersToWatchRequest{})
@@ -546,20 +546,20 @@ func TestChartsHandler_VenueOpenerEndpoints_InvalidWindow422(t *testing.T) {
 
 func TestChartsHandler_OnTheRadio_Success(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetOnTheRadioArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+		GetOnTheRadioArtistsFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
 			if window != contracts.ChartWindowQuarter {
 				t.Errorf("expected default window=quarter, got %q", window)
 			}
-			if limit != 20 {
-				t.Errorf("expected limit=20, got %d", limit)
+			if limit != 10 {
+				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.OnTheRadioArtist{
 				{ArtistID: 3, Name: "Airwave Act", Slug: "airwave-act", City: "Seattle", State: "WA", PlayCount: 42, StationCount: 2, IsNew: true},
-			}, nil
+			}, 1, nil
 		},
 	})
 
-	resp, err := h.GetOnTheRadioArtistsHandler(context.Background(), &GetOnTheRadioArtistsRequest{})
+	resp, err := h.GetOnTheRadioArtistsHandler(context.Background(), &GetOnTheRadioArtistsRequest{Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -577,11 +577,11 @@ func TestChartsHandler_OnTheRadio_Success(t *testing.T) {
 
 func TestChartsHandler_OnTheRadio_WindowPassthrough(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetOnTheRadioArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+		GetOnTheRadioArtistsFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
 			if window != contracts.ChartWindowMonth {
 				t.Errorf("expected window=month, got %q", window)
 			}
-			return []contracts.OnTheRadioArtist{}, nil
+			return []contracts.OnTheRadioArtist{}, 0, nil
 		},
 	})
 
@@ -596,8 +596,8 @@ func TestChartsHandler_OnTheRadio_WindowPassthrough(t *testing.T) {
 
 func TestChartsHandler_OnTheRadio_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetOnTheRadioArtistsFn: func(contracts.ChartWindow, int) ([]contracts.OnTheRadioArtist, error) {
-			return nil, fmt.Errorf("db exploded")
+		GetOnTheRadioArtistsFn: func(contracts.ChartWindow, int, int) ([]contracts.OnTheRadioArtist, int, error) {
+			return nil, 0, fmt.Errorf("db exploded")
 		},
 	})
 	_, err := h.GetOnTheRadioArtistsHandler(context.Background(), &GetOnTheRadioArtistsRequest{})
@@ -630,9 +630,9 @@ func TestChartsHandler_OnTheRadio_InvalidWindow422(t *testing.T) {
 func TestChartsHandler_MostAnticipated_RankedMapping(t *testing.T) {
 	three := 3
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(limit int) (*contracts.MostAnticipatedShows, error) {
-			if limit != 20 {
-				t.Errorf("expected default limit=20, got %d", limit)
+		GetMostAnticipatedShowsFn: func(limit, offset int) (*contracts.MostAnticipatedShows, error) {
+			if limit != 10 {
+				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return &contracts.MostAnticipatedShows{
 				Mode: contracts.MostAnticipatedModeRanked,
@@ -643,7 +643,7 @@ func TestChartsHandler_MostAnticipated_RankedMapping(t *testing.T) {
 		},
 	})
 
-	resp, err := h.GetMostAnticipatedShowsHandler(context.Background(), &GetMostAnticipatedShowsRequest{})
+	resp, err := h.GetMostAnticipatedShowsHandler(context.Background(), &GetMostAnticipatedShowsRequest{Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -657,7 +657,7 @@ func TestChartsHandler_MostAnticipated_RankedMapping(t *testing.T) {
 
 func TestChartsHandler_MostAnticipated_FallbackMapping(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(limit int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(limit, offset int) (*contracts.MostAnticipatedShows, error) {
 			return &contracts.MostAnticipatedShows{
 				Mode: contracts.MostAnticipatedModeSoonestUpcoming,
 				Shows: []contracts.MostAnticipatedShow{
@@ -681,7 +681,7 @@ func TestChartsHandler_MostAnticipated_FallbackMapping(t *testing.T) {
 
 func TestChartsHandler_MostAnticipated_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(int, int) (*contracts.MostAnticipatedShows, error) {
 			return nil, fmt.Errorf("db exploded")
 		},
 	})
@@ -707,7 +707,7 @@ func TestChartsHandler_MostAnticipated_WireShape(t *testing.T) {
 	}
 	current := "ranked"
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(int, int) (*contracts.MostAnticipatedShows, error) {
 			return payloads[current], nil
 		},
 	})
@@ -735,7 +735,7 @@ func TestChartsHandler_MostAnticipated_WireShape(t *testing.T) {
 func TestChartsHandler_MostAnticipated_ExplicitLimitForwarded(t *testing.T) {
 	var receivedLimit int
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(limit int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(limit, offset int) (*contracts.MostAnticipatedShows, error) {
 			receivedLimit = limit
 			return &contracts.MostAnticipatedShows{Mode: contracts.MostAnticipatedModeRanked, Shows: []contracts.MostAnticipatedShow{}}, nil
 		},
@@ -756,20 +756,20 @@ func TestChartsHandler_NewReleases_Success(t *testing.T) {
 	released := "2026-07-03"
 	addedAt := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetNewReleasesFn: func(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+		GetNewReleasesFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
 			if window != contracts.ChartWindowQuarter {
 				t.Errorf("expected default window=quarter, got %q", window)
 			}
-			if limit != 20 {
-				t.Errorf("expected limit=20, got %d", limit)
+			if limit != 10 {
+				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.NewRelease{
 				{ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: addedAt, ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"}},
-			}, nil
+			}, 1, nil
 		},
 	})
 
-	resp, err := h.GetNewReleasesHandler(context.Background(), &GetNewReleasesRequest{})
+	resp, err := h.GetNewReleasesHandler(context.Background(), &GetNewReleasesRequest{Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -789,9 +789,9 @@ func TestChartsHandler_NewReleases_WindowAndLimitPassthrough(t *testing.T) {
 	var gotWindow contracts.ChartWindow
 	var gotLimit int
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetNewReleasesFn: func(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+		GetNewReleasesFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
 			gotWindow, gotLimit = window, limit
-			return []contracts.NewRelease{}, nil
+			return []contracts.NewRelease{}, 0, nil
 		},
 	})
 
@@ -809,8 +809,8 @@ func TestChartsHandler_NewReleases_WindowAndLimitPassthrough(t *testing.T) {
 
 func TestChartsHandler_NewReleases_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetNewReleasesFn: func(contracts.ChartWindow, int) ([]contracts.NewRelease, error) {
-			return nil, fmt.Errorf("db exploded")
+		GetNewReleasesFn: func(contracts.ChartWindow, int, int) ([]contracts.NewRelease, int, error) {
+			return nil, 0, fmt.Errorf("db exploded")
 		},
 	})
 	_, err := h.GetNewReleasesHandler(context.Background(), &GetNewReleasesRequest{})
@@ -1065,5 +1065,165 @@ func TestChartsHandler_PersonalStats_WireShape(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("populated wire payload must include %s: %s", want, body)
 		}
+	}
+}
+
+// ============================================================================
+// Tests: module pagination wiring (PSY-1405)
+// ============================================================================
+
+func TestChartsHandler_MostActiveArtists_PaginationForwardingAndTotal(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
+			if limit != 50 || offset != 100 {
+				t.Errorf("expected limit=50 offset=100 forwarded, got %d/%d", limit, offset)
+			}
+			return []contracts.MostActiveArtist{
+				{ArtistID: 9, Name: "Deep Page Band", Rank: 101, ShowCount: 4},
+			}, 123, nil
+		},
+	})
+
+	resp, err := h.GetMostActiveArtistsHandler(context.Background(), &GetMostActiveArtistsRequest{Limit: 50, Offset: 100})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 123 {
+		t.Errorf("expected total=123 echoed, got %d", resp.Body.Total)
+	}
+	if len(resp.Body.Artists) != 1 || resp.Body.Artists[0].Rank != 101 {
+		t.Errorf("expected rank mapped through, got %+v", resp.Body.Artists)
+	}
+}
+
+// TestChartsHandler_ModuleOffsetLimit_Validation422 exercises the huma
+// constraint tags through the full chain (dead-validate-tag gotcha: assert
+// the 422, don't trust the tag): offset [0,10000], limit [1,100].
+func TestChartsHandler_ModuleOffsetLimit_Validation422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/most-active-artists", h.GetMostActiveArtistsHandler)
+
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{
+		{"?offset=-1", 422},
+		{"?offset=20000", 422},
+		{"?offset=10000", 200},
+		{"?limit=100", 200},
+		{"?limit=101", 422},
+		{"?limit=100&offset=9999", 200},
+	} {
+		if resp := api.Get("/charts/most-active-artists" + tc.query); resp.Code != tc.want {
+			t.Errorf("%s: expected %d, got %d", tc.query, tc.want, resp.Code)
+		}
+	}
+}
+
+// TestChartsHandler_NewReleases_WireTotalAndRank asserts total and rank reach
+// the wire through the full huma chain (NewReleaseResponse is a direct struct
+// conversion — this pins the new fields' snake_case names).
+func TestChartsHandler_NewReleases_WireTotalAndRank(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetNewReleasesFn: func(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
+			return []contracts.NewRelease{
+				{ReleaseID: 5, Title: "Ranked Wax", ArtistNames: []string{}, LabelNames: []string{}, Rank: 11},
+			}, 42, nil
+		},
+	})
+	_, api := humatest.New(t)
+	huma.Get(api, "/charts/new-releases", h.GetNewReleasesHandler)
+
+	resp := api.Get("/charts/new-releases?offset=10")
+	if resp.Code != 200 {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	for _, want := range []string{`"total":42`, `"rank":11`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("wire payload must include %s: %s", want, body)
+		}
+	}
+}
+
+// TestChartsHandler_MostAnticipated_WireRankOmittedInFallback pins the
+// rank-omission rule on the wire: ranked rows carry rank, fallback rows omit
+// the key entirely (like save_count).
+func TestChartsHandler_MostAnticipated_WireRankOmittedInFallback(t *testing.T) {
+	three, one := 3, 1
+	payloads := map[string]*contracts.MostAnticipatedShows{
+		"ranked": {
+			Mode:  contracts.MostAnticipatedModeRanked,
+			Total: 6,
+			Shows: []contracts.MostAnticipatedShow{{ShowID: 1, Title: "Ranked", ArtistNames: []string{}, SaveCount: &three, Rank: &one}},
+		},
+		"fallback": {
+			Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
+			Total: 2,
+			Shows: []contracts.MostAnticipatedShow{{ShowID: 2, Title: "Fallback", ArtistNames: []string{}}},
+		},
+	}
+	current := "ranked"
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostAnticipatedShowsFn: func(int, int) (*contracts.MostAnticipatedShows, error) {
+			return payloads[current], nil
+		},
+	})
+	_, api := humatest.New(t)
+	huma.Get(api, "/charts/most-anticipated", h.GetMostAnticipatedShowsHandler)
+
+	resp := api.Get("/charts/most-anticipated")
+	if body := resp.Body.String(); !strings.Contains(body, `"rank":1`) || !strings.Contains(body, `"total":6`) {
+		t.Errorf("ranked wire payload must include rank + total: %s", body)
+	}
+
+	current = "fallback"
+	resp = api.Get("/charts/most-anticipated")
+	if body := resp.Body.String(); strings.Contains(body, `"rank"`) {
+		t.Errorf("fallback wire payload must omit rank entirely: %s", body)
+	}
+}
+
+// TestChartsHandler_ModuleTagDefaults proves the huma default tags own the
+// module defaults (limit 10, offset 0) through the full request chain —
+// direct handler calls bypass tag defaults, so this is the one place the
+// contract-layer default is pinned (dead-validate-tag gotcha: assert it).
+func TestChartsHandler_ModuleTagDefaults(t *testing.T) {
+	var gotLimit, gotOffset int
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostActiveArtistsFn: func(_ contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
+			gotLimit, gotOffset = limit, offset
+			return []contracts.MostActiveArtist{}, 0, nil
+		},
+	})
+	_, api := humatest.New(t)
+	huma.Get(api, "/charts/most-active-artists", h.GetMostActiveArtistsHandler)
+
+	if resp := api.Get("/charts/most-active-artists"); resp.Code != 200 {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	if gotLimit != 10 || gotOffset != 0 {
+		t.Errorf("expected tag defaults limit=10 offset=0, got %d/%d", gotLimit, gotOffset)
+	}
+}
+
+// TestChartsHandler_PublicCacheControl pins the public max-age headers:
+// modules mirror the 5-minute service TTL, the masthead pair mirrors 60s.
+func TestChartsHandler_PublicCacheControl(t *testing.T) {
+	h := testChartsHandler()
+	_, api := humatest.New(t)
+	huma.Get(api, "/charts/most-active-artists", h.GetMostActiveArtistsHandler)
+	huma.Get(api, "/charts/summary", h.GetChartsSummaryHandler)
+	huma.Get(api, "/charts/freshly-added", h.GetFreshlyAddedHandler)
+
+	if cc := api.Get("/charts/most-active-artists").Header().Get("Cache-Control"); cc != "public, max-age=300" {
+		t.Errorf("module endpoints must be public max-age=300, got %q", cc)
+	}
+	if cc := api.Get("/charts/summary").Header().Get("Cache-Control"); cc != "public, max-age=60" {
+		t.Errorf("summary must be public max-age=60, got %q", cc)
+	}
+	if cc := api.Get("/charts/freshly-added").Header().Get("Cache-Control"); cc != "public, max-age=60" {
+		t.Errorf("ticker must be public max-age=60, got %q", cc)
 	}
 }

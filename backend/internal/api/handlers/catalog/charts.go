@@ -84,7 +84,8 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 
 // GetMostAnticipatedShowsRequest is the Huma request for GET /charts/most-anticipated
 type GetMostAnticipatedShowsRequest struct {
-	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit  int `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // MostAnticipatedShowResponse is a single show in the response. SaveCount is
@@ -100,12 +101,19 @@ type MostAnticipatedShowResponse struct {
 	City        string    `json:"city"`
 	ArtistNames []string  `json:"artist_names"`
 	SaveCount   *int      `json:"save_count,omitempty"`
+	Rank        *int      `json:"rank,omitempty"`
 }
 
 // GetMostAnticipatedShowsResponse is the Huma response for GET /charts/most-anticipated
 type GetMostAnticipatedShowsResponse struct {
-	Body struct {
-		Mode  string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts; soonest_upcoming = date-ordered fallback, counts omitted"`
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Mode  string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks (paginated); soonest_upcoming = date-ordered fallback, counts/ranks omitted, offset ignored"`
+		Total int                           `json:"total" doc:"Full-set size for the active mode: qualifying shows (ranked) or all upcoming shows (fallback)"`
 		Shows []MostAnticipatedShowResponse `json:"shows"`
 	}
 }
@@ -116,16 +124,16 @@ type GetMostAnticipatedShowsResponse struct {
 // /charts/trending-shows; the legacy route stays until the redesigned charts
 // frontend migrates off it.
 func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req *GetMostAnticipatedShowsRequest) (*GetMostAnticipatedShowsResponse, error) {
-	limit := normalizeChartsLimit(req.Limit)
-
-	data, err := h.chartsService.GetMostAnticipatedShows(limit)
+	// limit/offset defaults and bounds are owned by the huma tags.
+	data, err := h.chartsService.GetMostAnticipatedShows(req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_most_anticipated_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get most-anticipated shows")
 	}
 
-	resp := &GetMostAnticipatedShowsResponse{}
+	resp := &GetMostAnticipatedShowsResponse{CacheControl: "public, max-age=300"}
 	resp.Body.Mode = string(data.Mode)
+	resp.Body.Total = data.Total
 	resp.Body.Shows = make([]MostAnticipatedShowResponse, len(data.Shows))
 	for i, s := range data.Shows {
 		// Direct conversion (the structs are field-identical): a field added
@@ -141,7 +149,8 @@ func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req 
 // GetMostActiveArtistsRequest is the Huma request for GET /charts/most-active-artists
 type GetMostActiveArtistsRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
-	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // MostActiveArtistResponse is a single ranked artist in the response.
@@ -156,29 +165,38 @@ type MostActiveArtistResponse struct {
 	LastShowDate  *time.Time `json:"last_show_date"`
 	LastShowSlug  string     `json:"last_show_slug"`
 	LastShowVenue string     `json:"last_show_venue"`
+	Rank          int        `json:"rank"`
 }
 
 // GetMostActiveArtistsResponse is the Huma response for GET /charts/most-active-artists
 type GetMostActiveArtistsResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Window  string                     `json:"window"`
+		Total   int                        `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Artists []MostActiveArtistResponse `json:"artists"`
 	}
 }
 
 // GetMostActiveArtistsHandler handles GET /charts/most-active-artists
 func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *GetMostActiveArtistsRequest) (*GetMostActiveArtistsResponse, error) {
-	limit := normalizeChartsLimit(req.Limit)
 	window := normalizeChartWindow(req.Window)
 
-	data, err := h.chartsService.GetMostActiveArtists(window, limit)
+	// limit/offset defaults and bounds are owned by the huma tags (default/
+	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
+	data, total, err := h.chartsService.GetMostActiveArtists(window, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_most_active_artists_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get most-active artists")
 	}
 
-	resp := &GetMostActiveArtistsResponse{}
+	resp := &GetMostActiveArtistsResponse{CacheControl: "public, max-age=300"}
 	resp.Body.Window = string(window)
+	resp.Body.Total = total
 	resp.Body.Artists = make([]MostActiveArtistResponse, len(data))
 	for i, a := range data {
 		resp.Body.Artists[i] = MostActiveArtistResponse{
@@ -192,6 +210,7 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 			LastShowDate:  a.LastShowDate,
 			LastShowSlug:  a.LastShowSlug,
 			LastShowVenue: a.LastShowVenue,
+			Rank:          a.Rank,
 		}
 	}
 	return resp, nil
@@ -202,7 +221,8 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 // GetBusiestVenuesRequest is the Huma request for GET /charts/busiest-venues
 type GetBusiestVenuesRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
-	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // BusiestVenueResponse is a single ranked venue in the response.
@@ -213,12 +233,19 @@ type BusiestVenueResponse struct {
 	City      string `json:"city"`
 	State     string `json:"state"`
 	ShowCount int    `json:"show_count"`
+	Rank      int    `json:"rank"`
 }
 
 // GetBusiestVenuesResponse is the Huma response for GET /charts/busiest-venues
 type GetBusiestVenuesResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Window string                 `json:"window"`
+		Total  int                    `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Venues []BusiestVenueResponse `json:"venues"`
 	}
 }
@@ -227,17 +254,19 @@ type GetBusiestVenuesResponse struct {
 // shows HOSTED in the window (past tense). Contrast /charts/active-venues,
 // which scores venues by upcoming shows + follows.
 func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBusiestVenuesRequest) (*GetBusiestVenuesResponse, error) {
-	limit := normalizeChartsLimit(req.Limit)
 	window := normalizeChartWindow(req.Window)
 
-	data, err := h.chartsService.GetBusiestVenues(window, limit)
+	// limit/offset defaults and bounds are owned by the huma tags (default/
+	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
+	data, total, err := h.chartsService.GetBusiestVenues(window, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_busiest_venues_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get busiest venues")
 	}
 
-	resp := &GetBusiestVenuesResponse{}
+	resp := &GetBusiestVenuesResponse{CacheControl: "public, max-age=300"}
 	resp.Body.Window = string(window)
+	resp.Body.Total = total
 	resp.Body.Venues = make([]BusiestVenueResponse, len(data))
 	for i, v := range data {
 		resp.Body.Venues[i] = BusiestVenueResponse{
@@ -247,6 +276,7 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 			City:      v.City,
 			State:     v.State,
 			ShowCount: v.ShowCount,
+			Rank:      v.Rank,
 		}
 	}
 	return resp, nil
@@ -257,7 +287,8 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 // GetOpenersToWatchRequest is the Huma request for GET /charts/openers-to-watch
 type GetOpenersToWatchRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
-	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // OpenerToWatchResponse is a single ranked support artist in the response.
@@ -268,29 +299,38 @@ type OpenerToWatchResponse struct {
 	City             string `json:"city"`
 	State            string `json:"state"`
 	SupportSlotCount int    `json:"support_slot_count"`
+	Rank             int    `json:"rank"`
 }
 
 // GetOpenersToWatchResponse is the Huma response for GET /charts/openers-to-watch
 type GetOpenersToWatchResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Window  string                  `json:"window"`
+		Total   int                     `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Artists []OpenerToWatchResponse `json:"artists"`
 	}
 }
 
 // GetOpenersToWatchHandler handles GET /charts/openers-to-watch
 func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOpenersToWatchRequest) (*GetOpenersToWatchResponse, error) {
-	limit := normalizeChartsLimit(req.Limit)
 	window := normalizeChartWindow(req.Window)
 
-	data, err := h.chartsService.GetOpenersToWatch(window, limit)
+	// limit/offset defaults and bounds are owned by the huma tags (default/
+	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
+	data, total, err := h.chartsService.GetOpenersToWatch(window, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_openers_to_watch_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get openers to watch")
 	}
 
-	resp := &GetOpenersToWatchResponse{}
+	resp := &GetOpenersToWatchResponse{CacheControl: "public, max-age=300"}
 	resp.Body.Window = string(window)
+	resp.Body.Total = total
 	resp.Body.Artists = make([]OpenerToWatchResponse, len(data))
 	for i, a := range data {
 		resp.Body.Artists[i] = OpenerToWatchResponse{
@@ -300,6 +340,7 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 			City:             a.City,
 			State:            a.State,
 			SupportSlotCount: a.SupportSlotCount,
+			Rank:             a.Rank,
 		}
 	}
 	return resp, nil
@@ -310,7 +351,8 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 // GetOnTheRadioArtistsRequest is the Huma request for GET /charts/on-the-radio
 type GetOnTheRadioArtistsRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
-	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // OnTheRadioArtistResponse is a single ranked artist in the response.
@@ -323,12 +365,19 @@ type OnTheRadioArtistResponse struct {
 	PlayCount    int    `json:"play_count"`
 	StationCount int    `json:"station_count"`
 	IsNew        bool   `json:"is_new"`
+	Rank         int    `json:"rank"`
 }
 
 // GetOnTheRadioArtistsResponse is the Huma response for GET /charts/on-the-radio
 type GetOnTheRadioArtistsResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Window  string                     `json:"window"`
+		Total   int                        `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Artists []OnTheRadioArtistResponse `json:"artists"`
 	}
 }
@@ -338,17 +387,19 @@ type GetOnTheRadioArtistsResponse struct {
 // (network-grouped stations collapse to one); is_new means any in-window play
 // was flagged new rotation.
 func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *GetOnTheRadioArtistsRequest) (*GetOnTheRadioArtistsResponse, error) {
-	limit := normalizeChartsLimit(req.Limit)
 	window := normalizeChartWindow(req.Window)
 
-	data, err := h.chartsService.GetOnTheRadioArtists(window, limit)
+	// limit/offset defaults and bounds are owned by the huma tags (default/
+	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
+	data, total, err := h.chartsService.GetOnTheRadioArtists(window, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_on_the_radio_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get on-the-radio artists")
 	}
 
-	resp := &GetOnTheRadioArtistsResponse{}
+	resp := &GetOnTheRadioArtistsResponse{CacheControl: "public, max-age=300"}
 	resp.Body.Window = string(window)
+	resp.Body.Total = total
 	resp.Body.Artists = make([]OnTheRadioArtistResponse, len(data))
 	for i, a := range data {
 		resp.Body.Artists[i] = OnTheRadioArtistResponse{
@@ -360,6 +411,7 @@ func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *Ge
 			PlayCount:    a.PlayCount,
 			StationCount: a.StationCount,
 			IsNew:        a.IsNew,
+			Rank:         a.Rank,
 		}
 	}
 	return resp, nil
@@ -525,7 +577,8 @@ func (h *ChartsHandler) GetHotReleasesHandler(ctx context.Context, req *GetHotRe
 // GetNewReleasesRequest is the Huma request for GET /charts/new-releases
 type GetNewReleasesRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
-	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // NewReleaseResponse is a single release in the response. release_date is
@@ -542,12 +595,19 @@ type NewReleaseResponse struct {
 	AddedAt     time.Time `json:"added_at"`
 	ArtistNames []string  `json:"artist_names"`
 	LabelNames  []string  `json:"label_names"`
+	Rank        int       `json:"rank"`
 }
 
 // GetNewReleasesResponse is the Huma response for GET /charts/new-releases
 type GetNewReleasesResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Window   string               `json:"window"`
+		Total    int                  `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Releases []NewReleaseResponse `json:"releases"`
 	}
 }
@@ -557,17 +617,19 @@ type GetNewReleasesResponse struct {
 // no engagement inputs. Replaces /charts/hot-releases; the legacy route stays
 // until the redesigned charts frontend migrates off it.
 func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewReleasesRequest) (*GetNewReleasesResponse, error) {
-	limit := normalizeChartsLimit(req.Limit)
 	window := normalizeChartWindow(req.Window)
 
-	data, err := h.chartsService.GetNewReleases(window, limit)
+	// limit/offset defaults and bounds are owned by the huma tags (default/
+	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
+	data, total, err := h.chartsService.GetNewReleases(window, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_new_releases_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get new releases")
 	}
 
-	resp := &GetNewReleasesResponse{}
+	resp := &GetNewReleasesResponse{CacheControl: "public, max-age=300"}
 	resp.Body.Window = string(window)
+	resp.Body.Total = total
 	resp.Body.Releases = make([]NewReleaseResponse, len(data))
 	for i, r := range data {
 		// Direct conversion (field-identical structs): a one-sided field add
@@ -587,7 +649,12 @@ type GetChartsSummaryRequest struct {
 // GetChartsSummaryResponse is the Huma response for GET /charts/summary —
 // the masthead proof-of-life stat strip.
 type GetChartsSummaryResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Window       string `json:"window"`
 		ShowsAdded   int    `json:"shows_added"`
 		NewArtists   int    `json:"new_artists"`
@@ -607,7 +674,7 @@ func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetCha
 		return nil, huma.Error500InternalServerError("Failed to get charts summary")
 	}
 
-	resp := &GetChartsSummaryResponse{}
+	resp := &GetChartsSummaryResponse{CacheControl: "public, max-age=60"}
 	resp.Body.Window = string(window)
 	resp.Body.ShowsAdded = data.ShowsAdded
 	resp.Body.NewArtists = data.NewArtists
@@ -635,7 +702,12 @@ type FreshlyAddedItemResponse struct {
 
 // GetFreshlyAddedResponse is the Huma response for GET /charts/freshly-added
 type GetFreshlyAddedResponse struct {
-	Body struct {
+	// CacheControl mirrors the service-side TTL: these payloads are public,
+	// identical for every viewer, and stale-tolerant, so browsers and any
+	// shared cache may reuse them (same pattern as the radio guide). The
+	// authed personal stats endpoint stays no-store.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Items []FreshlyAddedItemResponse `json:"items"`
 	}
 }
@@ -651,7 +723,7 @@ func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFres
 		return nil, huma.Error500InternalServerError("Failed to get freshly added items")
 	}
 
-	resp := &GetFreshlyAddedResponse{}
+	resp := &GetFreshlyAddedResponse{CacheControl: "public, max-age=60"}
 	resp.Body.Items = make([]FreshlyAddedItemResponse, len(data))
 	for i, item := range data {
 		// Direct conversion (field-identical structs): a one-sided field add
@@ -820,7 +892,10 @@ func normalizeChartWindow(window string) contracts.ChartWindow {
 	return contracts.ChartWindow(window).OrDefault()
 }
 
-// normalizeChartsLimit clamps the limit param to a valid range [1, 50], defaulting to 20.
+// normalizeChartsLimit clamps the limit param to a valid range [1, 50],
+// defaulting to 20. LEGACY endpoints only (trending/popular/active/hot +
+// summary/ticker/overview) — the paginated module endpoints use
+// normalizeModuleLimit.
 func normalizeChartsLimit(limit int) int {
 	if limit <= 0 {
 		return 20
