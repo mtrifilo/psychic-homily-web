@@ -2,11 +2,7 @@
 
 import { Loader2 } from 'lucide-react'
 import { useSetFavoriteCities } from '@/features/auth'
-
-interface CityState {
-  city: string
-  state: string
-}
+import type { CityState } from './CityFilters'
 
 interface SaveDefaultsButtonProps {
   selectedCities: CityState[]

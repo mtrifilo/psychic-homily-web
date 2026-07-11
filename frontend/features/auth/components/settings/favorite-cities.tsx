@@ -6,11 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
 import { useShowCities } from '@/features/shows'
 import { FilterChip } from '@/components/filters/FilterChip'
-
-interface CityState {
-  city: string
-  state: string
-}
+import type { CityState } from '@/components/filters/CityFilters'
 
 function cityKey(c: CityState): string {
   return `${c.city}|${c.state}`

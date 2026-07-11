@@ -13,8 +13,8 @@ import type { CityState } from './CityFilters'
  * every surface that reads or writes the param — the shows/venues/
  * artists list components and their data hooks, HomeShowList, and
  * /explore's UpcomingShowsList — imports these, so a format change
- * lands in exactly one place. (The local CityState *type* is still
- * duplicated in useVenues + SaveDefaultsButton — separate follow-up.)
+ * lands in exactly one place. The CityState type has a single source
+ * too (CityFilters.tsx).
  */
 
 /** Parse the `?cities=` param ("Phoenix,AZ|Mesa,AZ") into typed pairs.

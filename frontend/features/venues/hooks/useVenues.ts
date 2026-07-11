@@ -11,6 +11,7 @@ import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import type { CityState } from '@/components/filters/CityFilters'
 import type {
   Venue,
   VenuesListResponse,
@@ -20,11 +21,6 @@ import type {
   VenueBillNetworkResponse,
   VenueBillNetworkWindow,
 } from '../types'
-
-interface CityState {
-  city: string
-  state: string
-}
 
 interface UseVenuesOptions {
   state?: string
