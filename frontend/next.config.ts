@@ -115,7 +115,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/following',
-        destination: '/library',
+        destination: '/library?tab=artists',
         permanent: false,
       },
       // User "collection" page merged into Library (PSY-275)
