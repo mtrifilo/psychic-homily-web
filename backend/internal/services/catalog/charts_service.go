@@ -17,6 +17,14 @@ import (
 // and release tables.
 type ChartsService struct {
 	db *gorm.DB
+	// cache holds the module pages (client-controlled key space, capped);
+	// mastheadCache holds only the summary + ticker so module-key overflow
+	// can never starve the hottest, shortest-TTL entries of a slot. nil
+	// caches disable caching entirely — the integration test suite
+	// constructs ChartsService without them so per-test DB state stays
+	// authoritative. See charts_cache.go.
+	cache         *chartsCache
+	mastheadCache *chartsCache
 }
 
 // NewChartsService creates a new charts service.
@@ -24,7 +32,11 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &ChartsService{db: database}
+	return &ChartsService{
+		db:            database,
+		cache:         newChartsCache(),
+		mastheadCache: newChartsCache(),
+	}
 }
 
 // GetTrendingShows returns upcoming shows ranked by save count.
@@ -112,6 +124,52 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	}
 
 	return results, nil
+}
+
+// chartCoreCount counts a module's full qualifying set by wrapping its core
+// query (SELECT … GROUP BY/HAVING, no ORDER/LIMIT) as a subquery. Used only
+// when a page comes back empty at a non-zero offset: the page then carries no
+// COUNT(*) OVER() value, but a beyond-the-end page must still report the real
+// total (not zero). This second statement is a different snapshot than the
+// empty page — benign, since the page it disagrees with has no rows.
+func (s *ChartsService) chartCoreCount(coreSQL string, args []any, what string) (int, error) {
+	var total int
+	if err := s.db.Raw(`SELECT COUNT(*) FROM (`+coreSQL+`) core_rows`, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("failed to count %s: %w", what, err)
+	}
+	return total, nil
+}
+
+// resolveChartPageTotal is the shared total-resolution rule for module pages:
+// the page's own COUNT(*) OVER() when it has rows (atomic with the page), the
+// core re-count for a beyond-the-end offset, and zero only when the set is
+// genuinely empty (empty first page). rowCount > 0 with a zero total means
+// the module's SELECT is missing the COUNT(*) OVER() AS total column (or its
+// scan field) — gorm zero-fills unmatched columns silently, so fail loudly
+// instead of shipping Total=0 next to a populated page.
+// countKey caches the re-count offset-independently (chartCountKey), so a
+// client walking junk beyond-the-end offsets pays the count aggregation once
+// per TTL rather than per request.
+func (s *ChartsService) resolveChartPageTotal(pageTotal, rowCount, offset int, coreSQL string, args []any, countKey, what string) (int, error) {
+	if rowCount > 0 {
+		if pageTotal <= 0 {
+			return 0, fmt.Errorf("%s page query is missing the COUNT(*) OVER() AS total column", what)
+		}
+		return pageTotal, nil
+	}
+	if offset > 0 {
+		return chartsCached(s.cache, countKey, chartsModuleTTL, func() (int, error) {
+			return s.chartCoreCount(coreSQL, args, what)
+		})
+	}
+	return 0, nil
+}
+
+// appendPageArgs copies the core args before appending the page bounds — the
+// copy is load-bearing: coreArgs is reused verbatim by the beyond-the-end
+// re-count, so appending in place would alias its backing array.
+func appendPageArgs(coreArgs []any, limit, offset int) []any {
+	return append(append([]any{}, coreArgs...), limit, offset)
 }
 
 // namesByOwnerID runs a two-column enrichment query — it must SELECT the
@@ -228,11 +286,25 @@ func primaryVenueLateralSQL(cols, showIDExpr string) string {
 // GetMostAnticipatedShows returns the mode-discriminated most-anticipated
 // module: upcoming approved shows with saves >= the floor, ranked by save
 // count (ties by soonest date, then id). When fewer than
-// mostAnticipatedMinQualifying shows clear the floor, it returns
+// mostAnticipatedMinQualifying shows clear the floor IN TOTAL, it returns
 // soonest-upcoming fallback mode instead — ALL upcoming approved shows
-// date-ordered with SaveCount nil on every row (fail-closed: sub-floor
-// counts never leak into a rendered payload).
-func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAnticipatedShows, error) {
+// date-ordered with SaveCount and Rank nil on every row (fail-closed:
+// sub-floor counts never leak into a rendered payload).
+//
+// Pagination applies to ranked mode only: the mode is decided by the TOTAL
+// qualifying count (the page's COUNT(*) OVER(), so a small page size or deep
+// offset can't force fallback), ranks are offset-stable (offset+i+1), and
+// Total counts all qualifying shows. Fallback is the module's floor, not a
+// ranked list — it ignores offset and reports the upcoming-show universe as
+// its Total.
+func (s *ChartsService) GetMostAnticipatedShows(limit, offset int) (*contracts.MostAnticipatedShows, error) {
+	key := fmt.Sprintf("most-anticipated|%d|%d", limit, offset)
+	return chartsCached(s.cache, key, chartsModuleTTL, func() (*contracts.MostAnticipatedShows, error) {
+		return s.getMostAnticipatedShowsUncached(limit, offset)
+	})
+}
+
+func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*contracts.MostAnticipatedShows, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -248,6 +320,7 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 		VenueSlug string    `gorm:"column:venue_slug"`
 		City      string    `gorm:"column:city"`
 		SaveCount int       `gorm:"column:save_count"`
+		Total     int       `gorm:"column:total"`
 	}
 
 	// Local so there's no package-level mutable SQL (a const can't call the
@@ -256,43 +329,50 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 	mostAnticipatedFromSQL := `FROM shows s
 			LEFT JOIN LATERAL ` + primaryVenueLateralSQL("iv.name, iv.slug, iv.city", "s.id") + ` v ON TRUE`
 
-	// Probe past the caller's limit so a small page size can't force fallback:
-	// the mode is a statement about how many shows QUALIFY, not about how many
-	// the caller asked to see. Rows are sliced back to limit after the check.
-	probeLimit := limit
-	if probeLimit < mostAnticipatedMinQualifying {
-		probeLimit = mostAnticipatedMinQualifying
-	}
-
-	var ranked []showRow
-	err := s.db.Raw(`
-		SELECT`+mostAnticipatedColumnsSQL+`,
-			COUNT(ub.id) AS save_count
-		`+mostAnticipatedFromSQL+`
+	// COUNT(*) OVER() counts qualifying groups post-HAVING — the full ranked
+	// set, atomic with the page, so mode and Total can't disagree with the
+	// rows they ship alongside.
+	rankedCoreSQL := `
+		SELECT` + mostAnticipatedColumnsSQL + `,
+			COUNT(ub.id) AS save_count,
+			COUNT(*) OVER() AS total
+		` + mostAnticipatedFromSQL + `
 		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
 			AND ub.entity_type = ?
 			AND ub.action = ?
-		`+mostAnticipatedEligibilitySQL+`
+		` + mostAnticipatedEligibilitySQL + `
 		GROUP BY s.id, v.name, v.slug, v.city
-		HAVING COUNT(ub.id) >= ?
+		HAVING COUNT(ub.id) >= ?`
+	rankedCoreArgs := []any{engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
+		catalogm.ShowStatusApproved, startOfToday, mostAnticipatedSaveFloor}
+
+	var ranked []showRow
+	err := s.db.Raw(rankedCoreSQL+`
 		ORDER BY save_count DESC, s.event_date ASC, s.id ASC
-		LIMIT ?
-	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
-		catalogm.ShowStatusApproved, startOfToday, mostAnticipatedSaveFloor, probeLimit).Scan(&ranked).Error
+		LIMIT ? OFFSET ?
+	`, appendPageArgs(rankedCoreArgs, limit, offset)...).Scan(&ranked).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get most-anticipated shows: %w", err)
 	}
 
+	pageTotal := 0
+	if len(ranked) > 0 {
+		pageTotal = ranked[0].Total
+	}
+	total, err := s.resolveChartPageTotal(pageTotal, len(ranked), offset, rankedCoreSQL, rankedCoreArgs,
+		chartCountKey("most-anticipated", "all"), "most-anticipated shows")
+	if err != nil {
+		return nil, err
+	}
+
 	mode := contracts.MostAnticipatedModeRanked
 	rows := ranked
-	if len(rows) > limit {
-		rows = rows[:limit]
-	}
-	if len(ranked) < mostAnticipatedMinQualifying {
+	if total < mostAnticipatedMinQualifying {
 		mode = contracts.MostAnticipatedModeSoonestUpcoming
 		rows = nil
 		err := s.db.Raw(`
-			SELECT`+mostAnticipatedColumnsSQL+`
+			SELECT`+mostAnticipatedColumnsSQL+`,
+				COUNT(*) OVER() AS total
 			`+mostAnticipatedFromSQL+`
 			`+mostAnticipatedEligibilitySQL+`
 			ORDER BY s.event_date ASC, s.id ASC
@@ -301,10 +381,18 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 		if err != nil {
 			return nil, fmt.Errorf("failed to get soonest-upcoming fallback shows: %w", err)
 		}
+		// Fallback Total = its own universe (all upcoming approved shows),
+		// from the same statement. An empty fallback means zero upcoming
+		// shows, so the zero total is genuine.
+		total = 0
+		if len(rows) > 0 {
+			total = rows[0].Total
+		}
 	}
 
 	result := &contracts.MostAnticipatedShows{
 		Mode:  mode,
+		Total: total,
 		Shows: make([]contracts.MostAnticipatedShow, len(rows)),
 	}
 	showIDs := make([]uint, len(rows))
@@ -322,6 +410,8 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 		if mode == contracts.MostAnticipatedModeRanked {
 			count := r.SaveCount
 			result.Shows[i].SaveCount = &count
+			rank := offset + i + 1
+			result.Shows[i].Rank = &rank
 		}
 		showIDs[i] = r.ShowID
 	}
@@ -390,11 +480,18 @@ func appendChartShowWindow(query string, args []any, now time.Time, start *time.
 
 // GetMostActiveArtists returns artists ranked by approved, non-cancelled
 // shows played within the window (see appendChartShowWindow for the exact
-// eligibility semantics). Headline share uses headlineSlotPredicate. Artists
-// with zero shows in the window are never returned.
-func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+// eligibility semantics), paginated with offset-stable ranks and the window
+// total. Headline share uses headlineSlotPredicate. Artists with zero shows
+// in the window are never returned.
+func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
+	return cachedChartPage(s.cache, "most-active-artists", string(window.OrDefault()), limit, offset, func() ([]contracts.MostActiveArtist, int, error) {
+		return s.getMostActiveArtistsUncached(window, limit, offset)
+	})
+}
+
+func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	now := time.Now().UTC()
@@ -408,9 +505,10 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 		State         string `gorm:"column:state"`
 		ShowCount     int    `gorm:"column:show_count"`
 		HeadlineCount int    `gorm:"column:headline_count"`
+		Total         int    `gorm:"column:total"`
 	}
 
-	query := `
+	coreSQL := `
 		SELECT
 			a.id AS artist_id,
 			a.name,
@@ -418,22 +516,35 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 			COALESCE(a.city, '') AS city,
 			COALESCE(a.state, '') AS state,
 			COUNT(*) AS show_count,
-			COALESCE(SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END), 0) AS headline_count
+			COALESCE(SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END), 0) AS headline_count,
+			COUNT(*) OVER() AS total
 		FROM show_artists sa
 		JOIN artists a ON a.id = sa.artist_id
 		JOIN shows s ON s.id = sa.show_id
 		WHERE s.status = ?`
-	args := []any{catalogm.ShowStatusApproved}
-	query, args = appendChartShowWindow(query, args, now, start)
-	query += `
-		GROUP BY a.id, a.name, a.slug, a.city, a.state
+	coreArgs := []any{catalogm.ShowStatusApproved}
+	coreSQL, coreArgs = appendChartShowWindow(coreSQL, coreArgs, now, start)
+	coreSQL += `
+		GROUP BY a.id, a.name, a.slug, a.city, a.state`
+
+	query := coreSQL + `
 		ORDER BY show_count DESC, a.name ASC, a.id ASC
-		LIMIT ?`
-	args = append(args, limit)
+		LIMIT ? OFFSET ?`
+	args := appendPageArgs(coreArgs, limit, offset)
 
 	var rows []artistRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get most-active artists: %w", err)
+		return nil, 0, fmt.Errorf("failed to get most-active artists: %w", err)
+	}
+
+	pageTotal := 0
+	if len(rows) > 0 {
+		pageTotal = rows[0].Total
+	}
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("most-active-artists", string(window.OrDefault())), "most-active artists")
+	if err != nil {
+		return nil, 0, err
 	}
 
 	results := make([]contracts.MostActiveArtist, len(rows))
@@ -451,6 +562,7 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 			State:       r.State,
 			ShowCount:   r.ShowCount,
 			HeadlinePct: headlinePct,
+			Rank:        offset + i + 1,
 		}
 		artistIDs[i] = r.ArtistID
 	}
@@ -484,7 +596,7 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 
 		var lastRows []lastShowRow
 		if err := s.db.Raw(lastQuery, lastArgs...).Scan(&lastRows).Error; err != nil {
-			return nil, fmt.Errorf("failed to get last shows for most-active artists: %w", err)
+			return nil, 0, fmt.Errorf("failed to get last shows for most-active artists: %w", err)
 		}
 
 		lastByArtist := make(map[uint]lastShowRow, len(lastRows))
@@ -501,16 +613,23 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 		}
 	}
 
-	return results, nil
+	return results, total, nil
 }
 
 // GetBusiestVenues returns venues ranked by approved, non-cancelled shows
 // HOSTED (past tense) within the window — distinct from GetActiveVenues,
-// which scores venues by upcoming shows + follows. Venues with zero shows in
-// the window are never returned.
-func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int) ([]contracts.BusiestVenue, error) {
+// which scores venues by upcoming shows + follows — paginated with
+// offset-stable ranks and the window total. Venues with zero shows in the
+// window are never returned.
+func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit, offset int) ([]contracts.BusiestVenue, int, error) {
+	return cachedChartPage(s.cache, "busiest-venues", string(window.OrDefault()), limit, offset, func() ([]contracts.BusiestVenue, int, error) {
+		return s.getBusiestVenuesUncached(window, limit, offset)
+	})
+}
+
+func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.BusiestVenue, int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	now := time.Now().UTC()
@@ -523,33 +642,47 @@ func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int
 		City      string `gorm:"column:city"`
 		State     string `gorm:"column:state"`
 		ShowCount int    `gorm:"column:show_count"`
+		Total     int    `gorm:"column:total"`
 	}
 
-	query := `
+	coreSQL := `
 		SELECT
 			v.id AS venue_id,
 			v.name,
 			COALESCE(v.slug, '') AS slug,
 			COALESCE(v.city, '') AS city,
 			COALESCE(v.state, '') AS state,
-			COUNT(*) AS show_count
+			COUNT(*) AS show_count,
+			COUNT(*) OVER() AS total
 		FROM show_venues sv
 		JOIN venues v ON v.id = sv.venue_id
 		JOIN shows s ON s.id = sv.show_id
 		WHERE s.status = ?`
 	// COUNT(*) == COUNT(DISTINCT s.id) here: show_venues' composite PK
 	// (show_id, venue_id) guarantees one row per show within a venue group.
-	args := []any{catalogm.ShowStatusApproved}
-	query, args = appendChartShowWindow(query, args, now, start)
-	query += `
-		GROUP BY v.id, v.name, v.slug, v.city, v.state
+	coreArgs := []any{catalogm.ShowStatusApproved}
+	coreSQL, coreArgs = appendChartShowWindow(coreSQL, coreArgs, now, start)
+	coreSQL += `
+		GROUP BY v.id, v.name, v.slug, v.city, v.state`
+
+	query := coreSQL + `
 		ORDER BY show_count DESC, v.name ASC, v.id ASC
-		LIMIT ?`
-	args = append(args, limit)
+		LIMIT ? OFFSET ?`
+	args := appendPageArgs(coreArgs, limit, offset)
 
 	var rows []venueRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get busiest venues: %w", err)
+		return nil, 0, fmt.Errorf("failed to get busiest venues: %w", err)
+	}
+
+	pageTotal := 0
+	if len(rows) > 0 {
+		pageTotal = rows[0].Total
+	}
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("busiest-venues", string(window.OrDefault())), "busiest venues")
+	if err != nil {
+		return nil, 0, err
 	}
 
 	results := make([]contracts.BusiestVenue, len(rows))
@@ -561,9 +694,10 @@ func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int
 			City:      r.City,
 			State:     r.State,
 			ShowCount: r.ShowCount,
+			Rank:      offset + i + 1,
 		}
 	}
-	return results, nil
+	return results, total, nil
 }
 
 // GetOpenersToWatch returns artists ranked by support slots played within the
@@ -571,9 +705,16 @@ func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int
 // OR position 0, the shared predicate). Artists with ANY headline slot in the
 // window are excluded entirely: this chart surfaces artists who are always on
 // the bill but never top it. Cancelled and future shows never count.
-func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit int) ([]contracts.OpenerToWatch, error) {
+// Paginated with offset-stable ranks and the window total.
+func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
+	return cachedChartPage(s.cache, "openers-to-watch", string(window.OrDefault()), limit, offset, func() ([]contracts.OpenerToWatch, int, error) {
+		return s.getOpenersToWatchUncached(window, limit, offset)
+	})
+}
+
+func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	now := time.Now().UTC()
@@ -586,37 +727,52 @@ func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit in
 		City             string `gorm:"column:city"`
 		State            string `gorm:"column:state"`
 		SupportSlotCount int    `gorm:"column:support_slot_count"`
+		Total            int    `gorm:"column:total"`
 	}
 
 	// One pass: group every in-window slot per artist, keep only groups with
 	// ZERO headline slots (HAVING) — so COUNT(*) is exactly the support-slot
 	// count, and "never headlines" is judged over the same window being
 	// ranked. The CASE form also counts NULL set_type rows as support,
-	// matching GetMostActiveArtists' NULL semantics.
-	query := `
+	// matching GetMostActiveArtists' NULL semantics. COUNT(*) OVER() runs
+	// after the HAVING filter, so total counts qualifying openers only.
+	coreSQL := `
 		SELECT
 			a.id AS artist_id,
 			a.name,
 			COALESCE(a.slug, '') AS slug,
 			COALESCE(a.city, '') AS city,
 			COALESCE(a.state, '') AS state,
-			COUNT(*) AS support_slot_count
+			COUNT(*) AS support_slot_count,
+			COUNT(*) OVER() AS total
 		FROM show_artists sa
 		JOIN artists a ON a.id = sa.artist_id
 		JOIN shows s ON s.id = sa.show_id
 		WHERE s.status = ?`
-	args := []any{catalogm.ShowStatusApproved}
-	query, args = appendChartShowWindow(query, args, now, start)
-	query += `
+	coreArgs := []any{catalogm.ShowStatusApproved}
+	coreSQL, coreArgs = appendChartShowWindow(coreSQL, coreArgs, now, start)
+	coreSQL += `
 		GROUP BY a.id, a.name, a.slug, a.city, a.state
-		HAVING SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END) = 0
+		HAVING SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END) = 0`
+
+	query := coreSQL + `
 		ORDER BY support_slot_count DESC, a.name ASC, a.id ASC
-		LIMIT ?`
-	args = append(args, limit)
+		LIMIT ? OFFSET ?`
+	args := appendPageArgs(coreArgs, limit, offset)
 
 	var rows []openerRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get openers to watch: %w", err)
+		return nil, 0, fmt.Errorf("failed to get openers to watch: %w", err)
+	}
+
+	pageTotal := 0
+	if len(rows) > 0 {
+		pageTotal = rows[0].Total
+	}
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("openers-to-watch", string(window.OrDefault())), "openers to watch")
+	if err != nil {
+		return nil, 0, err
 	}
 
 	results := make([]contracts.OpenerToWatch, len(rows))
@@ -628,9 +784,10 @@ func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit in
 			City:             r.City,
 			State:            r.State,
 			SupportSlotCount: r.SupportSlotCount,
+			Rank:             offset + i + 1,
 		}
 	}
-	return results, nil
+	return results, total, nil
 }
 
 // broadcasterKeySQL is the SQL identity of "one broadcaster" for station
@@ -659,10 +816,20 @@ const broadcasterKeySQL = `COALESCE(rst.network_id, -rst.id)`
 // correctness-critical.
 //
 // IsNew is true when ANY in-window play was flagged new rotation. Artists
-// with zero in-window plays are never returned.
-func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+// with zero in-window plays are never returned. Paginated with offset-stable
+// ranks and the window total. This is the heaviest
+// all_time module (radio_plays grows by ingestion, not curation, and
+// pg_timezone_names is materialized per request), so it leans hardest on the
+// module cache.
+func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
+	return cachedChartPage(s.cache, "on-the-radio", string(window.OrDefault()), limit, offset, func() ([]contracts.OnTheRadioArtist, int, error) {
+		return s.getOnTheRadioArtistsUncached(window, limit, offset)
+	})
+}
+
+func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	now := time.Now().UTC()
@@ -677,6 +844,7 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 		PlayCount    int    `gorm:"column:play_count"`
 		StationCount int    `gorm:"column:station_count"`
 		IsNew        bool   `gorm:"column:is_new"`
+		Total        int    `gorm:"column:total"`
 	}
 
 	// GROUP BY a.id alone: the artists PK makes the selected columns
@@ -686,7 +854,7 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 	// one, it matters more here (radio_plays outgrows show_artists by orders
 	// of magnitude). The aired pair (station-local date bound + air-window
 	// gate) is the shared radio.go definition — see stationLocalAiredDateBoundSQL.
-	query := `
+	coreSQL := `
 		SELECT
 			a.id AS artist_id,
 			a.name,
@@ -695,7 +863,8 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 			COALESCE(a.state, '') AS state,
 			COUNT(*) AS play_count,
 			COUNT(DISTINCT ` + broadcasterKeySQL + `) AS station_count,
-			BOOL_OR(rp.is_new) AS is_new
+			BOOL_OR(rp.is_new) AS is_new,
+			COUNT(*) OVER() AS total
 		FROM radio_plays rp
 		JOIN radio_episodes re ON re.id = rp.episode_id
 		JOIN radio_shows rsh ON rsh.id = re.show_id
@@ -703,17 +872,29 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 		JOIN artists a ON a.id = rp.artist_id
 		` + stationTimezoneJoinSQL + `
 		WHERE `
-	var args []any
-	query, args = appendRadioAiredWindow(query, args, now, start)
-	query += `
-		GROUP BY a.id
+	var coreArgs []any
+	coreSQL, coreArgs = appendRadioAiredWindow(coreSQL, coreArgs, now, start)
+	coreSQL += `
+		GROUP BY a.id`
+
+	query := coreSQL + `
 		ORDER BY play_count DESC, a.name ASC, a.id ASC
-		LIMIT ?`
-	args = append(args, limit)
+		LIMIT ? OFFSET ?`
+	args := appendPageArgs(coreArgs, limit, offset)
 
 	var rows []radioRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get on-the-radio artists: %w", err)
+		return nil, 0, fmt.Errorf("failed to get on-the-radio artists: %w", err)
+	}
+
+	pageTotal := 0
+	if len(rows) > 0 {
+		pageTotal = rows[0].Total
+	}
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("on-the-radio", string(window.OrDefault())), "on-the-radio artists")
+	if err != nil {
+		return nil, 0, err
 	}
 
 	results := make([]contracts.OnTheRadioArtist, len(rows))
@@ -727,9 +908,10 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 			PlayCount:    r.PlayCount,
 			StationCount: r.StationCount,
 			IsNew:        r.IsNew,
+			Rank:         offset + i + 1,
 		}
 	}
-	return results, nil
+	return results, total, nil
 }
 
 // GetPopularArtists returns artists ranked by a composite score of followers and upcoming shows.
@@ -978,10 +1160,18 @@ const newReleaseDateSQL = `COALESCE(r.release_date, (r.created_at AT TIME ZONE '
 // engagement inputs. Future-dated releases (announced but not yet out) are
 // excluded until their release day, mirroring the played-by-now convention of
 // the show charts. Ties on the day break by created_at then id, so the
-// ordering is fully deterministic (which full-list pagination will rely on).
-func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+// ordering is fully deterministic — which the offset-stable ranks rely on.
+// Paginated with the window total. The ordering expression is served
+// by the charts cost-lever expression index (charts_cost_indexes migration).
+func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
+	return cachedChartPage(s.cache, "new-releases", string(window.OrDefault()), limit, offset, func() ([]contracts.NewRelease, int, error) {
+		return s.getNewReleasesUncached(window, limit, offset)
+	})
+}
+
+func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	now := time.Now().UTC()
@@ -994,6 +1184,7 @@ func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) 
 		ReleaseType string     `gorm:"column:release_type"`
 		ReleaseDate *time.Time `gorm:"column:release_date"`
 		AddedAt     time.Time  `gorm:"column:added_at"`
+		Total       int        `gorm:"column:total"`
 	}
 
 	// formatDay renders the DATE scan back to the contract's day-grain
@@ -1006,30 +1197,42 @@ func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) 
 		return &s
 	}
 
-	query := `
+	coreSQL := `
 		SELECT
 			r.id AS release_id,
 			r.title,
 			COALESCE(r.slug, '') AS slug,
 			r.release_type,
 			r.release_date,
-			r.created_at AS added_at
+			r.created_at AS added_at,
+			COUNT(*) OVER() AS total
 		FROM releases r
 		WHERE ` + newReleaseDateSQL + ` <= ?`
-	args := []any{now.Format("2006-01-02")}
+	coreArgs := []any{now.Format("2006-01-02")}
 	if start != nil {
-		query += `
+		coreSQL += `
 			AND ` + newReleaseDateSQL + ` >= ?`
-		args = append(args, start.Format("2006-01-02"))
+		coreArgs = append(coreArgs, start.Format("2006-01-02"))
 	}
-	query += `
+
+	query := coreSQL + `
 		ORDER BY ` + newReleaseDateSQL + ` DESC, r.created_at DESC, r.id DESC
-		LIMIT ?`
-	args = append(args, limit)
+		LIMIT ? OFFSET ?`
+	args := appendPageArgs(coreArgs, limit, offset)
 
 	var rows []releaseRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get new releases: %w", err)
+		return nil, 0, fmt.Errorf("failed to get new releases: %w", err)
+	}
+
+	pageTotal := 0
+	if len(rows) > 0 {
+		pageTotal = rows[0].Total
+	}
+	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("new-releases", string(window.OrDefault())), "new releases")
+	if err != nil {
+		return nil, 0, err
 	}
 
 	results := make([]contracts.NewRelease, len(rows))
@@ -1044,17 +1247,18 @@ func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) 
 			AddedAt:     r.AddedAt,
 			ArtistNames: []string{},
 			LabelNames:  []string{},
+			Rank:        offset + i + 1,
 		}
 		releaseIDs[i] = r.ReleaseID
 	}
 
 	artistMap, err := s.releaseArtistNames(releaseIDs)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	labelMap, err := s.releaseLabelNames(releaseIDs)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for i := range results {
 		if names, ok := artistMap[results[i].ReleaseID]; ok {
@@ -1065,7 +1269,7 @@ func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) 
 		}
 	}
 
-	return results, nil
+	return results, total, nil
 }
 
 // releaseLabelNames returns name-ordered label names for each release, in one
@@ -1143,6 +1347,15 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, start *time
 //     "established enough to list", so the strip count can exceed the
 //     /scenes list length.
 func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+	// Shortest TTL on the page: the summary is the single heaviest aggregate
+	// call, and masthead numbers tolerate 60s staleness invisibly.
+	key := fmt.Sprintf("summary|%s", window.OrDefault())
+	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
+		return s.getChartsSummaryUncached(window)
+	})
+}
+
+func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1234,6 +1447,15 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contrac
 // orphaned artist rows with no content at all. Releases and stations are
 // admin-only writes and need no gate.
 func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem, error) {
+	// Masthead TTL with the summary: the ticker's four ORDER BY created_at
+	// DESC branches are also covered by the cost-lever created_at indexes.
+	key := fmt.Sprintf("freshly-added|%d", limit)
+	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
+		return s.getFreshlyAddedUncached(limit)
+	})
+}
+
+func (s *ChartsService) getFreshlyAddedUncached(limit int) ([]contracts.FreshlyAddedItem, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}

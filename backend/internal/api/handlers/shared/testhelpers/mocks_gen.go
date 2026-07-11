@@ -633,12 +633,12 @@ func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) (
 
 type MockChartsService struct {
 	GetTrendingShowsFn        func(int) ([]contracts.TrendingShow, error)
-	GetMostAnticipatedShowsFn func(int) (*contracts.MostAnticipatedShows, error)
-	GetMostActiveArtistsFn    func(contracts.ChartWindow, int) ([]contracts.MostActiveArtist, error)
-	GetBusiestVenuesFn        func(contracts.ChartWindow, int) ([]contracts.BusiestVenue, error)
-	GetOpenersToWatchFn       func(contracts.ChartWindow, int) ([]contracts.OpenerToWatch, error)
-	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, int) ([]contracts.OnTheRadioArtist, error)
-	GetNewReleasesFn          func(contracts.ChartWindow, int) ([]contracts.NewRelease, error)
+	GetMostAnticipatedShowsFn func(int, int) (*contracts.MostAnticipatedShows, error)
+	GetMostActiveArtistsFn    func(contracts.ChartWindow, int, int) ([]contracts.MostActiveArtist, int, error)
+	GetBusiestVenuesFn        func(contracts.ChartWindow, int, int) ([]contracts.BusiestVenue, int, error)
+	GetOpenersToWatchFn       func(contracts.ChartWindow, int, int) ([]contracts.OpenerToWatch, int, error)
+	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, int, int) ([]contracts.OnTheRadioArtist, int, error)
+	GetNewReleasesFn          func(contracts.ChartWindow, int, int) ([]contracts.NewRelease, int, error)
 	GetChartsSummaryFn        func(contracts.ChartWindow) (*contracts.ChartsSummary, error)
 	GetFreshlyAddedFn         func(int) ([]contracts.FreshlyAddedItem, error)
 	GetPersonalChartsStatsFn  func(uint) (*contracts.PersonalChartsStats, error)
@@ -654,44 +654,44 @@ func (m *MockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingSho
 	}
 	return []contracts.TrendingShow{}, nil
 }
-func (m *MockChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAnticipatedShows, error) {
+func (m *MockChartsService) GetMostAnticipatedShows(limit int, offset int) (*contracts.MostAnticipatedShows, error) {
 	if m.GetMostAnticipatedShowsFn != nil {
-		return m.GetMostAnticipatedShowsFn(limit)
+		return m.GetMostAnticipatedShowsFn(limit, offset)
 	}
 	return &contracts.MostAnticipatedShows{
 		Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
 		Shows: []contracts.MostAnticipatedShow{},
 	}, nil
 }
-func (m *MockChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+func (m *MockChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int, offset int) ([]contracts.MostActiveArtist, int, error) {
 	if m.GetMostActiveArtistsFn != nil {
-		return m.GetMostActiveArtistsFn(window, limit)
+		return m.GetMostActiveArtistsFn(window, limit, offset)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int) ([]contracts.BusiestVenue, error) {
+func (m *MockChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int, offset int) ([]contracts.BusiestVenue, int, error) {
 	if m.GetBusiestVenuesFn != nil {
-		return m.GetBusiestVenuesFn(window, limit)
+		return m.GetBusiestVenuesFn(window, limit, offset)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit int) ([]contracts.OpenerToWatch, error) {
+func (m *MockChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit int, offset int) ([]contracts.OpenerToWatch, int, error) {
 	if m.GetOpenersToWatchFn != nil {
-		return m.GetOpenersToWatchFn(window, limit)
+		return m.GetOpenersToWatchFn(window, limit, offset)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+func (m *MockChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit int, offset int) ([]contracts.OnTheRadioArtist, int, error) {
 	if m.GetOnTheRadioArtistsFn != nil {
-		return m.GetOnTheRadioArtistsFn(window, limit)
+		return m.GetOnTheRadioArtistsFn(window, limit, offset)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockChartsService) GetNewReleases(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+func (m *MockChartsService) GetNewReleases(window contracts.ChartWindow, limit int, offset int) ([]contracts.NewRelease, int, error) {
 	if m.GetNewReleasesFn != nil {
-		return m.GetNewReleasesFn(window, limit)
+		return m.GetNewReleasesFn(window, limit, offset)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
 	if m.GetChartsSummaryFn != nil {
