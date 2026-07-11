@@ -641,6 +641,7 @@ type MockChartsService struct {
 	GetNewReleasesFn          func(contracts.ChartWindow, int) ([]contracts.NewRelease, error)
 	GetChartsSummaryFn        func(contracts.ChartWindow) (*contracts.ChartsSummary, error)
 	GetFreshlyAddedFn         func(int) ([]contracts.FreshlyAddedItem, error)
+	GetPersonalChartsStatsFn  func(uint) (*contracts.PersonalChartsStats, error)
 	GetPopularArtistsFn       func(int) ([]contracts.PopularArtist, error)
 	GetActiveVenuesFn         func(int) ([]contracts.ActiveVenue, error)
 	GetHotReleasesFn          func(int) ([]contracts.HotRelease, error)
@@ -703,6 +704,12 @@ func (m *MockChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAdded
 		return m.GetFreshlyAddedFn(limit)
 	}
 	return nil, nil
+}
+func (m *MockChartsService) GetPersonalChartsStats(userID uint) (*contracts.PersonalChartsStats, error) {
+	if m.GetPersonalChartsStatsFn != nil {
+		return m.GetPersonalChartsStatsFn(userID)
+	}
+	return &contracts.PersonalChartsStats{}, nil
 }
 func (m *MockChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist, error) {
 	if m.GetPopularArtistsFn != nil {

@@ -211,6 +211,29 @@ type FreshlyAddedItem struct {
 	AddedAt    time.Time `json:"added_at"`
 }
 
+// PersonalTopVenue is the venue holding the most of a user's saved shows.
+// Each saved show attributes to its primary venue (the repo's lowest-venue_id
+// pick — see the pv lateral in show.go), so a multi-venue show counts once
+// and the per-venue counts can never sum past the user's saved-show total.
+type PersonalTopVenue struct {
+	VenueID        uint   `json:"venue_id"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug"`
+	SavedShowCount int    `json:"saved_show_count"`
+}
+
+// PersonalChartsStats is the authed personal stats strip: all-time aggregates
+// over the requesting user's own engagement rows. Zeros are a valid shape (a
+// new user sees zeros and the frontend renders a "start marking shows" nudge);
+// TopVenue is nil until the user has a saved show with a venue, and
+// FirstActivityAt is nil until they have any bookmark row at all.
+type PersonalChartsStats struct {
+	SavedShows      int               `json:"saved_shows"`
+	ArtistsFollowed int               `json:"artists_followed"`
+	TopVenue        *PersonalTopVenue `json:"top_venue"`
+	FirstActivityAt *time.Time        `json:"first_activity_at"`
+}
+
 // ChartsOverview contains condensed top-5 versions of the four original
 // charts (trending shows, popular artists, active venues, hot releases).
 // The windowed module charts (most-active-artists, busiest-venues,
@@ -241,6 +264,7 @@ type ChartsServiceInterface interface {
 	GetNewReleases(window ChartWindow, limit int) ([]NewRelease, error)
 	GetChartsSummary(window ChartWindow) (*ChartsSummary, error)
 	GetFreshlyAdded(limit int) ([]FreshlyAddedItem, error)
+	GetPersonalChartsStats(userID uint) (*PersonalChartsStats, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)

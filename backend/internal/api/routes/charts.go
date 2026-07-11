@@ -6,8 +6,8 @@ import (
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
 )
 
-// setupChartsRoutes configures public top charts endpoints.
-// All endpoints are public — no authentication required.
+// setupChartsRoutes configures the top charts endpoints.
+// All endpoints are public except /charts/me, the authed personal stats strip.
 func setupChartsRoutes(rc RouteContext) {
 	chartsHandler := catalogh.NewChartsHandler(rc.SC.Charts)
 
@@ -24,4 +24,8 @@ func setupChartsRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/charts/summary", chartsHandler.GetChartsSummaryHandler)
 	huma.Get(rc.API, "/charts/freshly-added", chartsHandler.GetFreshlyAddedHandler)
 	huma.Get(rc.API, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
+
+	// Personal stats strip: the user's own aggregates, so it requires auth
+	// (anonymous → 401; the frontend simply doesn't render the strip).
+	huma.Get(rc.Protected, "/charts/me", chartsHandler.GetPersonalChartsStatsHandler)
 }

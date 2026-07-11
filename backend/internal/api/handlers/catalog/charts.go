@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -656,6 +657,67 @@ func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFres
 		// Direct conversion (field-identical structs): a one-sided field add
 		// breaks the build instead of silently shipping a zero value.
 		resp.Body.Items[i] = FreshlyAddedItemResponse(item)
+	}
+	return resp, nil
+}
+
+// --- GetPersonalChartsStats ---
+
+// GetPersonalChartsStatsRequest is the Huma request for GET /charts/me
+type GetPersonalChartsStatsRequest struct{}
+
+// PersonalTopVenueResponse is the user's top venue in the response — the
+// venue holding the most of their saved shows (each show attributed to its
+// primary venue, so counts never sum past saved_shows).
+type PersonalTopVenueResponse struct {
+	VenueID        uint   `json:"venue_id"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug"`
+	SavedShowCount int    `json:"saved_show_count"`
+}
+
+// GetPersonalChartsStatsResponse is the Huma response for GET /charts/me —
+// the authed personal stats strip. Zeros are a valid shape (new user; the
+// frontend renders a nudge instead of the strip); top_venue and
+// first_activity_at are explicit nulls until the user has the underlying
+// activity.
+type GetPersonalChartsStatsResponse struct {
+	Body struct {
+		SavedShows      int                       `json:"saved_shows"`
+		ArtistsFollowed int                       `json:"artists_followed"`
+		TopVenue        *PersonalTopVenueResponse `json:"top_venue"`
+		FirstActivityAt *time.Time                `json:"first_activity_at"`
+	}
+}
+
+// GetPersonalChartsStatsHandler handles GET /charts/me — all-time aggregates
+// over the requesting user's own engagement rows. Registered on rc.Protected;
+// the in-handler nil check is the same belt-and-suspenders 401 every
+// protected handler carries.
+func (h *ChartsHandler) GetPersonalChartsStatsHandler(ctx context.Context, _ *GetPersonalChartsStatsRequest) (*GetPersonalChartsStatsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	data, err := h.chartsService.GetPersonalChartsStats(user.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_personal_stats_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error500InternalServerError("Failed to get personal charts stats")
+	}
+
+	resp := &GetPersonalChartsStatsResponse{}
+	resp.Body.SavedShows = data.SavedShows
+	resp.Body.ArtistsFollowed = data.ArtistsFollowed
+	resp.Body.FirstActivityAt = data.FirstActivityAt
+	if data.TopVenue != nil {
+		// Direct conversion (field-identical structs): a one-sided field add
+		// breaks the build instead of silently shipping a zero value.
+		tv := PersonalTopVenueResponse(*data.TopVenue)
+		resp.Body.TopVenue = &tv
 	}
 	return resp, nil
 }
