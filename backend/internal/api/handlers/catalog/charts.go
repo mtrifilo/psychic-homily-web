@@ -737,7 +737,7 @@ type GetFreshlyAddedResponse struct {
 func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFreshlyAddedRequest) (*GetFreshlyAddedResponse, error) {
 	limit := normalizeChartsLimit(req.Limit)
 
-	data, err := h.chartsService.GetFreshlyAdded(limit, req.Scene)
+	data, err := h.chartsService.GetFreshlyAdded(req.Scene, limit)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_freshly_added_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get freshly added items")

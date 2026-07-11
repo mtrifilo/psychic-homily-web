@@ -1860,14 +1860,14 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedN
 	suite.Require().NoError(suite.db.Create(station).Error)
 	suite.setCreatedAt("radio_stations", station.ID, now.Add(-4*time.Hour))
 
-	items, err := suite.chartsService.GetFreshlyAdded(20, "")
+	items, err := suite.chartsService.GetFreshlyAdded("", 20)
 	suite.Require().NoError(err)
 	suite.Require().Len(items, 4)
 	types := []string{items[0].EntityType, items[1].EntityType, items[2].EntityType, items[3].EntityType}
 	suite.Equal([]string{"release", "venue", "artist", "station"}, types, "interleaved strictly by added time, newest first")
 	suite.Equal("Ticker Release", items[0].Name)
 
-	limited, err := suite.chartsService.GetFreshlyAdded(2, "")
+	limited, err := suite.chartsService.GetFreshlyAdded("", 2)
 	suite.Require().NoError(err)
 	suite.Require().Len(limited, 2)
 	suite.Equal("release", limited[0].EntityType)
@@ -1884,7 +1884,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 	suite.createVenue("Spam Venue", "Phoenix", "AZ")
 	suite.createArtist("Spam Artist")
 
-	items, err := suite.chartsService.GetFreshlyAdded(20, "")
+	items, err := suite.chartsService.GetFreshlyAdded("", 20)
 	suite.Require().NoError(err)
 	suite.Empty(items, "unverified venues and unanchored artists never reach the ticker")
 
@@ -1904,7 +1904,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 	showAnchored := suite.createArtist("Show Anchored")
 	suite.createApprovedShow("Gate Approved", hiddenVenue.ID, showAnchored.ID, user.ID, time.Now().UTC().AddDate(0, 0, 6))
 
-	items, err = suite.chartsService.GetFreshlyAdded(20, "")
+	items, err = suite.chartsService.GetFreshlyAdded("", 20)
 	suite.Require().NoError(err)
 	names := make([]string, len(items))
 	for i, it := range items {
@@ -2724,7 +2724,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_SceneScoped(
 	suite.addArtistToRelease(phxArtist.ID, release.ID)
 	suite.createRadioStack("KTIK", "ktik", nil) // station: global ticker only
 
-	global, err := suite.chartsService.GetFreshlyAdded(20, "")
+	global, err := suite.chartsService.GetFreshlyAdded("", 20)
 	suite.Require().NoError(err)
 	globalTypes := make(map[string]int)
 	for _, item := range global {
@@ -2732,7 +2732,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_SceneScoped(
 	}
 	suite.Equal(1, globalTypes["station"], "global ticker includes stations")
 
-	phx, err := suite.chartsService.GetFreshlyAdded(20, phoenixCBSA)
+	phx, err := suite.chartsService.GetFreshlyAdded(phoenixCBSA, 20)
 	suite.Require().NoError(err)
 	names := make([]string, 0, len(phx))
 	for _, item := range phx {

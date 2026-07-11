@@ -490,9 +490,13 @@ func appendChartShowWindow(query string, args []any, now time.Time, start *time.
 //
 // A chart's `scene` is a US Census CBSA metro code — the same key as
 // artists.metro / venues.metro (entity-metro migration). "" = global, no
-// scoping. The three appenders below are the ONLY definitions of "in the
-// scene" for chart surfaces; every scoped module builds through exactly one
-// so per-module semantics can't drift:
+// scoping. The three appenders below define "in the scene" for chart
+// surfaces; every scoped module builds through exactly one so per-module
+// semantics can't drift — with exactly TWO documented inline exceptions
+// whose predicates must stay textually in sync with the appenders: the
+// freshly-added ticker's branch fragments (UNION assembly interleaves
+// per-branch args) and the summary's radio-play EXISTS (rp.artist_id has no
+// joined artists alias to hand an appender):
 //
 //   - ARTIST-ranked modules scope on the artist's HOME metro (scenes = bands
 //     BASED in a metro): most-active, openers-to-watch, on-the-radio — and
@@ -1458,9 +1462,25 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow, scene str
 	// Shortest TTL on the page: the summary is the single heaviest aggregate
 	// call, and masthead numbers tolerate 60s staleness invisibly.
 	key := fmt.Sprintf("summary|%s|%s", window.OrDefault(), scene)
-	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
+	return chartsCached(s.chartsCacheFor(scene), key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
 		return s.getChartsSummaryUncached(window, scene)
 	})
+}
+
+// chartsCacheFor routes a chart payload to a cache instance by KEY
+// PROVENANCE: global masthead keys ("" scene) are domain-bounded and get the
+// dedicated masthead instance, whose isolation guarantee is exactly that
+// client-controlled keys can never starve them of a slot. A non-empty scene
+// segment IS client-controlled (any string passing the pattern tag), so
+// scoped masthead payloads ride the capped module cache instead — its
+// overflow rule (run uncached, never evict) is built for junk-key traffic.
+// Routing scoped keys into mastheadCache would hand attackers the exact
+// starvation the split instance exists to prevent.
+func (s *ChartsService) chartsCacheFor(scene string) *chartsCache {
+	if scene == "" {
+		return s.mastheadCache
+	}
+	return s.cache
 }
 
 func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
@@ -1512,7 +1532,10 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 	query, args = appendRadioAiredWindow(query, args, now, start)
 	if scene != "" {
 		// Artist-home attribution for plays; see the method comment for why
-		// the scoped count narrows to resolved plays only.
+		// the scoped count narrows to resolved plays only. Inline (the second
+		// documented exception in the scene-scoping block): there is no
+		// joined artists alias here — keep textually in sync with
+		// appendEntityMetroScope's predicate shape.
 		query += `
 			AND EXISTS (SELECT 1 FROM artists sca WHERE sca.id = rp.artist_id AND sca.metro = ?)`
 		args = append(args, scene)
@@ -1569,16 +1592,17 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 // metro, venues by their own metro, releases by credited-artist home metro —
 // and DROPS the station branch entirely (stations have no metro; a scoped
 // ticker claiming a station was "added to the scene" would be a fabrication).
-func (s *ChartsService) GetFreshlyAdded(limit int, scene string) ([]contracts.FreshlyAddedItem, error) {
+func (s *ChartsService) GetFreshlyAdded(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 	// Masthead TTL with the summary: the ticker's four ORDER BY created_at
 	// DESC branches are also covered by the cost-lever created_at indexes.
+	// Cache routing is scope-aware like the summary's — see chartsCacheFor.
 	key := fmt.Sprintf("freshly-added|%d|%s", limit, scene)
-	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
-		return s.getFreshlyAddedUncached(limit, scene)
+	return chartsCached(s.chartsCacheFor(scene), key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
+		return s.getFreshlyAddedUncached(scene, limit)
 	})
 }
 
-func (s *ChartsService) getFreshlyAddedUncached(limit int, scene string) ([]contracts.FreshlyAddedItem, error) {
+func (s *ChartsService) getFreshlyAddedUncached(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1592,7 +1616,13 @@ func (s *ChartsService) getFreshlyAddedUncached(limit int, scene string) ([]cont
 	}
 
 	// Branch scene fragments are empty in the global case so the assembled
-	// SQL (and its arg arity) stays byte-identical to the pre-scene query.
+	// SQL (and its arg arity) stays semantically identical to the pre-scene
+	// query (the artist anchor OR-chain gained grouping parens, nothing
+	// else). The fragments are inline rather than routed through the shared
+	// appenders because the UNION assembly interleaves per-branch args — keep
+	// them textually in sync with appendEntityMetroScope /
+	// appendReleaseSceneScope (the scene-scoping block documents this as one
+	// of the two inline exceptions).
 	artistScene, venueScene, releaseScene := "", "", ""
 	var artistArgs, venueArgs, releaseArgs []any
 	if scene != "" {
@@ -1696,12 +1726,24 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 	// COUNT(DISTINCT s.id): two venues of one metro on the same show must not
 	// double-count it. Venue eligibility matches the scenes directory
 	// (verified + usable city/state) so a metro can't appear here on venues
-	// the directory would ignore.
+	// the directory would ignore. That gate is DELIBERATELY stricter than
+	// the module scene predicates (which scope content under the site's
+	// post-moderation model and accept any metro venue): the switcher is a
+	// venue-derived NAV surface, and venue `verified` is the one real
+	// moderation gate on nav surfaces — the same call the ticker's venue
+	// branch locked in. Consequence, on purpose: a metro whose in-window
+	// shows sit only at unverified venues never mints a switcher option,
+	// though its scene URL still resolves (scoped modules return its data);
+	// and the switcher show_count can undercount a scoped module's Total.
+	//
+	// The fallback display pair is taken from ONE deterministic venue row
+	// (lowest id) — independent MIN(city)/MIN(state) could pair a city from
+	// one venue with a state from another in a two-state metro.
 	query := `
 		SELECT
 			v.metro,
-			MIN(v.city) AS city,
-			MIN(v.state) AS state,
+			(ARRAY_AGG(v.city ORDER BY v.id))[1] AS city,
+			(ARRAY_AGG(v.state ORDER BY v.id))[1] AS state,
 			COUNT(DISTINCT s.id) AS show_count
 		FROM venues v
 		JOIN show_venues sv ON sv.venue_id = v.id

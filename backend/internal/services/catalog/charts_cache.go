@@ -26,16 +26,20 @@ const (
 	chartsModuleTTL   = 5 * time.Minute
 	chartsMastheadTTL = time.Minute
 
-	// chartsCacheMaxEntries bounds memory: offset/limit are client-controlled,
-	// so key cardinality is unbounded. When the cap is hit, expired entries
-	// are swept; if the map is still full, the NEW key is simply not cached
-	// (the request runs uncached) — overflow traffic never evicts existing
-	// entries. 512 comfortably covers the organic key population (5 windowed
-	// modules x 3 windows x the handful of page shapes the frontend requests,
-	// plus most-anticipated's limit|offset keys and the per-module count
-	// keys; the masthead instance holds only summary-window and ticker-limit
-	// keys).
-	chartsCacheMaxEntries = 512
+	// chartsCacheMaxEntries bounds memory: offset/limit AND scene are
+	// client-controlled, so key cardinality is unbounded. When the cap is
+	// hit, expired entries are swept; if the map is still full, the NEW key
+	// is simply not cached (the request runs uncached) — overflow traffic
+	// never evicts existing entries. Sizing: the scene dimension multiplies
+	// the organic key population (6 modules x 3 windows x page shapes x
+	// [global + every switcher metro], plus per-(module,window,scene) count
+	// keys and the SCOPED summary/ticker keys chartsCacheFor routes here) —
+	// with a few dozen active scenes that is low thousands, so 4096 keeps
+	// organic traffic fully cached while still bounding junk-scene memory
+	// (entries are small: one page payload each). The masthead instance
+	// holds only the GLOBAL summary-window and ticker-limit keys, which stay
+	// domain-bounded by the chartsCacheFor routing rule.
+	chartsCacheMaxEntries = 4096
 )
 
 // chartsCacheEntry is one cached payload. The per-entry mutex serializes

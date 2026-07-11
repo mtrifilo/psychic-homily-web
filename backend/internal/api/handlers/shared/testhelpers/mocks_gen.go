@@ -640,7 +640,7 @@ type MockChartsService struct {
 	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.OnTheRadioArtist, int, error)
 	GetNewReleasesFn          func(contracts.ChartWindow, string, int, int) ([]contracts.NewRelease, int, error)
 	GetChartsSummaryFn        func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
-	GetFreshlyAddedFn         func(int, string) ([]contracts.FreshlyAddedItem, error)
+	GetFreshlyAddedFn         func(string, int) ([]contracts.FreshlyAddedItem, error)
 	GetChartScenesFn          func(contracts.ChartWindow) ([]contracts.ChartScene, error)
 	GetPersonalChartsStatsFn  func(uint) (*contracts.PersonalChartsStats, error)
 	GetPopularArtistsFn       func(int) ([]contracts.PopularArtist, error)
@@ -700,9 +700,9 @@ func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow, scene
 	}
 	return &contracts.ChartsSummary{}, nil
 }
-func (m *MockChartsService) GetFreshlyAdded(limit int, scene string) ([]contracts.FreshlyAddedItem, error) {
+func (m *MockChartsService) GetFreshlyAdded(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 	if m.GetFreshlyAddedFn != nil {
-		return m.GetFreshlyAddedFn(limit, scene)
+		return m.GetFreshlyAddedFn(scene, limit)
 	}
 	return nil, nil
 }

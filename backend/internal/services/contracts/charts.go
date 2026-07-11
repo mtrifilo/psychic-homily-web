@@ -298,7 +298,7 @@ type ChartsServiceInterface interface {
 	GetOnTheRadioArtists(window ChartWindow, scene string, limit, offset int) ([]OnTheRadioArtist, int, error)
 	GetNewReleases(window ChartWindow, scene string, limit, offset int) ([]NewRelease, int, error)
 	GetChartsSummary(window ChartWindow, scene string) (*ChartsSummary, error)
-	GetFreshlyAdded(limit int, scene string) ([]FreshlyAddedItem, error)
+	GetFreshlyAdded(scene string, limit int) ([]FreshlyAddedItem, error)
 	GetChartScenes(window ChartWindow) ([]ChartScene, error)
 	GetPersonalChartsStats(userID uint) (*PersonalChartsStats, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)

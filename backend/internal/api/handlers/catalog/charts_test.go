@@ -918,7 +918,7 @@ func TestChartsHandler_Summary_InvalidWindow422(t *testing.T) {
 func TestChartsHandler_FreshlyAdded_Success(t *testing.T) {
 	added := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetFreshlyAddedFn: func(limit int, scene string) ([]contracts.FreshlyAddedItem, error) {
+		GetFreshlyAddedFn: func(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 			if limit != 20 {
 				t.Errorf("expected default limit=20, got %d", limit)
 			}
@@ -941,7 +941,7 @@ func TestChartsHandler_FreshlyAdded_Success(t *testing.T) {
 func TestChartsHandler_FreshlyAdded_LimitForwarded(t *testing.T) {
 	var receivedLimit int
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetFreshlyAddedFn: func(limit int, scene string) ([]contracts.FreshlyAddedItem, error) {
+		GetFreshlyAddedFn: func(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 			receivedLimit = limit
 			return []contracts.FreshlyAddedItem{}, nil
 		},
@@ -956,7 +956,7 @@ func TestChartsHandler_FreshlyAdded_LimitForwarded(t *testing.T) {
 
 func TestChartsHandler_FreshlyAdded_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetFreshlyAddedFn: func(int, string) ([]contracts.FreshlyAddedItem, error) {
+		GetFreshlyAddedFn: func(string, int) ([]contracts.FreshlyAddedItem, error) {
 			return nil, fmt.Errorf("db exploded")
 		},
 	})
