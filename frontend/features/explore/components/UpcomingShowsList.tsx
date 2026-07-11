@@ -22,7 +22,6 @@
  */
 
 import { useCallback, useMemo, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { useQueryState } from 'nuqs'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
@@ -34,7 +33,6 @@ import { useProfile } from '@/features/auth'
 import { useShowCities } from '@/features/shows'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import {
-  buildCitiesParam,
   citiesEqual,
   citiesParser,
   ALL_CITIES,
@@ -101,7 +99,6 @@ export function UpcomingShowsList({
   limit = 5,
   geoDefaultCity = null,
 }: UpcomingShowsListProps) {
-  const router = useRouter()
   const { isAuthenticated, isLoading: authLoading } = useAuthContext()
   const { data: profileData } = useProfile()
   const [, startTransition] = useTransition()
@@ -118,16 +115,6 @@ export function UpcomingShowsList({
     'cities',
     citiesParser.withOptions({ history: 'push', startTransition }),
   )
-
-  // The effective selection, DERIVED during render — a bare /explore resolves
-  // to the authed user's favorites; an explicit ?cities= wins. Deriving
-  // (instead of seeding the default into the URL from a mount effect) is what
-  // makes the default survive client-side navigation.
-  const selectedCities: CityState[] = useMemo(() => {
-    if (citiesState === ALL_CITIES) return []
-    if (citiesState) return citiesState
-    return favoriteCities
-  }, [citiesState, favoriteCities])
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const { data: citiesData } = useShowCities({ timezone })
@@ -150,18 +137,9 @@ export function UpcomingShowsList({
 
   // IP-geo soft default for anon visitors (PSY-926, shared hook PSY-946). The
   // hook reconciles the server-read `geoDefaultCity` against the has-shows
-  // data and seeds the canonical city via router.replace. /explore reads geo
-  // server-side, so no client fetch here (enableClientFetch defaults false).
-  const onSeedGeo = useCallback(
-    (city: CityState) => {
-      const params = new URLSearchParams()
-      params.set('cities', buildCitiesParam([city]))
-      startTransition(() => {
-        router.replace(`/explore?${params.toString()}`, { scroll: false })
-      })
-    },
-    [router],
-  )
+  // data and RETURNS the derived canonical city — folded into the derived
+  // selection below, never written to the URL. /explore reads geo server-side,
+  // so no client fetch here (enableClientFetch defaults false).
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
     cities,
     isAuthenticated,
@@ -169,8 +147,19 @@ export function UpcomingShowsList({
     favoriteCities,
     hasExistingSelection: citiesState !== null,
     geoFromServer: geoDefaultCity,
-    onSeed: onSeedGeo,
   })
+
+  // The effective selection, DERIVED during render — a bare /explore resolves
+  // to the authed user's favorites (or, for anon visitors, the geo default);
+  // an explicit ?cities= wins. Deriving (instead of seeding the default into
+  // the URL from a mount effect) is what makes the default survive
+  // client-side navigation.
+  const selectedCities: CityState[] = useMemo(() => {
+    if (citiesState === ALL_CITIES) return []
+    if (citiesState) return citiesState
+    if (favoriteCities.length > 0) return favoriteCities
+    return appliedGeoDefault ? [appliedGeoDefault] : []
+  }, [citiesState, favoriteCities, appliedGeoDefault])
 
   const { data, isLoading, isFetching, error } = useExploreUpcomingShows({
     limit,

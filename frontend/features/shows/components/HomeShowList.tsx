@@ -5,8 +5,7 @@ import { useUpcomingShows, useShowCities } from '../hooks/useShows'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useProfile, useSetFavoriteCities } from '@/features/auth'
-import type { ShowResponse } from '../types'
+import { useProfile } from '@/features/auth'
 import type { CityState } from '@/components/filters'
 import { ShowCard } from './ShowCard'
 import { CityFilters, type CityWithCount } from '@/components/filters'
@@ -61,13 +60,11 @@ export function HomeShowList() {
   )
 
   // IP-geo soft default for anon visitors (PSY-946). Home has no URL
-  // persistence, so geo seeds the local selection state — the same mechanism
-  // favorites use. The page stays fully static; geo arrives via the `/api/geo`
-  // edge route handler client-side. Favorites win (the hook stands down when
-  // favoriteCities is non-empty); a user interaction blocks any in-flight seed.
-  const onSeedGeo = useCallback((city: CityState) => {
-    setSelectedCities([city])
-  }, [])
+  // persistence; the hook RETURNS the derived canonical city and it's folded
+  // into `effectiveCities` below — never written into the selection state.
+  // The page stays fully static; geo arrives via the `/api/geo` edge route
+  // handler client-side. Favorites win (the hook stands down when
+  // favoriteCities is non-empty); a user interaction nulls the derived value.
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
     cities,
     isAuthenticated,
@@ -77,8 +74,20 @@ export function HomeShowList() {
     // (or the user picks a city), a non-empty selection means geo stands down.
     hasExistingSelection: selectedCities.length > 0,
     enableClientFetch: true,
-    onSeed: onSeedGeo,
   })
+
+  // The effective selection: the local state (user pick / seeded favorites),
+  // else the derived anon geo default. (The favorites seeding effect above is
+  // the remaining local-state write; its derive rework is PSY-1392.)
+  const effectiveCities: CityState[] = useMemo(
+    () =>
+      selectedCities.length > 0
+        ? selectedCities
+        : appliedGeoDefault
+          ? [appliedGeoDefault]
+          : [],
+    [selectedCities, appliedGeoDefault]
+  )
 
   const handleFilterChange = useCallback(
     (cities: CityState[]) => {
@@ -92,7 +101,7 @@ export function HomeShowList() {
   const { data, isLoading, isFetching, error } = useUpcomingShows({
     timezone,
     limit: 5,
-    cities: selectedCities.length > 0 ? selectedCities : undefined,
+    cities: effectiveCities.length > 0 ? effectiveCities : undefined,
   })
 
   // Prefetch /shows and /venues data during idle time
@@ -105,11 +114,11 @@ export function HomeShowList() {
   const { data: saveCounts } = useShowSaveCountBatch(showIds, isAuthenticated)
 
   // Determine if "Save as default" / "Clear defaults" should show
-  const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
+  const selectionDiffersFromFavorites = !citiesEqual(effectiveCities, favoriteCities)
 
   const showGeoAffordance = shouldShowGeoAffordance(
     appliedGeoDefault,
-    selectedCities
+    effectiveCities
   )
 
   if (isLoading) {
@@ -136,12 +145,12 @@ export function HomeShowList() {
         <div className="mb-6">
           <CityFilters
             cities={cities}
-            selectedCities={selectedCities}
+            selectedCities={effectiveCities}
             onFilterChange={handleFilterChange}
           >
             {isAuthenticated && selectionDiffersFromFavorites && (
               <SaveDefaultsButton
-                selectedCities={selectedCities}
+                selectedCities={effectiveCities}
                 favoriteCities={favoriteCities}
               />
             )}
@@ -159,8 +168,8 @@ export function HomeShowList() {
         {!data?.shows || data.shows.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>
-              {selectedCities.length > 0
-                ? `No upcoming shows in ${selectedCities.map(c => c.city).join(', ')}.`
+              {effectiveCities.length > 0
+                ? `No upcoming shows in ${effectiveCities.map(c => c.city).join(', ')}.`
                 : 'No upcoming shows at this time.'}
             </p>
           </div>
