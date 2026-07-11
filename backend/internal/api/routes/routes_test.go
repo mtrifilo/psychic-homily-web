@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -235,6 +236,25 @@ func TestProtectedRoutes(t *testing.T) {
 		// Should return 401 Unauthorized
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
+		}
+	})
+
+	// Pin /charts/me to the Protected (JWT) group. The handler carries its own
+	// belt-and-suspenders 401, so status alone can't detect the route sliding
+	// onto the public group — but only the middleware's rejection body carries
+	// error_code (JWTErrorResponse); the handler's huma 401 does not. Asserting
+	// it proves the JWT middleware fired before the handler.
+	t.Run("Personal Charts Route Without Token", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/charts/me", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "error_code") {
+			t.Errorf("Expected the JWT middleware's 401 body (with error_code), got: %s", w.Body.String())
 		}
 	})
 }

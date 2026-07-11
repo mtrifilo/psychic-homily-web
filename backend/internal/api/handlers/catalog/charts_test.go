@@ -11,6 +11,8 @@ import (
 	"github.com/danielgtaylor/huma/v2/humatest"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -951,4 +953,117 @@ func TestChartsHandler_FreshlyAdded_ServiceError(t *testing.T) {
 	})
 	_, err := h.GetFreshlyAddedHandler(context.Background(), &GetFreshlyAddedRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// Tests: GetPersonalChartsStatsHandler
+// ============================================================================
+
+// personalStatsCtx returns a context carrying an authenticated user, the way
+// the Protected group's JWT middleware would have populated it.
+func personalStatsCtx(userID uint) context.Context {
+	return context.WithValue(context.Background(), middleware.UserContextKey, &authm.User{ID: userID})
+}
+
+func TestChartsHandler_PersonalStats_Success(t *testing.T) {
+	first := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	var receivedUserID uint
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetPersonalChartsStatsFn: func(userID uint) (*contracts.PersonalChartsStats, error) {
+			receivedUserID = userID
+			return &contracts.PersonalChartsStats{
+				SavedShows:      17,
+				ArtistsFollowed: 5,
+				TopVenue:        &contracts.PersonalTopVenue{VenueID: 3, Name: "Valley Bar", Slug: "valley-bar", SavedShowCount: 6},
+				FirstActivityAt: &first,
+			}, nil
+		},
+	})
+
+	resp, err := h.GetPersonalChartsStatsHandler(personalStatsCtx(42), &GetPersonalChartsStatsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedUserID != 42 {
+		t.Errorf("expected the context user's id (42) forwarded, got %d", receivedUserID)
+	}
+	b := resp.Body
+	if b.SavedShows != 17 || b.ArtistsFollowed != 5 {
+		t.Errorf("unexpected counts: %+v", b)
+	}
+	if b.TopVenue == nil || b.TopVenue.Name != "Valley Bar" || b.TopVenue.SavedShowCount != 6 {
+		t.Errorf("unexpected top venue mapping: %+v", b.TopVenue)
+	}
+	if b.FirstActivityAt == nil || !b.FirstActivityAt.Equal(first) {
+		t.Errorf("unexpected first activity: %v", b.FirstActivityAt)
+	}
+}
+
+// TestChartsHandler_PersonalStats_Unauthenticated401 asserts the anonymous
+// path is a 401 — not a 500 and not an empty 200 (the ticket's explicit AC).
+func TestChartsHandler_PersonalStats_Unauthenticated401(t *testing.T) {
+	h := testChartsHandler()
+	_, err := h.GetPersonalChartsStatsHandler(context.Background(), &GetPersonalChartsStatsRequest{})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestChartsHandler_PersonalStats_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetPersonalChartsStatsFn: func(uint) (*contracts.PersonalChartsStats, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetPersonalChartsStatsHandler(personalStatsCtx(42), &GetPersonalChartsStatsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_PersonalStats_WireShape asserts the JSON contract through
+// the full huma chain: snake_case field names, and the zeros shape carrying
+// EXPLICIT nulls for top_venue / first_activity_at (the frontend keys its
+// "start marking shows" nudge off this shape, so absent-vs-null matters).
+func TestChartsHandler_PersonalStats_WireShape(t *testing.T) {
+	stats := &contracts.PersonalChartsStats{} // zeros shape (new user)
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetPersonalChartsStatsFn: func(uint) (*contracts.PersonalChartsStats, error) {
+			return stats, nil
+		},
+	})
+
+	_, api := humatest.New(t)
+	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
+		next(huma.WithValue(ctx, middleware.UserContextKey, &authm.User{ID: 42}))
+	})
+	huma.Get(api, "/charts/me", h.GetPersonalChartsStatsHandler)
+
+	resp := api.Get("/charts/me")
+	if resp.Code != 200 {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	if cc := resp.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("per-user response must be Cache-Control: no-store, got %q", cc)
+	}
+	body := resp.Body.String()
+	for _, want := range []string{`"saved_shows":0`, `"artists_followed":0`, `"top_venue":null`, `"first_activity_at":null`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("zeros wire payload must include %s: %s", want, body)
+		}
+	}
+
+	first := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	stats = &contracts.PersonalChartsStats{
+		SavedShows:      3,
+		ArtistsFollowed: 1,
+		TopVenue:        &contracts.PersonalTopVenue{VenueID: 7, Name: "Trunk Space", Slug: "trunk-space", SavedShowCount: 2},
+		FirstActivityAt: &first,
+	}
+	resp = api.Get("/charts/me")
+	if resp.Code != 200 {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	body = resp.Body.String()
+	for _, want := range []string{`"saved_shows":3`, `"saved_show_count":2`, `"slug":"trunk-space"`, `"first_activity_at":"2026-05-01T12:00:00Z"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("populated wire payload must include %s: %s", want, body)
+		}
+	}
 }

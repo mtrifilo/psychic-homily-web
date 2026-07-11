@@ -190,19 +190,6 @@ const (
 			COALESCE(v.slug, '') AS venue_slug,
 			COALESCE(v.city, '') AS city`
 
-	// venue_id ASC is the repo's primary-venue pick (see the pv lateral in
-	// show.go) — keep it so a multi-venue show names the same venue here as
-	// on its show page.
-	mostAnticipatedFromSQL = `FROM shows s
-		LEFT JOIN LATERAL (
-			SELECT iv.name, iv.slug, iv.city
-			FROM show_venues sv
-			JOIN venues iv ON iv.id = sv.venue_id
-			WHERE sv.show_id = s.id
-			ORDER BY sv.venue_id ASC
-			LIMIT 1
-		) v ON TRUE`
-
 	// Upcoming + approved + not cancelled: the same non-cancelled rule the
 	// past-window charts enforce via appendChartShowWindow — a cancelled show
 	// must never rank as "anticipated". Binds (status, start-of-today): event
@@ -215,6 +202,28 @@ const (
 			AND s.is_cancelled = FALSE
 			AND s.event_date >= ?`
 )
+
+// primaryVenueLateralSQL renders the repo's primary-venue pick as a LATERAL
+// subquery: at most one deterministic venue per show, lowest venue_id first —
+// the same rule as the pv lateral in show.go, so a multi-venue show names the
+// same venue here as on its show page. `cols` selects from venues aliased iv;
+// `showIDExpr` anchors the pick (s.id, ub.entity_id, ...). Both must be
+// compile-time literals, never runtime input. Consumers: the most-anticipated
+// queries and the personal-stats top venue. (GetTrendingShows predates it and
+// deliberately keeps its one-row-per-venue join until deletion; the
+// most-active last-show lookup breaks venue ties by name for display, a
+// different job.) New venue-ATTRIBUTING chart queries must build through
+// this so the pick rule can't drift between surfaces.
+func primaryVenueLateralSQL(cols, showIDExpr string) string {
+	return `(
+			SELECT ` + cols + `
+			FROM show_venues sv
+			JOIN venues iv ON iv.id = sv.venue_id
+			WHERE sv.show_id = ` + showIDExpr + `
+			ORDER BY sv.venue_id ASC
+			LIMIT 1
+		)`
+}
 
 // GetMostAnticipatedShows returns the mode-discriminated most-anticipated
 // module: upcoming approved shows with saves >= the floor, ranked by save
@@ -240,6 +249,12 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 		City      string    `gorm:"column:city"`
 		SaveCount int       `gorm:"column:save_count"`
 	}
+
+	// Local so there's no package-level mutable SQL (a const can't call the
+	// helper); both mode queries below share it, so their show universes and
+	// venue picks can't drift.
+	mostAnticipatedFromSQL := `FROM shows s
+			LEFT JOIN LATERAL ` + primaryVenueLateralSQL("iv.name, iv.slug, iv.city", "s.id") + ` v ON TRUE`
 
 	// Probe past the caller's limit so a small page size can't force fallback:
 	// the mode is a statement about how many shows QUALIFY, not about how many
@@ -1265,6 +1280,101 @@ func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem
 		results[i] = contracts.FreshlyAddedItem(r)
 	}
 	return results, nil
+}
+
+// GetPersonalChartsStats returns the authed personal stats strip: all-time
+// aggregates over the requesting user's own user_bookmarks rows (PSY-352
+// composite-PK join-table conventions — aggregate queries, no counters).
+// Saved shows and the top venue count save rows uniformly, with no
+// status/cancellation gate: this is the user's own private list, and the
+// count matches the saved-shows page's total (both count bookmark rows —
+// including a dangling row whose show was since hard-deleted, which counts
+// in both places). First activity is the MIN(created_at) across ALL the
+// user's bookmark rows (any entity type or action) — the day they first
+// engaged, not just their first show save.
+//
+// The top venue attributes each saved show to its primary venue — the
+// lowest-venue_id pick shared with the show page and most-anticipated
+// (primaryVenueLateralSQL) — so a multi-venue show counts once. Venue-less
+// saved shows count toward SavedShows but never toward a venue; the inner
+// JOIN (not LEFT JOIN) LATERAL is what drops them there.
+//
+// ONE statement on purpose: a single snapshot is what makes the shape
+// guarantees hold under concurrent writes (TopVenue.SavedShowCount can never
+// exceed SavedShows, and TopVenue is always nil when SavedShows is 0) — two
+// queries could interleave with a save/unsave and contradict each other.
+func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.PersonalChartsStats, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	type personalRow struct {
+		SavedShows      int        `gorm:"column:saved_shows"`
+		ArtistsFollowed int        `gorm:"column:artists_followed"`
+		FirstActivityAt *time.Time `gorm:"column:first_activity_at"`
+		VenueID         *uint      `gorm:"column:venue_id"`
+		VenueName       *string    `gorm:"column:venue_name"`
+		VenueSlug       *string    `gorm:"column:venue_slug"`
+		SavedShowCount  *int       `gorm:"column:saved_show_count"`
+	}
+	// The stats subquery is one pass over the user's bookmark rows (FILTER
+	// clauses share the single user_id predicate, so the counts can't
+	// desynchronize on a future filter edit); the LEFT JOIN LATERAL folds in
+	// the top venue, NULL columns when the user has no venue-linked saves.
+	var row personalRow
+	err := s.db.Raw(`
+		SELECT
+			stats.saved_shows,
+			stats.artists_followed,
+			stats.first_activity_at,
+			tv.venue_id,
+			tv.venue_name,
+			tv.venue_slug,
+			tv.saved_show_count
+		FROM (
+			SELECT
+				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS saved_shows,
+				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS artists_followed,
+				MIN(created_at) AS first_activity_at
+			FROM user_bookmarks
+			WHERE user_id = ?
+		) stats
+		LEFT JOIN LATERAL (
+			SELECT
+				v.venue_id,
+				v.venue_name,
+				v.venue_slug,
+				COUNT(*) AS saved_show_count
+			FROM user_bookmarks ub
+			JOIN LATERAL `+primaryVenueLateralSQL(
+		"iv.id AS venue_id, iv.name AS venue_name, COALESCE(iv.slug, '') AS venue_slug", "ub.entity_id")+` v ON TRUE
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+			GROUP BY v.venue_id, v.venue_name, v.venue_slug
+			ORDER BY saved_show_count DESC, v.venue_name ASC, v.venue_id ASC
+			LIMIT 1
+		) tv ON TRUE
+	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
+		engagementm.BookmarkEntityArtist, engagementm.BookmarkActionFollow,
+		userID,
+		userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave).Scan(&row).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get personal charts stats: %w", err)
+	}
+
+	stats := &contracts.PersonalChartsStats{
+		SavedShows:      row.SavedShows,
+		ArtistsFollowed: row.ArtistsFollowed,
+		FirstActivityAt: row.FirstActivityAt,
+	}
+	if row.VenueID != nil && row.VenueName != nil && row.VenueSlug != nil && row.SavedShowCount != nil {
+		stats.TopVenue = &contracts.PersonalTopVenue{
+			VenueID:        *row.VenueID,
+			Name:           *row.VenueName,
+			Slug:           *row.VenueSlug,
+			SavedShowCount: *row.SavedShowCount,
+		}
+	}
+	return stats, nil
 }
 
 // GetChartsOverview returns a condensed summary with top 5 of each chart.

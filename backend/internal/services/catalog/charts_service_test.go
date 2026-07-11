@@ -1917,3 +1917,155 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 	suite.NotContains(names, "Spam Venue")
 	suite.NotContains(names, "Gate Venue", "unverified venues stay out even when their shows anchor artists")
 }
+
+// =============================================================================
+// GetPersonalChartsStats Tests
+// =============================================================================
+
+// createBookmarkAt seeds a bookmark with an explicit created_at (GORM honors
+// a non-zero CreatedAt), so first-activity assertions don't race the clock.
+func (suite *ChartsServiceIntegrationTestSuite) createBookmarkAt(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction, createdAt time.Time) {
+	bookmark := &engagementm.UserBookmark{
+		UserID:     userID,
+		EntityType: entityType,
+		EntityID:   entityID,
+		Action:     action,
+		CreatedAt:  createdAt,
+	}
+	err := suite.db.Create(bookmark).Error
+	suite.Require().NoError(err)
+}
+
+// createApprovedShowNoVenue creates an approved show with an artist but no
+// venue link — the venue-less save path.
+func (suite *ChartsServiceIntegrationTestSuite) createApprovedShowNoVenue(title string, artistID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   eventDate,
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &userID,
+	}
+	err := suite.db.Create(show).Error
+	suite.Require().NoError(err)
+	err = suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	suite.Require().NoError(err)
+	return show
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_EmptyUser() {
+	user := suite.createUser("personal-empty@test.com")
+
+	stats, err := suite.chartsService.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stats)
+	suite.Equal(0, stats.SavedShows)
+	suite.Equal(0, stats.ArtistsFollowed)
+	suite.Nil(stats.TopVenue)
+	suite.Nil(stats.FirstActivityAt)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_AggregatesAndCrossUserIsolation() {
+	userA := suite.createUser("personal-a@test.com")
+	userB := suite.createUser("personal-b@test.com")
+	venueX := suite.createVenue("Crescent Ballroom", "Phoenix", "AZ")
+	venueY := suite.createVenue("Valley Bar", "Phoenix", "AZ")
+	artist1 := suite.createArtist("Band One")
+	artist2 := suite.createArtist("Band Two")
+
+	past := time.Now().UTC().AddDate(0, 0, -14)
+	show1 := suite.createApprovedShow("Show 1", venueX.ID, artist1.ID, userA.ID, past)
+	show2 := suite.createApprovedShow("Show 2", venueX.ID, artist1.ID, userA.ID, past.AddDate(0, 0, 1))
+	show3 := suite.createApprovedShow("Show 3", venueY.ID, artist2.ID, userA.ID, past.AddDate(0, 0, 2))
+
+	// User A: 3 saved shows (2 at X, 1 at Y), 2 artist follows, 1 venue
+	// follow (must count toward NEITHER aggregate's artist/show buckets).
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityShow, show2.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityShow, show3.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityArtist, artist1.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityArtist, artist2.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityVenue, venueX.ID, engagementm.BookmarkActionFollow)
+
+	// User B: 1 saved show (at Y), 1 artist follow.
+	suite.createBookmark(userB.ID, engagementm.BookmarkEntityShow, show3.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(userB.ID, engagementm.BookmarkEntityArtist, artist1.ID, engagementm.BookmarkActionFollow)
+
+	statsA, err := suite.chartsService.GetPersonalChartsStats(userA.ID)
+	suite.Require().NoError(err)
+	suite.Equal(3, statsA.SavedShows)
+	suite.Equal(2, statsA.ArtistsFollowed, "venue follow must not count as an artist follow")
+	suite.Require().NotNil(statsA.TopVenue)
+	suite.Equal(venueX.ID, statsA.TopVenue.VenueID)
+	suite.Equal("Crescent Ballroom", statsA.TopVenue.Name)
+	suite.Equal(2, statsA.TopVenue.SavedShowCount)
+	suite.Require().NotNil(statsA.FirstActivityAt)
+
+	statsB, err := suite.chartsService.GetPersonalChartsStats(userB.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, statsB.SavedShows, "user A's saves must not leak into user B's count")
+	suite.Equal(1, statsB.ArtistsFollowed)
+	suite.Require().NotNil(statsB.TopVenue)
+	suite.Equal(venueY.ID, statsB.TopVenue.VenueID)
+	suite.Equal(1, statsB.TopVenue.SavedShowCount)
+}
+
+// TestGetPersonalChartsStats_TopVenuePrimaryAttributionAndVenuelessSaves:
+// a multi-venue saved show counts ONCE, toward its primary venue (lowest
+// venue_id), and a venue-less saved show counts toward SavedShows but never
+// toward a venue.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_TopVenuePrimaryAttributionAndVenuelessSaves() {
+	user := suite.createUser("personal-venues@test.com")
+	venueLow := suite.createVenue("Alpha Room", "Phoenix", "AZ")
+	venueHigh := suite.createVenue("Zeta Hall", "Phoenix", "AZ")
+	suite.Require().Less(venueLow.ID, venueHigh.ID)
+	artist := suite.createArtist("Venue Band")
+
+	past := time.Now().UTC().AddDate(0, 0, -10)
+
+	// Multi-venue show: linked to BOTH venues; attributes to venueLow only.
+	multi := suite.createApprovedShow("Multi Venue Show", venueLow.ID, artist.ID, user.ID, past)
+	err := suite.db.Create(&catalogm.ShowVenue{ShowID: multi.ID, VenueID: venueHigh.ID}).Error
+	suite.Require().NoError(err)
+
+	// Venue-less show: counts toward SavedShows, invisible to top venue.
+	venueless := suite.createApprovedShowNoVenue("Venueless Show", artist.ID, user.ID, past.AddDate(0, 0, 1))
+
+	// Two single-venue shows at venueHigh make it the unambiguous top venue.
+	high1 := suite.createApprovedShow("High Show 1", venueHigh.ID, artist.ID, user.ID, past.AddDate(0, 0, 2))
+	high2 := suite.createApprovedShow("High Show 2", venueHigh.ID, artist.ID, user.ID, past.AddDate(0, 0, 3))
+
+	for _, showID := range []uint{multi.ID, venueless.ID, high1.ID, high2.ID} {
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, showID, engagementm.BookmarkActionSave)
+	}
+
+	stats, err := suite.chartsService.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(4, stats.SavedShows, "venue-less and multi-venue saves each count exactly once")
+	suite.Require().NotNil(stats.TopVenue)
+	suite.Equal(venueHigh.ID, stats.TopVenue.VenueID)
+	// 2, not 3: the multi-venue show attributes to its primary venue
+	// (venueLow), so it must not also count toward venueHigh.
+	suite.Equal(2, stats.TopVenue.SavedShowCount)
+}
+
+// TestGetPersonalChartsStats_FirstActivitySpansAllActions: first activity is
+// the earliest bookmark row of ANY entity type/action, not just show saves.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_FirstActivitySpansAllActions() {
+	user := suite.createUser("personal-first@test.com")
+	venue := suite.createVenue("First Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("First Band")
+	show := suite.createApprovedShow("First Show", venue.ID, artist.ID, user.ID, time.Now().UTC().AddDate(0, 0, -5))
+
+	earliest := time.Now().UTC().AddDate(0, 0, -30).Truncate(time.Second)
+	later := time.Now().UTC().AddDate(0, 0, -1).Truncate(time.Second)
+	suite.createBookmarkAt(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow, earliest)
+	suite.createBookmarkAt(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave, later)
+
+	stats, err := suite.chartsService.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stats.FirstActivityAt)
+	suite.WithinDuration(earliest, *stats.FirstActivityAt, time.Second,
+		"first activity must be the earliest bookmark of any action, not the first show save")
+}
