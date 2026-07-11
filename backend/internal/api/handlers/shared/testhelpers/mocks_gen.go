@@ -636,6 +636,7 @@ type MockChartsService struct {
 	GetMostActiveArtistsFn func(contracts.ChartWindow, int) ([]contracts.MostActiveArtist, error)
 	GetBusiestVenuesFn     func(contracts.ChartWindow, int) ([]contracts.BusiestVenue, error)
 	GetOpenersToWatchFn    func(contracts.ChartWindow, int) ([]contracts.OpenerToWatch, error)
+	GetOnTheRadioArtistsFn func(contracts.ChartWindow, int) ([]contracts.OnTheRadioArtist, error)
 	GetPopularArtistsFn    func(int) ([]contracts.PopularArtist, error)
 	GetActiveVenuesFn      func(int) ([]contracts.ActiveVenue, error)
 	GetHotReleasesFn       func(int) ([]contracts.HotRelease, error)
@@ -663,6 +664,12 @@ func (m *MockChartsService) GetBusiestVenues(window contracts.ChartWindow, limit
 func (m *MockChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit int) ([]contracts.OpenerToWatch, error) {
 	if m.GetOpenersToWatchFn != nil {
 		return m.GetOpenersToWatchFn(window, limit)
+	}
+	return nil, nil
+}
+func (m *MockChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+	if m.GetOnTheRadioArtistsFn != nil {
+		return m.GetOnTheRadioArtistsFn(window, limit)
 	}
 	return nil, nil
 }

@@ -41,6 +41,11 @@ func (suite *ChartsServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	_, _ = sqlDB.Exec("DELETE FROM radio_plays")
+	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
+	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
+	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
+	_, _ = sqlDB.Exec("DELETE FROM radio_networks")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
@@ -1050,4 +1055,297 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_ExcludesPe
 	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
 	suite.Require().NoError(err)
 	suite.Empty(artists, "pending shows never contribute support slots")
+}
+
+// =============================================================================
+// GetOnTheRadioArtists Tests
+// =============================================================================
+
+// --- radio fixtures ---
+
+func (suite *ChartsServiceIntegrationTestSuite) createRadioNetwork(name, slug string) *catalogm.RadioNetwork {
+	network := &catalogm.RadioNetwork{Name: name, Slug: slug}
+	suite.Require().NoError(suite.db.Create(network).Error)
+	return network
+}
+
+// createWindowedEpisode creates an episode daysAgo days back with a frozen
+// air window at noon of that day, so it passes the WINDOWED branch of the
+// shared aired gate (airedEpisodeVisibleSQL) for any daysAgo >= 1. Named
+// distinctly from radio_test.go's createAiredEpisode, which seeds the
+// windowless shape (no StartsAt) — the two exercise different gate branches.
+func (suite *ChartsServiceIntegrationTestSuite) createWindowedEpisode(showID uint, daysAgo int) *catalogm.RadioEpisode {
+	day := time.Now().UTC().AddDate(0, 0, -daysAgo).Truncate(24 * time.Hour)
+	starts := day.Add(12 * time.Hour)
+	ends := starts.Add(time.Hour)
+	ep := &catalogm.RadioEpisode{
+		ShowID:   showID,
+		AirDate:  day.Format("2006-01-02"),
+		StartsAt: &starts,
+		EndsAt:   &ends,
+	}
+	suite.Require().NoError(suite.db.Create(ep).Error)
+	return ep
+}
+
+// createRadioPlay attaches a play to an episode. artistID nil = unmatched
+// play. Position doubles as the content-hash discriminator for the
+// (episode_id, dedup_key) unique index, so give plays on the same episode
+// distinct positions.
+func (suite *ChartsServiceIntegrationTestSuite) createRadioPlay(episodeID uint, artistID *uint, position int, isNew bool) {
+	play := &catalogm.RadioPlay{
+		EpisodeID:  episodeID,
+		Position:   position,
+		ArtistName: fmt.Sprintf("Raw Name %d", position),
+		ArtistID:   artistID,
+		IsNew:      isNew,
+	}
+	suite.Require().NoError(suite.db.Create(play).Error)
+}
+
+// createRadioStack creates one station plus a show to hang episodes off;
+// networkID nil = standalone station, non-nil = member of that network family.
+// timezone (optional, first value wins) sets the station's IANA zone for
+// station-local aired-bound tests.
+func (suite *ChartsServiceIntegrationTestSuite) createRadioStack(name, slug string, networkID *uint, timezone ...string) *catalogm.RadioShow {
+	station := &catalogm.RadioStation{
+		Name:          name,
+		Slug:          slug,
+		BroadcastType: catalogm.BroadcastTypeBoth,
+		NetworkID:     networkID,
+	}
+	if len(timezone) > 0 {
+		station.Timezone = &timezone[0]
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+	show := &catalogm.RadioShow{StationID: station.ID, Name: name + " Show", Slug: slug + "-show", IsActive: true}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	return show
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Empty() {
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_WindowBoundaries() {
+	show := suite.createRadioStack("KTEST", "ktest", nil)
+	artist := suite.createArtist("Windowed Band")
+
+	// 30 sits exactly ON the month window's inclusive lower edge
+	// (chartWindowStart truncates to midnight of the day 30 days back); 31 is
+	// the first excluded day. Pinning both guards the >= vs > off-by-one.
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 10).ID, &artist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 30).ID, &artist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 31).ID, &artist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 60).ID, &artist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 200).ID, &artist.ID, 1, false)
+
+	month, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(month, 1)
+	suite.Equal(2, month[0].PlayCount, "month window counts the 10-day play plus the inclusive 30-day edge, never the 31-day one")
+
+	quarter, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(quarter, 1)
+	suite.Equal(4, quarter[0].PlayCount, "quarter window adds the 31- and 60-day plays")
+
+	allTime, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowAllTime, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(allTime, 1)
+	suite.Equal(5, allTime[0].PlayCount, "all_time counts every aired play")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_StationCountCollapsesNetworks() {
+	network := suite.createRadioNetwork("WTEST", "wtest")
+	flagship := suite.createRadioStack("WTEST 91.1", "wtest-fm", &network.ID)
+	substream := suite.createRadioStack("WTEST Substream", "wtest-substream", &network.ID)
+	standalone := suite.createRadioStack("KSOLO", "ksolo", nil)
+
+	familyOnly := suite.createArtist("Family Only")
+	suite.createRadioPlay(suite.createWindowedEpisode(flagship.ID, 5).ID, &familyOnly.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(substream.ID, 6).ID, &familyOnly.ID, 1, false)
+
+	broad := suite.createArtist("Broad Reach")
+	suite.createRadioPlay(suite.createWindowedEpisode(flagship.ID, 7).ID, &broad.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(substream.ID, 8).ID, &broad.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(standalone.ID, 9).ID, &broad.ID, 1, false)
+
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 2)
+
+	byName := map[string]contracts.OnTheRadioArtist{}
+	for _, a := range artists {
+		byName[a.Name] = a
+	}
+	suite.Equal(1, byName["Family Only"].StationCount, "two same-network stations collapse to one broadcaster")
+	suite.Equal(2, byName["Broad Reach"].StationCount, "network family plus a standalone station is two broadcasters")
+	suite.Equal(3, byName["Broad Reach"].PlayCount, "collapse affects station_count only, never play_count")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_IsNewWindowScoped() {
+	show := suite.createRadioStack("KNEW", "knew", nil)
+
+	freshInWindow := suite.createArtist("Fresh In Window")
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 5).ID, &freshInWindow.ID, 1, true)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 6).ID, &freshInWindow.ID, 1, false)
+
+	staleFlag := suite.createArtist("Stale Flag")
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 7).ID, &staleFlag.ID, 1, false)
+	// is_new only on a play OUTSIDE the month window — must not leak in.
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 60).ID, &staleFlag.ID, 1, true)
+
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowMonth, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 2)
+
+	byName := map[string]contracts.OnTheRadioArtist{}
+	for _, a := range artists {
+		byName[a.Name] = a
+	}
+	suite.True(byName["Fresh In Window"].IsNew, "any in-window new-rotation play sets the flag")
+	suite.False(byName["Stale Flag"].IsNew, "an out-of-window new-rotation play must not set the flag")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_ExcludesUnmatchedAndUnaired() {
+	show := suite.createRadioStack("KGATE", "kgate", nil)
+	now := time.Now().UTC()
+
+	// Unmatched play (NULL artist_id): never counts.
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 3).ID, nil, 1, false)
+
+	// Future-dated windowless episode already carrying a play (the WFMU
+	// pre-publish shape): excluded by the air_date bound even though the
+	// windowless visibility branch (play_count > 0) passes.
+	futureArtist := suite.createArtist("Future Only")
+	futureDay := now.AddDate(0, 0, 2)
+	futureEp := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: futureDay.Format("2006-01-02"), PlayCount: 1}
+	suite.Require().NoError(suite.db.Create(futureEp).Error)
+	suite.createRadioPlay(futureEp.ID, &futureArtist.ID, 1, false)
+
+	// Today-dated windowed episode whose air window hasn't started yet:
+	// excluded by the starts_at gate.
+	pendingArtist := suite.createArtist("Not Yet Aired")
+	starts := now.Add(2 * time.Hour)
+	ends := starts.Add(time.Hour)
+	pendingEp := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: now.Format("2006-01-02"), StartsAt: &starts, EndsAt: &ends}
+	suite.Require().NoError(suite.db.Create(pendingEp).Error)
+	suite.createRadioPlay(pendingEp.ID, &pendingArtist.ID, 1, false)
+
+	// Past windowless episode with a play but play_count still 0 (denormalized
+	// count not yet reconciled): the shared windowless branch requires
+	// play_count > 0, so it stays out — same convention as the feeds.
+	unreconciledArtist := suite.createArtist("Unreconciled")
+	staleEp := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: now.AddDate(0, 0, -4).Format("2006-01-02")}
+	suite.Require().NoError(suite.db.Create(staleEp).Error)
+	suite.createRadioPlay(staleEp.ID, &unreconciledArtist.ID, 1, false)
+
+	// Past windowless episode with plays AND a reconciled play_count: counts.
+	windowlessArtist := suite.createArtist("Windowless Aired")
+	airedEp := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: now.AddDate(0, 0, -5).Format("2006-01-02"), PlayCount: 1}
+	suite.Require().NoError(suite.db.Create(airedEp).Error)
+	suite.createRadioPlay(airedEp.ID, &windowlessArtist.ID, 1, false)
+
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1, "only the aired windowless play survives the gates")
+	suite.Equal("Windowless Aired", artists[0].Name)
+	suite.Equal(1, artists[0].PlayCount)
+	suite.Equal(1, artists[0].StationCount)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_OrderingAndLimit() {
+	show := suite.createRadioStack("KRANK", "krank", nil)
+
+	twoPlays := suite.createArtist("Zed Twoplays")
+	ep := suite.createWindowedEpisode(show.ID, 5)
+	suite.createRadioPlay(ep.ID, &twoPlays.ID, 1, false)
+	suite.createRadioPlay(ep.ID, &twoPlays.ID, 2, false)
+
+	alphaOne := suite.createArtist("Alpha Oneplay")
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 6).ID, &alphaOne.ID, 1, false)
+	betaOne := suite.createArtist("Beta Oneplay")
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 7).ID, &betaOne.ID, 1, false)
+
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 3)
+	suite.Equal("Zed Twoplays", artists[0].Name, "play count ranks first")
+	suite.Equal("Alpha Oneplay", artists[1].Name, "ties break by name")
+	suite.Equal("Beta Oneplay", artists[2].Name)
+
+	limited, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 2)
+	suite.Require().NoError(err)
+	suite.Len(limited, 2)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_ExcludesPseudoArtistPlays() {
+	show := suite.createRadioStack("KPSEUDO", "kpseudo", nil)
+	artist := suite.createArtist("Bulk Linked Band")
+
+	// A "Music behind DJ:" background-segment play that an admin bulk-link
+	// resolved to a real artist_id: resolution does not make it airplay, and
+	// every other radio aggregation excludes it via pseudoArtistExclusionSQL.
+	ep := suite.createWindowedEpisode(show.ID, 5)
+	pseudo := &catalogm.RadioPlay{
+		EpisodeID:  ep.ID,
+		Position:   1,
+		ArtistName: "Music behind DJ: Bulk Linked Band",
+		ArtistID:   &artist.ID,
+	}
+	suite.Require().NoError(suite.db.Create(pseudo).Error)
+
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists, "pseudo-artist background-music plays never chart, even when resolved")
+}
+
+// TestGetOnTheRadioArtists_AiredBoundIsStationLocal pins the aired upper
+// bound to the STATION-LOCAL calendar day, not the UTC one. Two stations on
+// the extreme fixed zones bracket UTC: at any instant at least one of them
+// is on a different calendar day than UTC, so at least one side exercises
+// the skew no matter when the test runs. Episodes are windowless with a
+// reconciled play_count (the WFMU pre-publish shape) so only the air_date
+// bound separates aired from upcoming.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_AiredBoundIsStationLocal() {
+	now := time.Now().UTC()
+	// POSIX sign inversion: Etc/GMT+12 is UTC-12, Etc/GMT-14 is UTC+14.
+	for _, tc := range []struct {
+		zone string
+		slug string
+	}{
+		{"Etc/GMT+12", "kbehind"},
+		{"Etc/GMT-14", "kahead"},
+	} {
+		show := suite.createRadioStack("Station "+tc.slug, tc.slug, nil, tc.zone)
+		loc, err := time.LoadLocation(tc.zone)
+		suite.Require().NoError(err)
+		localToday := now.In(loc).Format("2006-01-02")
+		localTomorrow := now.In(loc).AddDate(0, 0, 1).Format("2006-01-02")
+
+		airedArtist := suite.createArtist("Aired " + tc.slug)
+		airedEp := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: localToday, PlayCount: 1}
+		suite.Require().NoError(suite.db.Create(airedEp).Error)
+		suite.createRadioPlay(airedEp.ID, &airedArtist.ID, 1, false)
+
+		upcomingArtist := suite.createArtist("Upcoming " + tc.slug)
+		upcomingEp := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: localTomorrow, PlayCount: 1}
+		suite.Require().NoError(suite.db.Create(upcomingEp).Error)
+		suite.createRadioPlay(upcomingEp.ID, &upcomingArtist.ID, 1, false)
+	}
+
+	artists, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+
+	names := make([]string, len(artists))
+	for i, a := range artists {
+		names[i] = a.Name
+	}
+	suite.ElementsMatch(
+		[]string{"Aired kbehind", "Aired kahead"}, names,
+		"station-local today counts on both sides of UTC; station-local tomorrow never does",
+	)
 }

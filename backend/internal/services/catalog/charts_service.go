@@ -164,8 +164,10 @@ const headlineSlotPredicate = `sa.set_type = 'headliner' OR sa.position = 0`
 // shows aliased `s` — non-cancelled, played on/before now (event dates are
 // midnight timestamps, so a show later today already counts as played), and
 // inside the optional window lower bound — plus the matching args. Every
-// windowed chart query in this file builds its WHERE clause through this
-// helper so eligibility rules can't drift between modules.
+// windowed SHOW chart query in this file builds its WHERE clause through this
+// helper so eligibility rules can't drift between modules; radio-backed
+// modules (GetOnTheRadioArtists) window on radio_episodes.air_date instead
+// and pair it with the shared aired gate (airedEpisodeVisibleSQL).
 func appendChartShowWindow(query string, args []any, now time.Time, start *time.Time) (string, []any) {
 	query += `
 			AND s.is_cancelled = FALSE
@@ -419,6 +421,111 @@ func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit in
 			City:             r.City,
 			State:            r.State,
 			SupportSlotCount: r.SupportSlotCount,
+		}
+	}
+	return results, nil
+}
+
+// broadcasterKeySQL is the SQL identity of "one broadcaster" for station
+// counting: stations grouped under a radio_network collapse to the network
+// (WFMU's flagship + stream-only sub-channels are one broadcaster, not four),
+// standalone stations count individually. Negating the station id keeps the
+// two key spaces disjoint — both columns are positive serials. The collapse
+// also keeps counts stable across the known WFMU family show mis-attribution
+// churn, since every family member maps to the same network. Any future
+// surface that shows a per-artist station count (drill-downs, artist-page
+// radio strips) must count through this same identity or its numbers will
+// contradict the chart's.
+const broadcasterKeySQL = `COALESCE(rst.network_id, -rst.id)`
+
+// GetOnTheRadioArtists returns artists ranked by resolved radio plays within
+// the window — the zero-engagement discovery signal from station playlists.
+// Only plays with a resolved artist_id count (unmatched plays are excluded),
+// pseudo-artist rows ("Music behind DJ:" segments) are excluded like every
+// other radio aggregation, and only plays on episodes that have actually
+// aired count: air_date on/before the station-local today (resolved through
+// pg_timezone_names exactly like the "Latest playlists" feed) plus the shared
+// air-window gate (airedEpisodeVisibleSQL). Without the aired pair, WFMU's
+// pre-published upcoming episodes (which can already carry plays) would count
+// before airing. The window LOWER bound stays UTC-day like the show charts —
+// a rolling-window boundary is arbitrary; only the aired gate is
+// correctness-critical.
+//
+// IsNew is true when ANY in-window play was flagged new rotation. Artists
+// with zero in-window plays are never returned.
+func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit int) ([]contracts.OnTheRadioArtist, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	type radioRow struct {
+		ArtistID     uint   `gorm:"column:artist_id"`
+		Name         string `gorm:"column:name"`
+		Slug         string `gorm:"column:slug"`
+		City         string `gorm:"column:city"`
+		State        string `gorm:"column:state"`
+		PlayCount    int    `gorm:"column:play_count"`
+		StationCount int    `gorm:"column:station_count"`
+		IsNew        bool   `gorm:"column:is_new"`
+	}
+
+	// GROUP BY a.id alone: the artists PK makes the selected columns
+	// functionally dependent, so the aggregate hashes an 8-byte key instead of
+	// the full text tuple. The sibling show-chart modules predate this and
+	// enumerate every selected column — both forms are correct; prefer this
+	// one, it matters more here (radio_plays outgrows show_artists by orders
+	// of magnitude). The aired pair (station-local date bound + air-window
+	// gate) is the shared radio.go definition — see stationLocalAiredDateBoundSQL.
+	query := `
+		SELECT
+			a.id AS artist_id,
+			a.name,
+			COALESCE(a.slug, '') AS slug,
+			COALESCE(a.city, '') AS city,
+			COALESCE(a.state, '') AS state,
+			COUNT(*) AS play_count,
+			COUNT(DISTINCT ` + broadcasterKeySQL + `) AS station_count,
+			BOOL_OR(rp.is_new) AS is_new
+		FROM radio_plays rp
+		JOIN radio_episodes re ON re.id = rp.episode_id
+		JOIN radio_shows rsh ON rsh.id = re.show_id
+		JOIN radio_stations rst ON rst.id = rsh.station_id
+		JOIN artists a ON a.id = rp.artist_id
+		` + stationTimezoneJoinSQL + `
+		WHERE ` + pseudoArtistExclusionSQL + `
+			AND ` + stationLocalAiredDateBoundSQL("re.") + `
+			AND ` + airedEpisodeVisibleSQL("re.")
+	args := []any{now, now}
+	if start != nil {
+		query += `
+			AND re.air_date >= ?`
+		args = append(args, start.Format("2006-01-02"))
+	}
+	query += `
+		GROUP BY a.id
+		ORDER BY play_count DESC, a.name ASC, a.id ASC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []radioRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get on-the-radio artists: %w", err)
+	}
+
+	results := make([]contracts.OnTheRadioArtist, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.OnTheRadioArtist{
+			ArtistID:     r.ArtistID,
+			Name:         r.Name,
+			Slug:         r.Slug,
+			City:         r.City,
+			State:        r.State,
+			PlayCount:    r.PlayCount,
+			StationCount: r.StationCount,
+			IsNew:        r.IsNew,
 		}
 	}
 	return results, nil

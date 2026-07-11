@@ -115,6 +115,21 @@ type OpenerToWatch struct {
 	SupportSlotCount int    `json:"support_slot_count"`
 }
 
+// OnTheRadioArtist represents an artist ranked by resolved radio plays within
+// a window. StationCount counts distinct broadcasters: stations grouped under
+// a radio_network (e.g. WFMU's flagship + stream-only sub-channels) collapse
+// to one, standalone stations count individually.
+type OnTheRadioArtist struct {
+	ArtistID     uint   `json:"artist_id"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	PlayCount    int    `json:"play_count"`
+	StationCount int    `json:"station_count"`
+	IsNew        bool   `json:"is_new"`
+}
+
 // ChartsOverview contains condensed top-5 versions of the four original
 // charts (trending shows, popular artists, active venues, hot releases).
 // The windowed module charts (most-active-artists, busiest-venues,
@@ -138,6 +153,7 @@ type ChartsServiceInterface interface {
 	GetMostActiveArtists(window ChartWindow, limit int) ([]MostActiveArtist, error)
 	GetBusiestVenues(window ChartWindow, limit int) ([]BusiestVenue, error)
 	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
+	GetOnTheRadioArtists(window ChartWindow, limit int) ([]OnTheRadioArtist, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)

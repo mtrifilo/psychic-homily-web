@@ -248,6 +248,66 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 	return resp, nil
 }
 
+// --- GetOnTheRadioArtists ---
+
+// GetOnTheRadioArtistsRequest is the Huma request for GET /charts/on-the-radio
+type GetOnTheRadioArtistsRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// OnTheRadioArtistResponse is a single ranked artist in the response.
+type OnTheRadioArtistResponse struct {
+	ArtistID     uint   `json:"artist_id"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	PlayCount    int    `json:"play_count"`
+	StationCount int    `json:"station_count"`
+	IsNew        bool   `json:"is_new"`
+}
+
+// GetOnTheRadioArtistsResponse is the Huma response for GET /charts/on-the-radio
+type GetOnTheRadioArtistsResponse struct {
+	Body struct {
+		Window  string                     `json:"window"`
+		Artists []OnTheRadioArtistResponse `json:"artists"`
+	}
+}
+
+// GetOnTheRadioArtistsHandler handles GET /charts/on-the-radio — artists by
+// resolved radio plays in the window. station_count counts broadcasters
+// (network-grouped stations collapse to one); is_new means any in-window play
+// was flagged new rotation.
+func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *GetOnTheRadioArtistsRequest) (*GetOnTheRadioArtistsResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetOnTheRadioArtists(window, limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_on_the_radio_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get on-the-radio artists")
+	}
+
+	resp := &GetOnTheRadioArtistsResponse{}
+	resp.Body.Window = string(window)
+	resp.Body.Artists = make([]OnTheRadioArtistResponse, len(data))
+	for i, a := range data {
+		resp.Body.Artists[i] = OnTheRadioArtistResponse{
+			ArtistID:     a.ArtistID,
+			Name:         a.Name,
+			Slug:         a.Slug,
+			City:         a.City,
+			State:        a.State,
+			PlayCount:    a.PlayCount,
+			StationCount: a.StationCount,
+			IsNew:        a.IsNew,
+		}
+	}
+	return resp, nil
+}
+
 // --- GetPopularArtists ---
 
 // GetPopularArtistsRequest is the Huma request for GET /charts/popular-artists

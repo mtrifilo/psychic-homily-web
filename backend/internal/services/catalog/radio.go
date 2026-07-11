@@ -1269,6 +1269,31 @@ func airedEpisodeVisibleSQL(prefix string) string {
 	)
 }
 
+// stationTimezoneJoinSQL resolves each station's timezone through
+// pg_timezone_names — the catalog AT TIME ZONE uses — via a LEFT JOIN against
+// radio_stations aliased rst, exposing the canonical zone as tzn.name. Looked
+// up once per station (not per episode row), case-insensitively; btrim strips
+// space/tab/newline/CR to match the write side's strings.TrimSpace so a
+// legacy whitespace-padded value still resolves. An unrecognized value leaves
+// tzn.name NULL, which consumers COALESCE to UTC rather than erroring out of
+// AT TIME ZONE on public surfaces. Single definition shared by the "Latest
+// playlists" feed (episodeRows) and the on-the-radio chart.
+const stationTimezoneJoinSQL = `LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone, E' \t\n\r'))`
+
+// stationLocalAiredDateBoundSQL is the day-granular "aired by now" bound for
+// radio_episodes columns qualified by prefix: air_date on/before the
+// STATION-LOCAL today (requires stationTimezoneJoinSQL in the FROM clause;
+// the one ? binds the "now" instant). It is a coarse pre-filter that drops
+// tomorrow-onward pre-published pages; it MUST be paired with
+// airedEpisodeVisibleSQL, which excludes a today-dated page pre-published for
+// a broadcast airing later today. Keeping the pair together in one place is
+// the point — a consumer that takes the gate without this bound admits
+// future-dated windowless episodes that already carry plays (the WFMU
+// pre-publish shape).
+func stationLocalAiredDateBoundSQL(prefix string) string {
+	return fmt.Sprintf("%sair_date <= (?::timestamptz AT TIME ZONE COALESCE(tzn.name, 'UTC'))::date", prefix)
+}
+
 // episodeLatestFirstOrderSQL is the single definition of "latest first" for
 // episode lists (PSY-1297): newest calendar day; within a day, aired rows
 // before not-yet-aired ones, then the latest frozen air window (PSY-1238) — so
@@ -1320,25 +1345,17 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 		return s.db.Table("radio_episodes re").
 			Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
 			Joins("JOIN radio_stations rst ON rst.id = rsh.station_id").
-			// Resolve the station's timezone through pg_timezone_names — the catalog
-			// AT TIME ZONE uses — via a LEFT JOIN so it's looked up once per station
-			// (not once per episode row), case-insensitively. The write boundary
-			// (normalizeStationTimezone) keeps new rows canonical against this same
-			// catalog; the COALESCE-to-UTC backstop means a legacy/out-of-band or
-			// unrecognized value leaves tzn.name NULL and falls back to UTC rather
-			// than erroring out of AT TIME ZONE and 500-ing this public,
-			// all-stations feed.
-			// btrim strips space/tab/newline/CR to match the write side's
-			// strings.TrimSpace, so a legacy whitespace-padded value still resolves.
-			Joins(`LEFT JOIN pg_timezone_names tzn ON lower(tzn.name) = lower(btrim(rst.timezone, E' \t\n\r'))`).
+			// The write boundary (normalizeStationTimezone) keeps new rows
+			// canonical against the same catalog this join resolves through.
+			Joins(stationTimezoneJoinSQL).
 			// Aired-only: WFMU (and other providers) publish playlist pages for
 			// UPCOMING broadcasts ahead of airtime, which the importer ingests as
 			// future-dated, 0-track placeholder episodes (PSY-1204). The day-granular
-			// air_date bound below is a coarse pre-filter (it drops tomorrow-onward and
+			// station-local bound is a coarse pre-filter (it drops tomorrow-onward and
 			// lets the per-station zone bound use no air_date index — fine at this scale);
 			// the precise aired-only filter is the air-window gate after it (PSY-1285).
 			// air-time-precise "is it live right now" lives in ComputeEpisodeStatus.
-			Where("re.air_date <= (?::timestamptz AT TIME ZONE COALESCE(tzn.name, 'UTC'))::date", now).
+			Where(stationLocalAiredDateBoundSQL("re."), now).
 			// PSY-1285: air-window gate — keep this "Latest playlists" feed to episodes
 			// that have actually aired (the day-granular date bound above still admits a
 			// today-dated page WFMU pre-published for a broadcast airing LATER TODAY; the
