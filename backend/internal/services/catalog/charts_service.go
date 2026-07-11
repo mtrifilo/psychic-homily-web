@@ -134,6 +134,150 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	return results, nil
 }
 
+// chartWindowStart returns the inclusive lower bound for a chart window, or
+// nil for all-time. Defaulting for empty/unknown values is owned by
+// ChartWindow.OrDefault so handler and service can't drift apart.
+func chartWindowStart(window contracts.ChartWindow, now time.Time) *time.Time {
+	switch window.OrDefault() {
+	case contracts.ChartWindowMonth:
+		t := now.AddDate(0, 0, -30)
+		return &t
+	case contracts.ChartWindowAllTime:
+		return nil
+	default: // contracts.ChartWindowQuarter
+		t := now.AddDate(0, 0, -90)
+		return &t
+	}
+}
+
+// GetMostActiveArtists returns artists ranked by approved shows played within
+// the window. Shows dated after now are excluded — but event dates are
+// midnight timestamps, so a show later today already counts as played.
+// Headline share uses the same predicate as the discovery pipeline:
+// set_type = 'headliner' OR position = 0. Artists with zero shows in the
+// window are never returned.
+func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	type artistRow struct {
+		ArtistID      uint   `gorm:"column:artist_id"`
+		Name          string `gorm:"column:name"`
+		Slug          string `gorm:"column:slug"`
+		City          string `gorm:"column:city"`
+		State         string `gorm:"column:state"`
+		ShowCount     int    `gorm:"column:show_count"`
+		HeadlineCount int    `gorm:"column:headline_count"`
+	}
+
+	query := `
+		SELECT
+			a.id AS artist_id,
+			a.name,
+			COALESCE(a.slug, '') AS slug,
+			COALESCE(a.city, '') AS city,
+			COALESCE(a.state, '') AS state,
+			COUNT(*) AS show_count,
+			SUM(CASE WHEN sa.set_type = 'headliner' OR sa.position = 0 THEN 1 ELSE 0 END) AS headline_count
+		FROM show_artists sa
+		JOIN artists a ON a.id = sa.artist_id
+		JOIN shows s ON s.id = sa.show_id
+		WHERE s.status = ?
+			AND s.event_date <= ?`
+	args := []any{catalogm.ShowStatusApproved, now}
+	if start != nil {
+		query += `
+			AND s.event_date >= ?`
+		args = append(args, *start)
+	}
+	query += `
+		GROUP BY a.id, a.name, a.slug, a.city, a.state
+		ORDER BY show_count DESC, a.name ASC, a.id ASC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []artistRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get most-active artists: %w", err)
+	}
+
+	results := make([]contracts.MostActiveArtist, len(rows))
+	artistIDs := make([]uint, len(rows))
+	for i, r := range rows {
+		headlinePct := 0
+		if r.ShowCount > 0 {
+			headlinePct = int(float64(r.HeadlineCount)/float64(r.ShowCount)*100 + 0.5)
+		}
+		results[i] = contracts.MostActiveArtist{
+			ArtistID:    r.ArtistID,
+			Name:        r.Name,
+			Slug:        r.Slug,
+			City:        r.City,
+			State:       r.State,
+			ShowCount:   r.ShowCount,
+			HeadlinePct: headlinePct,
+		}
+		artistIDs[i] = r.ArtistID
+	}
+
+	// Enrich with each artist's most recent show in the window (one query).
+	if len(artistIDs) > 0 {
+		type lastShowRow struct {
+			ArtistID  uint      `gorm:"column:artist_id"`
+			EventDate time.Time `gorm:"column:event_date"`
+			ShowSlug  string    `gorm:"column:show_slug"`
+			VenueName string    `gorm:"column:venue_name"`
+		}
+		lastQuery := `
+			SELECT DISTINCT ON (sa.artist_id)
+				sa.artist_id,
+				s.event_date,
+				COALESCE(s.slug, '') AS show_slug,
+				COALESCE(v.name, '') AS venue_name
+			FROM show_artists sa
+			JOIN shows s ON s.id = sa.show_id
+			LEFT JOIN show_venues sv ON sv.show_id = s.id
+			LEFT JOIN venues v ON v.id = sv.venue_id
+			WHERE sa.artist_id IN ?
+				AND s.status = ?
+				AND s.event_date <= ?`
+		lastArgs := []any{artistIDs, catalogm.ShowStatusApproved, now}
+		if start != nil {
+			lastQuery += `
+				AND s.event_date >= ?`
+			lastArgs = append(lastArgs, *start)
+		}
+		// s.id and v.name tiebreaks keep the picked row deterministic when an
+		// artist plays two shows on one date or a show has multiple venue links.
+		lastQuery += `
+			ORDER BY sa.artist_id, s.event_date DESC, s.id DESC, v.name ASC`
+
+		var lastRows []lastShowRow
+		if err := s.db.Raw(lastQuery, lastArgs...).Scan(&lastRows).Error; err != nil {
+			return nil, fmt.Errorf("failed to get last shows for most-active artists: %w", err)
+		}
+
+		lastByArtist := make(map[uint]lastShowRow, len(lastRows))
+		for _, lr := range lastRows {
+			lastByArtist[lr.ArtistID] = lr
+		}
+		for i := range results {
+			if lr, ok := lastByArtist[results[i].ArtistID]; ok {
+				date := lr.EventDate
+				results[i].LastShowDate = &date
+				results[i].LastShowSlug = lr.ShowSlug
+				results[i].LastShowVenue = lr.VenueName
+			}
+		}
+	}
+
+	return results, nil
+}
+
 // GetPopularArtists returns artists ranked by a composite score of followers and upcoming shows.
 // Score = follow_count * 2 + upcoming_show_count.
 func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist, error) {

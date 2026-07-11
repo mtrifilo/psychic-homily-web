@@ -83,6 +83,67 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 	return resp, nil
 }
 
+// --- GetMostActiveArtists ---
+
+// GetMostActiveArtistsRequest is the Huma request for GET /charts/most-active-artists
+type GetMostActiveArtistsRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// MostActiveArtistResponse is a single ranked artist in the response.
+type MostActiveArtistResponse struct {
+	ArtistID      uint       `json:"artist_id"`
+	Name          string     `json:"name"`
+	Slug          string     `json:"slug"`
+	City          string     `json:"city"`
+	State         string     `json:"state"`
+	ShowCount     int        `json:"show_count"`
+	HeadlinePct   int        `json:"headline_pct"`
+	LastShowDate  *time.Time `json:"last_show_date"`
+	LastShowSlug  string     `json:"last_show_slug"`
+	LastShowVenue string     `json:"last_show_venue"`
+}
+
+// GetMostActiveArtistsResponse is the Huma response for GET /charts/most-active-artists
+type GetMostActiveArtistsResponse struct {
+	Body struct {
+		Window  string                         `json:"window"`
+		Artists []MostActiveArtistResponse `json:"artists"`
+	}
+}
+
+// GetMostActiveArtistsHandler handles GET /charts/most-active-artists
+func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *GetMostActiveArtistsRequest) (*GetMostActiveArtistsResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetMostActiveArtists(window, limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_most_active_artists_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get most-active artists")
+	}
+
+	resp := &GetMostActiveArtistsResponse{}
+	resp.Body.Window = string(window)
+	resp.Body.Artists = make([]MostActiveArtistResponse, len(data))
+	for i, a := range data {
+		resp.Body.Artists[i] = MostActiveArtistResponse{
+			ArtistID:      a.ArtistID,
+			Name:          a.Name,
+			Slug:          a.Slug,
+			City:          a.City,
+			State:         a.State,
+			ShowCount:     a.ShowCount,
+			HeadlinePct:   a.HeadlinePct,
+			LastShowDate:  a.LastShowDate,
+			LastShowSlug:  a.LastShowSlug,
+			LastShowVenue: a.LastShowVenue,
+		}
+	}
+	return resp, nil
+}
+
 // --- GetPopularArtists ---
 
 // GetPopularArtistsRequest is the Huma request for GET /charts/popular-artists
@@ -321,6 +382,13 @@ func (h *ChartsHandler) GetChartsOverviewHandler(ctx context.Context, _ *GetChar
 }
 
 // --- Helpers ---
+
+// normalizeChartWindow maps the optional window query param to a ChartWindow.
+// Invalid values never reach here — the enum tag on the request struct 422s
+// them; the absent-param default is owned by ChartWindow.OrDefault.
+func normalizeChartWindow(window string) contracts.ChartWindow {
+	return contracts.ChartWindow(window).OrDefault()
+}
 
 // normalizeChartsLimit clamps the limit param to a valid range [1, 50], defaulting to 20.
 func normalizeChartsLimit(limit int) int {
