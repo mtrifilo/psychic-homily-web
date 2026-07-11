@@ -1847,11 +1847,15 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedNewestFirst() {
 	now := time.Now().UTC()
 
+	// The artist is anchored via a release credit and the venue is verified —
+	// the ticker's moderation gates require both (see the exclusion test).
 	artist := suite.createArtist("Ticker Artist")
 	suite.setCreatedAt("artists", artist.ID, now.Add(-3*time.Hour))
 	venue := suite.createVenue("Ticker Venue", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(venue).Update("verified", true).Error)
 	suite.setCreatedAt("venues", venue.ID, now.Add(-2*time.Hour))
-	suite.createDatedRelease("Ticker Release", nil, now.Add(-1*time.Hour))
+	release := suite.createDatedRelease("Ticker Release", nil, now.Add(-1*time.Hour))
+	suite.addArtistToRelease(artist.ID, release.ID)
 	station := &catalogm.RadioStation{Name: "Ticker Station", Slug: "ticker-station", BroadcastType: catalogm.BroadcastTypeBoth}
 	suite.Require().NoError(suite.db.Create(station).Error)
 	suite.setCreatedAt("radio_stations", station.ID, now.Add(-4*time.Hour))
@@ -1868,4 +1872,34 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedN
 	suite.Require().Len(limited, 2)
 	suite.Equal("release", limited[0].EntityType)
 	suite.Equal("venue", limited[1].EntityType)
+}
+
+// TestGetFreshlyAdded_ExcludesUnmoderatedEntities pins the ticker's
+// moderation gates: a user show submission creates its artist and venue rows
+// immediately, pre-moderation, and newest-first ordering would otherwise put
+// an attacker-chosen name at position 1 of the public masthead.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmoderatedEntities() {
+	// Unverified venue and an artist with no approved show, release, or radio
+	// play — the exact rows a pending spam submission creates.
+	suite.createVenue("Spam Venue", "Phoenix", "AZ")
+	suite.createArtist("Spam Artist")
+
+	items, err := suite.chartsService.GetFreshlyAdded(20)
+	suite.Require().NoError(err)
+	suite.Empty(items, "unverified venues and unanchored artists never reach the ticker")
+
+	// Anchoring the artist through a radio play makes it eligible.
+	anchored := suite.createArtist("Radio Anchored")
+	show := suite.createRadioStack("KANCHOR", "kanchor", nil)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 3).ID, &anchored.ID, 1, false)
+
+	items, err = suite.chartsService.GetFreshlyAdded(20)
+	suite.Require().NoError(err)
+	names := make([]string, len(items))
+	for i, it := range items {
+		names[i] = it.Name
+	}
+	suite.Contains(names, "Radio Anchored")
+	suite.NotContains(names, "Spam Artist")
+	suite.NotContains(names, "Spam Venue")
 }

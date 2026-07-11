@@ -367,10 +367,10 @@ const headlineSlotPredicate = `sa.set_type = 'headliner' OR sa.position = 0`
 func appendChartShowWindow(query string, args []any, now time.Time, start *time.Time) (string, []any) {
 	query += `
 			AND s.is_cancelled = FALSE`
-	// The bounds themselves are the shared appendCreatedWindow logic over a
+	// The bounds themselves are the shared appendWindowBounds logic over a
 	// different column — one definition of "on/before now, inside the
 	// optional window" for every chart surface.
-	return appendCreatedWindow(query, args, "s.event_date", now, start)
+	return appendWindowBounds(query, args, "s.event_date", now, start)
 }
 
 // GetMostActiveArtists returns artists ranked by approved, non-cancelled
@@ -1065,11 +1065,15 @@ func (s *ChartsService) releaseLabelNames(releaseIDs []uint) (map[uint][]string,
 	`, releaseIDs, "release labels")
 }
 
-// appendCreatedWindow appends the "added to the graph in the window" bounds
-// for a created_at column — on/before now plus the optional window lower
-// bound — and the matching args. The summary's per-entity counts all build
-// through this so "added this month" can't mean different windows per type.
-func appendCreatedWindow(query string, args []any, column string, now time.Time, start *time.Time) (string, []any) {
+// appendWindowBounds appends the generic chart window bounds for `column` —
+// on/before now plus the optional window lower bound — and the matching
+// args. `column` must be a compile-time literal, never runtime input. TWO
+// consumer families ride on this single definition: the summary's created_at
+// counts, and (via appendChartShowWindow) every windowed show chart's
+// event_date eligibility — where the `<= now` upper bound is LOAD-BEARING:
+// it is what keeps future-dated shows out of the played-show charts, so it
+// must not be dropped as "redundant" for the created_at case.
+func appendWindowBounds(query string, args []any, column string, now time.Time, start *time.Time) (string, []any) {
 	query += `
 			AND ` + column + ` <= ?`
 	args = append(args, now)
@@ -1084,8 +1088,9 @@ func appendCreatedWindow(query string, args []any, column string, now time.Time,
 // appendRadioAiredWindow appends the radio aired pair — pseudo-artist
 // exclusion, station-local aired date bound, air-window gate — plus the
 // optional window lower bound on air_date, and the matching args (now, now[,
-// start date]). The FROM clause must join radio_episodes re, radio_stations
-// rst, and stationTimezoneJoinSQL. Both radio-backed chart surfaces
+// start date]). It must be appended immediately after a bare `WHERE ` (the
+// fragment starts with a predicate, not AND), and the FROM clause must join
+// radio_episodes re, radio_stations rst, and stationTimezoneJoinSQL. Both radio-backed chart surfaces
 // (on-the-radio, the summary's radio_plays count) build through this so the
 // aired semantics and the placeholder arity can't drift between them.
 func appendRadioAiredWindow(query string, args []any, now time.Time, start *time.Time) (string, []any) {
@@ -1107,9 +1112,11 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, start *time
 // time instead of silently zeroing a stat. Each count reuses the shared
 // eligibility definition of the module it summarizes:
 //   - shows/artists/releases count entities ADDED in the window
-//     (appendCreatedWindow); shows must be approved and not cancelled — a
+//     (appendWindowBounds); shows must be approved and not cancelled — a
 //     cancelled show must not inflate the proof-of-life strip that every
-//     module below it excludes.
+//     module below it excludes. The artist/release counts are deliberately
+//     ungated beyond that: they measure raw graph growth, expose no names,
+//     and the ticker (which does expose names) is the gated surface.
 //   - radio plays share the aired pair + pseudo exclusion with the
 //     on-the-radio module via appendRadioAiredWindow (unmatched plays DO
 //     count here — the strip measures logging activity, not match rate).
@@ -1138,21 +1145,21 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contrac
 			WHERE s.status = ?
 				AND s.is_cancelled = FALSE`
 	args = append(args, catalogm.ShowStatusApproved)
-	query, args = appendCreatedWindow(query, args, "s.created_at", now, start)
+	query, args = appendWindowBounds(query, args, "s.created_at", now, start)
 
 	query += `
 		) AS shows_added,
 		(SELECT COUNT(*)
 			FROM artists a
 			WHERE true`
-	query, args = appendCreatedWindow(query, args, "a.created_at", now, start)
+	query, args = appendWindowBounds(query, args, "a.created_at", now, start)
 
 	query += `
 		) AS new_artists,
 		(SELECT COUNT(*)
 			FROM releases r
 			WHERE true`
-	query, args = appendCreatedWindow(query, args, "r.created_at", now, start)
+	query, args = appendWindowBounds(query, args, "r.created_at", now, start)
 
 	query += `
 		) AS new_releases,
@@ -1198,6 +1205,15 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contrac
 // (artist/venue/release/station) interleaved newest-first — the footer
 // ticker. Each branch pre-limits to the requested size before the global
 // sort so the union never materializes whole tables.
+//
+// Eligibility matters here more than anywhere else on the page: a user show
+// submission creates its artist and venue rows IMMEDIATELY, before any
+// moderation, and this ticker's newest-first order would put an
+// attacker-chosen name at position 1 of the public masthead. So venues must
+// be verified (every public venue surface gates on this) and artists must be
+// anchored to curated content — an approved non-cancelled show, a release
+// (admin-created), or a radio play (pipeline-created). Releases and stations
+// are admin-only writes and need no gate.
 func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1215,10 +1231,17 @@ func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem
 	err := s.db.Raw(`
 		SELECT * FROM (
 			(SELECT 'artist' AS entity_type, a.id AS entity_id, a.name, COALESCE(a.slug, '') AS slug, a.created_at AS added_at
-			 FROM artists a ORDER BY a.created_at DESC, a.id DESC LIMIT ?)
+			 FROM artists a
+			 WHERE EXISTS (SELECT 1 FROM show_artists sa JOIN shows s ON s.id = sa.show_id
+				WHERE sa.artist_id = a.id AND s.status = ? AND s.is_cancelled = FALSE)
+				OR EXISTS (SELECT 1 FROM artist_releases ar WHERE ar.artist_id = a.id)
+				OR EXISTS (SELECT 1 FROM radio_plays rp WHERE rp.artist_id = a.id)
+			 ORDER BY a.created_at DESC, a.id DESC LIMIT ?)
 			UNION ALL
 			(SELECT 'venue', v.id, v.name, COALESCE(v.slug, ''), v.created_at
-			 FROM venues v ORDER BY v.created_at DESC, v.id DESC LIMIT ?)
+			 FROM venues v
+			 WHERE v.verified = true
+			 ORDER BY v.created_at DESC, v.id DESC LIMIT ?)
 			UNION ALL
 			(SELECT 'release', r.id, r.title, COALESCE(r.slug, ''), r.created_at
 			 FROM releases r ORDER BY r.created_at DESC, r.id DESC LIMIT ?)
@@ -1228,7 +1251,7 @@ func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem
 		) x
 		ORDER BY x.added_at DESC, x.entity_type ASC, x.entity_id DESC
 		LIMIT ?
-	`, limit, limit, limit, limit, limit).Scan(&rows).Error
+	`, catalogm.ShowStatusApproved, limit, limit, limit, limit, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get freshly added items: %w", err)
 	}
