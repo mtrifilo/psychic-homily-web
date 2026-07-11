@@ -1039,6 +1039,9 @@ func TestChartsHandler_PersonalStats_WireShape(t *testing.T) {
 	if resp.Code != 200 {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
+	if cc := resp.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("per-user response must be Cache-Control: no-store, got %q", cc)
+	}
 	body := resp.Body.String()
 	for _, want := range []string{`"saved_shows":0`, `"artists_followed":0`, `"top_venue":null`, `"first_activity_at":null`} {
 		if !strings.Contains(body, want) {

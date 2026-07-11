@@ -682,7 +682,13 @@ type PersonalTopVenueResponse struct {
 // first_activity_at are explicit nulls until the user has the underlying
 // activity.
 type GetPersonalChartsStatsResponse struct {
-	Body struct {
+	// CacheControl is no-store: auth is cookie-based, so nothing else marks
+	// this per-user response uncacheable — without it a browser's heuristic
+	// cache (or any future proxy in front of the otherwise-public /charts/*)
+	// could replay one user's private stats to another. Same convention as
+	// the calendar and unsubscribe handlers.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		SavedShows      int                       `json:"saved_shows"`
 		ArtistsFollowed int                       `json:"artists_followed"`
 		TopVenue        *PersonalTopVenueResponse `json:"top_venue"`
@@ -709,7 +715,7 @@ func (h *ChartsHandler) GetPersonalChartsStatsHandler(ctx context.Context, _ *Ge
 		return nil, huma.Error500InternalServerError("Failed to get personal charts stats")
 	}
 
-	resp := &GetPersonalChartsStatsResponse{}
+	resp := &GetPersonalChartsStatsResponse{CacheControl: "no-store"}
 	resp.Body.SavedShows = data.SavedShows
 	resp.Body.ArtistsFollowed = data.ArtistsFollowed
 	resp.Body.FirstActivityAt = data.FirstActivityAt
