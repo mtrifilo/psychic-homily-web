@@ -20,5 +20,6 @@ func setupChartsRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/charts/popular-artists", chartsHandler.GetPopularArtistsHandler)
 	huma.Get(rc.API, "/charts/active-venues", chartsHandler.GetActiveVenuesHandler)
 	huma.Get(rc.API, "/charts/hot-releases", chartsHandler.GetHotReleasesHandler)
+	huma.Get(rc.API, "/charts/new-releases", chartsHandler.GetNewReleasesHandler)
 	huma.Get(rc.API, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 }

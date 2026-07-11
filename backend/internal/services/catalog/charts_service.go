@@ -114,32 +114,50 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	return results, nil
 }
 
+// namesByOwnerID runs a two-column enrichment query — it must SELECT the
+// owning entity's id AS owner_id plus a name, bind exactly one `IN ?` on ids,
+// and own its ORDER BY (which fixes the name order in the result slices) —
+// and folds the rows into owner_id → names. `what` labels the error. The
+// query must be a compile-time constant, never interpolated. Shared by every
+// chart-module name enrichment so the empty-input and error conventions
+// can't drift between modules. Returns a nil map on empty input (lookups on
+// nil maps are safe no-ops).
+func (s *ChartsService) namesByOwnerID(query string, ids []uint, what string) (map[uint][]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	type nameRow struct {
+		OwnerID uint   `gorm:"column:owner_id"`
+		Name    string `gorm:"column:name"`
+	}
+	var rows []nameRow
+	if err := s.db.Raw(query, ids).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get %s: %w", what, err)
+	}
+	names := make(map[uint][]string)
+	for _, r := range rows {
+		// A zero owner id means the query broke the AS owner_id contract —
+		// gorm's Scan leaves unmatched columns at zero WITHOUT erroring, so
+		// without this guard every name would silently fold under key 0 and
+		// the module would ship empty enrichment. Fail loudly instead.
+		if r.OwnerID == 0 {
+			return nil, fmt.Errorf("%s enrichment query is missing the AS owner_id alias", what)
+		}
+		names[r.OwnerID] = append(names[r.OwnerID], r.Name)
+	}
+	return names, nil
+}
+
 // showArtistNames returns bill-ordered artist names for each show, in one
 // query. Shared by the show-row chart modules (trending / most-anticipated).
 func (s *ChartsService) showArtistNames(showIDs []uint) (map[uint][]string, error) {
-	if len(showIDs) == 0 {
-		return nil, nil
-	}
-	type artistNameRow struct {
-		ShowID uint   `gorm:"column:show_id"`
-		Name   string `gorm:"column:name"`
-	}
-	var artistRows []artistNameRow
-	err := s.db.Raw(`
-		SELECT sa.show_id, a.name
+	return s.namesByOwnerID(`
+		SELECT sa.show_id AS owner_id, a.name
 		FROM show_artists sa
 		JOIN artists a ON a.id = sa.artist_id
 		WHERE sa.show_id IN ?
 		ORDER BY sa.show_id, sa.position
-	`, showIDs).Scan(&artistRows).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to get show artists: %w", err)
-	}
-	artistMap := make(map[uint][]string)
-	for _, ar := range artistRows {
-		artistMap[ar.ShowID] = append(artistMap[ar.ShowID], ar.Name)
-	}
-	return artistMap, nil
+	`, showIDs, "show artists")
 }
 
 // mostAnticipatedSaveFloor is the minimum save count a show needs to appear
@@ -851,6 +869,12 @@ func (s *ChartsService) GetActiveVenues(limit int) ([]contracts.ActiveVenue, err
 
 // GetHotReleases returns releases ranked by recent bookmark count, falling back to
 // recently added releases when no bookmarks exist so the chart is never empty.
+//
+// DEPRECATED in favor of GetNewReleases, which replaces it for the redesigned
+// charts page; this stays only until the frontend hook migrates off
+// /charts/hot-releases. At current engagement volume the bookmark ranking
+// silently degrades to "recently added" while claiming to be "hot" — the
+// replacement drops engagement inputs and makes the date ordering explicit.
 func (s *ChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -909,38 +933,146 @@ func (s *ChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error
 	}
 
 	// Fetch artist names for all releases in one query
-	if len(releaseIDs) > 0 {
-		type artistNameRow struct {
-			ReleaseID uint   `gorm:"column:release_id"`
-			Name      string `gorm:"column:name"`
-		}
-		var artistRows []artistNameRow
-		err := s.db.Raw(`
-			SELECT ar.release_id, a.name
-			FROM artist_releases ar
-			JOIN artists a ON a.id = ar.artist_id
-			WHERE ar.release_id IN ?
-			ORDER BY ar.release_id, ar.position
-		`, releaseIDs).Scan(&artistRows).Error
-		if err != nil {
-			return nil, fmt.Errorf("failed to get release artists: %w", err)
-		}
-
-		// Build map of release_id -> artist names
-		artistMap := make(map[uint][]string)
-		for _, ar := range artistRows {
-			artistMap[ar.ReleaseID] = append(artistMap[ar.ReleaseID], ar.Name)
-		}
-
-		// Assign to results
-		for i := range results {
-			if names, ok := artistMap[results[i].ReleaseID]; ok {
-				results[i].ArtistNames = names
-			}
+	artistMap, err := s.releaseArtistNames(releaseIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		if names, ok := artistMap[results[i].ReleaseID]; ok {
+			results[i].ArtistNames = names
 		}
 	}
 
 	return results, nil
+}
+
+// releaseArtistNames returns credit-ordered artist names for each release, in
+// one query. Shared by the release chart modules (hot / new releases).
+func (s *ChartsService) releaseArtistNames(releaseIDs []uint) (map[uint][]string, error) {
+	return s.namesByOwnerID(`
+		SELECT ar.release_id AS owner_id, a.name
+		FROM artist_releases ar
+		JOIN artists a ON a.id = ar.artist_id
+		WHERE ar.release_id IN ?
+		ORDER BY ar.release_id, ar.position
+	`, releaseIDs, "release artists")
+}
+
+// newReleaseDateSQL is the ordering/window date of the new-releases module:
+// the world release date when known, else the UTC day the release entered
+// the graph. AT TIME ZONE 'UTC' pins the timestamptz→date cast — a bare
+// ::date uses the session timezone, silently moving window edges when the
+// server isn't UTC. Day-granular on purpose — releases are day-grain
+// entities. Any windowed variant of this query (e.g. scene-scoped) must
+// reuse BOTH bounds built on this expression: `<= today` (future-dated
+// announcements stay out until release day) and the inclusive `>= start`.
+const newReleaseDateSQL = `COALESCE(r.release_date, (r.created_at AT TIME ZONE 'UTC')::date)`
+
+// GetNewReleases returns releases date-ordered (newest first) within the
+// window — the honest "what came out / arrived recently" list, with NO
+// engagement inputs. Future-dated releases (announced but not yet out) are
+// excluded until their release day, mirroring the played-by-now convention of
+// the show charts. Ties on the day break by created_at then id, so the
+// ordering is fully deterministic (which full-list pagination will rely on).
+func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	type releaseRow struct {
+		ReleaseID   uint       `gorm:"column:release_id"`
+		Title       string     `gorm:"column:title"`
+		Slug        string     `gorm:"column:slug"`
+		ReleaseType string     `gorm:"column:release_type"`
+		ReleaseDate *time.Time `gorm:"column:release_date"`
+		AddedAt     time.Time  `gorm:"column:added_at"`
+	}
+
+	// formatDay renders the DATE scan back to the contract's day-grain
+	// YYYY-MM-DD string (pgx scans DATE as midnight-UTC time.Time).
+	formatDay := func(t *time.Time) *string {
+		if t == nil {
+			return nil
+		}
+		s := t.Format("2006-01-02")
+		return &s
+	}
+
+	query := `
+		SELECT
+			r.id AS release_id,
+			r.title,
+			COALESCE(r.slug, '') AS slug,
+			r.release_type,
+			r.release_date,
+			r.created_at AS added_at
+		FROM releases r
+		WHERE ` + newReleaseDateSQL + ` <= ?`
+	args := []any{now.Format("2006-01-02")}
+	if start != nil {
+		query += `
+			AND ` + newReleaseDateSQL + ` >= ?`
+		args = append(args, start.Format("2006-01-02"))
+	}
+	query += `
+		ORDER BY ` + newReleaseDateSQL + ` DESC, r.created_at DESC, r.id DESC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []releaseRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get new releases: %w", err)
+	}
+
+	results := make([]contracts.NewRelease, len(rows))
+	releaseIDs := make([]uint, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.NewRelease{
+			ReleaseID:   r.ReleaseID,
+			Title:       r.Title,
+			Slug:        r.Slug,
+			ReleaseType: r.ReleaseType,
+			ReleaseDate: formatDay(r.ReleaseDate),
+			AddedAt:     r.AddedAt,
+			ArtistNames: []string{},
+			LabelNames:  []string{},
+		}
+		releaseIDs[i] = r.ReleaseID
+	}
+
+	artistMap, err := s.releaseArtistNames(releaseIDs)
+	if err != nil {
+		return nil, err
+	}
+	labelMap, err := s.releaseLabelNames(releaseIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		if names, ok := artistMap[results[i].ReleaseID]; ok {
+			results[i].ArtistNames = names
+		}
+		if names, ok := labelMap[results[i].ReleaseID]; ok {
+			results[i].LabelNames = names
+		}
+	}
+
+	return results, nil
+}
+
+// releaseLabelNames returns name-ordered label names for each release, in one
+// query.
+func (s *ChartsService) releaseLabelNames(releaseIDs []uint) (map[uint][]string, error) {
+	return s.namesByOwnerID(`
+		SELECT rl.release_id AS owner_id, l.name
+		FROM release_labels rl
+		JOIN labels l ON l.id = rl.label_id
+		WHERE rl.release_id IN ?
+		ORDER BY rl.release_id, l.name ASC, l.id ASC
+	`, releaseIDs, "release labels")
 }
 
 // GetChartsOverview returns a condensed summary with top 5 of each chart.

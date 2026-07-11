@@ -519,6 +519,63 @@ func (h *ChartsHandler) GetHotReleasesHandler(ctx context.Context, req *GetHotRe
 	return resp, nil
 }
 
+// --- GetNewReleases ---
+
+// GetNewReleasesRequest is the Huma request for GET /charts/new-releases
+type GetNewReleasesRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// NewReleaseResponse is a single release in the response. release_date is
+// the world release date as a day-grain YYYY-MM-DD string (matching the
+// release contracts); added_at is when the release entered the graph. A null
+// release_date means the row surfaced by its graph-added day (the graph-new
+// tell); rows with a known world date always order and window by it.
+type NewReleaseResponse struct {
+	ReleaseID   uint      `json:"release_id"`
+	Title       string    `json:"title"`
+	Slug        string    `json:"slug"`
+	ReleaseType string    `json:"release_type"`
+	ReleaseDate *string   `json:"release_date"`
+	AddedAt     time.Time `json:"added_at"`
+	ArtistNames []string  `json:"artist_names"`
+	LabelNames  []string  `json:"label_names"`
+}
+
+// GetNewReleasesResponse is the Huma response for GET /charts/new-releases
+type GetNewReleasesResponse struct {
+	Body struct {
+		Window   string               `json:"window"`
+		Releases []NewReleaseResponse `json:"releases"`
+	}
+}
+
+// GetNewReleasesHandler handles GET /charts/new-releases — releases in the
+// window ordered by date (release_date, else graph-added date), newest first,
+// no engagement inputs. Replaces /charts/hot-releases; the legacy route stays
+// until the redesigned charts frontend migrates off it.
+func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewReleasesRequest) (*GetNewReleasesResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetNewReleases(window, limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_new_releases_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get new releases")
+	}
+
+	resp := &GetNewReleasesResponse{}
+	resp.Body.Window = string(window)
+	resp.Body.Releases = make([]NewReleaseResponse, len(data))
+	for i, r := range data {
+		// Direct conversion (field-identical structs): a one-sided field add
+		// breaks the build instead of silently shipping a zero value.
+		resp.Body.Releases[i] = NewReleaseResponse(r)
+	}
+	return resp, nil
+}
+
 // --- GetChartsOverview ---
 
 // GetChartsOverviewRequest is the Huma request for GET /charts/overview
