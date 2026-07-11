@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
@@ -21,8 +21,11 @@ export function HomeShowList() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const { data: profileData } = useProfile()
-  const [selectedCities, setSelectedCities] = useState<CityState[]>([])
-  const hasManuallyInteracted = useRef(false)
+  // The user's explicit pick this visit — null until they touch the filter.
+  // Home has no URL persistence, so this one state is the only "selection";
+  // the default (favorites, else anon geo) is DERIVED below, never written
+  // into it. `[]` is a real choice ("All Cities"), distinct from null.
+  const [userSelection, setUserSelection] = useState<CityState[] | null>(null)
 
   // Read favorites from profile
   const favoriteCities: CityState[] = useMemo(() => {
@@ -30,13 +33,6 @@ export function HomeShowList() {
     if (!prefs?.favorite_cities) return []
     return prefs.favorite_cities
   }, [profileData?.user?.preferences])
-
-  // Apply favorites as defaults when profile loads (only if user hasn't manually changed)
-  useEffect(() => {
-    if (!hasManuallyInteracted.current && favoriteCities.length > 0) {
-      setSelectedCities(favoriteCities)
-    }
-  }, [favoriteCities])
 
   const timezone =
     typeof window !== 'undefined'
@@ -61,8 +57,8 @@ export function HomeShowList() {
 
   // IP-geo soft default for anon visitors (PSY-946). Home has no URL
   // persistence; the hook RETURNS the derived canonical city and it's folded
-  // into `effectiveCities` below — never written into the selection state.
-  // The page stays fully static; geo arrives via the `/api/geo` edge route
+  // into `effectiveCities` below — nothing is ever written into state. The
+  // page stays fully static; geo arrives via the `/api/geo` edge route
   // handler client-side. Favorites win (the hook stands down when
   // favoriteCities is non-empty); a user interaction nulls the derived value.
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
@@ -70,30 +66,24 @@ export function HomeShowList() {
     isAuthenticated,
     authLoading,
     favoriteCities,
-    // Home seeds favorites into the same local state; once that has happened
-    // (or the user picks a city), a non-empty selection means geo stands down.
-    hasExistingSelection: selectedCities.length > 0,
+    hasExistingSelection: userSelection !== null,
     enableClientFetch: true,
   })
 
-  // The effective selection: the local state (user pick / seeded favorites),
-  // else the derived anon geo default. (The favorites seeding effect above is
-  // the remaining local-state write; its derive rework is PSY-1392.)
-  const effectiveCities: CityState[] = useMemo(
-    () =>
-      selectedCities.length > 0
-        ? selectedCities
-        : appliedGeoDefault
-          ? [appliedGeoDefault]
-          : [],
-    [selectedCities, appliedGeoDefault]
-  )
+  // The effective selection, DERIVED during render: the user's explicit pick
+  // wins; otherwise favorites; otherwise the anon geo default. No effect, no
+  // ref — the default can't be dropped or applied late because it's computed
+  // from the current inputs on every render.
+  const effectiveCities: CityState[] = useMemo(() => {
+    if (userSelection !== null) return userSelection
+    if (favoriteCities.length > 0) return favoriteCities
+    return appliedGeoDefault ? [appliedGeoDefault] : []
+  }, [userSelection, favoriteCities, appliedGeoDefault])
 
   const handleFilterChange = useCallback(
     (cities: CityState[]) => {
-      hasManuallyInteracted.current = true
       notifyUserInteracted()
-      setSelectedCities(cities)
+      setUserSelection(cities)
     },
     [notifyUserInteracted]
   )

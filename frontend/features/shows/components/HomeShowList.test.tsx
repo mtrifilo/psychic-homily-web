@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { render, screen, waitFor } from '@testing-library/react'
 import { HomeShowList } from './HomeShowList'
 import type { ShowResponse } from '../types'
@@ -35,9 +36,10 @@ vi.mock('../hooks/useSavedShows', () => ({
   useShowSaveCountBatch: () => ({ data: {} }),
 }))
 
-// Mock profile hooks
+// Mock profile hooks (controllable so tests can set favorite_cities)
+const mockUseProfile = vi.fn(() => ({ data: null as unknown }))
 vi.mock('@/features/auth', () => ({
-  useProfile: () => ({ data: null as unknown }),
+  useProfile: () => mockUseProfile(),
   useSetFavoriteCities: () => ({ mutate: vi.fn() }),
 }))
 
@@ -56,15 +58,26 @@ vi.mock('./ShowCard', () => ({
 vi.mock('@/components/filters', () => ({
   CityFilters: ({
     selectedCities,
+    onFilterChange,
     children,
   }: {
     selectedCities?: Array<{ city: string; state: string }>
+    onFilterChange?: (cities: Array<{ city: string; state: string }>) => void
     children?: React.ReactNode
   }) => (
     <div data-testid="city-filters">
       <span data-testid="selected-labels">
         {(selectedCities ?? []).map(c => `${c.city},${c.state}`).join('|')}
       </span>
+      <button
+        data-testid="mock-select-tucson"
+        onClick={() => onFilterChange?.([{ city: 'Tucson', state: 'AZ' }])}
+      >
+        select Tucson
+      </button>
+      <button data-testid="mock-clear" onClick={() => onFilterChange?.([])}>
+        clear
+      </button>
       {children}
     </div>
   ),
@@ -96,6 +109,7 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
 describe('HomeShowList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseProfile.mockReturnValue({ data: null as unknown })
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -354,6 +368,71 @@ describe('HomeShowList', () => {
       })
       render(<HomeShowList />)
       expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+  // PSY-1392: the favorites default is DERIVED during render — no seeding
+  // effect, no interaction ref.
+  describe('favorites default (derived, no effect)', () => {
+    const withFavoritePhoenix = () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseProfile.mockReturnValue({
+        data: {
+          user: {
+            preferences: { favorite_cities: [{ city: 'Phoenix', state: 'AZ' }] },
+          },
+        },
+      })
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', show_count: 5 }] },
+      })
+      mockUseUpcomingShows.mockReturnValue({
+        data: { shows: [makeShow()], pagination: { has_more: false, next_cursor: null, limit: 5 } },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+      })
+    }
+
+    it('derives the favorite as the selection and filters by it', () => {
+      withFavoritePhoenix()
+      render(<HomeShowList />)
+
+      expect(screen.getByTestId('selected-labels')).toHaveTextContent('Phoenix,AZ')
+      expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+        expect.objectContaining({ cities: [{ city: 'Phoenix', state: 'AZ' }] }),
+      )
+    })
+
+    it('a user pick overrides the derived favorite', async () => {
+      const user = userEvent.setup()
+      withFavoritePhoenix()
+      render(<HomeShowList />)
+
+      await user.click(screen.getByTestId('mock-select-tucson'))
+
+      expect(screen.getByTestId('selected-labels')).toHaveTextContent('Tucson,AZ')
+      expect(mockUseUpcomingShows).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cities: [{ city: 'Tucson', state: 'AZ' }] }),
+      )
+    })
+
+    it('clearing to All Cities sticks — the favorite does NOT re-derive over it', async () => {
+      const user = userEvent.setup()
+      withFavoritePhoenix()
+      render(<HomeShowList />)
+
+      await user.click(screen.getByTestId('mock-clear'))
+
+      // [] is an explicit choice (distinct from null) — favorites must not win.
+      expect(screen.getByTestId('selected-labels')).toHaveTextContent(/^$/)
+      expect(mockUseUpcomingShows).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cities: undefined }),
+      )
     })
   })
 })
