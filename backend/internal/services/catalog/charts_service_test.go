@@ -825,3 +825,229 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowE
 	suite.Require().Len(artists, 1)
 	suite.Equal(1, artists[0].ShowCount, "exactly-90-days-ago is inside the quarter window; 91 is not")
 }
+
+// =============================================================================
+// GetBusiestVenues Tests
+// =============================================================================
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_Empty() {
+	venues, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(venues)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_WindowsAndCancelled() {
+	user := suite.createUser("bv-window@test.com")
+	venue := suite.createVenue("Windowed Hall", "Phoenix", "AZ")
+	artist := suite.createArtist("House Band")
+
+	now := time.Now().UTC()
+	suite.createApprovedShow("Recent", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.createApprovedShow("Mid", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -60))
+	suite.createApprovedShow("Old", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -200))
+	suite.createApprovedShow("Future", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
+	cancelled := suite.createApprovedShow("Cancelled", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	month, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowMonth, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(month, 1)
+	suite.Equal(1, month[0].ShowCount)
+
+	quarter, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(quarter, 1)
+	suite.Equal(2, quarter[0].ShowCount)
+	suite.Equal("Windowed Hall", quarter[0].Name)
+	suite.Equal("Phoenix", quarter[0].City)
+	suite.Equal("AZ", quarter[0].State)
+
+	allTime, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowAllTime, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(allTime, 1)
+	suite.Equal(3, allTime[0].ShowCount, "future + cancelled shows never count")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_OrderingTiebreakAndMultiVenue() {
+	user := suite.createUser("bv-order@test.com")
+	alpha := suite.createVenue("Alpha Hall", "Phoenix", "AZ")
+	beta := suite.createVenue("Beta Room", "Tempe", "AZ")
+	gamma := suite.createVenue("Gamma Stage", "Tucson", "AZ")
+	artist := suite.createArtist("Tie Band")
+
+	now := time.Now().UTC()
+	for i := 0; i < 2; i++ {
+		suite.createApprovedShow(fmt.Sprintf("Alpha %d", i), alpha.ID, artist.ID, user.ID, now.AddDate(0, 0, -10-i))
+		suite.createApprovedShow(fmt.Sprintf("Beta %d", i), beta.ID, artist.ID, user.ID, now.AddDate(0, 0, -10-i))
+	}
+	for i := 0; i < 2; i++ {
+		suite.createApprovedShow(fmt.Sprintf("Gamma %d", i), gamma.ID, artist.ID, user.ID, now.AddDate(0, 0, -10-i))
+	}
+	// A dual-venue show counts for BOTH gamma and alpha (multi-venue bills exist).
+	dual := suite.createApprovedShow("Dual", gamma.ID, artist.ID, user.ID, now.AddDate(0, 0, -3))
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: dual.ID, VenueID: alpha.ID}).Error)
+
+	venues, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(venues, 3)
+	suite.Equal("Alpha Hall", venues[0].Name, "3 shows incl. the dual-venue one")
+	suite.Equal(3, venues[0].ShowCount)
+	suite.Equal("Gamma Stage", venues[1].Name)
+	suite.Equal(3, venues[1].ShowCount)
+	suite.Equal("Beta Room", venues[2].Name)
+	suite.Equal(2, venues[2].ShowCount)
+	// Alpha before Gamma at equal counts: name tiebreak.
+}
+
+// =============================================================================
+// GetOpenersToWatch Tests
+// =============================================================================
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_Empty() {
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CountsSupportSlotsOnly() {
+	user := suite.createUser("otw-count@test.com")
+	venue := suite.createVenue("Support Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Always Headlines")
+	opener := suite.createArtist("Always Opens")
+	opener.City = stringPtr("Mesa")
+	opener.State = stringPtr("AZ")
+	suite.Require().NoError(suite.db.Save(opener).Error)
+
+	now := time.Now().UTC()
+	s1 := suite.createApprovedShow("Bill 1", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(s1.ID, opener.ID, 1, "opener")
+	s2 := suite.createApprovedShow("Bill 2", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	suite.addArtistToShow(s2.ID, opener.ID, 1, "performer")
+	s3 := suite.createApprovedShow("Bill 3", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
+	suite.addArtistToShow(s3.ID, opener.ID, 2, "special_guest")
+
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1, "the headliner (position 0) must not appear")
+	suite.Equal(opener.ID, artists[0].ArtistID)
+	suite.Equal(3, artists[0].SupportSlotCount)
+	suite.Equal("Mesa", artists[0].City)
+	suite.Equal("AZ", artists[0].State)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_AnyHeadlineSlotExcludes() {
+	user := suite.createUser("otw-exclude@test.com")
+	venue := suite.createVenue("Exclude Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Bill Top")
+	sometimes := suite.createArtist("Sometimes Headlines")
+
+	now := time.Now().UTC()
+	// Two support slots in-window...
+	s1 := suite.createApprovedShow("Support A", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(s1.ID, sometimes.ID, 1, "opener")
+	s2 := suite.createApprovedShow("Support B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -15))
+	suite.addArtistToShow(s2.ID, sometimes.ID, 1, "opener")
+	// ...but one co-headline slot (set_type headliner despite position 2) in-window.
+	s3 := suite.createApprovedShow("Co-headline", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	suite.addArtistToShow(s3.ID, sometimes.ID, 2, "headliner")
+
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists, "any headline slot in-window excludes the artist entirely")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_HeadlineExclusionIsWindowScoped() {
+	user := suite.createUser("otw-window@test.com")
+	venue := suite.createVenue("Window Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Perma Headliner")
+	riser := suite.createArtist("Former Headliner")
+
+	now := time.Now().UTC()
+	// Headlined long ago (outside the quarter window)...
+	suite.createApprovedShow("Old Glory", venue.ID, riser.ID, user.ID, now.AddDate(0, 0, -200))
+	// ...but only opens within the quarter.
+	s1 := suite.createApprovedShow("Now Opens A", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(s1.ID, riser.ID, 1, "opener")
+	s2 := suite.createApprovedShow("Now Opens B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	suite.addArtistToShow(s2.ID, riser.ID, 1, "opener")
+
+	quarter, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(quarter, 1, "old headline slot is outside the window — riser qualifies")
+	suite.Equal(riser.ID, quarter[0].ArtistID)
+	suite.Equal(2, quarter[0].SupportSlotCount)
+
+	allTime, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowAllTime, 20)
+	suite.Require().NoError(err)
+	suite.Empty(allTime, "all-time window sees the old headline slot and excludes")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CancelledSupportSlotsDoNotCount() {
+	user := suite.createUser("otw-cancelled@test.com")
+	venue := suite.createVenue("Cancel Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Cancel Top")
+	opener := suite.createArtist("Cancel Opener")
+
+	now := time.Now().UTC()
+	s1 := suite.createApprovedShow("Kept", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(s1.ID, opener.ID, 1, "opener")
+	s2 := suite.createApprovedShow("Called Off", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.addArtistToShow(s2.ID, opener.ID, 1, "opener")
+	suite.Require().NoError(suite.db.Model(s2).Update("is_cancelled", true).Error)
+
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(1, artists[0].SupportSlotCount)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_NullSetTypeCountsAsSupport() {
+	user := suite.createUser("otw-null@test.com")
+	venue := suite.createVenue("Null Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Null Top")
+	opener := suite.createArtist("Null Opener")
+
+	now := time.Now().UTC()
+	s1 := suite.createApprovedShow("Null Bill", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	// Raw insert with NULL set_type (backfills/ingest can bypass the GORM
+	// default) — three-valued logic must not drop the slot.
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)",
+		s1.ID, opener.ID).Error)
+
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(opener.ID, artists[0].ArtistID)
+	suite.Equal(1, artists[0].SupportSlotCount, "NULL set_type at position>0 is a support slot")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_ExcludesPendingShows() {
+	user := suite.createUser("bv-pending@test.com")
+	venue := suite.createVenue("Pending Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Pending Band")
+
+	now := time.Now().UTC()
+	pending := suite.createApprovedShow("Pending Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+
+	venues, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(venues, "pending shows never count toward hosted-show totals")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_ExcludesPendingShows() {
+	user := suite.createUser("otw-pending@test.com")
+	venue := suite.createVenue("Pending OTW Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Pending Top")
+	opener := suite.createArtist("Pending Opener")
+
+	now := time.Now().UTC()
+	pending := suite.createApprovedShow("Pending Bill", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(pending.ID, opener.ID, 1, "opener")
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+
+	artists, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists, "pending shows never contribute support slots")
+}

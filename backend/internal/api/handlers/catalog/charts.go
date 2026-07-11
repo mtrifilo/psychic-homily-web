@@ -140,6 +140,114 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 	return resp, nil
 }
 
+// --- GetBusiestVenues ---
+
+// GetBusiestVenuesRequest is the Huma request for GET /charts/busiest-venues
+type GetBusiestVenuesRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// BusiestVenueResponse is a single ranked venue in the response.
+type BusiestVenueResponse struct {
+	VenueID   uint   `json:"venue_id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	ShowCount int    `json:"show_count"`
+}
+
+// GetBusiestVenuesResponse is the Huma response for GET /charts/busiest-venues
+type GetBusiestVenuesResponse struct {
+	Body struct {
+		Window string                 `json:"window"`
+		Venues []BusiestVenueResponse `json:"venues"`
+	}
+}
+
+// GetBusiestVenuesHandler handles GET /charts/busiest-venues — venues by
+// shows HOSTED in the window (past tense). Contrast /charts/active-venues,
+// which scores venues by upcoming shows + follows.
+func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBusiestVenuesRequest) (*GetBusiestVenuesResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetBusiestVenues(window, limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_busiest_venues_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get busiest venues")
+	}
+
+	resp := &GetBusiestVenuesResponse{}
+	resp.Body.Window = string(window)
+	resp.Body.Venues = make([]BusiestVenueResponse, len(data))
+	for i, v := range data {
+		resp.Body.Venues[i] = BusiestVenueResponse{
+			VenueID:   v.VenueID,
+			Name:      v.Name,
+			Slug:      v.Slug,
+			City:      v.City,
+			State:     v.State,
+			ShowCount: v.ShowCount,
+		}
+	}
+	return resp, nil
+}
+
+// --- GetOpenersToWatch ---
+
+// GetOpenersToWatchRequest is the Huma request for GET /charts/openers-to-watch
+type GetOpenersToWatchRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// OpenerToWatchResponse is a single ranked support artist in the response.
+type OpenerToWatchResponse struct {
+	ArtistID         uint   `json:"artist_id"`
+	Name             string `json:"name"`
+	Slug             string `json:"slug"`
+	City             string `json:"city"`
+	State            string `json:"state"`
+	SupportSlotCount int    `json:"support_slot_count"`
+}
+
+// GetOpenersToWatchResponse is the Huma response for GET /charts/openers-to-watch
+type GetOpenersToWatchResponse struct {
+	Body struct {
+		Window  string                  `json:"window"`
+		Artists []OpenerToWatchResponse `json:"artists"`
+	}
+}
+
+// GetOpenersToWatchHandler handles GET /charts/openers-to-watch
+func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOpenersToWatchRequest) (*GetOpenersToWatchResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetOpenersToWatch(window, limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_openers_to_watch_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get openers to watch")
+	}
+
+	resp := &GetOpenersToWatchResponse{}
+	resp.Body.Window = string(window)
+	resp.Body.Artists = make([]OpenerToWatchResponse, len(data))
+	for i, a := range data {
+		resp.Body.Artists[i] = OpenerToWatchResponse{
+			ArtistID:         a.ArtistID,
+			Name:             a.Name,
+			Slug:             a.Slug,
+			City:             a.City,
+			State:            a.State,
+			SupportSlotCount: a.SupportSlotCount,
+		}
+	}
+	return resp, nil
+}
+
 // --- GetPopularArtists ---
 
 // GetPopularArtistsRequest is the Huma request for GET /charts/popular-artists
@@ -217,7 +325,9 @@ type GetActiveVenuesResponse struct {
 	}
 }
 
-// GetActiveVenuesHandler handles GET /charts/active-venues
+// GetActiveVenuesHandler handles GET /charts/active-venues — venues scored by
+// UPCOMING shows + follows. Contrast /charts/busiest-venues, which counts
+// past shows hosted in a window.
 func (h *ChartsHandler) GetActiveVenuesHandler(ctx context.Context, req *GetActiveVenuesRequest) (*GetActiveVenuesResponse, error) {
 	limit := normalizeChartsLimit(req.Limit)
 

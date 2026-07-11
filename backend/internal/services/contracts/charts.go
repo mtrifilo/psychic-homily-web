@@ -94,7 +94,33 @@ type MostActiveArtist struct {
 	LastShowVenue string     `json:"last_show_venue"`
 }
 
-// ChartsOverview contains condensed top-5 versions of all charts for dashboard use.
+// BusiestVenue represents a venue ranked by shows hosted within a window.
+type BusiestVenue struct {
+	VenueID   uint   `json:"venue_id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	ShowCount int    `json:"show_count"`
+}
+
+// OpenerToWatch represents an artist ranked by support slots played within a
+// window, excluding artists who headlined at all in that window.
+type OpenerToWatch struct {
+	ArtistID         uint   `json:"artist_id"`
+	Name             string `json:"name"`
+	Slug             string `json:"slug"`
+	City             string `json:"city"`
+	State            string `json:"state"`
+	SupportSlotCount int    `json:"support_slot_count"`
+}
+
+// ChartsOverview contains condensed top-5 versions of the four original
+// charts (trending shows, popular artists, active venues, hot releases).
+// The windowed module charts (most-active-artists, busiest-venues,
+// openers-to-watch, …) are separate endpoints and intentionally NOT included
+// here — the overview payload gets reworked wholesale with the Broadsheet
+// frontend.
 type ChartsOverview struct {
 	TrendingShows  []TrendingShow  `json:"trending_shows"`
 	PopularArtists []PopularArtist `json:"popular_artists"`
@@ -110,6 +136,8 @@ type ChartsOverview struct {
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
 	GetMostActiveArtists(window ChartWindow, limit int) ([]MostActiveArtist, error)
+	GetBusiestVenues(window ChartWindow, limit int) ([]BusiestVenue, error)
+	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)
