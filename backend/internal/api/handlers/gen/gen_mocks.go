@@ -139,6 +139,12 @@ var customDefaults = map[string]methodDefault{
 	"MockChartsService.GetHotReleases": {
 		body: `	return []contracts.HotRelease{}, nil`,
 	},
+	"MockChartsService.GetMostAnticipatedShows": {
+		body: `	return &contracts.MostAnticipatedShows{
+		Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
+		Shows: []contracts.MostAnticipatedShow{},
+	}, nil`,
+	},
 	"MockChartsService.GetChartsOverview": {
 		body: `	return &contracts.ChartsOverview{
 		TrendingShows:  []contracts.TrendingShow{},

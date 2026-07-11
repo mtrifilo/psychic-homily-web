@@ -79,6 +79,62 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 	return resp, nil
 }
 
+// --- GetMostAnticipatedShows ---
+
+// GetMostAnticipatedShowsRequest is the Huma request for GET /charts/most-anticipated
+type GetMostAnticipatedShowsRequest struct {
+	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// MostAnticipatedShowResponse is a single show in the response. SaveCount is
+// omitted entirely in soonest_upcoming fallback mode — the fallback exists
+// because counts are too sparse to render, so they never appear in it.
+type MostAnticipatedShowResponse struct {
+	ShowID      uint      `json:"show_id"`
+	Title       string    `json:"title"`
+	Slug        string    `json:"slug"`
+	Date        time.Time `json:"date"`
+	VenueName   string    `json:"venue_name"`
+	VenueSlug   string    `json:"venue_slug"`
+	City        string    `json:"city"`
+	ArtistNames []string  `json:"artist_names"`
+	SaveCount   *int      `json:"save_count,omitempty"`
+}
+
+// GetMostAnticipatedShowsResponse is the Huma response for GET /charts/most-anticipated
+type GetMostAnticipatedShowsResponse struct {
+	Body struct {
+		Mode  string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts; soonest_upcoming = date-ordered fallback, counts omitted"`
+		Shows []MostAnticipatedShowResponse `json:"shows"`
+	}
+}
+
+// GetMostAnticipatedShowsHandler handles GET /charts/most-anticipated —
+// upcoming shows over the save floor ranked by saves, or the date-ordered
+// soonest_upcoming fallback when too few qualify. Replaces
+// /charts/trending-shows for the Broadsheet page; the legacy route stays
+// until the M3 frontend switches over.
+func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req *GetMostAnticipatedShowsRequest) (*GetMostAnticipatedShowsResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+
+	data, err := h.chartsService.GetMostAnticipatedShows(limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_most_anticipated_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get most-anticipated shows")
+	}
+
+	resp := &GetMostAnticipatedShowsResponse{}
+	resp.Body.Mode = data.Mode
+	resp.Body.Shows = make([]MostAnticipatedShowResponse, len(data.Shows))
+	for i, s := range data.Shows {
+		// Direct conversion (the structs are field-identical): a field added
+		// to one side without the other breaks the build instead of silently
+		// shipping a zero value.
+		resp.Body.Shows[i] = MostAnticipatedShowResponse(s)
+	}
+	return resp, nil
+}
+
 // --- GetMostActiveArtists ---
 
 // GetMostActiveArtistsRequest is the Huma request for GET /charts/most-active-artists

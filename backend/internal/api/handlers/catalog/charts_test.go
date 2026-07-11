@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -617,5 +618,114 @@ func TestChartsHandler_OnTheRadio_InvalidWindow422(t *testing.T) {
 	}
 	if resp := api.Get("/charts/on-the-radio"); resp.Code != 200 {
 		t.Errorf("expected 200 for absent window, got %d", resp.Code)
+	}
+}
+
+// ============================================================================
+// Tests: GetMostAnticipatedShowsHandler
+// ============================================================================
+
+func TestChartsHandler_MostAnticipated_RankedMapping(t *testing.T) {
+	three := 3
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostAnticipatedShowsFn: func(limit int) (*contracts.MostAnticipatedShows, error) {
+			if limit != 20 {
+				t.Errorf("expected default limit=20, got %d", limit)
+			}
+			return &contracts.MostAnticipatedShows{
+				Mode: contracts.MostAnticipatedModeRanked,
+				Shows: []contracts.MostAnticipatedShow{
+					{ShowID: 1, Title: "Hot Show", Slug: "hot-show", VenueName: "The Spot", City: "Phoenix", ArtistNames: []string{"Band"}, SaveCount: &three},
+				},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetMostAnticipatedShowsHandler(context.Background(), &GetMostAnticipatedShowsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Mode != "ranked" {
+		t.Errorf("expected mode=ranked, got %q", resp.Body.Mode)
+	}
+	if len(resp.Body.Shows) != 1 || resp.Body.Shows[0].SaveCount == nil || *resp.Body.Shows[0].SaveCount != 3 {
+		t.Errorf("unexpected mapping: %+v", resp.Body.Shows)
+	}
+}
+
+func TestChartsHandler_MostAnticipated_FallbackMapping(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostAnticipatedShowsFn: func(limit int) (*contracts.MostAnticipatedShows, error) {
+			return &contracts.MostAnticipatedShows{
+				Mode: contracts.MostAnticipatedModeSoonestUpcoming,
+				Shows: []contracts.MostAnticipatedShow{
+					{ShowID: 2, Title: "Soon Show", Slug: "soon-show", ArtistNames: []string{}},
+				},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetMostAnticipatedShowsHandler(context.Background(), &GetMostAnticipatedShowsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Mode != "soonest_upcoming" {
+		t.Errorf("expected mode=soonest_upcoming, got %q", resp.Body.Mode)
+	}
+	if len(resp.Body.Shows) != 1 || resp.Body.Shows[0].SaveCount != nil {
+		t.Errorf("fallback rows must carry no save count: %+v", resp.Body.Shows)
+	}
+}
+
+func TestChartsHandler_MostAnticipated_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostAnticipatedShowsFn: func(int) (*contracts.MostAnticipatedShows, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetMostAnticipatedShowsHandler(context.Background(), &GetMostAnticipatedShowsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_MostAnticipated_WireShape asserts through the full huma
+// serialization chain that save_count is PRESENT on ranked rows and ABSENT —
+// not null, absent — on fallback rows (the fail-closed dual-shape contract
+// the frontend discriminates on).
+func TestChartsHandler_MostAnticipated_WireShape(t *testing.T) {
+	seven := 7
+	payloads := map[string]*contracts.MostAnticipatedShows{
+		"ranked": {
+			Mode:  contracts.MostAnticipatedModeRanked,
+			Shows: []contracts.MostAnticipatedShow{{ShowID: 1, Title: "Ranked", ArtistNames: []string{}, SaveCount: &seven}},
+		},
+		"fallback": {
+			Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
+			Shows: []contracts.MostAnticipatedShow{{ShowID: 2, Title: "Fallback", ArtistNames: []string{}}},
+		},
+	}
+	current := "ranked"
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostAnticipatedShowsFn: func(int) (*contracts.MostAnticipatedShows, error) {
+			return payloads[current], nil
+		},
+	})
+	_, api := humatest.New(t)
+	huma.Get(api, "/charts/most-anticipated", h.GetMostAnticipatedShowsHandler)
+
+	resp := api.Get("/charts/most-anticipated")
+	if resp.Code != 200 {
+		t.Fatalf("ranked: expected 200, got %d", resp.Code)
+	}
+	if body := resp.Body.String(); !strings.Contains(body, `"save_count":7`) {
+		t.Errorf("ranked wire payload must include save_count: %s", body)
+	}
+
+	current = "fallback"
+	resp = api.Get("/charts/most-anticipated")
+	if resp.Code != 200 {
+		t.Fatalf("fallback: expected 200, got %d", resp.Code)
+	}
+	if body := resp.Body.String(); strings.Contains(body, "save_count") {
+		t.Errorf("fallback wire payload must omit save_count entirely: %s", body)
 	}
 }
