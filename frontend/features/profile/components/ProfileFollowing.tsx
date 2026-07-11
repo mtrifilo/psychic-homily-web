@@ -62,7 +62,7 @@ export function ProfileFollowing({
           isOwner ? (
             <ProfileSectionAction
               label="Manage"
-              href="/following"
+              href="/library?tab=artists"
               ariaLabel="Manage who you follow"
             />
           ) : undefined

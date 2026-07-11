@@ -117,7 +117,7 @@ describe('ProfileFollowing', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows a Manage action linking to /following for the owner only', () => {
+  it('shows a Manage action linking to the Library follows view for the owner only', () => {
     mockUseUserFollowing.mockReturnValue({
       data: {
         following: [
@@ -137,7 +137,7 @@ describe('ProfileFollowing', () => {
       <ProfileFollowing username="alice" isOwner />
     )
     const manage = screen.getByRole('link', { name: /manage who you follow/i })
-    expect(manage).toHaveAttribute('href', '/following')
+    expect(manage).toHaveAttribute('href', '/library?tab=artists')
     unmount()
 
     renderWithProviders(<ProfileFollowing username="alice" />)
