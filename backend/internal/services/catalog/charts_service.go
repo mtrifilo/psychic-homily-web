@@ -138,24 +138,31 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 // nil for all-time. Defaulting for empty/unknown values is owned by
 // ChartWindow.OrDefault so handler and service can't drift apart.
 func chartWindowStart(window contracts.ChartWindow, now time.Time) *time.Time {
+	days := 0
 	switch window.OrDefault() {
 	case contracts.ChartWindowMonth:
-		t := now.AddDate(0, 0, -30)
-		return &t
+		days = 30
 	case contracts.ChartWindowAllTime:
 		return nil
-	default: // contracts.ChartWindowQuarter
-		t := now.AddDate(0, 0, -90)
-		return &t
+	case contracts.ChartWindowQuarter:
+		days = 90
+	default:
+		// Unreachable while OrDefault enumerates every window; keeps quarter
+		// semantics if a new ChartWindow value lands there without a case here.
+		days = 90
 	}
+	// Truncate to midnight UTC: event dates are midnight timestamps, so a
+	// time-of-day lower bound would exclude the show exactly N days ago.
+	t := now.AddDate(0, 0, -days).Truncate(24 * time.Hour)
+	return &t
 }
 
-// GetMostActiveArtists returns artists ranked by approved shows played within
-// the window. Shows dated after now are excluded — but event dates are
-// midnight timestamps, so a show later today already counts as played.
-// Headline share uses the same predicate as the discovery pipeline:
-// set_type = 'headliner' OR position = 0. Artists with zero shows in the
-// window are never returned.
+// GetMostActiveArtists returns artists ranked by approved, non-cancelled
+// shows played within the window. Shows dated after now are excluded — but
+// event dates are midnight timestamps, so a show later today already counts
+// as played. Headline share uses the same predicate as the discovery
+// pipeline: set_type = 'headliner' OR position = 0. Artists with zero shows
+// in the window are never returned.
 func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -182,11 +189,12 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 			COALESCE(a.city, '') AS city,
 			COALESCE(a.state, '') AS state,
 			COUNT(*) AS show_count,
-			SUM(CASE WHEN sa.set_type = 'headliner' OR sa.position = 0 THEN 1 ELSE 0 END) AS headline_count
+			COALESCE(SUM(CASE WHEN sa.set_type = 'headliner' OR sa.position = 0 THEN 1 ELSE 0 END), 0) AS headline_count
 		FROM show_artists sa
 		JOIN artists a ON a.id = sa.artist_id
 		JOIN shows s ON s.id = sa.show_id
 		WHERE s.status = ?
+			AND s.is_cancelled = FALSE
 			AND s.event_date <= ?`
 	args := []any{catalogm.ShowStatusApproved, now}
 	if start != nil {
@@ -244,6 +252,7 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 			LEFT JOIN venues v ON v.id = sv.venue_id
 			WHERE sa.artist_id IN ?
 				AND s.status = ?
+				AND s.is_cancelled = FALSE
 				AND s.event_date <= ?`
 		lastArgs := []any{artistIDs, catalogm.ShowStatusApproved, now}
 		if start != nil {

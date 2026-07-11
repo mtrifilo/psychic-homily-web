@@ -614,21 +614,23 @@ func (suite *ChartsServiceIntegrationTestSuite) addArtistToShow(showID, artistID
 }
 
 func TestChartWindowStart(t *testing.T) {
+	// Deliberately mid-day: the start bound must truncate to midnight UTC so a
+	// midnight-timestamped show exactly N days ago stays inside the window.
 	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 
 	month := chartWindowStart(contracts.ChartWindowMonth, now)
-	if month == nil || !month.Equal(now.AddDate(0, 0, -30)) {
+	if month == nil || !month.Equal(time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("month window: got %v", month)
 	}
 	quarter := chartWindowStart(contracts.ChartWindowQuarter, now)
-	if quarter == nil || !quarter.Equal(now.AddDate(0, 0, -90)) {
+	if quarter == nil || !quarter.Equal(time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("quarter window: got %v", quarter)
 	}
 	if allTime := chartWindowStart(contracts.ChartWindowAllTime, now); allTime != nil {
 		t.Fatalf("all_time window: expected nil lower bound, got %v", allTime)
 	}
 	// Empty/unknown values fall back to quarter via ChartWindow.OrDefault.
-	if def := chartWindowStart(contracts.ChartWindow(""), now); def == nil || !def.Equal(now.AddDate(0, 0, -90)) {
+	if def := chartWindowStart(contracts.ChartWindow(""), now); def == nil || !def.Equal(*quarter) {
 		t.Fatalf("default window: got %v", def)
 	}
 	if got := contracts.ChartWindow("bogus").OrDefault(); got != contracts.ChartWindowQuarter {
@@ -789,4 +791,41 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_LastSho
 		suite.Equal(2, artists[0].ShowCount)
 		suite.Equal("Evening Venue", artists[0].LastShowVenue, "higher show id wins the same-date tie on every request")
 	}
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_ExcludesCancelledShows() {
+	user := suite.createUser("maa-cancelled@test.com")
+	venue := suite.createVenue("Cancelled Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Cancels Sometimes")
+
+	now := time.Now().UTC()
+	suite.createApprovedShow("Played Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -20))
+	cancelled := suite.createApprovedShow("Cancelled Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(1, artists[0].ShowCount, "cancelled shows were never played")
+	suite.Require().NotNil(artists[0].LastShowDate)
+	suite.WithinDuration(now.AddDate(0, 0, -20), *artists[0].LastShowDate, time.Hour,
+		"a cancelled show must not be the last show either")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowEdgeDayIncluded() {
+	user := suite.createUser("maa-edge@test.com")
+	venue := suite.createVenue("Edge Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Edge Case")
+
+	// Event dates are midnight timestamps; the window start truncates to
+	// midnight, so the show exactly 90 days ago is IN, 91 days ago is OUT.
+	now := time.Now().UTC()
+	midnight := now.Truncate(24 * time.Hour)
+	suite.createApprovedShow("Edge Show", venue.ID, artist.ID, user.ID, midnight.AddDate(0, 0, -90))
+	suite.createApprovedShow("Outside Show", venue.ID, artist.ID, user.ID, midnight.AddDate(0, 0, -91))
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(1, artists[0].ShowCount, "exactly-90-days-ago is inside the quarter window; 91 is not")
 }

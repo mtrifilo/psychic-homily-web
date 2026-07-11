@@ -12,7 +12,8 @@ import "time"
 //
 // The string values are duplicated in `enum:"..."` struct tags on chart
 // request structs (api/handlers/catalog/charts.go) — Go tags must be literals,
-// so adding a value here means updating those tags too.
+// so adding a value here means updating those tags, OrDefault below, AND the
+// chartWindowStart switch in services/catalog/charts_service.go.
 type ChartWindow string
 
 const (

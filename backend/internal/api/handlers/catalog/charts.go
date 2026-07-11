@@ -108,7 +108,7 @@ type MostActiveArtistResponse struct {
 // GetMostActiveArtistsResponse is the Huma response for GET /charts/most-active-artists
 type GetMostActiveArtistsResponse struct {
 	Body struct {
-		Window  string                         `json:"window"`
+		Window  string                     `json:"window"`
 		Artists []MostActiveArtistResponse `json:"artists"`
 	}
 }
