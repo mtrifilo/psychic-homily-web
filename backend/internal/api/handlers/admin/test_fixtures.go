@@ -48,10 +48,10 @@ type testFixtureScope struct {
 // testFixtureAllowlist is the set of scopes this endpoint can reset. Aligned
 // with the physical schema as of 2026-04:
 //
-//   - user_bookmarks backs saves, favorite venues, follows (artist/venue/
-//     label/festival), and going/interested. Resetting it wipes all five
-//     bookmark-backed flows at once. Coarser than per-action deletes, but
-//     exactly what a fresh-slate E2E run wants.
+//   - user_bookmarks backs saves, favorite venues, and follows (artist/venue/
+//     label/festival). Resetting it wipes every bookmark-backed flow at once.
+//     Coarser than per-action deletes, but exactly what a fresh-slate E2E run
+//     wants.
 //   - collections cascades to collection_items via FK ON DELETE CASCADE, but
 //     tests also add items to OTHER users' collections; we clear those via
 //     collection_items separately.

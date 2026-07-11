@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Calendar, MapPin, Users, Eye } from 'lucide-react'
+import { Calendar, MapPin, Heart } from 'lucide-react'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import type { TrendingShow } from '../types'
 
@@ -58,13 +58,9 @@ export function TrendingShowsList({ shows, compact = false }: TrendingShowsListP
               )}
             </div>
             <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1" title="Going">
-                <Users className="h-3 w-3" />
-                {show.going_count}
-              </span>
-              <span className="flex items-center gap-1" title="Interested">
-                <Eye className="h-3 w-3" />
-                {show.interested_count}
+              <span className="flex items-center gap-1" title="Saved">
+                <Heart className="h-3 w-3" />
+                {show.save_count}
               </span>
             </div>
           </Link>

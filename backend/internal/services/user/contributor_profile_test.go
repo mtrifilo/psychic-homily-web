@@ -46,7 +46,6 @@ func TestValidatePrivacySettings(t *testing.T) {
 		ps := contracts.PrivacySettings{
 			Contributions:   contracts.PrivacyVisible,
 			SavedShows:      contracts.PrivacyVisible,
-			Attendance:      contracts.PrivacyVisible,
 			Following:       contracts.PrivacyVisible,
 			Collections:     contracts.PrivacyVisible,
 			LastActive:      contracts.PrivacyVisible,
@@ -59,7 +58,6 @@ func TestValidatePrivacySettings(t *testing.T) {
 		ps := contracts.PrivacySettings{
 			Contributions:   contracts.PrivacyHidden,
 			SavedShows:      contracts.PrivacyHidden,
-			Attendance:      contracts.PrivacyHidden,
 			Following:       contracts.PrivacyHidden,
 			Collections:     contracts.PrivacyHidden,
 			LastActive:      contracts.PrivacyHidden,
@@ -632,29 +630,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.Equal(int64(2), stats.CollectionSubscriptions)
 }
 
-func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ShowsAttended() {
-	user := suite.createTestUser("attendee")
-
-	// Mark shows as "going" via bookmarks
-	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
-		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
-		EntityID: 1, Action: engagementm.BookmarkActionGoing,
-	}).Error)
-	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
-		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
-		EntityID: 2, Action: engagementm.BookmarkActionGoing,
-	}).Error)
-	// "interested" should not count as attended
-	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
-		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
-		EntityID: 3, Action: engagementm.BookmarkActionInterested,
-	}).Error)
-
-	stats, err := suite.profileService.GetContributionStats(user.ID)
-	suite.Require().NoError(err)
-	suite.Equal(int64(2), stats.ShowsAttended)
-}
-
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_Revisions() {
 	user := suite.createTestUser("reviser")
 
@@ -1108,7 +1083,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 	settings := contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyVisible,
-		Attendance:      contracts.PrivacyCountOnly,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyCountOnly,
 		LastActive:      contracts.PrivacyHidden,
@@ -1121,7 +1095,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 	suite.Require().NotNil(result)
 	suite.Equal(contracts.PrivacyHidden, result.Contributions)
 	suite.Equal(contracts.PrivacyVisible, result.SavedShows)
-	suite.Equal(contracts.PrivacyCountOnly, result.Attendance)
 	suite.Equal(contracts.PrivacyHidden, result.Following)
 	suite.Equal(contracts.PrivacyCountOnly, result.Collections)
 	suite.Equal(contracts.PrivacyHidden, result.LastActive)
@@ -1134,7 +1107,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 	settings := contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -1185,7 +1157,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.setPrivacySettings(user.ID, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,
@@ -1211,7 +1182,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.setPrivacySettings(user.ID, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyCountOnly,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyVisible,
@@ -1235,7 +1205,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.setPrivacySettings(user.ID, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyHidden,
-		Attendance:      contracts.PrivacyHidden,
 		Following:       contracts.PrivacyHidden,
 		Collections:     contracts.PrivacyHidden,
 		LastActive:      contracts.PrivacyHidden,

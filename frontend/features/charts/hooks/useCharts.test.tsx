@@ -49,7 +49,7 @@ describe('useCharts hooks', () => {
     it('fetches charts overview data', async () => {
       const mockData = {
         trending_shows: [
-          { show_id: 1, title: 'Show A', slug: 'show-a', date: '2026-04-01T20:00:00Z', venue_name: 'Venue A', venue_slug: 'venue-a', city: 'Phoenix', going_count: 10, interested_count: 25, total_attendance: 35 },
+          { show_id: 1, title: 'Show A', slug: 'show-a', date: '2026-04-01T20:00:00Z', venue_name: 'Venue A', venue_slug: 'venue-a', city: 'Phoenix', save_count: 10 },
         ],
         popular_artists: [
           { artist_id: 1, name: 'Artist A', slug: 'artist-a', image_url: '', follow_count: 50, upcoming_show_count: 3, score: 53 },
@@ -78,7 +78,7 @@ describe('useCharts hooks', () => {
     it('fetches trending shows without limit', async () => {
       const mockData = {
         shows: [
-          { show_id: 1, title: 'Show A', slug: 'show-a', date: '2026-04-01T20:00:00Z', venue_name: 'Venue A', venue_slug: 'venue-a', city: 'Phoenix', going_count: 10, interested_count: 25, total_attendance: 35 },
+          { show_id: 1, title: 'Show A', slug: 'show-a', date: '2026-04-01T20:00:00Z', venue_name: 'Venue A', venue_slug: 'venue-a', city: 'Phoenix', save_count: 10 },
         ],
       }
       mockApiRequest.mockResolvedValueOnce(mockData)

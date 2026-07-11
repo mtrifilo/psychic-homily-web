@@ -43,7 +43,6 @@ export {
   useActivityHeatmap,
   usePercentileRankings,
   useUserFollowing,
-  useUserAttendedShows,
   useUserFieldNotes,
   useOwnContributorProfile,
   useOwnContributions,

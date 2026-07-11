@@ -77,18 +77,12 @@ var customDefaults = map[string]methodDefault{
 	"MockShowAdminService.BatchRejectShows": {
 		body: `	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil`,
 	},
-	"MockAttendanceService.GetAttendanceCounts": {
-		body: `	return &contracts.AttendanceCountsResponse{ShowID: showID}, nil`,
-	},
-	"MockAttendanceService.GetBatchAttendanceCounts": {
-		body: `	result := make(map[uint]*contracts.AttendanceCountsResponse)
+	"MockSavedShowService.GetBatchSaveCounts": {
+		body: `	result := make(map[uint]int)
 	for _, id := range showIDs {
-		result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
+		result[id] = 0
 	}
 	return result, nil`,
-	},
-	"MockAttendanceService.GetBatchUserAttendance": {
-		body: `	return make(map[uint]string), nil`,
 	},
 	"MockFollowService.GetBatchFollowerCounts": {
 		body: `	result := make(map[uint]int64)
@@ -173,7 +167,7 @@ var customDefaults = map[string]methodDefault{
 		RequestVotes:    []contracts.EngagementMetric{},
 		Revisions:       []contracts.EngagementMetric{},
 		Follows:         []contracts.EngagementMetric{},
-		Attendance:      []contracts.EngagementMetric{},
+		Saves:           []contracts.EngagementMetric{},
 	}, nil`,
 	},
 	"MockAnalyticsService.GetCommunityHealth": {

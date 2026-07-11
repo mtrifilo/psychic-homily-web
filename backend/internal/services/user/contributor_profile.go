@@ -51,7 +51,6 @@ func ValidatePrivacySettings(ps contracts.PrivacySettings) error {
 	fields := map[string]contracts.PrivacyLevel{
 		"contributions":    ps.Contributions,
 		"saved_shows":      ps.SavedShows,
-		"attendance":       ps.Attendance,
 		"following":        ps.Following,
 		"collections":      ps.Collections,
 		"last_active":      ps.LastActive,
@@ -371,9 +370,6 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	// Community participation: collections
 	s.db.Model(&communitym.CollectionItem{}).Where("added_by_user_id = ?", userID).Count(&stats.CollectionItemsAdded)
 	s.db.Model(&communitym.CollectionSubscriber{}).Where("user_id = ?", userID).Count(&stats.CollectionSubscriptions)
-
-	// Shows attended (user_bookmarks with action = 'going')
-	s.db.Model(&engagementm.UserBookmark{}).Where("user_id = ? AND action = ?", userID, engagementm.BookmarkActionGoing).Count(&stats.ShowsAttended)
 
 	// Reports filed (entity_reports + show_reports + artist_reports)
 	var entityReportsFiled, showReportsFiled, artistReportsFiled int64

@@ -19,7 +19,6 @@ function makeStats(overrides: Partial<ContributionStats> = {}): ContributionStat
     request_votes_cast: 0,
     collection_items_added: 0,
     collection_subscriptions: 0,
-    shows_attended: 0,
     reports_filed: 0,
     reports_resolved: 0,
     followers_count: 0,
@@ -127,12 +126,6 @@ describe('ContributionStatsGrid', () => {
     expect(screen.getByText('Subscriptions')).toBeInTheDocument()
   })
 
-  it('renders stat card for shows_attended', () => {
-    render(<ContributionStatsGrid stats={makeStats({ shows_attended: 25 })} />)
-    expect(screen.getByText('25')).toBeInTheDocument()
-    expect(screen.getByText('Shows Attended')).toBeInTheDocument()
-  })
-
   it('renders stat card for reports_filed', () => {
     render(<ContributionStatsGrid stats={makeStats({ reports_filed: 5 })} />)
     expect(screen.getByText('5')).toBeInTheDocument()
@@ -199,7 +192,6 @@ describe('ContributionStatsGrid', () => {
           request_votes_cast: 9,
           collection_items_added: 11,
           collection_subscriptions: 3,
-          shows_attended: 15,
           reports_filed: 2,
           reports_resolved: 5,
           followers_count: 8,
@@ -224,7 +216,6 @@ describe('ContributionStatsGrid', () => {
     expect(screen.getByText('Request Votes')).toBeInTheDocument()
     expect(screen.getByText('Collection Items')).toBeInTheDocument()
     expect(screen.getByText('Subscriptions')).toBeInTheDocument()
-    expect(screen.getByText('Shows Attended')).toBeInTheDocument()
     expect(screen.getByText('Reports Filed')).toBeInTheDocument()
     expect(screen.getByText('Reports Resolved')).toBeInTheDocument()
     expect(screen.getByText('Followers')).toBeInTheDocument()

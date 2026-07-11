@@ -53,7 +53,6 @@ type ServiceContainer struct {
 	Tag                    *catalog.TagService
 	ArtistRelationship     *catalog.ArtistRelationshipService
 	Scene                  *catalog.SceneService
-	Attendance             *engagement.AttendanceService
 	Comment                *engagement.CommentService
 	CommentVote            *engagement.CommentVoteService
 	CommentSubscription    *engagement.CommentSubscriptionService
@@ -285,7 +284,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Tag:                    tagSvc,
 		ArtistRelationship:     artistRelSvc,
 		Scene:                  sceneSvc,
-		Attendance:             engagement.NewAttendanceService(database),
 		Comment:                commentSvc,
 		CommentVote:            engagement.NewCommentVoteService(database),
 		CommentSubscription:    engagement.NewCommentSubscriptionService(database),

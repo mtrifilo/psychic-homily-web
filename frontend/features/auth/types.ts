@@ -19,7 +19,6 @@ export type UserTier = 'new_user' | 'contributor' | 'trusted_contributor' | 'loc
 export interface PrivacySettings {
   contributions: PrivacyLevel
   saved_shows: PrivacyLevel
-  attendance: PrivacyLevel
   following: PrivacyLevel
   collections: PrivacyLevel
   last_active: 'visible' | 'hidden'
@@ -44,7 +43,6 @@ export interface ContributionStats {
   request_votes_cast: number
   collection_items_added: number
   collection_subscriptions: number
-  shows_attended: number
 
   // Reports
   reports_filed: number
@@ -150,7 +148,6 @@ export interface UpdateVisibilityInput {
 export interface UpdatePrivacyInput {
   contributions?: PrivacyLevel
   saved_shows?: PrivacyLevel
-  attendance?: PrivacyLevel
   following?: PrivacyLevel
   collections?: PrivacyLevel
   last_active?: 'visible' | 'hidden'
@@ -201,25 +198,6 @@ export interface FollowingEntity {
 
 export interface UserFollowingResponse {
   following: FollowingEntity[]
-  total: number
-  limit: number
-  offset: number
-}
-
-export interface AttendedShow {
-  show_id: number
-  title: string
-  slug: string
-  event_date: string
-  status: string
-  venue_name: string | null
-  venue_slug: string | null
-  city: string | null
-  state: string | null
-}
-
-export interface AttendedShowsResponse {
-  shows: AttendedShow[]
   total: number
   limit: number
   offset: number

@@ -17,30 +17,26 @@ import (
 
 // ContributorProfileHandler handles contributor profile HTTP requests.
 type ContributorProfileHandler struct {
-	profileService    contracts.ContributorProfileServiceInterface
-	userService       contracts.UserServiceInterface
-	followService     contracts.FollowServiceInterface
-	attendanceService contracts.AttendanceServiceInterface
-	fieldNoteService  contracts.FieldNoteServiceInterface
+	profileService   contracts.ContributorProfileServiceInterface
+	userService      contracts.UserServiceInterface
+	followService    contracts.FollowServiceInterface
+	fieldNoteService contracts.FieldNoteServiceInterface
 }
 
 // NewContributorProfileHandler creates a new contributor profile handler.
-// followService / attendanceService / fieldNoteService back the public
-// profile list endpoints (PSY-1046); tests that don't exercise those
-// handlers may pass nil for them.
+// followService / fieldNoteService back the public profile list endpoints
+// (PSY-1046); tests that don't exercise those handlers may pass nil for them.
 func NewContributorProfileHandler(
 	profileService contracts.ContributorProfileServiceInterface,
 	userService contracts.UserServiceInterface,
 	followService contracts.FollowServiceInterface,
-	attendanceService contracts.AttendanceServiceInterface,
 	fieldNoteService contracts.FieldNoteServiceInterface,
 ) *ContributorProfileHandler {
 	return &ContributorProfileHandler{
-		profileService:    profileService,
-		userService:       userService,
-		followService:     followService,
-		attendanceService: attendanceService,
-		fieldNoteService:  fieldNoteService,
+		profileService:   profileService,
+		userService:      userService,
+		followService:    followService,
+		fieldNoteService: fieldNoteService,
 	}
 }
 
@@ -195,21 +191,6 @@ type GetUserFollowingResponse struct {
 		Total     int64                                `json:"total"`
 		Limit     int                                  `json:"limit"`
 		Offset    int                                  `json:"offset"`
-	}
-}
-
-type GetUserAttendedShowsRequest struct {
-	Username string `path:"username" doc:"Username of the contributor"`
-	Limit    int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of shows per page (max 100)"`
-	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
-}
-
-type GetUserAttendedShowsResponse struct {
-	Body struct {
-		Shows  []*contracts.AttendingShowResponse `json:"shows"`
-		Total  int64                              `json:"total"`
-		Limit  int                                `json:"limit"`
-		Offset int                                `json:"offset"`
 	}
 }
 
@@ -948,71 +929,6 @@ func (h *ContributorProfileHandler) GetUserFollowingHandler(ctx context.Context,
 
 	resp := emptyBody(total)
 	resp.Body.Following = following
-	return resp, nil
-}
-
-// GetUserAttendedShowsHandler handles GET /users/{username}/attended-shows
-// (PSY-1046). The concert diary: past approved shows the user marked "going",
-// most recent first, gated by the profile's `attendance` privacy setting
-// (default hidden).
-func (h *ContributorProfileHandler) GetUserAttendedShowsHandler(ctx context.Context, req *GetUserAttendedShowsRequest) (*GetUserAttendedShowsResponse, error) {
-	requestID := logger.GetRequestID(ctx)
-
-	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
-	if err != nil {
-		return nil, err
-	}
-
-	emptyBody := func(total int64) *GetUserAttendedShowsResponse {
-		return &GetUserAttendedShowsResponse{
-			Body: struct {
-				Shows  []*contracts.AttendingShowResponse `json:"shows"`
-				Total  int64                              `json:"total"`
-				Limit  int                                `json:"limit"`
-				Offset int                                `json:"offset"`
-			}{
-				Shows:  []*contracts.AttendingShowResponse{},
-				Total:  total,
-				Limit:  req.Limit,
-				Offset: req.Offset,
-			},
-		}
-	}
-
-	if !isOwner {
-		switch granularPrivacy(targetUser).Attendance {
-		case contracts.PrivacyHidden:
-			return nil, huma.Error404NotFound("User not found")
-		case contracts.PrivacyCountOnly:
-			_, total, err := h.attendanceService.GetUserAttendedShows(targetUser.ID, 1, 0)
-			if err != nil {
-				logger.FromContext(ctx).Error("get_user_attended_shows_count_failed",
-					"user_id", targetUser.ID,
-					"error", err.Error(),
-					"request_id", requestID,
-				)
-				return nil, huma.Error500InternalServerError(
-					fmt.Sprintf("Failed to get attended shows (request_id: %s)", requestID),
-				)
-			}
-			return emptyBody(total), nil
-		}
-	}
-
-	shows, total, err := h.attendanceService.GetUserAttendedShows(targetUser.ID, req.Limit, req.Offset)
-	if err != nil {
-		logger.FromContext(ctx).Error("get_user_attended_shows_failed",
-			"user_id", targetUser.ID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to get attended shows (request_id: %s)", requestID),
-		)
-	}
-
-	resp := emptyBody(total)
-	resp.Body.Shows = shows
 	return resp, nil
 }
 

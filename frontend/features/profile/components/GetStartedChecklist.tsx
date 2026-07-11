@@ -14,8 +14,8 @@ export function GetStartedChecklist() {
   const steps = [
     {
       n: '1',
-      title: 'Log a show you attended',
-      sub: 'Start your concert diary — the heart of your profile',
+      title: "Save a show you're into",
+      sub: 'Build your list — and add to the show’s buzz',
       href: '/shows',
       cta: 'Find shows',
     },

@@ -109,7 +109,7 @@ func (suite *BookmarkServiceIntegrationTestSuite) TestCreateBookmark_DifferentAc
 	err := suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionSave)
 	suite.Require().NoError(err)
 
-	err = suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionGoing)
+	err = suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionBookmark)
 	suite.Require().NoError(err)
 
 	var count int64
@@ -193,7 +193,7 @@ func (suite *BookmarkServiceIntegrationTestSuite) TestIsBookmarked_WrongAction()
 
 	suite.Require().NoError(suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionSave))
 
-	result, err := suite.bookmarkService.IsBookmarked(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionGoing)
+	result, err := suite.bookmarkService.IsBookmarked(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionBookmark)
 
 	suite.Require().NoError(err)
 	suite.False(result)
@@ -303,7 +303,7 @@ func (suite *BookmarkServiceIntegrationTestSuite) TestGetUserBookmarks_FiltersBy
 	// Create different types of bookmarks
 	suite.Require().NoError(suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 1, engagementm.BookmarkActionSave))
 	suite.Require().NoError(suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityVenue, 1, engagementm.BookmarkActionFollow))
-	suite.Require().NoError(suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 2, engagementm.BookmarkActionGoing))
+	suite.Require().NoError(suite.bookmarkService.CreateBookmark(user.ID, engagementm.BookmarkEntityShow, 2, engagementm.BookmarkActionBookmark))
 
 	// Should only return show saves
 	bookmarks, total, err := suite.bookmarkService.GetUserBookmarks(user.ID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, 10, 0)

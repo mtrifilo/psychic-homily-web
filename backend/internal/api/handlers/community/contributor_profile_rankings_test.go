@@ -36,7 +36,7 @@ func TestGetPercentileRankings_PublicSuccess(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewContributorProfileHandler(mockProfile, mockUsers, nil, nil, nil)
+	h := NewContributorProfileHandler(mockProfile, mockUsers, nil, nil)
 
 	// Anonymous viewer — public profile falls through to full rankings.
 	resp, err := h.GetPercentileRankingsHandler(context.Background(), &GetPercentileRankingsRequest{Username: "johndoe"})
@@ -54,7 +54,7 @@ func TestGetPercentileRankings_UserNotFound(t *testing.T) {
 			return nil, nil // not found → handler returns 404
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil)
 
 	_, err := h.GetPercentileRankingsHandler(context.Background(), &GetPercentileRankingsRequest{Username: "ghost"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -66,7 +66,7 @@ func TestGetPercentileRankings_PrivateProfileHiddenFromOthers(t *testing.T) {
 			return &authm.User{ID: 5, ProfileVisibility: "private"}, nil
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil)
 
 	// Anonymous (non-owner) viewer → private profile masked as 404.
 	_, err := h.GetPercentileRankingsHandler(context.Background(), &GetPercentileRankingsRequest{Username: "private-user"})
@@ -79,7 +79,7 @@ func TestGetPercentileRankings_UserLookupError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil)
 
 	_, err := h.GetPercentileRankingsHandler(context.Background(), &GetPercentileRankingsRequest{Username: "johndoe"})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -96,7 +96,7 @@ func TestGetPercentileRankings_RankingsServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewContributorProfileHandler(mockProfile, mockUsers, nil, nil, nil)
+	h := NewContributorProfileHandler(mockProfile, mockUsers, nil, nil)
 
 	_, err := h.GetPercentileRankingsHandler(context.Background(), &GetPercentileRankingsRequest{Username: "johndoe"})
 	testhelpers.AssertHumaError(t, err, 500)

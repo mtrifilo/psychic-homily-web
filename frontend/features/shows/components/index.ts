@@ -1,5 +1,3 @@
-export { AttendanceButton } from './AttendanceButton'
-export type { AttendanceButtonProps } from './AttendanceButton'
 export { ShowDetail } from './ShowDetail'
 export { ShowHeader } from './ShowHeader'
 export { ShowActions } from './ShowActions'

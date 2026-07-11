@@ -33,7 +33,6 @@ function makeStats(
     request_votes_cast: 0,
     collection_items_added: 0,
     collection_subscriptions: 0,
-    shows_attended: 0,
     reports_filed: 0,
     reports_resolved: 0,
     followers_count: 0,
@@ -56,12 +55,10 @@ describe('ProfileStatsSidebar', () => {
     render(
       <ProfileStatsSidebar
         username="alice"
-        stats={makeStats({ shows_attended: 127, total_contributions: 340 })}
+        stats={makeStats({ total_contributions: 340 })}
         collectionsTotal={8}
       />
     )
-    expect(screen.getByText('127')).toBeInTheDocument()
-    expect(screen.getByText('shows attended')).toBeInTheDocument()
     expect(screen.getByText('8')).toBeInTheDocument()
     expect(screen.getByText('collections')).toBeInTheDocument()
     expect(screen.getByText('340')).toBeInTheDocument()
@@ -158,7 +155,7 @@ describe('ProfileStatsSidebar', () => {
           isOwner
         />
       )
-      expect(screen.getAllByText('0')).toHaveLength(3)
+      expect(screen.getAllByText('0')).toHaveLength(2)
       expect(
         screen.getByText(
           'Log a show or follow an artist and your profile starts filling in.'

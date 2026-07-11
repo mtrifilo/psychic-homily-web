@@ -143,6 +143,10 @@ export function getQueryClient() {
   }
 }
 
+// Shared by queryKeys.savedShows.countBatch and its prefix, so the optimistic
+// update in useSaveShowToggle patches exactly the keys the query writes.
+const SAVED_SHOWS_COUNT_BATCH_PREFIX = ['savedShows', 'countBatch'] as const
+
 // Query key factory for consistent key generation
 export const queryKeys = {
   // Authentication queries
@@ -231,10 +235,18 @@ export const queryKeys = {
   savedShows: {
     all: ['savedShows'] as const,
     list: (userId?: string) => ['savedShows', 'list', userId] as const,
-    check: (showId: string | number) =>
-      ['savedShows', 'check', String(showId)] as const,
-    batch: (showIds: number[]) =>
-      ['savedShows', 'batch', showIds] as const,
+    // Public save counts. `isAuthenticated` is part of BOTH keys because the
+    // same endpoint returns is_saved only for authenticated callers — without it
+    // an anonymous cache entry would survive login and report is_saved: false
+    // for a show the user had already saved.
+    count: (showId: number, isAuthenticated: boolean) =>
+      ['savedShows', 'count', isAuthenticated, showId] as const,
+    // Prefix, exported so the optimistic-update path can patch every cached
+    // batch without re-typing the key segments (a rename here would otherwise
+    // silently stop matching).
+    countBatchPrefix: SAVED_SHOWS_COUNT_BATCH_PREFIX,
+    countBatch: (showIds: number[], isAuthenticated: boolean) =>
+      [...SAVED_SHOWS_COUNT_BATCH_PREFIX, isAuthenticated, showIds] as const,
   },
 
   // User's submitted shows
@@ -277,8 +289,6 @@ export const queryKeys = {
     // fetch one fixed page (API max 100) and slice client-side. A second
     // consumer with a different limit would get the first-mounted page
     // size; key on limit if that ever happens (PSY-1062).
-    attendedShows: (username: string) =>
-      ['contributor', 'attendedShows', username] as const,
     fieldNotes: (username: string) => ['contributor', 'fieldNotes', username] as const,
   },
 
@@ -347,14 +357,6 @@ export const queryKeys = {
     // ambient,shoegaze share a cache entry (intersection is symmetric).
     intersection: (slugs: string[], match: string, previewLimit?: number) =>
       ['tags', 'intersection', [...slugs].sort().join(','), match, previewLimit ?? null] as const,
-  },
-
-  // Attendance (going/interested) queries
-  attendance: {
-    all: ['attendance'] as const,
-    show: (showId: number) => ['attendance', 'show', showId] as const,
-    batch: (showIds: number[]) => ['attendance', 'batch', ...showIds] as const,
-    myShows: (params?: Record<string, unknown>) => ['attendance', 'my-shows', params] as const,
   },
 
   // Follow queries
@@ -534,10 +536,6 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate entity tag queries
   entityTags: (entityType: string, entityId: number) =>
     queryClient.invalidateQueries({ queryKey: ['tags', 'entityTags', entityType, entityId] }),
-
-  // Invalidate attendance queries
-  attendance: () =>
-    queryClient.invalidateQueries({ queryKey: ['attendance'] }),
 
   // Invalidate follow queries
   follows: () =>

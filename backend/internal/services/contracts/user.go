@@ -141,7 +141,6 @@ const (
 type PrivacySettings struct {
 	Contributions   PrivacyLevel `json:"contributions"`
 	SavedShows      PrivacyLevel `json:"saved_shows"`
-	Attendance      PrivacyLevel `json:"attendance"`
 	Following       PrivacyLevel `json:"following"`
 	Collections     PrivacyLevel `json:"collections"`
 	LastActive      PrivacyLevel `json:"last_active"`
@@ -150,18 +149,15 @@ type PrivacySettings struct {
 
 // DefaultPrivacySettings returns the default privacy configuration.
 //
-// Following and Attendance default to visible (PSY-1045, 2026-06-09 product
-// decision): the content-first profile leads with what a user follows and
-// the shows they've attended, so the defaults expose them. This is a
-// deliberate posture change — users whose stored privacy_settings are NULL
-// (never customized) newly expose these lists; users who explicitly chose a
-// level are untouched. SavedShows stays hidden (a private watchlist, not an
-// identity surface).
+// Following defaults to visible (2026-06-09 product decision): the
+// content-first profile leads with what a user follows, so the default exposes
+// it. SavedShows stays hidden — a saved show is a private watchlist entry, not
+// an identity surface. Only the per-show save COUNT is public, and that is an
+// aggregate that never names who saved.
 func DefaultPrivacySettings() PrivacySettings {
 	return PrivacySettings{
 		Contributions:   PrivacyVisible,
 		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyVisible,
 		Following:       PrivacyVisible,
 		Collections:     PrivacyVisible,
 		LastActive:      PrivacyVisible,
@@ -188,7 +184,6 @@ type ContributionStats struct {
 	RequestVotesCast        int64 `json:"request_votes_cast"`
 	CollectionItemsAdded    int64 `json:"collection_items_added"`
 	CollectionSubscriptions int64 `json:"collection_subscriptions"`
-	ShowsAttended           int64 `json:"shows_attended"`
 
 	// Reports
 	ReportsFiled    int64 `json:"reports_filed"`

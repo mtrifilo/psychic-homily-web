@@ -134,12 +134,6 @@ vi.mock('./ReportShowButton', () => ({
   ReportShowButton: () => <button data-testid="report-button">Report</button>,
 }))
 
-vi.mock('./AttendanceButton', () => ({
-  AttendanceButton: ({ showId }: { showId: number }) => (
-    <div data-testid="attendance-button">Attendance {showId}</div>
-  ),
-}))
-
 vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
 }))

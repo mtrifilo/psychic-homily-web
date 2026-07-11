@@ -13,8 +13,7 @@ import (
 
 // ============================================================================
 // PSY-1046 public profile list handlers
-// (GetUserFollowingHandler / GetUserAttendedShowsHandler /
-//  GetUserFieldNotesHandler)
+// (GetUserFollowingHandler / GetUserFieldNotesHandler)
 //
 // The full privacy matrix (stored defaults, hidden, count_only, owner
 // bypass, private-profile master gate, SQL semantics) is exercised against a
@@ -27,8 +26,8 @@ import (
 // listsMockUserService returns a MockUserService whose lookup resolves to a
 // public-profile user with the given (optional) stored privacy settings.
 // settings == nil leaves PrivacySettings NULL, so granularPrivacy falls back
-// to the defaults (all list fields visible since PSY-1045 flipped
-// following/attendance to visible, 2026-06-09).
+// to the defaults (following visible since PSY-1045 flipped it from
+// count_only, 2026-06-09).
 func listsMockUserService(t *testing.T, id uint, settings *contracts.PrivacySettings) *testhelpers.MockUserService {
 	t.Helper()
 	return &testhelpers.MockUserService{
@@ -47,22 +46,20 @@ func listsMockUserService(t *testing.T, id uint, settings *contracts.PrivacySett
 	}
 }
 
-// listsVisibleSettings returns stored settings with the two list-relevant
-// fields explicitly visible (redundant with the post-PSY-1045 defaults, but
-// explicit so these tests don't silently change meaning if defaults move).
+// listsVisibleSettings returns stored settings with the list-relevant field
+// explicitly visible (redundant with the post-PSY-1045 default, but explicit
+// so these tests don't silently change meaning if defaults move).
 func listsVisibleSettings() *contracts.PrivacySettings {
 	s := contracts.DefaultPrivacySettings()
 	s.Following = contracts.PrivacyVisible
-	s.Attendance = contracts.PrivacyVisible
 	return &s
 }
 
-// listsCountOnlySettings returns stored settings with the two list-relevant
-// fields explicitly count_only (no longer the default after PSY-1045).
+// listsCountOnlySettings returns stored settings with the list-relevant
+// field explicitly count_only (no longer the default after PSY-1045).
 func listsCountOnlySettings() *contracts.PrivacySettings {
 	s := contracts.DefaultPrivacySettings()
 	s.Following = contracts.PrivacyCountOnly
-	s.Attendance = contracts.PrivacyCountOnly
 	return &s
 }
 
@@ -74,7 +71,7 @@ func TestGetUserFollowing_LookupError(t *testing.T) {
 			return nil, errors.New("db down")
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil)
 
 	_, err := h.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
 		Username: "anyone", Type: "all", Limit: 20, Offset: 0,
@@ -89,7 +86,7 @@ func TestGetUserFollowing_ServiceError(t *testing.T) {
 			return nil, 0, errors.New("query failed")
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, mockFollow, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, mockFollow, nil)
 
 	_, err := h.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
 		Username: "publicuser", Type: "all", Limit: 20, Offset: 0,
@@ -108,7 +105,7 @@ func TestGetUserFollowing_CountOnlyArgsAndShape(t *testing.T) {
 			return []*contracts.FollowingEntityResponse{{Name: "must not leak"}}, 42, nil
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, mockFollow, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, mockFollow, nil)
 
 	resp, err := h.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
 		Username: "publicuser", Type: "all", Limit: 20, Offset: 5,
@@ -140,44 +137,10 @@ func TestGetUserFollowing_CountOnlyServiceError(t *testing.T) {
 			return nil, 0, errors.New("count failed")
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, mockFollow, nil, nil)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, mockFollow, nil)
 
 	_, err := h.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
 		Username: "publicuser", Type: "all", Limit: 20, Offset: 0,
-	})
-	testhelpers.AssertHumaError(t, err, 500)
-}
-
-// --- GetUserAttendedShowsHandler ---
-
-func TestGetUserAttendedShows_ServiceError(t *testing.T) {
-	mockUsers := listsMockUserService(t, 7, listsVisibleSettings())
-	mockAttendance := &testhelpers.MockAttendanceService{
-		GetUserAttendedShowsFn: func(uint, int, int) ([]*contracts.AttendingShowResponse, int64, error) {
-			return nil, 0, errors.New("query failed")
-		},
-	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, mockAttendance, nil)
-
-	_, err := h.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
-		Username: "publicuser", Limit: 20, Offset: 0,
-	})
-	testhelpers.AssertHumaError(t, err, 500)
-}
-
-func TestGetUserAttendedShows_CountOnlyServiceError(t *testing.T) {
-	settings := contracts.DefaultPrivacySettings()
-	settings.Attendance = contracts.PrivacyCountOnly
-	mockUsers := listsMockUserService(t, 7, &settings)
-	mockAttendance := &testhelpers.MockAttendanceService{
-		GetUserAttendedShowsFn: func(uint, int, int) ([]*contracts.AttendingShowResponse, int64, error) {
-			return nil, 0, errors.New("count failed")
-		},
-	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, mockAttendance, nil)
-
-	_, err := h.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
-		Username: "publicuser", Limit: 20, Offset: 0,
 	})
 	testhelpers.AssertHumaError(t, err, 500)
 }
@@ -191,7 +154,7 @@ func TestGetUserFieldNotes_ServiceError(t *testing.T) {
 			return nil, 0, errors.New("query failed")
 		},
 	}
-	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, nil, mockFieldNotes)
+	h := NewContributorProfileHandler(&testhelpers.MockContributorProfileService{}, mockUsers, nil, mockFieldNotes)
 
 	_, err := h.GetUserFieldNotesHandler(context.Background(), &GetUserFieldNotesRequest{
 		Username: "publicuser", Limit: 20, Offset: 0,

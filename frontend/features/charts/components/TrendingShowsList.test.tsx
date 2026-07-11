@@ -13,9 +13,7 @@ function makeShow(overrides: Partial<TrendingShow> = {}): TrendingShow {
     venue_slug: 'valley-bar',
     city: 'Phoenix',
     artist_names: ['Moonlight Parade'],
-    going_count: 42,
-    interested_count: 88,
-    total_attendance: 130,
+    save_count: 42,
     ...overrides,
   }
 }
@@ -49,11 +47,10 @@ describe('TrendingShowsList', () => {
     expect(link).toHaveAttribute('href', '/shows/night-of-echoes')
   })
 
-  it('renders attendance counts', () => {
-    render(<TrendingShowsList shows={[makeShow({ going_count: 42, interested_count: 88 })]} />)
+  it('renders the save count', () => {
+    render(<TrendingShowsList shows={[makeShow({ save_count: 42 })]} />)
 
     expect(screen.getByText('42')).toBeInTheDocument()
-    expect(screen.getByText('88')).toBeInTheDocument()
   })
 
   it('renders venue and city metadata in full mode', () => {
@@ -68,7 +65,7 @@ describe('TrendingShowsList', () => {
 
     expect(screen.queryByText('Valley Bar')).not.toBeInTheDocument()
     expect(screen.queryByText('Phoenix')).not.toBeInTheDocument()
-    // Attendance counts stay visible even when compact.
+    // The save count stays visible even when compact.
     expect(screen.getByText('42')).toBeInTheDocument()
   })
 

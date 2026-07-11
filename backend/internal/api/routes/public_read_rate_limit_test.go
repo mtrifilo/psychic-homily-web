@@ -85,6 +85,54 @@ func TestPublicReadRateLimiter_EnabledLimitsAnonymousReads(t *testing.T) {
 	}
 }
 
+// The batch save-count endpoint is a READ that carries its show IDs in a POST
+// body. It must share the anonymous read budget rather than slip through the
+// GET/HEAD filter — otherwise it is an unmetered aggregate query over
+// user_bookmarks for any anonymous caller.
+func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodPost, SaveCountsBatchPath, nil)
+		req.RemoteAddr = "7.7.7.20:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("batch read %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, SaveCountsBatchPath, nil)
+	req.RemoteAddr = "7.7.7.20:100"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("batch read past limit: status = %d, want 429 (read-via-POST must be metered)", rr.Code)
+	}
+}
+
+// A genuine write on a path that merely LOOKS adjacent must still bypass the
+// read budget — the allowlist is exact-match, not a prefix.
+func TestPublicReadRateLimiter_SaveWriteNotLimited(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/saved-shows/42", nil)
+		req.RemoteAddr = "7.7.7.21:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("save write %d: status = %d, want 200 (writes bypass the read limiter)", i, rr.Code)
+		}
+	}
+}
+
 // Writes (non-GET/HEAD) are NOT limited here — they keep their own dedicated
 // limiters, so a shared read budget can't 429 an anonymous write.
 func TestPublicReadRateLimiter_WritesNotLimited(t *testing.T) {

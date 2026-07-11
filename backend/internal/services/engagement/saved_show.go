@@ -262,3 +262,72 @@ func (s *SavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map[uin
 
 	return s.bookmark.GetBookmarkedEntityIDs(userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, showIDs)
 }
+
+// GetSaveCount returns the public save count for a show.
+//
+// The count is an aggregate only — no endpoint anywhere exposes which users
+// saved a show, so a user's saved list stays private while the count doubles as
+// a buzz signal for visitors.
+func (s *SavedShowService) GetSaveCount(showID uint) (int, error) {
+	counts, err := s.GetBatchSaveCounts([]uint{showID})
+	if err != nil {
+		return 0, err
+	}
+	return counts[showID], nil
+}
+
+// GetBatchSaveCounts returns public save counts for multiple shows in a single
+// query.
+//
+// Only APPROVED shows contribute a count. A show can be saved while it is
+// pending, rejected, or private (SaveShow deliberately allows any status), and
+// GET /shows/{id} already 404s those for anyone but the submitter and admins.
+// Without the status filter the public count would be a side channel revealing
+// that a hidden show exists and has engagement — enumerable across the whole
+// sequential ID space via the batch endpoint.
+//
+// Hidden shows are reported as 0 rather than omitted or 404'd, which is what
+// makes this safe: an unlisted show is indistinguishable from an approved show
+// nobody has saved, so there is no existence oracle. Every requested ID is
+// present in the map, zero-filled, so callers can still distinguish "requested"
+// from "not requested".
+func (s *SavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := make(map[uint]int, len(showIDs))
+	if len(showIDs) == 0 {
+		return result, nil
+	}
+	for _, id := range showIDs {
+		result[id] = 0
+	}
+
+	type countRow struct {
+		EntityID uint
+		Count    int
+	}
+	var rows []countRow
+
+	err := s.db.Model(&engagementm.UserBookmark{}).
+		Select("user_bookmarks.entity_id, COUNT(*) as count").
+		Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
+		Where("user_bookmarks.entity_type = ? AND user_bookmarks.entity_id IN ? AND user_bookmarks.action = ?",
+			engagementm.BookmarkEntityShow, showIDs, engagementm.BookmarkActionSave,
+		).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Group("user_bookmarks.entity_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch save counts: %w", err)
+	}
+
+	for _, row := range rows {
+		if _, requested := result[row.EntityID]; requested {
+			result[row.EntityID] = row.Count
+		}
+	}
+
+	return result, nil
+}

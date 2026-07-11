@@ -44,9 +44,7 @@ const mockOverviewData = {
       venue_name: 'Valley Bar',
       venue_slug: 'valley-bar',
       city: 'Phoenix',
-      going_count: 42,
-      interested_count: 88,
-      total_attendance: 130,
+      save_count: 42,
     },
   ],
   popular_artists: [
@@ -169,9 +167,7 @@ describe('ChartsPage', () => {
           venue_name: 'Crescent Ballroom',
           venue_slug: 'crescent-ballroom',
           city: 'Phoenix',
-          going_count: 30,
-          interested_count: 60,
-          total_attendance: 90,
+          save_count: 30,
         },
       ],
     })

@@ -44,18 +44,10 @@ describe('shows hooks barrel', () => {
 
   it('re-exports the saved-shows hooks', () => {
     expect(typeof hooks.useSavedShows).toBe('function')
-    expect(typeof hooks.useSavedShowBatch).toBe('function')
-    expect(typeof hooks.useIsShowSaved).toBe('function')
     expect(typeof hooks.useSaveShow).toBe('function')
     expect(typeof hooks.useUnsaveShow).toBe('function')
     expect(typeof hooks.useSaveShowToggle).toBe('function')
-  })
-
-  it('re-exports the attendance hooks', () => {
-    expect(typeof hooks.useShowAttendance).toBe('function')
-    expect(typeof hooks.useBatchAttendance).toBe('function')
-    expect(typeof hooks.useSetAttendance).toBe('function')
-    expect(typeof hooks.useRemoveAttendance).toBe('function')
-    expect(typeof hooks.useMyShows).toBe('function')
+    expect(typeof hooks.useShowSaveCount).toBe('function')
+    expect(typeof hooks.useShowSaveCountBatch).toBe('function')
   })
 })

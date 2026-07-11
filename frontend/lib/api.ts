@@ -93,9 +93,6 @@ export const API_ENDPOINTS = {
     SAVE: (showId: string | number) => `${API_BASE_URL}/saved-shows/${showId}`,
     UNSAVE: (showId: string | number) =>
       `${API_BASE_URL}/saved-shows/${showId}`,
-    CHECK: (showId: string | number) =>
-      `${API_BASE_URL}/saved-shows/${showId}/check`,
-    CHECK_BATCH: `${API_BASE_URL}/saved-shows/check-batch`,
   },
 
   // Admin endpoints
@@ -257,8 +254,6 @@ export const API_ENDPOINTS = {
     // PSY-1046 public profile list surfaces (privacy-gated per field)
     FOLLOWING: (username: string) =>
       `${API_BASE_URL}/users/${username}/following`,
-    ATTENDED_SHOWS: (username: string) =>
-      `${API_BASE_URL}/users/${username}/attended-shows`,
     FIELD_NOTES: (username: string) =>
       `${API_BASE_URL}/users/${username}/field-notes`,
   },
@@ -388,11 +383,10 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/admin/revisions/${revisionId}/rollback`,
   },
 
-  // Attendance (going/interested) endpoints
-  ATTENDANCE: {
-    SHOW: (showId: number) => `${API_BASE_URL}/shows/${showId}/attendance`,
-    BATCH: `${API_BASE_URL}/shows/attendance/batch`,
-    MY_SHOWS: `${API_BASE_URL}/attendance/my-shows`,
+  // Public save-count endpoints (optional auth: count always; is_saved when authed)
+  SAVE_COUNTS: {
+    SHOW: (showId: number) => `${API_BASE_URL}/shows/${showId}/saves`,
+    BATCH: `${API_BASE_URL}/shows/saves/batch`,
   },
 
   // Follow endpoints

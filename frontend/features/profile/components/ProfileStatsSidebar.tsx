@@ -37,10 +37,10 @@ interface HeadlineStat {
 
 /**
  * The breakdown rows for the expanded "All contributions" panel (design board
- * G). Shows attended and approval rate are headline stats, so they're not
- * repeated here. NOTE: deliberately NOT the icon-card <ContributionStatsGrid>
- * — that component still serves the /profile preview card (PSY-1061 owns its
- * fate); this dense list is the sidebar's own rendering.
+ * G). Approval rate is a headline stat, so it's not repeated here. NOTE:
+ * deliberately NOT the icon-card <ContributionStatsGrid> — that component
+ * still serves the /profile preview card (PSY-1061 owns its fate); this
+ * dense list is the sidebar's own rendering.
  *
  * `satisfies Record<BreakdownKey, string>` makes this exhaustive: adding a
  * numeric field to ContributionStats is a compile error here until it gets a
@@ -48,7 +48,7 @@ interface HeadlineStat {
  */
 type BreakdownKey = Exclude<
   keyof ContributionStats,
-  'approval_rate' | 'shows_attended' | 'total_contributions'
+  'approval_rate' | 'total_contributions'
 >
 
 const BREAKDOWN_LABELS = {
@@ -132,11 +132,6 @@ export function ProfileStatsSidebar({
 
   const headline: HeadlineStat[] = hasFullStats
     ? [
-        {
-          label: 'shows attended',
-          compact: 'shows',
-          value: statNumberFormatter.format(stats.shows_attended),
-        },
         ...(collectionsTotal !== undefined
           ? [
               {
@@ -178,7 +173,6 @@ export function ProfileStatsSidebar({
     hasFullStats && ALL_CONTRIBUTION_ROWS.some(({ key }) => stats[key] !== 0)
   const isAllZero =
     hasFullStats &&
-    stats.shows_attended === 0 &&
     (collectionsTotal ?? 0) === 0 &&
     stats.total_contributions === 0 &&
     !hasBreakdownRows

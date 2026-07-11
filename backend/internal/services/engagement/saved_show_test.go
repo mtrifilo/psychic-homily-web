@@ -107,6 +107,113 @@ func (suite *SavedShowServiceIntegrationTestSuite) createShowWithVenueAndArtist(
 // Group 1: SaveShow
 // =============================================================================
 
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetSaveCount_CountsEveryUsersSave() {
+	owner := suite.createTestUser()
+	show := suite.createApprovedShow("Buzzy Show", owner.ID)
+	u1 := suite.createTestUser()
+	u2 := suite.createTestUser()
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(u1.ID, show.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(u2.ID, show.ID))
+
+	count, err := suite.savedShowService.GetSaveCount(show.ID)
+	suite.Require().NoError(err)
+	suite.Equal(2, count, "the public count aggregates saves across all users")
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetSaveCount_ZeroForUnsavedShow() {
+	owner := suite.createTestUser()
+	show := suite.createApprovedShow("Nobody Saved Me", owner.ID)
+
+	count, err := suite.savedShowService.GetSaveCount(show.ID)
+	suite.Require().NoError(err)
+	suite.Equal(0, count)
+}
+
+// Guards the action/entity_type filter: `follow` and `bookmark` rows live in the
+// same user_bookmarks table and must never inflate a show's save count.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetSaveCount_IgnoresOtherActionsAndEntities() {
+	owner := suite.createTestUser()
+	show := suite.createApprovedShow("Filtered Show", owner.ID)
+	user := suite.createTestUser()
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
+	// Same entity_id, different action.
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
+		EntityID: show.ID, Action: engagementm.BookmarkActionBookmark,
+	}).Error)
+	// Same entity_id + action, different entity_type.
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityArtist,
+		EntityID: show.ID, Action: engagementm.BookmarkActionSave,
+	}).Error)
+
+	count, err := suite.savedShowService.GetSaveCount(show.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, count, "only entity_type=show AND action=save counts")
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetBatchSaveCounts_ZeroFillsRequestedShows() {
+	owner := suite.createTestUser()
+	saved := suite.createApprovedShow("Saved Show", owner.ID)
+	unsaved := suite.createApprovedShow("Unsaved Show", owner.ID)
+	user := suite.createTestUser()
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, saved.ID))
+
+	counts, err := suite.savedShowService.GetBatchSaveCounts([]uint{saved.ID, unsaved.ID})
+	suite.Require().NoError(err)
+	suite.Equal(1, counts[saved.ID])
+
+	// "Requested but nobody saved it" must be present as 0, not absent.
+	zero, present := counts[unsaved.ID]
+	suite.True(present, "requested show IDs are always present in the result map")
+	suite.Equal(0, zero)
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetBatchSaveCounts_EmptyInput() {
+	counts, err := suite.savedShowService.GetBatchSaveCounts([]uint{})
+	suite.Require().NoError(err)
+	suite.Empty(counts)
+}
+
+// The public count must never become a side channel revealing that a hidden
+// show exists and has engagement. A non-approved show reports 0 — the same as
+// an approved show nobody saved — so there is no existence oracle.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetSaveCount_HiddenShowsReportZero() {
+	owner := suite.createTestUser()
+	user := suite.createTestUser()
+
+	approved := suite.createApprovedShow("Public Show", owner.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, approved.ID))
+
+	for _, status := range []catalogm.ShowStatus{
+		catalogm.ShowStatusPending,
+		catalogm.ShowStatusRejected,
+		catalogm.ShowStatusPrivate,
+	} {
+		hidden := suite.createApprovedShow("Hidden "+string(status), owner.ID)
+		suite.Require().NoError(
+			suite.db.Model(&catalogm.Show{}).Where("id = ?", hidden.ID).
+				Update("status", status).Error,
+		)
+		// The show IS saved — only its visibility hides the count.
+		suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, hidden.ID))
+
+		count, err := suite.savedShowService.GetSaveCount(hidden.ID)
+		suite.Require().NoError(err)
+		suite.Equal(0, count, "a %s show must not expose its save count", status)
+
+		batch, err := suite.savedShowService.GetBatchSaveCounts([]uint{approved.ID, hidden.ID})
+		suite.Require().NoError(err)
+		suite.Equal(1, batch[approved.ID], "the approved show still reports its count")
+		zero, present := batch[hidden.ID]
+		suite.True(present, "hidden show is zero-filled, not omitted (no existence oracle)")
+		suite.Equal(0, zero)
+	}
+}
+
 func (suite *SavedShowServiceIntegrationTestSuite) TestSaveShow_Success() {
 	user := suite.createTestUser()
 	show := suite.createApprovedShow("Save Me", user.ID)

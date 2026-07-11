@@ -17,7 +17,6 @@ import {
   Vote,
   Library,
   Bell,
-  Ticket,
   Flag,
   CheckCircle,
   UserPlus,
@@ -77,7 +76,6 @@ export function ContributionStatsGrid({ stats }: ContributionStatsGridProps) {
     { icon: Vote, label: 'Request Votes', value: stats.request_votes_cast },
     { icon: Library, label: 'Collection Items', value: stats.collection_items_added },
     { icon: Bell, label: 'Subscriptions', value: stats.collection_subscriptions },
-    { icon: Ticket, label: 'Shows Attended', value: stats.shows_attended },
 
     // Reports
     { icon: Flag, label: 'Reports Filed', value: stats.reports_filed },

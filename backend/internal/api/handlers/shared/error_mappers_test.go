@@ -173,36 +173,6 @@ func TestMapFollowError_NonFollowErrorReturnsNil(t *testing.T) {
 	}
 }
 
-func TestMapAttendanceError_CodeToStatus(t *testing.T) {
-	if got := MapAttendanceError(apperrors.ErrAttendanceShowNotFound()); got == nil {
-		t.Fatal("MapAttendanceError(show not found) = nil, want 404")
-	} else if s := statusOf(t, got); s != 404 {
-		t.Errorf("show-not-found status = %d, want 404", s)
-	}
-
-	if got := MapAttendanceError(apperrors.ErrAttendanceInvalidStatus("maybe")); got == nil {
-		t.Fatal("MapAttendanceError(invalid status) = nil, want 422")
-	} else if s := statusOf(t, got); s != 422 {
-		t.Errorf("invalid-status status = %d, want 422", s)
-	}
-
-	if got := MapAttendanceError(apperrors.ErrAttendanceInternal(stderrors.New("db down"))); got == nil {
-		t.Fatal("MapAttendanceError(internal) = nil, want 500")
-	} else if s := statusOf(t, got); s != 500 {
-		t.Errorf("internal status = %d, want 500", s)
-	}
-}
-
-func TestMapAttendanceError_NonAttendanceErrorReturnsNil(t *testing.T) {
-	if got := MapAttendanceError(stderrors.New("boom")); got != nil {
-		t.Errorf("MapAttendanceError(plain error) = %v, want nil", got)
-	}
-	unknown := &apperrors.AttendanceError{Code: "ATTENDANCE_NEW_CODE", Message: "x"}
-	if got := MapAttendanceError(unknown); got != nil {
-		t.Errorf("MapAttendanceError(unknown code) = %v, want nil", got)
-	}
-}
-
 func TestMapNotificationFilterError_CodeToStatus(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -4,7 +4,6 @@ import { Loader2, Pencil, X, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SaveButton, AddToCollectionButton } from '@/components/shared'
 import type { ShowResponse } from '../types'
-import { AttendanceButton } from './AttendanceButton'
 import { ReportShowButton } from './ReportShowButton'
 
 interface ShowActionsProps {
@@ -34,14 +33,13 @@ interface ShowActionsProps {
 }
 
 /**
- * ShowDetail-specific action cluster. Owns the attendance button, the
- * top row of save/collect/report/edit/delete, and the admin-only status
- * toggle row (Mark Sold Out / Mark Cancelled).
+ * ShowDetail-specific action cluster. Owns the row of
+ * save/collect/report/edit/delete and the admin-only status toggle row
+ * (Mark Sold Out / Mark Cancelled).
  *
- * This is not `EntityHeader.actions` because shows have two extra rows
- * (attendance on its own line; admin status toggles as a sub-row) that
- * would not fit into `EntityHeader`'s single flex-row slot without either
- * cramming or wrapping awkwardly.
+ * This is not `EntityHeader.actions` because the admin status toggles form a
+ * sub-row that would not fit into `EntityHeader`'s single flex-row slot
+ * without either cramming or wrapping awkwardly.
  */
 export function ShowActions({
   show,
@@ -59,9 +57,6 @@ export function ShowActions({
 }: ShowActionsProps) {
   return (
     <>
-      {/* Attendance (Going/Interested) */}
-      <AttendanceButton showId={show.id} compact={false} />
-
       <div className="flex flex-wrap items-center gap-2">
         <SaveButton showId={show.id} variant="outline" size="sm" />
         <AddToCollectionButton
