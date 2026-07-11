@@ -94,6 +94,27 @@ type MostActiveArtist struct {
 	LastShowVenue string     `json:"last_show_venue"`
 }
 
+// BusiestVenue represents a venue ranked by shows hosted within a window.
+type BusiestVenue struct {
+	VenueID   uint   `json:"venue_id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	ShowCount int    `json:"show_count"`
+}
+
+// OpenerToWatch represents an artist ranked by support slots played within a
+// window, excluding artists who headlined at all in that window.
+type OpenerToWatch struct {
+	ArtistID         uint   `json:"artist_id"`
+	Name             string `json:"name"`
+	Slug             string `json:"slug"`
+	City             string `json:"city"`
+	State            string `json:"state"`
+	SupportSlotCount int    `json:"support_slot_count"`
+}
+
 // ChartsOverview contains condensed top-5 versions of all charts for dashboard use.
 type ChartsOverview struct {
 	TrendingShows  []TrendingShow  `json:"trending_shows"`
@@ -110,6 +131,8 @@ type ChartsOverview struct {
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
 	GetMostActiveArtists(window ChartWindow, limit int) ([]MostActiveArtist, error)
+	GetBusiestVenues(window ChartWindow, limit int) ([]BusiestVenue, error)
+	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)

@@ -442,3 +442,97 @@ func TestChartsHandler_MostActiveArtists_InvalidWindow422(t *testing.T) {
 		t.Errorf("expected 200 for absent window, got %d", resp.Code)
 	}
 }
+
+// ============================================================================
+// Tests: GetBusiestVenuesHandler + GetOpenersToWatchHandler
+// ============================================================================
+
+func TestChartsHandler_BusiestVenues_Success(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetBusiestVenuesFn: func(window contracts.ChartWindow, limit int) ([]contracts.BusiestVenue, error) {
+			if window != contracts.ChartWindowQuarter {
+				t.Errorf("expected default window=quarter, got %q", window)
+			}
+			if limit != 20 {
+				t.Errorf("expected limit=20, got %d", limit)
+			}
+			return []contracts.BusiestVenue{
+				{VenueID: 1, Name: "Empty Bottle", Slug: "empty-bottle", City: "Chicago", State: "IL", ShowCount: 41},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetBusiestVenuesHandler(context.Background(), &GetBusiestVenuesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
+	}
+	if len(resp.Body.Venues) != 1 || resp.Body.Venues[0].ShowCount != 41 || resp.Body.Venues[0].Name != "Empty Bottle" {
+		t.Errorf("unexpected mapping: %+v", resp.Body.Venues)
+	}
+}
+
+func TestChartsHandler_BusiestVenues_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetBusiestVenuesFn: func(contracts.ChartWindow, int) ([]contracts.BusiestVenue, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetBusiestVenuesHandler(context.Background(), &GetBusiestVenuesRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+func TestChartsHandler_OpenersToWatch_Success(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetOpenersToWatchFn: func(window contracts.ChartWindow, limit int) ([]contracts.OpenerToWatch, error) {
+			if window != contracts.ChartWindowMonth {
+				t.Errorf("expected window=month, got %q", window)
+			}
+			return []contracts.OpenerToWatch{
+				{ArtistID: 2, Name: "Dizzy Mavis", Slug: "dizzy-mavis", City: "Phoenix", State: "AZ", SupportSlotCount: 11},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetOpenersToWatchHandler(context.Background(), &GetOpenersToWatchRequest{Window: "month"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "month" {
+		t.Errorf("expected echoed window=month, got %q", resp.Body.Window)
+	}
+	if len(resp.Body.Artists) != 1 || resp.Body.Artists[0].SupportSlotCount != 11 {
+		t.Errorf("unexpected mapping: %+v", resp.Body.Artists)
+	}
+}
+
+func TestChartsHandler_OpenersToWatch_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetOpenersToWatchFn: func(contracts.ChartWindow, int) ([]contracts.OpenerToWatch, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetOpenersToWatchHandler(context.Background(), &GetOpenersToWatchRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_VenueOpenerEndpoints_InvalidWindow422 exercises the huma
+// enum-tag validation chain for both new endpoints (per the dead-validate-tag
+// gotcha: assert the 422, don't trust the tag).
+func TestChartsHandler_VenueOpenerEndpoints_InvalidWindow422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/busiest-venues", h.GetBusiestVenuesHandler)
+	huma.Get(api, "/charts/openers-to-watch", h.GetOpenersToWatchHandler)
+
+	for _, path := range []string{"/charts/busiest-venues", "/charts/openers-to-watch"} {
+		if resp := api.Get(path + "?window=bogus"); resp.Code != 422 {
+			t.Errorf("%s: expected 422 for window=bogus, got %d", path, resp.Code)
+		}
+		if resp := api.Get(path + "?window=all_time"); resp.Code != 200 {
+			t.Errorf("%s: expected 200 for window=all_time, got %d", path, resp.Code)
+		}
+	}
+}

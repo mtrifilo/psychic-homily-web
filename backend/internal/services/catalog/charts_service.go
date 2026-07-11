@@ -281,6 +281,145 @@ func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit
 	return results, nil
 }
 
+// GetBusiestVenues returns venues ranked by approved, non-cancelled shows
+// hosted within the window (future shows never count; same midnight-timestamp
+// caveat as GetMostActiveArtists). Venues with zero shows in the window are
+// never returned.
+func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit int) ([]contracts.BusiestVenue, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	type venueRow struct {
+		VenueID   uint   `gorm:"column:venue_id"`
+		Name      string `gorm:"column:name"`
+		Slug      string `gorm:"column:slug"`
+		City      string `gorm:"column:city"`
+		State     string `gorm:"column:state"`
+		ShowCount int    `gorm:"column:show_count"`
+	}
+
+	query := `
+		SELECT
+			v.id AS venue_id,
+			v.name,
+			COALESCE(v.slug, '') AS slug,
+			COALESCE(v.city, '') AS city,
+			COALESCE(v.state, '') AS state,
+			COUNT(*) AS show_count
+		FROM show_venues sv
+		JOIN venues v ON v.id = sv.venue_id
+		JOIN shows s ON s.id = sv.show_id
+		WHERE s.status = ?
+			AND s.is_cancelled = FALSE
+			AND s.event_date <= ?`
+	args := []any{catalogm.ShowStatusApproved, now}
+	if start != nil {
+		query += `
+			AND s.event_date >= ?`
+		args = append(args, *start)
+	}
+	query += `
+		GROUP BY v.id, v.name, v.slug, v.city, v.state
+		ORDER BY show_count DESC, v.name ASC, v.id ASC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []venueRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get busiest venues: %w", err)
+	}
+
+	results := make([]contracts.BusiestVenue, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.BusiestVenue{
+			VenueID:   r.VenueID,
+			Name:      r.Name,
+			Slug:      r.Slug,
+			City:      r.City,
+			State:     r.State,
+			ShowCount: r.ShowCount,
+		}
+	}
+	return results, nil
+}
+
+// GetOpenersToWatch returns artists ranked by support slots played within the
+// window — slots that are NOT headline slots (headline = set_type 'headliner'
+// OR position 0, the shared predicate). Artists with ANY headline slot in the
+// window are excluded entirely: this chart surfaces artists who are always on
+// the bill but never top it. Cancelled and future shows never count.
+func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit int) ([]contracts.OpenerToWatch, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	type openerRow struct {
+		ArtistID         uint   `gorm:"column:artist_id"`
+		Name             string `gorm:"column:name"`
+		Slug             string `gorm:"column:slug"`
+		City             string `gorm:"column:city"`
+		State            string `gorm:"column:state"`
+		SupportSlotCount int    `gorm:"column:support_slot_count"`
+	}
+
+	// One pass: group every in-window slot per artist, keep only groups with
+	// ZERO headline slots (HAVING) — so COUNT(*) is exactly the support-slot
+	// count, and "never headlines" is judged over the same window being
+	// ranked. The CASE form also counts NULL set_type rows as support,
+	// matching GetMostActiveArtists' NULL semantics.
+	query := `
+		SELECT
+			a.id AS artist_id,
+			a.name,
+			COALESCE(a.slug, '') AS slug,
+			COALESCE(a.city, '') AS city,
+			COALESCE(a.state, '') AS state,
+			COUNT(*) AS support_slot_count
+		FROM show_artists sa
+		JOIN artists a ON a.id = sa.artist_id
+		JOIN shows s ON s.id = sa.show_id
+		WHERE s.status = ?
+			AND s.is_cancelled = FALSE
+			AND s.event_date <= ?`
+	args := []any{catalogm.ShowStatusApproved, now}
+	if start != nil {
+		query += `
+			AND s.event_date >= ?`
+		args = append(args, *start)
+	}
+	query += `
+		GROUP BY a.id, a.name, a.slug, a.city, a.state
+		HAVING SUM(CASE WHEN sa.set_type = 'headliner' OR sa.position = 0 THEN 1 ELSE 0 END) = 0
+		ORDER BY support_slot_count DESC, a.name ASC, a.id ASC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []openerRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get openers to watch: %w", err)
+	}
+
+	results := make([]contracts.OpenerToWatch, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.OpenerToWatch{
+			ArtistID:         r.ArtistID,
+			Name:             r.Name,
+			Slug:             r.Slug,
+			City:             r.City,
+			State:            r.State,
+			SupportSlotCount: r.SupportSlotCount,
+		}
+	}
+	return results, nil
+}
+
 // GetPopularArtists returns artists ranked by a composite score of followers and upcoming shows.
 // Score = follow_count * 2 + upcoming_show_count.
 func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist, error) {
