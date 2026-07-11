@@ -11,6 +11,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -590,4 +591,237 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsOverview_LimitsToFi
 	suite.Require().NotNil(overview)
 	suite.LessOrEqual(len(overview.TrendingShows), 5)
 	suite.LessOrEqual(len(overview.PopularArtists), 5)
+}
+
+// =============================================================================
+// GetMostActiveArtists Tests
+// =============================================================================
+
+// addArtistToShow appends an artist to an existing show's bill with an explicit
+// position and set_type (createApprovedShow always seeds position 0 / default).
+func (suite *ChartsServiceIntegrationTestSuite) addArtistToShow(showID, artistID uint, position int, setType string) {
+	err := suite.db.Create(&catalogm.ShowArtist{
+		ShowID:   showID,
+		ArtistID: artistID,
+		Position: position,
+		SetType:  setType,
+	}).Error
+	suite.Require().NoError(err)
+}
+
+func TestChartWindowStart(t *testing.T) {
+	// Deliberately mid-day: the start bound must truncate to midnight UTC so a
+	// midnight-timestamped show exactly N days ago stays inside the window.
+	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+
+	month := chartWindowStart(contracts.ChartWindowMonth, now)
+	if month == nil || !month.Equal(time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("month window: got %v", month)
+	}
+	quarter := chartWindowStart(contracts.ChartWindowQuarter, now)
+	if quarter == nil || !quarter.Equal(time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("quarter window: got %v", quarter)
+	}
+	if allTime := chartWindowStart(contracts.ChartWindowAllTime, now); allTime != nil {
+		t.Fatalf("all_time window: expected nil lower bound, got %v", allTime)
+	}
+	// Empty/unknown values fall back to quarter via ChartWindow.OrDefault.
+	if def := chartWindowStart(contracts.ChartWindow(""), now); def == nil || !def.Equal(*quarter) {
+		t.Fatalf("default window: got %v", def)
+	}
+	if got := contracts.ChartWindow("bogus").OrDefault(); got != contracts.ChartWindowQuarter {
+		t.Fatalf("OrDefault(bogus): got %v", got)
+	}
+	if got := contracts.ChartWindowMonth.OrDefault(); got != contracts.ChartWindowMonth {
+		t.Fatalf("OrDefault(month): got %v", got)
+	}
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Empty() {
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowBoundaries() {
+	user := suite.createUser("maa-window@test.com")
+	venue := suite.createVenue("Window Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Window Artist")
+
+	now := time.Now().UTC()
+	suite.createApprovedShow("Recent Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.createApprovedShow("Mid Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -60))
+	suite.createApprovedShow("Old Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -200))
+	suite.createApprovedShow("Future Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
+
+	month, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowMonth, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(month, 1)
+	suite.Equal(1, month[0].ShowCount)
+
+	quarter, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(quarter, 1)
+	suite.Equal(2, quarter[0].ShowCount)
+
+	allTime, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowAllTime, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(allTime, 1)
+	suite.Equal(3, allTime[0].ShowCount, "future shows never count, even all-time")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_HeadlinePctAndLastShow() {
+	user := suite.createUser("maa-headline@test.com")
+	venue := suite.createVenue("Headline Venue", "Phoenix", "AZ")
+	headliner := suite.createArtist("Bill Topper")
+	support := suite.createArtist("Support Act")
+	support.City = stringPtr("Tempe")
+	support.State = stringPtr("AZ")
+	suite.Require().NoError(suite.db.Save(support).Error)
+
+	now := time.Now().UTC()
+	// Show 1: support is position 0 (default set_type) -> headline slot.
+	suite.createApprovedShow("Own Show", venue.ID, support.ID, user.ID, now.AddDate(0, 0, -40))
+	// Show 2: support opens (position 1, opener) -> not a headline slot.
+	s2 := suite.createApprovedShow("Opener Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
+	suite.addArtistToShow(s2.ID, support.ID, 1, "opener")
+	// Show 3: set_type says headliner even at position 2 -> headline slot.
+	s3 := suite.createApprovedShow("Co-headline Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	suite.addArtistToShow(s3.ID, support.ID, 2, "headliner")
+	// Show 4: plain performer slot -> not a headline slot. Most recent show.
+	s4 := suite.createApprovedShow("Latest Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.addArtistToShow(s4.ID, support.ID, 1, "performer")
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 2)
+
+	// support has 4 shows, headliner has 3 -> support ranks first.
+	top := artists[0]
+	suite.Equal(support.ID, top.ArtistID)
+	suite.Equal(4, top.ShowCount)
+	suite.Equal(50, top.HeadlinePct, "2 headline slots (position 0 + set_type headliner) of 4")
+	suite.Equal("Tempe", top.City)
+	suite.Equal("AZ", top.State)
+	suite.Require().NotNil(top.LastShowDate)
+	suite.WithinDuration(now.AddDate(0, 0, -5), *top.LastShowDate, time.Hour)
+	suite.Equal("Headline Venue", top.LastShowVenue)
+
+	suite.Equal(headliner.ID, artists[1].ArtistID)
+	suite.Equal(3, artists[1].ShowCount)
+	suite.Equal(100, artists[1].HeadlinePct)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_OrderingAndTiebreak() {
+	user := suite.createUser("maa-order@test.com")
+	venue := suite.createVenue("Order Venue", "Phoenix", "AZ")
+	alpha := suite.createArtist("Alpha")
+	beta := suite.createArtist("Beta")
+	gamma := suite.createArtist("Gamma")
+
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		suite.createApprovedShow(fmt.Sprintf("Alpha %d", i), venue.ID, alpha.ID, user.ID, now.AddDate(0, 0, -10-i))
+		suite.createApprovedShow(fmt.Sprintf("Beta %d", i), venue.ID, beta.ID, user.ID, now.AddDate(0, 0, -10-i))
+	}
+	for i := 0; i < 5; i++ {
+		suite.createApprovedShow(fmt.Sprintf("Gamma %d", i), venue.ID, gamma.ID, user.ID, now.AddDate(0, 0, -10-i))
+	}
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 3)
+	suite.Equal("Gamma", artists[0].Name)
+	suite.Equal("Alpha", artists[1].Name, "equal counts tiebreak by name")
+	suite.Equal("Beta", artists[2].Name)
+
+	// Limit is respected.
+	limited, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 1)
+	suite.Require().NoError(err)
+	suite.Require().Len(limited, 1)
+	suite.Equal("Gamma", limited[0].Name)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_ExcludesPendingAndFutureOnly() {
+	user := suite.createUser("maa-status@test.com")
+	venue := suite.createVenue("Status Venue", "Phoenix", "AZ")
+	pendingArtist := suite.createArtist("Pending Only")
+	futureArtist := suite.createArtist("Future Only")
+
+	now := time.Now().UTC()
+	// Pending show inside the window never counts.
+	pending := &catalogm.Show{
+		Title:       "Pending Show",
+		EventDate:   now.AddDate(0, 0, -10),
+		Status:      catalogm.ShowStatusPending,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(pending).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: pending.ID, VenueID: venue.ID}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: pending.ID, ArtistID: pendingArtist.ID, Position: 0}).Error)
+
+	// Artist with only future shows never appears.
+	suite.createApprovedShow("Future Booked", venue.ID, futureArtist.ID, user.ID, now.AddDate(0, 0, 30))
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(artists)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_LastShowTiebreakDeterministic() {
+	user := suite.createUser("maa-tiebreak@test.com")
+	venueA := suite.createVenue("Matinee Venue", "Phoenix", "AZ")
+	venueB := suite.createVenue("Evening Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Double Booked")
+
+	// Two shows on the SAME event_date (midnight timestamps make this the
+	// common case). The higher show id must win deterministically.
+	sameDay := time.Now().UTC().AddDate(0, 0, -3).Truncate(24 * time.Hour)
+	suite.createApprovedShow("Matinee", venueA.ID, artist.ID, user.ID, sameDay)
+	suite.createApprovedShow("Evening", venueB.ID, artist.ID, user.ID, sameDay)
+
+	for i := 0; i < 3; i++ {
+		artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+		suite.Require().NoError(err)
+		suite.Require().Len(artists, 1)
+		suite.Equal(2, artists[0].ShowCount)
+		suite.Equal("Evening Venue", artists[0].LastShowVenue, "higher show id wins the same-date tie on every request")
+	}
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_ExcludesCancelledShows() {
+	user := suite.createUser("maa-cancelled@test.com")
+	venue := suite.createVenue("Cancelled Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Cancels Sometimes")
+
+	now := time.Now().UTC()
+	suite.createApprovedShow("Played Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -20))
+	cancelled := suite.createApprovedShow("Cancelled Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(1, artists[0].ShowCount, "cancelled shows were never played")
+	suite.Require().NotNil(artists[0].LastShowDate)
+	suite.WithinDuration(now.AddDate(0, 0, -20), *artists[0].LastShowDate, time.Hour,
+		"a cancelled show must not be the last show either")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowEdgeDayIncluded() {
+	user := suite.createUser("maa-edge@test.com")
+	venue := suite.createVenue("Edge Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Edge Case")
+
+	// Event dates are midnight timestamps; the window start truncates to
+	// midnight, so the show exactly 90 days ago is IN, 91 days ago is OUT.
+	now := time.Now().UTC()
+	midnight := now.Truncate(24 * time.Hour)
+	suite.createApprovedShow("Edge Show", venue.ID, artist.ID, user.ID, midnight.AddDate(0, 0, -90))
+	suite.createApprovedShow("Outside Show", venue.ID, artist.ID, user.ID, midnight.AddDate(0, 0, -91))
+
+	artists, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(1, artists[0].ShowCount, "exactly-90-days-ago is inside the quarter window; 91 is not")
 }

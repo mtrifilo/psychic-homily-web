@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/humatest"
+
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -351,4 +354,91 @@ func TestChartsHandler_Overview_ServiceError(t *testing.T) {
 
 	_, err := h.GetChartsOverviewHandler(context.Background(), &GetChartsOverviewRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// Tests: GetMostActiveArtistsHandler
+// ============================================================================
+
+func TestChartsHandler_MostActiveArtists_Success(t *testing.T) {
+	lastShow := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+			if window != contracts.ChartWindowQuarter {
+				t.Errorf("expected default window=quarter, got %q", window)
+			}
+			if limit != 20 {
+				t.Errorf("expected limit=20, got %d", limit)
+			}
+			return []contracts.MostActiveArtist{
+				{ArtistID: 1, Name: "Busy Band", Slug: "busy-band", City: "Phoenix", State: "AZ",
+					ShowCount: 14, HeadlinePct: 50, LastShowDate: &lastShow, LastShowSlug: "a-show", LastShowVenue: "The Venue"},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetMostActiveArtistsHandler(context.Background(), &GetMostActiveArtistsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
+	}
+	if len(resp.Body.Artists) != 1 {
+		t.Fatalf("expected 1 artist, got %d", len(resp.Body.Artists))
+	}
+	a := resp.Body.Artists[0]
+	if a.Name != "Busy Band" || a.ShowCount != 14 || a.HeadlinePct != 50 || a.LastShowVenue != "The Venue" {
+		t.Errorf("unexpected mapping: %+v", a)
+	}
+}
+
+func TestChartsHandler_MostActiveArtists_WindowPassthrough(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostActiveArtistsFn: func(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+			if window != contracts.ChartWindowMonth {
+				t.Errorf("expected window=month, got %q", window)
+			}
+			return []contracts.MostActiveArtist{}, nil
+		},
+	})
+
+	resp, err := h.GetMostActiveArtistsHandler(context.Background(), &GetMostActiveArtistsRequest{Window: "month"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "month" {
+		t.Errorf("expected echoed window=month, got %q", resp.Body.Window)
+	}
+}
+
+func TestChartsHandler_MostActiveArtists_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostActiveArtistsFn: func(contracts.ChartWindow, int) ([]contracts.MostActiveArtist, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+
+	_, err := h.GetMostActiveArtistsHandler(context.Background(), &GetMostActiveArtistsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_MostActiveArtists_InvalidWindow422 exercises the full huma
+// request-validation chain: the `enum` tag on the request struct must 422
+// invalid window values BEFORE the handler runs (huma-native validation — the
+// project's `validate:` tags are dead, so this asserts the tag actually fires).
+func TestChartsHandler_MostActiveArtists_InvalidWindow422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/most-active-artists", h.GetMostActiveArtistsHandler)
+
+	if resp := api.Get("/charts/most-active-artists?window=bogus"); resp.Code != 422 {
+		t.Errorf("expected 422 for window=bogus, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/most-active-artists?window=all_time"); resp.Code != 200 {
+		t.Errorf("expected 200 for window=all_time, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/most-active-artists"); resp.Code != 200 {
+		t.Errorf("expected 200 for absent window, got %d", resp.Code)
+	}
 }

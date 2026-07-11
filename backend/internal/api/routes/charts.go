@@ -12,6 +12,7 @@ func setupChartsRoutes(rc RouteContext) {
 	chartsHandler := catalogh.NewChartsHandler(rc.SC.Charts)
 
 	huma.Get(rc.API, "/charts/trending-shows", chartsHandler.GetTrendingShowsHandler)
+	huma.Get(rc.API, "/charts/most-active-artists", chartsHandler.GetMostActiveArtistsHandler)
 	huma.Get(rc.API, "/charts/popular-artists", chartsHandler.GetPopularArtistsHandler)
 	huma.Get(rc.API, "/charts/active-venues", chartsHandler.GetActiveVenuesHandler)
 	huma.Get(rc.API, "/charts/hot-releases", chartsHandler.GetHotReleasesHandler)

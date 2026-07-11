@@ -632,11 +632,12 @@ func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) (
 // ============================================================================
 
 type MockChartsService struct {
-	GetTrendingShowsFn  func(int) ([]contracts.TrendingShow, error)
-	GetPopularArtistsFn func(int) ([]contracts.PopularArtist, error)
-	GetActiveVenuesFn   func(int) ([]contracts.ActiveVenue, error)
-	GetHotReleasesFn    func(int) ([]contracts.HotRelease, error)
-	GetChartsOverviewFn func() (*contracts.ChartsOverview, error)
+	GetTrendingShowsFn     func(int) ([]contracts.TrendingShow, error)
+	GetMostActiveArtistsFn func(contracts.ChartWindow, int) ([]contracts.MostActiveArtist, error)
+	GetPopularArtistsFn    func(int) ([]contracts.PopularArtist, error)
+	GetActiveVenuesFn      func(int) ([]contracts.ActiveVenue, error)
+	GetHotReleasesFn       func(int) ([]contracts.HotRelease, error)
+	GetChartsOverviewFn    func() (*contracts.ChartsOverview, error)
 }
 
 func (m *MockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
@@ -644,6 +645,12 @@ func (m *MockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingSho
 		return m.GetTrendingShowsFn(limit)
 	}
 	return []contracts.TrendingShow{}, nil
+}
+func (m *MockChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit int) ([]contracts.MostActiveArtist, error) {
+	if m.GetMostActiveArtistsFn != nil {
+		return m.GetMostActiveArtistsFn(window, limit)
+	}
+	return nil, nil
 }
 func (m *MockChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist, error) {
 	if m.GetPopularArtistsFn != nil {
