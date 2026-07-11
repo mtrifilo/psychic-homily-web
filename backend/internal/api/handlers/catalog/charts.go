@@ -112,8 +112,8 @@ type GetMostAnticipatedShowsResponse struct {
 // GetMostAnticipatedShowsHandler handles GET /charts/most-anticipated —
 // upcoming shows over the save floor ranked by saves, or the date-ordered
 // soonest_upcoming fallback when too few qualify. Replaces
-// /charts/trending-shows for the Broadsheet page; the legacy route stays
-// until the M3 frontend switches over.
+// /charts/trending-shows; the legacy route stays until the redesigned charts
+// frontend migrates off it.
 func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req *GetMostAnticipatedShowsRequest) (*GetMostAnticipatedShowsResponse, error) {
 	limit := normalizeChartsLimit(req.Limit)
 
@@ -124,7 +124,7 @@ func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req 
 	}
 
 	resp := &GetMostAnticipatedShowsResponse{}
-	resp.Body.Mode = data.Mode
+	resp.Body.Mode = string(data.Mode)
 	resp.Body.Shows = make([]MostAnticipatedShowResponse, len(data.Shows))
 	for i, s := range data.Shows {
 		// Direct conversion (the structs are field-identical): a field added

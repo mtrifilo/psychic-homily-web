@@ -47,14 +47,17 @@ type TrendingShow struct {
 	SaveCount   int       `json:"save_count"`
 }
 
-// Most-anticipated mode discriminators. Ranked is the engagement chart
-// (every row cleared the save floor, counts included); soonest-upcoming is
-// the zero-row-free fallback when too few shows qualify — date-ordered with
-// counts OMITTED, so the frontend never renders the sparse-engagement
-// numbers the floor exists to hide.
+// MostAnticipatedMode discriminates the most-anticipated payload shape.
+// Ranked is the engagement chart (every row cleared the save floor, counts
+// included); soonest-upcoming is the fallback when too few shows qualify —
+// date-ordered with counts OMITTED, so the frontend never renders the
+// sparse-engagement numbers the floor exists to hide. (The fallback is only
+// as full as the upcoming calendar: with zero upcoming shows it is empty.)
+type MostAnticipatedMode string
+
 const (
-	MostAnticipatedModeRanked          = "ranked"
-	MostAnticipatedModeSoonestUpcoming = "soonest_upcoming"
+	MostAnticipatedModeRanked          MostAnticipatedMode = "ranked"
+	MostAnticipatedModeSoonestUpcoming MostAnticipatedMode = "soonest_upcoming"
 )
 
 // MostAnticipatedShow is one row of the most-anticipated module. SaveCount
@@ -74,7 +77,7 @@ type MostAnticipatedShow struct {
 
 // MostAnticipatedShows is the mode-discriminated most-anticipated payload.
 type MostAnticipatedShows struct {
-	Mode  string                `json:"mode"`
+	Mode  MostAnticipatedMode   `json:"mode"`
 	Shows []MostAnticipatedShow `json:"shows"`
 }
 
@@ -179,6 +182,8 @@ type ChartsOverview struct {
 // ──────────────────────────────────────────────
 
 // ChartsServiceInterface defines the contract for top charts / trending content.
+// limit preconditions: callers pass limit >= 1 (the HTTP layer clamps via
+// normalizeChartsLimit); services do not re-validate.
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
 	GetMostAnticipatedShows(limit int) (*MostAnticipatedShows, error)

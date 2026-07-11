@@ -1564,3 +1564,36 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Excl
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Empty(result.Shows, "a cancelled show never appears in either mode, saves or not")
 }
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_IncludesTodayMidnightShow() {
+	user := suite.createUser("ma-td-owner@test.com")
+	venue := suite.createVenue("MA TD Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA TD Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-td-saver-1@test.com"),
+		suite.createUser("ma-td-saver-2@test.com"),
+		suite.createUser("ma-td-saver-3@test.com"),
+	}
+
+	// Date-only shows are stored at midnight UTC, so tonight's show sorts
+	// BEFORE the current instant all day long — the eligibility bound must be
+	// start-of-today or the chart drops its most actionable rows.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	tonight := suite.createApprovedShow("Tonight Show", venue.ID, artist.ID, user.ID, today)
+	suite.createSaves(tonight.ID, savers, 3)
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Require().Len(result.Shows, 1, "a show happening today must count as upcoming in fallback mode")
+	suite.Equal(tonight.ID, result.Shows[0].ShowID)
+
+	for i := 0; i < 4; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("TD Pad %d", i), venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 15+i))
+		suite.createSaves(show.ID, savers, 3)
+	}
+	result, err = suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "today's show is the 5th qualifier — it must count toward ranked mode")
+	suite.Require().Len(result.Shows, 5)
+}

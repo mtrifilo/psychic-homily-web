@@ -30,6 +30,13 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 // GetTrendingShows returns upcoming shows ranked by save count.
 // Only includes future shows with approved status. Shows without engagement data are
 // included and ranked by soonest date, so the chart is never empty when shows exist.
+//
+// DEPRECATED in favor of GetMostAnticipatedShows, which replaces it for the
+// redesigned charts page; this stays only until the frontend hook migrates
+// off /charts/trending-shows. Known divergences fixed in the replacement and
+// deliberately NOT back-ported here (don't "fix" a route slated for
+// deletion): no is_cancelled filter, multi-venue shows duplicate one row per
+// venue, and the bound is the current instant rather than start-of-today.
 func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -140,7 +147,8 @@ func (s *ChartsService) showArtistNames(showIDs []uint) (map[uint][]string, erro
 // be a signal (and rendering them reads as a dead site).
 // mostAnticipatedMinQualifying is the minimum number of qualifying shows for
 // ranked mode to be worth rendering — below it the module falls back to
-// soonest-upcoming (date-ordered, counts omitted) so it is never empty.
+// soonest-upcoming (date-ordered, counts omitted), so the module has rows
+// whenever any upcoming show exists.
 const (
 	mostAnticipatedSaveFloor     = 3
 	mostAnticipatedMinQualifying = 5
@@ -164,19 +172,26 @@ const (
 			COALESCE(v.slug, '') AS venue_slug,
 			COALESCE(v.city, '') AS city`
 
+	// venue_id ASC is the repo's primary-venue pick (see the pv lateral in
+	// show.go) — keep it so a multi-venue show names the same venue here as
+	// on its show page.
 	mostAnticipatedFromSQL = `FROM shows s
 		LEFT JOIN LATERAL (
 			SELECT iv.name, iv.slug, iv.city
 			FROM show_venues sv
 			JOIN venues iv ON iv.id = sv.venue_id
 			WHERE sv.show_id = s.id
-			ORDER BY iv.name ASC, iv.id ASC
+			ORDER BY sv.venue_id ASC
 			LIMIT 1
 		) v ON TRUE`
 
 	// Upcoming + approved + not cancelled: the same non-cancelled rule the
 	// past-window charts enforce via appendChartShowWindow — a cancelled show
-	// must never rank as "anticipated". Binds (status, now).
+	// must never rank as "anticipated". Binds (status, start-of-today): event
+	// dates are midnight timestamps, so bounding against the current instant
+	// would drop tonight's shows the moment the day starts — the rows users
+	// are most likely to act on (GetUpcomingShows uses the same
+	// start-of-today convention).
 	mostAnticipatedEligibilitySQL = `WHERE s.status = ?
 			AND s.is_cancelled = FALSE
 			AND s.event_date >= ?`
@@ -194,7 +209,7 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	now := time.Now().UTC()
+	startOfToday := time.Now().UTC().Truncate(24 * time.Hour)
 
 	type showRow struct {
 		ShowID    uint      `gorm:"column:show_id"`
@@ -229,7 +244,7 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 		ORDER BY save_count DESC, s.event_date ASC, s.id ASC
 		LIMIT ?
 	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
-		catalogm.ShowStatusApproved, now, mostAnticipatedSaveFloor, probeLimit).Scan(&ranked).Error
+		catalogm.ShowStatusApproved, startOfToday, mostAnticipatedSaveFloor, probeLimit).Scan(&ranked).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get most-anticipated shows: %w", err)
 	}
@@ -248,7 +263,7 @@ func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAntic
 			`+mostAnticipatedEligibilitySQL+`
 			ORDER BY s.event_date ASC, s.id ASC
 			LIMIT ?
-		`, catalogm.ShowStatusApproved, now, limit).Scan(&rows).Error
+		`, catalogm.ShowStatusApproved, startOfToday, limit).Scan(&rows).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to get soonest-upcoming fallback shows: %w", err)
 		}

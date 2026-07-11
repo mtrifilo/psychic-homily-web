@@ -729,3 +729,19 @@ func TestChartsHandler_MostAnticipated_WireShape(t *testing.T) {
 		t.Errorf("fallback wire payload must omit save_count entirely: %s", body)
 	}
 }
+
+func TestChartsHandler_MostAnticipated_ExplicitLimitForwarded(t *testing.T) {
+	var receivedLimit int
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetMostAnticipatedShowsFn: func(limit int) (*contracts.MostAnticipatedShows, error) {
+			receivedLimit = limit
+			return &contracts.MostAnticipatedShows{Mode: contracts.MostAnticipatedModeRanked, Shows: []contracts.MostAnticipatedShow{}}, nil
+		},
+	})
+	if _, err := h.GetMostAnticipatedShowsHandler(context.Background(), &GetMostAnticipatedShowsRequest{Limit: 5}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedLimit != 5 {
+		t.Errorf("expected limit=5 forwarded, got %d", receivedLimit)
+	}
+}
