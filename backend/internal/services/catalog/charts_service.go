@@ -366,15 +366,11 @@ const headlineSlotPredicate = `sa.set_type = 'headliner' OR sa.position = 0`
 // and pair it with the shared aired gate (airedEpisodeVisibleSQL).
 func appendChartShowWindow(query string, args []any, now time.Time, start *time.Time) (string, []any) {
 	query += `
-			AND s.is_cancelled = FALSE
-			AND s.event_date <= ?`
-	args = append(args, now)
-	if start != nil {
-		query += `
-			AND s.event_date >= ?`
-		args = append(args, *start)
-	}
-	return query, args
+			AND s.is_cancelled = FALSE`
+	// The bounds themselves are the shared appendWindowBounds logic over a
+	// different column — one definition of "on/before now, inside the
+	// optional window" for every chart surface.
+	return appendWindowBounds(query, args, "s.event_date", now, start)
 }
 
 // GetMostActiveArtists returns artists ranked by approved, non-cancelled
@@ -691,15 +687,9 @@ func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit
 		JOIN radio_stations rst ON rst.id = rsh.station_id
 		JOIN artists a ON a.id = rp.artist_id
 		` + stationTimezoneJoinSQL + `
-		WHERE ` + pseudoArtistExclusionSQL + `
-			AND ` + stationLocalAiredDateBoundSQL("re.") + `
-			AND ` + airedEpisodeVisibleSQL("re.")
-	args := []any{now, now}
-	if start != nil {
-		query += `
-			AND re.air_date >= ?`
-		args = append(args, start.Format("2006-01-02"))
-	}
+		WHERE `
+	var args []any
+	query, args = appendRadioAiredWindow(query, args, now, start)
 	query += `
 		GROUP BY a.id
 		ORDER BY play_count DESC, a.name ASC, a.id ASC
@@ -1073,6 +1063,208 @@ func (s *ChartsService) releaseLabelNames(releaseIDs []uint) (map[uint][]string,
 		WHERE rl.release_id IN ?
 		ORDER BY rl.release_id, l.name ASC, l.id ASC
 	`, releaseIDs, "release labels")
+}
+
+// appendWindowBounds appends the generic chart window bounds for `column` —
+// on/before now plus the optional window lower bound — and the matching
+// args. `column` must be a compile-time literal, never runtime input. TWO
+// consumer families ride on this single definition: the summary's created_at
+// counts, and (via appendChartShowWindow) every windowed show chart's
+// event_date eligibility — where the `<= now` upper bound is LOAD-BEARING:
+// it is what keeps future-dated shows out of the played-show charts, so it
+// must not be dropped as "redundant" for the created_at case.
+func appendWindowBounds(query string, args []any, column string, now time.Time, start *time.Time) (string, []any) {
+	query += `
+			AND ` + column + ` <= ?`
+	args = append(args, now)
+	if start != nil {
+		query += `
+			AND ` + column + ` >= ?`
+		args = append(args, *start)
+	}
+	return query, args
+}
+
+// appendRadioAiredWindow appends the radio aired pair — pseudo-artist
+// exclusion, station-local aired date bound, air-window gate — plus the
+// optional window lower bound on air_date, and the matching args (now, now[,
+// start date]). It must be appended immediately after a bare `WHERE ` (the
+// fragment starts with a predicate, not AND), and the FROM clause must join
+// radio_episodes re, radio_stations rst, and stationTimezoneJoinSQL. Both radio-backed chart surfaces
+// (on-the-radio, the summary's radio_plays count) build through this so the
+// aired semantics and the placeholder arity can't drift between them.
+func appendRadioAiredWindow(query string, args []any, now time.Time, start *time.Time) (string, []any) {
+	query += pseudoArtistExclusionSQL + `
+			AND ` + stationLocalAiredDateBoundSQL("re.") + `
+			AND ` + airedEpisodeVisibleSQL("re.")
+	args = append(args, now, now)
+	if start != nil {
+		query += `
+			AND re.air_date >= ?`
+		args = append(args, start.Format("2006-01-02"))
+	}
+	return query, args
+}
+
+// GetChartsSummary returns the masthead stat strip counts for the window as
+// ONE statement of five scalar subqueries scanned straight into the summary
+// shape — one round trip, and a column/field mismatch fails loudly at scan
+// time instead of silently zeroing a stat. Each count reuses the shared
+// eligibility definition of the module it summarizes:
+//   - shows/artists/releases count entities ADDED in the window
+//     (appendWindowBounds); shows must be approved and not cancelled — a
+//     cancelled show must not inflate the proof-of-life strip that every
+//     module below it excludes. The artist/release counts are deliberately
+//     ungated beyond that: they measure raw graph growth, expose no names,
+//     and the ticker (which does expose names) is the gated surface.
+//   - radio plays share the aired pair + pseudo exclusion with the
+//     on-the-radio module via appendRadioAiredWindow (unmatched plays DO
+//     count here — the strip measures logging activity, not match rate).
+//   - active scenes share sceneGroupKeySQL/sceneVenueEligibilitySQL with the
+//     scenes list and count scenes with >=1 show played in the window
+//     (appendChartShowWindow semantics). NOTE this floor is deliberately
+//     lower than the scenes DIRECTORY's listing thresholds (sceneMinVenues/
+//     sceneMinShows): "active this window" is a different claim than
+//     "established enough to list", so the strip count can exceed the
+//     /scenes list length.
+func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	var query string
+	var args []any
+
+	query = `
+		SELECT
+		(SELECT COUNT(*)
+			FROM shows s
+			WHERE s.status = ?
+				AND s.is_cancelled = FALSE`
+	args = append(args, catalogm.ShowStatusApproved)
+	query, args = appendWindowBounds(query, args, "s.created_at", now, start)
+
+	query += `
+		) AS shows_added,
+		(SELECT COUNT(*)
+			FROM artists a
+			WHERE true`
+	query, args = appendWindowBounds(query, args, "a.created_at", now, start)
+
+	query += `
+		) AS new_artists,
+		(SELECT COUNT(*)
+			FROM releases r
+			WHERE true`
+	query, args = appendWindowBounds(query, args, "r.created_at", now, start)
+
+	query += `
+		) AS new_releases,
+		(SELECT COUNT(*)
+			FROM radio_plays rp
+			JOIN radio_episodes re ON re.id = rp.episode_id
+			JOIN radio_shows rsh ON rsh.id = re.show_id
+			JOIN radio_stations rst ON rst.id = rsh.station_id
+			` + stationTimezoneJoinSQL + `
+			WHERE `
+	query, args = appendRadioAiredWindow(query, args, now, start)
+
+	query += `
+		) AS radio_plays,
+		(SELECT COUNT(DISTINCT ` + sceneGroupKeySQL + `)
+			FROM shows s
+			JOIN show_venues sv ON sv.show_id = s.id
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE s.status = ?
+			  ` + sceneVenueEligibilitySQL
+	args = append(args, catalogm.ShowStatusApproved)
+	query, args = appendChartShowWindow(query, args, now, start)
+	query += `
+		) AS active_scenes`
+
+	type summaryRow struct {
+		ShowsAdded   int `gorm:"column:shows_added"`
+		NewArtists   int `gorm:"column:new_artists"`
+		NewReleases  int `gorm:"column:new_releases"`
+		RadioPlays   int `gorm:"column:radio_plays"`
+		ActiveScenes int `gorm:"column:active_scenes"`
+	}
+	var row summaryRow
+	if err := s.db.Raw(query, args...).Scan(&row).Error; err != nil {
+		return nil, fmt.Errorf("failed to get charts summary: %w", err)
+	}
+
+	summary := contracts.ChartsSummary(row)
+	return &summary, nil
+}
+
+// GetFreshlyAdded returns the most recently added entities across types
+// (artist/venue/release/station) interleaved newest-first — the footer
+// ticker. Each branch pre-limits to the requested size before the global
+// sort so the union never materializes whole tables.
+//
+// Eligibility: venues must be VERIFIED — the one real moderation gate here,
+// matching every public venue surface (user submissions create venues
+// unverified; only admins verify). Artists must be anchored to content — an
+// approved non-cancelled show, a release (admin-created), or a radio play
+// (pipeline-created). NOTE the anchor is NOT a moderation gate: this site
+// runs post-moderation, so a user-submitted show is approved on creation and
+// anchors its artists immediately — the same names are already public on
+// every show and chart surface; the ticker deliberately follows that model
+// rather than being stricter than the charts above it. What the anchor DOES
+// exclude: artists reachable only through private/pending shows, and
+// orphaned artist rows with no content at all. Releases and stations are
+// admin-only writes and need no gate.
+func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	type itemRow struct {
+		EntityType string    `gorm:"column:entity_type"`
+		EntityID   uint      `gorm:"column:entity_id"`
+		Name       string    `gorm:"column:name"`
+		Slug       string    `gorm:"column:slug"`
+		AddedAt    time.Time `gorm:"column:added_at"`
+	}
+
+	var rows []itemRow
+	err := s.db.Raw(`
+		SELECT * FROM (
+			(SELECT 'artist' AS entity_type, a.id AS entity_id, a.name, COALESCE(a.slug, '') AS slug, a.created_at AS added_at
+			 FROM artists a
+			 WHERE EXISTS (SELECT 1 FROM show_artists sa JOIN shows s ON s.id = sa.show_id
+				WHERE sa.artist_id = a.id AND s.status = ? AND s.is_cancelled = FALSE)
+				OR EXISTS (SELECT 1 FROM artist_releases ar WHERE ar.artist_id = a.id)
+				OR EXISTS (SELECT 1 FROM radio_plays rp WHERE rp.artist_id = a.id)
+			 ORDER BY a.created_at DESC, a.id DESC LIMIT ?)
+			UNION ALL
+			(SELECT 'venue', v.id, v.name, COALESCE(v.slug, ''), v.created_at
+			 FROM venues v
+			 WHERE v.verified = true
+			 ORDER BY v.created_at DESC, v.id DESC LIMIT ?)
+			UNION ALL
+			(SELECT 'release', r.id, r.title, COALESCE(r.slug, ''), r.created_at
+			 FROM releases r ORDER BY r.created_at DESC, r.id DESC LIMIT ?)
+			UNION ALL
+			(SELECT 'station', rst.id, rst.name, rst.slug, rst.created_at
+			 FROM radio_stations rst ORDER BY rst.created_at DESC, rst.id DESC LIMIT ?)
+		) x
+		ORDER BY x.added_at DESC, x.entity_type ASC, x.entity_id DESC
+		LIMIT ?
+	`, catalogm.ShowStatusApproved, limit, limit, limit, limit, limit).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get freshly added items: %w", err)
+	}
+
+	results := make([]contracts.FreshlyAddedItem, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.FreshlyAddedItem(r)
+	}
+	return results, nil
 }
 
 // GetChartsOverview returns a condensed summary with top 5 of each chart.

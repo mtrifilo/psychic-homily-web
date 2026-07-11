@@ -833,3 +833,122 @@ func TestChartsHandler_NewReleases_InvalidWindow422(t *testing.T) {
 		t.Errorf("expected 200 for absent window, got %d", resp.Code)
 	}
 }
+
+// ============================================================================
+// Tests: GetChartsSummaryHandler + GetFreshlyAddedHandler
+// ============================================================================
+
+func TestChartsHandler_Summary_Success(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartsSummaryFn: func(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+			if window != contracts.ChartWindowQuarter {
+				t.Errorf("expected default window=quarter, got %q", window)
+			}
+			return &contracts.ChartsSummary{ShowsAdded: 142, NewArtists: 87, NewReleases: 31, RadioPlays: 418, ActiveScenes: 9}, nil
+		},
+	})
+
+	resp, err := h.GetChartsSummaryHandler(context.Background(), &GetChartsSummaryRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
+	}
+	b := resp.Body
+	if b.ShowsAdded != 142 || b.NewArtists != 87 || b.NewReleases != 31 || b.RadioPlays != 418 || b.ActiveScenes != 9 {
+		t.Errorf("unexpected mapping: %+v", b)
+	}
+}
+
+func TestChartsHandler_Summary_WindowPassthrough(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartsSummaryFn: func(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+			if window != contracts.ChartWindowMonth {
+				t.Errorf("expected window=month, got %q", window)
+			}
+			return &contracts.ChartsSummary{}, nil
+		},
+	})
+	resp, err := h.GetChartsSummaryHandler(context.Background(), &GetChartsSummaryRequest{Window: "month"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "month" {
+		t.Errorf("expected echoed window=month, got %q", resp.Body.Window)
+	}
+}
+
+func TestChartsHandler_Summary_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartsSummaryFn: func(contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetChartsSummaryHandler(context.Background(), &GetChartsSummaryRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_Summary_InvalidWindow422 exercises the huma enum-tag
+// validation chain (dead-validate-tag gotcha: assert the 422).
+func TestChartsHandler_Summary_InvalidWindow422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/summary", h.GetChartsSummaryHandler)
+
+	if resp := api.Get("/charts/summary?window=bogus"); resp.Code != 422 {
+		t.Errorf("expected 422 for window=bogus, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/summary?window=all_time"); resp.Code != 200 {
+		t.Errorf("expected 200 for window=all_time, got %d", resp.Code)
+	}
+}
+
+func TestChartsHandler_FreshlyAdded_Success(t *testing.T) {
+	added := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetFreshlyAddedFn: func(limit int) ([]contracts.FreshlyAddedItem, error) {
+			if limit != 20 {
+				t.Errorf("expected default limit=20, got %d", limit)
+			}
+			return []contracts.FreshlyAddedItem{
+				{EntityType: "release", EntityID: 4, Name: "Fresh Wax", Slug: "fresh-wax", AddedAt: added},
+				{EntityType: "artist", EntityID: 2, Name: "New Band", Slug: "new-band", AddedAt: added.Add(-time.Hour)},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetFreshlyAddedHandler(context.Background(), &GetFreshlyAddedRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Items) != 2 || resp.Body.Items[0].EntityType != "release" || resp.Body.Items[1].Name != "New Band" {
+		t.Errorf("unexpected mapping: %+v", resp.Body.Items)
+	}
+}
+
+func TestChartsHandler_FreshlyAdded_LimitForwarded(t *testing.T) {
+	var receivedLimit int
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetFreshlyAddedFn: func(limit int) ([]contracts.FreshlyAddedItem, error) {
+			receivedLimit = limit
+			return []contracts.FreshlyAddedItem{}, nil
+		},
+	})
+	if _, err := h.GetFreshlyAddedHandler(context.Background(), &GetFreshlyAddedRequest{Limit: 5}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedLimit != 5 {
+		t.Errorf("expected limit=5 forwarded, got %d", receivedLimit)
+	}
+}
+
+func TestChartsHandler_FreshlyAdded_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetFreshlyAddedFn: func(int) ([]contracts.FreshlyAddedItem, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetFreshlyAddedHandler(context.Background(), &GetFreshlyAddedRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
