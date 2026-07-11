@@ -1206,14 +1206,18 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contrac
 // ticker. Each branch pre-limits to the requested size before the global
 // sort so the union never materializes whole tables.
 //
-// Eligibility matters here more than anywhere else on the page: a user show
-// submission creates its artist and venue rows IMMEDIATELY, before any
-// moderation, and this ticker's newest-first order would put an
-// attacker-chosen name at position 1 of the public masthead. So venues must
-// be verified (every public venue surface gates on this) and artists must be
-// anchored to curated content — an approved non-cancelled show, a release
-// (admin-created), or a radio play (pipeline-created). Releases and stations
-// are admin-only writes and need no gate.
+// Eligibility: venues must be VERIFIED — the one real moderation gate here,
+// matching every public venue surface (user submissions create venues
+// unverified; only admins verify). Artists must be anchored to content — an
+// approved non-cancelled show, a release (admin-created), or a radio play
+// (pipeline-created). NOTE the anchor is NOT a moderation gate: this site
+// runs post-moderation, so a user-submitted show is approved on creation and
+// anchors its artists immediately — the same names are already public on
+// every show and chart surface; the ticker deliberately follows that model
+// rather than being stricter than the charts above it. What the anchor DOES
+// exclude: artists reachable only through private/pending shows, and
+// orphaned artist rows with no content at all. Releases and stations are
+// admin-only writes and need no gate.
 func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

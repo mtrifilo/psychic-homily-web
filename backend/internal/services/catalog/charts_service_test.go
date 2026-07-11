@@ -1888,10 +1888,21 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 	suite.Require().NoError(err)
 	suite.Empty(items, "unverified venues and unanchored artists never reach the ticker")
 
-	// Anchoring the artist through a radio play makes it eligible.
-	anchored := suite.createArtist("Radio Anchored")
+	// An artist whose only show is NON-approved stays out — this pins the
+	// status predicate inside the anchor, not just the join's existence.
+	user := suite.createUser("ticker-gate@test.com")
+	hiddenVenue := suite.createVenue("Gate Venue", "Phoenix", "AZ")
+	pendingOnly := suite.createArtist("Pending Show Only")
+	pendingShow := suite.createApprovedShow("Gate Pending", hiddenVenue.ID, pendingOnly.ID, user.ID, time.Now().UTC().AddDate(0, 0, 5))
+	suite.Require().NoError(suite.db.Model(pendingShow).Update("status", catalogm.ShowStatusPending).Error)
+
+	// Anchors that DO make artists eligible: a radio play, and an approved
+	// show (post-moderation model — an approved show anchors immediately).
+	radioAnchored := suite.createArtist("Radio Anchored")
 	show := suite.createRadioStack("KANCHOR", "kanchor", nil)
-	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 3).ID, &anchored.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 3).ID, &radioAnchored.ID, 1, false)
+	showAnchored := suite.createArtist("Show Anchored")
+	suite.createApprovedShow("Gate Approved", hiddenVenue.ID, showAnchored.ID, user.ID, time.Now().UTC().AddDate(0, 0, 6))
 
 	items, err = suite.chartsService.GetFreshlyAdded(20)
 	suite.Require().NoError(err)
@@ -1900,6 +1911,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_ExcludesUnmo
 		names[i] = it.Name
 	}
 	suite.Contains(names, "Radio Anchored")
+	suite.Contains(names, "Show Anchored", "an approved show anchors its artist")
+	suite.NotContains(names, "Pending Show Only", "a non-approved show is not an anchor")
 	suite.NotContains(names, "Spam Artist")
 	suite.NotContains(names, "Spam Venue")
+	suite.NotContains(names, "Gate Venue", "unverified venues stay out even when their shows anchor artists")
 }
