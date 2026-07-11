@@ -6,8 +6,9 @@
 -- multi-statement file in a transaction, which is incompatible with
 -- CONCURRENTLY (same tradeoff the unaccent migration documents). The SHARE
 -- lock blocks writes to each table for the build's duration — acceptable
--- here because all five tables are catalog-sized (thousands of rows,
--- sub-second builds), not ingest-sized.
+-- here because all five indexes land on catalog-sized tables (four tables;
+-- releases gets two indexes; thousands of rows, sub-second builds), not
+-- ingest-sized ones.
 --
 -- 1) The new-releases module windows AND orders on
 --    COALESCE(release_date, (created_at AT TIME ZONE 'UTC')::date), which no

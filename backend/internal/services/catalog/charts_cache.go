@@ -86,8 +86,12 @@ func (c *chartsCache) acquire(key string) *chartsCacheEntry {
 		for k, e := range c.entries {
 			// Zero expires marks an in-flight fetch (initial fill OR a
 			// refresh — chartsCached zeroes it before refetching), so a
-			// hot entry mid-refresh is never evicted. Reading e.expires
-			// here is synchronized through c.mu (see setExpires).
+			// hot entry is never evicted once marked. (An expired entry
+			// can be swept in the beat before its refresher marks it;
+			// the refresh then fills an orphaned entry — benign: the
+			// value is still returned, just not cached.) Reading
+			// e.expires here is synchronized through c.mu (see
+			// setExpires).
 			if e.expires.IsZero() || now.Before(e.expires) {
 				continue
 			}
