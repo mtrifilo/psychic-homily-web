@@ -1510,8 +1510,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Smal
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_MultiVenueShowAppearsOnce() {
 	user := suite.createUser("ma-mv-owner@test.com")
-	venueA := suite.createVenue("Alpha Hall", "Phoenix", "AZ")
-	venueB := suite.createVenue("Beta Hall", "Tempe", "AZ")
+	// Created first, so it has the LOWER venue id despite sorting last by
+	// name — the pick must follow venue_id (the show-page primary-venue
+	// convention), and this ordering makes the test fail if it ever reverts
+	// to a name-ordered pick.
+	venueZ := suite.createVenue("Zeta Hall", "Phoenix", "AZ")
+	venueA := suite.createVenue("Alpha Hall", "Tempe", "AZ")
 	artist := suite.createArtist("MA MV Artist")
 	savers := []*authm.User{
 		suite.createUser("ma-mv-saver-1@test.com"),
@@ -1520,17 +1524,17 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mult
 	}
 
 	now := time.Now().UTC()
-	multi := suite.createApprovedShow("Two Venue Fest", venueA.ID, artist.ID, user.ID, now.AddDate(0, 0, 7))
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: multi.ID, VenueID: venueB.ID}).Error)
+	multi := suite.createApprovedShow("Two Venue Fest", venueZ.ID, artist.ID, user.ID, now.AddDate(0, 0, 7))
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: multi.ID, VenueID: venueA.ID}).Error)
 	suite.createSaves(multi.ID, savers, 3)
 
 	// Fallback mode (1 qualifying < 5): the two-venue show must still be ONE
-	// row, with the deterministic (name-ordered) venue pick.
+	// row, carrying the lowest-venue_id pick.
 	result, err := suite.chartsService.GetMostAnticipatedShows(20)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 1, "a multi-venue show is one row, not one per venue")
-	suite.Equal("Alpha Hall", result.Shows[0].VenueName)
+	suite.Equal("Zeta Hall", result.Shows[0].VenueName, "venue pick follows lowest venue_id, not name order")
 
 	// Ranked mode: pad with four more qualifying shows; the multi-venue show
 	// must occupy exactly one slot and count once toward min-qualifying.

@@ -190,8 +190,9 @@ const (
 	// must never rank as "anticipated". Binds (status, start-of-today): event
 	// dates are midnight timestamps, so bounding against the current instant
 	// would drop tonight's shows the moment the day starts — the rows users
-	// are most likely to act on (GetUpcomingShows uses the same
-	// start-of-today convention).
+	// are most likely to act on. Same start-of-today idea as
+	// GetUpcomingShows, but fixed to UTC (a public chart has no requester
+	// timezone to resolve against).
 	mostAnticipatedEligibilitySQL = `WHERE s.status = ?
 			AND s.is_cancelled = FALSE
 			AND s.event_date >= ?`
