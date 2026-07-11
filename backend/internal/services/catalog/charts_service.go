@@ -30,6 +30,13 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 // GetTrendingShows returns upcoming shows ranked by save count.
 // Only includes future shows with approved status. Shows without engagement data are
 // included and ranked by soonest date, so the chart is never empty when shows exist.
+//
+// DEPRECATED in favor of GetMostAnticipatedShows, which replaces it for the
+// redesigned charts page; this stays only until the frontend hook migrates
+// off /charts/trending-shows. Known divergences fixed in the replacement and
+// deliberately NOT back-ported here (don't "fix" a route slated for
+// deletion): no is_cancelled filter, multi-venue shows duplicate one row per
+// venue, and the bound is the current instant rather than start-of-today.
 func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -94,38 +101,209 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	}
 
 	// Fetch artist names for all shows in one query
-	if len(showIDs) > 0 {
-		type artistNameRow struct {
-			ShowID uint   `gorm:"column:show_id"`
-			Name   string `gorm:"column:name"`
-		}
-		var artistRows []artistNameRow
-		err := s.db.Raw(`
-			SELECT sa.show_id, a.name
-			FROM show_artists sa
-			JOIN artists a ON a.id = sa.artist_id
-			WHERE sa.show_id IN ?
-			ORDER BY sa.show_id, sa.position
-		`, showIDs).Scan(&artistRows).Error
-		if err != nil {
-			return nil, fmt.Errorf("failed to get show artists: %w", err)
-		}
-
-		// Build map of show_id -> artist names
-		artistMap := make(map[uint][]string)
-		for _, ar := range artistRows {
-			artistMap[ar.ShowID] = append(artistMap[ar.ShowID], ar.Name)
-		}
-
-		// Assign to results
-		for i := range results {
-			if names, ok := artistMap[results[i].ShowID]; ok {
-				results[i].ArtistNames = names
-			}
+	artistMap, err := s.showArtistNames(showIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		if names, ok := artistMap[results[i].ShowID]; ok {
+			results[i].ArtistNames = names
 		}
 	}
 
 	return results, nil
+}
+
+// showArtistNames returns bill-ordered artist names for each show, in one
+// query. Shared by the show-row chart modules (trending / most-anticipated).
+func (s *ChartsService) showArtistNames(showIDs []uint) (map[uint][]string, error) {
+	if len(showIDs) == 0 {
+		return nil, nil
+	}
+	type artistNameRow struct {
+		ShowID uint   `gorm:"column:show_id"`
+		Name   string `gorm:"column:name"`
+	}
+	var artistRows []artistNameRow
+	err := s.db.Raw(`
+		SELECT sa.show_id, a.name
+		FROM show_artists sa
+		JOIN artists a ON a.id = sa.artist_id
+		WHERE sa.show_id IN ?
+		ORDER BY sa.show_id, sa.position
+	`, showIDs).Scan(&artistRows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get show artists: %w", err)
+	}
+	artistMap := make(map[uint][]string)
+	for _, ar := range artistRows {
+		artistMap[ar.ShowID] = append(artistMap[ar.ShowID], ar.Name)
+	}
+	return artistMap, nil
+}
+
+// mostAnticipatedSaveFloor is the minimum save count a show needs to appear
+// in the ranked most-anticipated chart; below it, counts are too sparse to
+// be a signal (and rendering them reads as a dead site).
+// mostAnticipatedMinQualifying is the minimum number of qualifying shows for
+// ranked mode to be worth rendering — below it the module falls back to
+// soonest-upcoming (date-ordered, counts omitted), so the module has rows
+// whenever any upcoming show exists.
+const (
+	mostAnticipatedSaveFloor     = 3
+	mostAnticipatedMinQualifying = 5
+)
+
+// The ranked and fallback most-anticipated queries share these fragments so
+// their show universes can't drift apart — a mode flip must never change
+// WHICH shows are eligible, only how they're ordered and what's counted.
+//
+// The LATERAL venue pick returns at most one deterministic venue per show
+// (unlike a bare show_venues LEFT JOIN, which yields one row per venue for a
+// multi-venue show — duplicating the show in the payload and, worse here,
+// double-counting it toward the min-qualifying mode check).
+const (
+	mostAnticipatedColumnsSQL = `
+			s.id AS show_id,
+			s.title,
+			COALESCE(s.slug, '') AS slug,
+			s.event_date,
+			COALESCE(v.name, '') AS venue_name,
+			COALESCE(v.slug, '') AS venue_slug,
+			COALESCE(v.city, '') AS city`
+
+	// venue_id ASC is the repo's primary-venue pick (see the pv lateral in
+	// show.go) — keep it so a multi-venue show names the same venue here as
+	// on its show page.
+	mostAnticipatedFromSQL = `FROM shows s
+		LEFT JOIN LATERAL (
+			SELECT iv.name, iv.slug, iv.city
+			FROM show_venues sv
+			JOIN venues iv ON iv.id = sv.venue_id
+			WHERE sv.show_id = s.id
+			ORDER BY sv.venue_id ASC
+			LIMIT 1
+		) v ON TRUE`
+
+	// Upcoming + approved + not cancelled: the same non-cancelled rule the
+	// past-window charts enforce via appendChartShowWindow — a cancelled show
+	// must never rank as "anticipated". Binds (status, start-of-today): event
+	// dates are midnight timestamps, so bounding against the current instant
+	// would drop tonight's shows the moment the day starts — the rows users
+	// are most likely to act on. Same start-of-today idea as
+	// GetUpcomingShows, but fixed to UTC (a public chart has no requester
+	// timezone to resolve against).
+	mostAnticipatedEligibilitySQL = `WHERE s.status = ?
+			AND s.is_cancelled = FALSE
+			AND s.event_date >= ?`
+)
+
+// GetMostAnticipatedShows returns the mode-discriminated most-anticipated
+// module: upcoming approved shows with saves >= the floor, ranked by save
+// count (ties by soonest date, then id). When fewer than
+// mostAnticipatedMinQualifying shows clear the floor, it returns
+// soonest-upcoming fallback mode instead — ALL upcoming approved shows
+// date-ordered with SaveCount nil on every row (fail-closed: sub-floor
+// counts never leak into a rendered payload).
+func (s *ChartsService) GetMostAnticipatedShows(limit int) (*contracts.MostAnticipatedShows, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	startOfToday := time.Now().UTC().Truncate(24 * time.Hour)
+
+	type showRow struct {
+		ShowID    uint      `gorm:"column:show_id"`
+		Title     string    `gorm:"column:title"`
+		Slug      string    `gorm:"column:slug"`
+		Date      time.Time `gorm:"column:event_date"`
+		VenueName string    `gorm:"column:venue_name"`
+		VenueSlug string    `gorm:"column:venue_slug"`
+		City      string    `gorm:"column:city"`
+		SaveCount int       `gorm:"column:save_count"`
+	}
+
+	// Probe past the caller's limit so a small page size can't force fallback:
+	// the mode is a statement about how many shows QUALIFY, not about how many
+	// the caller asked to see. Rows are sliced back to limit after the check.
+	probeLimit := limit
+	if probeLimit < mostAnticipatedMinQualifying {
+		probeLimit = mostAnticipatedMinQualifying
+	}
+
+	var ranked []showRow
+	err := s.db.Raw(`
+		SELECT`+mostAnticipatedColumnsSQL+`,
+			COUNT(ub.id) AS save_count
+		`+mostAnticipatedFromSQL+`
+		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
+			AND ub.entity_type = ?
+			AND ub.action = ?
+		`+mostAnticipatedEligibilitySQL+`
+		GROUP BY s.id, v.name, v.slug, v.city
+		HAVING COUNT(ub.id) >= ?
+		ORDER BY save_count DESC, s.event_date ASC, s.id ASC
+		LIMIT ?
+	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
+		catalogm.ShowStatusApproved, startOfToday, mostAnticipatedSaveFloor, probeLimit).Scan(&ranked).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get most-anticipated shows: %w", err)
+	}
+
+	mode := contracts.MostAnticipatedModeRanked
+	rows := ranked
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	if len(ranked) < mostAnticipatedMinQualifying {
+		mode = contracts.MostAnticipatedModeSoonestUpcoming
+		rows = nil
+		err := s.db.Raw(`
+			SELECT`+mostAnticipatedColumnsSQL+`
+			`+mostAnticipatedFromSQL+`
+			`+mostAnticipatedEligibilitySQL+`
+			ORDER BY s.event_date ASC, s.id ASC
+			LIMIT ?
+		`, catalogm.ShowStatusApproved, startOfToday, limit).Scan(&rows).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to get soonest-upcoming fallback shows: %w", err)
+		}
+	}
+
+	result := &contracts.MostAnticipatedShows{
+		Mode:  mode,
+		Shows: make([]contracts.MostAnticipatedShow, len(rows)),
+	}
+	showIDs := make([]uint, len(rows))
+	for i, r := range rows {
+		result.Shows[i] = contracts.MostAnticipatedShow{
+			ShowID:      r.ShowID,
+			Title:       r.Title,
+			Slug:        r.Slug,
+			Date:        r.Date,
+			VenueName:   r.VenueName,
+			VenueSlug:   r.VenueSlug,
+			City:        r.City,
+			ArtistNames: []string{},
+		}
+		if mode == contracts.MostAnticipatedModeRanked {
+			count := r.SaveCount
+			result.Shows[i].SaveCount = &count
+		}
+		showIDs[i] = r.ShowID
+	}
+
+	artistMap, err := s.showArtistNames(showIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range result.Shows {
+		if names, ok := artistMap[result.Shows[i].ShowID]; ok {
+			result.Shows[i].ArtistNames = names
+		}
+	}
+
+	return result, nil
 }
 
 // chartWindowStart returns the inclusive lower bound for a chart window, or

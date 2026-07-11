@@ -1349,3 +1349,255 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_AiredBo
 		"station-local today counts on both sides of UTC; station-local tomorrow never does",
 	)
 }
+
+// =============================================================================
+// GetMostAnticipatedShows Tests
+// =============================================================================
+// Dual-shape discipline: ranked mode must keep the floor + counts, AND
+// fallback mode must omit counts on every row. Both directions live here
+// together so a future edit can't fix one and silently break the other.
+
+// createSaves bookmarks a show with `count` distinct users.
+func (suite *ChartsServiceIntegrationTestSuite) createSaves(showID uint, users []*authm.User, count int) {
+	for i := 0; i < count; i++ {
+		suite.createBookmark(users[i].ID, engagementm.BookmarkEntityShow, showID, engagementm.BookmarkActionSave)
+	}
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_RankedMode() {
+	user := suite.createUser("ma-owner@test.com")
+	venue := suite.createVenue("MA Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-saver-1@test.com"),
+		suite.createUser("ma-saver-2@test.com"),
+		suite.createUser("ma-saver-3@test.com"),
+		suite.createUser("ma-saver-4@test.com"),
+	}
+
+	now := time.Now().UTC()
+	// Five qualifying shows: one at 4 saves, four at exactly the floor (3).
+	// Dates ascend so the count tie among the 3-save shows breaks by date.
+	big := suite.createApprovedShow("Big Draw", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
+	suite.createSaves(big.ID, savers, 4)
+	floorShows := make([]uint, 4)
+	for i := range floorShows {
+		show := suite.createApprovedShow(fmt.Sprintf("Floor Show %d", i), venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 20+i))
+		suite.createSaves(show.ID, savers, 3)
+		floorShows[i] = show.ID
+	}
+	// Sub-floor (2 saves) and zero-save shows must NOT appear in ranked mode.
+	subFloor := suite.createApprovedShow("Two Saves Only", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 5))
+	suite.createSaves(subFloor.ID, savers, 2)
+	suite.createApprovedShow("No Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 6))
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
+	suite.Require().Len(result.Shows, 5, "only floor-clearing shows rank; 2-save and 0-save shows stay out")
+
+	suite.Equal("Big Draw", result.Shows[0].Title, "highest save count ranks first")
+	suite.Require().NotNil(result.Shows[0].SaveCount)
+	suite.Equal(4, *result.Shows[0].SaveCount)
+	for i, id := range floorShows {
+		row := result.Shows[i+1]
+		suite.Equal(id, row.ShowID, "count ties break by soonest date")
+		suite.Require().NotNil(row.SaveCount, "ranked mode always carries counts")
+		suite.Equal(3, *row.SaveCount)
+	}
+	suite.Equal([]string{"MA Artist"}, result.Shows[0].ArtistNames)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_FallbackBelowMinQualifying() {
+	user := suite.createUser("ma-fb-owner@test.com")
+	venue := suite.createVenue("MA FB Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA FB Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-fb-saver-1@test.com"),
+		suite.createUser("ma-fb-saver-2@test.com"),
+		suite.createUser("ma-fb-saver-3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	// Only four shows clear the floor — one short of ranked mode's minimum.
+	qualifying := make([]uint, 4)
+	for i := range qualifying {
+		show := suite.createApprovedShow(fmt.Sprintf("Qualifying %d", i), venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 30+i))
+		suite.createSaves(show.ID, savers, 3)
+		qualifying[i] = show.ID
+	}
+	soonest := suite.createApprovedShow("Soonest Zero Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 2))
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Require().Len(result.Shows, 5, "fallback lists ALL upcoming shows, floor ignored")
+	suite.Equal(soonest.ID, result.Shows[0].ShowID, "fallback orders by soonest date, not saves")
+	for _, row := range result.Shows {
+		suite.Nil(row.SaveCount, "fallback omits counts on every row — even rows that do have saves")
+	}
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_ExcludesPastAndPending() {
+	user := suite.createUser("ma-ex-owner@test.com")
+	venue := suite.createVenue("MA EX Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA EX Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-ex-saver-1@test.com"),
+		suite.createUser("ma-ex-saver-2@test.com"),
+		suite.createUser("ma-ex-saver-3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	past := suite.createApprovedShow("Past Heavy Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -3))
+	suite.createSaves(past.ID, savers, 3)
+	pending := suite.createApprovedShow("Pending Show", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 3))
+	suite.createSaves(pending.ID, savers, 3)
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Empty(result.Shows, "past and pending shows appear in neither mode")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_RespectsLimit() {
+	user := suite.createUser("ma-lim-owner@test.com")
+	venue := suite.createVenue("MA LIM Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA LIM Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-lim-saver-1@test.com"),
+		suite.createUser("ma-lim-saver-2@test.com"),
+		suite.createUser("ma-lim-saver-3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	for i := 0; i < 6; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("Limit Show %d", i), venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10+i))
+		suite.createSaves(show.ID, savers, 3)
+	}
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(5)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
+	suite.Len(result.Shows, 5)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_SmallLimitStaysRanked() {
+	user := suite.createUser("ma-sl-owner@test.com")
+	venue := suite.createVenue("MA SL Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA SL Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-sl-saver-1@test.com"),
+		suite.createUser("ma-sl-saver-2@test.com"),
+		suite.createUser("ma-sl-saver-3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	for i := 0; i < 6; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("SL Show %d", i), venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10+i))
+		suite.createSaves(show.ID, savers, 3)
+	}
+
+	// The mode is about how many shows QUALIFY, not how many were requested:
+	// a compact 2-row widget must still get ranked mode when 6 shows qualify.
+	result, err := suite.chartsService.GetMostAnticipatedShows(2)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "a limit below the qualifying minimum must not force fallback")
+	suite.Require().Len(result.Shows, 2)
+	suite.Require().NotNil(result.Shows[0].SaveCount)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_MultiVenueShowAppearsOnce() {
+	user := suite.createUser("ma-mv-owner@test.com")
+	// Created first, so it has the LOWER venue id despite sorting last by
+	// name — the pick must follow venue_id (the show-page primary-venue
+	// convention), and this ordering makes the test fail if it ever reverts
+	// to a name-ordered pick.
+	venueZ := suite.createVenue("Zeta Hall", "Phoenix", "AZ")
+	venueA := suite.createVenue("Alpha Hall", "Tempe", "AZ")
+	artist := suite.createArtist("MA MV Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-mv-saver-1@test.com"),
+		suite.createUser("ma-mv-saver-2@test.com"),
+		suite.createUser("ma-mv-saver-3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	multi := suite.createApprovedShow("Two Venue Fest", venueZ.ID, artist.ID, user.ID, now.AddDate(0, 0, 7))
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: multi.ID, VenueID: venueA.ID}).Error)
+	suite.createSaves(multi.ID, savers, 3)
+
+	// Fallback mode (1 qualifying < 5): the two-venue show must still be ONE
+	// row, carrying the lowest-venue_id pick.
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Require().Len(result.Shows, 1, "a multi-venue show is one row, not one per venue")
+	suite.Equal("Zeta Hall", result.Shows[0].VenueName, "venue pick follows lowest venue_id, not name order")
+
+	// Ranked mode: pad with four more qualifying shows; the multi-venue show
+	// must occupy exactly one slot and count once toward min-qualifying.
+	for i := 0; i < 4; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("MV Pad %d", i), venueA.ID, artist.ID, user.ID, now.AddDate(0, 0, 20+i))
+		suite.createSaves(show.ID, savers, 3)
+	}
+	result, err = suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
+	suite.Len(result.Shows, 5, "5 distinct qualifying shows — the two-venue show counted once")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_ExcludesCancelled() {
+	user := suite.createUser("ma-cx-owner@test.com")
+	venue := suite.createVenue("MA CX Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA CX Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-cx-saver-1@test.com"),
+		suite.createUser("ma-cx-saver-2@test.com"),
+		suite.createUser("ma-cx-saver-3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	cancelled := suite.createApprovedShow("Cancelled Hype", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 4))
+	suite.createSaves(cancelled.ID, savers, 3)
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Empty(result.Shows, "a cancelled show never appears in either mode, saves or not")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_IncludesTodayMidnightShow() {
+	user := suite.createUser("ma-td-owner@test.com")
+	venue := suite.createVenue("MA TD Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA TD Artist")
+	savers := []*authm.User{
+		suite.createUser("ma-td-saver-1@test.com"),
+		suite.createUser("ma-td-saver-2@test.com"),
+		suite.createUser("ma-td-saver-3@test.com"),
+	}
+
+	// Date-only shows are stored at midnight UTC, so tonight's show sorts
+	// BEFORE the current instant all day long — the eligibility bound must be
+	// start-of-today or the chart drops its most actionable rows.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	tonight := suite.createApprovedShow("Tonight Show", venue.ID, artist.ID, user.ID, today)
+	suite.createSaves(tonight.ID, savers, 3)
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Require().Len(result.Shows, 1, "a show happening today must count as upcoming in fallback mode")
+	suite.Equal(tonight.ID, result.Shows[0].ShowID)
+
+	for i := 0; i < 4; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("TD Pad %d", i), venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 15+i))
+		suite.createSaves(show.ID, savers, 3)
+	}
+	result, err = suite.chartsService.GetMostAnticipatedShows(20)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "today's show is the 5th qualifier — it must count toward ranked mode")
+	suite.Require().Len(result.Shows, 5)
+}

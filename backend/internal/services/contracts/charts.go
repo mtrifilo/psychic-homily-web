@@ -47,6 +47,40 @@ type TrendingShow struct {
 	SaveCount   int       `json:"save_count"`
 }
 
+// MostAnticipatedMode discriminates the most-anticipated payload shape.
+// Ranked is the engagement chart (every row cleared the save floor, counts
+// included); soonest-upcoming is the fallback when too few shows qualify —
+// date-ordered with counts OMITTED, so the frontend never renders the
+// sparse-engagement numbers the floor exists to hide. (The fallback is only
+// as full as the upcoming calendar: with zero upcoming shows it is empty.)
+type MostAnticipatedMode string
+
+const (
+	MostAnticipatedModeRanked          MostAnticipatedMode = "ranked"
+	MostAnticipatedModeSoonestUpcoming MostAnticipatedMode = "soonest_upcoming"
+)
+
+// MostAnticipatedShow is one row of the most-anticipated module. SaveCount
+// is nil in soonest-upcoming fallback mode — omitted from the payload, never
+// zero — so a sub-floor count can't leak into the UI.
+type MostAnticipatedShow struct {
+	ShowID      uint      `json:"show_id"`
+	Title       string    `json:"title"`
+	Slug        string    `json:"slug"`
+	Date        time.Time `json:"date"`
+	VenueName   string    `json:"venue_name"`
+	VenueSlug   string    `json:"venue_slug"`
+	City        string    `json:"city"`
+	ArtistNames []string  `json:"artist_names"`
+	SaveCount   *int      `json:"save_count,omitempty"`
+}
+
+// MostAnticipatedShows is the mode-discriminated most-anticipated payload.
+type MostAnticipatedShows struct {
+	Mode  MostAnticipatedMode   `json:"mode"`
+	Shows []MostAnticipatedShow `json:"shows"`
+}
+
 // PopularArtist represents an artist ranked by followers and upcoming shows.
 type PopularArtist struct {
 	ArtistID          uint   `json:"artist_id"`
@@ -148,8 +182,11 @@ type ChartsOverview struct {
 // ──────────────────────────────────────────────
 
 // ChartsServiceInterface defines the contract for top charts / trending content.
+// limit preconditions: callers pass limit >= 1 (the HTTP layer clamps via
+// normalizeChartsLimit); services do not re-validate.
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
+	GetMostAnticipatedShows(limit int) (*MostAnticipatedShows, error)
 	GetMostActiveArtists(window ChartWindow, limit int) ([]MostActiveArtist, error)
 	GetBusiestVenues(window ChartWindow, limit int) ([]BusiestVenue, error)
 	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
