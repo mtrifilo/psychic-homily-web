@@ -745,3 +745,90 @@ func TestChartsHandler_MostAnticipated_ExplicitLimitForwarded(t *testing.T) {
 		t.Errorf("expected limit=5 forwarded, got %d", receivedLimit)
 	}
 }
+
+// ============================================================================
+// Tests: GetNewReleasesHandler
+// ============================================================================
+
+func TestChartsHandler_NewReleases_Success(t *testing.T) {
+	released := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetNewReleasesFn: func(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+			if window != contracts.ChartWindowQuarter {
+				t.Errorf("expected default window=quarter, got %q", window)
+			}
+			if limit != 20 {
+				t.Errorf("expected limit=20, got %d", limit)
+			}
+			return []contracts.NewRelease{
+				{ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: released, ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"}},
+			}, nil
+		},
+	})
+
+	resp, err := h.GetNewReleasesHandler(context.Background(), &GetNewReleasesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
+	}
+	if len(resp.Body.Releases) != 1 {
+		t.Fatalf("expected 1 release, got %d", len(resp.Body.Releases))
+	}
+	r := resp.Body.Releases[0]
+	if r.Title != "Fresh Wax" || r.ReleaseType != "lp" || r.ReleaseDate == nil || len(r.LabelNames) != 1 {
+		t.Errorf("unexpected mapping: %+v", r)
+	}
+}
+
+func TestChartsHandler_NewReleases_WindowAndLimitPassthrough(t *testing.T) {
+	var gotWindow contracts.ChartWindow
+	var gotLimit int
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetNewReleasesFn: func(window contracts.ChartWindow, limit int) ([]contracts.NewRelease, error) {
+			gotWindow, gotLimit = window, limit
+			return []contracts.NewRelease{}, nil
+		},
+	})
+
+	resp, err := h.GetNewReleasesHandler(context.Background(), &GetNewReleasesRequest{Window: "month", Limit: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotWindow != contracts.ChartWindowMonth || gotLimit != 7 {
+		t.Errorf("expected month/7 forwarded, got %q/%d", gotWindow, gotLimit)
+	}
+	if resp.Body.Window != "month" {
+		t.Errorf("expected echoed window=month, got %q", resp.Body.Window)
+	}
+}
+
+func TestChartsHandler_NewReleases_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetNewReleasesFn: func(contracts.ChartWindow, int) ([]contracts.NewRelease, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetNewReleasesHandler(context.Background(), &GetNewReleasesRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// TestChartsHandler_NewReleases_InvalidWindow422 exercises the huma enum-tag
+// validation chain (dead-validate-tag gotcha: assert the 422, don't trust the
+// tag).
+func TestChartsHandler_NewReleases_InvalidWindow422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/new-releases", h.GetNewReleasesHandler)
+
+	if resp := api.Get("/charts/new-releases?window=bogus"); resp.Code != 422 {
+		t.Errorf("expected 422 for window=bogus, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/new-releases?window=all_time"); resp.Code != 200 {
+		t.Errorf("expected 200 for window=all_time, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/new-releases"); resp.Code != 200 {
+		t.Errorf("expected 200 for absent window, got %d", resp.Code)
+	}
+}

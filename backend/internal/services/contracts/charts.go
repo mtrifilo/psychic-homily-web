@@ -149,6 +149,25 @@ type OpenerToWatch struct {
 	SupportSlotCount int    `json:"support_slot_count"`
 }
 
+// NewRelease is one row of the windowed new-releases module: date-ordered,
+// no engagement inputs. ReleaseDate is the world release date (nil when
+// unknown); AddedAt is when the release entered the graph. The ordering and
+// window date is COALESCE(release_date, added_at-day) — deliberately "new
+// releases", not "new to the graph": a backfilled release whose known world
+// date is old orders by that old date and does NOT appear in the window.
+// Only date-unknown releases surface by their graph-added day (ReleaseDate
+// nil is the graph-new tell).
+type NewRelease struct {
+	ReleaseID   uint       `json:"release_id"`
+	Title       string     `json:"title"`
+	Slug        string     `json:"slug"`
+	ReleaseType string     `json:"release_type"`
+	ReleaseDate *time.Time `json:"release_date"`
+	AddedAt     time.Time  `json:"added_at"`
+	ArtistNames []string   `json:"artist_names"`
+	LabelNames  []string   `json:"label_names"`
+}
+
 // OnTheRadioArtist represents an artist ranked by resolved radio plays within
 // a window. StationCount counts distinct broadcasters: stations grouped under
 // a radio_network (e.g. WFMU's flagship + stream-only sub-channels) collapse
@@ -191,6 +210,7 @@ type ChartsServiceInterface interface {
 	GetBusiestVenues(window ChartWindow, limit int) ([]BusiestVenue, error)
 	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
 	GetOnTheRadioArtists(window ChartWindow, limit int) ([]OnTheRadioArtist, error)
+	GetNewReleases(window ChartWindow, limit int) ([]NewRelease, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)

@@ -51,7 +51,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM artist_releases")
+	_, _ = sqlDB.Exec("DELETE FROM release_labels")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
+	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
@@ -1600,4 +1602,138 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Incl
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "today's show is the 5th qualifier — it must count toward ranked mode")
 	suite.Require().Len(result.Shows, 5)
+}
+
+// =============================================================================
+// GetNewReleases Tests
+// =============================================================================
+
+// createDatedRelease creates a release with an explicit graph-added time and
+// an optional world release date (nil = unknown, the coalesce falls back to
+// the added date).
+func (suite *ChartsServiceIntegrationTestSuite) createDatedRelease(title string, releaseDate *string, addedAt time.Time) *catalogm.Release {
+	release := &catalogm.Release{
+		Title:       title,
+		ReleaseDate: releaseDate,
+		CreatedAt:   addedAt,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+	return release
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) addLabelToRelease(releaseID uint, name string) {
+	slug := fmt.Sprintf("%s-%d", name, releaseID)
+	label := &catalogm.Label{Name: name, Slug: &slug}
+	suite.Require().NoError(suite.db.Create(label).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ReleaseLabel{ReleaseID: releaseID, LabelID: label.ID}).Error)
+}
+
+func dateStr(t time.Time) *string {
+	s := t.Format("2006-01-02")
+	return &s
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_Empty() {
+	releases, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Empty(releases)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_CoalescedDateOrdering() {
+	now := time.Now().UTC()
+	// World-dated 5 days ago but added long ago: orders by release_date.
+	worldDated := suite.createDatedRelease("World Dated", dateStr(now.AddDate(0, 0, -5)), now.AddDate(0, 0, -80))
+	// No release_date, added 2 days ago: coalesce falls back to added date,
+	// which is NEWER than the world-dated release above.
+	suite.createDatedRelease("Graph New", nil, now.AddDate(0, 0, -2))
+
+	releases, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 2)
+	suite.Equal("Graph New", releases[0].Title, "coalesced date orders the graph-added fallback above an older world date")
+	suite.Equal("World Dated", releases[1].Title)
+	suite.Nil(releases[0].ReleaseDate, "unknown world date stays null so the frontend can badge graph-new")
+	suite.Require().NotNil(releases[1].ReleaseDate)
+	suite.Equal(worldDated.ID, releases[1].ReleaseID)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_WindowBoundaries() {
+	now := time.Now().UTC()
+	today := now.Truncate(24 * time.Hour)
+	// Exactly on the month window's inclusive lower edge (30 days), first
+	// excluded day (31), quarter-only (60), all_time-only (200).
+	suite.createDatedRelease("Edge Thirty", dateStr(today.AddDate(0, 0, -30)), now.AddDate(0, 0, -200))
+	suite.createDatedRelease("Thirty One", dateStr(today.AddDate(0, 0, -31)), now.AddDate(0, 0, -200))
+	suite.createDatedRelease("Sixty", dateStr(today.AddDate(0, 0, -60)), now.AddDate(0, 0, -200))
+	suite.createDatedRelease("Ancient", dateStr(today.AddDate(0, 0, -200)), now.AddDate(0, 0, -200))
+
+	month, err := suite.chartsService.GetNewReleases(contracts.ChartWindowMonth, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(month, 1, "month window keeps the inclusive 30-day edge, drops day 31")
+	suite.Equal("Edge Thirty", month[0].Title)
+
+	quarter, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Len(quarter, 3, "quarter adds days 31 and 60")
+
+	allTime, err := suite.chartsService.GetNewReleases(contracts.ChartWindowAllTime, 20)
+	suite.Require().NoError(err)
+	suite.Len(allTime, 4)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ExcludesFutureDated() {
+	now := time.Now().UTC()
+	suite.createDatedRelease("Announced Preorder", dateStr(now.AddDate(0, 0, 14)), now.AddDate(0, 0, -1))
+	included := suite.createDatedRelease("Out Today", dateStr(now), now.AddDate(0, 0, -10))
+
+	releases, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 1, "a future release_date stays out until its release day; today counts")
+	suite.Equal(included.ID, releases[0].ReleaseID)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_NoEngagementDependence() {
+	now := time.Now().UTC()
+	user := suite.createUser("nr-user@test.com")
+	older := suite.createDatedRelease("Older But Bookmarked", dateStr(now.AddDate(0, 0, -20)), now.AddDate(0, 0, -20))
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, older.ID, engagementm.BookmarkActionBookmark)
+	newer := suite.createDatedRelease("Newer No Bookmarks", dateStr(now.AddDate(0, 0, -2)), now.AddDate(0, 0, -2))
+
+	releases, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 2)
+	suite.Equal(newer.ID, releases[0].ReleaseID, "date orders the list; bookmarks must not")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ArtistAndLabelJoins() {
+	now := time.Now().UTC()
+	release := suite.createDatedRelease("Joined Release", dateStr(now.AddDate(0, 0, -3)), now.AddDate(0, 0, -3))
+	first := suite.createArtist("First Credit")
+	second := suite.createArtist("Second Credit")
+	suite.addArtistToRelease(first.ID, release.ID)
+	ar := &catalogm.ArtistRelease{ArtistID: second.ID, ReleaseID: release.ID, Role: catalogm.ArtistReleaseRoleMain, Position: 1}
+	suite.Require().NoError(suite.db.Create(ar).Error)
+	suite.addLabelToRelease(release.ID, "Sub Rosa")
+
+	bare := suite.createDatedRelease("Bare Release", dateStr(now.AddDate(0, 0, -4)), now.AddDate(0, 0, -4))
+
+	releases, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 2)
+	suite.Equal([]string{"First Credit", "Second Credit"}, releases[0].ArtistNames, "artist credits in position order")
+	suite.Equal([]string{"Sub Rosa"}, releases[0].LabelNames)
+	suite.Equal(bare.ID, releases[1].ReleaseID)
+	suite.Empty(releases[1].ArtistNames, "no credits -> empty slice, not nil panic")
+	suite.Empty(releases[1].LabelNames)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_RespectsLimit() {
+	now := time.Now().UTC()
+	for i := 0; i < 4; i++ {
+		suite.createDatedRelease(fmt.Sprintf("Limit Release %d", i), dateStr(now.AddDate(0, 0, -1-i)), now.AddDate(0, 0, -1-i))
+	}
+	releases, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, 2)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 2)
+	suite.Equal("Limit Release 0", releases[0].Title, "newest first")
 }
