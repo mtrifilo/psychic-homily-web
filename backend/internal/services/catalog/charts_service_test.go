@@ -1743,3 +1743,129 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_RespectsLimit
 	suite.Require().Len(releases, 2)
 	suite.Equal("Limit Release 0", releases[0].Title, "newest first")
 }
+
+// =============================================================================
+// GetChartsSummary + GetFreshlyAdded Tests
+// =============================================================================
+
+// setCreatedAt backdates an entity row's created_at (fixtures create with
+// now; the summary/ticker tests need controlled graph-entry times).
+func (suite *ChartsServiceIntegrationTestSuite) setCreatedAt(table string, id uint, t time.Time) {
+	suite.Require().NoError(suite.db.Table(table).Where("id = ?", id).Update("created_at", t).Error)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_Empty() {
+	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Equal(&contracts.ChartsSummary{}, summary)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_WindowScopedCounts() {
+	now := time.Now().UTC()
+	user := suite.createUser("sum-owner@test.com")
+
+	// Shows: one added in the month window, one older (quarter only), one
+	// pending (never counted). Venue association irrelevant for the count.
+	venue := suite.createVenue("Sum Venue", "Phoenix", "AZ")
+	artistForShows := suite.createArtist("Sum Show Artist")
+	inWindow := suite.createApprovedShow("In Window", venue.ID, artistForShows.ID, user.ID, now.AddDate(0, 0, 30))
+	suite.setCreatedAt("shows", inWindow.ID, now.AddDate(0, 0, -10))
+	older := suite.createApprovedShow("Older", venue.ID, artistForShows.ID, user.ID, now.AddDate(0, 0, 31))
+	suite.setCreatedAt("shows", older.ID, now.AddDate(0, 0, -40))
+	pending := suite.createApprovedShow("Pending", venue.ID, artistForShows.ID, user.ID, now.AddDate(0, 0, 32))
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+	suite.setCreatedAt("shows", pending.ID, now.AddDate(0, 0, -5))
+	// A cancelled show added in-window must not inflate the strip — every
+	// module below it excludes cancelled shows.
+	cancelled := suite.createApprovedShow("Cancelled", venue.ID, artistForShows.ID, user.ID, now.AddDate(0, 0, 33))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+	suite.setCreatedAt("shows", cancelled.ID, now.AddDate(0, 0, -4))
+
+	// Artists: the show artist was just created (in window); add one older.
+	oldArtist := suite.createArtist("Old Artist")
+	suite.setCreatedAt("artists", oldArtist.ID, now.AddDate(0, 0, -40))
+
+	// Releases: one in window, one older.
+	suite.createDatedRelease("Fresh Release", nil, now.AddDate(0, 0, -3))
+	suite.createDatedRelease("Old Release", nil, now.AddDate(0, 0, -40))
+
+	// Radio: aired in-window play counts; aired out-of-window doesn't;
+	// unmatched still counts (logging activity); pseudo never counts.
+	radioArtist := suite.createArtist("Radio Artist")
+	suite.setCreatedAt("artists", radioArtist.ID, now.AddDate(0, 0, -40))
+	show := suite.createRadioStack("KSUM", "ksum", nil)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 5).ID, &radioArtist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 40).ID, &radioArtist.ID, 1, false)
+	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 6).ID, nil, 1, false)
+	pseudoEp := suite.createWindowedEpisode(show.ID, 7)
+	pseudo := &catalogm.RadioPlay{EpisodeID: pseudoEp.ID, Position: 1, ArtistName: "Music behind DJ: Somebody"}
+	suite.Require().NoError(suite.db.Create(pseudo).Error)
+
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth)
+	suite.Require().NoError(err)
+	suite.Equal(1, month.ShowsAdded, "only the approved show added inside the month window")
+	suite.Equal(1, month.NewArtists, "only the show artist was created inside the month window; the others are backdated")
+	suite.Equal(1, month.NewReleases)
+	suite.Equal(2, month.RadioPlays, "matched + unmatched aired in-window plays; pseudo and out-of-window excluded")
+
+	quarter, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Equal(2, quarter.ShowsAdded, "quarter adds the 40-day-old show; pending never counts")
+	suite.Equal(3, quarter.NewArtists, "quarter picks up the two 40-day-old artists")
+	suite.Equal(2, quarter.NewReleases)
+	suite.Equal(3, quarter.RadioPlays)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScenes() {
+	now := time.Now().UTC()
+	user := suite.createUser("scene-owner@test.com")
+	artist := suite.createArtist("Scene Artist")
+
+	// Two verified venues sharing a metro = ONE scene; a verified venue with
+	// no metro falls back to its (city,state) key = a second scene; an
+	// unverified venue never counts; a show outside the window never counts.
+	metroA1 := suite.createVenue("Metro A One", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(metroA1).Updates(map[string]any{"verified": true, "metro": "38060"}).Error)
+	metroA2 := suite.createVenue("Metro A Two", "Tempe", "AZ")
+	suite.Require().NoError(suite.db.Model(metroA2).Updates(map[string]any{"verified": true, "metro": "38060"}).Error)
+	fallback := suite.createVenue("Fallback Town Hall", "Bisbee", "AZ")
+	suite.Require().NoError(suite.db.Model(fallback).Update("verified", true).Error)
+	unverified := suite.createVenue("Unverified Spot", "Yuma", "AZ")
+
+	suite.createApprovedShow("A1 Show", metroA1.ID, artist.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.createApprovedShow("A2 Show", metroA2.ID, artist.ID, user.ID, now.AddDate(0, 0, -6))
+	suite.createApprovedShow("Fallback Show", fallback.ID, artist.ID, user.ID, now.AddDate(0, 0, -7))
+	suite.createApprovedShow("Unverified Show", unverified.ID, artist.ID, user.ID, now.AddDate(0, 0, -8))
+	suite.createApprovedShow("Old Metro Show", metroA1.ID, artist.ID, user.ID, now.AddDate(0, 0, -60))
+	suite.createApprovedShow("Upcoming Show", metroA1.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
+
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth)
+	suite.Require().NoError(err)
+	suite.Equal(2, month.ActiveScenes, "shared metro collapses to one scene; the (city,state) fallback is a second; unverified/old/upcoming never count")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedNewestFirst() {
+	now := time.Now().UTC()
+
+	artist := suite.createArtist("Ticker Artist")
+	suite.setCreatedAt("artists", artist.ID, now.Add(-3*time.Hour))
+	venue := suite.createVenue("Ticker Venue", "Phoenix", "AZ")
+	suite.setCreatedAt("venues", venue.ID, now.Add(-2*time.Hour))
+	suite.createDatedRelease("Ticker Release", nil, now.Add(-1*time.Hour))
+	station := &catalogm.RadioStation{Name: "Ticker Station", Slug: "ticker-station", BroadcastType: catalogm.BroadcastTypeBoth}
+	suite.Require().NoError(suite.db.Create(station).Error)
+	suite.setCreatedAt("radio_stations", station.ID, now.Add(-4*time.Hour))
+
+	items, err := suite.chartsService.GetFreshlyAdded(20)
+	suite.Require().NoError(err)
+	suite.Require().Len(items, 4)
+	types := []string{items[0].EntityType, items[1].EntityType, items[2].EntityType, items[3].EntityType}
+	suite.Equal([]string{"release", "venue", "artist", "station"}, types, "interleaved strictly by added time, newest first")
+	suite.Equal("Ticker Release", items[0].Name)
+
+	limited, err := suite.chartsService.GetFreshlyAdded(2)
+	suite.Require().NoError(err)
+	suite.Require().Len(limited, 2)
+	suite.Equal("release", limited[0].EntityType)
+	suite.Equal("venue", limited[1].EntityType)
+}

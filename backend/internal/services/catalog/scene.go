@@ -76,6 +76,24 @@ const (
 // back to (city, state) — see scopeFor.
 const usCountry = "US"
 
+// sceneGroupKeySQL is the SQL identity of "one scene" for VENUES aliased v:
+// the CBSA metro when the venue rolls up to one, else a (city,state) fallback
+// key. Shared by the scenes list (ListScenes) and the charts summary's
+// active-scenes count — two surfaces disagreeing on what a scene IS would
+// show contradictory scene counts. NOTE the ARTIST-side scene key
+// (sceneGenreCounts) is a separate inline expression with subtly different
+// semantics — it NULLIFs an empty-string metro into the fallback, this one
+// does not (venues get metro from the geocoder, never ''); an identity
+// change here must be weighed against that twin, not assumed to cover it.
+const sceneGroupKeySQL = `COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(TRIM(v.state)))`
+
+// sceneVenueEligibilitySQL is the venue eligibility that goes with
+// sceneGroupKeySQL: verified venues with a usable (city,state). Fragment
+// (leading AND), not a full WHERE.
+const sceneVenueEligibilitySQL = `AND v.verified = true
+		  AND v.city IS NOT NULL AND v.city != ''
+		  AND v.state IS NOT NULL AND v.state != ''`
+
 // sceneScope captures how a scene is keyed for querying (PSY-1255 step C). A US
 // place that resolves to a Census CBSA is keyed by that metro code, so the
 // scene's roster = bands BASED in the whole metro (boroughs/suburbs rolled up),
@@ -250,10 +268,9 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		FROM venues v
 		LEFT JOIN show_venues sv ON sv.venue_id = v.id
 		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
-		WHERE v.verified = true
-		  AND v.city IS NOT NULL AND v.city != ''
-		  AND v.state IS NOT NULL AND v.state != ''
-		GROUP BY COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(TRIM(v.state)))
+		WHERE true
+		  `+sceneVenueEligibilitySQL+`
+		GROUP BY `+sceneGroupKeySQL+`
 		HAVING COUNT(DISTINCT v.id) >= ?
 		   AND COUNT(DISTINCT s.id) >= ?
 	`, now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error

@@ -186,6 +186,31 @@ type OnTheRadioArtist struct {
 	IsNew        bool   `json:"is_new"`
 }
 
+// ChartsSummary is the masthead proof-of-life stat strip: window-scoped
+// counts of graph activity. ShowsAdded/NewArtists/NewReleases count entities
+// ADDED to the graph in the window (created_at, the honest claim);
+// RadioPlays counts plays on aired in-window episodes (pseudo-artist rows
+// excluded, unmatched plays included — logging activity, not match rate);
+// ActiveScenes counts distinct scenes (the shared scene-grouping identity)
+// with at least one show played in the window.
+type ChartsSummary struct {
+	ShowsAdded   int `json:"shows_added"`
+	NewArtists   int `json:"new_artists"`
+	NewReleases  int `json:"new_releases"`
+	RadioPlays   int `json:"radio_plays"`
+	ActiveScenes int `json:"active_scenes"`
+}
+
+// FreshlyAddedItem is one row of the freshly-added footer ticker: the most
+// recently added entities across types, newest first.
+type FreshlyAddedItem struct {
+	EntityType string    `json:"entity_type"` // artist | venue | release | station
+	EntityID   uint      `json:"entity_id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	AddedAt    time.Time `json:"added_at"`
+}
+
 // ChartsOverview contains condensed top-5 versions of the four original
 // charts (trending shows, popular artists, active venues, hot releases).
 // The windowed module charts (most-active-artists, busiest-venues,
@@ -214,6 +239,8 @@ type ChartsServiceInterface interface {
 	GetOpenersToWatch(window ChartWindow, limit int) ([]OpenerToWatch, error)
 	GetOnTheRadioArtists(window ChartWindow, limit int) ([]OnTheRadioArtist, error)
 	GetNewReleases(window ChartWindow, limit int) ([]NewRelease, error)
+	GetChartsSummary(window ChartWindow) (*ChartsSummary, error)
+	GetFreshlyAdded(limit int) ([]FreshlyAddedItem, error)
 	GetPopularArtists(limit int) ([]PopularArtist, error)
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)

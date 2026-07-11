@@ -576,6 +576,90 @@ func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewRe
 	return resp, nil
 }
 
+// --- GetChartsSummary ---
+
+// GetChartsSummaryRequest is the Huma request for GET /charts/summary
+type GetChartsSummaryRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+}
+
+// GetChartsSummaryResponse is the Huma response for GET /charts/summary —
+// the masthead proof-of-life stat strip.
+type GetChartsSummaryResponse struct {
+	Body struct {
+		Window       string `json:"window"`
+		ShowsAdded   int    `json:"shows_added"`
+		NewArtists   int    `json:"new_artists"`
+		NewReleases  int    `json:"new_releases"`
+		RadioPlays   int    `json:"radio_plays"`
+		ActiveScenes int    `json:"active_scenes"`
+	}
+}
+
+// GetChartsSummaryHandler handles GET /charts/summary
+func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetChartsSummaryRequest) (*GetChartsSummaryResponse, error) {
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetChartsSummary(window)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_summary_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get charts summary")
+	}
+
+	resp := &GetChartsSummaryResponse{}
+	resp.Body.Window = string(window)
+	resp.Body.ShowsAdded = data.ShowsAdded
+	resp.Body.NewArtists = data.NewArtists
+	resp.Body.NewReleases = data.NewReleases
+	resp.Body.RadioPlays = data.RadioPlays
+	resp.Body.ActiveScenes = data.ActiveScenes
+	return resp, nil
+}
+
+// --- GetFreshlyAdded ---
+
+// GetFreshlyAddedRequest is the Huma request for GET /charts/freshly-added
+type GetFreshlyAddedRequest struct {
+	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+}
+
+// FreshlyAddedItemResponse is a single ticker row in the response.
+type FreshlyAddedItemResponse struct {
+	EntityType string    `json:"entity_type" enum:"artist,venue,release,station" doc:"Entity type discriminator"`
+	EntityID   uint      `json:"entity_id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	AddedAt    time.Time `json:"added_at"`
+}
+
+// GetFreshlyAddedResponse is the Huma response for GET /charts/freshly-added
+type GetFreshlyAddedResponse struct {
+	Body struct {
+		Items []FreshlyAddedItemResponse `json:"items"`
+	}
+}
+
+// GetFreshlyAddedHandler handles GET /charts/freshly-added — the most
+// recently added entities across types, newest first (the footer ticker).
+func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFreshlyAddedRequest) (*GetFreshlyAddedResponse, error) {
+	limit := normalizeChartsLimit(req.Limit)
+
+	data, err := h.chartsService.GetFreshlyAdded(limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_freshly_added_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get freshly added items")
+	}
+
+	resp := &GetFreshlyAddedResponse{}
+	resp.Body.Items = make([]FreshlyAddedItemResponse, len(data))
+	for i, item := range data {
+		// Direct conversion (field-identical structs): a one-sided field add
+		// breaks the build instead of silently shipping a zero value.
+		resp.Body.Items[i] = FreshlyAddedItemResponse(item)
+	}
+	return resp, nil
+}
+
 // --- GetChartsOverview ---
 
 // GetChartsOverviewRequest is the Huma request for GET /charts/overview
