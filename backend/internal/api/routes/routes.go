@@ -67,6 +67,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 
 	setupShowRoutes(rc)
 	setupArtistRoutes(rc)
+	setupSavedReleaseRoutes(rc)
 	setupReleaseRoutes(rc)
 	setupLabelRoutes(rc)
 	setupFestivalRoutes(rc)

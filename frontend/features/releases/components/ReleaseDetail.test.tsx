@@ -89,6 +89,9 @@ vi.mock('@/components/shared', () => ({
   AddToCollectionButton: () => (
     <button data-testid="add-to-collection">Collect</button>
   ),
+  ReleaseSaveButton: () => (
+    <button data-testid="save-release">Save release</button>
+  ),
   ImageAttribution: () => null,
   BracketLink: ({
     label,
@@ -241,11 +244,14 @@ function makeRelease(
     cover_art_source: null,
     cover_art_source_url: null,
     description: 'The seventh studio album.',
-    artists: [
-      { id: 1, slug: 'radiohead', name: 'Radiohead', role: 'main' },
-    ],
+    artists: [{ id: 1, slug: 'radiohead', name: 'Radiohead', role: 'main' }],
     labels: [
-      { id: 1, name: 'XL Recordings', slug: 'xl-recordings', catalog_number: 'XLLP324' },
+      {
+        id: 1,
+        name: 'XL Recordings',
+        slug: 'xl-recordings',
+        catalog_number: 'XLLP324',
+      },
     ],
     external_links: [
       { id: 1, platform: 'bandcamp', url: 'https://radiohead.bandcamp.com' },
@@ -307,9 +313,10 @@ describe('ReleaseDetail', () => {
         error: new Error('boom'),
       })
       render(<ReleaseDetail idOrSlug="x" />)
-      expect(
-        screen.getByText('Back to Releases').closest('a')
-      ).toHaveAttribute('href', '/releases')
+      expect(screen.getByText('Back to Releases').closest('a')).toHaveAttribute(
+        'href',
+        '/releases'
+      )
     })
   })
 
@@ -349,9 +356,7 @@ describe('ReleaseDetail', () => {
 
     it('renders the description', () => {
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
-      expect(
-        screen.getByText('The seventh studio album.')
-      ).toBeInTheDocument()
+      expect(screen.getByText('The seventh studio album.')).toBeInTheDocument()
     })
 
     it('renders artists linked to their pages', () => {
@@ -364,7 +369,9 @@ describe('ReleaseDetail', () => {
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
       // Day can shift by one in non-UTC test runners since the date string is
       // parsed as UTC midnight; match month + year, which are stable.
-      expect(screen.getByText(/Released:\s+October \d+, 2007/)).toBeInTheDocument()
+      expect(
+        screen.getByText(/Released:\s+October \d+, 2007/)
+      ).toBeInTheDocument()
     })
 
     it('renders a label with its catalog number', () => {
@@ -376,10 +383,7 @@ describe('ReleaseDetail', () => {
     it('renders external listen/buy links with mapped platform labels', () => {
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
       const bandcamp = screen.getByText('Bandcamp').closest('a')
-      expect(bandcamp).toHaveAttribute(
-        'href',
-        'https://radiohead.bandcamp.com'
-      )
+      expect(bandcamp).toHaveAttribute('href', 'https://radiohead.bandcamp.com')
       expect(screen.getByText('Spotify')).toBeInTheDocument()
     })
 
@@ -392,9 +396,7 @@ describe('ReleaseDetail', () => {
 
     it('renders the comment thread bound to the release id', () => {
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
-      expect(
-        screen.getByText('Comments for release 1')
-      ).toBeInTheDocument()
+      expect(screen.getByText('Comments for release 1')).toBeInTheDocument()
     })
 
     it('does not render edit affordances for anonymous users', () => {
@@ -560,9 +562,7 @@ describe('ReleaseDetail', () => {
       expect(screen.queryByTestId('report-dialog')).not.toBeInTheDocument()
 
       fireEvent.click(reportLink)
-      expect(
-        screen.getByText('Report release In Rainbows')
-      ).toBeInTheDocument()
+      expect(screen.getByText('Report release In Rainbows')).toBeInTheDocument()
     })
   })
 
@@ -579,7 +579,11 @@ describe('ReleaseDetail', () => {
               platform: 'bandcamp',
               url: 'https://artificialgo.bandcamp.com/album/triple-ones',
             },
-            { id: 2, platform: 'spotify', url: 'https://open.spotify.com/album/x' },
+            {
+              id: 2,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/x',
+            },
           ],
         }),
         isLoading: false,
@@ -631,7 +635,11 @@ describe('ReleaseDetail', () => {
       mockUseRelease.mockReturnValue({
         data: makeRelease({
           external_links: [
-            { id: 1, platform: 'bandcamp', url: 'https://radiohead.bandcamp.com' },
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://radiohead.bandcamp.com',
+            },
           ],
         }),
         isLoading: false,
@@ -694,9 +702,7 @@ describe('ReleaseDetail', () => {
         error: null,
       })
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
-      expect(
-        screen.getByText('Music embed for Headliner')
-      ).toBeInTheDocument()
+      expect(screen.getByText('Music embed for Headliner')).toBeInTheDocument()
     })
   })
 
@@ -734,7 +740,11 @@ describe('ReleaseDetail', () => {
       mockUseRelease.mockReturnValue({
         data: makeRelease({
           external_links: [
-            { id: 1, platform: 'bandcamp', url: 'https://radiohead.bandcamp.com' },
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://radiohead.bandcamp.com',
+            },
             {
               id: 2,
               platform: 'spotify',
@@ -817,7 +827,11 @@ describe('ReleaseDetail', () => {
       mockUseRelease.mockReturnValue({
         data: makeRelease({
           external_links: [
-            { id: 1, platform: 'discogs', url: 'https://www.discogs.com/release/1' },
+            {
+              id: 1,
+              platform: 'discogs',
+              url: 'https://www.discogs.com/release/1',
+            },
           ],
         }),
         isLoading: false,

@@ -15,6 +15,12 @@ export type {
   ReleasesListResponse,
   ArtistReleaseListItem,
   ArtistReleasesResponse,
+  SavedReleaseResponse,
+  SavedReleasesListResponse,
+  ReleaseSaveResponse,
+  ReleaseSaveCount,
+  ReleaseSaveCountEntry,
+  BatchReleaseSaveCountsResponse,
 } from './types'
 
 export {
@@ -29,6 +35,10 @@ export {
   useReleases,
   useRelease,
   useArtistReleases,
+  useSavedReleases,
+  useReleaseSaveCount,
+  useReleaseSaveCountBatch,
+  useReleaseSaveToggle,
 } from './hooks'
 
 // Components

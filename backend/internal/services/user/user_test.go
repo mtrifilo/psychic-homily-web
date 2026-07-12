@@ -14,8 +14,11 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	catalogsvc "psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -177,6 +180,10 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 
 	// Create UserService
 	suite.userService = &UserService{db: suite.testDB.DB}
+	releaseService := catalogsvc.NewReleaseService(suite.db)
+	suite.userService.SetSavedReleaseService(
+		engagementsvc.NewSavedReleaseService(suite.db, releaseService),
+	)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TearDownSuite() {
@@ -1324,6 +1331,18 @@ func (suite *UserServiceIntegrationTestSuite) TestGetDeletionSummary_Success() {
 		CreatedAt:  time.Now(),
 	}).Error)
 
+	releaseSlug := "deletion-summary-release"
+	release := &catalogm.Release{
+		Title: "Deletion Summary Release", Slug: &releaseSlug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityRelease,
+		EntityID: release.ID, Action: engagementm.BookmarkActionReleaseSave,
+		CreatedAt: time.Now(),
+	}).Error)
+
 	// Create a passkey (raw SQL to avoid GORM column name mismatch on aaguid)
 	suite.Require().NoError(suite.db.Exec(
 		`INSERT INTO webauthn_credentials (user_id, credential_id, public_key, display_name, created_at, updated_at)
@@ -1335,6 +1354,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetDeletionSummary_Success() {
 	suite.Require().NotNil(summary)
 	suite.Equal(int64(2), summary.ShowsCount)
 	suite.Equal(int64(1), summary.SavedShowsCount)
+	suite.Equal(int64(1), summary.SavedReleasesCount)
 	suite.Equal(int64(1), summary.PasskeysCount)
 }
 
@@ -1484,6 +1504,20 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 		CreatedAt:  time.Now(),
 	}).Error)
 
+	// Save a release through the underlying compatibility action.
+	releaseSlug := "export-release"
+	releaseYear := 2026
+	release := &catalogm.Release{
+		Title: "Export Release", Slug: &releaseSlug,
+		ReleaseType: catalogm.ReleaseTypeLP, ReleaseYear: &releaseYear,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityRelease,
+		EntityID: release.ID, Action: engagementm.BookmarkActionReleaseSave,
+		CreatedAt: time.Now(),
+	}).Error)
+
 	// Create a passkey (raw SQL to avoid GORM column name mismatch on aaguid)
 	suite.Require().NoError(suite.db.Exec(
 		`INSERT INTO webauthn_credentials (user_id, credential_id, public_key, display_name, created_at, updated_at)
@@ -1521,6 +1555,12 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 	// Verify saved shows
 	suite.Require().Len(export.SavedShows, 1)
 	suite.Equal(showID, export.SavedShows[0].ShowID)
+
+	// Verify saved releases are portable too.
+	suite.Require().Len(export.SavedReleases, 1)
+	suite.Equal(release.ID, export.SavedReleases[0].ReleaseID)
+	suite.Equal("Export Release", export.SavedReleases[0].Title)
+	suite.Equal("lp", export.SavedReleases[0].ReleaseType)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON() {

@@ -114,6 +114,31 @@ func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
 	}
 }
 
+func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodPost, ReleaseSaveCountsBatchPath, nil)
+		req.RemoteAddr = "7.7.7.22:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("batch read %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, ReleaseSaveCountsBatchPath, nil)
+	req.RemoteAddr = "7.7.7.22:100"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("read past limit: status = %d, want 429", rr.Code)
+	}
+}
+
 // A genuine write on a path that merely LOOKS adjacent must still bypass the
 // read budget — the allowlist is exact-match, not a prefix.
 func TestPublicReadRateLimiter_SaveWriteNotLimited(t *testing.T) {

@@ -45,9 +45,10 @@ type AdminUserResponse struct {
 
 // DeletionSummary contains counts of data that will be affected by account deletion
 type DeletionSummary struct {
-	ShowsCount      int64 `json:"shows_count"`
-	SavedShowsCount int64 `json:"saved_shows_count"`
-	PasskeysCount   int64 `json:"passkeys_count"`
+	ShowsCount         int64 `json:"shows_count"`
+	SavedShowsCount    int64 `json:"saved_shows_count"`
+	SavedReleasesCount int64 `json:"saved_releases_count"`
+	PasskeysCount      int64 `json:"passkeys_count"`
 }
 
 // UserDataExport represents all user data in a portable format (GDPR compliance)
@@ -59,6 +60,7 @@ type UserDataExport struct {
 	OAuthAccounts  []OAuthAccountExport   `json:"oauth_accounts,omitempty"`
 	Passkeys       []PasskeyExport        `json:"passkeys,omitempty"`
 	SavedShows     []SavedShowExport      `json:"saved_shows,omitempty"`
+	SavedReleases  []SavedReleaseExport   `json:"saved_releases,omitempty"`
 	SubmittedShows []SubmittedShowExport  `json:"submitted_shows,omitempty"`
 }
 
@@ -110,6 +112,15 @@ type SavedShowExport struct {
 	Venue     *string   `json:"venue,omitempty"`
 	City      *string   `json:"city,omitempty"`
 	SavedAt   time.Time `json:"saved_at"`
+}
+
+// SavedReleaseExport contains saved release data for export.
+type SavedReleaseExport struct {
+	ReleaseID   uint      `json:"release_id"`
+	Title       string    `json:"title"`
+	ReleaseType string    `json:"release_type"`
+	ReleaseYear *int      `json:"release_year,omitempty"`
+	SavedAt     time.Time `json:"saved_at"`
 }
 
 // SubmittedShowExport contains submitted show data for export

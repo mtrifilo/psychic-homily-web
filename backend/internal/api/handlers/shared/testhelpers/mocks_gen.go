@@ -2862,6 +2862,7 @@ type MockReleaseService struct {
 	GetReleaseFn                    func(uint) (*contracts.ReleaseDetailResponse, error)
 	GetReleaseBySlugFn              func(string) (*contracts.ReleaseDetailResponse, error)
 	ListReleasesFn                  func(contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error)
+	GetReleasesByIDsFn              func([]uint) ([]*contracts.ReleaseListResponse, error)
 	SearchReleasesFn                func(string) ([]*contracts.ReleaseListResponse, error)
 	UpdateReleaseFn                 func(uint, *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
 	DeleteReleaseFn                 func(uint) error
@@ -2895,6 +2896,12 @@ func (m *MockReleaseService) ListReleases(filters contracts.ReleaseListFilters) 
 		return m.ListReleasesFn(filters)
 	}
 	return nil, 0, nil
+}
+func (m *MockReleaseService) GetReleasesByIDs(releaseIDs []uint) ([]*contracts.ReleaseListResponse, error) {
+	if m.GetReleasesByIDsFn != nil {
+		return m.GetReleasesByIDsFn(releaseIDs)
+	}
+	return nil, nil
 }
 func (m *MockReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListResponse, error) {
 	if m.SearchReleasesFn != nil {
@@ -3109,6 +3116,67 @@ func (m *MockRevisionService) Rollback(revisionID uint, adminUserID uint) error 
 		return m.RollbackFn(revisionID, adminUserID)
 	}
 	return nil
+}
+
+// ============================================================================
+// Mock: SavedReleaseServiceInterface
+// ============================================================================
+
+type MockSavedReleaseService struct {
+	SaveReleaseFn          func(uint, uint) error
+	UnsaveReleaseFn        func(uint, uint) error
+	GetUserSavedReleasesFn func(uint, int, int) ([]*contracts.SavedReleaseResponse, int64, error)
+	IsReleaseSavedFn       func(uint, uint) (bool, error)
+	GetSavedReleaseIDsFn   func(uint, []uint) (map[uint]bool, error)
+	GetSaveCountFn         func(uint) (int, error)
+	GetBatchSaveCountsFn   func([]uint) (map[uint]int, error)
+}
+
+func (m *MockSavedReleaseService) SaveRelease(userID uint, releaseID uint) error {
+	if m.SaveReleaseFn != nil {
+		return m.SaveReleaseFn(userID, releaseID)
+	}
+	return nil
+}
+func (m *MockSavedReleaseService) UnsaveRelease(userID uint, releaseID uint) error {
+	if m.UnsaveReleaseFn != nil {
+		return m.UnsaveReleaseFn(userID, releaseID)
+	}
+	return nil
+}
+func (m *MockSavedReleaseService) GetUserSavedReleases(userID uint, limit int, offset int) ([]*contracts.SavedReleaseResponse, int64, error) {
+	if m.GetUserSavedReleasesFn != nil {
+		return m.GetUserSavedReleasesFn(userID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockSavedReleaseService) IsReleaseSaved(userID uint, releaseID uint) (bool, error) {
+	if m.IsReleaseSavedFn != nil {
+		return m.IsReleaseSavedFn(userID, releaseID)
+	}
+	return false, nil
+}
+func (m *MockSavedReleaseService) GetSavedReleaseIDs(userID uint, releaseIDs []uint) (map[uint]bool, error) {
+	if m.GetSavedReleaseIDsFn != nil {
+		return m.GetSavedReleaseIDsFn(userID, releaseIDs)
+	}
+	return nil, nil
+}
+func (m *MockSavedReleaseService) GetSaveCount(releaseID uint) (int, error) {
+	if m.GetSaveCountFn != nil {
+		return m.GetSaveCountFn(releaseID)
+	}
+	return 0, nil
+}
+func (m *MockSavedReleaseService) GetBatchSaveCounts(releaseIDs []uint) (map[uint]int, error) {
+	if m.GetBatchSaveCountsFn != nil {
+		return m.GetBatchSaveCountsFn(releaseIDs)
+	}
+	result := make(map[uint]int)
+	for _, id := range releaseIDs {
+		result[id] = 0
+	}
+	return result, nil
 }
 
 // ============================================================================
@@ -4409,6 +4477,7 @@ var _ contracts.RadioServiceInterface = (*MockRadioService)(nil)
 var _ contracts.ReleaseServiceInterface = (*MockReleaseService)(nil)
 var _ contracts.RequestServiceInterface = (*MockRequestService)(nil)
 var _ contracts.RevisionServiceInterface = (*MockRevisionService)(nil)
+var _ contracts.SavedReleaseServiceInterface = (*MockSavedReleaseService)(nil)
 var _ contracts.SavedShowServiceInterface = (*MockSavedShowService)(nil)
 var _ contracts.SceneServiceInterface = (*MockSceneService)(nil)
 var _ contracts.ShowAdminServiceInterface = (*MockShowAdminService)(nil)

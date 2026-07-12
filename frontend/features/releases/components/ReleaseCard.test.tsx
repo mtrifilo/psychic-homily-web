@@ -27,9 +27,14 @@ vi.mock('@/components/shared', () => ({
       {name}
     </a>
   ),
+  ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
+    <button>save-release-{releaseId}</button>
+  ),
 }))
 
-function makeRelease(overrides: Partial<ReleaseListItem> = {}): ReleaseListItem {
+function makeRelease(
+  overrides: Partial<ReleaseListItem> = {}
+): ReleaseListItem {
   return {
     id: 1,
     title: 'In Rainbows',
@@ -46,6 +51,18 @@ function makeRelease(overrides: Partial<ReleaseListItem> = {}): ReleaseListItem 
 }
 
 describe('ReleaseCard', () => {
+  it('renders a save action when batched save state is supplied', () => {
+    render(
+      <ReleaseCard
+        release={makeRelease()}
+        saveData={{ save_count: 2, is_saved: false }}
+      />
+    )
+    expect(
+      screen.getByRole('button', { name: 'save-release-1' })
+    ).toBeInTheDocument()
+  })
+
   it('renders as an article element', () => {
     render(<ReleaseCard release={makeRelease()} />)
     expect(screen.getByRole('article')).toBeInTheDocument()
@@ -150,9 +167,7 @@ describe('ReleaseCard', () => {
     it('renders the title inline with the artist name', () => {
       render(<ReleaseCard release={makeRelease()} density="compact" />)
       // Compact mode renders "Artist — Title" in a single link.
-      expect(
-        screen.getByText('Radiohead — In Rainbows')
-      ).toBeInTheDocument()
+      expect(screen.getByText('Radiohead — In Rainbows')).toBeInTheDocument()
     })
 
     it('renders just the title when there are no artists', () => {

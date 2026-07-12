@@ -117,10 +117,49 @@ export interface ReleasesListResponse {
   offset: number
 }
 
-/** Sort options for the releases browse page */
-export type ReleaseSortOption = 'newest' | 'oldest' | 'title_asc' | 'title_desc' | 'recently_added'
+export interface SavedReleaseResponse extends ReleaseListItem {
+  saved_at: string
+}
 
-export const RELEASE_SORT_OPTIONS: { value: ReleaseSortOption; label: string }[] = [
+export interface SavedReleasesListResponse {
+  releases: SavedReleaseResponse[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ReleaseSaveResponse {
+  success: boolean
+  message: string
+}
+
+export interface ReleaseSaveCount {
+  release_id: number
+  save_count: number
+  is_saved: boolean
+}
+
+export interface ReleaseSaveCountEntry {
+  save_count: number
+  is_saved: boolean
+}
+
+export interface BatchReleaseSaveCountsResponse {
+  saves: Record<string, ReleaseSaveCountEntry>
+}
+
+/** Sort options for the releases browse page */
+export type ReleaseSortOption =
+  | 'newest'
+  | 'oldest'
+  | 'title_asc'
+  | 'title_desc'
+  | 'recently_added'
+
+export const RELEASE_SORT_OPTIONS: {
+  value: ReleaseSortOption
+  label: string
+}[] = [
   { value: 'newest', label: 'Newest First' },
   { value: 'oldest', label: 'Oldest First' },
   { value: 'title_asc', label: 'Title A-Z' },

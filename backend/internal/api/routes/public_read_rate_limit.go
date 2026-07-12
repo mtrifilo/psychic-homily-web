@@ -67,9 +67,9 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) stri
 	}
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
-		middleware.RateLimitAPIEndpoints(),                       // anonymous → per-IP
-		middleware.RateLimitPublicReadUserEndpoints(),            // authenticated → per-user
-		middleware.RateLimitPublicReadAuthenticatedIPCeiling(),   // authenticated → coarse per-IP ceiling (PSY-1378)
+		middleware.RateLimitAPIEndpoints(),                     // anonymous → per-IP
+		middleware.RateLimitPublicReadUserEndpoints(),          // authenticated → per-user
+		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)
 	)
 	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
 	return limitReadMethodsOnly(limiter)
@@ -81,6 +81,11 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) stri
 // would quietly leave the endpoint unmetered.
 const SaveCountsBatchPath = "/shows/saves/batch"
 
+// ReleaseSaveCountsBatchPath is the saved-release twin of
+// SaveCountsBatchPath. Both are read-shaped POSTs because the ID set lives in
+// the request body.
+const ReleaseSaveCountsBatchPath = "/releases/saves/batch"
+
 // readViaPostPaths are POST endpoints that are semantically READS: the request
 // body only carries a batch of entity IDs, and the response is public data.
 // They must share the public-read budget — otherwise an anonymous caller gets
@@ -88,7 +93,7 @@ const SaveCountsBatchPath = "/shows/saves/batch"
 //
 // NOTE: /follows/batch has the same shape and is still unmetered. It predates
 // this list and is tracked separately; do not assume this list is exhaustive.
-var readViaPostPaths = []string{SaveCountsBatchPath}
+var readViaPostPaths = []string{SaveCountsBatchPath, ReleaseSaveCountsBatchPath}
 
 // limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
 // the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/

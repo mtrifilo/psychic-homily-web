@@ -1332,14 +1332,15 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 // DeletionSummaryResponse represents the response for account deletion summary
 type DeletionSummaryResponse struct {
 	Body struct {
-		Success         bool   `json:"success" example:"true" doc:"Success status"`
-		Message         string `json:"message" example:"Deletion summary retrieved" doc:"Response message"`
-		ShowsCount      int64  `json:"shows_count" example:"5" doc:"Number of shows submitted by user"`
-		SavedShowsCount int64  `json:"saved_shows_count" example:"12" doc:"Number of saved shows"`
-		PasskeysCount   int64  `json:"passkeys_count" example:"2" doc:"Number of registered passkeys"`
-		HasPassword     bool   `json:"has_password" example:"true" doc:"Whether user has a password set"`
-		ErrorCode       string `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
-		RequestID       string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success            bool   `json:"success" example:"true" doc:"Success status"`
+		Message            string `json:"message" example:"Deletion summary retrieved" doc:"Response message"`
+		ShowsCount         int64  `json:"shows_count" example:"5" doc:"Number of shows submitted by user"`
+		SavedShowsCount    int64  `json:"saved_shows_count" example:"12" doc:"Number of saved shows"`
+		SavedReleasesCount int64  `json:"saved_releases_count" example:"4" doc:"Number of saved releases"`
+		PasskeysCount      int64  `json:"passkeys_count" example:"2" doc:"Number of registered passkeys"`
+		HasPassword        bool   `json:"has_password" example:"true" doc:"Whether user has a password set"`
+		ErrorCode          string `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
+		RequestID          string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -1385,6 +1386,7 @@ func (h *AuthHandler) GetDeletionSummaryHandler(ctx context.Context, input *stru
 	resp.Body.Message = "Deletion summary retrieved"
 	resp.Body.ShowsCount = summary.ShowsCount
 	resp.Body.SavedShowsCount = summary.SavedShowsCount
+	resp.Body.SavedReleasesCount = summary.SavedReleasesCount
 	resp.Body.PasskeysCount = summary.PasskeysCount
 	resp.Body.HasPassword = contextUser.PasswordHash != nil
 
@@ -1392,6 +1394,7 @@ func (h *AuthHandler) GetDeletionSummaryHandler(ctx context.Context, input *stru
 		"user_id", contextUser.ID,
 		"shows_count", summary.ShowsCount,
 		"saved_shows_count", summary.SavedShowsCount,
+		"saved_releases_count", summary.SavedReleasesCount,
 		"passkeys_count", summary.PasskeysCount,
 	)
 

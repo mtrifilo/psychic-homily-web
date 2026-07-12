@@ -13,7 +13,8 @@ vi.mock('@/features/releases/api', () => ({
   releaseEndpoints: {
     LIST: '/releases',
     GET: (idOrSlug: string | number) => `/releases/${idOrSlug}`,
-    ARTIST_RELEASES: (artistIdOrSlug: string | number) => `/artists/${artistIdOrSlug}/releases`,
+    ARTIST_RELEASES: (artistIdOrSlug: string | number) =>
+      `/artists/${artistIdOrSlug}/releases`,
   },
   releaseQueryKeys: {
     list: (filters?: Record<string, unknown>) => ['releases', 'list', filters],
@@ -24,7 +25,6 @@ vi.mock('@/features/releases/api', () => ({
 
 import { useReleases, useRelease, useArtistReleases } from './useReleases'
 
-
 describe('useReleases', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -32,16 +32,28 @@ describe('useReleases', () => {
   })
 
   it('fetches releases without filters', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
+    mockApiRequest.mockResolvedValueOnce({
+      releases: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
 
-    const { result } = renderHook(() => useReleases(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useReleases(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith('/releases', { method: 'GET' })
   })
 
   it('includes releaseType filter', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
+    mockApiRequest.mockResolvedValueOnce({
+      releases: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
 
     const { result } = renderHook(() => useReleases({ releaseType: 'album' }), {
       wrapper: createWrapper(),
@@ -52,7 +64,12 @@ describe('useReleases', () => {
   })
 
   it('includes year filter', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
+    mockApiRequest.mockResolvedValueOnce({
+      releases: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
 
     const { result } = renderHook(() => useReleases({ year: 2025 }), {
       wrapper: createWrapper(),
@@ -63,7 +80,12 @@ describe('useReleases', () => {
   })
 
   it('includes artistId filter', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
+    mockApiRequest.mockResolvedValueOnce({
+      releases: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
 
     const { result } = renderHook(() => useReleases({ artistId: 42 }), {
       wrapper: createWrapper(),
@@ -74,7 +96,12 @@ describe('useReleases', () => {
   })
 
   it('handles multiple filters', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
+    mockApiRequest.mockResolvedValueOnce({
+      releases: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
 
     const { result } = renderHook(
       () => useReleases({ releaseType: 'ep', year: 2024, artistId: 5 }),
@@ -96,14 +123,23 @@ describe('useRelease', () => {
   })
 
   it('fetches a release by slug', async () => {
-    mockApiRequest.mockResolvedValueOnce({ id: 1, title: 'OK Computer', slug: 'ok-computer' })
-
-    const { result } = renderHook(() => useRelease({ idOrSlug: 'ok-computer' }), {
-      wrapper: createWrapper(),
+    mockApiRequest.mockResolvedValueOnce({
+      id: 1,
+      title: 'OK Computer',
+      slug: 'ok-computer',
     })
 
+    const { result } = renderHook(
+      () => useRelease({ idOrSlug: 'ok-computer' }),
+      {
+        wrapper: createWrapper(),
+      }
+    )
+
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/releases/ok-computer', { method: 'GET' })
+    expect(mockApiRequest).toHaveBeenCalledWith('/releases/ok-computer', {
+      method: 'GET',
+    })
   })
 
   it('fetches a release by numeric ID', async () => {
@@ -114,7 +150,9 @@ describe('useRelease', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/releases/42', { method: 'GET' })
+    expect(mockApiRequest).toHaveBeenCalledWith('/releases/42', {
+      method: 'GET',
+    })
   })
 
   it('does not fetch when idOrSlug is 0', () => {
@@ -141,7 +179,6 @@ describe('useRelease', () => {
 
     expect(result.current.fetchStatus).toBe('idle')
   })
-
 })
 
 describe('useArtistReleases', () => {
@@ -151,7 +188,9 @@ describe('useArtistReleases', () => {
   })
 
   it('fetches releases for an artist', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [{ id: 1, title: 'Album' }] })
+    mockApiRequest.mockResolvedValueOnce({
+      releases: [{ id: 1, title: 'Album' }],
+    })
 
     const { result } = renderHook(
       () => useArtistReleases({ artistIdOrSlug: 'radiohead' }),
@@ -159,7 +198,9 @@ describe('useArtistReleases', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/artists/radiohead/releases', { method: 'GET' })
+    expect(mockApiRequest).toHaveBeenCalledWith('/artists/radiohead/releases', {
+      method: 'GET',
+    })
   })
 
   it('does not fetch when artistIdOrSlug is 0', () => {

@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Calendar,
   Bookmark,
+  Disc3,
   Key,
   ArrowLeft,
   ArrowRight,
@@ -160,6 +161,15 @@ export function DeleteAccountDialog({
                         </span>
                       </li>
                       <li className="flex items-center gap-2">
+                        <Disc3 className="h-4 w-4 shrink-0" />
+                        <span>
+                          <strong className="text-foreground">
+                            {summary?.saved_releases_count ?? 0}
+                          </strong>{' '}
+                          saved releases
+                        </span>
+                      </li>
+                      <li className="flex items-center gap-2">
                         <Key className="h-4 w-4 shrink-0" />
                         <span>
                           <strong className="text-foreground">
@@ -252,7 +262,9 @@ export function DeleteAccountDialog({
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={
+                        showPassword ? 'Hide password' : 'Show password'
+                      }
                     >
                       {showPassword ? (
                         <EyeOff className="h-4 w-4" />

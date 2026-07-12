@@ -86,13 +86,10 @@ export function useUpdateRelease() {
       releaseId: number
       data: UpdateReleaseInput
     }): Promise<ReleaseDetail> => {
-      return apiRequest<ReleaseDetail>(
-        releaseEndpoints.UPDATE(releaseId),
-        {
-          method: 'PUT',
-          body: JSON.stringify(data),
-        }
-      )
+      return apiRequest<ReleaseDetail>(releaseEndpoints.UPDATE(releaseId), {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      })
     },
     onSuccess: () => {
       invalidateQueries.releases()
@@ -165,12 +162,9 @@ export function useRemoveReleaseLink() {
       releaseId: number
       linkId: number
     }): Promise<void> => {
-      return apiRequest<void>(
-        releaseEndpoints.REMOVE_LINK(releaseId, linkId),
-        {
-          method: 'DELETE',
-        }
-      )
+      return apiRequest<void>(releaseEndpoints.REMOVE_LINK(releaseId, linkId), {
+        method: 'DELETE',
+      })
     },
     onSuccess: () => {
       invalidateQueries.releases()

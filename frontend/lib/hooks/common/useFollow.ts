@@ -19,7 +19,8 @@ export const useFollowStatus = (
   entityType: string,
   // number for id-keyed entities; a scene SLUG for "scenes" (PSY-1339/1340 —
   // same route shape: GET /scenes/{slug}/followers).
-  entityId: number | string
+  entityId: number | string,
+  enabled = true
 ) => {
   return useQuery({
     queryKey: queryKeys.follows.entity(entityType, entityId),
@@ -30,6 +31,7 @@ export const useFollowStatus = (
       )
     },
     enabled:
+      enabled &&
       (typeof entityId === 'number' ? entityId > 0 : entityId.length > 0) &&
       !!entityType,
     staleTime: 2 * 60 * 1000, // 2 minutes

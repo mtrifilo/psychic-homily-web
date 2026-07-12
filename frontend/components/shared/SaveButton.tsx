@@ -3,13 +3,15 @@
 import { Heart } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from './BracketLink'
 import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 
 interface SaveButtonProps {
   showId: number
-  variant?: 'default' | 'ghost' | 'outline'
+  variant?: 'default' | 'ghost' | 'outline' | 'bracket'
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
   /**
@@ -18,6 +20,8 @@ interface SaveButtonProps {
    * the count without the viewer's own saved state — mirrors FollowButton.
    */
   saveData?: { save_count: number; is_saved: boolean }
+  className?: string
+  disabled?: boolean
 }
 
 export function SaveButton({
@@ -26,6 +30,8 @@ export function SaveButton({
   size = 'sm',
   showLabel = false,
   saveData,
+  className,
+  disabled = false,
 }: SaveButtonProps) {
   const { isAuthenticated } = useAuthContext()
   const router = useRouter()
@@ -40,6 +46,7 @@ export function SaveButton({
   const saveCount = data?.save_count ?? 0
 
   const { isLoading, toggle, error } = useSaveShowToggle(showId, isSaved)
+  const isDisabled = disabled || isLoading
   const [showError, setShowError] = useState(false)
 
   const handleClick = async (e: React.MouseEvent) => {
@@ -52,6 +59,7 @@ export function SaveButton({
       router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
       return
     }
+    if (isDisabled) return
 
     try {
       setShowError(false)
@@ -69,8 +77,30 @@ export function SaveButton({
       ? 'Remove from My List'
       : 'Add to My List'
 
-  const iconSize = size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
-  const buttonSize = size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
+  if (variant === 'bracket') {
+    return (
+      <div className="relative inline-flex">
+        <BracketLink
+          label={isSaved ? 'Saved' : 'Save'}
+          active={isSaved}
+          onClick={handleClick}
+          disabled={isDisabled}
+          className={cn('font-mono text-[11px]', className)}
+          ariaLabel={label}
+        />
+        {showError && error ? (
+          <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-destructive px-3 py-1.5 text-xs text-destructive-foreground shadow-sm">
+            Failed to {isSaved ? 'remove' : 'save'} show
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  const iconSize =
+    size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
+  const buttonSize =
+    size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
   const hasCount = saveCount > 0
 
   return (
@@ -79,8 +109,13 @@ export function SaveButton({
         variant={variant}
         size="icon"
         onClick={handleClick}
-        disabled={isLoading}
-        className={`${buttonSize} p-0 ${showLabel || hasCount ? 'w-auto px-3 gap-1.5' : ''}`}
+        disabled={isDisabled}
+        className={cn(
+          buttonSize,
+          'p-0',
+          (showLabel || hasCount) && 'w-auto px-3 gap-1.5',
+          className
+        )}
         title={label}
         aria-label={hasCount ? `${label} (${saveCount} saved)` : label}
       >
@@ -97,9 +132,7 @@ export function SaveButton({
           </span>
         )}
         {showLabel && (
-          <span className="text-sm">
-            {isSaved ? 'Saved' : 'Save'}
-          </span>
+          <span className="text-sm">{isSaved ? 'Saved' : 'Save'}</span>
         )}
       </Button>
 

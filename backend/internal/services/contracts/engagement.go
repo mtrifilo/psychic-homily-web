@@ -17,6 +17,14 @@ type SavedShowResponse struct {
 	SavedAt time.Time `json:"saved_at"`
 }
 
+// SavedReleaseResponse represents a release saved by a user. Releases retain
+// the historical `bookmark` storage action internally, but every public API
+// and UI surface calls the relationship Save/Saved.
+type SavedReleaseResponse struct {
+	ReleaseListResponse
+	SavedAt time.Time `json:"saved_at"`
+}
+
 // ──────────────────────────────────────────────
 // Show Report types
 // ──────────────────────────────────────────────
@@ -139,6 +147,19 @@ type SavedShowServiceInterface interface {
 	GetSavedShowIDs(userID uint, showIDs []uint) (map[uint]bool, error)
 	GetSaveCount(showID uint) (int, error)
 	GetBatchSaveCounts(showIDs []uint) (map[uint]int, error)
+}
+
+// SavedReleaseServiceInterface defines the release-save surface. It mirrors
+// saved shows while keeping release bookmarks behind a release-specific
+// boundary, so callers never need to know the legacy storage action.
+type SavedReleaseServiceInterface interface {
+	SaveRelease(userID, releaseID uint) error
+	UnsaveRelease(userID, releaseID uint) error
+	GetUserSavedReleases(userID uint, limit, offset int) ([]*SavedReleaseResponse, int64, error)
+	IsReleaseSaved(userID, releaseID uint) (bool, error)
+	GetSavedReleaseIDs(userID uint, releaseIDs []uint) (map[uint]bool, error)
+	GetSaveCount(releaseID uint) (int, error)
+	GetBatchSaveCounts(releaseIDs []uint) (map[uint]int, error)
 }
 
 // ──────────────────────────────────────────────

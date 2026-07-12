@@ -262,7 +262,6 @@ func TestGetProfileHandler_NilAuthServiceReturnsServerError(t *testing.T) {
 	}
 }
 
-
 func TestGetProfileHandler_NoUserContext(t *testing.T) {
 	authSvc := auth.NewAuthService(nil, testConfig(), usersvc.NewUserService(nil))
 	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, testConfig())
@@ -2550,9 +2549,10 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 		ah.userService = &testhelpers.MockUserService{
 			GetDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
 				return &contracts.DeletionSummary{
-					ShowsCount:      5,
-					SavedShowsCount: 12,
-					PasskeysCount:   2,
+					ShowsCount:         5,
+					SavedShowsCount:    12,
+					SavedReleasesCount: 4,
+					PasskeysCount:      2,
 				}, nil
 			},
 		}
@@ -2571,6 +2571,9 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 	}
 	if resp.Body.SavedShowsCount != 12 {
 		t.Errorf("expected saved_shows_count=12, got %d", resp.Body.SavedShowsCount)
+	}
+	if resp.Body.SavedReleasesCount != 4 {
+		t.Errorf("expected saved_releases_count=4, got %d", resp.Body.SavedReleasesCount)
 	}
 	if resp.Body.PasskeysCount != 2 {
 		t.Errorf("expected passkeys_count=2, got %d", resp.Body.PasskeysCount)

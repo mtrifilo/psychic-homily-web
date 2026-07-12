@@ -164,6 +164,16 @@ type OpenerToWatch struct {
 	Rank             int    `json:"rank"`
 }
 
+// ChartEntityReference is the linkable identity needed by dense chart meta
+// lines. It is deliberately chart-local: release-domain artist/label response
+// types carry different semantics and should not be coupled together merely
+// because their current wire fields overlap.
+type ChartEntityReference struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
 // NewRelease is one row of the windowed new-releases module: date-ordered,
 // no engagement inputs. ReleaseDate is the world release date as a day-grain
 // YYYY-MM-DD string — the same shape as every release contract, so a
@@ -176,15 +186,15 @@ type OpenerToWatch struct {
 // old date). Only date-unknown releases surface by their graph-added day
 // (ReleaseDate nil is the graph-new tell).
 type NewRelease struct {
-	ReleaseID   uint      `json:"release_id"`
-	Title       string    `json:"title"`
-	Slug        string    `json:"slug"`
-	ReleaseType string    `json:"release_type"`
-	ReleaseDate *string   `json:"release_date"`
-	AddedAt     time.Time `json:"added_at"`
-	ArtistNames []string  `json:"artist_names"`
-	LabelNames  []string  `json:"label_names"`
-	Rank        int       `json:"rank"`
+	ReleaseID   uint                   `json:"release_id"`
+	Title       string                 `json:"title"`
+	Slug        string                 `json:"slug"`
+	ReleaseType string                 `json:"release_type"`
+	ReleaseDate *string                `json:"release_date"`
+	AddedAt     time.Time              `json:"added_at"`
+	Artists     []ChartEntityReference `json:"artists"`
+	Labels      []ChartEntityReference `json:"labels"`
+	Rank        int                    `json:"rank"`
 }
 
 // OnTheRadioArtist represents an artist ranked by resolved radio plays within

@@ -96,7 +96,7 @@ describe('useCreateRelease', () => {
   it('reports a pending state while in flight', async () => {
     let resolve!: (value: unknown) => void
     mockApiRequest.mockReturnValueOnce(
-      new Promise((r) => {
+      new Promise(r => {
         resolve = r
       })
     )
@@ -262,7 +262,11 @@ describe('useAddReleaseLink', () => {
     })
 
     await act(async () => {
-      result.current.mutate({ releaseId: 7, platform: 'spotify', url: 'https://s' })
+      result.current.mutate({
+        releaseId: 7,
+        platform: 'spotify',
+        url: 'https://s',
+      })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))

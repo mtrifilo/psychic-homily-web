@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
@@ -176,6 +178,24 @@ func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*
 	return responses, total, nil
 }
 
+// GetReleasesByIDs batch-hydrates releases for consumers that already own the
+// ordering (for example, a user's saved-at order). The returned slice has no
+// ordering contract; callers should map by ID and restore their own order.
+func (s *ReleaseService) GetReleasesByIDs(releaseIDs []uint) ([]*contracts.ReleaseListResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if len(releaseIDs) == 0 {
+		return []*contracts.ReleaseListResponse{}, nil
+	}
+
+	var releases []catalogm.Release
+	if err := s.db.Where("id IN ?", releaseIDs).Find(&releases).Error; err != nil {
+		return nil, fmt.Errorf("failed to get releases by IDs: %w", err)
+	}
+	return s.buildListResponses(releases)
+}
+
 // SearchReleases searches for releases by title using ILIKE matching
 func (s *ReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListResponse, error) {
 	if s.db == nil {
@@ -274,25 +294,37 @@ func (s *ReleaseService) DeleteRelease(releaseID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Check if release exists
-	var release catalogm.Release
-	err := s.db.First(&release, releaseID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrReleaseNotFound(releaseID)
-		}
-		return fmt.Errorf("failed to get release: %w", err)
-	}
-
 	// PSY-1189: deleting a release can strand a release_derived embed that pointed
 	// at it. Capture the credited artists with such an embed BEFORE the delete
 	// (the cascade removes the artist_releases rows, so they'd be unfindable
 	// after), then re-derive from each artist's REMAINING releases — all in one
 	// transaction so a recompute failure rolls the delete back.
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Serialize against SaveRelease's SHARE lock. Without this row lock, a
+		// concurrent save can pass its existence check, wait for this transaction
+		// to delete, then insert a dangling polymorphic bookmark.
+		var release catalogm.Release
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&release, releaseID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrReleaseNotFound(releaseID)
+			}
+			return fmt.Errorf("failed to get release: %w", err)
+		}
+
 		artistIDs, err := releaseDerivedArtistIDsForRelease(tx, releaseID)
 		if err != nil {
 			return err
+		}
+
+		// Polymorphic bookmarks have no FK to releases. Remove every action for
+		// this entity inside the same transaction so saved-release totals and
+		// public counts cannot retain a dangling row after deletion.
+		if err := tx.Where(
+			"entity_type = ? AND entity_id = ?",
+			engagementm.BookmarkEntityRelease,
+			releaseID,
+		).Delete(&engagementm.UserBookmark{}).Error; err != nil {
+			return fmt.Errorf("failed to delete release bookmarks: %w", err)
 		}
 
 		// Delete the release (cascades handle junction cleanup via FK)

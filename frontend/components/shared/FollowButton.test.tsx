@@ -8,7 +8,9 @@ const mockPush = vi.fn()
 const mockFollowMutate = vi.fn()
 const mockUnfollowMutate = vi.fn()
 let mockIsAuthenticated = true
-let mockFollowStatusData: { follower_count: number; is_following: boolean } | undefined
+let mockFollowStatusData:
+  | { follower_count: number; is_following: boolean }
+  | undefined
 let mockStatusLoading = false
 
 vi.mock('next/navigation', () => ({
@@ -45,15 +47,15 @@ vi.mock('@/lib/api', async () => {
 const useMockedFollowHooks = vi.hoisted(() => ({ value: true }))
 
 vi.mock('@/lib/hooks/common/useFollow', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/hooks/common/useFollow')>(
-    '@/lib/hooks/common/useFollow'
-  )
+  const actual = await vi.importActual<
+    typeof import('@/lib/hooks/common/useFollow')
+  >('@/lib/hooks/common/useFollow')
   return {
     ...actual,
-    useFollowStatus: (entityType: string, entityId: number) =>
+    useFollowStatus: (entityType: string, entityId: number, enabled = true) =>
       useMockedFollowHooks.value
         ? { data: mockFollowStatusData, isLoading: mockStatusLoading }
-        : actual.useFollowStatus(entityType, entityId),
+        : actual.useFollowStatus(entityType, entityId, enabled),
     useFollow: () =>
       useMockedFollowHooks.value
         ? { mutate: mockFollowMutate, isPending: false }
@@ -67,7 +69,6 @@ vi.mock('@/lib/hooks/common/useFollow', async () => {
 
 import { FollowButton } from './FollowButton'
 
-
 describe('FollowButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -78,10 +79,9 @@ describe('FollowButton', () => {
   })
 
   it('renders "Follow" text in non-compact mode when not following', () => {
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     expect(screen.getByText('Follow')).toBeInTheDocument()
   })
@@ -89,58 +89,61 @@ describe('FollowButton', () => {
   it('renders "Following" text when following', () => {
     mockFollowStatusData = { follower_count: 10, is_following: true }
 
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     expect(screen.getByText('Following')).toBeInTheDocument()
   })
 
   it('renders follower count when > 0', () => {
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     expect(screen.getByText('10')).toBeInTheDocument()
   })
 
   it('calls follow.mutate when clicking while not following', async () => {
     const user = userEvent.setup()
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     await user.click(screen.getByRole('button'))
-    expect(mockFollowMutate).toHaveBeenCalledWith({ entityType: 'artists', entityId: 1 })
+    expect(mockFollowMutate).toHaveBeenCalledWith({
+      entityType: 'artists',
+      entityId: 1,
+    })
   })
 
   it('calls unfollow.mutate when clicking while following', async () => {
     const user = userEvent.setup()
     mockFollowStatusData = { follower_count: 10, is_following: true }
 
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     await user.click(screen.getByRole('button'))
-    expect(mockUnfollowMutate).toHaveBeenCalledWith({ entityType: 'artists', entityId: 1 })
+    expect(mockUnfollowMutate).toHaveBeenCalledWith({
+      entityType: 'artists',
+      entityId: 1,
+    })
   })
 
   it('redirects to /auth when not authenticated', async () => {
     const user = userEvent.setup()
     mockIsAuthenticated = false
 
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     await user.click(screen.getByRole('button'))
-    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fartists%2Ftest-artist')
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fartists%2Ftest-artist'
+    )
     expect(mockFollowMutate).not.toHaveBeenCalled()
   })
 
@@ -161,10 +164,9 @@ describe('FollowButton', () => {
   })
 
   it('renders compact mode with aria-label', () => {
-    render(
-      <FollowButton entityType="artists" entityId={1} compact />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} compact />, {
+      wrapper: createWrapper(),
+    })
 
     const button = screen.getByRole('button', { name: 'Follow' })
     expect(button).toBeInTheDocument()
@@ -174,10 +176,9 @@ describe('FollowButton', () => {
     mockStatusLoading = true
     mockFollowStatusData = undefined
 
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     // In non-compact mode, should show "Follow" text with a spinner
     expect(screen.getByText('Follow')).toBeInTheDocument()
@@ -204,10 +205,9 @@ describe('FollowButton', () => {
     const user = userEvent.setup()
     mockFollowStatusData = { follower_count: 10, is_following: true }
 
-    render(
-      <FollowButton entityType="artists" entityId={1} />,
-      { wrapper: createWrapper() }
-    )
+    render(<FollowButton entityType="artists" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
 
     // Before hover — "Following" label.
     expect(screen.getByText('Following')).toBeInTheDocument()
@@ -260,7 +260,10 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
       { wrapper: createWrapper() }
     )
     await user.click(screen.getByRole('button', { name: 'Follow' }))
-    expect(mockFollowMutate).toHaveBeenCalledWith({ entityType: 'artists', entityId: 1 })
+    expect(mockFollowMutate).toHaveBeenCalledWith({
+      entityType: 'artists',
+      entityId: 1,
+    })
   })
 
   it('renders a disabled [Follow] while follow status is loading', () => {
@@ -314,7 +317,13 @@ describe('FollowButton — optimistic update + rollback (real hooks)', () => {
     })
   }
 
-  function Wrapper({ client, children }: { client: QueryClient; children: React.ReactNode }) {
+  function Wrapper({
+    client,
+    children,
+  }: {
+    client: QueryClient
+    children: React.ReactNode
+  }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>
   }
 
@@ -333,12 +342,14 @@ describe('FollowButton — optimistic update + rollback (real hooks)', () => {
     cached: { follower_count: number; is_following: boolean },
     mutationCall: ReturnType<typeof deferred>
   ) {
-    mockApiRequest.mockImplementation((_endpoint: string, init?: RequestInit) => {
-      const method = init?.method ?? 'GET'
-      if (method === 'GET') return Promise.resolve(cached)
-      // The follow / unfollow POST / DELETE both go through this branch.
-      return mutationCall.promise
-    })
+    mockApiRequest.mockImplementation(
+      (_endpoint: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'GET') return Promise.resolve(cached)
+        // The follow / unfollow POST / DELETE both go through this branch.
+        return mutationCall.promise
+      }
+    )
   }
 
   // We use the `compact` variant because its `aria-label` toggles cleanly
@@ -442,7 +453,9 @@ describe('FollowButton — optimistic update + rollback (real hooks)', () => {
       </Wrapper>
     )
 
-    expect(await screen.findByRole('button', { name: 'Unfollow' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Unfollow' })
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Unfollow' }))
 

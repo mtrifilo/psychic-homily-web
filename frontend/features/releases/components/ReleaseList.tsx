@@ -1,16 +1,29 @@
 'use client'
 
-import { useCallback, useMemo, useState, useEffect, useRef, useTransition } from 'react'
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useTransition,
+} from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useReleaseSaveCountBatch } from '../hooks/useSavedReleases'
 import { useReleases } from '../hooks/useReleases'
 import { useLabels } from '@/features/labels/hooks/useLabels'
 import { ReleaseCard } from './ReleaseCard'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { RELEASE_TYPES, RELEASE_TYPE_LABELS, RELEASE_SORT_OPTIONS } from '../types'
+import {
+  RELEASE_TYPES,
+  RELEASE_TYPE_LABELS,
+  RELEASE_SORT_OPTIONS,
+} from '../types'
 import type { ReleaseType, ReleaseSortOption } from '../types'
 import {
   TagFacetPanel,
@@ -26,6 +39,7 @@ export function ReleaseList() {
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const { density, setDensity } = useDensity('releases')
+  const { isAuthenticated } = useAuthContext()
 
   // Parse filters from URL
   const typeParam = searchParams.get('type') as ReleaseType | null
@@ -70,6 +84,11 @@ export function ReleaseList() {
   // Fetch labels for filter dropdown
   const { data: labelsData } = useLabels()
   const labels = labelsData?.labels ?? []
+  const releases = data?.releases ?? []
+  const releaseSaveCounts = useReleaseSaveCountBatch(
+    releases.map(release => release.id),
+    isAuthenticated
+  )
 
   // URL update helper — preserves existing params unless explicitly overridden
   const updateFilters = (params: Record<string, string | null>) => {
@@ -78,12 +97,24 @@ export function ReleaseList() {
     // Merge current and new params
     const mergedType = params.type !== undefined ? params.type : typeParam
     const mergedYear = params.year !== undefined ? params.year : yearParam
-    const mergedSearch = params.search !== undefined ? params.search : searchParam
+    const mergedSearch =
+      params.search !== undefined ? params.search : searchParam
     const mergedSort = params.sort !== undefined ? params.sort : sortParam
-    const mergedLabelId = params.label_id !== undefined ? params.label_id : labelIdParam
+    const mergedLabelId =
+      params.label_id !== undefined ? params.label_id : labelIdParam
     const mergedPage = params.page !== undefined ? params.page : null // Reset page on filter change unless explicitly set
-    const mergedTags = params.tags !== undefined ? params.tags : (selectedTags.length > 0 ? buildTagsParam(selectedTags) : null)
-    const mergedTagMatch = params.tag_match !== undefined ? params.tag_match : (tagMatch === 'any' ? 'any' : null)
+    const mergedTags =
+      params.tags !== undefined
+        ? params.tags
+        : selectedTags.length > 0
+          ? buildTagsParam(selectedTags)
+          : null
+    const mergedTagMatch =
+      params.tag_match !== undefined
+        ? params.tag_match
+        : tagMatch === 'any'
+          ? 'any'
+          : null
 
     if (mergedType) newParams.set('type', mergedType)
     if (mergedYear) newParams.set('year', mergedYear)
@@ -96,17 +127,22 @@ export function ReleaseList() {
 
     const queryString = newParams.toString()
     startTransition(() => {
-      router.push(queryString ? `/releases?${queryString}` : '/releases', { scroll: false })
+      router.push(queryString ? `/releases?${queryString}` : '/releases', {
+        scroll: false,
+      })
     })
   }
 
-  const handleTagsChange = useCallback((nextTags: string[]) => {
-    updateFilters({
-      tags: nextTags.length > 0 ? buildTagsParam(nextTags) : null,
-      page: null,
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typeParam, yearParam, searchParam, sortParam, labelIdParam, tagMatch])
+  const handleTagsChange = useCallback(
+    (nextTags: string[]) => {
+      updateFilters({
+        tags: nextTags.length > 0 ? buildTagsParam(nextTags) : null,
+        page: null,
+      })
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [typeParam, yearParam, searchParam, sortParam, labelIdParam, tagMatch]
+  )
 
   const handleTagsClear = useCallback(() => {
     updateFilters({ tags: null, page: null })
@@ -180,10 +216,14 @@ export function ReleaseList() {
     )
   }
 
-  const releases = data?.releases ?? []
   const total = data?.total ?? 0
   const totalPages = Math.ceil(total / PAGE_SIZE)
-  const hasFilters = !!typeParam || !!yearParam || !!searchParam || !!labelIdParam || sortParam !== 'newest'
+  const hasFilters =
+    !!typeParam ||
+    !!yearParam ||
+    !!searchParam ||
+    !!labelIdParam ||
+    sortParam !== 'newest'
 
   return (
     <section className="w-full max-w-6xl">
@@ -276,7 +316,12 @@ export function ReleaseList() {
               onChange={e => setYearInput(e.target.value)}
               className="w-24 rounded-md border border-border/50 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
             />
-            <Button type="submit" variant="outline" size="sm" className="text-xs h-7">
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+            >
               Filter
             </Button>
           </form>
@@ -292,7 +337,10 @@ export function ReleaseList() {
       </div>
 
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm text-muted-foreground" data-testid="release-count">
+        <span
+          className="text-sm text-muted-foreground"
+          data-testid="release-count"
+        >
           {total} {total === 1 ? 'release' : 'releases'}
           {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
         </span>
@@ -321,7 +369,9 @@ export function ReleaseList() {
         />
       </div>
 
-      <div className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
+      <div
+        className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}
+      >
         {releases.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <p>
@@ -357,6 +407,13 @@ export function ReleaseList() {
                   key={release.id}
                   release={release}
                   density={density}
+                  saveData={
+                    releaseSaveCounts.data?.[String(release.id)] ?? {
+                      save_count: 0,
+                      is_saved: false,
+                    }
+                  }
+                  saveDisabled={releaseSaveCounts.isLoading}
                 />
               ))}
             </div>

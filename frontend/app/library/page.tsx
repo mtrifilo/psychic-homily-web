@@ -6,8 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
 import {
   BookOpen,
-  CalendarCheck,
-  Star,
   Mic2,
   MapPin,
   Tag,
@@ -33,13 +31,25 @@ import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useSavedShows, useMySubmissions } from '@/features/shows'
 import type { SavedShowResponse, ShowResponse } from '@/features/shows'
+import {
+  getReleaseTypeLabel,
+  useSavedReleases,
+  type SavedReleaseResponse,
+} from '@/features/releases'
 import { useMyFollowing, useUnfollow } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
-import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
+import {
+  formatShowDate,
+  formatShowTime,
+  formatPrice,
+} from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Badge } from '@/components/ui/badge'
-import { SaveButton, SubmissionSuccessDialog } from '@/components/shared'
+import {
+  ReleaseSaveButton,
+  SaveButton,
+  SubmissionSuccessDialog,
+} from '@/components/shared'
 import {
   DeleteShowDialog,
   UnpublishShowDialog,
@@ -133,7 +143,7 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
               href={`/shows/${show.slug || show.id}`}
               className="text-base font-semibold leading-tight hover:text-primary transition-colors truncate"
             >
-              {artists.map((a) => a.name).join(' \u00B7 ')}
+              {artists.map(a => a.name).join(' \u00B7 ')}
             </Link>
           </div>
 
@@ -148,11 +158,15 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
                     {venue.name}
                   </Link>
                 ) : (
-                  <span className="text-primary/80 font-medium">{venue.name}</span>
+                  <span className="text-primary/80 font-medium">
+                    {venue.name}
+                  </span>
                 )}
                 {(venue.city || venue.state) && (
                   <span className="text-muted-foreground/80">
-                    {' '}&middot; {[venue.city, venue.state].filter(Boolean).join(', ')}
+                    {' '}
+                    &middot;{' '}
+                    {[venue.city, venue.state].filter(Boolean).join(', ')}
                   </span>
                 )}
               </>
@@ -162,10 +176,19 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
 
         <div className="text-right shrink-0">
           <div className="text-sm font-medium text-primary">
-            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
+            {formatShowDate(
+              show.event_date,
+              show.state,
+              false,
+              show.venues?.[0]?.timezone
+            )}
           </div>
           <div className="text-xs text-muted-foreground">
-            {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
+            {formatShowTime(
+              show.event_date,
+              show.state,
+              show.venues?.[0]?.timezone
+            )}
           </div>
         </div>
       </div>
@@ -209,12 +232,106 @@ function ShowsTab() {
         />
       ) : (
         <section className="w-full">
-          {savedShows.map((show) => (
+          {savedShows.map(show => (
             <SavedShowCard key={show.id} show={show} />
           ))}
         </section>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Releases tab — the user's saved releases
+// ---------------------------------------------------------------------------
+
+function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
+  return (
+    <article className="-mx-3 flex items-start justify-between gap-3 rounded-lg border-b border-border/50 px-3 py-4 transition-colors duration-200 hover:bg-muted/30">
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/releases/${release.slug || release.id}`}
+          className="font-semibold leading-tight transition-colors hover:text-primary"
+        >
+          {release.title}
+        </Link>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {release.artists.map((artist, index) => (
+            <span key={artist.id}>
+              {index > 0 ? ' · ' : null}
+              <Link
+                href={`/artists/${artist.slug || artist.id}`}
+                className="transition-colors hover:text-primary"
+              >
+                {artist.name}
+              </Link>
+            </span>
+          ))}
+          {release.artists.length > 0 && release.label_name ? ' · ' : null}
+          {release.label_name && release.label_slug ? (
+            <Link
+              href={`/labels/${release.label_slug}`}
+              className="transition-colors hover:text-primary"
+            >
+              {release.label_name}
+            </Link>
+          ) : (
+            release.label_name
+          )}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <span className="hidden text-xs uppercase tracking-wide text-muted-foreground sm:inline">
+          {getReleaseTypeLabel(release.release_type)}
+        </span>
+        <ReleaseSaveButton
+          releaseId={release.id}
+          saveData={{ save_count: 0, is_saved: true }}
+          variant="bracket"
+        />
+      </div>
+    </article>
+  )
+}
+
+function ReleasesTab() {
+  const { data, isLoading, error } = useSavedReleases()
+  const savedReleases = data?.releases ?? []
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="py-12 text-center text-destructive">
+        <p>Failed to load your releases. Please try again later.</p>
+      </div>
+    )
+  }
+
+  if (savedReleases.length === 0) {
+    return (
+      <EmptyState
+        icon={Disc3}
+        title="No releases saved yet"
+        description="Save releases to see them here."
+        browseHref="/releases"
+        browseLabel="Browse Releases"
+      />
+    )
+  }
+
+  return (
+    <section className="w-full">
+      {savedReleases.map(release => (
+        <SavedReleaseCard key={release.id} release={release} />
+      ))}
+    </section>
   )
 }
 
@@ -292,7 +409,12 @@ function SubmissionShowCard({
         {/* Left column: Date, Location, and Status */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
           <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
+            {formatShowDate(
+              show.event_date,
+              show.state,
+              false,
+              show.venues?.[0]?.timezone
+            )}
           </h2>
           <h3 className="text-xs text-muted-foreground mt-0.5">
             {show.city}, {show.state}
@@ -510,7 +632,12 @@ function SubmissionShowCard({
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
             <span>
-              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
+              &nbsp;•&nbsp;
+              {formatShowTime(
+                show.event_date,
+                show.state,
+                show.venues?.[0]?.timezone
+              )}
             </span>
             {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
               <>
@@ -621,7 +748,7 @@ function SubmissionsTab({
 
   return (
     <section className="w-full">
-      {shows.map((show) => (
+      {shows.map(show => (
         <SubmissionShowCard
           key={show.id}
           show={show as SavedShowResponse}
@@ -641,10 +768,18 @@ const entityTypeInfo: Record<
   string,
   { plural: string; label: string; href: (slug: string) => string }
 > = {
-  artist: { plural: 'artists', label: 'Artist', href: (slug) => `/artists/${slug}` },
-  venue: { plural: 'venues', label: 'Venue', href: (slug) => `/venues/${slug}` },
-  label: { plural: 'labels', label: 'Label', href: (slug) => `/labels/${slug}` },
-  festival: { plural: 'festivals', label: 'Festival', href: (slug) => `/festivals/${slug}` },
+  artist: {
+    plural: 'artists',
+    label: 'Artist',
+    href: slug => `/artists/${slug}`,
+  },
+  venue: { plural: 'venues', label: 'Venue', href: slug => `/venues/${slug}` },
+  label: { plural: 'labels', label: 'Label', href: slug => `/labels/${slug}` },
+  festival: {
+    plural: 'festivals',
+    label: 'Festival',
+    href: slug => `/festivals/${slug}`,
+  },
 }
 
 function getEntityIcon(entityType: string) {
@@ -693,7 +828,9 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="shrink-0 h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-            {createElement(icon, { className: 'h-4 w-4 text-muted-foreground' })}
+            {createElement(icon, {
+              className: 'h-4 w-4 text-muted-foreground',
+            })}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -790,9 +927,15 @@ function FollowingList({
   }
 
   return (
-    <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+    <div
+      className={
+        isFetching
+          ? 'opacity-60 transition-opacity duration-75'
+          : 'transition-opacity duration-75'
+      }
+    >
       <section className="w-full">
-        {following.map((entity) => (
+        {following.map(entity => (
           <FollowingEntityCard
             key={`${entity.entity_type}-${entity.entity_id}`}
             entity={entity}
@@ -804,7 +947,7 @@ function FollowingList({
         <div className="text-center py-6">
           <Button
             variant="outline"
-            onClick={() => setOffset((prev) => prev + limit)}
+            onClick={() => setOffset(prev => prev + limit)}
             disabled={isFetching}
           >
             {isFetching ? 'Loading...' : 'Load More'}
@@ -855,7 +998,9 @@ function LibraryContent() {
       params.set('tab', tab)
     }
     const queryString = params.toString()
-    router.replace(queryString ? `/library?${queryString}` : '/library', { scroll: false })
+    router.replace(queryString ? `/library?${queryString}` : '/library', {
+      scroll: false,
+    })
   }
 
   const handleDialogClose = (open: boolean) => {
@@ -897,12 +1042,17 @@ function LibraryContent() {
           <h1 className="text-3xl font-bold tracking-tight">Library</h1>
         </div>
         <p className="text-muted-foreground">
-          All of your saved shows, followed artists, venues, submissions, and more
+          All of your saved shows, followed artists, venues, submissions, and
+          more
         </p>
       </div>
 
       {/* Tabs */}
-      <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
+      <Tabs
+        value={currentTab}
+        onValueChange={handleTabChange}
+        className="w-full"
+      >
         <TabsList className="mb-6 flex-wrap h-auto gap-1">
           <TabsTrigger value="shows" className="gap-1.5">
             <Calendar className="h-4 w-4" />
@@ -961,13 +1111,7 @@ function LibraryContent() {
         </TabsContent>
 
         <TabsContent value="releases">
-          <EmptyState
-            icon={Disc3}
-            title="No releases saved yet"
-            description="Release bookmarks are coming soon. Browse releases in the meantime."
-            browseHref="/releases"
-            browseLabel="Browse Releases"
-          />
+          <ReleasesTab />
         </TabsContent>
 
         <TabsContent value="labels">

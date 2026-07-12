@@ -1,242 +1,614 @@
 'use client'
 
-import { useState } from 'react'
-import { Flame, Mic2, MapPin, Disc3, ArrowRight, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useMemo, useTransition, type ReactNode } from 'react'
+import Link from 'next/link'
+import { parseAsStringLiteral, useQueryState } from 'nuqs'
+import { Badge } from '@/components/ui/badge'
 import {
-  useChartsOverview,
-  useTrendingShows,
-  usePopularArtists,
-  useActiveVenues,
-  useHotReleases,
+  FollowButton,
+  ReleaseSaveButton,
+  SaveButton,
+} from '@/components/shared'
+import { useAuthContext } from '@/lib/context/AuthContext'
+import { useBatchFollowStatus } from '@/lib/hooks/common/useFollow'
+import { useShowSaveCountBatch } from '@/features/shows'
+import {
+  getReleaseTypeLabel,
+  useReleaseSaveCountBatch,
+} from '@/features/releases'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
+import { cn } from '@/lib/utils'
+import {
+  useBusiestVenues,
+  useChartsSummary,
+  useFreshlyAdded,
+  useMostActiveArtists,
+  useMostAnticipated,
+  useNewReleases,
+  useOnTheRadio,
+  useOpenersToWatch,
 } from '../hooks'
-import { TrendingShowsList } from './TrendingShowsList'
-import { PopularArtistsList } from './PopularArtistsList'
-import { ActiveVenuesList } from './ActiveVenuesList'
-import { HotReleasesList } from './HotReleasesList'
-import type { ChartView } from '../types'
+import {
+  CHART_WINDOWS,
+  type ChartEntityReference,
+  type ChartWindow,
+  type FreshlyAddedItem,
+} from '../types'
+import { ChartModule, ChartRow } from './ChartModule'
 
-const views: { id: ChartView; label: string; icon: typeof Flame }[] = [
-  { id: 'overview', label: 'Overview', icon: Flame },
-  { id: 'trending-shows', label: 'Upcoming Shows', icon: Flame },
-  { id: 'popular-artists', label: 'Popular Artists', icon: Mic2 },
-  { id: 'active-venues', label: 'Active Venues', icon: MapPin },
-  { id: 'hot-releases', label: 'Recent Releases', icon: Disc3 },
-]
+const chartWindowParser =
+  parseAsStringLiteral(CHART_WINDOWS).withDefault('quarter')
+const WINDOW_LABELS: Record<ChartWindow, string> = {
+  month: 'This Month',
+  quarter: 'Quarter',
+  all_time: 'All Time',
+}
+const WINDOW_CONTEXT: Record<ChartWindow, string> = {
+  month: 'last 30 days',
+  quarter: 'last 90 days',
+  all_time: 'all time',
+}
+const WINDOW_SUMMARY: Record<ChartWindow, string> = {
+  month: 'THIS MONTH',
+  quarter: 'THIS QUARTER',
+  all_time: 'ALL TIME',
+}
+
+const linkClass =
+  'hover:text-primary focus-visible:text-primary focus-visible:outline-none'
+
+function location(city: string, state: string): string {
+  return [city, state].filter(Boolean).join(', ')
+}
+
+function formatDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function formatDateOnly(value: string | null): string {
+  if (!value) return 'graph new'
+  const date = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+function entityHref(route: string, slug: string, id: number): string {
+  return `/${route}/${slug || id}`
+}
+
+function EntityReferenceList({
+  references,
+  route,
+}: {
+  references: ChartEntityReference[]
+  route: 'artists' | 'labels'
+}) {
+  return references.map((reference, index) => (
+    <span key={`${route}-${reference.id}`}>
+      {index > 0 ? ', ' : null}
+      <Link
+        href={entityHref(route, reference.slug, reference.id)}
+        className={linkClass}
+      >
+        {reference.name}
+      </Link>
+    </span>
+  ))
+}
+
+function StatStrip({
+  window,
+  summary,
+  isLoading,
+}: {
+  window: ChartWindow
+  summary:
+    | {
+        shows_added: number
+        new_artists: number
+        new_releases: number
+        radio_plays: number
+        active_scenes: number
+      }
+    | undefined
+  isLoading: boolean
+}) {
+  return (
+    <div className="flex min-h-[38px] items-center gap-4 border-y border-border py-2 font-mono">
+      {isLoading ? (
+        <span className="h-3 w-3/4 animate-pulse rounded-sm bg-muted" />
+      ) : summary ? (
+        <p className="min-w-0 flex-1 text-[11px] leading-4 sm:text-xs">
+          <span>{WINDOW_SUMMARY[window]}:</span>{' '}
+          <span>{summary.shows_added} shows added</span>
+          <span className="text-muted-foreground"> · </span>
+          <span>{summary.new_artists} new artists</span>
+          <span className="text-muted-foreground"> · </span>
+          <span>{summary.new_releases} releases</span>
+          <span className="text-muted-foreground"> · </span>
+          <span>{summary.radio_plays} radio plays</span>
+          <span className="text-muted-foreground"> · </span>
+          <span>{summary.active_scenes} active scenes</span>
+        </p>
+      ) : (
+        <p className="flex-1 text-xs text-destructive">Summary unavailable.</p>
+      )}
+      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+        updated hourly
+      </span>
+    </div>
+  )
+}
+
+function tickerHref(item: FreshlyAddedItem): string {
+  switch (item.entity_type) {
+    case 'artist':
+      return entityHref('artists', item.slug, item.entity_id)
+    case 'venue':
+      return entityHref('venues', item.slug, item.entity_id)
+    case 'release':
+      return entityHref('releases', item.slug, item.entity_id)
+    case 'station':
+      return entityHref('radio', item.slug, item.entity_id)
+  }
+}
+
+function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
+  if (items.length === 0) return null
+  return (
+    <section className="flex flex-col gap-2 border-t-2 border-foreground py-2.5 sm:flex-row sm:items-baseline sm:gap-4">
+      <h2 className="shrink-0 font-mono text-[11px] font-bold uppercase tracking-[0.06em]">
+        Freshly Added
+      </h2>
+      <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+        {items.map((item, index) => (
+          <span key={`${item.entity_type}-${item.entity_id}`}>
+            {index > 0 ? ' · ' : null}
+            <Link href={tickerHref(item)} className={linkClass}>
+              {item.name}
+            </Link>{' '}
+            <span className="text-[10px]">({item.entity_type})</span>
+          </span>
+        ))}
+      </p>
+      <span aria-disabled="true" className="shrink-0 text-xs text-primary">
+        View the firehose →
+      </span>
+    </section>
+  )
+}
 
 export function ChartsPage() {
-  const [activeView, setActiveView] = useState<ChartView>('overview')
-
-  return (
-    <div className="space-y-6">
-      {/* View selector tabs */}
-      <div className="flex flex-wrap gap-1.5 rounded-lg bg-muted/50 p-1">
-        {views.map(view => {
-          const Icon = view.icon
-          const isActive = activeView === view.id
-          return (
-            <Button
-              key={view.id}
-              variant={isActive ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setActiveView(view.id)}
-              className="gap-1.5 text-xs"
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {view.label}
-            </Button>
-          )
-        })}
-      </div>
-
-      {/* Content */}
-      {activeView === 'overview' ? (
-        <OverviewGrid onViewAll={setActiveView} />
-      ) : activeView === 'trending-shows' ? (
-        <DetailView title="Upcoming Shows" description="Shows coming up soon, ordered by date.">
-          <TrendingShowsDetail />
-        </DetailView>
-      ) : activeView === 'popular-artists' ? (
-        <DetailView title="Popular Artists" description="Artists with the most followers and upcoming shows.">
-          <PopularArtistsDetail />
-        </DetailView>
-      ) : activeView === 'active-venues' ? (
-        <DetailView title="Active Venues" description="Venues with the most upcoming shows and followers.">
-          <ActiveVenuesDetail />
-        </DetailView>
-      ) : (
-        <DetailView title="Recent Releases" description="Recently added releases.">
-          <HotReleasesDetail />
-        </DetailView>
-      )}
-    </div>
+  const [isPending, startTransition] = useTransition()
+  const [window, setWindow] = useQueryState(
+    'window',
+    chartWindowParser.withOptions({ history: 'push', startTransition })
   )
-}
+  const { isAuthenticated } = useAuthContext()
 
-// --- Overview Grid ---
+  const active = useMostActiveArtists(window)
+  const radio = useOnTheRadio(window)
+  const anticipated = useMostAnticipated()
+  const venues = useBusiestVenues(window)
+  const releases = useNewReleases(window)
+  const openers = useOpenersToWatch(window)
+  const summary = useChartsSummary(window)
+  const freshlyAdded = useFreshlyAdded()
 
-function OverviewGrid({ onViewAll }: { onViewAll: (view: ChartView) => void }) {
-  const { data, isLoading, error } = useChartsOverview()
+  const artistIDs = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...(active.data?.artists ?? []).map(artist => artist.artist_id),
+          ...(radio.data?.artists ?? []).map(artist => artist.artist_id),
+          ...(openers.data?.artists ?? []).map(artist => artist.artist_id),
+        ])
+      ).sort((a, b) => a - b),
+    [active.data?.artists, radio.data?.artists, openers.data?.artists]
+  )
+  const venueIDs = useMemo(
+    () =>
+      (venues.data?.venues ?? [])
+        .map(venue => venue.venue_id)
+        .sort((a, b) => a - b),
+    [venues.data?.venues]
+  )
+  const showIDs = useMemo(
+    () =>
+      (anticipated.data?.shows ?? [])
+        .map(show => show.show_id)
+        .sort((a, b) => a - b),
+    [anticipated.data?.shows]
+  )
+  const releaseIDs = useMemo(
+    () =>
+      (releases.data?.releases ?? [])
+        .map(release => release.release_id)
+        .sort((a, b) => a - b),
+    [releases.data?.releases]
+  )
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
+  const artistFollows = useBatchFollowStatus(
+    'artists',
+    isAuthenticated ? artistIDs : []
+  )
+  const venueFollows = useBatchFollowStatus(
+    'venues',
+    isAuthenticated ? venueIDs : []
+  )
+  const showSaves = useShowSaveCountBatch(
+    isAuthenticated ? showIDs : [],
+    isAuthenticated
+  )
+  const releaseSaves = useReleaseSaveCountBatch(
+    isAuthenticated ? releaseIDs : [],
+    isAuthenticated
+  )
+  const followFallback = { follower_count: 0, is_following: false }
+  const saveFallback = { save_count: 0, is_saved: false }
+
+  const changeWindow = (next: ChartWindow) => {
+    void setWindow(next === 'quarter' ? null : next)
   }
 
-  if (error) {
-    return (
-      <p className="text-sm text-destructive py-4 text-center">
-        Failed to load charts. Please try again later.
-      </p>
-    )
-  }
-
-  if (!data) return null
-
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <ChartCard
-        title="Upcoming Shows"
-        icon={Flame}
-        onViewAll={() => onViewAll('trending-shows')}
-      >
-        <TrendingShowsList shows={data.trending_shows} compact />
-      </ChartCard>
-      <ChartCard
-        title="Popular Artists"
-        icon={Mic2}
-        onViewAll={() => onViewAll('popular-artists')}
-      >
-        <PopularArtistsList artists={data.popular_artists} compact />
-      </ChartCard>
-      <ChartCard
-        title="Active Venues"
-        icon={MapPin}
-        onViewAll={() => onViewAll('active-venues')}
-      >
-        <ActiveVenuesList venues={data.active_venues} compact />
-      </ChartCard>
-      <ChartCard
-        title="Recent Releases"
-        icon={Disc3}
-        onViewAll={() => onViewAll('hot-releases')}
-      >
-        <HotReleasesList releases={data.hot_releases} compact />
-      </ChartCard>
-    </div>
-  )
-}
-
-// --- Chart Card ---
-
-function ChartCard({
-  title,
-  icon: Icon,
-  onViewAll,
-  children,
-}: {
-  title: string
-  icon: typeof Flame
-  onViewAll: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <div className="rounded-xl border border-border/50 bg-card">
-      <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">{title}</h2>
+    <div
+      className={cn('space-y-6', isPending && 'opacity-75 transition-opacity')}
+    >
+      <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
+          <h1 className="font-display text-3xl font-bold leading-none">
+            Charts
+          </h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            The ledger of what’s moving — artists, shows, venues, releases,
+            airwaves.
+          </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onViewAll}
-          className="gap-1 text-xs text-muted-foreground hover:text-foreground"
+        <div className="flex flex-wrap items-center gap-3">
+          <div
+            role="group"
+            aria-label="Chart window"
+            className="flex items-stretch gap-0.5"
+          >
+            {CHART_WINDOWS.map(value => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={window === value}
+                onClick={() => changeWindow(value)}
+                className={cn(
+                  'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  window === value && 'border-primary text-foreground'
+                )}
+              >
+                {WINDOW_LABELS[value]}
+              </button>
+            ))}
+          </div>
+          <Badge
+            variant="outline"
+            aria-disabled="true"
+            className="rounded-sm px-2 py-1 text-[11px]"
+          >
+            All scenes ▾
+          </Badge>
+        </div>
+      </header>
+
+      <StatStrip
+        window={window}
+        summary={summary.data}
+        isLoading={summary.isLoading}
+      />
+
+      <div className="grid items-start gap-x-6 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
+        <ChartModule
+          title="Hardest-Working Artists"
+          context={WINDOW_CONTEXT[window]}
+          rowCount={active.data?.artists.length ?? 0}
+          isLoading={active.isLoading}
+          isError={active.isError}
+          testId="chart-most-active-artists"
         >
-          View all
-          <ArrowRight className="h-3 w-3" />
-        </Button>
+          {(active.data?.artists ?? []).map(artist => (
+            <ChartRow
+              key={artist.artist_id}
+              rank={artist.rank}
+              primary={
+                <Link
+                  href={entityHref('artists', artist.slug, artist.artist_id)}
+                  className={linkClass}
+                >
+                  {artist.name}
+                </Link>
+              }
+              meta={location(artist.city, artist.state)}
+              stat={`${artist.show_count}${artist.rank === 1 ? ' shows' : ''}`}
+              action={
+                <FollowButton
+                  entityType="artists"
+                  entityId={artist.artist_id}
+                  variant="bracket"
+                  followData={
+                    artistFollows.data?.[String(artist.artist_id)] ??
+                    followFallback
+                  }
+                  disabled={artistFollows.isLoading}
+                  className="font-mono text-[11px]"
+                />
+              }
+            />
+          ))}
+        </ChartModule>
+
+        <ChartModule
+          title="On the Radio"
+          context={WINDOW_CONTEXT[window]}
+          rowCount={radio.data?.artists.length ?? 0}
+          isLoading={radio.isLoading}
+          isError={radio.isError}
+          testId="chart-on-the-radio"
+        >
+          {(radio.data?.artists ?? []).map(artist => (
+            <ChartRow
+              key={artist.artist_id}
+              rank={artist.rank}
+              primary={
+                <span className="inline-flex max-w-full items-center gap-1.5">
+                  <Link
+                    href={entityHref('artists', artist.slug, artist.artist_id)}
+                    className={cn(linkClass, 'truncate')}
+                  >
+                    {artist.name}
+                  </Link>
+                  {artist.is_new ? (
+                    <Badge variant="accent" className="px-1 py-0 text-[9px]">
+                      New
+                    </Badge>
+                  ) : null}
+                </span>
+              }
+              meta={`${artist.play_count} ${artist.play_count === 1 ? 'play' : 'plays'} · ${artist.station_count} ${artist.station_count === 1 ? 'station' : 'stations'}`}
+              stat={artist.play_count}
+              action={
+                <FollowButton
+                  entityType="artists"
+                  entityId={artist.artist_id}
+                  variant="bracket"
+                  followData={
+                    artistFollows.data?.[String(artist.artist_id)] ??
+                    followFallback
+                  }
+                  disabled={artistFollows.isLoading}
+                  className="font-mono text-[11px]"
+                />
+              }
+            />
+          ))}
+        </ChartModule>
+
+        <ChartModule
+          title="Most Anticipated Shows"
+          context="upcoming"
+          rowCount={anticipated.data?.shows.length ?? 0}
+          isLoading={anticipated.isLoading}
+          isError={anticipated.isError}
+          testId="chart-most-anticipated"
+        >
+          {(anticipated.data?.shows ?? []).map((show, index) => (
+            <ChartRow
+              key={show.show_id}
+              rank={
+                show.rank ??
+                (anticipated.data?.mode === 'ranked' ? index + 1 : null)
+              }
+              primary={
+                <Link
+                  href={entityHref('shows', show.slug, show.show_id)}
+                  className={linkClass}
+                >
+                  {showDisplayTitle(show.title, show.artist_names)}
+                </Link>
+              }
+              meta={
+                <>
+                  {formatDate(show.date)} ·{' '}
+                  {show.venue_slug ? (
+                    <Link
+                      href={`/venues/${show.venue_slug}`}
+                      className={linkClass}
+                    >
+                      {show.venue_name}
+                    </Link>
+                  ) : (
+                    show.venue_name
+                  )}
+                  {show.city ? ` · ${show.city}` : ''}
+                </>
+              }
+              stat={
+                anticipated.data?.mode === 'ranked'
+                  ? show.save_count
+                  : undefined
+              }
+              action={
+                <SaveButton
+                  showId={show.show_id}
+                  variant="bracket"
+                  saveData={
+                    showSaves.data?.[String(show.show_id)] ?? {
+                      save_count: show.save_count ?? 0,
+                      is_saved: false,
+                    }
+                  }
+                  disabled={showSaves.isLoading}
+                />
+              }
+            />
+          ))}
+        </ChartModule>
+
+        <ChartModule
+          title="Busiest Venues"
+          context={WINDOW_CONTEXT[window]}
+          rowCount={venues.data?.venues.length ?? 0}
+          isLoading={venues.isLoading}
+          isError={venues.isError}
+          testId="chart-busiest-venues"
+        >
+          {(venues.data?.venues ?? []).map(venue => (
+            <ChartRow
+              key={venue.venue_id}
+              rank={venue.rank}
+              primary={
+                <Link
+                  href={entityHref('venues', venue.slug, venue.venue_id)}
+                  className={linkClass}
+                >
+                  {venue.name}
+                </Link>
+              }
+              meta={location(venue.city, venue.state)}
+              stat={`${venue.show_count}${venue.rank === 1 ? ' shows' : ''}`}
+              action={
+                <FollowButton
+                  entityType="venues"
+                  entityId={venue.venue_id}
+                  variant="bracket"
+                  followData={
+                    venueFollows.data?.[String(venue.venue_id)] ??
+                    followFallback
+                  }
+                  disabled={venueFollows.isLoading}
+                  className="font-mono text-[11px]"
+                />
+              }
+            />
+          ))}
+        </ChartModule>
+
+        <ChartModule
+          title="New Releases"
+          context={
+            window === 'all_time'
+              ? 'all time'
+              : window === 'month'
+                ? 'this month'
+                : 'this quarter'
+          }
+          rowCount={releases.data?.releases.length ?? 0}
+          isLoading={releases.isLoading}
+          isError={releases.isError}
+          testId="chart-new-releases"
+        >
+          {(releases.data?.releases ?? []).map(release => {
+            const meta: ReactNode = (
+              <>
+                {getReleaseTypeLabel(release.release_type)}
+                {release.artists.length > 0 ? (
+                  <>
+                    {' '}
+                    ·{' '}
+                    <EntityReferenceList
+                      references={release.artists}
+                      route="artists"
+                    />
+                  </>
+                ) : null}
+                {release.labels.length > 0 ? (
+                  <>
+                    {' '}
+                    ·{' '}
+                    <EntityReferenceList
+                      references={release.labels}
+                      route="labels"
+                    />
+                  </>
+                ) : null}
+              </>
+            )
+            return (
+              <ChartRow
+                key={release.release_id}
+                rank={release.rank}
+                primary={
+                  <Link
+                    href={entityHref(
+                      'releases',
+                      release.slug,
+                      release.release_id
+                    )}
+                    className={linkClass}
+                  >
+                    {release.title}
+                  </Link>
+                }
+                meta={meta}
+                stat={formatDateOnly(release.release_date)}
+                action={
+                  <ReleaseSaveButton
+                    releaseId={release.release_id}
+                    variant="bracket"
+                    saveData={
+                      releaseSaves.data?.[String(release.release_id)] ??
+                      saveFallback
+                    }
+                    disabled={releaseSaves.isLoading}
+                  />
+                }
+              />
+            )
+          })}
+        </ChartModule>
+
+        <ChartModule
+          title="Openers to Watch"
+          context={WINDOW_CONTEXT[window]}
+          rowCount={openers.data?.artists.length ?? 0}
+          isLoading={openers.isLoading}
+          isError={openers.isError}
+          testId="chart-openers-to-watch"
+        >
+          {(openers.data?.artists ?? []).map(artist => (
+            <ChartRow
+              key={artist.artist_id}
+              rank={artist.rank}
+              primary={
+                <Link
+                  href={entityHref('artists', artist.slug, artist.artist_id)}
+                  className={linkClass}
+                >
+                  {artist.name}
+                </Link>
+              }
+              meta={location(artist.city, artist.state)}
+              stat={`${artist.support_slot_count}${artist.rank === 1 ? ' slots' : ''}`}
+              action={
+                <FollowButton
+                  entityType="artists"
+                  entityId={artist.artist_id}
+                  variant="bracket"
+                  followData={
+                    artistFollows.data?.[String(artist.artist_id)] ??
+                    followFallback
+                  }
+                  disabled={artistFollows.isLoading}
+                  className="font-mono text-[11px]"
+                />
+              }
+            />
+          ))}
+        </ChartModule>
       </div>
-      <div className="p-2">
-        {children}
-      </div>
+
+      <FreshlyAddedTicker items={freshlyAdded.data?.items ?? []} />
     </div>
-  )
-}
-
-// --- Detail View Wrapper ---
-
-function DetailView({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="rounded-xl border border-border/50 bg-card">
-      <div className="border-b border-border/30 px-4 py-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <div className="p-2">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// --- Detail Loaders ---
-
-function TrendingShowsDetail() {
-  const { data, isLoading, error } = useTrendingShows()
-  if (isLoading) return <DetailLoading />
-  if (error) return <DetailError />
-  if (!data) return null
-  return <TrendingShowsList shows={data.shows} />
-}
-
-function PopularArtistsDetail() {
-  const { data, isLoading, error } = usePopularArtists()
-  if (isLoading) return <DetailLoading />
-  if (error) return <DetailError />
-  if (!data) return null
-  return <PopularArtistsList artists={data.artists} />
-}
-
-function ActiveVenuesDetail() {
-  const { data, isLoading, error } = useActiveVenues()
-  if (isLoading) return <DetailLoading />
-  if (error) return <DetailError />
-  if (!data) return null
-  return <ActiveVenuesList venues={data.venues} />
-}
-
-function HotReleasesDetail() {
-  const { data, isLoading, error } = useHotReleases()
-  if (isLoading) return <DetailLoading />
-  if (error) return <DetailError />
-  if (!data) return null
-  return <HotReleasesList releases={data.releases} />
-}
-
-function DetailLoading() {
-  return (
-    <div className="flex items-center justify-center py-8">
-      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-    </div>
-  )
-}
-
-function DetailError() {
-  return (
-    <p className="text-sm text-destructive py-4 text-center">
-      Failed to load chart data. Please try again later.
-    </p>
   )
 }
