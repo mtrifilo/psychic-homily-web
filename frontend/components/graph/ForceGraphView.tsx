@@ -160,6 +160,16 @@ const HULL_FILL_ALPHA_MAX = 0.12
 
 const OTHER_CLUSTER_ID = 'other'
 
+// PSY-1442: static-viewport surfaces pre-settle the simulation SYNCHRONOUSLY
+// via react-force-graph's warmupTicks so the first painted frame is already
+// final — no visible settle animation, no camera motion afterward. 200 ticks
+// matches the interactive surfaces' cooldownTicks budget, so the static
+// layout settles to the same quality the animated path reaches. (Static
+// embeds carry modest payloads — homepage scenes — so the sync cost is a few
+// ms; interactive surfaces keep warmup at 0 and are byte-identical.)
+const STATIC_WARMUP_TICKS = 200
+const INTERACTIVE_COOLDOWN_TICKS = 200
+
 // A stable empty-clusters reference for the `clusters` default param. An omitted
 // (or inline `[]`) prop would otherwise hand a fresh array each render, giving the
 // `centroids` useMemo — and the reheat + tooltip-dismiss effects keyed on it — a new
@@ -289,8 +299,11 @@ export interface ForceGraphViewProps {
    * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
    * graph section). Disables wheel-zoom, drag-pan, and node drag so the
    * canvas never captures page scroll or invites tool-level interaction;
-   * click/hover select still work, and the one-shot zoomToFit initial
-   * frame still runs. Off by default — full surfaces keep the tool feel.
+   * click/hover select still work. PSY-1442: the simulation pre-settles
+   * synchronously (warmupTicks, zero cooldown) and the one-shot zoomToFit
+   * runs instantly at first render, so the first painted frame is the
+   * final framing — no settle animation, no visible camera motion. Off by
+   * default — full surfaces keep the tool feel.
    */
   staticViewport?: boolean
   /**
@@ -338,6 +351,10 @@ export function ForceGraphView({
   // handleNodeHover via the shared nodeTooltipPlacement helper; flipX/flipY steer
   // it toward the container interior near the right/bottom edges (PSY-1217).
   const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({ x: 0, y: 0, flipX: false, flipY: false })
+  // "Dynamic chunk has mounted" signal — set by the a11y effect below when
+  // the canvas appears. Declared up here because the force-config effect
+  // depends on it (see its comment); the a11y effect owns setting it.
+  const [canvasReady, setCanvasReady] = useState(false)
 
   const graphHeight = height ?? (containerWidth < 768 ? 400 : 560)
 
@@ -424,6 +441,17 @@ export function ForceGraphView({
   // Configure cluster-aware d3 forces. Re-runs whenever the graph data, the
   // viewport, or the visible cluster set changes — d3-force-3d's API allows
   // swapping individual forces in place via `d3Force(name, force)`.
+  //
+  // canvasReady is a dep (PSY-1442): on a cold mount graphRef is still null
+  // (the dynamic chunk hasn't mounted), so the first run no-ops. The other
+  // deps only change when data/viewport changes — surfaces whose payload is
+  // ready BEFORE the chunk mounts (static fixtures, cached queries) would
+  // otherwise never get their forces configured, and the pre-settle warmup
+  // below would run with the library defaults (no centroid ring, no isolate
+  // shelf; observed on the PSY-1442 repro route). Load-bearing ordering: the
+  // library applies graphData (and runs warmupTicks) in a 1ms-debounced
+  // digest, and React runs this effect synchronously after commit — so the
+  // forces configured here are always in place before warmup ticks.
   useEffect(() => {
     const fg = graphRef.current
     if (!fg) return
@@ -521,7 +549,7 @@ export function ForceGraphView({
     )
 
     fg.d3ReheatSimulation()
-  }, [renderData, centroids, containerWidth, graphHeight])
+  }, [renderData, centroids, containerWidth, graphHeight, canvasReady])
 
   // a11y: expose the canvas as an image with a descriptive label, mirroring
   // ArtistGraphVisualization (PSY-369). The canvas is created asynchronously
@@ -530,10 +558,9 @@ export function ForceGraphView({
   // live during PSY-1296 verification). Apply now if present, otherwise watch
   // the container until the canvas appears.
   // canvasReady doubles as the "dynamic chunk has mounted" signal for the
-  // reduced-motion fit below: graphRef assignment doesn't trigger effects, so
-  // without a state flip the fit effect could run once against a null ref and
-  // never retry (adversarial finding — cold-chunk mounts).
-  const [canvasReady, setCanvasReady] = useState(false)
+  // force-config and fit effects: graphRef assignment doesn't trigger
+  // effects, so without a state flip those effects could run once against a
+  // null ref and never retry (adversarial finding — cold-chunk mounts).
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -649,9 +676,12 @@ export function ForceGraphView({
     [renderData, containerWidth, graphHeight],
   )
 
+  // Static-viewport fits are always INSTANT (PSY-1442): the mode's contract
+  // is "first painted frame is final", so even the engine-stop backstop must
+  // not animate the camera.
   const handleEngineStop = useCallback(
-    () => maybeFitViewport(!reducedMotion),
-    [maybeFitViewport, reducedMotion],
+    () => maybeFitViewport(!reducedMotion && !staticViewport),
+    [maybeFitViewport, reducedMotion, staticViewport],
   )
 
   // Reduced-motion: pause the simulation immediately on mount. A paused
@@ -673,6 +703,21 @@ export function ForceGraphView({
       maybeFitViewport(false)
     }
   }, [reducedMotion, maybeFitViewport, canvasReady])
+
+  // PSY-1442: static-viewport mode pre-settles via warmupTicks and runs no
+  // cooldown, so the one-shot fit can't wait for onEngineStop (~3–6s at the
+  // old cooldown budget, during which the disabled-gesture viewport sat at
+  // the library default with the settled mass off-frame). Fit instantly once
+  // the canvas mounts — same shape as the reduced-motion path above, except
+  // the positions are already SETTLED (warmup), not approximate. The NaN-bbox
+  // guard in maybeFitViewport keeps the shot armed if this fires before
+  // warmup populates positions; the engine-stop handler (instant in static
+  // mode) is the backstop for that case.
+  useEffect(() => {
+    if (staticViewport && canvasReady) {
+      maybeFitViewport(false)
+    }
+  }, [staticViewport, maybeFitViewport, canvasReady])
 
   // PSY-1235: restart force-graph's rAF render loop on (re-)mount. On a fresh page load
   // react-force-graph starts its own loop, but after a client back-navigation re-mount the
@@ -1115,7 +1160,12 @@ export function ForceGraphView({
         onEngineTick={handleEngineTick}
         // PSY-1321: one-shot initial frame once the layout settles (see needsFitRef).
         onEngineStop={handleEngineStop}
-        cooldownTicks={200}
+        // PSY-1442: static viewports pre-settle synchronously (warmup) and
+        // render no cooldown, so the first painted frame is final; the fit
+        // runs from the canvasReady effect instead of waiting for the
+        // engine to stop. Interactive surfaces keep the animated settle.
+        warmupTicks={staticViewport ? STATIC_WARMUP_TICKS : 0}
+        cooldownTicks={staticViewport ? 0 : INTERACTIVE_COOLDOWN_TICKS}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}
         minZoom={0.4}
