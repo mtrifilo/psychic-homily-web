@@ -945,9 +945,13 @@ export function ForceGraphView({
   // on-hover in the canvas is PSY-1210). Same gate (globalScale > 1.0), font,
   // truncation, and y-offset the per-node paint used; the theme-aware halo+fill
   // recipe lives in renderGraphLabels (shared with ArtistGraph).
+  //
+  // Static viewports bypass the zoom gate entirely: zoom interaction is disabled
+  // there, so a fitted zoom at/below 1.0 would mean NO visitor could ever see a
+  // label ("unlabeled dots at rest"). Collision culling keeps density readable.
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (globalScale <= 1.0) return
+      if (!staticViewport && globalScale <= 1.0) return
       const fontSize = Math.max(9, Math.min(13, 11 / globalScale))
       const specs: GraphLabelSpec[] = renderData.nodes
         // Hover-focus (PSY-1225): when focused, label only the foreground set so the
@@ -972,7 +976,7 @@ export function ForceGraphView({
         })
       renderGraphLabels(ctx, palette, specs)
     },
-    [renderData, palette, degreeById, focusedIds, hoveredNode],
+    [renderData, palette, degreeById, focusedIds, hoveredNode, staticViewport],
   )
 
   // Convex hulls behind each cluster — drawn under the edges via
