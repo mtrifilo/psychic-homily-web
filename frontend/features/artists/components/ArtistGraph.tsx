@@ -7,7 +7,14 @@ import { Loader2 } from 'lucide-react'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeTypeLabel, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
-import { degreeMap, renderGraphLabels, type GraphLabelSpec } from '@/components/graph/graphLabels'
+import {
+  LABEL_MIN_SCALE,
+  degreeMap,
+  labelFontSize,
+  renderGraphLabels,
+  truncateLabel,
+  type GraphLabelSpec,
+} from '@/components/graph/graphLabels'
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
@@ -284,11 +291,11 @@ const SATELLITE_NODE_RADIUS = 8
 // satellite at an even angle on its hop-ring; see that file's docs for why it's pinned, not
 // force-settled. The graphData memo below applies it to the render nodes.
 
-// Below this zoom, node labels are dropped (text becomes unreadable). The PSY-1273
-// suggested-direction GLOW (a device-px shadowBlur that would bloom over far-zoom dots) gates
-// on the same threshold; the ring + "+" badge are world-units and stay visible at every zoom
-// (the hint must survive the zoomed-out multi-expand view — that's when it matters most).
-const LABEL_MIN_SCALE = 0.7
+// Below LABEL_MIN_SCALE (shared label gate, graphLabels/PSY-1445), node labels are dropped
+// (text becomes unreadable). The PSY-1273 suggested-direction GLOW (a device-px shadowBlur
+// that would bloom over far-zoom dots) gates on the same threshold; the ring + "+" badge are
+// world-units and stay visible at every zoom (the hint must survive the zoomed-out
+// multi-expand view — that's when it matters most).
 
 // PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the node
 // before auto-hiding. The tooltip overlaps the node's pointer-area (8px offset vs a
@@ -893,13 +900,13 @@ export function ArtistGraphVisualization({
   // higher-priority one. A culled neighbor's name is reachable via the hover tooltip;
   // on hover-focus the background nodes drop their labels and only the foreground set is
   // a label candidate (still collision-culled among themselves — center + hovered are
-  // forced) (PSY-1210, below). Same gate (globalScale > 0.7), font, truncation, and
-  // y-offset the per-node paint used; the theme-aware halo+fill lives in
-  // renderGraphLabels (shared with ForceGraphView).
+  // forced) (PSY-1210, below). Gate, font clamp, and truncation are the shared
+  // label constants (graphLabels, PSY-1445), same as ForceGraphView; the
+  // theme-aware halo+fill lives in renderGraphLabels too.
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= LABEL_MIN_SCALE) return
-      const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
+      const fontSize = labelFontSize(globalScale)
       // PSY-1273: collision priority is the Degree-of-Interest score when the host supplies it
       // (so the most-interesting names — not merely the most-connected — survive the cull), and
       // falls back to raw degree otherwise (bill-composition graph, which wires no DOI). Decide
@@ -915,7 +922,7 @@ export function ArtistGraphVisualization({
           return {
             x: node.x ?? 0,
             y: (node.y ?? 0) + radius + 4,
-            text: node.name.length > 20 ? node.name.slice(0, 18) + '...' : node.name,
+            text: truncateLabel(node.name),
             fontSize,
             bold: node.isCenter,
             // Always label the center and the hovered node. This only applies to the

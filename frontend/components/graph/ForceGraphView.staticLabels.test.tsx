@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderWithProviders } from '@/test/utils'
 
 // PSY-1443: in staticViewport mode the node-label pass must bypass the
-// `globalScale <= 1.0` zoom gate. Static surfaces (homepage teaser) disable
-// zoom entirely, so a fitted zoom at/below 1.0 would otherwise mean NO
-// visitor could ever see a label — anonymous unlabeled circles at rest.
-// Non-static surfaces keep the gate unchanged. jsdom has no real canvas, so
-// we capture the `onRenderFramePost` callback at the ForceGraph2D boundary
-// and drive it with a mock 2D context.
+// zoom gate (LABEL_MIN_SCALE, 0.7 since PSY-1445). Static surfaces (homepage
+// teaser) disable zoom entirely, so a fitted zoom at/below the gate would
+// otherwise mean NO visitor could ever see a label — anonymous unlabeled
+// circles at rest. Non-static surfaces keep the gate. jsdom has no real
+// canvas, so we capture the `onRenderFramePost` callback at the ForceGraph2D
+// boundary and drive it with a mock 2D context.
 
 const h = vi.hoisted(() => ({
   lastProps: {} as Record<string, unknown>,
@@ -76,9 +76,9 @@ beforeEach(() => {
 })
 
 describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
-  it('renders labels at fitted zoom <= 1.0 in static-viewport mode, collision-culled', () => {
+  it('renders labels below the zoom gate in static-viewport mode, collision-culled', () => {
     renderGraph(true)
-    const fillText = paintLabels(0.6)
+    const fillText = paintLabels(0.5)
     const drawn = fillText.mock.calls.map((c) => c[0])
     // The simulation hasn't run in jsdom, so both nodes sit at (0,0): their
     // label boxes overlap and the collision cull draws only the first (stable
@@ -93,13 +93,13 @@ describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
     expect(fillText.mock.calls.map((c) => c[0])).toContain('Alpha')
   })
 
-  it('keeps the zoom gate on non-static surfaces: no labels at zoom <= 1.0', () => {
+  it('keeps the zoom gate on non-static surfaces: no labels at zoom <= 0.7 (PSY-1445)', () => {
     renderGraph(false)
-    expect(paintLabels(1.0)).not.toHaveBeenCalled()
+    expect(paintLabels(0.7)).not.toHaveBeenCalled()
   })
 
-  it('non-static surfaces still label past the gate (zoom > 1.0)', () => {
+  it('non-static surfaces label past the gate (zoom > 0.7) — earlier than the old 1.0 gate', () => {
     renderGraph(false)
-    expect(paintLabels(1.5).mock.calls.map((c) => c[0])).toContain('Alpha')
+    expect(paintLabels(0.8).mock.calls.map((c) => c[0])).toContain('Alpha')
   })
 })
