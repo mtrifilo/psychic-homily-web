@@ -58,6 +58,29 @@ export function isStationVisibleOnIndex(station: {
   return station.network.is_flagship
 }
 
+/**
+ * Editorial order for The Dial strips on /radio (PSY-1459).
+ *
+ * `ListStations` remains `name ASC` for generic consumers; the dial pins
+ * preferred flagships first, then falls back to name for everyone else.
+ * Lower priority number = earlier on the dial. Unlisted slugs sort after
+ * all pinned stations.
+ */
+const DIAL_STATION_PRIORITY: Readonly<Record<string, number>> = {
+  wfmu: 0,
+}
+
+export function sortDialStations<T extends { slug: string; name: string }>(
+  stations: T[]
+): T[] {
+  return [...stations].sort((a, b) => {
+    const pa = DIAL_STATION_PRIORITY[a.slug] ?? Number.MAX_SAFE_INTEGER
+    const pb = DIAL_STATION_PRIORITY[b.slug] ?? Number.MAX_SAFE_INTEGER
+    if (pa !== pb) return pa - pb
+    return a.name.localeCompare(b.name)
+  })
+}
+
 // PSY-674: returns the canonical /radio detail URL for a station.
 //   Network-less or flagship → /radio/{slug}
 //   Sub-stream                → /radio/{network-slug}/channel/{local-slug}

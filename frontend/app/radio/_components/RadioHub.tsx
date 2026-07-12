@@ -9,6 +9,7 @@ import {
   useRecentRadioEpisodes,
   useRadioGuide,
   isStationVisibleOnIndex,
+  sortDialStations,
 } from '@/features/radio'
 import { DialStationStrip } from './DialStationStrip'
 import { LatestPlaylistsTable } from './LatestPlaylistsTable'
@@ -37,8 +38,8 @@ export default function RadioHub() {
   // errored guide must render nothing, not yesterday's ON NOW forever.
   const { data: guideData, isError: guideError } = useRadioGuide()
 
-  const stations = (stationsQuery.data?.stations ?? []).filter(
-    isStationVisibleOnIndex
+  const stations = sortDialStations(
+    (stationsQuery.data?.stations ?? []).filter(isStationVisibleOnIndex)
   )
 
   return (

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { isStationVisibleOnIndex, getStationDetailUrl } from './types'
+import {
+  isStationVisibleOnIndex,
+  sortDialStations,
+  getStationDetailUrl,
+} from './types'
 import type { RadioNetworkInfo } from './types'
 
 // PSY-673: filter used by /radio (RadioHub) to hide non-flagship siblings of
@@ -45,6 +49,36 @@ describe('isStationVisibleOnIndex', () => {
       is_flagship: false,
     }
     expect(isStationVisibleOnIndex({ network: siblingOfDifferentNetwork })).toBe(false)
+  })
+})
+
+// PSY-1459: dial editorial order — WFMU pinned first; others by name.
+describe('sortDialStations', () => {
+  it('pins wfmu ahead of alphabetical peers', () => {
+    const ordered = sortDialStations([
+      { slug: 'kexp', name: 'KEXP 90.3 FM' },
+      { slug: 'nts-radio', name: 'NTS Radio' },
+      { slug: 'wfmu', name: 'WFMU' },
+    ])
+    expect(ordered.map(s => s.slug)).toEqual(['wfmu', 'kexp', 'nts-radio'])
+  })
+
+  it('does not mutate the input array', () => {
+    const input = [
+      { slug: 'kexp', name: 'KEXP' },
+      { slug: 'wfmu', name: 'WFMU' },
+    ]
+    const snapshot = [...input]
+    sortDialStations(input)
+    expect(input).toEqual(snapshot)
+  })
+
+  it('falls back to name order when no station is pinned', () => {
+    const ordered = sortDialStations([
+      { slug: 'nts-radio', name: 'NTS Radio' },
+      { slug: 'kexp', name: 'KEXP 90.3 FM' },
+    ])
+    expect(ordered.map(s => s.slug)).toEqual(['kexp', 'nts-radio'])
   })
 })
 

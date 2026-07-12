@@ -45,6 +45,7 @@ export {
   getRotationStatusLabel,
   getRotationStatusColor,
   isStationVisibleOnIndex,
+  sortDialStations,
   getStationDetailUrl,
 } from './types'
 
