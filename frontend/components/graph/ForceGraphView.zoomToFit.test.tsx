@@ -3,12 +3,15 @@ import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 // PSY-1321: the initial viewport must frame the settled layout when — and
-// only when — that layout is out of view. These tests pin the contract:
-// fit on the first engine stop with out-of-view content; spend-without-fit
-// when the content is already framed (inline mounts stay untouched); stay
-// ARMED over empty/bbox-less graphs; re-arm on dimension change; permanent
-// user cancel via canvas pointer/wheel; instant fit on the reduced-motion
-// path (whose paused engine never reaches onEngineStop).
+// only when — that layout is out of view. PSY-1447: every surface now
+// pre-settles via warmupTicks, so the one-shot fit is INSTANT (0ms) and
+// runs at mount — the animated engine-stop fit is retired. These tests pin
+// the contract: instant fit on mount with out-of-view content, engine stop
+// as the backstop; spend-without-fit when the content is already framed
+// (inline mounts stay untouched); stay ARMED over empty/bbox-less graphs;
+// re-arm on dimension change (still instant); permanent user cancel via
+// canvas pointer/wheel; instant fit + poll on the reduced-motion path
+// (whose paused engine never reaches onEngineStop).
 
 // Default stub viewport: zoom 1 centered at origin over an 800×560 canvas →
 // visible x ∈ [-400, 400], y ∈ [-280, 280]; the out-of-view bbox
@@ -88,15 +91,13 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     h.graph.getGraphBbox.mockReturnValue(OUT_OF_VIEW_BBOX)
   })
 
-  it('fits once on the first engine stop when content is out of view, not on later stops', () => {
+  it('fits instantly at mount when content is out of view — no engine stop needed (PSY-1447)', () => {
     renderGraph()
-    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
-
-    stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
-    expect(h.graph.zoomToFit).toHaveBeenCalledWith(400, 40)
+    expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
 
-    // A reheat → second settle must not re-yank the viewport.
+    // Later engine stops (data-digest reheats) must not re-yank the viewport.
+    stopEngine()
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
   })
@@ -110,33 +111,42 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
   })
 
-  it('stays ARMED over an empty graph, then fits once real data settles', () => {
+  it('stays ARMED over an empty graph, then fits once real data arrives', () => {
     const { rerender } = renderGraph({ nodes: [], links: [] })
     stopEngine()
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
 
+    // The data change re-runs the mount-fit effect — no engine stop needed.
     rerender(<ForceGraphView {...baseProps} />)
-    stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+    expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
   })
 
-  it('stays ARMED when node positions are not initialized yet (NaN-shaped bbox)', () => {
+  it('stays ARMED when warmup positions are not initialized yet (NaN bbox), engine stop backstops', () => {
     // force-graph never returns null for a non-empty graph — uninitialized
     // positions yield {x:[undefined,undefined],...}; the guard must catch
     // that shape or the fit corrupts the viewport with centerAt(NaN, NaN).
+    // Warmup runs in the library's 1ms-debounced digest, so the mount-time
+    // attempt can genuinely run this early; the engine stop (pre-paint with
+    // zero cooldown) is the backstop.
     h.graph.getGraphBbox.mockReturnValueOnce({
       x: [undefined, undefined],
       y: [undefined, undefined],
     } as never)
     renderGraph()
-    stopEngine()
-    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled() // stayed armed
 
     stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+    expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40) // instant, never animated
   })
 
-  it('a canvas wheel cancels the pending fit (trackpad zoom is the common desktop takeover)', () => {
+  it('a canvas wheel cancels a still-armed fit (trackpad zoom is the common desktop takeover)', () => {
+    // Keep the shot armed past mount (positions not ready), then gesture.
+    h.graph.getGraphBbox.mockReturnValueOnce({
+      x: [undefined, undefined],
+      y: [undefined, undefined],
+    } as never)
     renderGraph()
     fireEvent.wheel(screen.getByTestId('stub-canvas'))
 
@@ -144,31 +154,36 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     expect(h.graph.zoomToFit).not.toHaveBeenCalled()
   })
 
-  it('re-arms when the canvas dimensions change (the overlay path)', () => {
+  it('re-arms when the canvas dimensions change (the overlay path) — re-fit is instant too', () => {
     const { rerender } = renderGraph()
-    stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
 
     rerender(<ForceGraphView {...baseProps} containerWidth={1400} height={900} />)
-    stopEngine()
     expect(h.graph.zoomToFit).toHaveBeenCalledTimes(2)
+    expect(h.graph.zoomToFit).toHaveBeenLastCalledWith(0, 40)
   })
 
   it('a canvas pointerdown cancels fitting for the REST of the mount, surviving dimension changes', () => {
     const { rerender } = renderGraph()
+    // The mount fit already spent its shot (out-of-view bbox) — the gesture
+    // guards the RE-ARM path from here on.
+    expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
     fireEvent.pointerDown(screen.getByTestId('stub-canvas'))
-
-    stopEngine()
-    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
 
     // Dimension change must NOT re-arm over a user-owned viewport.
     rerender(<ForceGraphView {...baseProps} containerWidth={1400} height={900} />)
     stopEngine()
-    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+    expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
   })
 
   it('a pointerdown on the edge legend (a non-canvas overlay child) does NOT cancel the fit', () => {
+    // Keep the shot armed past mount so the legend click has a fit to spare.
+    h.graph.getGraphBbox.mockReturnValueOnce({
+      x: [undefined, undefined],
+      y: [undefined, undefined],
+    } as never)
     renderGraph({ showEdgeLegend: true })
+    expect(h.graph.zoomToFit).not.toHaveBeenCalled()
     // The legend renders because the payload carries a typed link.
     // ^Shared Bills pins the row toggle (named by its visible content); the
     // PSY-1334 solo button's aria-label starts with "Show only".
@@ -183,6 +198,28 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     renderGraph()
     expect(h.graph.pauseAnimation).toHaveBeenCalled()
     expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
+  })
+
+  it('interactive + reduced motion: polls until warmup positions exist (a paused engine never stops)', () => {
+    vi.useFakeTimers()
+    try {
+      h.reducedMotion.value = true
+      h.graph.getGraphBbox.mockReturnValue({
+        x: [undefined, undefined],
+        y: [undefined, undefined],
+      } as never)
+      renderGraph()
+      expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+
+      h.graph.getGraphBbox.mockReturnValue(OUT_OF_VIEW_BBOX)
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+      expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // PSY-1380: react-force-graph's default forceCenter balances the centroid of

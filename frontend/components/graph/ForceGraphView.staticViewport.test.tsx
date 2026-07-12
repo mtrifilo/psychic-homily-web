@@ -57,17 +57,18 @@ describe('ForceGraphView staticViewport (PSY-1344)', () => {
     expect(h.lastProps.enableNodeDrag).toBe(false)
   })
 
-  // PSY-1442: static viewports pre-settle synchronously so the first painted
-  // frame is final — warmup ticks on, cooldown (visible settle) off.
+  // PSY-1442 shipped the synchronous pre-settle (warmup on, visible settle
+  // off) for static viewports; PSY-1447 generalized it to EVERY surface so
+  // the first painted frame is final everywhere.
   it('pre-settles via warmupTicks with no cooldown in static-viewport mode (PSY-1442)', () => {
     renderGraph(true)
     expect(h.lastProps.warmupTicks).toBe(200)
     expect(h.lastProps.cooldownTicks).toBe(0)
   })
 
-  it('keeps the interactive warmup/cooldown contract unchanged (PSY-1442)', () => {
+  it('pre-settles interactive surfaces the same way — the settle animation is retired (PSY-1447)', () => {
     renderGraph()
-    expect(h.lastProps.warmupTicks).toBe(0)
-    expect(h.lastProps.cooldownTicks).toBe(200)
+    expect(h.lastProps.warmupTicks).toBe(200)
+    expect(h.lastProps.cooldownTicks).toBe(0)
   })
 })
