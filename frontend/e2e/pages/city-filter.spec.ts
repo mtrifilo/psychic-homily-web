@@ -66,8 +66,10 @@ test.describe('City filter on shows list', () => {
     ])
     expect(response.status()).toBeLessThan(400)
 
-    // URL should no longer have cities param
-    expect(page.url()).not.toContain('cities=')
+    // Reset writes the explicit all-cities sentinel (?cities=all) instead of
+    // removing the param: a bare /shows URL means "apply the viewer's derived
+    // default city", so "all cities" must stay explicit in the URL.
+    await expect(page).toHaveURL(/[?&]cities=all(?:&|$)/)
 
     // Wait for "Load More" button to appear (unfiltered view has 50+ shows)
     await expect(
