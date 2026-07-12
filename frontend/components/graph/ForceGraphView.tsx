@@ -619,7 +619,7 @@ export function ForceGraphView({
   //     engine stop over an empty/loading graph must not burn it.
   //   - Content already fully in view → spend the shot WITHOUT fitting, so
   //     inline mounts that frame fine today are byte-identical (and keep
-  //     their labels — a full zoomToFit can land below the 1.0 label gate).
+  //     their labels — a full zoomToFit can land below the label gate).
   //   - A canvas pointerdown/wheel means the user owns the viewport for the
   //     REST OF THE MOUNT: dimension changes re-arm the shot only until then.
   //     (Canvas-targeted, so EdgeLegend/tooltip clicks don't cancel.)
@@ -686,7 +686,7 @@ export function ForceGraphView({
       // 5% per-side slack: a bbox that pokes marginally past the viewport
       // (edge node half-clipped) still counts as in view — a full 400ms
       // zoomToFit for a few clipped pixels is a worse trade than the clip,
-      // and on inline mounts the fit could drop below the 1.0 label gate.
+      // and on inline mounts the fit could drop below the label gate.
       const slackX = halfW * 0.05
       const slackY = halfH * 0.05
       const inView =
