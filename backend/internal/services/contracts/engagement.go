@@ -131,7 +131,10 @@ type FollowerResponse struct {
 type SavedShowServiceInterface interface {
 	SaveShow(userID, showID uint) error
 	UnsaveShow(userID, showID uint) error
-	GetUserSavedShows(userID uint, limit, offset int) ([]*SavedShowResponse, int64, error)
+	// GetUserSavedShows lists a user's saved shows. timeFilter "" preserves the
+	// original ordering (most recently saved first); "upcoming"/"past" partition
+	// by the show's venue-local event date and order by event date (ASC/DESC).
+	GetUserSavedShows(userID uint, limit, offset int, timeFilter string) ([]*SavedShowResponse, int64, error)
 	IsShowSaved(userID, showID uint) (bool, error)
 	GetSavedShowIDs(userID uint, showIDs []uint) (map[uint]bool, error)
 	GetSaveCount(showID uint) (int, error)

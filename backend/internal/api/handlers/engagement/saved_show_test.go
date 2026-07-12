@@ -133,9 +133,12 @@ func TestGetSavedShowsHandler_NoAuth(t *testing.T) {
 func TestGetSavedShowsHandler_Success(t *testing.T) {
 	shows := []*contracts.SavedShowResponse{{}}
 	mock := &testhelpers.MockSavedShowService{
-		GetUserSavedShowsFn: func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+		GetUserSavedShowsFn: func(userID uint, limit, offset int, timeFilter string) ([]*contracts.SavedShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
+			}
+			if timeFilter != "" {
+				t.Errorf("expected empty timeFilter when not requested, got %q", timeFilter)
 			}
 			return shows, 1, nil
 		},
@@ -155,9 +158,30 @@ func TestGetSavedShowsHandler_Success(t *testing.T) {
 	}
 }
 
+func TestGetSavedShowsHandler_TimeFilterPassthrough(t *testing.T) {
+	var capturedFilter string
+	mock := &testhelpers.MockSavedShowService{
+		GetUserSavedShowsFn: func(_ uint, _, _ int, timeFilter string) ([]*contracts.SavedShowResponse, int64, error) {
+			capturedFilter = timeFilter
+			return nil, 0, nil
+		},
+	}
+	h := NewSavedShowHandler(mock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	for _, filter := range []string{"upcoming", "past"} {
+		if _, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 10, TimeFilter: filter}); err != nil {
+			t.Fatalf("unexpected error for filter %q: %v", filter, err)
+		}
+		if capturedFilter != filter {
+			t.Errorf("expected time filter %q passed to service, got %q", filter, capturedFilter)
+		}
+	}
+}
+
 func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockSavedShowService{
-		GetUserSavedShowsFn: func(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
+		GetUserSavedShowsFn: func(_ uint, _, _ int, _ string) ([]*contracts.SavedShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -171,7 +195,7 @@ func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 func TestGetSavedShowsHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &testhelpers.MockSavedShowService{
-		GetUserSavedShowsFn: func(_ uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+		GetUserSavedShowsFn: func(_ uint, limit, offset int, _ string) ([]*contracts.SavedShowResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil

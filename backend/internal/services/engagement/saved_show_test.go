@@ -305,7 +305,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Success
 	time.Sleep(10 * time.Millisecond) // ensure different saved_at
 	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show2.ID))
 
-	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0)
+	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -319,7 +319,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Success
 func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Empty() {
 	user := suite.createTestUser()
 
-	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0)
+	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)
@@ -332,7 +332,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Include
 
 	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
 
-	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0)
+	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -351,18 +351,18 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Paginat
 	}
 
 	// Page 1
-	resp1, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 0)
+	resp1, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 0, "")
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total)
 	suite.Len(resp1, 2)
 
 	// Page 2
-	resp2, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 2)
+	resp2, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 2, "")
 	suite.Require().NoError(err)
 	suite.Len(resp2, 2)
 
 	// Page 3
-	resp3, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 4)
+	resp3, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 4, "")
 	suite.Require().NoError(err)
 	suite.Len(resp3, 1)
 
@@ -379,12 +379,198 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_OnlyOwn
 	suite.Require().NoError(suite.savedShowService.SaveShow(user1.ID, show1.ID))
 	suite.Require().NoError(suite.savedShowService.SaveShow(user2.ID, show2.ID))
 
-	resp, total, err := suite.savedShowService.GetUserSavedShows(user1.ID, 10, 0)
+	resp, total, err := suite.savedShowService.GetUserSavedShows(user1.ID, 10, 0, "")
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
 	suite.Require().Len(resp, 1)
 	suite.Equal(show1.ID, resp[0].ID)
+}
+
+// createShowAt creates an approved show at an explicit event date with a single
+// venue carrying the given IANA timezone (nil = venue has no geocoded zone).
+func (suite *SavedShowServiceIntegrationTestSuite) createShowAt(title string, userID uint, eventDate time.Time, timezone *string) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   eventDate.UTC(),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &userID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	venue := &catalogm.Venue{
+		Name:     fmt.Sprintf("Venue for %s", title),
+		City:     "Phoenix",
+		State:    "AZ",
+		Timezone: timezone,
+	}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+
+	return show
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_UpcomingFilter() {
+	user := suite.createTestUser()
+	tz := stringPtr("America/Phoenix")
+	pastShow := suite.createShowAt("Past Show", user.ID, time.Now().UTC().AddDate(0, 0, -7), tz)
+	soonShow := suite.createShowAt("Soon Show", user.ID, time.Now().UTC().AddDate(0, 0, 3), tz)
+	laterShow := suite.createShowAt("Later Show", user.ID, time.Now().UTC().AddDate(0, 0, 7), tz)
+
+	// Save in reverse event order so a saved-at ordering would fail the assertions
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, laterShow.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, soonShow.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, pastShow.ID))
+
+	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "upcoming")
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "total counts only the upcoming partition")
+	suite.Require().Len(resp, 2)
+	suite.Equal(soonShow.ID, resp[0].ID, "soonest upcoming show first")
+	suite.Equal(laterShow.ID, resp[1].ID)
+	suite.NotZero(resp[0].SavedAt, "saved_at survives the event-date path")
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_PastFilter() {
+	user := suite.createTestUser()
+	tz := stringPtr("America/Phoenix")
+	oldShow := suite.createShowAt("Old Show", user.ID, time.Now().UTC().AddDate(0, 0, -7), tz)
+	recentShow := suite.createShowAt("Recent Show", user.ID, time.Now().UTC().AddDate(0, 0, -3), tz)
+	upcomingShow := suite.createShowAt("Upcoming Show", user.ID, time.Now().UTC().AddDate(0, 0, 7), tz)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, oldShow.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, recentShow.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, upcomingShow.ID))
+
+	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "past")
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "total counts only the past partition")
+	suite.Require().Len(resp, 2)
+	suite.Equal(recentShow.ID, resp[0].ID, "most recent past show first")
+	suite.Equal(oldShow.ID, resp[1].ID)
+}
+
+// TestGetUserSavedShows_VenueTZBoundary pins the venue-local (not UTC) date
+// comparison with shows whose venue-local calendar date and UTC instant
+// disagree, deterministically for any run time:
+//
+//   - Honolulu (UTC-10): "yesterday 23:00 venue-local" is always past on the
+//     venue calendar, but its UTC instant (today 09:00 UTC) can be hours in
+//     the FUTURE when the test runs early in the UTC day.
+//   - Kiritimati (UTC+14): "today 01:00 venue-local" is always upcoming on
+//     the venue calendar, but its UTC instant can be up to ~13h in the PAST.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_VenueTZBoundary() {
+	user := suite.createTestUser()
+
+	honolulu, err := time.LoadLocation("Pacific/Honolulu")
+	suite.Require().NoError(err)
+	nowHonolulu := time.Now().In(honolulu)
+	startOfTodayHonolulu := time.Date(nowHonolulu.Year(), nowHonolulu.Month(), nowHonolulu.Day(), 0, 0, 0, 0, honolulu)
+	pastAtVenue := suite.createShowAt("Late Honolulu Show", user.ID,
+		startOfTodayHonolulu.Add(-1*time.Hour), stringPtr("Pacific/Honolulu"))
+
+	kiritimati, err := time.LoadLocation("Pacific/Kiritimati")
+	suite.Require().NoError(err)
+	nowKiritimati := time.Now().In(kiritimati)
+	startOfTodayKiritimati := time.Date(nowKiritimati.Year(), nowKiritimati.Month(), nowKiritimati.Day(), 0, 0, 0, 0, kiritimati)
+	upcomingAtVenue := suite.createShowAt("Early Kiritimati Show", user.ID,
+		startOfTodayKiritimati.Add(1*time.Hour), stringPtr("Pacific/Kiritimati"))
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, pastAtVenue.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, upcomingAtVenue.ID))
+
+	upcoming, upcomingTotal, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), upcomingTotal)
+	suite.Require().Len(upcoming, 1)
+	suite.Equal(upcomingAtVenue.ID, upcoming[0].ID)
+
+	past, pastTotal, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "past")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), pastTotal)
+	suite.Require().Len(past, 1)
+	suite.Equal(pastAtVenue.ID, past[0].ID)
+}
+
+// A venue without a geocoded timezone (and a show with no venue at all) must
+// still classify — degrading to UTC — rather than error or vanish. The 48h
+// margins keep the assertions true under any fallback zone.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_FilterTimezoneFallback() {
+	user := suite.createTestUser()
+	nullTZShow := suite.createShowAt("Null TZ Show", user.ID, time.Now().UTC().Add(48*time.Hour), nil)
+	noVenueShow := suite.createApprovedShow("No Venue Show", user.ID) // no venue rows
+	suite.Require().NoError(suite.db.Model(noVenueShow).Update("event_date", time.Now().UTC().Add(-48*time.Hour)).Error)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, nullTZShow.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, noVenueShow.ID))
+
+	upcoming, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "upcoming")
+	suite.Require().NoError(err)
+	suite.Require().Len(upcoming, 1)
+	suite.Equal(nullTZShow.ID, upcoming[0].ID)
+
+	past, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "past")
+	suite.Require().NoError(err)
+	suite.Require().Len(past, 1)
+	suite.Equal(noVenueShow.ID, past[0].ID)
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_FilterPagination() {
+	user := suite.createTestUser()
+	tz := stringPtr("America/Phoenix")
+	var shows []*catalogm.Show
+	for i := 1; i <= 3; i++ {
+		show := suite.createShowAt(fmt.Sprintf("Upcoming %d", i), user.ID, time.Now().UTC().AddDate(0, 0, i), tz)
+		shows = append(shows, show)
+		suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
+	}
+
+	page1, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 0, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(3), total)
+	suite.Require().Len(page1, 2)
+	suite.Equal(shows[0].ID, page1[0].ID)
+	suite.Equal(shows[1].ID, page1[1].ID)
+
+	page2, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 2, 2, "upcoming")
+	suite.Require().NoError(err)
+	suite.Require().Len(page2, 1)
+	suite.Equal(shows[2].ID, page2[0].ID)
+}
+
+// No-filter back-compat: mixed past + future shows all come back in a single
+// list ordered by saved-at DESC, exactly as before the time_filter existed
+// (the iOS app and the iCal calendar feed consume this path).
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_NoFilterMixedDatesSavedOrder() {
+	user := suite.createTestUser()
+	tz := stringPtr("America/Phoenix")
+	pastShow := suite.createShowAt("BackCompat Past", user.ID, time.Now().UTC().AddDate(0, 0, -7), tz)
+	futureShow := suite.createShowAt("BackCompat Future", user.ID, time.Now().UTC().AddDate(0, 0, 7), tz)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, pastShow.ID))
+	time.Sleep(10 * time.Millisecond) // ensure different saved_at
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, futureShow.ID))
+
+	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "no filter returns past and upcoming alike")
+	suite.Require().Len(resp, 2)
+	suite.Equal(futureShow.ID, resp[0].ID, "most recently saved first")
+	suite.Equal(pastShow.ID, resp[1].ID)
+}
+
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_InvalidFilterRejected() {
+	user := suite.createTestUser()
+
+	_, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "someday")
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "invalid time filter")
 }
 
 // =============================================================================

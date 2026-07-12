@@ -3111,7 +3111,7 @@ func (m *MockRevisionService) Rollback(revisionID uint, adminUserID uint) error 
 type MockSavedShowService struct {
 	SaveShowFn           func(uint, uint) error
 	UnsaveShowFn         func(uint, uint) error
-	GetUserSavedShowsFn  func(uint, int, int) ([]*contracts.SavedShowResponse, int64, error)
+	GetUserSavedShowsFn  func(uint, int, int, string) ([]*contracts.SavedShowResponse, int64, error)
 	IsShowSavedFn        func(uint, uint) (bool, error)
 	GetSavedShowIDsFn    func(uint, []uint) (map[uint]bool, error)
 	GetSaveCountFn       func(uint) (int, error)
@@ -3130,9 +3130,9 @@ func (m *MockSavedShowService) UnsaveShow(userID uint, showID uint) error {
 	}
 	return nil
 }
-func (m *MockSavedShowService) GetUserSavedShows(userID uint, limit int, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+func (m *MockSavedShowService) GetUserSavedShows(userID uint, limit int, offset int, timeFilter string) ([]*contracts.SavedShowResponse, int64, error) {
 	if m.GetUserSavedShowsFn != nil {
-		return m.GetUserSavedShowsFn(userID, limit, offset)
+		return m.GetUserSavedShowsFn(userID, limit, offset, timeFilter)
 	}
 	return nil, 0, nil
 }

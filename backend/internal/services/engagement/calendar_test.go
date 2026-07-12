@@ -261,7 +261,7 @@ type mockSavedShowSvc struct {
 
 func (m *mockSavedShowSvc) SaveShow(_, _ uint) error   { return nil }
 func (m *mockSavedShowSvc) UnsaveShow(_, _ uint) error { return nil }
-func (m *mockSavedShowSvc) GetUserSavedShows(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
+func (m *mockSavedShowSvc) GetUserSavedShows(_ uint, _, _ int, _ string) ([]*contracts.SavedShowResponse, int64, error) {
 	return m.shows, m.total, m.err
 }
 func (m *mockSavedShowSvc) IsShowSaved(_, _ uint) (bool, error) { return false, nil }
