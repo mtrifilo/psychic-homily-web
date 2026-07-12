@@ -6,6 +6,7 @@ const mockRedirect = vi.fn()
 const mockUseAuthContext = vi.fn()
 const mockUseSavedShows = vi.fn()
 const mockUseMyFollowing = vi.fn()
+const mockScrollTo = vi.fn()
 
 let mockSearchParams = new URLSearchParams()
 
@@ -19,9 +20,8 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockUseAuthContext(),
 }))
 
-// The tab CONTENTS (saved-show rows, submission cards, follow rows) are
-// out of scope for this chrome-focused surface (PSY-1435/1436 own them);
-// stub the heavy feature modules and keep the test on header/tabs/empty states.
+// Stub the heavy feature modules so this suite stays focused on the Library
+// chrome and the compact saved-show row contract introduced by PSY-1440.
 vi.mock('@/features/shows', () => ({
   useSavedShows: (opts?: unknown) => mockUseSavedShows(opts),
   useMySubmissions: () => ({ data: undefined, isLoading: false, error: null }),
@@ -89,6 +89,10 @@ function setLoadedData() {
 describe('LibraryPage chrome (PSY-1440)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: mockScrollTo,
+    })
     mockSearchParams = new URLSearchParams()
     setAuthenticated()
     setLoadedData()
@@ -136,6 +140,32 @@ describe('LibraryPage chrome (PSY-1440)', () => {
       expect(tablist.className).toContain('flex-nowrap')
       expect(tablist.className).toContain('border-b')
     })
+
+    it('scrolls a deep-linked trailing tab into the mobile tab viewport', () => {
+      mockSearchParams = new URLSearchParams('tab=submissions')
+      const defaultBounds = HTMLElement.prototype.getBoundingClientRect
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+        function (this: HTMLElement) {
+          if (this.getAttribute('role') === 'tablist') {
+            return { ...defaultBounds.call(this), left: 0, right: 358 }
+          }
+          if (this.getAttribute('role') === 'tab' && this.textContent === 'Submissions') {
+            return { ...defaultBounds.call(this), left: 500, right: 570 }
+          }
+          return defaultBounds.call(this)
+        }
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('tab', { name: 'Submissions' }).getAttribute('data-state')
+      ).toBe('active')
+      expect(mockScrollTo).toHaveBeenCalledWith({
+        behavior: 'instant',
+        left: 212,
+      })
+    })
   })
 
   describe('empty states', () => {
@@ -153,9 +183,116 @@ describe('LibraryPage chrome (PSY-1440)', () => {
       expect(browse.getAttribute('href')).toBe('/shows')
 
       const graph = screen.getByRole('link', { name: 'explore the graph' })
-      expect(graph.getAttribute('href')).toBe('/graph')
+      expect(graph.getAttribute('href')).toBe('/explore')
       const atlas = screen.getByRole('link', { name: 'the atlas' })
       expect(atlas.getAttribute('href')).toBe('/atlas')
+    })
+
+    it.each([
+      [
+        'artists',
+        'No artists followed.',
+        'Follow artists to keep up with their shows and releases.',
+        'Browse artists',
+        '/artists',
+      ],
+      [
+        'venues',
+        'No venues followed.',
+        'Follow venues to keep up with their upcoming shows.',
+        'Browse venues',
+        '/venues',
+      ],
+      [
+        'releases',
+        'No releases saved yet.',
+        'Release bookmarks are coming soon. Browse releases in the meantime.',
+        'Browse releases',
+        '/releases',
+      ],
+      [
+        'labels',
+        'No labels followed.',
+        'Follow labels to discover new releases and roster updates.',
+        'Browse labels',
+        '/labels',
+      ],
+      [
+        'festivals',
+        'No festivals followed.',
+        'Follow festivals to get lineup and schedule updates.',
+        'Browse festivals',
+        '/festivals',
+      ],
+      [
+        'submissions',
+        'No submissions yet.',
+        'Shows you submit will appear here.',
+        'Submit a show',
+        '/shows/submit',
+      ],
+    ])(
+      'renders exact %s empty-state copy and CTA',
+      (tab, title, description, cta, href) => {
+        mockSearchParams = new URLSearchParams(`tab=${tab}`)
+
+        renderWithProviders(<LibraryPage />)
+
+        expect(screen.getByText(title)).toBeTruthy()
+        expect(screen.getByText(description)).toBeTruthy()
+        expect(screen.getByRole('link', { name: cta }).getAttribute('href')).toBe(
+          href
+        )
+      }
+    )
+  })
+
+  describe('saved-show rows', () => {
+    it('renders the compact mobile date and two-line show details', () => {
+      mockUseSavedShows.mockReturnValue({
+        data: {
+          shows: [
+            {
+              id: 56,
+              title: 'Calexico at E2E Reserved Venue',
+              slug: 'calexico-e2e-reserved-venue',
+              event_date: '2026-07-12T23:59:00Z',
+              state: 'AZ',
+              artists: [{ id: 1, name: 'Calexico', slug: 'calexico' }],
+              venues: [
+                {
+                  id: 2,
+                  name: 'E2E Reserved Venue',
+                  slug: 'e2e-reserved-venue',
+                  city: 'Phoenix',
+                  state: 'AZ',
+                  timezone: 'America/Phoenix',
+                },
+              ],
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      const row = screen.getByRole('article', {
+        name: 'Calexico at E2E Reserved Venue',
+      })
+      expect(row.className).toContain('grid-cols-[74px_minmax(0,1fr)]')
+
+      const compactDate = within(row).getByText('JUL 12')
+      expect(compactDate.className).toContain('md:hidden')
+      expect(within(row).getByRole('link', { name: 'Calexico' }).getAttribute('href')).toBe(
+        '/shows/calexico-e2e-reserved-venue'
+      )
+      expect(within(row).getByRole('link', { name: 'E2E Reserved Venue' })).toBeTruthy()
+      expect(within(row).getByText(/Phoenix, AZ/)).toBeTruthy()
     })
   })
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, createElement, useEffect, useState } from 'react'
+import { Suspense, createElement, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
@@ -210,7 +210,7 @@ function ShowsTab() {
           browseHref="/shows"
           browseLabel="Browse shows"
           discoveryLinks={[
-            { label: 'explore the graph', href: '/graph' },
+            { label: 'explore the graph', href: '/explore' },
             { label: 'the atlas', href: '/atlas' },
           ]}
         />
@@ -845,6 +845,8 @@ function LibraryContent() {
 
   const rawTab = searchParams.get('tab')
   const currentTab: LibraryTab = isLibraryTab(rawTab) ? rawTab : 'shows'
+  const tabListRef = useRef<HTMLDivElement | null>(null)
+  const activeTabTriggerRef = useRef<HTMLButtonElement | null>(null)
 
   // Private-submission success dialog (preserved from old /collection page)
   const isPrivateSubmission = searchParams.get('submitted') === 'private'
@@ -860,6 +862,28 @@ function LibraryContent() {
       router.replace(qs ? `/library?${qs}` : '/library', { scroll: false })
     }
   }, [rawTab, router, searchParams])
+
+  // A deep-linked trailing tab can begin outside the mobile scroll viewport.
+  // Move only the horizontal tab scroller so page scroll restoration is intact.
+  useEffect(() => {
+    const tabList = tabListRef.current
+    const activeTrigger = activeTabTriggerRef.current
+    if (!tabList || !activeTrigger) return
+
+    const listBounds = tabList.getBoundingClientRect()
+    const triggerBounds = activeTrigger.getBoundingClientRect()
+    let left = tabList.scrollLeft
+
+    if (triggerBounds.left < listBounds.left) {
+      left -= listBounds.left - triggerBounds.left
+    } else if (triggerBounds.right > listBounds.right) {
+      left += triggerBounds.right - listBounds.right
+    } else {
+      return
+    }
+
+    tabList.scrollTo({ left, behavior: 'instant' })
+  }, [currentTab])
 
   const handleTabChange = (tab: string) => {
     if (!isLibraryTab(tab)) return
@@ -915,10 +939,14 @@ function LibraryContent() {
       {/* Tabs — underline style per the Library design direction (board A),
           horizontally scrollable on small screens instead of wrapping (board F) */}
       <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="mb-6 h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+        <TabsList
+          ref={tabListRef}
+          className="mb-6 h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0"
+        >
           {LIBRARY_TABS.map((tab) => (
             <TabsTrigger
               key={tab}
+              ref={tab === currentTab ? activeTabTriggerRef : undefined}
               value={tab}
               className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
             >
