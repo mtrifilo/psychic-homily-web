@@ -97,17 +97,24 @@ const GRAPH = {
     slug: 'chicago-il',
     city: 'Chicago',
     state: 'IL',
-    artist_count: 2,
-    edge_count: 1,
-    metro_roster_total: 2,
+    artist_count: 4,
+    edge_count: 2,
+    metro_roster_total: 4,
     roster_truncated: false,
   },
   clusters: [],
+  // 3 connected nodes (the homepage's MIN_CONNECTED_NODES floor) plus one
+  // isolate the teaser must filter out (PSY-1444).
   nodes: [
     { id: 1, name: 'Alpha', slug: 'alpha', upcoming_show_count: 1, cluster_id: 'other', is_isolate: false },
     { id: 2, name: 'Beta', slug: 'beta', upcoming_show_count: 0, cluster_id: 'other', is_isolate: false },
+    { id: 3, name: 'Gamma', slug: 'gamma', upcoming_show_count: 0, cluster_id: 'other', is_isolate: false },
+    { id: 4, name: 'Delta', slug: 'delta', upcoming_show_count: 0, cluster_id: 'other', is_isolate: true },
   ],
-  links: [{ source_id: 1, target_id: 2, type: 'shared_bill' }],
+  links: [
+    { source_id: 1, target_id: 2, type: 'shared_bill' },
+    { source_id: 2, target_id: 3, type: 'shared_bill' },
+  ],
 }
 
 // test/setup.ts installs a never-intersecting IntersectionObserver mock —
@@ -161,14 +168,51 @@ describe('HomeSceneGraph', () => {
     ).toHaveAttribute('href', '/scenes/chicago-il')
   })
 
-  it('requests the graph in static-viewport (click-select only) mode with the shared count phrase in the aria-label', async () => {
+  it('requests the graph in static-viewport (click-select only) mode with the CONNECTED count in the aria-label', async () => {
     render(<HomeSceneGraph />)
     const graph = await screen.findByTestId('force-graph-view')
     expect(graph).toHaveAttribute('data-static-viewport', 'true')
+    // 3, not the payload's artist_count of 4 — the isolate is off-canvas.
     expect(graph).toHaveAttribute(
       'aria-label',
-      expect.stringContaining('Knowledge graph of the Chicago scene: 2 artists'),
+      expect.stringContaining(
+        'Knowledge graph of the Chicago scene: 3 connected artists',
+      ),
     )
+  })
+
+  it('filters isolate nodes out of the homepage canvas (PSY-1444)', async () => {
+    render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    expect(screen.getByRole('button', { name: 'node-alpha' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'node-gamma' })).toBeInTheDocument()
+    // Delta is is_isolate: true — it must not reach ForceGraphView.
+    expect(screen.queryByRole('button', { name: 'node-delta' })).toBeNull()
+  })
+
+  it('shows the empty card when the scene has fewer than 3 CONNECTED artists, even with isolates present (PSY-1444)', async () => {
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        // 2 connected + 2 isolates: below the MIN_CONNECTED_NODES floor.
+        nodes: [
+          { id: 1, name: 'Alpha', slug: 'alpha', upcoming_show_count: 1, cluster_id: 'other', is_isolate: false },
+          { id: 2, name: 'Beta', slug: 'beta', upcoming_show_count: 0, cluster_id: 'other', is_isolate: false },
+          { id: 3, name: 'Gamma', slug: 'gamma', upcoming_show_count: 0, cluster_id: 'other', is_isolate: true },
+          { id: 4, name: 'Delta', slug: 'delta', upcoming_show_count: 0, cluster_id: 'other', is_isolate: true },
+        ],
+        links: [{ source_id: 1, target_id: 2, type: 'shared_bill' }],
+      },
+      isLoading: false,
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    expect(
+      await screen.findByText(/not enough connected artists in chicago/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('force-graph-view')).toBeNull()
+    // The legend/payoff caption only rides with the canvas.
+    expect(screen.queryByText(/lines connect artists/i)).toBeNull()
   })
 
   it('defaults to the visitor’s own scene when geo matches one (PSY-1346)', async () => {

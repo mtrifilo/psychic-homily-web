@@ -48,7 +48,6 @@ import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorB
 // InlineGraph's deep import of useArtistGraph (PSY-868).
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
-import { sceneArtistCountPhrase } from '@/features/scenes/components/sceneGraphCopy'
 import {
   pickDefaultScene,
   pickSurpriseScene,
@@ -56,6 +55,16 @@ import {
 import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
 
 const GRAPH_HEIGHT_PX = 560
+
+/**
+ * Fewer CONNECTED artists than this renders the "Not enough connected
+ * artists" card instead of a near-empty canvas. The threshold value (3)
+ * matches the scene page's MIN_GRAPH_NODES (SceneGraph.tsx), but the
+ * counted quantity differs: the scene page counts ALL nodes (its isolate
+ * shelf keeps isolates on canvas), while the homepage counts connected
+ * nodes only, because isolates are filtered out below.
+ */
+const MIN_CONNECTED_NODES = 3
 
 /**
  * One shared height contract for every non-canvas box (skeleton, teaser,
@@ -179,6 +188,18 @@ function HomeSceneGraphSection() {
     ? undefined
     : graphQuery.data
 
+  // The homepage teaser shows the CONNECTED heart of the scene only
+  // (locked 2026-07-11): most scenes are majority-isolate, and the scene
+  // page's isolate shelf reads as broken data here while ballooning the
+  // bbox zoomToFit must frame (shrinking the connected mass). Drop
+  // isolates client-side — the scene page keeps its shelf. Links need no
+  // filtering: isolates have none by definition.
+  const connectedNodes = useMemo(
+    () => settledGraphData?.nodes.filter(node => !node.is_isolate) ?? [],
+    [settledGraphData],
+  )
+  const hasEnoughConnectedNodes = connectedNodes.length >= MIN_CONNECTED_NODES
+
   const cardQuery = useArtistGraphCard({
     artistId: selectedNode?.id ?? null,
     enabled: selectedNode !== null,
@@ -281,7 +302,7 @@ function HomeSceneGraphSection() {
           // card). Otherwise: error card, else loading/placeholder
           // skeleton. The branches are mutually exclusive by construction.
           (settledGraphData ? (
-            settledGraphData.nodes.length > 0 ? (
+            hasEnoughConnectedNodes ? (
               <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
                 <ForceGraphView
                 // Remount per scene: a rotation BACK to a cached scene
@@ -291,13 +312,18 @@ function HomeSceneGraphSection() {
                 // gesture to recover a mis-framed swap. A fresh mount
                 // re-arms the fit and drops stale hover state.
                 key={scene.slug}
-                nodes={settledGraphData.nodes}
+                nodes={connectedNodes}
                 links={settledGraphData.links}
                 clusters={settledGraphData.clusters}
                 containerWidth={containerWidth}
                 height={GRAPH_HEIGHT_PX}
                 staticViewport
-                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${sceneArtistCountPhrase(settledGraphData.scene)}. Click a node for that artist’s details.`}
+                // Count the CONNECTED nodes actually on the canvas, not the
+                // payload's full artist_count (which includes the isolates
+                // filtered out above) — the caption promises "lines connect
+                // artists", so the label must not overstate. Always plural:
+                // this branch requires >= MIN_CONNECTED_NODES (3).
+                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. Click a node for that artist’s details.`}
                 onNodeClick={handleNodeClick}
                 onBackgroundClick={handlePanelClose}
               />
@@ -341,7 +367,7 @@ function HomeSceneGraphSection() {
           interactive legend on the homepage). Only rendered with the
           canvas — the teaser/empty/error states carry their own copy and
           "click any artist" would be a false instruction there. */}
-      {graphAvailable && settledGraphData && settledGraphData.nodes.length > 0 && (
+      {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
         <p className="text-sm text-muted-foreground">
           Lines connect artists — shared bills, label ties, band members.
           Click any artist for their next show, labels, and radio plays.
