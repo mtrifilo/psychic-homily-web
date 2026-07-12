@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import {
+  LABEL_MIN_SCALE,
+  TRUNCATE_KEEP_LENGTH,
+  TRUNCATE_MAX_LENGTH,
+  degreeMap,
+  labelFontSize,
+  renderGraphLabels,
+  truncateLabel,
+  type GraphLabelSpec,
+} from './graphLabels'
 import type { GraphPalette } from './graphPalette'
 
 const PALETTE = { labelText: '#fff', labelHalo: '#000' } as unknown as GraphPalette
@@ -117,6 +126,37 @@ describe('renderGraphLabels', () => {
       spec({ x: 0, y: 0, text: 'real', priority: 1 }),
     ])
     expect(fills).toEqual(['real'])
+  })
+})
+
+// PSY-1445: the shared label constants exist so the two canvas primitives
+// (ForceGraphView + ArtistGraphVisualization) can't drift apart again. These
+// tests pin the agreed values — changing any of them is a deliberate,
+// both-surfaces typography decision, not a local tweak.
+describe('shared label constants (PSY-1445)', () => {
+  it('pins the zoom gate at 0.7', () => {
+    expect(LABEL_MIN_SCALE).toBe(0.7)
+  })
+
+  it('labelFontSize targets ~11 screen px, clamped to 9..13 graph px', () => {
+    expect(labelFontSize(1)).toBe(11) // midrange: 11/scale
+    expect(labelFontSize(0.5)).toBe(13) // far out: clamped at 13
+    expect(labelFontSize(LABEL_MIN_SCALE)).toBe(13) // at the gate: clamp active
+    expect(labelFontSize(2)).toBe(9) // far in: clamped at 9
+    expect(labelFontSize(1.1)).toBeCloseTo(10) // inside the clamp: 11/scale
+  })
+
+  it('pins the truncation thresholds at 22/20', () => {
+    expect(TRUNCATE_MAX_LENGTH).toBe(22)
+    expect(TRUNCATE_KEEP_LENGTH).toBe(20)
+  })
+
+  it('truncateLabel keeps names up to 22 chars and cuts longer ones to 20 + ellipsis', () => {
+    expect(truncateLabel('Short Name')).toBe('Short Name')
+    const exactly22 = 'A'.repeat(TRUNCATE_MAX_LENGTH)
+    expect(truncateLabel(exactly22)).toBe(exactly22)
+    expect(truncateLabel('B'.repeat(23))).toBe('B'.repeat(TRUNCATE_KEEP_LENGTH) + '…')
+    expect(truncateLabel('They Are Gutting a Body of Water')).toBe('They Are Gutting a B…')
   })
 })
 
