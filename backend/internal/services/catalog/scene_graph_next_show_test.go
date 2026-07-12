@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -61,6 +62,46 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGraph_NextShowSummary
 		suite.Equal(n.UpcomingShowCount > 0, n.NextShow != nil,
 			"node %d: next_show presence must track upcoming_show_count", n.ID)
 	}
+}
+
+// TestGetSceneGraph_NextShowSummary_VenuelessShow: a show with zero show_venues
+// rows (documented as reachable in artist_graph_helpers.go's nil-check-then-
+// deref comment, since the show_venues join is LEFT not INNER) must still
+// produce a next_show summary — venue fields empty, not a dropped row or a
+// nil-pointer panic. Guards the LEFT JOIN + nil-check pairing against a
+// regression that flips either one (e.g. INNER JOIN silently drops the node's
+// next_show, or a hard deref of a nil venue column panics).
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGraph_NextShowSummary_VenuelessShow() {
+	_, artists := suite.seedSceneData()
+	// Band A's existing soonest show (seedSceneData) is day+7; this venueless
+	// show at day+3 is sooner, so it must win the DISTINCT ON pick.
+	user := suite.createUser()
+	show := &catalogm.Show{
+		Title:       "TBD Venue Show",
+		EventDate:   time.Now().UTC().AddDate(0, 0, 3),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+		ShowID: show.ID, ArtistID: artists[0].ID, Position: 0,
+	}).Error)
+	// Deliberately no ShowVenue row.
+
+	graph, err := suite.sceneService.GetSceneGraph("Phoenix", "AZ", nil, "")
+	suite.Require().NoError(err)
+
+	bandA := findSceneGraphNode(graph, artists[0].ID)
+	suite.Require().NotNil(bandA)
+	suite.Require().NotNil(bandA.NextShow, "venueless show must still produce a next_show summary")
+	suite.Equal(show.ID, bandA.NextShow.ID, "must pick the venueless show — it's the soonest")
+	suite.Equal("", bandA.NextShow.VenueName, "venueless show must report empty venue name, not panic")
+	suite.Equal("", bandA.NextShow.VenueCity)
+	suite.Equal("", bandA.NextShow.VenueState)
+	suite.Nil(bandA.NextShow.VenueTimezone, "no venue joined means no timezone")
+	suite.False(bandA.NextShow.EventDate.IsZero())
 }
 
 // TestGetSceneGraph_NextShowSingleBatchedQuery pins the PSY-1449 AC: the
