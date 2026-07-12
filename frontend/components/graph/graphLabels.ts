@@ -59,9 +59,19 @@ export function labelFontSize(globalScale: number): number {
   return Math.max(9, Math.min(13, 11 / globalScale))
 }
 
-/** Truncate a node name for canvas display: > 22 chars → first 20 + '…'. */
+// Budget carried over from ForceGraphView's pre-PSY-1445 threshold: long enough
+// that most artist/venue names fit on one line at the shared font size without
+// the canvas label overrunning a typical node's collision box, short enough
+// that a name near the cap still reads as a name (not a clipped fragment) once
+// the ellipsis lands. Named (not inlined) so both halves of the truncation
+// rule are as greppable/pinnable as LABEL_MIN_SCALE above.
+export const TRUNCATE_MAX_LENGTH = 22
+export const TRUNCATE_KEEP_LENGTH = 20
+
+/** Truncate a node name for canvas display: names over `TRUNCATE_MAX_LENGTH`
+ * keep their first `TRUNCATE_KEEP_LENGTH` characters plus an ellipsis. */
 export function truncateLabel(name: string): string {
-  return name.length > 22 ? name.slice(0, 20) + '…' : name
+  return name.length > TRUNCATE_MAX_LENGTH ? name.slice(0, TRUNCATE_KEEP_LENGTH) + '…' : name
 }
 
 /**

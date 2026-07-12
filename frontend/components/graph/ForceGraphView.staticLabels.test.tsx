@@ -25,6 +25,7 @@ vi.mock('next/dynamic', async () => {
 })
 
 import { ForceGraphView, type GraphNode } from './ForceGraphView'
+import { LABEL_MIN_SCALE } from './graphLabels'
 
 const nodes: GraphNode[] = [
   { id: 1, name: 'Alpha', slug: 'alpha', upcoming_show_count: 0 },
@@ -78,7 +79,7 @@ beforeEach(() => {
 describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
   it('renders labels below the zoom gate in static-viewport mode, collision-culled', () => {
     renderGraph(true)
-    const fillText = paintLabels(0.5)
+    const fillText = paintLabels(LABEL_MIN_SCALE - 0.2)
     const drawn = fillText.mock.calls.map((c) => c[0])
     // The simulation hasn't run in jsdom, so both nodes sit at (0,0): their
     // label boxes overlap and the collision cull draws only the first (stable
@@ -93,13 +94,13 @@ describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
     expect(fillText.mock.calls.map((c) => c[0])).toContain('Alpha')
   })
 
-  it('keeps the zoom gate on non-static surfaces: no labels at zoom <= 0.7 (PSY-1445)', () => {
+  it('keeps the zoom gate on non-static surfaces: no labels at zoom <= LABEL_MIN_SCALE (PSY-1445)', () => {
     renderGraph(false)
-    expect(paintLabels(0.7)).not.toHaveBeenCalled()
+    expect(paintLabels(LABEL_MIN_SCALE)).not.toHaveBeenCalled()
   })
 
-  it('non-static surfaces label past the gate (zoom > 0.7) — earlier than the old 1.0 gate', () => {
+  it('non-static surfaces label past the gate (zoom > LABEL_MIN_SCALE) — earlier than the old 1.0 gate', () => {
     renderGraph(false)
-    expect(paintLabels(0.8).mock.calls.map((c) => c[0])).toContain('Alpha')
+    expect(paintLabels(LABEL_MIN_SCALE + 0.1).mock.calls.map((c) => c[0])).toContain('Alpha')
   })
 })

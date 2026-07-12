@@ -290,12 +290,10 @@ const SATELLITE_NODE_RADIUS = 8
 // pinEgoLayoutPositions) lives in ./egoRingLayout — the center is pinned at the origin and every
 // satellite at an even angle on its hop-ring; see that file's docs for why it's pinned, not
 // force-settled. The graphData memo below applies it to the render nodes.
-
-// Below LABEL_MIN_SCALE (shared label gate, graphLabels/PSY-1445), node labels are dropped
-// (text becomes unreadable). The PSY-1273 suggested-direction GLOW (a device-px shadowBlur
-// that would bloom over far-zoom dots) gates on the same threshold; the ring + "+" badge are
-// world-units and stay visible at every zoom (the hint must survive the zoomed-out
-// multi-expand view — that's when it matters most).
+//
+// LABEL_MIN_SCALE (imported from graphLabels, PSY-1445) is this component's shared render gate —
+// used both by nodeLabelsFrame below and by the PSY-1273 suggested-direction glow at its usage
+// site further down, so the label and the "which way next?" hint appear/disappear together.
 
 // PSY-1218: how long the hoverable tooltip lingers after the cursor leaves the node
 // before auto-hiding. The tooltip overlaps the node's pointer-area (8px offset vs a

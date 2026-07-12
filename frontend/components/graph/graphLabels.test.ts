@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   LABEL_MIN_SCALE,
+  TRUNCATE_KEEP_LENGTH,
+  TRUNCATE_MAX_LENGTH,
   degreeMap,
   labelFontSize,
   renderGraphLabels,
@@ -144,11 +146,16 @@ describe('shared label constants (PSY-1445)', () => {
     expect(labelFontSize(1.1)).toBeCloseTo(10) // inside the clamp: 11/scale
   })
 
+  it('pins the truncation thresholds at 22/20', () => {
+    expect(TRUNCATE_MAX_LENGTH).toBe(22)
+    expect(TRUNCATE_KEEP_LENGTH).toBe(20)
+  })
+
   it('truncateLabel keeps names up to 22 chars and cuts longer ones to 20 + ellipsis', () => {
     expect(truncateLabel('Short Name')).toBe('Short Name')
-    const exactly22 = 'A'.repeat(22)
+    const exactly22 = 'A'.repeat(TRUNCATE_MAX_LENGTH)
     expect(truncateLabel(exactly22)).toBe(exactly22)
-    expect(truncateLabel('B'.repeat(23))).toBe('B'.repeat(20) + '…')
+    expect(truncateLabel('B'.repeat(23))).toBe('B'.repeat(TRUNCATE_KEEP_LENGTH) + '…')
     expect(truncateLabel('They Are Gutting a Body of Water')).toBe('They Are Gutting a B…')
   })
 })
