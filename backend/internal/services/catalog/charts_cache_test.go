@@ -329,3 +329,56 @@ func TestChartsCache_ConcurrentAtCap(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// The scene segment is load-bearing in every chart cache key: dropping or
+// reordering it in cachedChartPage would serve one scene's page under another
+// scene's URL for a full TTL. Pin that the three scopes ("", A, B) produce
+// independent entries and independent fetches.
+func TestCachedChartPage_SceneSegmentsCacheKeys(t *testing.T) {
+	c := newChartsCache()
+	fetches := 0
+	fetchReturning := func(v string) func() ([]string, int, error) {
+		return func() ([]string, int, error) {
+			fetches++
+			return []string{v}, 1, nil
+		}
+	}
+
+	global, _, err := cachedChartPage(c, "mod", "quarter", "", 10, 0, fetchReturning("global"))
+	if err != nil || global[0] != "global" {
+		t.Fatalf("global fetch: %v %v", global, err)
+	}
+	phx, _, err := cachedChartPage(c, "mod", "quarter", "38060", 10, 0, fetchReturning("phx"))
+	if err != nil || phx[0] != "phx" {
+		t.Fatalf("phx fetch: %v %v", phx, err)
+	}
+	chi, _, err := cachedChartPage(c, "mod", "quarter", "16980", 10, 0, fetchReturning("chi"))
+	if err != nil || chi[0] != "chi" {
+		t.Fatalf("chi fetch: %v %v", chi, err)
+	}
+	if fetches != 3 {
+		t.Fatalf("expected 3 independent fetches for 3 scopes, got %d", fetches)
+	}
+
+	// Re-reads hit the per-scope cached values — no cross-scope bleed.
+	phx2, _, _ := cachedChartPage(c, "mod", "quarter", "38060", 10, 0, fetchReturning("wrong"))
+	if phx2[0] != "phx" {
+		t.Fatalf("scoped re-read returned %q, want cached phx", phx2[0])
+	}
+	global2, _, _ := cachedChartPage(c, "mod", "quarter", "", 10, 0, fetchReturning("wrong"))
+	if global2[0] != "global" {
+		t.Fatalf("global re-read returned %q, want cached global", global2[0])
+	}
+	if fetches != 3 {
+		t.Fatalf("re-reads must not refetch; got %d fetches", fetches)
+	}
+}
+
+func TestChartCountKey_IncludesScene(t *testing.T) {
+	if chartCountKey("mod", "quarter", "38060") == chartCountKey("mod", "quarter", "") {
+		t.Fatal("count keys must segment by scene")
+	}
+	if chartCountKey("mod", "quarter", "38060") == chartCountKey("mod", "quarter", "16980") {
+		t.Fatal("count keys must differ across scenes")
+	}
+}

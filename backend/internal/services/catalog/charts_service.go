@@ -10,6 +10,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 )
 
 // ChartsService computes top charts / trending content from engagement signals.
@@ -297,14 +298,22 @@ func primaryVenueLateralSQL(cols, showIDExpr string) string {
 // Total counts all qualifying shows. Fallback is the module's floor, not a
 // ranked list — it ignores offset and reports the upcoming-show universe as
 // its Total.
-func (s *ChartsService) GetMostAnticipatedShows(limit, offset int) (*contracts.MostAnticipatedShows, error) {
-	key := fmt.Sprintf("most-anticipated|%d|%d", limit, offset)
+func (s *ChartsService) GetMostAnticipatedShows(scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
+	if !chartSceneExists(scene) {
+		// Unknown scene: the documented empty envelope — the shape the scoped
+		// fallback would produce — without a cache slot or DB round trip.
+		return &contracts.MostAnticipatedShows{
+			Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
+			Shows: []contracts.MostAnticipatedShow{},
+		}, nil
+	}
+	key := fmt.Sprintf("most-anticipated|%s|%d|%d", scene, limit, offset)
 	return chartsCached(s.cache, key, chartsModuleTTL, func() (*contracts.MostAnticipatedShows, error) {
-		return s.getMostAnticipatedShowsUncached(limit, offset)
+		return s.getMostAnticipatedShowsUncached(scene, limit, offset)
 	})
 }
 
-func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*contracts.MostAnticipatedShows, error) {
+func (s *ChartsService) getMostAnticipatedShowsUncached(scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -329,6 +338,17 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*con
 	mostAnticipatedFromSQL := `FROM shows s
 			LEFT JOIN LATERAL ` + primaryVenueLateralSQL("iv.name, iv.slug, iv.city", "s.id") + ` v ON TRUE`
 
+	// Scene scoping goes into the SHARED eligibility fragment so both modes
+	// scope identically — a scoped fallback lists the scene's upcoming shows,
+	// never the global calendar. Venue-metro attribution (any linked venue),
+	// per the scene-scoping block above. NOTE the DISPLAYED venue stays the
+	// unscoped lowest-id primary pick: a rare multi-metro show can appear in
+	// a scene labeled with its out-of-scene primary venue — scope and display
+	// attribution are deliberately different jobs (same rule as the show
+	// page).
+	eligibilitySQL, eligibilityArgs := appendShowSceneScope(
+		mostAnticipatedEligibilitySQL, []any{catalogm.ShowStatusApproved, startOfToday}, scene)
+
 	// COUNT(*) OVER() counts qualifying groups post-HAVING — the full ranked
 	// set, atomic with the page, so mode and Total can't disagree with the
 	// rows they ship alongside.
@@ -340,11 +360,11 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*con
 		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
 			AND ub.entity_type = ?
 			AND ub.action = ?
-		` + mostAnticipatedEligibilitySQL + `
+		` + eligibilitySQL + `
 		GROUP BY s.id, v.name, v.slug, v.city
 		HAVING COUNT(ub.id) >= ?`
-	rankedCoreArgs := []any{engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
-		catalogm.ShowStatusApproved, startOfToday, mostAnticipatedSaveFloor}
+	rankedCoreArgs := append(append([]any{engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave},
+		eligibilityArgs...), mostAnticipatedSaveFloor)
 
 	var ranked []showRow
 	err := s.db.Raw(rankedCoreSQL+`
@@ -360,7 +380,7 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*con
 		pageTotal = ranked[0].Total
 	}
 	total, err := s.resolveChartPageTotal(pageTotal, len(ranked), offset, rankedCoreSQL, rankedCoreArgs,
-		chartCountKey("most-anticipated", "all"), "most-anticipated shows")
+		chartCountKey("most-anticipated", "all", scene), "most-anticipated shows")
 	if err != nil {
 		return nil, err
 	}
@@ -374,10 +394,10 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(limit, offset int) (*con
 			SELECT`+mostAnticipatedColumnsSQL+`,
 				COUNT(*) OVER() AS total
 			`+mostAnticipatedFromSQL+`
-			`+mostAnticipatedEligibilitySQL+`
+			`+eligibilitySQL+`
 			ORDER BY s.event_date ASC, s.id ASC
 			LIMIT ?
-		`, catalogm.ShowStatusApproved, startOfToday, limit).Scan(&rows).Error
+		`, append(append([]any{}, eligibilityArgs...), limit)...).Scan(&rows).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to get soonest-upcoming fallback shows: %w", err)
 		}
@@ -478,18 +498,118 @@ func appendChartShowWindow(query string, args []any, now time.Time, start *time.
 	return appendWindowBounds(query, args, "s.event_date", now, start)
 }
 
+// ── Scene scoping (charts scene dimension) ──────────────────────────────────
+//
+// A chart's `scene` is a US Census CBSA metro code — the same key as
+// artists.metro / venues.metro (entity-metro migration). "" = global, no
+// scoping. The three appenders below define "in the scene" for chart
+// surfaces; every scoped module builds through exactly one so per-module
+// semantics can't drift — with exactly TWO documented inline exceptions
+// whose predicates must stay textually in sync with the appenders: the
+// freshly-added ticker's branch fragments (UNION assembly interleaves
+// per-branch args) and the summary's radio-play EXISTS (rp.artist_id has no
+// joined artists alias to hand an appender):
+//
+//   - ARTIST-ranked modules scope on the artist's HOME metro (scenes = bands
+//     BASED in a metro): most-active, openers-to-watch, on-the-radio — and
+//     new-releases via the release's credited artists.
+//   - SHOW/VENUE modules scope on the venue's metro (where it happened):
+//     busiest-venues (direct equality), most-anticipated + the summary's
+//     show count (any-venue EXISTS), the summary's active-scenes count, the
+//     ticker's venue branch.
+//
+// Two deliberate boundaries, both disclosed on the ticket:
+//   - Strict metro equality — TIGHTER than the scene page roster, which also
+//     folds in NULL-metro artists whose home city/state is a metro member
+//     place. Scene-scoped chart counts can therefore undercount vs the scene
+//     page; aligning them would join the geo member-place set into every
+//     chart query, which isn't worth it until evidence says otherwise.
+//   - Fallback (city|state) scenes — non-US or no-CBSA — are not addressable:
+//     GetChartScenes lists CBSA metros only, and an unknown-but-well-formed
+//     scene value yields empty results with a valid envelope (never an
+//     error), so a stale bookmarked URL degrades gracefully.
+
+// chartSceneExists reports whether scene is the global scope ("") or names a
+// REAL CBSA metro in the static geo dataset. The pattern tag bounds the
+// param's SHAPE at the HTTP layer; this bounds EXISTENCE — and it is a
+// security control, not a nicety: without it, any of ~10^10 well-formed junk
+// scene values mints a distinct cache key and a guaranteed DB aggregate,
+// which a single client under the public rate ceiling could use to keep the
+// module cache full of junk and force all chart traffic to run uncached.
+// Gating here collapses the scene key space to the ~900 real CBSA codes and
+// short-circuits unknown scenes to the documented empty envelope with ZERO
+// cache or DB work. Safe by provenance: artists.metro / venues.metro are
+// only ever written from geo.ResolveMetro over this same dataset, so a scene
+// that fails this lookup cannot match any row anyway.
+func chartSceneExists(scene string) bool {
+	if scene == "" {
+		return true
+	}
+	_, ok := geo.MetroPrincipalByCBSA(scene)
+	return ok
+}
+
+// appendEntityMetroScope appends the home-metro equality predicate for the
+// entity aliased `alias` (artists or venues — both carry a metro column) when
+// scene is non-empty. `alias` must be a compile-time literal. Callers gate
+// scene through chartSceneExists first, so a non-empty scene here is a real
+// CBSA code.
+func appendEntityMetroScope(query string, args []any, alias, scene string) (string, []any) {
+	if scene == "" {
+		return query, args
+	}
+	query += `
+			AND ` + alias + `.metro = ?`
+	args = append(args, scene)
+	return query, args
+}
+
+// appendShowSceneScope appends the venue-metro scene predicate for shows
+// aliased `s`: the show counts when ANY of its venues sits in the metro. A
+// multi-venue show can count toward each of its venues' scenes — the same
+// attribution the scenes directory uses when it groups a show under every
+// linked venue's scene key.
+func appendShowSceneScope(query string, args []any, scene string) (string, []any) {
+	if scene == "" {
+		return query, args
+	}
+	query += `
+			AND EXISTS (SELECT 1 FROM show_venues scv JOIN venues scvv ON scvv.id = scv.venue_id
+				WHERE scv.show_id = s.id AND scvv.metro = ?)`
+	args = append(args, scene)
+	return query, args
+}
+
+// appendReleaseSceneScope appends the credited-artist home-metro scene
+// predicate for releases aliased `r`: the release counts when ANY credited
+// artist is based in the metro.
+func appendReleaseSceneScope(query string, args []any, scene string) (string, []any) {
+	if scene == "" {
+		return query, args
+	}
+	query += `
+			AND EXISTS (SELECT 1 FROM artist_releases scar JOIN artists sca ON sca.id = scar.artist_id
+				WHERE scar.release_id = r.id AND sca.metro = ?)`
+	args = append(args, scene)
+	return query, args
+}
+
 // GetMostActiveArtists returns artists ranked by approved, non-cancelled
 // shows played within the window (see appendChartShowWindow for the exact
 // eligibility semantics), paginated with offset-stable ranks and the window
 // total. Headline share uses headlineSlotPredicate. Artists with zero shows
-// in the window are never returned.
-func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
-	return cachedChartPage(s.cache, "most-active-artists", string(window.OrDefault()), limit, offset, func() ([]contracts.MostActiveArtist, int, error) {
-		return s.getMostActiveArtistsUncached(window, limit, offset)
+// in the window are never returned. scene scopes to artists BASED in the
+// metro (home metro), counting all their in-window shows wherever played.
+func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.MostActiveArtist{}, 0, nil
+	}
+	return cachedChartPage(s.cache, "most-active-artists", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.MostActiveArtist, int, error) {
+		return s.getMostActiveArtistsUncached(window, scene, limit, offset)
 	})
 }
 
-func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
+func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -524,6 +644,7 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 		WHERE s.status = ?`
 	coreArgs := []any{catalogm.ShowStatusApproved}
 	coreSQL, coreArgs = appendChartShowWindow(coreSQL, coreArgs, now, start)
+	coreSQL, coreArgs = appendEntityMetroScope(coreSQL, coreArgs, "a", scene)
 	coreSQL += `
 		GROUP BY a.id, a.name, a.slug, a.city, a.state`
 
@@ -542,7 +663,7 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 		pageTotal = rows[0].Total
 	}
 	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
-		chartCountKey("most-active-artists", string(window.OrDefault())), "most-active artists")
+		chartCountKey("most-active-artists", string(window.OrDefault()), scene), "most-active artists")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -568,6 +689,9 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 	}
 
 	// Enrich with each artist's most recent show in the window (one query).
+	// Deliberately NOT scene-scoped: the module already selected artists BASED
+	// in the scene; their most recent show is a fact about the artist wherever
+	// it happened (a Phoenix band's last show can be in LA).
 	if len(artistIDs) > 0 {
 		type lastShowRow struct {
 			ArtistID  uint      `gorm:"column:artist_id"`
@@ -620,14 +744,19 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 // HOSTED (past tense) within the window — distinct from GetActiveVenues,
 // which scores venues by upcoming shows + follows — paginated with
 // offset-stable ranks and the window total. Venues with zero shows in the
-// window are never returned.
-func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, limit, offset int) ([]contracts.BusiestVenue, int, error) {
-	return cachedChartPage(s.cache, "busiest-venues", string(window.OrDefault()), limit, offset, func() ([]contracts.BusiestVenue, int, error) {
-		return s.getBusiestVenuesUncached(window, limit, offset)
+// window are never returned. scene scopes to venues IN the metro (the venue's
+// own metro — direct equality, no EXISTS needed since the venue is the ranked
+// entity).
+func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.BusiestVenue, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.BusiestVenue{}, 0, nil
+	}
+	return cachedChartPage(s.cache, "busiest-venues", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.BusiestVenue, int, error) {
+		return s.getBusiestVenuesUncached(window, scene, limit, offset)
 	})
 }
 
-func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.BusiestVenue, int, error) {
+func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.BusiestVenue, int, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -662,6 +791,7 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, l
 	// (show_id, venue_id) guarantees one row per show within a venue group.
 	coreArgs := []any{catalogm.ShowStatusApproved}
 	coreSQL, coreArgs = appendChartShowWindow(coreSQL, coreArgs, now, start)
+	coreSQL, coreArgs = appendEntityMetroScope(coreSQL, coreArgs, "v", scene)
 	coreSQL += `
 		GROUP BY v.id, v.name, v.slug, v.city, v.state`
 
@@ -680,7 +810,7 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, l
 		pageTotal = rows[0].Total
 	}
 	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
-		chartCountKey("busiest-venues", string(window.OrDefault())), "busiest venues")
+		chartCountKey("busiest-venues", string(window.OrDefault()), scene), "busiest venues")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -705,14 +835,19 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, l
 // OR position 0, the shared predicate). Artists with ANY headline slot in the
 // window are excluded entirely: this chart surfaces artists who are always on
 // the bill but never top it. Cancelled and future shows never count.
-// Paginated with offset-stable ranks and the window total.
-func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
-	return cachedChartPage(s.cache, "openers-to-watch", string(window.OrDefault()), limit, offset, func() ([]contracts.OpenerToWatch, int, error) {
-		return s.getOpenersToWatchUncached(window, limit, offset)
+// Paginated with offset-stable ranks and the window total. scene scopes to
+// artists BASED in the metro (home metro); the never-headlines judgment still
+// spans ALL their in-window slots wherever played.
+func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.OpenerToWatch{}, 0, nil
+	}
+	return cachedChartPage(s.cache, "openers-to-watch", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.OpenerToWatch, int, error) {
+		return s.getOpenersToWatchUncached(window, scene, limit, offset)
 	})
 }
 
-func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
+func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -751,6 +886,10 @@ func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, 
 		WHERE s.status = ?`
 	coreArgs := []any{catalogm.ShowStatusApproved}
 	coreSQL, coreArgs = appendChartShowWindow(coreSQL, coreArgs, now, start)
+	// Artist-home scoping filters WHICH artists appear without touching their
+	// slot rows, so the HAVING below still judges "never headlines" over the
+	// artist's full in-window slot set.
+	coreSQL, coreArgs = appendEntityMetroScope(coreSQL, coreArgs, "a", scene)
 	coreSQL += `
 		GROUP BY a.id, a.name, a.slug, a.city, a.state
 		HAVING SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END) = 0`
@@ -770,7 +909,7 @@ func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, 
 		pageTotal = rows[0].Total
 	}
 	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
-		chartCountKey("openers-to-watch", string(window.OrDefault())), "openers to watch")
+		chartCountKey("openers-to-watch", string(window.OrDefault()), scene), "openers to watch")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -821,13 +960,16 @@ const broadcasterKeySQL = `COALESCE(rst.network_id, -rst.id)`
 // all_time module (radio_plays grows by ingestion, not curation, and
 // pg_timezone_names is materialized per request), so it leans hardest on the
 // module cache.
-func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
-	return cachedChartPage(s.cache, "on-the-radio", string(window.OrDefault()), limit, offset, func() ([]contracts.OnTheRadioArtist, int, error) {
-		return s.getOnTheRadioArtistsUncached(window, limit, offset)
+func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.OnTheRadioArtist{}, 0, nil
+	}
+	return cachedChartPage(s.cache, "on-the-radio", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.OnTheRadioArtist, int, error) {
+		return s.getOnTheRadioArtistsUncached(window, scene, limit, offset)
 	})
 }
 
-func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
+func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -874,6 +1016,10 @@ func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindo
 		WHERE `
 	var coreArgs []any
 	coreSQL, coreArgs = appendRadioAiredWindow(coreSQL, coreArgs, now, start)
+	// scene scopes to the ARTIST's home metro (a is the resolved play's
+	// artist): "our scene's bands on the air", not "stations broadcasting
+	// from the metro" — stations have no metro column at all.
+	coreSQL, coreArgs = appendEntityMetroScope(coreSQL, coreArgs, "a", scene)
 	coreSQL += `
 		GROUP BY a.id`
 
@@ -892,7 +1038,7 @@ func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindo
 		pageTotal = rows[0].Total
 	}
 	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
-		chartCountKey("on-the-radio", string(window.OrDefault())), "on-the-radio artists")
+		chartCountKey("on-the-radio", string(window.OrDefault()), scene), "on-the-radio artists")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1163,13 +1309,16 @@ const newReleaseDateSQL = `COALESCE(r.release_date, (r.created_at AT TIME ZONE '
 // ordering is fully deterministic — which the offset-stable ranks rely on.
 // Paginated with the window total. The ordering expression is served
 // by the charts cost-lever expression index (charts_cost_indexes migration).
-func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
-	return cachedChartPage(s.cache, "new-releases", string(window.OrDefault()), limit, offset, func() ([]contracts.NewRelease, int, error) {
-		return s.getNewReleasesUncached(window, limit, offset)
+func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.NewRelease, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.NewRelease{}, 0, nil
+	}
+	return cachedChartPage(s.cache, "new-releases", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.NewRelease, int, error) {
+		return s.getNewReleasesUncached(window, scene, limit, offset)
 	})
 }
 
-func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, limit, offset int) ([]contracts.NewRelease, int, error) {
+func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.NewRelease, int, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -1214,6 +1363,9 @@ func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, lim
 			AND ` + newReleaseDateSQL + ` >= ?`
 		coreArgs = append(coreArgs, start.Format("2006-01-02"))
 	}
+	// scene = releases by artists BASED in the metro (credited-artist home
+	// metro) — a release has no venue to attribute a place through.
+	coreSQL, coreArgs = appendReleaseSceneScope(coreSQL, coreArgs, scene)
 
 	query := coreSQL + `
 		ORDER BY ` + newReleaseDateSQL + ` DESC, r.created_at DESC, r.id DESC
@@ -1230,7 +1382,7 @@ func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, lim
 		pageTotal = rows[0].Total
 	}
 	total, err := s.resolveChartPageTotal(pageTotal, len(rows), offset, coreSQL, coreArgs,
-		chartCountKey("new-releases", string(window.OrDefault())), "new releases")
+		chartCountKey("new-releases", string(window.OrDefault()), scene), "new releases")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1346,16 +1498,46 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, start *time
 //     sceneMinShows): "active this window" is a different claim than
 //     "established enough to list", so the strip count can exceed the
 //     /scenes list length.
-func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+//
+// Scene scoping (see the scene-scoping block): shows by venue metro, artists
+// and radio plays by artist home metro, releases by credited-artist home
+// metro. Two scoped-semantics notes: a scoped radio-plays count includes only
+// RESOLVED plays (an unmatched play has no artist to place in a scene, so the
+// global "logging activity" reading narrows to "scene artists' plays"), and a
+// scoped active-scenes count degenerates to 0/1 by construction — it answers
+// "was THIS scene active in the window", which is exactly what the scoped
+// masthead should say.
+func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
 	// Shortest TTL on the page: the summary is the single heaviest aggregate
 	// call, and masthead numbers tolerate 60s staleness invisibly.
-	key := fmt.Sprintf("summary|%s", window.OrDefault())
-	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
-		return s.getChartsSummaryUncached(window)
+	if !chartSceneExists(scene) {
+		return &contracts.ChartsSummary{}, nil
+	}
+	key := fmt.Sprintf("summary|%s|%s", window.OrDefault(), scene)
+	return chartsCached(s.chartsCacheFor(scene), key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
+		return s.getChartsSummaryUncached(window, scene)
 	})
 }
 
-func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (*contracts.ChartsSummary, error) {
+// chartsCacheFor routes a chart payload to a cache instance by KEY
+// PROVENANCE: global masthead keys ("" scene) are domain-bounded and get the
+// dedicated masthead instance, whose isolation guarantee is exactly that
+// client-controlled keys can never starve them of a slot. A non-empty scene
+// segment IS client-controlled (any string passing the pattern tag), so
+// scoped masthead payloads ride the capped module cache instead — its
+// overflow rule (run uncached, never evict a FRESH entry) absorbs key-space
+// pressure — and chartSceneExists has already bounded scene values to real
+// CBSA codes before any key is built.
+// Routing scoped keys into mastheadCache would hand attackers the exact
+// starvation the split instance exists to prevent.
+func (s *ChartsService) chartsCacheFor(scene string) *chartsCache {
+	if scene == "" {
+		return s.mastheadCache
+	}
+	return s.cache
+}
+
+func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1374,6 +1556,7 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (
 				AND s.is_cancelled = FALSE`
 	args = append(args, catalogm.ShowStatusApproved)
 	query, args = appendWindowBounds(query, args, "s.created_at", now, start)
+	query, args = appendShowSceneScope(query, args, scene)
 
 	query += `
 		) AS shows_added,
@@ -1381,6 +1564,7 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (
 			FROM artists a
 			WHERE true`
 	query, args = appendWindowBounds(query, args, "a.created_at", now, start)
+	query, args = appendEntityMetroScope(query, args, "a", scene)
 
 	query += `
 		) AS new_artists,
@@ -1388,6 +1572,7 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (
 			FROM releases r
 			WHERE true`
 	query, args = appendWindowBounds(query, args, "r.created_at", now, start)
+	query, args = appendReleaseSceneScope(query, args, scene)
 
 	query += `
 		) AS new_releases,
@@ -1399,6 +1584,16 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (
 			` + stationTimezoneJoinSQL + `
 			WHERE `
 	query, args = appendRadioAiredWindow(query, args, now, start)
+	if scene != "" {
+		// Artist-home attribution for plays; see the method comment for why
+		// the scoped count narrows to resolved plays only. Inline (the second
+		// documented exception in the scene-scoping block): there is no
+		// joined artists alias here — keep textually in sync with
+		// appendEntityMetroScope's predicate shape.
+		query += `
+			AND EXISTS (SELECT 1 FROM artists sca WHERE sca.id = rp.artist_id AND sca.metro = ?)`
+		args = append(args, scene)
+	}
 
 	query += `
 		) AS radio_plays,
@@ -1410,6 +1605,7 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (
 			  ` + sceneVenueEligibilitySQL
 	args = append(args, catalogm.ShowStatusApproved)
 	query, args = appendChartShowWindow(query, args, now, start)
+	query, args = appendEntityMetroScope(query, args, "v", scene)
 	query += `
 		) AS active_scenes`
 
@@ -1446,16 +1642,24 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow) (
 // exclude: artists reachable only through private/pending shows, and
 // orphaned artist rows with no content at all. Releases and stations are
 // admin-only writes and need no gate.
-func (s *ChartsService) GetFreshlyAdded(limit int) ([]contracts.FreshlyAddedItem, error) {
+// scene scopes the branches per the scene-scoping block: artists by home
+// metro, venues by their own metro, releases by credited-artist home metro —
+// and DROPS the station branch entirely (stations have no metro; a scoped
+// ticker claiming a station was "added to the scene" would be a fabrication).
+func (s *ChartsService) GetFreshlyAdded(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 	// Masthead TTL with the summary: the ticker's four ORDER BY created_at
 	// DESC branches are also covered by the cost-lever created_at indexes.
-	key := fmt.Sprintf("freshly-added|%d", limit)
-	return chartsCached(s.mastheadCache, key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
-		return s.getFreshlyAddedUncached(limit)
+	// Cache routing is scope-aware like the summary's — see chartsCacheFor.
+	if !chartSceneExists(scene) {
+		return []contracts.FreshlyAddedItem{}, nil
+	}
+	key := fmt.Sprintf("freshly-added|%d|%s", limit, scene)
+	return chartsCached(s.chartsCacheFor(scene), key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
+		return s.getFreshlyAddedUncached(scene, limit)
 	})
 }
 
-func (s *ChartsService) getFreshlyAddedUncached(limit int) ([]contracts.FreshlyAddedItem, error) {
+func (s *ChartsService) getFreshlyAddedUncached(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1468,31 +1672,65 @@ func (s *ChartsService) getFreshlyAddedUncached(limit int) ([]contracts.FreshlyA
 		AddedAt    time.Time `gorm:"column:added_at"`
 	}
 
-	var rows []itemRow
-	err := s.db.Raw(`
+	// Branch scene fragments are empty in the global case so the assembled
+	// SQL (and its arg arity) stays semantically identical to the pre-scene
+	// query (the artist anchor OR-chain gained grouping parens, nothing
+	// else). The fragments are inline rather than routed through the shared
+	// appenders because the UNION assembly interleaves per-branch args — keep
+	// them textually in sync with appendEntityMetroScope /
+	// appendReleaseSceneScope (the scene-scoping block documents this as one
+	// of the two inline exceptions).
+	artistScene, venueScene, releaseScene := "", "", ""
+	var artistArgs, venueArgs, releaseArgs []any
+	if scene != "" {
+		artistScene = ` AND a.metro = ?`
+		artistArgs = []any{scene}
+		venueScene = ` AND v.metro = ?`
+		venueArgs = []any{scene}
+		releaseScene = ` WHERE EXISTS (SELECT 1 FROM artist_releases scar JOIN artists sca ON sca.id = scar.artist_id
+				WHERE scar.release_id = r.id AND sca.metro = ?)`
+		releaseArgs = []any{scene}
+	}
+
+	query := `
 		SELECT * FROM (
 			(SELECT 'artist' AS entity_type, a.id AS entity_id, a.name, COALESCE(a.slug, '') AS slug, a.created_at AS added_at
 			 FROM artists a
-			 WHERE EXISTS (SELECT 1 FROM show_artists sa JOIN shows s ON s.id = sa.show_id
+			 WHERE (EXISTS (SELECT 1 FROM show_artists sa JOIN shows s ON s.id = sa.show_id
 				WHERE sa.artist_id = a.id AND s.status = ? AND s.is_cancelled = FALSE)
 				OR EXISTS (SELECT 1 FROM artist_releases ar WHERE ar.artist_id = a.id)
-				OR EXISTS (SELECT 1 FROM radio_plays rp WHERE rp.artist_id = a.id)
+				OR EXISTS (SELECT 1 FROM radio_plays rp WHERE rp.artist_id = a.id))` + artistScene + `
 			 ORDER BY a.created_at DESC, a.id DESC LIMIT ?)
 			UNION ALL
 			(SELECT 'venue', v.id, v.name, COALESCE(v.slug, ''), v.created_at
 			 FROM venues v
-			 WHERE v.verified = true
+			 WHERE v.verified = true` + venueScene + `
 			 ORDER BY v.created_at DESC, v.id DESC LIMIT ?)
 			UNION ALL
 			(SELECT 'release', r.id, r.title, COALESCE(r.slug, ''), r.created_at
-			 FROM releases r ORDER BY r.created_at DESC, r.id DESC LIMIT ?)
+			 FROM releases r` + releaseScene + ` ORDER BY r.created_at DESC, r.id DESC LIMIT ?)`
+	args := []any{catalogm.ShowStatusApproved}
+	args = append(args, artistArgs...)
+	args = append(args, limit)
+	args = append(args, venueArgs...)
+	args = append(args, limit)
+	args = append(args, releaseArgs...)
+	args = append(args, limit)
+	if scene == "" {
+		query += `
 			UNION ALL
 			(SELECT 'station', rst.id, rst.name, rst.slug, rst.created_at
-			 FROM radio_stations rst ORDER BY rst.created_at DESC, rst.id DESC LIMIT ?)
+			 FROM radio_stations rst ORDER BY rst.created_at DESC, rst.id DESC LIMIT ?)`
+		args = append(args, limit)
+	}
+	query += `
 		) x
 		ORDER BY x.added_at DESC, x.entity_type ASC, x.entity_id DESC
-		LIMIT ?
-	`, catalogm.ShowStatusApproved, limit, limit, limit, limit, limit).Scan(&rows).Error
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []itemRow
+	err := s.db.Raw(query, args...).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get freshly added items: %w", err)
 	}
@@ -1500,6 +1738,105 @@ func (s *ChartsService) getFreshlyAddedUncached(limit int) ([]contracts.FreshlyA
 	results := make([]contracts.FreshlyAddedItem, len(rows))
 	for i, r := range rows {
 		results[i] = contracts.FreshlyAddedItem(r)
+	}
+	return results, nil
+}
+
+// chartSceneFloor is the minimum approved, non-cancelled shows a metro needs
+// in the requested window to appear in the scene switcher — the zero-row rule
+// applied to the filter itself (a switcher option whose charts would be
+// near-empty reads as a dead site). 5 is the ticket's proposed value; it is
+// pending validation against the stage metro distribution (flip-option
+// comment on the ticket) — change it there and here together.
+const chartSceneFloor = 5
+
+// GetChartScenes returns the scene switcher's option list: CBSA metros with
+// at least chartSceneFloor approved, non-cancelled shows played in the
+// window, show counts included, busiest first. Only venue-metro attribution
+// counts (the same key the module endpoints scope by), and only real CBSA
+// metros appear — (city|state) fallback scenes are not chart scopes.
+// Display identity is the metro's principal city (the scenes directory's
+// convention); the venues' own MIN(city/state) is the fallback if the CBSA
+// somehow doesn't resolve.
+func (s *ChartsService) GetChartScenes(window contracts.ChartWindow) ([]contracts.ChartScene, error) {
+	// Masthead instance on purpose: this key space is exactly the three
+	// window values (domain-bounded — chartsCacheFor's provenance rule), and
+	// the switcher list is nav-critical, so it must not compete for slots
+	// with the client-controlled module keys.
+	key := fmt.Sprintf("scenes|%s", window.OrDefault())
+	return chartsCached(s.mastheadCache, key, chartsModuleTTL, func() ([]contracts.ChartScene, error) {
+		return s.getChartScenesUncached(window)
+	})
+}
+
+func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]contracts.ChartScene, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	start := chartWindowStart(window, now)
+
+	type sceneRow struct {
+		Metro     string `gorm:"column:metro"`
+		City      string `gorm:"column:city"`
+		State     string `gorm:"column:state"`
+		ShowCount int    `gorm:"column:show_count"`
+	}
+
+	// COUNT(DISTINCT s.id): two venues of one metro on the same show must not
+	// double-count it. Venue eligibility matches the scenes directory
+	// (verified + usable city/state) so a metro can't appear here on venues
+	// the directory would ignore. That gate is DELIBERATELY stricter than
+	// the module scene predicates (which scope content under the site's
+	// post-moderation model and accept any metro venue): the switcher is a
+	// venue-derived NAV surface, and venue `verified` is the one real
+	// moderation gate on nav surfaces — the same call the ticker's venue
+	// branch locked in. Consequence, on purpose: a metro whose in-window
+	// shows sit only at unverified venues never mints a switcher option,
+	// though its scene URL still resolves (scoped modules return its data);
+	// and the switcher show_count can undercount a scoped module's Total.
+	//
+	// The fallback display pair is taken from ONE deterministic venue row
+	// (lowest id) — independent MIN(city)/MIN(state) could pair a city from
+	// one venue with a state from another in a two-state metro.
+	query := `
+		SELECT
+			v.metro,
+			(ARRAY_AGG(v.city ORDER BY v.id))[1] AS city,
+			(ARRAY_AGG(v.state ORDER BY v.id))[1] AS state,
+			COUNT(DISTINCT s.id) AS show_count
+		FROM venues v
+		JOIN show_venues sv ON sv.venue_id = v.id
+		JOIN shows s ON s.id = sv.show_id
+		WHERE s.status = ?
+		  AND v.metro IS NOT NULL
+		  ` + sceneVenueEligibilitySQL
+	args := []any{catalogm.ShowStatusApproved}
+	query, args = appendChartShowWindow(query, args, now, start)
+	query += `
+		GROUP BY v.metro
+		HAVING COUNT(DISTINCT s.id) >= ?
+		ORDER BY show_count DESC, v.metro ASC`
+	args = append(args, chartSceneFloor)
+
+	var rows []sceneRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get chart scenes: %w", err)
+	}
+
+	results := make([]contracts.ChartScene, len(rows))
+	for i, r := range rows {
+		city, state := r.City, r.State
+		if mp, ok := geo.MetroPrincipalByCBSA(r.Metro); ok {
+			city, state = mp.City, mp.State
+		}
+		results[i] = contracts.ChartScene{
+			Metro:     r.Metro,
+			City:      city,
+			State:     state,
+			ShowCount: r.ShowCount,
+		}
 	}
 	return results, nil
 }

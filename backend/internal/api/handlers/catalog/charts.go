@@ -96,8 +96,9 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 
 // GetMostAnticipatedShowsRequest is the Huma request for GET /charts/most-anticipated
 type GetMostAnticipatedShowsRequest struct {
-	Limit  int `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
-	Offset int `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes (omitted = all scenes; unknown = empty results)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
 
 // MostAnticipatedShowResponse is a single show in the response. SaveCount is
@@ -123,6 +124,7 @@ type GetMostAnticipatedShowsResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Mode  string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks (paginated); soonest_upcoming = date-ordered fallback, counts/ranks omitted, offset ignored"`
+		Scene string                        `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total int                           `json:"total" doc:"Full-set size for the active mode: qualifying shows (ranked) or all upcoming shows (fallback)"`
 		Shows []MostAnticipatedShowResponse `json:"shows"`
 	}
@@ -134,8 +136,9 @@ type GetMostAnticipatedShowsResponse struct {
 // /charts/trending-shows; the legacy route stays until the redesigned charts
 // frontend migrates off it.
 func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req *GetMostAnticipatedShowsRequest) (*GetMostAnticipatedShowsResponse, error) {
-	// limit/offset defaults and bounds are owned by the huma tags.
-	data, err := h.chartsService.GetMostAnticipatedShows(req.Limit, req.Offset)
+	// limit/offset defaults and bounds are owned by the huma tags; scene shape
+	// is owned by its pattern tag (malformed -> 422 before this runs).
+	data, err := h.chartsService.GetMostAnticipatedShows(req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_most_anticipated_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get most-anticipated shows")
@@ -143,6 +146,7 @@ func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req 
 
 	resp := &GetMostAnticipatedShowsResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Mode = string(data.Mode)
+	resp.Body.Scene = req.Scene
 	resp.Body.Total = data.Total
 	resp.Body.Shows = make([]MostAnticipatedShowResponse, len(data.Shows))
 	for i, s := range data.Shows {
@@ -159,6 +163,7 @@ func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req 
 // GetMostActiveArtistsRequest is the Huma request for GET /charts/most-active-artists
 type GetMostActiveArtistsRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
@@ -185,6 +190,7 @@ type GetMostActiveArtistsResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window  string                     `json:"window"`
+		Scene   string                     `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total   int                        `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Artists []MostActiveArtistResponse `json:"artists"`
 	}
@@ -196,7 +202,7 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
-	data, total, err := h.chartsService.GetMostActiveArtists(window, req.Limit, req.Offset)
+	data, total, err := h.chartsService.GetMostActiveArtists(window, req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_most_active_artists_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get most-active artists")
@@ -204,6 +210,7 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 
 	resp := &GetMostActiveArtistsResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
 	resp.Body.Total = total
 	resp.Body.Artists = make([]MostActiveArtistResponse, len(data))
 	for i, a := range data {
@@ -229,6 +236,7 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 // GetBusiestVenuesRequest is the Huma request for GET /charts/busiest-venues
 type GetBusiestVenuesRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; venues IN the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
@@ -251,6 +259,7 @@ type GetBusiestVenuesResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window string                 `json:"window"`
+		Scene  string                 `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total  int                    `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Venues []BusiestVenueResponse `json:"venues"`
 	}
@@ -264,7 +273,7 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
-	data, total, err := h.chartsService.GetBusiestVenues(window, req.Limit, req.Offset)
+	data, total, err := h.chartsService.GetBusiestVenues(window, req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_busiest_venues_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get busiest venues")
@@ -272,6 +281,7 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 
 	resp := &GetBusiestVenuesResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
 	resp.Body.Total = total
 	resp.Body.Venues = make([]BusiestVenueResponse, len(data))
 	for i, v := range data {
@@ -293,6 +303,7 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 // GetOpenersToWatchRequest is the Huma request for GET /charts/openers-to-watch
 type GetOpenersToWatchRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
@@ -315,6 +326,7 @@ type GetOpenersToWatchResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window  string                  `json:"window"`
+		Scene   string                  `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total   int                     `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Artists []OpenerToWatchResponse `json:"artists"`
 	}
@@ -326,7 +338,7 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
-	data, total, err := h.chartsService.GetOpenersToWatch(window, req.Limit, req.Offset)
+	data, total, err := h.chartsService.GetOpenersToWatch(window, req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_openers_to_watch_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get openers to watch")
@@ -334,6 +346,7 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 
 	resp := &GetOpenersToWatchResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
 	resp.Body.Total = total
 	resp.Body.Artists = make([]OpenerToWatchResponse, len(data))
 	for i, a := range data {
@@ -355,6 +368,7 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 // GetOnTheRadioArtistsRequest is the Huma request for GET /charts/on-the-radio
 type GetOnTheRadioArtistsRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
@@ -379,6 +393,7 @@ type GetOnTheRadioArtistsResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window  string                     `json:"window"`
+		Scene   string                     `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total   int                        `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Artists []OnTheRadioArtistResponse `json:"artists"`
 	}
@@ -393,7 +408,7 @@ func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *Ge
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
-	data, total, err := h.chartsService.GetOnTheRadioArtists(window, req.Limit, req.Offset)
+	data, total, err := h.chartsService.GetOnTheRadioArtists(window, req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_on_the_radio_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get on-the-radio artists")
@@ -401,6 +416,7 @@ func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *Ge
 
 	resp := &GetOnTheRadioArtistsResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
 	resp.Body.Total = total
 	resp.Body.Artists = make([]OnTheRadioArtistResponse, len(data))
 	for i, a := range data {
@@ -579,6 +595,7 @@ func (h *ChartsHandler) GetHotReleasesHandler(ctx context.Context, req *GetHotRe
 // GetNewReleasesRequest is the Huma request for GET /charts/new-releases
 type GetNewReleasesRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; releases by artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
 }
@@ -607,6 +624,7 @@ type GetNewReleasesResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window   string               `json:"window"`
+		Scene    string               `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total    int                  `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
 		Releases []NewReleaseResponse `json:"releases"`
 	}
@@ -621,7 +639,7 @@ func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewRe
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
-	data, total, err := h.chartsService.GetNewReleases(window, req.Limit, req.Offset)
+	data, total, err := h.chartsService.GetNewReleases(window, req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_new_releases_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get new releases")
@@ -629,6 +647,7 @@ func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewRe
 
 	resp := &GetNewReleasesResponse{CacheControl: chartsModuleCacheControl}
 	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
 	resp.Body.Total = total
 	resp.Body.Releases = make([]NewReleaseResponse, len(data))
 	for i, r := range data {
@@ -644,6 +663,7 @@ func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewRe
 // GetChartsSummaryRequest is the Huma request for GET /charts/summary
 type GetChartsSummaryRequest struct {
 	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes (omitted = all scenes; unknown = zero counts)"`
 }
 
 // GetChartsSummaryResponse is the Huma response for GET /charts/summary —
@@ -654,6 +674,7 @@ type GetChartsSummaryResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window       string `json:"window"`
+		Scene        string `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		ShowsAdded   int    `json:"shows_added"`
 		NewArtists   int    `json:"new_artists"`
 		NewReleases  int    `json:"new_releases"`
@@ -666,7 +687,7 @@ type GetChartsSummaryResponse struct {
 func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetChartsSummaryRequest) (*GetChartsSummaryResponse, error) {
 	window := normalizeChartWindow(req.Window)
 
-	data, err := h.chartsService.GetChartsSummary(window)
+	data, err := h.chartsService.GetChartsSummary(window, req.Scene)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_summary_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get charts summary")
@@ -674,6 +695,7 @@ func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetCha
 
 	resp := &GetChartsSummaryResponse{CacheControl: chartsMastheadCacheControl}
 	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
 	resp.Body.ShowsAdded = data.ShowsAdded
 	resp.Body.NewArtists = data.NewArtists
 	resp.Body.NewReleases = data.NewReleases
@@ -686,7 +708,8 @@ func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetCha
 
 // GetFreshlyAddedRequest is the Huma request for GET /charts/freshly-added
 type GetFreshlyAddedRequest struct {
-	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Limit int    `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
+	Scene string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; station rows are omitted when scoped (omitted = all scenes; unknown = empty results)"`
 }
 
 // FreshlyAddedItemResponse is a single ticker row in the response.
@@ -704,6 +727,7 @@ type GetFreshlyAddedResponse struct {
 	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
+		Scene string                     `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Items []FreshlyAddedItemResponse `json:"items"`
 	}
 }
@@ -713,18 +737,70 @@ type GetFreshlyAddedResponse struct {
 func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFreshlyAddedRequest) (*GetFreshlyAddedResponse, error) {
 	limit := normalizeChartsLimit(req.Limit)
 
-	data, err := h.chartsService.GetFreshlyAdded(limit)
+	data, err := h.chartsService.GetFreshlyAdded(req.Scene, limit)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_freshly_added_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get freshly added items")
 	}
 
 	resp := &GetFreshlyAddedResponse{CacheControl: chartsMastheadCacheControl}
+	resp.Body.Scene = req.Scene
 	resp.Body.Items = make([]FreshlyAddedItemResponse, len(data))
 	for i, item := range data {
 		// Direct conversion (field-identical structs): a one-sided field add
 		// breaks the build instead of silently shipping a zero value.
 		resp.Body.Items[i] = FreshlyAddedItemResponse(item)
+	}
+	return resp, nil
+}
+
+// --- GetChartScenes ---
+
+// GetChartScenesRequest is the Huma request for GET /charts/scenes
+type GetChartScenesRequest struct {
+	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window the coverage floor is judged over (default quarter)"`
+}
+
+// ChartSceneResponse is one scene switcher option.
+type ChartSceneResponse struct {
+	Metro     string `json:"metro" doc:"CBSA metro code - the value the module endpoints accept as scene"`
+	City      string `json:"city" doc:"Metro principal city (display identity)"`
+	State     string `json:"state"`
+	ShowCount int    `json:"show_count" doc:"Approved, non-cancelled shows played at the metro's venues in the window"`
+}
+
+// GetChartScenesResponse is the Huma response for GET /charts/scenes — the
+// scene switcher's option list.
+type GetChartScenesResponse struct {
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Window string               `json:"window"`
+		Scenes []ChartSceneResponse `json:"scenes"`
+	}
+}
+
+// GetChartScenesHandler handles GET /charts/scenes — CBSA metros above the
+// coverage floor for the window, busiest first. The floor applies the
+// zero-row rule to the filter itself: a metro that would render near-empty
+// modules never appears as an option.
+func (h *ChartsHandler) GetChartScenesHandler(ctx context.Context, req *GetChartScenesRequest) (*GetChartScenesResponse, error) {
+	window := normalizeChartWindow(req.Window)
+
+	data, err := h.chartsService.GetChartScenes(window)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_scenes_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get chart scenes")
+	}
+
+	resp := &GetChartScenesResponse{CacheControl: chartsModuleCacheControl}
+	resp.Body.Window = string(window)
+	resp.Body.Scenes = make([]ChartSceneResponse, len(data))
+	for i, sc := range data {
+		// Direct conversion (field-identical structs): a one-sided field add
+		// breaks the build instead of silently shipping a zero value.
+		resp.Body.Scenes[i] = ChartSceneResponse(sc)
 	}
 	return resp, nil
 }

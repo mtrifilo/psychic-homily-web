@@ -23,6 +23,7 @@ func setupChartsRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/charts/new-releases", chartsHandler.GetNewReleasesHandler)
 	huma.Get(rc.API, "/charts/summary", chartsHandler.GetChartsSummaryHandler)
 	huma.Get(rc.API, "/charts/freshly-added", chartsHandler.GetFreshlyAddedHandler)
+	huma.Get(rc.API, "/charts/scenes", chartsHandler.GetChartScenesHandler)
 	huma.Get(rc.API, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 
 	// Personal stats strip: the user's own aggregates, so it requires auth

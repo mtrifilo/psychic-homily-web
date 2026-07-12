@@ -26,16 +26,25 @@ const (
 	chartsModuleTTL   = 5 * time.Minute
 	chartsMastheadTTL = time.Minute
 
-	// chartsCacheMaxEntries bounds memory: offset/limit are client-controlled,
-	// so key cardinality is unbounded. When the cap is hit, expired entries
-	// are swept; if the map is still full, the NEW key is simply not cached
-	// (the request runs uncached) — overflow traffic never evicts existing
-	// entries. 512 comfortably covers the organic key population (5 windowed
-	// modules x 3 windows x the handful of page shapes the frontend requests,
-	// plus most-anticipated's limit|offset keys and the per-module count
-	// keys; the masthead instance holds only summary-window and ticker-limit
-	// keys).
-	chartsCacheMaxEntries = 512
+	// chartsCacheMaxEntries bounds memory: offset/limit are client-controlled
+	// and scene, while gated to real CBSA codes (chartSceneExists — the gate
+	// is what keeps this key space bounded; junk scenes never reach the
+	// cache), still multiplies the key population. When the cap is hit,
+	// expired entries are swept; if the map is still full of FRESH entries,
+	// the NEW key is simply not cached (the request runs uncached) —
+	// overflow traffic never evicts a fresh entry, but an EXPIRED organic
+	// entry's slot is claimable by any traffic. Sizing: 6 modules x 3
+	// windows x page shapes x [global + every switcher metro] plus
+	// per-(module,window,scene) count keys and the scoped summary/ticker
+	// keys chartsCacheFor routes here — a few dozen active scenes lands in
+	// the low thousands of keys, so 4096 keeps organic traffic cached.
+	// Worst-case memory is cap x a full limit=100 page (tens of KB with
+	// name-enrichment slices), i.e. low hundreds of MB only if every slot
+	// held a max-size page — real pages are the front page's limit=10 shape
+	// for all but drill-down traffic. The masthead instance holds only the
+	// GLOBAL summary/ticker keys and the 3 scenes|window keys, all
+	// domain-bounded by the chartsCacheFor routing rule.
+	chartsCacheMaxEntries = 4096
 )
 
 // chartsCacheEntry is one cached payload. The per-entry mutex serializes
@@ -192,12 +201,17 @@ type pagedChartRows[T any] struct {
 }
 
 // cachedChartPage is the single owner of the windowed modules' cache-key
-// scheme (module|window|limit|offset) and the pagedChartRows pack/unpack.
+// scheme (module|window|scene|limit|offset) and the pagedChartRows
+// pack/unpack. scene is "" for the global (unscoped) page — the empty segment
+// keeps global and scoped keys disjoint. Scene is client-controlled like
+// offset/limit, so its key cardinality rides on the same entry cap +
+// run-uncached overflow rule (shape validation at the HTTP layer bounds it to
+// short numeric strings).
 // NOTE: pages cache independently, so two pages of one window can come from
 // snapshots up to a TTL apart — totals (and most-anticipated's mode) are
 // per-response facts, not cross-page guarantees.
-func cachedChartPage[T any](c *chartsCache, module string, window string, limit, offset int, fetch func() ([]T, int, error)) ([]T, int, error) {
-	key := module + "|" + window + "|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
+func cachedChartPage[T any](c *chartsCache, module string, window string, scene string, limit, offset int, fetch func() ([]T, int, error)) ([]T, int, error) {
+	key := module + "|" + window + "|" + scene + "|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
 	page, err := chartsCached(c, key, chartsModuleTTL, func() (pagedChartRows[T], error) {
 		rows, total, err := fetch()
 		return pagedChartRows[T]{rows: rows, total: total}, err
@@ -208,6 +222,7 @@ func cachedChartPage[T any](c *chartsCache, module string, window string, limit,
 // chartCountKey is the offset-independent cache key for a module's full-set
 // count — the beyond-the-end re-count caches under it so a client walking
 // junk offsets pays the count aggregation once per TTL, not per request.
-func chartCountKey(module, window string) string {
-	return "count|" + module + "|" + window
+// scene follows the cachedChartPage segment convention ("" = global).
+func chartCountKey(module, window, scene string) string {
+	return "count|" + module + "|" + window + "|" + scene
 }
