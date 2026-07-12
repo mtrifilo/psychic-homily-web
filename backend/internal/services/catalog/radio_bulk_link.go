@@ -43,7 +43,7 @@ FROM (
 WHERE rp.id = sub.play_id
 `
 
-// bulkLinkExactNameSQL links when immutable_unaccent(LOWER(play.artist_name))
+// bulkLinkExactNameSQL links when radio_normalize_name(play.artist_name)
 // equals exactly one artist's canonical name. Two artists sharing the same
 // normalized name are skipped (Go .First() would pick arbitrarily; we decline).
 const bulkLinkExactNameSQL = `
@@ -53,7 +53,7 @@ FROM (
 	SELECT rp2.id AS play_id, MIN(a.id) AS artist_id
 	FROM radio_plays rp2
 	INNER JOIN artists a
-		ON immutable_unaccent(LOWER(rp2.artist_name)) = immutable_unaccent(LOWER(a.name))
+		ON radio_normalize_name(rp2.artist_name) = radio_normalize_name(a.name)
 	WHERE rp2.artist_id IS NULL
 		AND rp2.match_state = 'unmatched'
 	GROUP BY rp2.id
@@ -71,7 +71,7 @@ FROM (
 	SELECT rp2.id AS play_id, MIN(aa.artist_id) AS artist_id
 	FROM radio_plays rp2
 	INNER JOIN artist_aliases aa
-		ON immutable_unaccent(LOWER(rp2.artist_name)) = immutable_unaccent(LOWER(aa.alias))
+		ON radio_normalize_name(rp2.artist_name) = radio_normalize_name(aa.alias)
 	WHERE rp2.artist_id IS NULL
 		AND rp2.match_state = 'unmatched'
 	GROUP BY rp2.id
