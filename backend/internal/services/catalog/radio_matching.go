@@ -29,6 +29,16 @@ import (
 // transformer values + a small slice).
 var markStripper = runes.Remove(runes.In(unicode.Mn))
 
+// radioNormalizeNameExpr is the SQL function that mirrors normalizeName after
+// the unaccent/lower step (PSY-1441). Callers bind the Go-normalized key as
+// `?` so both sides of the equality use the same canonical form — including
+// when the KG canonical name itself carries boundary punctuation (ADULT.).
+const radioNormalizeNameExpr = "radio_normalize_name(%s) = ?"
+
+func whereRadioNormalized(column string) string {
+	return fmt.Sprintf(radioNormalizeNameExpr, column)
+}
+
 // normalizeName produces the canonical form used for radio-matching name
 // lookups. The pipeline:
 //
@@ -40,11 +50,11 @@ var markStripper = runes.Remove(runes.In(unicode.Mn))
 // Interior punctuation is intentionally preserved so distinct names like
 // "AC/DC" and "ACDC", or "The The" and "The", still compare unequal.
 //
-// The DB side mirrors this with `immutable_unaccent(LOWER(col))` against an
-// expression index; immutable_unaccent is a SQL wrapper marked IMMUTABLE so
-// it can be used in indexes (the contrib `unaccent` is only STABLE). The
-// Go-side trim/collapse covers radio-feed noise (trailing "!", double
-// spaces) that PostgreSQL's `unaccent` does not.
+// The DB side mirrors steps 2–4 via `radio_normalize_name(col)` (migration
+// 20260711140000), which wraps `immutable_unaccent(LOWER(col))` then applies
+// the same boundary trim + whitespace collapse. Callers MUST compare with
+// `whereRadioNormalized(col)` (or equivalent) — bare unaccent/LOWER misses
+// punctuated canonical names (PSY-1441).
 func normalizeName(s string) string {
 	if s == "" {
 		return ""
@@ -168,10 +178,8 @@ func (m *RadioMatchingEngine) MatchUnmatchedPlaysForArtistName(name string) (*co
 
 	var plays []catalogm.RadioPlay
 	err := scopePlaysForArtistRematch(m.db, "radio_plays", true).
-		Where(
-			"immutable_unaccent(LOWER(artist_name)) = immutable_unaccent(LOWER(?))",
-			normalized,
-		).Find(&plays).Error
+		Where(whereRadioNormalized("artist_name"), normalized).
+		Find(&plays).Error
 	if err != nil {
 		return nil, fmt.Errorf("loading unmatched plays for artist %q: %w", name, err)
 	}
@@ -191,10 +199,9 @@ func (m *RadioMatchingEngine) MatchUnmatchedPlaysForLabelName(name string) (*con
 	}
 
 	var plays []catalogm.RadioPlay
-	err := m.db.Where(
-		"label_id IS NULL AND label_name IS NOT NULL AND immutable_unaccent(LOWER(label_name)) = immutable_unaccent(LOWER(?))",
-		normalized,
-	).Find(&plays).Error
+	err := m.db.Where("label_id IS NULL AND label_name IS NOT NULL").
+		Where(whereRadioNormalized("label_name"), normalized).
+		Find(&plays).Error
 	if err != nil {
 		return nil, fmt.Errorf("loading unmatched plays for label %q: %w", name, err)
 	}
@@ -330,12 +337,12 @@ func (m *RadioMatchingEngine) matchArtistByNameOrAlias(name string) *uint {
 	}
 
 	var artist catalogm.Artist
-	if err := m.db.Where("immutable_unaccent(LOWER(name)) = immutable_unaccent(LOWER(?))", normalized).First(&artist).Error; err == nil {
+	if err := m.db.Where(whereRadioNormalized("name"), normalized).First(&artist).Error; err == nil {
 		return &artist.ID
 	}
 
 	var alias catalogm.ArtistAlias
-	if err := m.db.Where("immutable_unaccent(LOWER(alias)) = immutable_unaccent(LOWER(?))", normalized).First(&alias).Error; err == nil {
+	if err := m.db.Where(whereRadioNormalized("alias"), normalized).First(&alias).Error; err == nil {
 		return &alias.ArtistID
 	}
 
@@ -382,7 +389,7 @@ func (m *RadioMatchingEngine) matchRelease(title *string, mbID *string) *uint {
 	}
 
 	var release catalogm.Release
-	if err := m.db.Where("immutable_unaccent(LOWER(title)) = immutable_unaccent(LOWER(?))", normalized).First(&release).Error; err == nil {
+	if err := m.db.Where(whereRadioNormalized("title"), normalized).First(&release).Error; err == nil {
 		return &release.ID
 	}
 
@@ -400,7 +407,7 @@ func (m *RadioMatchingEngine) matchLabel(name *string) *uint {
 	}
 
 	var label catalogm.Label
-	if err := m.db.Where("immutable_unaccent(LOWER(name)) = immutable_unaccent(LOWER(?))", normalized).First(&label).Error; err == nil {
+	if err := m.db.Where(whereRadioNormalized("name"), normalized).First(&label).Error; err == nil {
 		return &label.ID
 	}
 

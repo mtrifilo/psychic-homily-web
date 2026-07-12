@@ -364,6 +364,67 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_PunctuationTrim(
 	suite.Equal(a.ID, *reloaded.ArtistID)
 }
 
+// TestMatchArtist_CanonicalTrailingPeriod — PSY-1441. When the KG canonical
+// name itself ends with punctuation (ADULT.), bare unaccent+LOWER left the
+// period on the DB side while Go normalizeName stripped it from the key.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CanonicalTrailingPeriod() {
+	a := suite.createArtist("ADULT.")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "ADULT.", nil, nil)
+
+	suite.True(suite.engine.matchPlay(play), `play "ADULT." should match artist "ADULT."`)
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(a.ID, *reloaded.ArtistID)
+}
+
+// TestMatchArtist_CanonicalSurroundingPunctuation — PSY-1441. Leading and
+// trailing bangs on both play and KG name (!Calhau!).
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CanonicalSurroundingPunctuation() {
+	a := suite.createArtist("!Calhau!")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "!Calhau!", nil, nil)
+
+	suite.True(suite.engine.matchPlay(play), `play "!Calhau!" should match artist "!Calhau!"`)
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(a.ID, *reloaded.ArtistID)
+}
+
+// TestMatchArtist_CanonicalInteriorPeriods — PSY-1441. Trailing period trimmed,
+// interior periods kept (P.I.L. → p.i.l on both sides).
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_CanonicalInteriorPeriods() {
+	a := suite.createArtist("P.I.L.")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "P.I.L.", nil, nil)
+
+	suite.True(suite.engine.matchPlay(play), `play "P.I.L." should match artist "P.I.L."`)
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(a.ID, *reloaded.ArtistID)
+}
+
+// TestMatchArtist_PlayCleanVsPunctuatedCanonical — play lacks the period that
+// the KG name carries; both still fold to the same normalized key.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_PlayCleanVsPunctuatedCanonical() {
+	a := suite.createArtist("ADULT.")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "ADULT", nil, nil)
+
+	suite.True(suite.engine.matchPlay(play), `play "ADULT" should match artist "ADULT."`)
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(a.ID, *reloaded.ArtistID)
+}
+
 // TestMatchArtist_AliasFolding — same diacritic-insensitive fold but resolved
 // via an alias row instead of the canonical name.
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_AliasFolding() {
@@ -520,22 +581,24 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchAllUnmatched_BeforeAfte
 	result, err := suite.engine.MatchAllUnmatched(false)
 	suite.Require().NoError(err)
 
-	// Bulk SQL links diacritic/exact cases; Go matcher handles punctuation and
-	// whitespace trim on the remainder. Assert final on-disk link count.
+	// Bulk SQL (PSY-1365 + PSY-1441 radio_normalize_name) links all 8
+	// previouslyFailing rows, including punctuation/whitespace trim cases.
+	// Assert final on-disk link count.
 	var linkedOnDisk int64
 	suite.Require().NoError(
 		suite.db.Model(&catalogm.RadioPlay{}).Where("artist_id IS NOT NULL").Count(&linkedOnDisk).Error,
 	)
 	suite.Equal(int64(expectedAfterMatchCount), linkedOnDisk,
-		"PSY-886 + PSY-1365: curated corpus link rate before=%d/%d, after=%d/%d on disk",
+		"PSY-886 + PSY-1365 + PSY-1441: curated corpus link rate before=%d/%d, after=%d/%d on disk",
 		beforeMatchCount, totalPlays, linkedOnDisk, totalPlays,
 	)
 
-	// Go phase only sees plays the SQL bulk pass could not resolve.
-	const goPhaseTotal = 4 // The Who!, Stereolab padding, ACDC, The
+	// Go phase only sees plays the SQL bulk pass could not resolve (false-
+	// positive guards). Punctuation/whitespace cases are no longer leftovers.
+	const goPhaseTotal = 2 // ACDC, The
 	suite.Equalf(goPhaseTotal, result.Total, "Go matcher play load count")
-	suite.Equalf(2, result.Matched, "Go matcher links punctuation/whitespace remainders")
-	suite.Equalf(goPhaseTotal-2, result.Unmatched, "Unmatched count")
+	suite.Equalf(0, result.Matched, "Go matcher should not link false-positive guards")
+	suite.Equalf(goPhaseTotal, result.Unmatched, "Unmatched count")
 }
 
 // TestMatchPlaysForEpisode_PersistFailureSurfaced is the PSY-1119 match-persist
@@ -717,6 +780,21 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_MusicBrainzID() {
 	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
 	suite.Require().NotNil(reloaded.ArtistID)
 	suite.Equal(artist.ID, *reloaded.ArtistID)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_ExactNamePunctuatedCanonical() {
+	adult := suite.createArtist("ADULT.")
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "ADULT.", nil, nil)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.NameLinked)
+
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(adult.ID, *reloaded.ArtistID)
 }
 
 func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_ExactNameDiacritic() {

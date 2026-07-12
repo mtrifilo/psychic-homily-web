@@ -341,9 +341,10 @@ func (s *RadioService) buildLiveTrack(t *RadioPlayImport) *contracts.RadioNowPla
 	return track
 }
 
-// lookupArtistByName resolves an artist by exact (diacritic/case-insensitive)
-// name, same semantics as the matching engine's name path (PSY-886 expression
-// index). Errors and misses both return nils — never blocks the response.
+// lookupArtistByName resolves an artist by exact (diacritic/case/punctuation-
+// insensitive) name, same semantics as the matching engine's name path
+// (PSY-886 + PSY-1441 radio_normalize_name). Errors and misses both return
+// nils — never blocks the response.
 func (s *RadioService) lookupArtistByName(name string) (*uint, *string) {
 	normalized := normalizeName(name)
 	if normalized == "" {
@@ -351,7 +352,7 @@ func (s *RadioService) lookupArtistByName(name string) (*uint, *string) {
 	}
 	var artist catalogm.Artist
 	if err := s.db.Select("id", "slug").
-		Where("immutable_unaccent(LOWER(name)) = immutable_unaccent(LOWER(?))", normalized).
+		Where(whereRadioNormalized("name"), normalized).
 		First(&artist).Error; err != nil {
 		return nil, nil
 	}
