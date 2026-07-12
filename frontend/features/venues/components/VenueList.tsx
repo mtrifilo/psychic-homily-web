@@ -40,10 +40,20 @@ export function VenueList() {
     'cities',
     citiesParser.withOptions({ history: 'push', startTransition })
   )
+
+  // Legacy single-city params (?city=&state=) — read-only, for back-compat
+  // with older scene deep links that predate the ?cities= wire format.
+  const legacyCity = searchParams.get('city')
+  const legacyState = searchParams.get('state')
+
   const selectedCities: CityState[] = useMemo(() => {
-    if (citiesState === ALL_CITIES || citiesState === null) return []
-    return citiesState
-  }, [citiesState])
+    if (citiesState === ALL_CITIES) return []
+    if (citiesState) return citiesState
+    if (citiesState === null && legacyCity && legacyState) {
+      return [{ city: legacyCity, state: legacyState }]
+    }
+    return []
+  }, [citiesState, legacyCity, legacyState])
 
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
