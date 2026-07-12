@@ -58,9 +58,11 @@ const GRAPH_HEIGHT_PX = 560
 
 /**
  * Fewer CONNECTED artists than this renders the "Not enough connected
- * artists" card instead of a near-empty canvas. Matches the scene page's
- * MIN_GRAPH_NODES gate (SceneGraph.tsx) so the two surfaces agree on what
- * "enough graph to show" means.
+ * artists" card instead of a near-empty canvas. The threshold value (3)
+ * matches the scene page's MIN_GRAPH_NODES (SceneGraph.tsx), but the
+ * counted quantity differs: the scene page counts ALL nodes (its isolate
+ * shelf keeps isolates on canvas), while the homepage counts connected
+ * nodes only, because isolates are filtered out below.
  */
 const MIN_CONNECTED_NODES = 3
 
