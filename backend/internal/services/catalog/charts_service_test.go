@@ -2487,10 +2487,18 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_SceneSc
 	suite.Equal("Chicago Band", chi[0].Name)
 	suite.Equal(1, total)
 
-	// Unknown-but-well-formed scene: empty valid envelope, never an error.
+	// Unknown-but-well-formed scene: empty valid envelope, never an error —
+	// served by the chartSceneExists gate with no cache slot or DB work.
 	none, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, unknownCBSA, 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(none)
+	suite.Equal(0, total)
+
+	// Real-but-dataless CBSA: passes the gate, exercises the SQL path, and
+	// still yields the same empty envelope.
+	la, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, laCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Empty(la)
 	suite.Equal(0, total)
 }
 
@@ -2744,4 +2752,48 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_SceneScoped(
 	suite.Contains(names, "Phx Ticker LP")
 	suite.NotContains(names, "Chi Ticker Band")
 	suite.NotContains(names, "Chi Ticker Venue")
+}
+
+// Openers scoping is the subtlest module: artist-home metro selects WHO can
+// appear, while the never-headlines HAVING must still span the artist's FULL
+// in-window slot set — an in-scene artist who headlines anywhere (even out of
+// scene) must stay excluded.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_SceneScoped() {
+	user := suite.createUser("scene-openers@test.com")
+	headliner := suite.createArtist("Bill Topper") // position-0 filler on every bill
+	phxOpener := suite.createArtist("Phx Opener")
+	suite.setArtistMetro(phxOpener, phoenixCBSA)
+	chiOpener := suite.createArtist("Chi Opener")
+	suite.setArtistMetro(chiOpener, chicagoCBSA)
+	phxHeadliner := suite.createArtist("Phx Sometimes-Headliner")
+	suite.setArtistMetro(phxHeadliner, phoenixCBSA)
+	venue := suite.createVenue("Openers Venue", "Phoenix", "AZ")
+	suite.setVenueMetro(venue, phoenixCBSA, true)
+	chiVenue := suite.createVenue("Openers Chi Venue", "Chicago", "IL")
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+
+	past := time.Now().UTC().AddDate(0, 0, -5)
+	addSupport := func(showID, artistID uint) {
+		suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: showID, ArtistID: artistID, Position: 1}).Error)
+	}
+	s1 := suite.createApprovedShow("Openers bill 1", venue.ID, headliner.ID, user.ID, past)
+	addSupport(s1.ID, phxOpener.ID)
+	s2 := suite.createApprovedShow("Openers bill 2", chiVenue.ID, headliner.ID, user.ID, past)
+	addSupport(s2.ID, chiOpener.ID)
+	s3 := suite.createApprovedShow("Openers bill 3", venue.ID, headliner.ID, user.ID, past.AddDate(0, 0, 1))
+	addSupport(s3.ID, phxHeadliner.ID)
+	// The Phoenix sometimes-headliner tops a bill OUT of scene — that slot
+	// must still disqualify them from the Phoenix openers chart.
+	suite.createApprovedShow("Phx band headlines in Chicago", chiVenue.ID, phxHeadliner.ID, user.ID, past.AddDate(0, 0, 2))
+
+	global, total, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(global, 2, "both pure openers globally; the sometimes-headliner is excluded")
+	suite.Equal(2, total)
+
+	phx, total, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, phoenixCBSA, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(phx, 1, "scene selects by artist home metro; the out-of-scene headline slot still disqualifies")
+	suite.Equal("Phx Opener", phx[0].Name)
+	suite.Equal(1, total)
 }

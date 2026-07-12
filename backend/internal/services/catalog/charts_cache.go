@@ -26,18 +26,23 @@ const (
 	chartsModuleTTL   = 5 * time.Minute
 	chartsMastheadTTL = time.Minute
 
-	// chartsCacheMaxEntries bounds memory: offset/limit AND scene are
-	// client-controlled, so key cardinality is unbounded. When the cap is
-	// hit, expired entries are swept; if the map is still full, the NEW key
-	// is simply not cached (the request runs uncached) — overflow traffic
-	// never evicts existing entries. Sizing: the scene dimension multiplies
-	// the organic key population (6 modules x 3 windows x page shapes x
-	// [global + every switcher metro], plus per-(module,window,scene) count
-	// keys and the SCOPED summary/ticker keys chartsCacheFor routes here) —
-	// with a few dozen active scenes that is low thousands, so 4096 keeps
-	// organic traffic fully cached while still bounding junk-scene memory
-	// (entries are small: one page payload each). The masthead instance
-	// holds only the GLOBAL summary-window and ticker-limit keys, which stay
+	// chartsCacheMaxEntries bounds memory: offset/limit are client-controlled
+	// and scene, while gated to real CBSA codes (chartSceneExists — the gate
+	// is what keeps this key space bounded; junk scenes never reach the
+	// cache), still multiplies the key population. When the cap is hit,
+	// expired entries are swept; if the map is still full of FRESH entries,
+	// the NEW key is simply not cached (the request runs uncached) —
+	// overflow traffic never evicts a fresh entry, but an EXPIRED organic
+	// entry's slot is claimable by any traffic. Sizing: 6 modules x 3
+	// windows x page shapes x [global + every switcher metro] plus
+	// per-(module,window,scene) count keys and the scoped summary/ticker
+	// keys chartsCacheFor routes here — a few dozen active scenes lands in
+	// the low thousands of keys, so 4096 keeps organic traffic cached.
+	// Worst-case memory is cap x a full limit=100 page (tens of KB with
+	// name-enrichment slices), i.e. low hundreds of MB only if every slot
+	// held a max-size page — real pages are the front page's limit=10 shape
+	// for all but drill-down traffic. The masthead instance holds only the
+	// GLOBAL summary/ticker keys and the 3 scenes|window keys, all
 	// domain-bounded by the chartsCacheFor routing rule.
 	chartsCacheMaxEntries = 4096
 )

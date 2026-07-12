@@ -299,6 +299,14 @@ func primaryVenueLateralSQL(cols, showIDExpr string) string {
 // ranked list — it ignores offset and reports the upcoming-show universe as
 // its Total.
 func (s *ChartsService) GetMostAnticipatedShows(scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
+	if !chartSceneExists(scene) {
+		// Unknown scene: the documented empty envelope — the shape the scoped
+		// fallback would produce — without a cache slot or DB round trip.
+		return &contracts.MostAnticipatedShows{
+			Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
+			Shows: []contracts.MostAnticipatedShow{},
+		}, nil
+	}
 	key := fmt.Sprintf("most-anticipated|%s|%d|%d", scene, limit, offset)
 	return chartsCached(s.cache, key, chartsModuleTTL, func() (*contracts.MostAnticipatedShows, error) {
 		return s.getMostAnticipatedShowsUncached(scene, limit, offset)
@@ -333,7 +341,11 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(scene string, limit, off
 	// Scene scoping goes into the SHARED eligibility fragment so both modes
 	// scope identically — a scoped fallback lists the scene's upcoming shows,
 	// never the global calendar. Venue-metro attribution (any linked venue),
-	// per the scene-scoping block above.
+	// per the scene-scoping block above. NOTE the DISPLAYED venue stays the
+	// unscoped lowest-id primary pick: a rare multi-metro show can appear in
+	// a scene labeled with its out-of-scene primary venue — scope and display
+	// attribution are deliberately different jobs (same rule as the show
+	// page).
 	eligibilitySQL, eligibilityArgs := appendShowSceneScope(
 		mostAnticipatedEligibilitySQL, []any{catalogm.ShowStatusApproved, startOfToday}, scene)
 
@@ -517,9 +529,31 @@ func appendChartShowWindow(query string, args []any, now time.Time, start *time.
 //     scene value yields empty results with a valid envelope (never an
 //     error), so a stale bookmarked URL degrades gracefully.
 
+// chartSceneExists reports whether scene is the global scope ("") or names a
+// REAL CBSA metro in the static geo dataset. The pattern tag bounds the
+// param's SHAPE at the HTTP layer; this bounds EXISTENCE — and it is a
+// security control, not a nicety: without it, any of ~10^10 well-formed junk
+// scene values mints a distinct cache key and a guaranteed DB aggregate,
+// which a single client under the public rate ceiling could use to keep the
+// module cache full of junk and force all chart traffic to run uncached.
+// Gating here collapses the scene key space to the ~900 real CBSA codes and
+// short-circuits unknown scenes to the documented empty envelope with ZERO
+// cache or DB work. Safe by provenance: artists.metro / venues.metro are
+// only ever written from geo.ResolveMetro over this same dataset, so a scene
+// that fails this lookup cannot match any row anyway.
+func chartSceneExists(scene string) bool {
+	if scene == "" {
+		return true
+	}
+	_, ok := geo.MetroPrincipalByCBSA(scene)
+	return ok
+}
+
 // appendEntityMetroScope appends the home-metro equality predicate for the
 // entity aliased `alias` (artists or venues — both carry a metro column) when
-// scene is non-empty. `alias` must be a compile-time literal.
+// scene is non-empty. `alias` must be a compile-time literal. Callers gate
+// scene through chartSceneExists first, so a non-empty scene here is a real
+// CBSA code.
 func appendEntityMetroScope(query string, args []any, alias, scene string) (string, []any) {
 	if scene == "" {
 		return query, args
@@ -567,6 +601,9 @@ func appendReleaseSceneScope(query string, args []any, scene string) (string, []
 // in the window are never returned. scene scopes to artists BASED in the
 // metro (home metro), counting all their in-window shows wherever played.
 func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.MostActiveArtist{}, 0, nil
+	}
 	return cachedChartPage(s.cache, "most-active-artists", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.MostActiveArtist, int, error) {
 		return s.getMostActiveArtistsUncached(window, scene, limit, offset)
 	})
@@ -711,6 +748,9 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 // own metro — direct equality, no EXISTS needed since the venue is the ranked
 // entity).
 func (s *ChartsService) GetBusiestVenues(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.BusiestVenue, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.BusiestVenue{}, 0, nil
+	}
 	return cachedChartPage(s.cache, "busiest-venues", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.BusiestVenue, int, error) {
 		return s.getBusiestVenuesUncached(window, scene, limit, offset)
 	})
@@ -799,6 +839,9 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, s
 // artists BASED in the metro (home metro); the never-headlines judgment still
 // spans ALL their in-window slots wherever played.
 func (s *ChartsService) GetOpenersToWatch(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.OpenerToWatch, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.OpenerToWatch{}, 0, nil
+	}
 	return cachedChartPage(s.cache, "openers-to-watch", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.OpenerToWatch, int, error) {
 		return s.getOpenersToWatchUncached(window, scene, limit, offset)
 	})
@@ -918,6 +961,9 @@ const broadcasterKeySQL = `COALESCE(rst.network_id, -rst.id)`
 // pg_timezone_names is materialized per request), so it leans hardest on the
 // module cache.
 func (s *ChartsService) GetOnTheRadioArtists(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.OnTheRadioArtist, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.OnTheRadioArtist{}, 0, nil
+	}
 	return cachedChartPage(s.cache, "on-the-radio", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.OnTheRadioArtist, int, error) {
 		return s.getOnTheRadioArtistsUncached(window, scene, limit, offset)
 	})
@@ -1264,6 +1310,9 @@ const newReleaseDateSQL = `COALESCE(r.release_date, (r.created_at AT TIME ZONE '
 // Paginated with the window total. The ordering expression is served
 // by the charts cost-lever expression index (charts_cost_indexes migration).
 func (s *ChartsService) GetNewReleases(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.NewRelease, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.NewRelease{}, 0, nil
+	}
 	return cachedChartPage(s.cache, "new-releases", string(window.OrDefault()), scene, limit, offset, func() ([]contracts.NewRelease, int, error) {
 		return s.getNewReleasesUncached(window, scene, limit, offset)
 	})
@@ -1461,6 +1510,9 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, start *time
 func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
 	// Shortest TTL on the page: the summary is the single heaviest aggregate
 	// call, and masthead numbers tolerate 60s staleness invisibly.
+	if !chartSceneExists(scene) {
+		return &contracts.ChartsSummary{}, nil
+	}
 	key := fmt.Sprintf("summary|%s|%s", window.OrDefault(), scene)
 	return chartsCached(s.chartsCacheFor(scene), key, chartsMastheadTTL, func() (*contracts.ChartsSummary, error) {
 		return s.getChartsSummaryUncached(window, scene)
@@ -1473,7 +1525,9 @@ func (s *ChartsService) GetChartsSummary(window contracts.ChartWindow, scene str
 // client-controlled keys can never starve them of a slot. A non-empty scene
 // segment IS client-controlled (any string passing the pattern tag), so
 // scoped masthead payloads ride the capped module cache instead — its
-// overflow rule (run uncached, never evict) is built for junk-key traffic.
+// overflow rule (run uncached, never evict a FRESH entry) absorbs key-space
+// pressure — and chartSceneExists has already bounded scene values to real
+// CBSA codes before any key is built.
 // Routing scoped keys into mastheadCache would hand attackers the exact
 // starvation the split instance exists to prevent.
 func (s *ChartsService) chartsCacheFor(scene string) *chartsCache {
@@ -1596,6 +1650,9 @@ func (s *ChartsService) GetFreshlyAdded(scene string, limit int) ([]contracts.Fr
 	// Masthead TTL with the summary: the ticker's four ORDER BY created_at
 	// DESC branches are also covered by the cost-lever created_at indexes.
 	// Cache routing is scope-aware like the summary's — see chartsCacheFor.
+	if !chartSceneExists(scene) {
+		return []contracts.FreshlyAddedItem{}, nil
+	}
 	key := fmt.Sprintf("freshly-added|%d|%s", limit, scene)
 	return chartsCached(s.chartsCacheFor(scene), key, chartsMastheadTTL, func() ([]contracts.FreshlyAddedItem, error) {
 		return s.getFreshlyAddedUncached(scene, limit)
@@ -1702,8 +1759,12 @@ const chartSceneFloor = 5
 // convention); the venues' own MIN(city/state) is the fallback if the CBSA
 // somehow doesn't resolve.
 func (s *ChartsService) GetChartScenes(window contracts.ChartWindow) ([]contracts.ChartScene, error) {
+	// Masthead instance on purpose: this key space is exactly the three
+	// window values (domain-bounded — chartsCacheFor's provenance rule), and
+	// the switcher list is nav-critical, so it must not compete for slots
+	// with the client-controlled module keys.
 	key := fmt.Sprintf("scenes|%s", window.OrDefault())
-	return chartsCached(s.cache, key, chartsModuleTTL, func() ([]contracts.ChartScene, error) {
+	return chartsCached(s.mastheadCache, key, chartsModuleTTL, func() ([]contracts.ChartScene, error) {
 		return s.getChartScenesUncached(window)
 	})
 }
