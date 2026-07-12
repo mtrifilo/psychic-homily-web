@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 // PSY-1321: the initial viewport must frame the settled layout when — and
@@ -204,6 +204,78 @@ describe('ForceGraphView zoomToFit (PSY-1321)', () => {
     const call = h.graph.d3Force.mock.calls.find(c => c[0] === 'recenter')
     expect(call).toBeDefined()
     expect(typeof call![1]).toBe('function')
+  })
+
+  // PSY-1442: static-viewport mode pre-settles synchronously (warmupTicks,
+  // cooldownTicks=0) and the one-shot fit runs INSTANTLY at first render —
+  // the mode disables every recovery gesture, so waiting ~3–6s for
+  // onEngineStop left the settled mass off-frame with no way back.
+  describe('static-viewport prewarm fit (PSY-1442)', () => {
+    it('fits instantly on mount — no engine stop needed, zero-duration camera move', () => {
+      renderGraph({ staticViewport: true })
+      expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+      expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
+    })
+
+    it('spends the one shot — a later engine stop does not re-fit', () => {
+      renderGraph({ staticViewport: true })
+      expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+      stopEngine()
+      expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+    })
+
+    it('engine-stop backstop fits INSTANTLY when warmup positions arrive after mount (NaN bbox)', () => {
+      h.graph.getGraphBbox.mockReturnValueOnce({
+        x: [undefined, undefined],
+        y: [undefined, undefined],
+      } as never)
+      renderGraph({ staticViewport: true })
+      expect(h.graph.zoomToFit).not.toHaveBeenCalled() // stayed armed
+
+      stopEngine()
+      expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+      expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40) // instant, never animated
+    })
+
+    it('spends the shot WITHOUT fitting when content is already in view', () => {
+      h.graph.getGraphBbox.mockReturnValue(IN_VIEW_BBOX)
+      renderGraph({ staticViewport: true })
+      stopEngine()
+      expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+    })
+
+    it('feeds the real payload to the engine once the chunk mounts (static data gate lifts)', () => {
+      // The gate exists so the warmup digest is scheduled by the same render
+      // whose commit configures the forces; it must not STAY empty.
+      renderGraph({ staticViewport: true })
+      const data = h.lastProps.value!.graphData as { nodes: unknown[]; links: unknown[] }
+      expect(data.nodes).toHaveLength(2)
+      expect(data.links).toHaveLength(1)
+    })
+
+    it('static + reduced motion: polls until warmup positions exist (a paused engine never stops)', () => {
+      vi.useFakeTimers()
+      try {
+        h.reducedMotion.value = true
+        // Positions not initialized yet — the digest that runs warmup is
+        // itself timer-scheduled, so the mount-time fit can fire first.
+        h.graph.getGraphBbox.mockReturnValue({
+          x: [undefined, undefined],
+          y: [undefined, undefined],
+        } as never)
+        renderGraph({ staticViewport: true })
+        expect(h.graph.zoomToFit).not.toHaveBeenCalled()
+
+        h.graph.getGraphBbox.mockReturnValue(OUT_OF_VIEW_BBOX)
+        act(() => {
+          vi.advanceTimersByTime(200)
+        })
+        expect(h.graph.zoomToFit).toHaveBeenCalledTimes(1)
+        expect(h.graph.zoomToFit).toHaveBeenCalledWith(0, 40)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   it('skips the recenter fallback when the graph has cluster anchors (PSY-1380)', () => {
