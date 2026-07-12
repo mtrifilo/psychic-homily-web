@@ -199,6 +199,24 @@ describe('SceneDetailView', () => {
       expect(screen.getByText('Festivals')).toBeInTheDocument()
       expect(screen.getByText(/3 festivals in Phoenix/)).toBeInTheDocument()
     })
+
+    it('deep-links shows and venues via the canonical ?cities= param', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({ city: 'Los Angeles', state: 'CA', slug: 'los-angeles-ca' }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="los-angeles-ca" />)
+
+      expect(screen.getByRole('link', { name: /View upcoming shows/i })).toHaveAttribute(
+        'href',
+        '/shows?cities=Los%20Angeles%2CCA'
+      )
+      expect(screen.getByRole('link', { name: /View all venues/i })).toHaveAttribute(
+        'href',
+        '/venues?cities=Los%20Angeles%2CCA'
+      )
+    })
   })
 
   describe('active artists list', () => {

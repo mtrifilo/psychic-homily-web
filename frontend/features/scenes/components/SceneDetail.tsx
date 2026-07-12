@@ -7,6 +7,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { TagPill } from '@/components/shared'
+import { buildCitiesParam } from '@/components/filters/cityParams'
 import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
 import { FollowButton } from '@/components/shared/FollowButton'
@@ -205,7 +206,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
               {stats.upcoming_show_count} show{stats.upcoming_show_count !== 1 ? 's' : ''} coming up in {scene.city}.
             </p>
             <Link
-              href={`/shows?city=${encodeURIComponent(scene.city)}&state=${encodeURIComponent(scene.state)}`}
+              href={`/shows?cities=${encodeURIComponent(buildCitiesParam([{ city: scene.city, state: scene.state }]))}`}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
             >
               View upcoming shows
@@ -227,7 +228,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
               {stats.venue_count} venue{stats.venue_count !== 1 ? 's' : ''} in {scene.city}.
             </p>
             <Link
-              href={`/venues?city=${encodeURIComponent(scene.city)}&state=${encodeURIComponent(scene.state)}`}
+              href={`/venues?cities=${encodeURIComponent(buildCitiesParam([{ city: scene.city, state: scene.state }]))}`}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
             >
               View all venues

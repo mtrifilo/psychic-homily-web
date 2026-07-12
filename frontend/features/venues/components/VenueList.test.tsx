@@ -183,6 +183,43 @@ describe('VenueList', () => {
     })
   })
 
+  describe('legacy ?city=&state= deep links', () => {
+    it('filters from legacy single-city params when ?cities= is absent', () => {
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null => {
+          if (key === 'city') return 'Los Angeles'
+          if (key === 'state') return 'CA'
+          return null
+        }),
+      })
+      mockVenues([makeVenue({ city: 'Los Angeles', state: 'CA' })])
+      render(<VenueList />)
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cities: [{ city: 'Los Angeles', state: 'CA' }],
+        })
+      )
+    })
+
+    it('lets explicit ?cities= win over co-present legacy params', () => {
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null => {
+          if (key === 'cities') return 'Phoenix,AZ'
+          if (key === 'city') return 'Los Angeles'
+          if (key === 'state') return 'CA'
+          return null
+        }),
+      })
+      mockVenues([makeVenue()])
+      render(<VenueList />)
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cities: [{ city: 'Phoenix', state: 'AZ' }],
+        })
+      )
+    })
+  })
+
   describe('error state', () => {
     it('shows error message and retry on failure', async () => {
       const mockRefetch = vi.fn()
