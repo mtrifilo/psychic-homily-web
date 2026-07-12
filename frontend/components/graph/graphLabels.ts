@@ -37,6 +37,15 @@ import type { GraphPalette } from './graphPalette'
 // rendered differently across surfaces and labels vanished earlier on zoom-out
 // in ForceGraphView (gate 1.0 vs 0.7). These are now the single source; neither
 // primitive keeps local label constants.
+//
+// The gate took ArtistGraph's more-forgiving value (0.7); the font clamp and
+// truncation budget took ForceGraphView's tighter ones (9-13px/base 11,
+// 22→20 chars) rather than ArtistGraph's old 10-14px/base 12, 20→18 —
+// deliberately, not by default: ForceGraphView is the primitive tuned for the
+// more crowded surfaces (scene graphs, homepage, venue bill networks), so its
+// tighter budget is the safer shared default; ArtistGraph's ego dialog has
+// room to spare either way. Verified legible on both surfaces via manual
+// repro screenshots (PSY-1445 PR).
 // ──────────────────────────────────────────────
 
 /**
