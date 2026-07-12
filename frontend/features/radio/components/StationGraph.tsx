@@ -17,6 +17,12 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import {
+  GraphStateCard,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_TEASER_HEIGHT_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
@@ -32,7 +38,7 @@ interface StationGraphProps {
 
 export function StationGraph({ slug, stationName }: StationGraphProps) {
   // The hook owns the empty-slug guard (enabled: Boolean(slug) internally).
-  const { data, isLoading } = useStationGraph({ slug })
+  const { data, isLoading, isError } = useStationGraph({ slug })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
@@ -70,7 +76,32 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     document.getElementById('graph')?.scrollIntoView()
   }, [hash, data])
 
-  if (isLoading) return null
+  // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
+  // of returning null — a null here shifts every section below when the
+  // canvas lands. The header stays put so only the box swaps on settle.
+  if (isLoading) {
+    return (
+      <div id="graph" className="scroll-mt-20">
+        <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+        <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+      </div>
+    )
+  }
+
+  // A settled fetch error leaves `data` undefined. Rendering nothing here
+  // would make an API failure indistinguishable from a sparse station —
+  // keep the section shell and say so (scene-page convention, PSY-1446).
+  if (!data && isError) {
+    return (
+      <div id="graph" className="scroll-mt-20">
+        <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+        <GraphStateCard
+          role="alert"
+          message="This view couldn't load. Refresh the page to try again."
+        />
+      </div>
+    )
+  }
 
   // Sparse state: a station needs at least MIN_GRAPH_NODES charted artists to
   // be worth a graph section — below that, render nothing at all (a bare
@@ -153,6 +184,22 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
           {stationHeader}
           {expandButton}
         </div>
+
+        {/* Pre-measurement: hold the box height so the settle can't shift
+            the sections below (HomeSceneGraph precedent). */}
+        {containerWidth === null && (
+          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+        )}
+
+        {/* Sub-640px: shared teaser card instead of the old silent hide —
+            the playlists feed + shows directory on this page remain the
+            small-screen surfaces, so no link-out target. */}
+        {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
+          <GraphStateCard
+            className={GRAPH_TEASER_HEIGHT_CLASS}
+            message="The interactive airplay graph is best on a larger screen."
+          />
+        )}
 
         {graphAvailable && !isFullscreen && (
           <div className="space-y-3">

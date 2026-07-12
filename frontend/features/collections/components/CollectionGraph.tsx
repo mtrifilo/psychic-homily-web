@@ -29,6 +29,12 @@ import { Maximize2, X } from 'lucide-react'
 import { useCollectionGraph } from '../hooks'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import {
+  GraphStateCard,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_TEASER_HEIGHT_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import {
@@ -64,7 +70,7 @@ interface CollectionGraphProps {
 
 export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps) {
   const router = useRouter()
-  const { data, isLoading } = useCollectionGraph({ slug, enabled: Boolean(slug) })
+  const { data, isLoading, isError } = useCollectionGraph({ slug, enabled: Boolean(slug) })
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
@@ -214,8 +220,24 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
           {expandButton}
         </div>
 
-        {isLoading && (
-          <p className="text-sm text-muted-foreground">Loading graph…</p>
+        {/* Loading reserves the graph box (shared GraphSkeleton, PSY-1347)
+            instead of bare text — bare text collapses the slot and shifts
+            the page when the canvas lands. */}
+        {isLoading && <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />}
+
+        {/* A settled fetch error leaves `data` undefined — say so instead of
+            rendering an empty slot (scene-page convention, PSY-1446). */}
+        {!isLoading && !data && isError && (
+          <GraphStateCard
+            role="alert"
+            message="This view couldn't load. Refresh the page to try again."
+          />
+        )}
+
+        {/* Post-load, pre-measurement: hold the box height until the width
+            gate can resolve (HomeSceneGraph precedent). */}
+        {!isLoading && data && nodeCount > 0 && containerWidth === null && (
+          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
         )}
 
         {!isLoading && data && nodeCount === 0 && (
@@ -225,10 +247,13 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
           </p>
         )}
 
+        {/* Sub-640px: shared teaser card (PSY-1446), replacing the old plain
+            sentence. No link-out: the collection's item list is on this page. */}
         {!isLoading && data && nodeCount > 0 && !graphAvailable && containerWidth !== null && (
-          <p className="text-sm text-muted-foreground">
-            Open on a larger screen to view the collection graph.
-          </p>
+          <GraphStateCard
+            className={GRAPH_TEASER_HEIGHT_CLASS}
+            message="The interactive collection graph is best on a larger screen."
+          />
         )}
 
         {!isLoading && data && nodeCount > 0 && graphAvailable && !isFullscreen && (

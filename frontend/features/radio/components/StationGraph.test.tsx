@@ -135,8 +135,15 @@ function fireResize(width: number) {
 }
 
 describe('StationGraph', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     ro = installImmediateResizeObserver(1024)
+    // Reset the hook mock to the default mockData so tests that override with
+    // sticky `.mockReturnValue` (the error-card test) can't leak forward.
+    const hooks = await import('../hooks/useStationGraph')
+    vi.mocked(hooks.useStationGraph).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => ({ data: mockData, isLoading: false, error: null }) as any,
+    )
   })
 
   afterEach(() => {
@@ -158,11 +165,15 @@ describe('StationGraph', () => {
     ).toBeInTheDocument()
   })
 
-  it('hides the canvas below the 640px breakpoint', () => {
+  it('hides the canvas below the 640px breakpoint and shows the teaser card (PSY-1446)', () => {
     setMockContainerWidth(500)
     renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
     expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/The Morning Show \(6\)/)).not.toBeInTheDocument()
+    // PSY-1446: the shared teaser card replaces the old silent hide.
+    expect(
+      screen.getByText(/interactive airplay graph is best on a larger screen/i),
+    ).toBeInTheDocument()
   })
 
   it('renders canvas + cluster legend at desktop width', () => {
@@ -232,7 +243,7 @@ describe('StationGraph', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders nothing while loading', async () => {
+  it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
     const hooks = await import('../hooks/useStationGraph')
     vi.mocked(hooks.useStationGraph).mockReturnValueOnce({
       data: undefined,
@@ -243,7 +254,28 @@ describe('StationGraph', () => {
     const { container } = renderWithProviders(
       <StationGraph slug="kexp" stationName="KEXP" />,
     )
-    expect(container.firstChild).toBeNull()
+    expect(screen.getByText('Airplay graph')).toBeInTheDocument()
+    expect(container.querySelector('.animate-pulse')).not.toBeNull()
+    expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
+  })
+
+  it('shows a visible error card when the graph fetch settles in error (PSY-1446)', async () => {
+    // Regression: StationGraph previously had NO error branch — a settled
+    // API failure (e.g. a 500) rendered nothing silently, indistinguishable
+    // from a sparse station.
+    const hooks = await import('../hooks/useStationGraph')
+    vi.mocked(hooks.useStationGraph).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Internal Server Error'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+    expect(screen.getByText('Airplay graph')).toBeInTheDocument()
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(/couldn't load/i)
+    expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
   })
 
   describe('fullscreen overlay', () => {
