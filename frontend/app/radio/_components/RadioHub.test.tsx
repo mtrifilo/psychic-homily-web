@@ -112,7 +112,34 @@ describe('RadioHub', () => {
     render(<RadioHub />)
 
     const strips = screen.getAllByTestId('dial-strip')
-    expect(strips.map(s => s.textContent)).toEqual(['KEXP', 'WFMU'])
+    // PSY-1459: WFMU is pinned first on The Dial (API still returns name ASC).
+    expect(strips.map(s => s.textContent)).toEqual(['WFMU', 'KEXP'])
+  })
+
+  it('pins WFMU first even when the API returns alphabetical order (PSY-1459)', () => {
+    mockUseRadioStations.mockReturnValue({
+      data: {
+        stations: [
+          makeStation({ id: 1, name: 'KEXP 90.3 FM', slug: 'kexp' }),
+          makeStation({ id: 3, name: 'NTS Radio', slug: 'nts-radio' }),
+          makeStation({
+            id: 2,
+            name: 'WFMU',
+            slug: 'wfmu',
+            network: { slug: 'wfmu', name: 'WFMU', is_flagship: true },
+          }),
+        ],
+        count: 3,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<RadioHub />)
+    expect(screen.getAllByTestId('dial-strip').map(s => s.textContent)).toEqual([
+      'WFMU',
+      'KEXP 90.3 FM',
+      'NTS Radio',
+    ])
   })
 
   it('renders the dial and latest-playlists section headings', () => {
