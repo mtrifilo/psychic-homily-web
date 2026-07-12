@@ -22,7 +22,7 @@ vi.mock('./timeUtils', () => ({
   ),
 }))
 
-import { formatShowDateBadge } from './showDateBadge'
+import { formatShowDateBadge, formatShowMonthDay } from './showDateBadge'
 import { formatInTimezone } from './timeUtils'
 
 describe('formatShowDateBadge', () => {
@@ -54,8 +54,7 @@ describe('formatShowDateBadge', () => {
   it('uppercases dayOfWeek and month', () => {
     vi.mocked(formatInTimezone)
       .mockReturnValueOnce('Mon') // weekday
-      .mockReturnValueOnce('Mar') // month
-      .mockReturnValueOnce('17') // day
+      .mockReturnValueOnce('Mar 17') // month/day
 
     const result = formatShowDateBadge('2025-03-17T19:00:00Z')
 
@@ -66,12 +65,27 @@ describe('formatShowDateBadge', () => {
   it('formats monthDay as "MONTH DAY"', () => {
     vi.mocked(formatInTimezone)
       .mockReturnValueOnce('Fri') // weekday
-      .mockReturnValueOnce('Dec') // month
-      .mockReturnValueOnce('1') // day
+      .mockReturnValueOnce('Dec 1') // month/day
 
     const result = formatShowDateBadge('2025-12-01T03:00:00Z')
 
     expect(result.dayOfWeek).toBe('FRI')
     expect(result.monthDay).toBe('DEC 1')
+  })
+})
+
+describe('formatShowMonthDay', () => {
+  it('formats the compact label with one timezone-aware Intl call', () => {
+    vi.mocked(formatInTimezone).mockReturnValueOnce('Jul 12')
+
+    expect(
+      formatShowMonthDay('2026-07-12T19:30:00Z', 'AZ', 'America/Phoenix')
+    ).toBe('JUL 12')
+    expect(formatInTimezone).toHaveBeenCalledTimes(1)
+    expect(formatInTimezone).toHaveBeenCalledWith(
+      '2026-07-12T19:30:00Z',
+      'America/Phoenix',
+      { month: 'short', day: 'numeric' }
+    )
   })
 })

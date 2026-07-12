@@ -39,12 +39,12 @@ test.describe('Library page (formerly /collection)', () => {
       authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Empty state for shows
+    // Empty state for shows (PSY-1440 dense editorial copy)
     await expect(
-      authenticatedPage.getByText('No shows saved yet')
+      authenticatedPage.getByText('Nothing saved yet.')
     ).toBeVisible({ timeout: 5_000 })
     await expect(
-      authenticatedPage.getByRole('link', { name: 'Browse Shows' })
+      authenticatedPage.getByRole('link', { name: 'Browse shows' })
     ).toBeVisible()
   })
 
