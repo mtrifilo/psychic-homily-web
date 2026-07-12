@@ -183,13 +183,17 @@ describe('SceneGraph', () => {
     expect(within(overlay).getByText(/Top 4 of 90 artists/)).toBeInTheDocument()
   })
 
-  it('hides the canvas below the 640px breakpoint', () => {
+  it('hides the canvas below the 640px breakpoint and shows the teaser card (PSY-1446)', () => {
     resizeObserver.setWidth(500)
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     // PSY-516: header copy is gated by `nodeCount === 0`, not by mobile gating,
     // so it may still render. The canvas + cluster legend must be absent.
     expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/Valley Bar \(6\)/)).not.toBeInTheDocument()
+    // PSY-1446: the shared teaser card replaces the old silent hide.
+    expect(
+      screen.getByText(/interactive scene graph is best on a larger screen/i),
+    ).toBeInTheDocument()
   })
 
   it('renders canvas + cluster legend at desktop width', () => {
@@ -236,7 +240,7 @@ describe('SceneGraph', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders nothing while loading', async () => {
+  it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
     const hooks = await import('../hooks/useScenes')
     vi.mocked(hooks.useSceneGraph).mockReturnValueOnce({
       data: undefined,
@@ -247,7 +251,9 @@ describe('SceneGraph', () => {
     const { container } = renderWithProviders(
       <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
     )
-    expect(container.firstChild).toBeNull()
+    expect(screen.getByText('Scene graph')).toBeInTheDocument()
+    expect(container.querySelector('.animate-pulse')).not.toBeNull()
+    expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
   })
 
   describe('fullscreen overlay (PSY-517)', () => {

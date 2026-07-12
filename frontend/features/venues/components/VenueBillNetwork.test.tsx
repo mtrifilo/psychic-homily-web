@@ -129,13 +129,14 @@ describe('VenueBillNetwork', () => {
     const { container } = renderWithProviders(
       <VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />,
     )
-    // Mobile gate + sparse: section returns null entirely. Even when the
-    // venue is non-sparse, the canvas is gated; on this dataset (4 artists,
-    // 25 shows) it's non-sparse but the canvas is mobile-gated.
+    // Even when the venue is non-sparse, the canvas is gated; on this
+    // dataset (4 artists, 25 shows) it's non-sparse but mobile-gated.
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
-    // The section header is also hidden behind the mobile gate when the
-    // graph itself is unavailable, mirroring the SceneGraph posture.
-    // (We assert the canvas absence — that's the load-bearing claim.)
+    // PSY-1446: non-sparse mobile shows the shared teaser card instead of
+    // silently rendering header + filter with nothing under them.
+    expect(
+      screen.getByText(/interactive bill network is best on a larger screen/i),
+    ).toBeInTheDocument()
     expect(container).toBeTruthy()
   })
 
@@ -252,7 +253,7 @@ describe('VenueBillNetwork', () => {
     expect(screen.queryByText(/Who plays together here/)).not.toBeInTheDocument()
   })
 
-  it('returns null while loading', async () => {
+  it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
     const hooks = await import('../hooks/useVenues')
     vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
       data: undefined,
@@ -263,7 +264,28 @@ describe('VenueBillNetwork', () => {
     const { container } = renderWithProviders(
       <VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />,
     )
-    expect(container.firstChild).toBeNull()
+    expect(screen.getByText(/Who plays together here/)).toBeInTheDocument()
+    expect(container.querySelector('.animate-pulse')).not.toBeNull()
+    expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
+  })
+
+  it('shows a visible error card + the window filter when the fetch settles in error (PSY-1446)', async () => {
+    const hooks = await import('../hooks/useVenues')
+    vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Internal Server Error'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />)
+    expect(screen.getByText(/Who plays together here/)).toBeInTheDocument()
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(/couldn't load/i)
+    // The window filter stays rendered — it's the user's path back to a
+    // window that worked (SceneGraph's stranding rationale).
+    expect(screen.getByRole('button', { name: /^All-time$/ })).toBeInTheDocument()
+    expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
   })
 
   describe('fullscreen overlay', () => {
