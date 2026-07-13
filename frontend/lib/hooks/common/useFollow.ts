@@ -19,10 +19,13 @@ export const useFollowStatus = (
   entityType: string,
   // number for id-keyed entities; a scene SLUG for "scenes" (PSY-1339/1340 —
   // same route shape: GET /scenes/{slug}/followers).
-  entityId: number | string
+  entityId: number | string,
+  enabled = true
 ) => {
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
   return useQuery({
-    queryKey: queryKeys.follows.entity(entityType, entityId),
+    queryKey: queryKeys.follows.entity(entityType, entityId, viewerId),
     queryFn: async (): Promise<FollowStatus> => {
       return apiRequest<FollowStatus>(
         API_ENDPOINTS.FOLLOW.FOLLOWERS(entityType, entityId),
@@ -30,8 +33,10 @@ export const useFollowStatus = (
       )
     },
     enabled:
+      enabled &&
       (typeof entityId === 'number' ? entityId > 0 : entityId.length > 0) &&
-      !!entityType,
+      !!entityType &&
+      (!isAuthenticated || viewerId !== undefined),
     staleTime: 2 * 60 * 1000, // 2 minutes
   })
 }
@@ -44,8 +49,10 @@ export const useBatchFollowStatus = (
   entityType: string,
   entityIds: number[]
 ) => {
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
   return useQuery({
-    queryKey: queryKeys.follows.batch(entityType, entityIds),
+    queryKey: queryKeys.follows.batch(entityType, entityIds, viewerId),
     queryFn: async (): Promise<Record<string, BatchFollowEntry>> => {
       const response = await apiRequest<BatchFollowResponse>(
         API_ENDPOINTS.FOLLOW.BATCH,
@@ -59,7 +66,10 @@ export const useBatchFollowStatus = (
       )
       return response.follows
     },
-    enabled: entityIds.length > 0 && !!entityType,
+    enabled:
+      entityIds.length > 0 &&
+      !!entityType &&
+      (!isAuthenticated || viewerId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -72,6 +82,7 @@ export const useBatchFollowStatus = (
 export const useFollow = () => {
   const queryClient = useQueryClient()
   const invalidateQueries = createInvalidateQueries(queryClient)
+  const { user } = useAuthContext()
 
   return useMutation({
     mutationFn: async ({
@@ -87,43 +98,71 @@ export const useFollow = () => {
       })
     },
     onMutate: async ({ entityType, entityId }) => {
-      // Cancel outgoing queries for this entity's follow status
-      await queryClient.cancelQueries({
-        queryKey: queryKeys.follows.entity(entityType, entityId),
-      })
+      const entityKey = queryKeys.follows.entity(entityType, entityId, user?.id)
+      const batchPrefix = queryKeys.follows.batchPrefix(entityType, user?.id)
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: entityKey }),
+        queryClient.cancelQueries({ queryKey: batchPrefix }),
+      ])
 
       // Snapshot previous value
-      const previousData = queryClient.getQueryData<FollowStatus>(
-        queryKeys.follows.entity(entityType, entityId)
-      )
+      const previousData = queryClient.getQueryData<FollowStatus>(entityKey)
+      const previousBatches = queryClient.getQueriesData<
+        Record<string, BatchFollowEntry>
+      >({ queryKey: batchPrefix })
 
       // Optimistically update
       if (previousData) {
-        queryClient.setQueryData(
-          queryKeys.follows.entity(entityType, entityId),
-          {
-            ...previousData,
-            follower_count: previousData.follower_count + 1,
-            is_following: true,
+        queryClient.setQueryData(entityKey, {
+          ...previousData,
+          follower_count: previousData.follower_count + 1,
+          is_following: true,
+        })
+      }
+      if (typeof entityId === 'number') {
+        queryClient.setQueriesData<Record<string, BatchFollowEntry>>(
+          { queryKey: batchPrefix },
+          current => {
+            const entry = current?.[String(entityId)]
+            if (!current || !entry) return current
+            return {
+              ...current,
+              [String(entityId)]: {
+                follower_count: entry.follower_count + 1,
+                is_following: true,
+              },
+            }
           }
         )
       }
 
-      return { previousData }
+      return { previousData, previousBatches }
     },
     onError: (_err, { entityType, entityId }, context) => {
       // Rollback on error
       if (context?.previousData) {
         queryClient.setQueryData(
-          queryKeys.follows.entity(entityType, entityId),
+          queryKeys.follows.entity(entityType, entityId, user?.id),
           context.previousData
         )
+      }
+      if (typeof entityId === 'number') {
+        for (const [key, snapshot] of context?.previousBatches ?? []) {
+          queryClient.setQueryData<Record<string, BatchFollowEntry>>(
+            key,
+            current => {
+              const priorEntry = snapshot?.[String(entityId)]
+              if (!current || !priorEntry) return current
+              return { ...current, [String(entityId)]: priorEntry }
+            }
+          )
+        }
       }
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       // Refetch to ensure consistency
       queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.entity(entityType, entityId),
+        queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
     },
@@ -138,6 +177,7 @@ export const useFollow = () => {
 export const useUnfollow = () => {
   const queryClient = useQueryClient()
   const invalidateQueries = createInvalidateQueries(queryClient)
+  const { user } = useAuthContext()
 
   return useMutation({
     mutationFn: async ({
@@ -155,38 +195,67 @@ export const useUnfollow = () => {
       })
     },
     onMutate: async ({ entityType, entityId }) => {
-      await queryClient.cancelQueries({
-        queryKey: queryKeys.follows.entity(entityType, entityId),
-      })
+      const entityKey = queryKeys.follows.entity(entityType, entityId, user?.id)
+      const batchPrefix = queryKeys.follows.batchPrefix(entityType, user?.id)
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: entityKey }),
+        queryClient.cancelQueries({ queryKey: batchPrefix }),
+      ])
 
-      const previousData = queryClient.getQueryData<FollowStatus>(
-        queryKeys.follows.entity(entityType, entityId)
-      )
+      const previousData = queryClient.getQueryData<FollowStatus>(entityKey)
+      const previousBatches = queryClient.getQueriesData<
+        Record<string, BatchFollowEntry>
+      >({ queryKey: batchPrefix })
 
       if (previousData) {
-        queryClient.setQueryData(
-          queryKeys.follows.entity(entityType, entityId),
-          {
-            ...previousData,
-            follower_count: Math.max(0, previousData.follower_count - 1),
-            is_following: false,
+        queryClient.setQueryData(entityKey, {
+          ...previousData,
+          follower_count: Math.max(0, previousData.follower_count - 1),
+          is_following: false,
+        })
+      }
+      if (typeof entityId === 'number') {
+        queryClient.setQueriesData<Record<string, BatchFollowEntry>>(
+          { queryKey: batchPrefix },
+          current => {
+            const entry = current?.[String(entityId)]
+            if (!current || !entry) return current
+            return {
+              ...current,
+              [String(entityId)]: {
+                follower_count: Math.max(0, entry.follower_count - 1),
+                is_following: false,
+              },
+            }
           }
         )
       }
 
-      return { previousData }
+      return { previousData, previousBatches }
     },
     onError: (_err, { entityType, entityId }, context) => {
       if (context?.previousData) {
         queryClient.setQueryData(
-          queryKeys.follows.entity(entityType, entityId),
+          queryKeys.follows.entity(entityType, entityId, user?.id),
           context.previousData
         )
+      }
+      if (typeof entityId === 'number') {
+        for (const [key, snapshot] of context?.previousBatches ?? []) {
+          queryClient.setQueryData<Record<string, BatchFollowEntry>>(
+            key,
+            current => {
+              const priorEntry = snapshot?.[String(entityId)]
+              if (!current || !priorEntry) return current
+              return { ...current, [String(entityId)]: priorEntry }
+            }
+          )
+        }
       }
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.entity(entityType, entityId),
+        queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
     },

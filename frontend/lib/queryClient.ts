@@ -12,7 +12,12 @@
  * read `browserQueryClient?.…` which safely short-circuits on the server.
  */
 
-import { QueryClient, DefaultOptions, QueryCache, MutationCache } from '@tanstack/react-query'
+import {
+  QueryClient,
+  DefaultOptions,
+  QueryCache,
+  MutationCache,
+} from '@tanstack/react-query'
 import { AuthError, AuthErrorCode } from './errors'
 import { artistQueryKeys } from '@/features/artists/api'
 import { venueQueryKeys } from '@/features/venues/api'
@@ -21,6 +26,7 @@ import { releaseQueryKeys } from '@/features/releases/api'
 import { labelQueryKeys } from '@/features/labels/api'
 import { festivalQueryKeys } from '@/features/festivals/api'
 import { radioQueryKeys } from '@/features/radio/api'
+import { chartQueryKeys } from '@/features/charts/api'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -104,7 +110,9 @@ function makeQueryClient() {
           // with the very auth-gated buttons the seed was meant to
           // make safe.
           if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
-            browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
+            browserQueryClient?.invalidateQueries({
+              queryKey: queryKeys.auth.profile,
+            })
           }
         }
       }
@@ -117,7 +125,9 @@ function makeQueryClient() {
       // auth state. Same rationale as above — don't clear the entire cache.
       if (isSessionExpiredError(error)) {
         if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
-          browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
+          browserQueryClient?.invalidateQueries({
+            queryKey: queryKeys.auth.profile,
+          })
         }
       }
     },
@@ -176,13 +186,22 @@ export const queryKeys = {
     dataQuality: {
       summary: ['admin', 'dataQuality', 'summary'] as const,
       category: (category: string, limit: number, offset: number) =>
-        ['admin', 'dataQuality', 'category', category, { limit, offset }] as const,
+        [
+          'admin',
+          'dataQuality',
+          'category',
+          category,
+          { limit, offset },
+        ] as const,
     },
     analytics: {
-      growth: (months: number) => ['admin', 'analytics', 'growth', months] as const,
-      engagement: (months: number) => ['admin', 'analytics', 'engagement', months] as const,
+      growth: (months: number) =>
+        ['admin', 'analytics', 'growth', months] as const,
+      engagement: (months: number) =>
+        ['admin', 'analytics', 'engagement', months] as const,
       community: ['admin', 'analytics', 'community'] as const,
-      dataQualityTrends: (months: number) => ['admin', 'analytics', 'data-quality', months] as const,
+      dataQualityTrends: (months: number) =>
+        ['admin', 'analytics', 'data-quality', months] as const,
     },
     pendingEdits: (params?: Record<string, unknown>) =>
       ['admin', 'pendingEdits', params] as const,
@@ -239,14 +258,28 @@ export const queryKeys = {
     // same endpoint returns is_saved only for authenticated callers — without it
     // an anonymous cache entry would survive login and report is_saved: false
     // for a show the user had already saved.
-    count: (showId: number, isAuthenticated: boolean) =>
-      ['savedShows', 'count', isAuthenticated, showId] as const,
+    count: (
+      showId: number,
+      isAuthenticated: boolean,
+      userId?: string | number
+    ) =>
+      ['savedShows', 'count', isAuthenticated, userId ?? null, showId] as const,
     // Prefix, exported so the optimistic-update path can patch every cached
     // batch without re-typing the key segments (a rename here would otherwise
     // silently stop matching).
-    countBatchPrefix: SAVED_SHOWS_COUNT_BATCH_PREFIX,
-    countBatch: (showIds: number[], isAuthenticated: boolean) =>
-      [...SAVED_SHOWS_COUNT_BATCH_PREFIX, isAuthenticated, showIds] as const,
+    countBatchPrefix: (userId?: string | number) =>
+      [...SAVED_SHOWS_COUNT_BATCH_PREFIX, true, userId ?? null] as const,
+    countBatch: (
+      showIds: number[],
+      isAuthenticated: boolean,
+      userId?: string | number
+    ) =>
+      [
+        ...SAVED_SHOWS_COUNT_BATCH_PREFIX,
+        isAuthenticated,
+        userId ?? null,
+        showIds,
+      ] as const,
   },
 
   // User's submitted shows
@@ -275,31 +308,39 @@ export const queryKeys = {
 
   // Contributor profile queries
   contributor: {
-    profile: (username: string) => ['contributor', 'profile', username] as const,
+    profile: (username: string) =>
+      ['contributor', 'profile', username] as const,
     ownProfile: ['contributor', 'ownProfile'] as const,
-    contributions: (username: string) => ['contributor', 'contributions', username] as const,
+    contributions: (username: string) =>
+      ['contributor', 'contributions', username] as const,
     ownContributions: ['contributor', 'ownContributions'] as const,
-    sections: (username: string) => ['contributor', 'sections', username] as const,
+    sections: (username: string) =>
+      ['contributor', 'sections', username] as const,
     ownSections: ['contributor', 'ownSections'] as const,
-    activityHeatmap: (username: string) => ['contributor', 'activityHeatmap', username] as const,
-    rankings: (username: string) => ['contributor', 'rankings', username] as const,
+    activityHeatmap: (username: string) =>
+      ['contributor', 'activityHeatmap', username] as const,
+    rankings: (username: string) =>
+      ['contributor', 'rankings', username] as const,
     following: (username: string, type?: string) =>
       ['contributor', 'following', username, type ?? 'all'] as const,
     // NOTE: limit is deliberately NOT in these keys — the profile sections
     // fetch one fixed page (API max 100) and slice client-side. A second
     // consumer with a different limit would get the first-mounted page
     // size; key on limit if that ever happens (PSY-1062).
-    fieldNotes: (username: string) => ['contributor', 'fieldNotes', username] as const,
+    fieldNotes: (username: string) =>
+      ['contributor', 'fieldNotes', username] as const,
   },
 
   // Collection queries
   collections: {
     all: ['collections'] as const,
-    list: (params?: Record<string, unknown>) => ['collections', 'list', params] as const,
+    list: (params?: Record<string, unknown>) =>
+      ['collections', 'list', params] as const,
     detail: (slug: string) => ['collections', 'detail', slug] as const,
     stats: (slug: string) => ['collections', 'stats', slug] as const,
     // PSY-366: artist-relationship subgraph for the collection's artist items.
-    graph: (slug: string, types?: string[]) => ['collections', 'graph', slug, types ?? null] as const,
+    graph: (slug: string, types?: string[]) =>
+      ['collections', 'graph', slug, types ?? null] as const,
     // Bare prefix used by mutation invalidations — TanStack matches every
     // descendant query (myList(...) variants below) under this prefix.
     my: ['collections', 'my'] as const,
@@ -311,7 +352,7 @@ export const queryKeys = {
      * to share that cache entry.
      */
     myList: (params?: { search?: string }) =>
-      params && Object.values(params).some((v) => v != null && v !== '')
+      params && Object.values(params).some(v => v != null && v !== '')
         ? (['collections', 'my', params] as const)
         : (['collections', 'my'] as const),
     // PSY-359: which of the user's own collections already contain a given
@@ -335,28 +376,43 @@ export const queryKeys = {
     all: ['requests'] as const,
     list: (params?: Record<string, unknown>) =>
       ['requests', 'list', params] as const,
-    detail: (requestId: number) =>
-      ['requests', 'detail', requestId] as const,
+    detail: (requestId: number) => ['requests', 'detail', requestId] as const,
   },
 
   // Tag queries
   tags: {
     all: ['tags'] as const,
-    list: (params?: Record<string, unknown>) => ['tags', 'list', params] as const,
-    search: (query: string, category?: string) => ['tags', 'search', query.toLowerCase(), category ?? ''] as const,
-    detail: (idOrSlug: string | number) => ['tags', 'detail', String(idOrSlug)] as const,
-    enrichedDetail: (idOrSlug: string | number) => ['tags', 'detail', 'enriched', String(idOrSlug)] as const,
+    list: (params?: Record<string, unknown>) =>
+      ['tags', 'list', params] as const,
+    search: (query: string, category?: string) =>
+      ['tags', 'search', query.toLowerCase(), category ?? ''] as const,
+    detail: (idOrSlug: string | number) =>
+      ['tags', 'detail', String(idOrSlug)] as const,
+    enrichedDetail: (idOrSlug: string | number) =>
+      ['tags', 'detail', 'enriched', String(idOrSlug)] as const,
     aliases: (tagId: number) => ['tags', 'aliases', tagId] as const,
-    allAliases: (params?: Record<string, unknown>) => ['tags', 'aliases', 'all', params] as const,
-    lowQuality: (params?: Record<string, unknown>) => ['tags', 'low-quality', params] as const,
+    allAliases: (params?: Record<string, unknown>) =>
+      ['tags', 'aliases', 'all', params] as const,
+    lowQuality: (params?: Record<string, unknown>) =>
+      ['tags', 'low-quality', params] as const,
     genreHierarchy: ['tags', 'hierarchy', 'genre'] as const,
-    entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
-    tagEntities: (idOrSlug: string | number, params?: Record<string, unknown>) => ['tags', 'tagEntities', String(idOrSlug), params] as const,
+    entityTags: (entityType: string, entityId: number) =>
+      ['tags', 'entityTags', entityType, entityId] as const,
+    tagEntities: (
+      idOrSlug: string | number,
+      params?: Record<string, unknown>
+    ) => ['tags', 'tagEntities', String(idOrSlug), params] as const,
     // Cross-entity tag intersection (PSY-995 / PSY-993 detail sections). Keyed on
     // the normalized (sorted) slug set + match so shoegaze,ambient and
     // ambient,shoegaze share a cache entry (intersection is symmetric).
     intersection: (slugs: string[], match: string, previewLimit?: number) =>
-      ['tags', 'intersection', [...slugs].sort().join(','), match, previewLimit ?? null] as const,
+      [
+        'tags',
+        'intersection',
+        [...slugs].sort().join(','),
+        match,
+        previewLimit ?? null,
+      ] as const,
   },
 
   // Follow queries
@@ -364,10 +420,19 @@ export const queryKeys = {
     all: ['follows'] as const,
     // entityId: number for id-keyed entities; a scene SLUG for "scenes"
     // (PSY-1339 — slug-addressed follow routes).
-    entity: (entityType: string, entityId: number | string) =>
-      ['follows', entityType, entityId] as const,
-    batch: (entityType: string, entityIds: number[]) =>
-      ['follows', 'batch', entityType, ...entityIds] as const,
+    entity: (
+      entityType: string,
+      entityId: number | string,
+      userId?: string | number
+    ) => ['follows', entityType, userId ?? null, entityId] as const,
+    batchPrefix: (entityType: string, userId?: string | number) =>
+      ['follows', 'batch', entityType, userId ?? null] as const,
+    batch: (
+      entityType: string,
+      entityIds: number[],
+      userId?: string | number
+    ) =>
+      ['follows', 'batch', entityType, userId ?? null, ...entityIds] as const,
     myFollowing: (params?: Record<string, unknown>) =>
       ['follows', 'my-following', params] as const,
     followers: (entityType: string, entityId: number) =>
@@ -386,7 +451,11 @@ export const queryKeys = {
     // clusterBy is the literal union (not string) so a drifted value at an
     // invalidation/prefetch site is a compile error, not a silent key
     // mismatch (the PSY-1109 key-drift class).
-    graph: (slug: string, types?: string[], clusterBy?: 'venue' | 'community') =>
+    graph: (
+      slug: string,
+      types?: string[],
+      clusterBy?: 'venue' | 'community'
+    ) =>
       ['scenes', 'graph', slug, types ?? null, clusterBy ?? 'venue'] as const,
   },
 
@@ -397,14 +466,7 @@ export const queryKeys = {
   },
 
   // Charts queries (public)
-  charts: {
-    all: ['charts'] as const,
-    overview: ['charts', 'overview'] as const,
-    trendingShows: (limit?: number) => ['charts', 'trending-shows', limit] as const,
-    popularArtists: (limit?: number) => ['charts', 'popular-artists', limit] as const,
-    activeVenues: (limit?: number) => ['charts', 'active-venues', limit] as const,
-    hotReleases: (limit?: number) => ['charts', 'hot-releases', limit] as const,
-  },
+  charts: chartQueryKeys,
 
   // Revision history queries
   revisions: {
@@ -470,12 +532,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),
 
   // Invalidate calendar queries
-  calendar: () =>
-    queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+  calendar: () => queryClient.invalidateQueries({ queryKey: ['calendar'] }),
 
   // Invalidate saved shows queries
-  savedShows: () =>
-    queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
+  savedShows: () => queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
 
   // Invalidate user's submissions queries
   mySubmissions: () =>
@@ -516,9 +576,15 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate own contributor profile queries
   ownContributor: () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['contributor', 'ownProfile'] }),
-      queryClient.invalidateQueries({ queryKey: ['contributor', 'ownSections'] }),
-      queryClient.invalidateQueries({ queryKey: ['contributor', 'ownContributions'] }),
+      queryClient.invalidateQueries({
+        queryKey: ['contributor', 'ownProfile'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ['contributor', 'ownSections'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ['contributor', 'ownContributions'],
+      }),
     ]),
 
   // Invalidate collection queries
@@ -526,28 +592,25 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
     queryClient.invalidateQueries({ queryKey: ['collections'] }),
 
   // Invalidate request queries
-  requests: () =>
-    queryClient.invalidateQueries({ queryKey: ['requests'] }),
+  requests: () => queryClient.invalidateQueries({ queryKey: ['requests'] }),
 
   // Invalidate tag queries
-  tags: () =>
-    queryClient.invalidateQueries({ queryKey: ['tags'] }),
+  tags: () => queryClient.invalidateQueries({ queryKey: ['tags'] }),
 
   // Invalidate entity tag queries
   entityTags: (entityType: string, entityId: number) =>
-    queryClient.invalidateQueries({ queryKey: ['tags', 'entityTags', entityType, entityId] }),
+    queryClient.invalidateQueries({
+      queryKey: ['tags', 'entityTags', entityType, entityId],
+    }),
 
   // Invalidate follow queries
-  follows: () =>
-    queryClient.invalidateQueries({ queryKey: ['follows'] }),
+  follows: () => queryClient.invalidateQueries({ queryKey: ['follows'] }),
 
   // Invalidate scene queries
-  scenes: () =>
-    queryClient.invalidateQueries({ queryKey: ['scenes'] }),
+  scenes: () => queryClient.invalidateQueries({ queryKey: ['scenes'] }),
 
   // Invalidate revision queries
-  revisions: () =>
-    queryClient.invalidateQueries({ queryKey: ['revisions'] }),
+  revisions: () => queryClient.invalidateQueries({ queryKey: ['revisions'] }),
 
   // Invalidate notification filter queries
   notificationFilters: () =>

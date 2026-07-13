@@ -35,7 +35,18 @@ interface UseReleasesOptions {
  * Hook to fetch list of releases with optional filtering, search, sorting, and pagination
  */
 export function useReleases(options: UseReleasesOptions = {}) {
-  const { releaseType, year, artistId, search, sort, labelId, limit, offset, tags, tagMatch } = options
+  const {
+    releaseType,
+    year,
+    artistId,
+    search,
+    sort,
+    labelId,
+    limit,
+    offset,
+    tags,
+    tagMatch,
+  } = options
 
   const params = new URLSearchParams()
   if (releaseType) params.set('release_type', releaseType)
@@ -58,8 +69,27 @@ export function useReleases(options: UseReleasesOptions = {}) {
 
   return useQuery({
     queryKey: releaseQueryKeys.list(
-      releaseType || year || artistId || search || sort || labelId || limit || offset || (tags && tags.length > 0)
-        ? { releaseType, year, artistId, search, sort, labelId, limit, offset, tags, tagMatch }
+      releaseType ||
+        year ||
+        artistId ||
+        search ||
+        sort ||
+        labelId ||
+        limit ||
+        offset ||
+        (tags && tags.length > 0)
+        ? {
+            releaseType,
+            year,
+            artistId,
+            search,
+            sort,
+            labelId,
+            limit,
+            offset,
+            tags,
+            tagMatch,
+          }
         : undefined
     ),
     queryFn: async (): Promise<ReleasesListResponse> => {
@@ -77,14 +107,17 @@ export function useReleases(options: UseReleasesOptions = {}) {
  */
 export const useRelease = createDetailHook<ReleaseDetail>(
   releaseEndpoints.GET,
-  releaseQueryKeys.detail,
+  releaseQueryKeys.detail
 )
 
 /**
  * Hook to fetch releases for a specific artist
  */
-export const useArtistReleases = createNamedDetailHook<ArtistReleasesResponse, 'artistIdOrSlug'>(
+export const useArtistReleases = createNamedDetailHook<
+  ArtistReleasesResponse,
+  'artistIdOrSlug'
+>(
   'artistIdOrSlug',
   releaseEndpoints.ARTIST_RELEASES,
-  releaseQueryKeys.artistReleases,
+  releaseQueryKeys.artistReleases
 )

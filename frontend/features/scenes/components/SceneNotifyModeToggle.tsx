@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { useFollowStatus } from '@/lib/hooks/common/useFollow'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +21,7 @@ const MODES = [
  */
 export function SceneNotifyModeToggle({ slug }: { slug: string }) {
   const queryClient = useQueryClient()
+  const { user } = useAuthContext()
   const { data } = useFollowStatus('scenes', slug)
 
   const setMode = useMutation({
@@ -32,25 +34,25 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
     // between the POST resolving and the invalidation refetch landing, which
     // reads as "the click didn't take" (review-caught).
     onMutate: async (mode: string) => {
-      const key = queryKeys.follows.entity('scenes', slug)
+      const key = queryKeys.follows.entity('scenes', slug, user?.id)
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData(key)
       queryClient.setQueryData(key, (old: unknown) =>
-        old ? { ...(old as object), notify_mode: mode } : old,
+        old ? { ...(old as object), notify_mode: mode } : old
       )
       return { previous }
     },
     onError: (_err, _mode, context) => {
       if (context?.previous !== undefined) {
         queryClient.setQueryData(
-          queryKeys.follows.entity('scenes', slug),
-          context.previous,
+          queryKeys.follows.entity('scenes', slug, user?.id),
+          context.previous
         )
       }
     },
     onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.entity('scenes', slug),
+        queryKey: queryKeys.follows.entity('scenes', slug, user?.id),
       })
     },
   })
@@ -65,7 +67,7 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
       className="flex items-center gap-1 text-xs"
     >
       <span className="text-muted-foreground">Notify:</span>
-      {MODES.map((m) => (
+      {MODES.map(m => (
         <button
           key={m.value}
           type="button"
@@ -79,7 +81,7 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
             'rounded-full border px-2 py-0.5 transition-colors',
             current === m.value
               ? 'border-primary text-foreground'
-              : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground',
+              : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground'
           )}
         >
           {m.label}

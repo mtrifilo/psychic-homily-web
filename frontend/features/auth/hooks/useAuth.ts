@@ -666,6 +666,7 @@ interface DeletionSummaryResponse {
   message: string
   shows_count: number
   saved_shows_count: number
+  saved_releases_count: number
   passkeys_count: number
   has_password: boolean
   error_code?: string
@@ -904,7 +905,9 @@ export const useUnlinkOAuthAccount = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (provider: string): Promise<UnlinkOAuthAccountResponse> => {
+    mutationFn: async (
+      provider: string
+    ): Promise<UnlinkOAuthAccountResponse> => {
       authLogger.debug('Unlinking OAuth account', { provider })
 
       const response = await apiRequest<UnlinkOAuthAccountResponse>(
@@ -928,7 +931,7 @@ export const useUnlinkOAuthAccount = () => {
 
       return response
     },
-    onSuccess: (data) => {
+    onSuccess: data => {
       authLogger.info(
         'OAuth account unlinked successfully',
         { message: data.message },
@@ -1088,7 +1091,9 @@ export const useConfirmAccountRecovery = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (token: string): Promise<ConfirmAccountRecoveryResponse> => {
+    mutationFn: async (
+      token: string
+    ): Promise<ConfirmAccountRecoveryResponse> => {
       authLogger.debug('Confirming account recovery')
 
       const response = await apiRequest<ConfirmAccountRecoveryResponse>(
@@ -1264,8 +1269,10 @@ export const useRevokeAPIToken = () => {
 
       return response
     },
-    onSuccess: (data) => {
-      authLogger.info('API token revoked successfully', { message: data.message })
+    onSuccess: data => {
+      authLogger.info('API token revoked successfully', {
+        message: data.message,
+      })
       // Invalidate tokens list to refetch
       queryClient.invalidateQueries({ queryKey: ['admin', 'api-tokens'] })
     },

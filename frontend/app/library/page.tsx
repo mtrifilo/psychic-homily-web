@@ -26,13 +26,28 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useSavedShows, useMySubmissions } from '@/features/shows'
 import type { SavedShowResponse, ShowResponse } from '@/features/shows'
+import {
+  getReleaseTypeLabel,
+  useSavedReleases,
+  type SavedReleaseResponse,
+} from '@/features/releases'
+import { getSavedReleasePageBounds } from '@/features/releases/savedReleasePagination'
 import { useMyFollowing, useUnfollow } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
-import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
+import {
+  formatShowDate,
+  formatShowTime,
+  formatPrice,
+} from '@/lib/utils/formatters'
 import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { BracketLink, SaveButton, SubmissionSuccessDialog } from '@/components/shared'
+import {
+  BracketLink,
+  ReleaseSaveButton,
+  SaveButton,
+  SubmissionSuccessDialog,
+} from '@/components/shared'
 import {
   DeleteShowDialog,
   UnpublishShowDialog,
@@ -102,7 +117,7 @@ function EmptyState({
         <Button asChild variant="outline" size="sm">
           <Link href={browseHref}>{browseLabel}</Link>
         </Button>
-        {discoveryLinks?.map((link) => (
+        {discoveryLinks?.map(link => (
           <BracketLink
             key={link.href}
             label={link.label}
@@ -136,10 +151,19 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
       <div className="font-mono text-[11px] font-bold uppercase text-primary md:text-xs">
         <span className="md:hidden">{mobileDate}</span>
         <span className="hidden md:inline">
-          {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
+          {formatShowDate(
+            show.event_date,
+            show.state,
+            false,
+            show.venues?.[0]?.timezone
+          )}
         </span>
         <div className="mt-0.5 hidden text-[11px] font-normal normal-case text-muted-foreground md:block">
-          {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
+          {formatShowTime(
+            show.event_date,
+            show.state,
+            show.venues?.[0]?.timezone
+          )}
         </div>
       </div>
 
@@ -148,7 +172,7 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
           href={`/shows/${show.slug || show.id}`}
           className="block truncate text-sm font-medium leading-tight transition-colors hover:text-primary md:text-[15px]"
         >
-          {artists.map((a) => a.name).join(' \u00B7 ')}
+          {artists.map(a => a.name).join(' \u00B7 ')}
         </Link>
 
         <div className="mt-0.5 truncate text-xs text-muted-foreground md:text-[13px]">
@@ -166,7 +190,9 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
               )}
               {(venue.city || venue.state) && (
                 <span>
-                  {' '}&middot; {[venue.city, venue.state].filter(Boolean).join(', ')}
+                  {' '}
+                  &middot;{' '}
+                  {[venue.city, venue.state].filter(Boolean).join(', ')}
                 </span>
               )}
             </>
@@ -177,8 +203,8 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
   )
 }
 
-function ShowsTab() {
-  const { data: savedData, isLoading, error } = useSavedShows()
+function ShowsTab({ userId }: { userId?: number }) {
+  const { data: savedData, isLoading, error } = useSavedShows({ userId })
 
   const savedShows = savedData?.shows ?? []
 
@@ -216,11 +242,174 @@ function ShowsTab() {
         />
       ) : (
         <section className="w-full">
-          {savedShows.map((show) => (
+          {savedShows.map(show => (
             <SavedShowCard key={show.id} show={show} />
           ))}
         </section>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Releases tab — the user's saved releases
+// ---------------------------------------------------------------------------
+
+function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
+  return (
+    <article className="-mx-3 flex items-start justify-between gap-3 rounded-lg border-b border-border/50 px-3 py-4 transition-colors duration-200 hover:bg-muted/30">
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/releases/${release.slug || release.id}`}
+          className="font-semibold leading-tight transition-colors hover:text-primary"
+        >
+          {release.title}
+        </Link>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {release.artists.map((artist, index) => (
+            <span key={artist.id}>
+              {index > 0 ? ' · ' : null}
+              <Link
+                href={`/artists/${artist.slug || artist.id}`}
+                className="transition-colors hover:text-primary"
+              >
+                {artist.name}
+              </Link>
+            </span>
+          ))}
+          {release.artists.length > 0 && release.label_name ? ' · ' : null}
+          {release.label_name && release.label_slug ? (
+            <Link
+              href={`/labels/${release.label_slug}`}
+              className="transition-colors hover:text-primary"
+            >
+              {release.label_name}
+            </Link>
+          ) : (
+            release.label_name
+          )}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <span className="hidden text-xs uppercase tracking-wide text-muted-foreground sm:inline">
+          {getReleaseTypeLabel(release.release_type)}
+        </span>
+        <ReleaseSaveButton
+          releaseId={release.id}
+          saveData={{ save_count: 0, is_saved: true }}
+          variant="bracket"
+        />
+      </div>
+    </article>
+  )
+}
+
+const SAVED_RELEASES_PAGE_SIZE = 50
+
+function ReleasesTab({ userId }: { userId?: number }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const rawPage = Number.parseInt(searchParams.get('release_page') ?? '1', 10)
+  const { page } = getSavedReleasePageBounds(
+    rawPage,
+    0,
+    SAVED_RELEASES_PAGE_SIZE
+  )
+  const offset = (page - 1) * SAVED_RELEASES_PAGE_SIZE
+  const { data, isLoading, error } = useSavedReleases(
+    SAVED_RELEASES_PAGE_SIZE,
+    offset,
+    userId
+  )
+  const savedReleases = data?.releases ?? []
+  const { totalPages, targetPage } = getSavedReleasePageBounds(
+    page,
+    data?.total ?? 0,
+    SAVED_RELEASES_PAGE_SIZE
+  )
+
+  useEffect(() => {
+    if (!data || page === targetPage) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (targetPage <= 1) params.delete('release_page')
+    else params.set('release_page', String(targetPage))
+    const query = params.toString()
+    router.replace(query ? `/library?${query}` : '/library', { scroll: false })
+  }, [data, page, router, searchParams, targetPage])
+
+  const changePage = (nextPage: number) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (nextPage <= 1) params.delete('release_page')
+    else params.set('release_page', String(nextPage))
+    const query = params.toString()
+    router.replace(query ? `/library?${query}` : '/library', { scroll: false })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error && !data) {
+    return (
+      <div className="py-12 text-center text-destructive">
+        <p>Failed to load your releases. Please try again later.</p>
+      </div>
+    )
+  }
+
+  if (data && page > totalPages) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (savedReleases.length === 0) {
+    return (
+      <EmptyState
+        title="No releases saved yet."
+        description="Save releases to see them here."
+        browseHref="/releases"
+        browseLabel="Browse releases"
+      />
+    )
+  }
+
+  return (
+    <div>
+      <section className="w-full">
+        {savedReleases.map(release => (
+          <SavedReleaseCard key={release.id} release={release} />
+        ))}
+      </section>
+      {totalPages > 1 ? (
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => changePage(page - 1)}
+          >
+            Previous
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => changePage(page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -299,7 +488,12 @@ function SubmissionShowCard({
         {/* Left column: Date, Location, and Status */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
           <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
+            {formatShowDate(
+              show.event_date,
+              show.state,
+              false,
+              show.venues?.[0]?.timezone
+            )}
           </h2>
           <h3 className="text-xs text-muted-foreground mt-0.5">
             {show.city}, {show.state}
@@ -517,7 +711,12 @@ function SubmissionShowCard({
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
             <span>
-              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
+              &nbsp;•&nbsp;
+              {formatShowTime(
+                show.event_date,
+                show.state,
+                show.venues?.[0]?.timezone
+              )}
             </span>
             {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
               <>
@@ -627,7 +826,7 @@ function SubmissionsTab({
 
   return (
     <section className="w-full">
-      {shows.map((show) => (
+      {shows.map(show => (
         <SubmissionShowCard
           key={show.id}
           show={show as SavedShowResponse}
@@ -647,10 +846,18 @@ const entityTypeInfo: Record<
   string,
   { plural: string; label: string; href: (slug: string) => string }
 > = {
-  artist: { plural: 'artists', label: 'Artist', href: (slug) => `/artists/${slug}` },
-  venue: { plural: 'venues', label: 'Venue', href: (slug) => `/venues/${slug}` },
-  label: { plural: 'labels', label: 'Label', href: (slug) => `/labels/${slug}` },
-  festival: { plural: 'festivals', label: 'Festival', href: (slug) => `/festivals/${slug}` },
+  artist: {
+    plural: 'artists',
+    label: 'Artist',
+    href: slug => `/artists/${slug}`,
+  },
+  venue: { plural: 'venues', label: 'Venue', href: slug => `/venues/${slug}` },
+  label: { plural: 'labels', label: 'Label', href: slug => `/labels/${slug}` },
+  festival: {
+    plural: 'festivals',
+    label: 'Festival',
+    href: slug => `/festivals/${slug}`,
+  },
 }
 
 function getEntityIcon(entityType: string) {
@@ -699,7 +906,9 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="shrink-0 h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-            {createElement(icon, { className: 'h-4 w-4 text-muted-foreground' })}
+            {createElement(icon, {
+              className: 'h-4 w-4 text-muted-foreground',
+            })}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -793,9 +1002,15 @@ function FollowingList({
   }
 
   return (
-    <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+    <div
+      className={
+        isFetching
+          ? 'opacity-60 transition-opacity duration-75'
+          : 'transition-opacity duration-75'
+      }
+    >
       <section className="w-full">
-        {following.map((entity) => (
+        {following.map(entity => (
           <FollowingEntityCard
             key={`${entity.entity_type}-${entity.entity_id}`}
             entity={entity}
@@ -807,7 +1022,7 @@ function FollowingList({
         <div className="text-center py-6">
           <Button
             variant="outline"
-            onClick={() => setOffset((prev) => prev + limit)}
+            onClick={() => setOffset(prev => prev + limit)}
             disabled={isFetching}
           >
             {isFetching ? 'Loading...' : 'Load More'}
@@ -892,7 +1107,9 @@ function LibraryContent() {
       params.set('tab', tab)
     }
     const queryString = params.toString()
-    router.replace(queryString ? `/library?${queryString}` : '/library', { scroll: false })
+    router.replace(queryString ? `/library?${queryString}` : '/library', {
+      scroll: false,
+    })
   }
 
   const handleDialogClose = (open: boolean) => {
@@ -929,7 +1146,9 @@ function LibraryContent() {
 
       {/* Header (Library board A): plain editorial title, no icon */}
       <header className="mb-4 md:mb-7">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Library</h1>
+        <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">
+          Library
+        </h1>
         <p className="mt-1.5 hidden text-sm text-muted-foreground md:block">
           Your saved shows, and the artists, venues, scenes and labels you
           follow.
@@ -938,12 +1157,16 @@ function LibraryContent() {
 
       {/* Tabs — underline style per the Library design direction (board A),
           horizontally scrollable on small screens instead of wrapping (board F) */}
-      <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
+      <Tabs
+        value={currentTab}
+        onValueChange={handleTabChange}
+        className="w-full"
+      >
         <TabsList
           ref={tabListRef}
           className="mb-6 h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0"
         >
-          {LIBRARY_TABS.map((tab) => (
+          {LIBRARY_TABS.map(tab => (
             <TabsTrigger
               key={tab}
               ref={tab === currentTab ? activeTabTriggerRef : undefined}
@@ -956,7 +1179,7 @@ function LibraryContent() {
         </TabsList>
 
         <TabsContent value="shows">
-          <ShowsTab />
+          <ShowsTab userId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="artists">
@@ -980,12 +1203,7 @@ function LibraryContent() {
         </TabsContent>
 
         <TabsContent value="releases">
-          <EmptyState
-            title="No releases saved yet."
-            description="Release bookmarks are coming soon. Browse releases in the meantime."
-            browseHref="/releases"
-            browseLabel="Browse releases"
-          />
+          <ReleasesTab userId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="labels">

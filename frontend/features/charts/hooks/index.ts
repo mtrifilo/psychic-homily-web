@@ -1,7 +1,10 @@
 export {
-  useChartsOverview,
-  useTrendingShows,
-  usePopularArtists,
-  useActiveVenues,
-  useHotReleases,
+  useMostActiveArtists,
+  useOnTheRadio,
+  useMostAnticipated,
+  useBusiestVenues,
+  useNewReleases,
+  useOpenersToWatch,
+  useChartsSummary,
+  useFreshlyAdded,
 } from './useCharts'

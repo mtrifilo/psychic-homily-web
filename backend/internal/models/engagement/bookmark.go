@@ -32,6 +32,9 @@ const (
 	BookmarkActionSave     BookmarkAction = "save"
 	BookmarkActionFollow   BookmarkAction = "follow"
 	BookmarkActionBookmark BookmarkAction = "bookmark"
+	// BookmarkActionReleaseSave names the release Save/Saved relationship while
+	// preserving compatibility with historical release bookmark rows.
+	BookmarkActionReleaseSave BookmarkAction = BookmarkActionBookmark
 )
 
 // UserBookmark represents a generic user-entity relationship

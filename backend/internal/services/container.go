@@ -62,6 +62,7 @@ type ServiceContainer struct {
 	FestivalIntelligence   *catalog.FestivalIntelligenceService
 	Label                  *catalog.LabelService
 	Release                *catalog.ReleaseService
+	SavedRelease           *engagement.SavedReleaseService
 	SavedShow              *engagement.SavedShowService
 	Show                   *catalog.ShowService
 	ShowReport             *adminsvc.ShowReportService
@@ -218,6 +219,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// handler can create the entity from an approved request's payload.
 	labelSvc := catalog.NewLabelService(database)
 	releaseSvc := catalog.NewReleaseService(database)
+	savedRelease := engagement.NewSavedReleaseService(database, releaseSvc)
 	festivalSvc := catalog.NewFestivalService(database)
 	showSvc := catalog.NewShowService(database)
 	entityRequestSvc := community.NewEntityRequestService(database)
@@ -293,6 +295,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		FestivalIntelligence:   catalog.NewFestivalIntelligenceService(database),
 		Label:                  labelSvc,
 		Release:                releaseSvc,
+		SavedRelease:           savedRelease,
 		SavedShow:              savedShow,
 		Show:                   showSvc,
 		ShowReport:             adminsvc.NewShowReportService(database),

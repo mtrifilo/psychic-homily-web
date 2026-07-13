@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Disc3 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { EntityCardTitle } from '@/components/shared'
+import { EntityCardTitle, ReleaseSaveButton } from '@/components/shared'
 import { getReleaseTypeLabel } from '../types'
 import type { ReleaseListItem } from '../types'
 
@@ -12,6 +12,9 @@ export type ReleaseCardDensity = 'compact' | 'comfortable' | 'expanded'
 interface ReleaseCardProps {
   release: ReleaseListItem
   density?: ReleaseCardDensity
+  saveData?: { save_count: number; is_saved: boolean }
+  saveDisabled?: boolean
+  showSaveAction?: boolean
 }
 
 /**
@@ -24,7 +27,7 @@ function formatArtistNames(release: ReleaseListItem): string | null {
   const artists = release.artists
   if (!artists || artists.length === 0) return null
   if (artists.length > 3) return 'Various Artists'
-  return artists.map((a) => a.name).join(', ')
+  return artists.map(a => a.name).join(', ')
 }
 
 /**
@@ -43,9 +46,9 @@ function ArtistLinks({ release }: { release: ReleaseListItem }) {
       {artists.map((artist, i) => (
         <span key={artist.id}>
           <Link
-            href={`/artists/${artist.slug}`}
+            href={`/artists/${artist.slug || artist.id}`}
             className="text-muted-foreground hover:text-primary transition-colors"
-            onClick={(e) => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
             {artist.name}
           </Link>
@@ -61,8 +64,11 @@ function ArtistLinks({ release }: { release: ReleaseListItem }) {
 export function ReleaseCard({
   release,
   density = 'comfortable',
+  saveData,
+  saveDisabled = false,
+  showSaveAction = false,
 }: ReleaseCardProps) {
-  const releaseUrl = `/releases/${release.slug}`
+  const releaseUrl = `/releases/${release.slug || release.id}`
   const typeLabel = getReleaseTypeLabel(release.release_type)
   const artistDisplay = formatArtistNames(release)
 
@@ -82,7 +88,9 @@ export function ReleaseCard({
           href={releaseUrl}
           className="font-medium text-sm truncate flex-1 hover:text-primary transition-colors"
         >
-          {artistDisplay ? `${artistDisplay} — ${release.title}` : release.title}
+          {artistDisplay
+            ? `${artistDisplay} — ${release.title}`
+            : release.title}
         </Link>
         <Badge variant="secondary" className="text-[10px] shrink-0">
           {typeLabel}
@@ -92,6 +100,13 @@ export function ReleaseCard({
             {release.release_year}
           </span>
         )}
+        {showSaveAction ? (
+          <ReleaseSaveButton
+            releaseId={release.id}
+            saveData={saveData}
+            disabled={saveDisabled}
+          />
+        ) : null}
       </article>
     )
   }
@@ -153,6 +168,13 @@ export function ReleaseCard({
               </div>
             )}
           </div>
+          {showSaveAction ? (
+            <ReleaseSaveButton
+              releaseId={release.id}
+              saveData={saveData}
+              disabled={saveDisabled}
+            />
+          ) : null}
         </div>
       </article>
     )
@@ -206,7 +228,7 @@ export function ReleaseCard({
                     <Link
                       href={`/labels/${release.label_slug}`}
                       className="hover:text-primary transition-colors"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
                     >
                       {release.label_name}
                     </Link>
@@ -218,6 +240,13 @@ export function ReleaseCard({
             )}
           </div>
         </div>
+        {showSaveAction ? (
+          <ReleaseSaveButton
+            releaseId={release.id}
+            saveData={saveData}
+            disabled={saveDisabled}
+          />
+        ) : null}
       </div>
     </article>
   )

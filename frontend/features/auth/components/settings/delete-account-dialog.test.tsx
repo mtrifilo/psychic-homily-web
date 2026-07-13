@@ -11,12 +11,12 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockRouterPush }),
 }))
 
-
 const mockRefetch = vi.fn()
 let mockDeletionSummaryState = {
   data: null as {
     shows_count: number
     saved_shows_count: number
+    saved_releases_count: number
     passkeys_count: number
     has_password: boolean
   } | null,
@@ -63,6 +63,7 @@ describe('DeleteAccountDialog', () => {
       data: {
         shows_count: 5,
         saved_shows_count: 12,
+        saved_releases_count: 4,
         passkeys_count: 2,
         has_password: true,
       },
@@ -103,6 +104,8 @@ describe('DeleteAccountDialog', () => {
     expect(screen.getByText(/shows you submitted/)).toBeInTheDocument()
     expect(screen.getByText('12')).toBeInTheDocument()
     expect(screen.getByText(/saved shows/)).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+    expect(screen.getByText(/saved releases/)).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.getByText(/passkeys/)).toBeInTheDocument()
   })
@@ -171,6 +174,7 @@ describe('DeleteAccountDialog', () => {
       data: {
         shows_count: 0,
         saved_shows_count: 0,
+        saved_releases_count: 0,
         passkeys_count: 0,
         has_password: false,
       },
@@ -200,9 +204,7 @@ describe('DeleteAccountDialog', () => {
     await user.click(screen.getByRole('button', { name: /Continue/ }))
 
     expect(
-      screen.getByText(
-        /I understand that my account will be deactivated/
-      )
+      screen.getByText(/I understand that my account will be deactivated/)
     ).toBeInTheDocument()
   })
 
@@ -245,14 +247,10 @@ describe('DeleteAccountDialog', () => {
     const passwordInput = screen.getByLabelText('Password')
     expect(passwordInput).toHaveAttribute('type', 'password')
 
-    await user.click(
-      screen.getByRole('button', { name: 'Show password' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Show password' }))
     expect(passwordInput).toHaveAttribute('type', 'text')
 
-    await user.click(
-      screen.getByRole('button', { name: 'Hide password' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Hide password' }))
     expect(passwordInput).toHaveAttribute('type', 'password')
   })
 
@@ -271,9 +269,7 @@ describe('DeleteAccountDialog', () => {
     await user.click(screen.getByRole('checkbox'))
 
     // Submit
-    await user.click(
-      screen.getByRole('button', { name: 'Delete My Account' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
 
     expect(mockDeleteMutateAsync).toHaveBeenCalledWith({
       password: 'mypassword123',
@@ -296,9 +292,7 @@ describe('DeleteAccountDialog', () => {
     await user.click(screen.getByRole('checkbox'))
 
     // Submit
-    await user.click(
-      screen.getByRole('button', { name: 'Delete My Account' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
 
     await waitFor(() => {
       expect(
@@ -350,9 +344,7 @@ describe('DeleteAccountDialog', () => {
       'Moving to another service.'
     )
     await user.click(screen.getByRole('checkbox'))
-    await user.click(
-      screen.getByRole('button', { name: 'Delete My Account' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
 
     expect(mockDeleteMutateAsync).toHaveBeenCalledWith({
       password: 'mypassword123',
@@ -366,6 +358,7 @@ describe('DeleteAccountDialog', () => {
       data: {
         shows_count: 0,
         saved_shows_count: 0,
+        saved_releases_count: 0,
         passkeys_count: 0,
         has_password: false,
       },
@@ -396,12 +389,12 @@ describe('DeleteAccountDialog', () => {
     await user.click(screen.getByRole('button', { name: /Continue/ }))
     await user.type(screen.getByLabelText('Password'), 'mypassword123')
     await user.click(screen.getByRole('checkbox'))
-    await user.click(
-      screen.getByRole('button', { name: 'Delete My Account' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Redirecting to home page...')).toBeInTheDocument()
+      expect(
+        screen.getByText('Redirecting to home page...')
+      ).toBeInTheDocument()
     })
 
     // Clicking "Go to Home" triggers the router.push('/') side effect.

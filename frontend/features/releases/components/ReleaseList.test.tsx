@@ -17,6 +17,16 @@ vi.mock('../hooks/useReleases', () => ({
   useReleases: (opts: unknown) => mockUseReleases(opts),
 }))
 
+const mockUseReleaseSaveCountBatch = vi.fn()
+vi.mock('../hooks/useSavedReleases', () => ({
+  useReleaseSaveCountBatch: (ids: number[], isAuthenticated: boolean) =>
+    mockUseReleaseSaveCountBatch(ids, isAuthenticated),
+}))
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: true }),
+}))
+
 const mockUseLabels = vi.fn()
 vi.mock('@/features/labels/hooks/useLabels', () => ({
   useLabels: () => mockUseLabels(),
@@ -55,7 +65,9 @@ vi.mock('@/features/tags', () => ({
 
 import { ReleaseList } from './ReleaseList'
 
-function makeRelease(overrides: Partial<ReleaseListItem> = {}): ReleaseListItem {
+function makeRelease(
+  overrides: Partial<ReleaseListItem> = {}
+): ReleaseListItem {
   return {
     id: 1,
     title: 'In Rainbows',
@@ -86,6 +98,10 @@ describe('ReleaseList', () => {
       isFetching: false,
       error: null,
       refetch: vi.fn(),
+    })
+    mockUseReleaseSaveCountBatch.mockReturnValue({
+      data: {},
+      isLoading: false,
     })
   })
 
@@ -153,6 +169,7 @@ describe('ReleaseList', () => {
     renderWithProviders(<ReleaseList />)
     expect(screen.getByText('In Rainbows')).toBeInTheDocument()
     expect(screen.getByText('Kid A')).toBeInTheDocument()
+    expect(mockUseReleaseSaveCountBatch).toHaveBeenCalledWith([1, 2], true)
   })
 
   it('renders the result count with correct pluralization', () => {

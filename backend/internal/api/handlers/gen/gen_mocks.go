@@ -84,6 +84,13 @@ var customDefaults = map[string]methodDefault{
 	}
 	return result, nil`,
 	},
+	"MockSavedReleaseService.GetBatchSaveCounts": {
+		body: `	result := make(map[uint]int)
+	for _, id := range releaseIDs {
+		result[id] = 0
+	}
+	return result, nil`,
+	},
 	"MockFollowService.GetBatchFollowerCounts": {
 		body: `	result := make(map[uint]int64)
 	for _, id := range entityIDs {

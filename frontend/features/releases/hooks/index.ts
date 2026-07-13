@@ -1,8 +1,4 @@
-export {
-  useReleases,
-  useRelease,
-  useArtistReleases,
-} from './useReleases'
+export { useReleases, useRelease, useArtistReleases } from './useReleases'
 
 export {
   type CreateReleaseArtistInput,
@@ -15,3 +11,10 @@ export {
   useAddReleaseLink,
   useRemoveReleaseLink,
 } from './useAdminReleases'
+
+export {
+  useSavedReleases,
+  useReleaseSaveCount,
+  useReleaseSaveCountBatch,
+  useReleaseSaveToggle,
+} from './useSavedReleases'

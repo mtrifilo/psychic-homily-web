@@ -17,14 +17,24 @@ export const releaseEndpoints = {
   SEARCH: `${API_BASE_URL}/releases/search`,
   GET: (idOrSlug: string | number) => `${API_BASE_URL}/releases/${idOrSlug}`,
   CREATE: `${API_BASE_URL}/releases`,
-  UPDATE: (releaseId: string | number) => `${API_BASE_URL}/releases/${releaseId}`,
-  DELETE: (releaseId: string | number) => `${API_BASE_URL}/releases/${releaseId}`,
+  UPDATE: (releaseId: string | number) =>
+    `${API_BASE_URL}/releases/${releaseId}`,
+  DELETE: (releaseId: string | number) =>
+    `${API_BASE_URL}/releases/${releaseId}`,
   ADD_LINK: (releaseId: string | number) =>
     `${API_BASE_URL}/releases/${releaseId}/links`,
   REMOVE_LINK: (releaseId: string | number, linkId: string | number) =>
     `${API_BASE_URL}/releases/${releaseId}/links/${linkId}`,
   ARTIST_RELEASES: (artistIdOrSlug: string | number) =>
     `${API_BASE_URL}/artists/${artistIdOrSlug}/releases`,
+  SAVED_LIST: `${API_BASE_URL}/saved-releases`,
+  SAVE: (releaseId: string | number) =>
+    `${API_BASE_URL}/saved-releases/${releaseId}`,
+  UNSAVE: (releaseId: string | number) =>
+    `${API_BASE_URL}/saved-releases/${releaseId}`,
+  SAVE_COUNT: (releaseId: string | number) =>
+    `${API_BASE_URL}/releases/${releaseId}/saves`,
+  SAVE_COUNTS_BATCH: `${API_BASE_URL}/releases/saves/batch`,
 } as const
 
 // ============================================================================
@@ -37,7 +47,38 @@ export const releaseQueryKeys = {
     ['releases', 'list', filters] as const,
   search: (query: string) =>
     ['releases', 'search', query.toLowerCase()] as const,
-  detail: (idOrSlug: string | number) => ['releases', 'detail', String(idOrSlug)] as const,
+  detail: (idOrSlug: string | number) =>
+    ['releases', 'detail', String(idOrSlug)] as const,
   artistReleases: (artistIdOrSlug: string | number) =>
     ['releases', 'artist', String(artistIdOrSlug)] as const,
+  savedList: (limit: number, offset: number, userId?: string | number) =>
+    ['releases', 'saved', 'list', userId ?? null, limit, offset] as const,
+  saveCount: (
+    releaseId: number,
+    isAuthenticated: boolean,
+    userId?: string | number
+  ) =>
+    [
+      'releases',
+      'save-state',
+      'count',
+      isAuthenticated,
+      userId ?? null,
+      releaseId,
+    ] as const,
+  saveCountBatchPrefix: (userId?: string | number) =>
+    ['releases', 'save-state', 'batch', true, userId ?? null] as const,
+  saveCountBatch: (
+    releaseIds: number[],
+    isAuthenticated: boolean,
+    userId?: string | number
+  ) =>
+    [
+      'releases',
+      'save-state',
+      'batch',
+      isAuthenticated,
+      userId ?? null,
+      releaseIds,
+    ] as const,
 } as const

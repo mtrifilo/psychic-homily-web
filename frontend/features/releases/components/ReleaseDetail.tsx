@@ -20,11 +20,18 @@ import {
   EntityHeader,
   RevisionHistory,
   AddToCollectionButton,
+  ReleaseSaveButton,
   BracketLink,
   ImageAttribution,
   MusicEmbed,
 } from '@/components/shared'
-import { AttributionLine, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
+import {
+  AttributionLine,
+  EntityEditDrawer,
+  EntitySaveSuccessBanner,
+  ReportEntityDialog,
+  useEntitySaveSuccessBanner,
+} from '@/features/contributions'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { AddReleaseLinkDialog } from './AddReleaseLinkDialog'
 import { AsHeardOn } from '@/features/radio'
@@ -36,10 +43,7 @@ import { queryKeys } from '@/lib/queryClient'
 import { getReleaseTypeLabel, type ReleaseExternalLink } from '../types'
 
 /** Known platform display info */
-const PLATFORM_CONFIG: Record<
-  string,
-  { label: string; className?: string }
-> = {
+const PLATFORM_CONFIG: Record<string, { label: string; className?: string }> = {
   bandcamp: { label: 'Bandcamp' },
   spotify: { label: 'Spotify' },
   apple_music: { label: 'Apple Music' },
@@ -72,9 +76,7 @@ function getPlatformLabel(platform: string): string {
  * link is left to the plain "Listen / Buy" card alone (and MusicEmbed itself
  * still falls back to a link if a chosen album/track URL fails to resolve).
  */
-function findBandcampEmbedUrl(
-  links: ReleaseExternalLink[]
-): string | null {
+function findBandcampEmbedUrl(links: ReleaseExternalLink[]): string | null {
   const link = links.find(
     l =>
       l.platform.toLowerCase() === 'bandcamp' &&
@@ -94,9 +96,7 @@ function findBandcampEmbedUrl(
  * album/track link, MusicEmbed's internal priority renders the Bandcamp embed
  * first, so passing both is safe (PSY-1187 precedence preserved).
  */
-function findSpotifyEmbedUrl(
-  links: ReleaseExternalLink[]
-): string | null {
+function findSpotifyEmbedUrl(links: ReleaseExternalLink[]): string | null {
   const link = links.find(l => l.platform.toLowerCase() === 'spotify')
   return link?.url ?? null
 }
@@ -109,11 +109,11 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const { data: release, isLoading, error } = useRelease({ idOrSlug })
   const { user, isAuthenticated } = useIsAuthenticated()
   const queryClient = useQueryClient()
-  const canEditDirectly = isAuthenticated && (
-    user?.is_admin ||
-    user?.user_tier === 'trusted_contributor' ||
-    user?.user_tier === 'local_ambassador'
-  )
+  const canEditDirectly =
+    isAuthenticated &&
+    (user?.is_admin ||
+      user?.user_tier === 'trusted_contributor' ||
+      user?.user_tier === 'local_ambassador')
   // PSY-660: adding an external link is gated to admin + trusted_contributor +
   // local_ambassador (the same tiers the backend authorizes on POST
   // /releases/{id}/links). Gating on the tier — not plain isAuthenticated —
@@ -178,7 +178,8 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const hasExternalLinks =
     release.external_links && release.external_links.length > 0
   const hasLabels = release.labels && release.labels.length > 0
-  const hasDescription = !!release.description && release.description.trim().length > 0
+  const hasDescription =
+    !!release.description && release.description.trim().length > 0
 
   // PSY-1187: render a playable Bandcamp player when a release has a Bandcamp
   // album/track link. MusicEmbed resolves the URL to an iframe (falling back to
@@ -331,6 +332,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
               }
               actions={
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <ReleaseSaveButton releaseId={release.id} variant="bracket" />
                   <AddToCollectionButton
                     entityType="release"
                     entityId={release.id}
@@ -469,10 +471,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
       {/* History + Discussion — shared container matches EntityDetailLayout's
           gutter + max-width so they align with the rest of the page (PSY-1026). */}
       <EntityDetailContainer>
-        <RevisionHistory
-          entityType="release"
-          entityId={release.id}
-        />
+        <RevisionHistory entityType="release" entityId={release.id} />
         <CommentThread entityType="release" entityId={release.id} />
       </EntityDetailContainer>
 
@@ -480,7 +479,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
       {isAuthenticated && (
         <EntityEditDrawer
           open={isEditing}
-          onOpenChange={(open) => {
+          onOpenChange={open => {
             setIsEditing(open)
             if (!open) setEditFocusField(undefined)
           }}
@@ -490,7 +489,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           entity={release as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
           focusField={editFocusField}
-          onSuccess={(result) => {
+          onSuccess={result => {
             queryClient.invalidateQueries({
               queryKey: queryKeys.releases.detail(idOrSlug),
             })

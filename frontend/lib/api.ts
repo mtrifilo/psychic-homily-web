@@ -20,6 +20,7 @@ import { showEndpoints } from '@/features/shows/api'
 import { releaseEndpoints } from '@/features/releases/api'
 import { labelEndpoints } from '@/features/labels/api'
 import { festivalEndpoints } from '@/features/festivals/api'
+import { chartEndpoints } from '@/features/charts/api'
 
 // Re-export API_BASE_URL from api-base for backward compatibility
 export { API_BASE_URL } from './api-base'
@@ -292,7 +293,8 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     REORDER: (slug: string) =>
       `${API_BASE_URL}/collections/${slug}/items/reorder`,
-    SUBSCRIBE: (slug: string) => `${API_BASE_URL}/collections/${slug}/subscribe`,
+    SUBSCRIBE: (slug: string) =>
+      `${API_BASE_URL}/collections/${slug}/subscribe`,
     FEATURE: (slug: string) => `${API_BASE_URL}/collections/${slug}/feature`,
     // PSY-351: clone/fork an existing public collection.
     CLONE: (slug: string) => `${API_BASE_URL}/collections/${slug}/clone`,
@@ -320,7 +322,8 @@ export const API_ENDPOINTS = {
   // Request endpoints
   REQUESTS: {
     LIST: `${API_BASE_URL}/requests`,
-    GET: (requestId: string | number) => `${API_BASE_URL}/requests/${requestId}`,
+    GET: (requestId: string | number) =>
+      `${API_BASE_URL}/requests/${requestId}`,
     VOTE: (requestId: string | number) =>
       `${API_BASE_URL}/requests/${requestId}/vote`,
     FULFILL: (requestId: string | number) =>
@@ -338,25 +341,32 @@ export const API_ENDPOINTS = {
     LIST: `${API_BASE_URL}/tags`,
     SEARCH: `${API_BASE_URL}/tags/search`,
     GET: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}`,
-    DETAIL: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/detail`,
-    ALIASES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
-    DELETE_ALIAS: (tagId: number, aliasId: number) => `${API_BASE_URL}/tags/${tagId}/aliases/${aliasId}`,
-    ENTITIES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/entities`,
+    DETAIL: (idOrSlug: string | number) =>
+      `${API_BASE_URL}/tags/${idOrSlug}/detail`,
+    ALIASES: (idOrSlug: string | number) =>
+      `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
+    DELETE_ALIAS: (tagId: number, aliasId: number) =>
+      `${API_BASE_URL}/tags/${tagId}/aliases/${aliasId}`,
+    ENTITIES: (idOrSlug: string | number) =>
+      `${API_BASE_URL}/tags/${idOrSlug}/entities`,
     // Cross-entity tag intersection (PSY-995). Accepts 1+ comma-separated slugs
     // (PSY-993 drives the single-tag detail sections through this same endpoint).
     INTERSECTION: `${API_BASE_URL}/tags/intersection`,
     ADMIN_ALIASES_ALL: `${API_BASE_URL}/admin/tags/aliases`,
     ADMIN_ALIASES_BULK: `${API_BASE_URL}/admin/tags/aliases/bulk`,
-    ADMIN_MERGE: (sourceId: number) => `${API_BASE_URL}/admin/tags/${sourceId}/merge`,
+    ADMIN_MERGE: (sourceId: number) =>
+      `${API_BASE_URL}/admin/tags/${sourceId}/merge`,
     ADMIN_MERGE_PREVIEW: (sourceId: number, targetId: number) =>
       `${API_BASE_URL}/admin/tags/${sourceId}/merge-preview?target_id=${targetId}`,
     ADMIN_LOW_QUALITY: `${API_BASE_URL}/admin/tags/low-quality`,
-    ADMIN_SNOOZE: (tagId: number) => `${API_BASE_URL}/admin/tags/${tagId}/snooze`,
+    ADMIN_SNOOZE: (tagId: number) =>
+      `${API_BASE_URL}/admin/tags/${tagId}/snooze`,
     // Admin bulk action on the low-quality queue (PSY-487).
     ADMIN_LOW_QUALITY_BULK: `${API_BASE_URL}/admin/tags/low-quality/bulk-action`,
     // Admin genre-hierarchy editor (PSY-311).
     ADMIN_HIERARCHY: `${API_BASE_URL}/admin/tags/hierarchy`,
-    ADMIN_SET_PARENT: (tagId: number) => `${API_BASE_URL}/admin/tags/${tagId}/parent`,
+    ADMIN_SET_PARENT: (tagId: number) =>
+      `${API_BASE_URL}/admin/tags/${tagId}/parent`,
   },
 
   // Entity tag endpoints
@@ -375,8 +385,7 @@ export const API_ENDPOINTS = {
   REVISIONS: {
     ENTITY_HISTORY: (entityType: string, entityId: string | number) =>
       `${API_BASE_URL}/revisions/${entityType}/${entityId}`,
-    DETAIL: (revisionId: number) =>
-      `${API_BASE_URL}/revisions/${revisionId}`,
+    DETAIL: (revisionId: number) => `${API_BASE_URL}/revisions/${revisionId}`,
     USER_REVISIONS: (userId: string | number) =>
       `${API_BASE_URL}/users/${userId}/revisions`,
     ROLLBACK: (revisionId: number) =>
@@ -419,13 +428,7 @@ export const API_ENDPOINTS = {
   },
 
   // Charts endpoints (public)
-  CHARTS: {
-    OVERVIEW: `${API_BASE_URL}/charts/overview`,
-    TRENDING_SHOWS: `${API_BASE_URL}/charts/trending-shows`,
-    POPULAR_ARTISTS: `${API_BASE_URL}/charts/popular-artists`,
-    ACTIVE_VENUES: `${API_BASE_URL}/charts/active-venues`,
-    HOT_RELEASES: `${API_BASE_URL}/charts/hot-releases`,
-  },
+  CHARTS: chartEndpoints,
 
   // /explore landing (PSY-835/836) — public read endpoints. The
   // FEATURED endpoint returns hydrated referent details (name,

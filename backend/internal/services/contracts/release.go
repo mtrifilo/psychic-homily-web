@@ -137,6 +137,7 @@ type ReleaseServiceInterface interface {
 	GetRelease(releaseID uint) (*ReleaseDetailResponse, error)
 	GetReleaseBySlug(slug string) (*ReleaseDetailResponse, error)
 	ListReleases(filters ReleaseListFilters) ([]*ReleaseListResponse, int64, error)
+	GetReleasesByIDs(releaseIDs []uint) ([]*ReleaseListResponse, error)
 	SearchReleases(query string) ([]*ReleaseListResponse, error)
 	UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error)
 	DeleteRelease(releaseID uint) error

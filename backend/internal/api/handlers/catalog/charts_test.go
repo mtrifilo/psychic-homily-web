@@ -773,7 +773,12 @@ func TestChartsHandler_NewReleases_Success(t *testing.T) {
 				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
 			return []contracts.NewRelease{
-				{ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: addedAt, ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"}},
+				{
+					ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: addedAt,
+					ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"},
+					Artists: []contracts.ChartEntityReference{{ID: 2, Name: "Band", Slug: "band"}},
+					Labels:  []contracts.ChartEntityReference{{ID: 3, Name: "Sub Rosa", Slug: "sub-rosa"}},
+				},
 			}, 1, nil
 		},
 	})
@@ -789,8 +794,14 @@ func TestChartsHandler_NewReleases_Success(t *testing.T) {
 		t.Fatalf("expected 1 release, got %d", len(resp.Body.Releases))
 	}
 	r := resp.Body.Releases[0]
-	if r.Title != "Fresh Wax" || r.ReleaseType != "lp" || r.ReleaseDate == nil || len(r.LabelNames) != 1 {
+	if r.Title != "Fresh Wax" || r.ReleaseType != "lp" || r.ReleaseDate == nil || len(r.Labels) != 1 || len(r.Artists) != 1 {
 		t.Errorf("unexpected mapping: %+v", r)
+	}
+	if r.Artists[0].Slug != "band" || r.Labels[0].Slug != "sub-rosa" {
+		t.Errorf("expected linkable nested refs, got %+v / %+v", r.Artists, r.Labels)
+	}
+	if len(r.ArtistNames) != 1 || r.ArtistNames[0] != "Band" || len(r.LabelNames) != 1 || r.LabelNames[0] != "Sub Rosa" {
+		t.Errorf("expected backwards-compatible name arrays, got %+v / %+v", r.ArtistNames, r.LabelNames)
 	}
 }
 
@@ -1137,7 +1148,7 @@ func TestChartsHandler_NewReleases_WireTotalAndRank(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
 		GetNewReleasesFn: func(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.NewRelease, int, error) {
 			return []contracts.NewRelease{
-				{ReleaseID: 5, Title: "Ranked Wax", ArtistNames: []string{}, LabelNames: []string{}, Rank: 11},
+				{ReleaseID: 5, Title: "Ranked Wax", Artists: []contracts.ChartEntityReference{}, Labels: []contracts.ChartEntityReference{}, Rank: 11},
 			}, 42, nil
 		},
 	})
@@ -1149,7 +1160,7 @@ func TestChartsHandler_NewReleases_WireTotalAndRank(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	for _, want := range []string{`"total":42`, `"rank":11`} {
+	for _, want := range []string{`"total":42`, `"rank":11`, `"artists":[]`, `"labels":[]`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("wire payload must include %s: %s", want, body)
 		}

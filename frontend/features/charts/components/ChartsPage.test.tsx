@@ -1,319 +1,278 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { renderWithProviders } from '@/test/utils'
-
-const mockApiRequest = vi.fn()
-
-vi.mock('@/lib/api', () => ({
-  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    CHARTS: {
-      OVERVIEW: '/charts/overview',
-      TRENDING_SHOWS: '/charts/trending-shows',
-      POPULAR_ARTISTS: '/charts/popular-artists',
-      ACTIVE_VENUES: '/charts/active-venues',
-      HOT_RELEASES: '/charts/hot-releases',
-    },
-  },
-  API_BASE_URL: 'http://localhost:8080',
-}))
-
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    charts: {
-      all: ['charts'],
-      overview: ['charts', 'overview'],
-      trendingShows: (limit?: number) => ['charts', 'trending-shows', limit],
-      popularArtists: (limit?: number) => ['charts', 'popular-artists', limit],
-      activeVenues: (limit?: number) => ['charts', 'active-venues', limit],
-      hotReleases: (limit?: number) => ['charts', 'hot-releases', limit],
-    },
-  },
-}))
-
 import { ChartsPage } from './ChartsPage'
 
-const mockOverviewData = {
-  trending_shows: [
-    {
-      show_id: 1,
-      title: 'Night of Echoes',
-      slug: 'night-of-echoes',
-      date: '2026-04-15T20:00:00Z',
-      venue_name: 'Valley Bar',
-      venue_slug: 'valley-bar',
-      city: 'Phoenix',
-      save_count: 42,
-    },
-  ],
-  popular_artists: [
-    {
-      artist_id: 1,
-      name: 'Moonlight Parade',
-      slug: 'moonlight-parade',
-      image_url: '',
-      follow_count: 120,
-      upcoming_show_count: 5,
-      score: 125,
-    },
-  ],
-  active_venues: [
-    {
-      venue_id: 1,
-      name: 'The Rebel Lounge',
-      slug: 'the-rebel-lounge',
-      city: 'Phoenix',
-      state: 'AZ',
-      upcoming_show_count: 18,
-      follow_count: 65,
-      score: 83,
-    },
-  ],
-  hot_releases: [
-    {
-      release_id: 1,
-      title: 'Eternal Drift',
-      slug: 'eternal-drift',
-      release_date: '2026-03-01',
-      artist_names: ['Moonlight Parade'],
-      bookmark_count: 34,
-    },
-  ],
+const mockSetWindow = vi.fn()
+type EmptyQuery = {
+  data: Record<string, never>
+  isLoading: boolean
+  isError: boolean
 }
+const mockBatchFollowStatus = vi.fn<(...args: unknown[]) => EmptyQuery>(() =>
+  query({})
+)
+const mockShowSaveCountBatch = vi.fn<(...args: unknown[]) => EmptyQuery>(() =>
+  query({})
+)
+const mockReleaseSaveCountBatch = vi.fn<(...args: unknown[]) => EmptyQuery>(
+  () => query({})
+)
+let isAuthenticated = true
+let anticipatedMode: 'ranked' | 'soonest_upcoming' = 'ranked'
+let activeArtists = [
+  {
+    artist_id: 1,
+    name: 'Glass Harbor',
+    slug: 'glass-harbor',
+    city: 'Phoenix',
+    state: 'AZ',
+    show_count: 9,
+    headline_pct: 80,
+    last_show_date: null,
+    last_show_slug: '',
+    last_show_venue: '',
+    rank: 1,
+  },
+]
+
+function query<T>(data: T) {
+  return { data, isLoading: false, isError: false }
+}
+
+vi.mock('nuqs', () => ({
+  parseAsStringLiteral: () => ({
+    withDefault: () => ({ withOptions: () => ({}) }),
+  }),
+  useQueryState: () => ['quarter', mockSetWindow],
+}))
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated }),
+}))
+vi.mock('@/lib/hooks/common/useFollow', () => ({
+  useBatchFollowStatus: (entityType: string, ids: number[]) =>
+    mockBatchFollowStatus(entityType, ids),
+}))
+vi.mock('@/features/shows', () => ({
+  useShowSaveCountBatch: (ids: number[], authenticated: boolean) =>
+    mockShowSaveCountBatch(ids, authenticated),
+}))
+vi.mock('@/features/releases', () => ({
+  getReleaseTypeLabel: (type: string) => type.toUpperCase(),
+  useReleaseSaveCountBatch: (ids: number[], authenticated: boolean) =>
+    mockReleaseSaveCountBatch(ids, authenticated),
+}))
+vi.mock('@/components/shared', () => ({
+  FollowButton: ({ entityId }: { entityId: number }) => (
+    <button>follow-{entityId}</button>
+  ),
+  SaveButton: ({ showId }: { showId: number }) => (
+    <button>save-show-{showId}</button>
+  ),
+  ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
+    <button>save-release-{releaseId}</button>
+  ),
+}))
+vi.mock('../hooks', () => ({
+  useMostActiveArtists: () => query({ artists: activeArtists }),
+  useOnTheRadio: () =>
+    query({
+      artists: [
+        {
+          artist_id: 2,
+          name: 'Static Bloom',
+          slug: 'static-bloom',
+          city: 'Tucson',
+          state: 'AZ',
+          play_count: 12,
+          station_count: 2,
+          is_new: true,
+          rank: 1,
+        },
+      ],
+    }),
+  useMostAnticipated: () =>
+    query({
+      mode: anticipatedMode,
+      shows: [
+        {
+          show_id: 3,
+          title: 'Glass Harbor at Valley Bar',
+          slug: 'glass-harbor-valley-bar',
+          date: '2026-07-18T03:00:00Z',
+          venue_name: 'Valley Bar',
+          venue_slug: 'valley-bar',
+          city: 'Phoenix',
+          artist_names: ['Glass Harbor'],
+          save_count: anticipatedMode === 'ranked' ? 7 : undefined,
+          rank: anticipatedMode === 'ranked' ? 1 : undefined,
+        },
+      ],
+    }),
+  useBusiestVenues: () =>
+    query({
+      venues: [
+        {
+          venue_id: 4,
+          name: 'Valley Bar',
+          slug: 'valley-bar',
+          city: 'Phoenix',
+          state: 'AZ',
+          show_count: 14,
+          rank: 1,
+        },
+      ],
+    }),
+  useNewReleases: () =>
+    query({
+      releases: [
+        {
+          release_id: 5,
+          title: 'Night Ledger',
+          slug: 'night-ledger',
+          release_type: 'lp',
+          release_date: '2026-07-01',
+          added_at: '2026-07-02T00:00:00Z',
+          rank: 1,
+          artists: [{ id: 1, name: 'Glass Harbor', slug: 'glass-harbor' }],
+          labels: [{ id: 6, name: 'Desert Static', slug: 'desert-static' }],
+        },
+      ],
+    }),
+  useOpenersToWatch: () =>
+    query({
+      artists: [
+        {
+          artist_id: 7,
+          name: 'Soft Exit',
+          slug: 'soft-exit',
+          city: 'Mesa',
+          state: 'AZ',
+          support_slot_count: 5,
+          rank: 1,
+        },
+      ],
+    }),
+  useChartsSummary: () =>
+    query({
+      shows_added: 22,
+      new_artists: 8,
+      new_releases: 11,
+      radio_plays: 47,
+      active_scenes: 3,
+    }),
+  useFreshlyAdded: () =>
+    query({
+      items: [
+        {
+          entity_type: 'release',
+          entity_id: 5,
+          name: 'Night Ledger',
+          slug: 'night-ledger',
+          added_at: '2026-07-02T00:00:00Z',
+        },
+      ],
+    }),
+}))
 
 describe('ChartsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockApiRequest.mockReset()
+    isAuthenticated = true
+    anticipatedMode = 'ranked'
+    activeArtists = [
+      {
+        artist_id: 1,
+        name: 'Glass Harbor',
+        slug: 'glass-harbor',
+        city: 'Phoenix',
+        state: 'AZ',
+        show_count: 9,
+        headline_pct: 80,
+        last_show_date: null,
+        last_show_slug: '',
+        last_show_venue: '',
+        rank: 1,
+      },
+    ]
   })
 
-  it('renders overview by default with all chart sections', async () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
+  it('renders the six-module Broadsheet with inline actions and linked release metadata', () => {
+    render(<ChartsPage />)
 
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Night of Echoes')).toBeInTheDocument()
-    })
-
-    // Section headings appear in both tabs and card headers — use getAllByText
-    expect(screen.getAllByText('Upcoming Shows').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('Popular Artists').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('Active Venues').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('Recent Releases').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(7)
+    expect(screen.getByText('Hardest-Working Artists')).toBeInTheDocument()
+    expect(screen.getByText('Openers to Watch')).toBeInTheDocument()
+    expect(
+      screen
+        .getAllByRole('link', { name: 'Night Ledger' })
+        .some(link => link.getAttribute('href') === '/releases/night-ledger')
+    ).toBe(true)
+    expect(
+      screen
+        .getAllByRole('link', { name: 'Glass Harbor' })
+        .some(link => link.getAttribute('href') === '/artists/glass-harbor')
+    ).toBe(true)
+    expect(screen.getByRole('link', { name: 'Desert Static' })).toHaveAttribute(
+      'href',
+      '/labels/desert-static'
+    )
+    expect(
+      screen.getByRole('button', { name: 'save-release-5' })
+    ).toBeInTheDocument()
   })
 
-  it('renders entity names as links', async () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
-
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Night of Echoes')).toBeInTheDocument()
-    })
-
-    const links = screen.getAllByRole('link')
-
-    // Show title links to show detail
-    const showLink = links.find(l => l.textContent?.includes('Night of Echoes'))
-    expect(showLink).toHaveAttribute('href', '/shows/night-of-echoes')
-
-    // Artist name links to artist detail
-    const artistLink = links.find(l => l.textContent?.includes('Moonlight Parade'))
-    expect(artistLink).toHaveAttribute('href', '/artists/moonlight-parade')
-
-    // Venue name links to venue detail
-    const venueLink = links.find(l => l.textContent?.includes('The Rebel Lounge'))
-    expect(venueLink).toHaveAttribute('href', '/venues/the-rebel-lounge')
-
-    // Release title links to release detail
-    const releaseLink = links.find(l => l.textContent?.includes('Eternal Drift'))
-    expect(releaseLink).toHaveAttribute('href', '/releases/eternal-drift')
-  })
-
-  it('shows error message when API fails', async () => {
-    mockApiRequest.mockRejectedValueOnce(new Error('Server error'))
-
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Failed to load charts. Please try again later.')).toBeInTheDocument()
-    })
-  })
-
-  it('switches to trending shows detail view', async () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
-
+  it('keeps the default quarter out of the URL and writes explicit alternate windows', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<ChartsPage />)
+    render(<ChartsPage />)
 
-    await waitFor(() => {
-      expect(screen.getByText('Night of Echoes')).toBeInTheDocument()
-    })
-
-    // Get tab buttons (first match in the tab bar, not the card header)
-    const trendingButtons = screen.getAllByRole('button', { name: /Upcoming Shows/i })
-    const tabButton = trendingButtons[0]
-
-    mockApiRequest.mockResolvedValueOnce({
-      shows: [
-        mockOverviewData.trending_shows[0],
-        {
-          show_id: 2,
-          title: 'Desert Bloom Fest',
-          slug: 'desert-bloom-fest',
-          date: '2026-05-01T19:00:00Z',
-          venue_name: 'Crescent Ballroom',
-          venue_slug: 'crescent-ballroom',
-          city: 'Phoenix',
-          save_count: 30,
-        },
-      ],
-    })
-
-    await user.click(tabButton)
-
-    await waitFor(() => {
-      expect(screen.getByText('Shows coming up soon, ordered by date.')).toBeInTheDocument()
-    })
+    await user.click(screen.getByRole('button', { name: 'Quarter' }))
+    expect(mockSetWindow).toHaveBeenLastCalledWith(null)
+    await user.click(screen.getByRole('button', { name: 'All Time' }))
+    expect(mockSetWindow).toHaveBeenLastCalledWith('all_time')
   })
 
-  it('switches to popular artists detail view', async () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
+  it('renders the soonest-upcoming fallback without inventing a rank or save total', () => {
+    anticipatedMode = 'soonest_upcoming'
+    render(<ChartsPage />)
 
-    const user = userEvent.setup()
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Moonlight Parade')).toBeInTheDocument()
-    })
-
-    const artistsTab = screen.getAllByRole('button', { name: /Popular Artists/i })[0]
-
-    mockApiRequest.mockResolvedValueOnce({
-      artists: [mockOverviewData.popular_artists[0]],
-    })
-
-    await user.click(artistsTab)
-
-    await waitFor(() => {
-      expect(screen.getByText('Artists with the most followers and upcoming shows.')).toBeInTheDocument()
-    })
+    const anticipatedModule = screen.getByTestId('chart-most-anticipated')
+    expect(anticipatedModule).toHaveTextContent('—')
+    expect(
+      screen.queryByText('7', {
+        selector: '[data-testid="chart-most-anticipated"] span',
+      })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'save-show-3' })
+    ).toBeInTheDocument()
   })
 
-  it('switches to active venues detail view', async () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
-
-    const user = userEvent.setup()
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('The Rebel Lounge')).toBeInTheDocument()
-    })
-
-    const venuesTab = screen.getAllByRole('button', { name: /Active Venues/i })[0]
-
-    mockApiRequest.mockResolvedValueOnce({
-      venues: [mockOverviewData.active_venues[0]],
-    })
-
-    await user.click(venuesTab)
-
-    await waitFor(() => {
-      expect(screen.getByText('Venues with the most upcoming shows and followers.')).toBeInTheDocument()
-    })
+  it('collapses a successful empty module', () => {
+    activeArtists = []
+    render(<ChartsPage />)
+    expect(
+      screen.queryByTestId('chart-most-active-artists')
+    ).not.toBeInTheDocument()
   })
 
-  it('switches to hot releases detail view', async () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
-
-    const user = userEvent.setup()
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Eternal Drift')).toBeInTheDocument()
-    })
-
-    const releasesTab = screen.getAllByRole('button', { name: /Recent Releases/i })[0]
-
-    mockApiRequest.mockResolvedValueOnce({
-      releases: [mockOverviewData.hot_releases[0]],
-    })
-
-    await user.click(releasesTab)
-
-    await waitFor(() => {
-      expect(screen.getByText('Recently added releases.')).toBeInTheDocument()
-    })
+  it('falls back to entity ids for slugless chart rows', () => {
+    activeArtists = [{ ...activeArtists[0], slug: '' }]
+    render(<ChartsPage />)
+    expect(
+      screen
+        .getAllByRole('link', { name: 'Glass Harbor' })
+        .some(link => link.getAttribute('href') === '/artists/1')
+    ).toBe(true)
   })
 
-  it('returns to overview via Overview tab', async () => {
-    // First call: overview data
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
+  it('does not request private action state for anonymous chart visitors', () => {
+    isAuthenticated = false
+    render(<ChartsPage />)
 
-    const user = userEvent.setup()
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Night of Echoes')).toBeInTheDocument()
-    })
-
-    // Second call: trending shows detail data
-    mockApiRequest.mockResolvedValueOnce({
-      shows: [mockOverviewData.trending_shows[0]],
-    })
-
-    // Switch to trending shows detail
-    const trendingTab = screen.getAllByRole('button', { name: /Upcoming Shows/i })[0]
-    await user.click(trendingTab)
-
-    await waitFor(() => {
-      expect(screen.getByText('Shows coming up soon, ordered by date.')).toBeInTheDocument()
-    })
-
-    // Third call: overview data again when switching back
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
-
-    // Switch back to overview
-    const overviewTab = screen.getByRole('button', { name: /Overview/i })
-    await user.click(overviewTab)
-
-    // Should show overview grid with "View all" buttons
-    await waitFor(() => {
-      expect(screen.getAllByText('View all')).toHaveLength(4)
-    })
-  })
-
-  it('renders empty state messages when no data', async () => {
-    mockApiRequest.mockResolvedValueOnce({
-      trending_shows: [],
-      popular_artists: [],
-      active_venues: [],
-      hot_releases: [],
-    })
-
-    renderWithProviders(<ChartsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('No upcoming shows right now.')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText('No popular artists right now.')).toBeInTheDocument()
-    expect(screen.getByText('No active venues right now.')).toBeInTheDocument()
-    expect(screen.getByText('No recent releases yet.')).toBeInTheDocument()
-  })
-
-  it('renders all tab buttons', () => {
-    mockApiRequest.mockResolvedValueOnce(mockOverviewData)
-
-    renderWithProviders(<ChartsPage />)
-
-    expect(screen.getByRole('button', { name: /Overview/i })).toBeInTheDocument()
-    // Tab buttons exist (may also appear as card headings)
-    expect(screen.getAllByRole('button', { name: /Upcoming Shows/i }).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByRole('button', { name: /Popular Artists/i }).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByRole('button', { name: /Active Venues/i }).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByRole('button', { name: /Recent Releases/i }).length).toBeGreaterThanOrEqual(1)
+    expect(mockBatchFollowStatus).toHaveBeenCalledWith('artists', [])
+    expect(mockBatchFollowStatus).toHaveBeenCalledWith('venues', [])
+    expect(mockShowSaveCountBatch).toHaveBeenCalledWith([], false)
+    expect(mockReleaseSaveCountBatch).toHaveBeenCalledWith([], false)
   })
 })

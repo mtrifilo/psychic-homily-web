@@ -3,13 +3,16 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 const mockUseFollowStatus = vi.fn()
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: true, user: { id: 42 } }),
+}))
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useFollowStatus: (entityType: string, entityId: number | string) =>
     mockUseFollowStatus(entityType, entityId),
 }))
 
 const mockApiRequest = vi.fn()
-vi.mock('@/lib/api', async (importOriginal) => {
+vi.mock('@/lib/api', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
@@ -41,10 +44,10 @@ describe('SceneNotifyModeToggle (PSY-1341)', () => {
     renderWithProviders(<SceneNotifyModeToggle slug="phoenix-az" />)
     expect(screen.getByRole('radio', { name: 'All shows' })).toHaveAttribute(
       'aria-checked',
-      'true',
+      'true'
     )
     expect(
-      screen.getByRole('radio', { name: 'Bands I follow' }),
+      screen.getByRole('radio', { name: 'Bands I follow' })
     ).toHaveAttribute('aria-checked', 'false')
   })
 

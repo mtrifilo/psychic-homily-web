@@ -10,6 +10,10 @@ describe('releases hooks barrel', () => {
     expect(typeof hooks.useReleases).toBe('function')
     expect(typeof hooks.useRelease).toBe('function')
     expect(typeof hooks.useArtistReleases).toBe('function')
+    expect(typeof hooks.useSavedReleases).toBe('function')
+    expect(typeof hooks.useReleaseSaveCount).toBe('function')
+    expect(typeof hooks.useReleaseSaveCountBatch).toBe('function')
+    expect(typeof hooks.useReleaseSaveToggle).toBe('function')
   })
 
   it('re-exports the admin mutation hooks', () => {

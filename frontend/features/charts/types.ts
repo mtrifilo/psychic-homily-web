@@ -1,11 +1,40 @@
-/**
- * Charts-related TypeScript types
- *
- * These types match the backend API response structures
- * from backend/internal/api/handlers/charts.go
- */
+export const CHART_WINDOWS = ['month', 'quarter', 'all_time'] as const
+export type ChartWindow = (typeof CHART_WINDOWS)[number]
 
-export interface TrendingShow {
+export interface ChartEntityReference {
+  id: number
+  name: string
+  slug: string
+}
+
+interface RankedArtistBase {
+  artist_id: number
+  name: string
+  slug: string
+  city: string
+  state: string
+  rank: number
+}
+
+export interface MostActiveArtist extends RankedArtistBase {
+  show_count: number
+  headline_pct: number
+  last_show_date: string | null
+  last_show_slug: string
+  last_show_venue: string
+}
+
+export interface OnTheRadioArtist extends RankedArtistBase {
+  play_count: number
+  station_count: number
+  is_new: boolean
+}
+
+export interface OpenerToWatch extends RankedArtistBase {
+  support_slot_count: number
+}
+
+export interface MostAnticipatedShow {
   show_id: number
   title: string
   slug: string
@@ -14,60 +43,86 @@ export interface TrendingShow {
   venue_slug: string
   city: string
   artist_names: string[]
-  save_count: number
+  save_count?: number
+  rank?: number
 }
 
-export interface PopularArtist {
-  artist_id: number
-  name: string
-  slug: string
-  image_url: string
-  follow_count: number
-  upcoming_show_count: number
-  score: number
-}
-
-export interface ActiveVenue {
+export interface BusiestVenue {
   venue_id: number
   name: string
   slug: string
   city: string
   state: string
-  upcoming_show_count: number
-  follow_count: number
-  score: number
+  show_count: number
+  rank: number
 }
 
-export interface HotRelease {
+export interface NewRelease {
   release_id: number
   title: string
   slug: string
+  release_type: string
   release_date: string | null
-  artist_names: string[]
-  bookmark_count: number
+  added_at: string
+  artists: ChartEntityReference[]
+  labels: ChartEntityReference[]
+  rank: number
 }
 
-export interface TrendingShowsResponse {
-  shows: TrendingShow[]
+export interface WindowedChartResponse {
+  window: ChartWindow
+  scene: string
+  total: number
 }
 
-export interface PopularArtistsResponse {
-  artists: PopularArtist[]
+export interface MostActiveArtistsResponse extends WindowedChartResponse {
+  artists: MostActiveArtist[]
 }
 
-export interface ActiveVenuesResponse {
-  venues: ActiveVenue[]
+export interface OnTheRadioResponse extends WindowedChartResponse {
+  artists: OnTheRadioArtist[]
 }
 
-export interface HotReleasesResponse {
-  releases: HotRelease[]
+export interface MostAnticipatedResponse {
+  mode: 'ranked' | 'soonest_upcoming'
+  scene: string
+  total: number
+  shows: MostAnticipatedShow[]
 }
 
-export interface ChartsOverviewResponse {
-  trending_shows: TrendingShow[]
-  popular_artists: PopularArtist[]
-  active_venues: ActiveVenue[]
-  hot_releases: HotRelease[]
+export interface BusiestVenuesResponse extends WindowedChartResponse {
+  venues: BusiestVenue[]
 }
 
-export type ChartView = 'overview' | 'trending-shows' | 'popular-artists' | 'active-venues' | 'hot-releases'
+export interface NewReleasesResponse extends WindowedChartResponse {
+  releases: NewRelease[]
+}
+
+export interface OpenersToWatchResponse extends WindowedChartResponse {
+  artists: OpenerToWatch[]
+}
+
+export interface ChartsSummaryResponse {
+  window: ChartWindow
+  scene: string
+  shows_added: number
+  new_artists: number
+  new_releases: number
+  radio_plays: number
+  active_scenes: number
+}
+
+export type FreshlyAddedEntityType = 'artist' | 'venue' | 'release' | 'station'
+
+export interface FreshlyAddedItem {
+  entity_type: FreshlyAddedEntityType
+  entity_id: number
+  name: string
+  slug: string
+  added_at: string
+}
+
+export interface FreshlyAddedResponse {
+  scene: string
+  items: FreshlyAddedItem[]
+}

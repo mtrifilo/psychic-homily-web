@@ -207,6 +207,38 @@ func (s *ChartsService) namesByOwnerID(query string, ids []uint, what string) (m
 	return names, nil
 }
 
+// referencesByOwnerID is the linkable-identity twin of namesByOwnerID. The
+// query contract is owner_id + id + name + slug, with exactly one `IN ?`.
+// It keeps release chart enrichment batched while letting every named artist
+// and label navigate to its entity page.
+func (s *ChartsService) referencesByOwnerID(query string, ids []uint, what string) (map[uint][]contracts.ChartEntityReference, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	type referenceRow struct {
+		OwnerID uint   `gorm:"column:owner_id"`
+		ID      uint   `gorm:"column:id"`
+		Name    string `gorm:"column:name"`
+		Slug    string `gorm:"column:slug"`
+	}
+	var rows []referenceRow
+	if err := s.db.Raw(query, ids).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get %s: %w", what, err)
+	}
+	references := make(map[uint][]contracts.ChartEntityReference)
+	for _, row := range rows {
+		if row.OwnerID == 0 {
+			return nil, fmt.Errorf("%s enrichment query is missing the AS owner_id alias", what)
+		}
+		references[row.OwnerID] = append(references[row.OwnerID], contracts.ChartEntityReference{
+			ID:   row.ID,
+			Name: row.Name,
+			Slug: row.Slug,
+		})
+	}
+	return references, nil
+}
+
 // showArtistNames returns bill-ordered artist names for each show, in one
 // query. Shared by the show-row chart modules (trending / most-anticipated).
 func (s *ChartsService) showArtistNames(showIDs []uint) (map[uint][]string, error) {
@@ -1239,7 +1271,7 @@ func (s *ChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error
 		GROUP BY r.id, r.title, r.slug, r.release_date
 		ORDER BY bookmark_count DESC, r.created_at DESC
 		LIMIT ?
-	`, engagementm.BookmarkEntityRelease, engagementm.BookmarkActionBookmark, thirtyDaysAgo, limit).Scan(&rows).Error
+	`, engagementm.BookmarkEntityRelease, engagementm.BookmarkActionReleaseSave, thirtyDaysAgo, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get hot releases: %w", err)
 	}
@@ -1287,8 +1319,20 @@ func (s *ChartsService) releaseArtistNames(releaseIDs []uint) (map[uint][]string
 		FROM artist_releases ar
 		JOIN artists a ON a.id = ar.artist_id
 		WHERE ar.release_id IN ?
-		ORDER BY ar.release_id, ar.position
+		GROUP BY ar.release_id, a.id, a.name
+		ORDER BY ar.release_id, MIN(ar.position), a.name, a.id
 	`, releaseIDs, "release artists")
+}
+
+func (s *ChartsService) releaseArtistReferences(releaseIDs []uint) (map[uint][]contracts.ChartEntityReference, error) {
+	return s.referencesByOwnerID(`
+		SELECT ar.release_id AS owner_id, a.id, a.name, COALESCE(a.slug, '') AS slug
+		FROM artist_releases ar
+		JOIN artists a ON a.id = ar.artist_id
+		WHERE ar.release_id IN ?
+		GROUP BY ar.release_id, a.id, a.name, a.slug
+		ORDER BY ar.release_id, MIN(ar.position), a.name, a.id
+	`, releaseIDs, "release artist references")
 }
 
 // newReleaseDateSQL is the ordering/window date of the new-releases module:
@@ -1399,41 +1443,47 @@ func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, sce
 			AddedAt:     r.AddedAt,
 			ArtistNames: []string{},
 			LabelNames:  []string{},
+			Artists:     []contracts.ChartEntityReference{},
+			Labels:      []contracts.ChartEntityReference{},
 			Rank:        offset + i + 1,
 		}
 		releaseIDs[i] = r.ReleaseID
 	}
 
-	artistMap, err := s.releaseArtistNames(releaseIDs)
+	artistMap, err := s.releaseArtistReferences(releaseIDs)
 	if err != nil {
 		return nil, 0, err
 	}
-	labelMap, err := s.releaseLabelNames(releaseIDs)
+	labelMap, err := s.releaseLabelReferences(releaseIDs)
 	if err != nil {
 		return nil, 0, err
 	}
 	for i := range results {
-		if names, ok := artistMap[results[i].ReleaseID]; ok {
-			results[i].ArtistNames = names
+		if artists, ok := artistMap[results[i].ReleaseID]; ok {
+			results[i].Artists = artists
+			for _, artist := range artists {
+				results[i].ArtistNames = append(results[i].ArtistNames, artist.Name)
+			}
 		}
-		if names, ok := labelMap[results[i].ReleaseID]; ok {
-			results[i].LabelNames = names
+		if labels, ok := labelMap[results[i].ReleaseID]; ok {
+			results[i].Labels = labels
+			for _, label := range labels {
+				results[i].LabelNames = append(results[i].LabelNames, label.Name)
+			}
 		}
 	}
 
 	return results, total, nil
 }
 
-// releaseLabelNames returns name-ordered label names for each release, in one
-// query.
-func (s *ChartsService) releaseLabelNames(releaseIDs []uint) (map[uint][]string, error) {
-	return s.namesByOwnerID(`
-		SELECT rl.release_id AS owner_id, l.name
+func (s *ChartsService) releaseLabelReferences(releaseIDs []uint) (map[uint][]contracts.ChartEntityReference, error) {
+	return s.referencesByOwnerID(`
+		SELECT rl.release_id AS owner_id, l.id, l.name, COALESCE(l.slug, '') AS slug
 		FROM release_labels rl
 		JOIN labels l ON l.id = rl.label_id
 		WHERE rl.release_id IN ?
 		ORDER BY rl.release_id, l.name ASC, l.id ASC
-	`, releaseIDs, "release labels")
+	`, releaseIDs, "release label references")
 }
 
 // appendWindowBounds appends the generic chart window bounds for `column` —

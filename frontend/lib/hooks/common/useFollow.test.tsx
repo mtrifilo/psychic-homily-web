@@ -10,8 +10,10 @@ vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
     FOLLOW: {
-      ENTITY: (entityType: string, entityId: number) => `/${entityType}/${entityId}/follow`,
-      FOLLOWERS: (entityType: string, entityId: number) => `/${entityType}/${entityId}/followers`,
+      ENTITY: (entityType: string, entityId: number) =>
+        `/${entityType}/${entityId}/follow`,
+      FOLLOWERS: (entityType: string, entityId: number) =>
+        `/${entityType}/${entityId}/followers`,
       BATCH: '/follows/batch',
       MY_FOLLOWING: '/me/following',
     },
@@ -22,9 +24,27 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     follows: {
-      entity: (entityType: string, entityId: number) => ['follows', entityType, entityId],
-      batch: (entityType: string, entityIds: number[]) => ['follows', 'batch', entityType, ...entityIds],
-      myFollowing: (params?: Record<string, unknown>) => ['follows', 'my-following', params],
+      entity: (
+        entityType: string,
+        entityId: number,
+        userId?: string | number
+      ) => ['follows', entityType, userId ?? null, entityId],
+      batch: (
+        entityType: string,
+        entityIds: number[],
+        userId?: string | number
+      ) => ['follows', 'batch', entityType, userId ?? null, ...entityIds],
+      batchPrefix: (entityType: string, userId?: string | number) => [
+        'follows',
+        'batch',
+        entityType,
+        userId ?? null,
+      ],
+      myFollowing: (params?: Record<string, unknown>) => [
+        'follows',
+        'my-following',
+        params,
+      ],
     },
   },
   createInvalidateQueries: () => ({
@@ -33,7 +53,7 @@ vi.mock('@/lib/queryClient', () => ({
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: true }),
+  useAuthContext: () => ({ isAuthenticated: true, user: { id: 1 } }),
 }))
 
 import {
@@ -46,14 +66,16 @@ import {
 
 type CachedFollow = { follower_count: number; is_following: boolean }
 
-function createDeferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function createDeferred<T = void>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
   let resolve: (value: T) => void = () => {}
-  const promise = new Promise<T>((res) => {
+  const promise = new Promise<T>(res => {
     resolve = res
   })
   return { promise, resolve }
 }
-
 
 describe('useFollowStatus', () => {
   beforeEach(() => {
@@ -72,7 +94,9 @@ describe('useFollowStatus', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/artists/1/followers', { method: 'GET' })
+    expect(mockApiRequest).toHaveBeenCalledWith('/artists/1/followers', {
+      method: 'GET',
+    })
   })
 
   it('does not fetch when entityId is 0', () => {
@@ -89,6 +113,15 @@ describe('useFollowStatus', () => {
     })
 
     expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  it('does not fetch when pre-fetched status disables the query', () => {
+    const { result } = renderHook(() => useFollowStatus('artists', 1, false), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 })
 
@@ -122,10 +155,9 @@ describe('useBatchFollowStatus', () => {
   })
 
   it('does not fetch when entityIds is empty', () => {
-    const { result } = renderHook(
-      () => useBatchFollowStatus('artists', []),
-      { wrapper: createWrapper() }
-    )
+    const { result } = renderHook(() => useBatchFollowStatus('artists', []), {
+      wrapper: createWrapper(),
+    })
 
     expect(result.current.fetchStatus).toBe('idle')
   })
@@ -141,7 +173,9 @@ describe('useFollow', () => {
   it('follows an entity with POST', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
 
-    const { result } = renderHook(() => useFollow(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapper(),
+    })
 
     await act(async () => {
       result.current.mutate({ entityType: 'artists', entityId: 1 })
@@ -157,12 +191,20 @@ describe('useFollow', () => {
 
   it('performs optimistic update on follow', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: false,
+    })
+    const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
+    queryClient.setQueryData(batchKey, {
+      '1': { follower_count: 10, is_following: false },
+      '2': { follower_count: 4, is_following: false },
     })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
@@ -178,10 +220,15 @@ describe('useFollow', () => {
     const cached = queryClient.getQueryData<{
       follower_count: number
       is_following: boolean
-    }>(['follows', 'artists', 1])
+    }>(['follows', 'artists', 1, 1])
 
     expect(cached?.follower_count).toBe(11)
     expect(cached?.is_following).toBe(true)
+    expect(
+      queryClient.getQueryData<
+        Record<string, { follower_count: number; is_following: boolean }>
+      >(batchKey)?.['1']
+    ).toEqual({ follower_count: 11, is_following: true })
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -196,12 +243,20 @@ describe('useFollow', () => {
     // - Resolve cancelQueries; the optimistic value must then appear in the
     //   cache (proves the optimistic update runs after the await resolves).
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: false,
+    })
+    const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
+    queryClient.setQueryData(batchKey, {
+      '1': { follower_count: 10, is_following: true },
+      '2': { follower_count: 4, is_following: false },
     })
 
     const cancelGate = createDeferred<void>()
@@ -228,10 +283,11 @@ describe('useFollow', () => {
     // Yield microtasks; cache must NOT yet show the optimistic update.
     await Promise.resolve()
     await Promise.resolve()
-    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
-      .toEqual({ follower_count: 10, is_following: false })
+    expect(
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
+    ).toEqual({ follower_count: 10, is_following: false })
     expect(cancelSpy).toHaveBeenCalledWith({
-      queryKey: ['follows', 'artists', 1],
+      queryKey: ['follows', 'artists', 1, 1],
     })
 
     // Release the cancellation; optimistic update must now run.
@@ -240,8 +296,9 @@ describe('useFollow', () => {
       await mutatePromise
     })
 
-    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
-      .toEqual({ follower_count: 11, is_following: true })
+    expect(
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
+    ).toEqual({ follower_count: 11, is_following: true })
   })
 })
 
@@ -253,9 +310,14 @@ describe('useUnfollow', () => {
   })
 
   it('unfollows an entity with DELETE', async () => {
-    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Unfollowed' })
+    mockApiRequest.mockResolvedValueOnce({
+      success: true,
+      message: 'Unfollowed',
+    })
 
-    const { result } = renderHook(() => useUnfollow(), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapper(),
+    })
 
     await act(async () => {
       result.current.mutate({ entityType: 'artists', entityId: 1 })
@@ -271,12 +333,20 @@ describe('useUnfollow', () => {
 
   it('performs optimistic update on unfollow', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: true,
+    })
+    const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
+    queryClient.setQueryData(batchKey, {
+      '1': { follower_count: 10, is_following: true },
+      '2': { follower_count: 4, is_following: false },
     })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
@@ -292,10 +362,15 @@ describe('useUnfollow', () => {
     const cached = queryClient.getQueryData<{
       follower_count: number
       is_following: boolean
-    }>(['follows', 'artists', 1])
+    }>(['follows', 'artists', 1, 1])
 
     expect(cached?.follower_count).toBe(9)
     expect(cached?.is_following).toBe(false)
+    expect(
+      queryClient.getQueryData<
+        Record<string, { follower_count: number; is_following: boolean }>
+      >(batchKey)?.['1']
+    ).toEqual({ follower_count: 9, is_following: false })
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -303,10 +378,13 @@ describe('useUnfollow', () => {
     // cancelQueries so a stale in-flight fetch can't clobber the optimistic
     // unfollow.
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: true,
     })
@@ -316,7 +394,10 @@ describe('useUnfollow', () => {
       .spyOn(queryClient, 'cancelQueries')
       .mockImplementation(() => cancelGate.promise)
 
-    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Unfollowed' })
+    mockApiRequest.mockResolvedValueOnce({
+      success: true,
+      message: 'Unfollowed',
+    })
 
     const { result } = renderHook(() => useUnfollow(), {
       wrapper: createWrapperWithClient(queryClient),
@@ -332,10 +413,11 @@ describe('useUnfollow', () => {
 
     await Promise.resolve()
     await Promise.resolve()
-    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
-      .toEqual({ follower_count: 10, is_following: true })
+    expect(
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
+    ).toEqual({ follower_count: 10, is_following: true })
     expect(cancelSpy).toHaveBeenCalledWith({
-      queryKey: ['follows', 'artists', 1],
+      queryKey: ['follows', 'artists', 1, 1],
     })
 
     await act(async () => {
@@ -343,8 +425,9 @@ describe('useUnfollow', () => {
       await mutatePromise
     })
 
-    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
-      .toEqual({ follower_count: 9, is_following: false })
+    expect(
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
+    ).toEqual({ follower_count: 9, is_following: false })
   })
 
   it('handles unfollow errors', async () => {

@@ -5,6 +5,7 @@ const mockReplace = vi.fn()
 const mockRedirect = vi.fn()
 const mockUseAuthContext = vi.fn()
 const mockUseSavedShows = vi.fn()
+const mockUseSavedReleases = vi.fn()
 const mockUseMyFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 
@@ -39,6 +40,11 @@ vi.mock('@/features/shows', () => ({
   },
 }))
 
+vi.mock('@/features/releases', () => ({
+  getReleaseTypeLabel: (type: string) => type,
+  useSavedReleases: (...args: unknown[]) => mockUseSavedReleases(...args),
+}))
+
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useMyFollowing: (opts?: { type?: string }) => mockUseMyFollowing(opts),
   useUnfollow: () => ({ mutate: vi.fn(), isPending: false }),
@@ -70,6 +76,11 @@ function setAuthenticated() {
 function setLoadedData() {
   mockUseSavedShows.mockReturnValue({
     data: { shows: [], total: 8, limit: 50, offset: 0 },
+    isLoading: false,
+    error: null,
+  })
+  mockUseSavedReleases.mockReturnValue({
+    data: { releases: [], total: 0, limit: 50, offset: 0 },
     isLoading: false,
     error: null,
   })
@@ -119,7 +130,7 @@ describe('LibraryPage chrome (PSY-1440)', () => {
 
       const tablist = screen.getByRole('tablist')
       const tabs = within(tablist).getAllByRole('tab')
-      expect(tabs.map((t) => t.textContent)).toEqual([
+      expect(tabs.map(t => t.textContent)).toEqual([
         'Shows',
         'Artists',
         'Venues',
@@ -144,22 +155,28 @@ describe('LibraryPage chrome (PSY-1440)', () => {
     it('scrolls a deep-linked trailing tab into the mobile tab viewport', () => {
       mockSearchParams = new URLSearchParams('tab=submissions')
       const defaultBounds = HTMLElement.prototype.getBoundingClientRect
-      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-        function (this: HTMLElement) {
-          if (this.getAttribute('role') === 'tablist') {
-            return { ...defaultBounds.call(this), left: 0, right: 358 }
-          }
-          if (this.getAttribute('role') === 'tab' && this.textContent === 'Submissions') {
-            return { ...defaultBounds.call(this), left: 500, right: 570 }
-          }
-          return defaultBounds.call(this)
+      vi.spyOn(
+        HTMLElement.prototype,
+        'getBoundingClientRect'
+      ).mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'tablist') {
+          return { ...defaultBounds.call(this), left: 0, right: 358 }
         }
-      )
+        if (
+          this.getAttribute('role') === 'tab' &&
+          this.textContent === 'Submissions'
+        ) {
+          return { ...defaultBounds.call(this), left: 500, right: 570 }
+        }
+        return defaultBounds.call(this)
+      })
 
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('tab', { name: 'Submissions' }).getAttribute('data-state')
+        screen
+          .getByRole('tab', { name: 'Submissions' })
+          .getAttribute('data-state')
       ).toBe('active')
       expect(mockScrollTo).toHaveBeenCalledWith({
         behavior: 'instant',
@@ -206,7 +223,7 @@ describe('LibraryPage chrome (PSY-1440)', () => {
       [
         'releases',
         'No releases saved yet.',
-        'Release bookmarks are coming soon. Browse releases in the meantime.',
+        'Save releases to see them here.',
         'Browse releases',
         '/releases',
       ],
@@ -240,9 +257,9 @@ describe('LibraryPage chrome (PSY-1440)', () => {
 
         expect(screen.getByText(title)).toBeTruthy()
         expect(screen.getByText(description)).toBeTruthy()
-        expect(screen.getByRole('link', { name: cta }).getAttribute('href')).toBe(
-          href
-        )
+        expect(
+          screen.getByRole('link', { name: cta }).getAttribute('href')
+        ).toBe(href)
       }
     )
   })
@@ -288,10 +305,12 @@ describe('LibraryPage chrome (PSY-1440)', () => {
 
       const compactDate = within(row).getByText('JUL 12')
       expect(compactDate.className).toContain('md:hidden')
-      expect(within(row).getByRole('link', { name: 'Calexico' }).getAttribute('href')).toBe(
-        '/shows/calexico-e2e-reserved-venue'
-      )
-      expect(within(row).getByRole('link', { name: 'E2E Reserved Venue' })).toBeTruthy()
+      expect(
+        within(row).getByRole('link', { name: 'Calexico' }).getAttribute('href')
+      ).toBe('/shows/calexico-e2e-reserved-venue')
+      expect(
+        within(row).getByRole('link', { name: 'E2E Reserved Venue' })
+      ).toBeTruthy()
       expect(within(row).getByText(/Phoenix, AZ/)).toBeTruthy()
     })
   })

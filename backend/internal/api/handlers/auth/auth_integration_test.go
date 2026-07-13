@@ -689,6 +689,7 @@ func (s *AuthHandlerIntegrationSuite) TestGetDeletionSummary_FreshUser() {
 	s.True(resp.Body.Success)
 	s.Equal(int64(0), resp.Body.ShowsCount)
 	s.Equal(int64(0), resp.Body.SavedShowsCount)
+	s.Equal(int64(0), resp.Body.SavedReleasesCount)
 	s.Equal(int64(0), resp.Body.PasskeysCount)
 	s.False(resp.Body.HasPassword) // OAuth-only user
 }

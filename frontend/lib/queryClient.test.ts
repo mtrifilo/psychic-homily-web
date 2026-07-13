@@ -53,6 +53,23 @@ describe('queryClient module', () => {
   })
 
   describe('queryKeys', () => {
+    it('isolates authenticated follow and show-save state by user', async () => {
+      const { queryKeys } = await import('./queryClient')
+
+      expect(queryKeys.follows.entity('artists', 7, 42)).not.toEqual(
+        queryKeys.follows.entity('artists', 7, 84)
+      )
+      expect(queryKeys.follows.batch('artists', [7], 42)).not.toEqual(
+        queryKeys.follows.batch('artists', [7], 84)
+      )
+      expect(queryKeys.savedShows.count(9, true, 42)).not.toEqual(
+        queryKeys.savedShows.count(9, true, 84)
+      )
+      expect(queryKeys.savedShows.countBatch([9], true, 42)).not.toEqual(
+        queryKeys.savedShows.countBatch([9], true, 84)
+      )
+    })
+
     it('normalizes venue search queries to lowercase', async () => {
       const { queryKeys } = await import('./queryClient')
 

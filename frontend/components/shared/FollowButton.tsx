@@ -28,6 +28,8 @@ interface FollowButtonProps {
    * linkboxes (PSY-641) — `[Follow]` toggling to `[Following]`.
    */
   variant?: 'button' | 'bracket'
+  className?: string
+  disabled?: boolean
 }
 
 export function FollowButton({
@@ -36,6 +38,8 @@ export function FollowButton({
   compact = false,
   followData,
   variant = 'button',
+  className,
+  disabled = false,
 }: FollowButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -45,7 +49,8 @@ export function FollowButton({
   // Fetch follow status only if not provided via props
   const { data: fetchedData, isLoading: statusLoading } = useFollowStatus(
     entityType,
-    entityId
+    entityId,
+    !followData
   )
 
   const follow = useFollow()
@@ -56,17 +61,19 @@ export function FollowButton({
   const isFollowing = data?.is_following ?? false
   const followerCount = data?.follower_count ?? 0
   const isMutating = follow.isPending || unfollow.isPending
+  const isDisabled = disabled || isMutating
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
     if (!isAuthenticated) {
-      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+      const returnTo = `${pathname}${window.location.search}`
+      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
       return
     }
 
-    if (isMutating) return
+    if (isDisabled) return
 
     if (isFollowing) {
       unfollow.mutate({ entityType, entityId })
@@ -86,7 +93,8 @@ export function FollowButton({
         label={isFollowing ? 'Following' : 'Follow'}
         active={isFollowing}
         onClick={handleClick}
-        disabled={isMutating}
+        disabled={isDisabled}
+        className={className}
       />
     )
   }
@@ -119,10 +127,11 @@ export function FollowButton({
         onClick={handleClick}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
-        disabled={isMutating}
+        disabled={isDisabled}
         className={cn(
           'h-7 px-2 gap-1 text-xs',
-          showUnfollow && 'text-destructive hover:text-destructive'
+          showUnfollow && 'text-destructive hover:text-destructive',
+          className
         )}
         title={isFollowing ? 'Unfollow' : 'Follow'}
         aria-label={isFollowing ? 'Unfollow' : 'Follow'}
@@ -145,13 +154,15 @@ export function FollowButton({
 
   return (
     <Button
-      variant={isFollowing ? (showUnfollow ? 'destructive' : 'secondary') : 'outline'}
+      variant={
+        isFollowing ? (showUnfollow ? 'destructive' : 'secondary') : 'outline'
+      }
       size="sm"
       onClick={handleClick}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
-      disabled={isMutating}
-      className="gap-1.5"
+      disabled={isDisabled}
+      className={cn('gap-1.5', className)}
     >
       {isMutating ? (
         <Loader2 className="h-4 w-4 animate-spin" />
