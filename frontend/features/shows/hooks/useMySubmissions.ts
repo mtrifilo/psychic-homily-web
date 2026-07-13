@@ -7,6 +7,7 @@ import { showEndpoints } from '@/features/shows/api'
 import type { MySubmissionsResponse } from '../types'
 
 interface UseMySubmissionsOptions {
+  userId?: string | number
   limit?: number
   offset?: number
   enabled?: boolean
@@ -18,7 +19,7 @@ interface UseMySubmissionsOptions {
  * Requires authentication
  */
 export const useMySubmissions = (options: UseMySubmissionsOptions = {}) => {
-  const { limit = 50, offset = 0, enabled = true } = options
+  const { userId, limit = 50, offset = 0, enabled = true } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -27,13 +28,20 @@ export const useMySubmissions = (options: UseMySubmissionsOptions = {}) => {
   const endpoint = `${showEndpoints.MY_SUBMISSIONS}?${params.toString()}`
 
   return useQuery({
-    queryKey: [...queryKeys.mySubmissions.list(), { limit, offset }],
+    queryKey: [
+      ...queryKeys.mySubmissions.list(),
+      {
+        userId: userId == null ? null : String(userId),
+        limit,
+        offset,
+      },
+    ],
     queryFn: async (): Promise<MySubmissionsResponse> => {
       return apiRequest<MySubmissionsResponse>(endpoint, {
         method: 'GET',
       })
     },
-    enabled,
+    enabled: enabled && userId != null,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

@@ -747,8 +747,30 @@ function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
 }
 
 function LibraryContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
+  const rawTab = searchParams.get('tab')
+
+  if (rawTab === 'submissions') {
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete('tab')
+    const queryString = nextParams.toString()
+    redirect(
+      queryString
+        ? `/contribute/submissions?${queryString}`
+        : '/contribute/submissions'
+    )
+    return null
+  }
+
+  return <ActiveLibraryContent searchParams={searchParams} />
+}
+
+function ActiveLibraryContent({
+  searchParams,
+}: {
+  searchParams: ReturnType<typeof useSearchParams>
+}) {
+  const router = useRouter()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
   const followingTabCounts = useFollowingTabCounts()
   const currentUserId = user?.id ? Number(user.id) : undefined
@@ -766,22 +788,8 @@ function LibraryContent() {
   const tabListRef = useRef<HTMLDivElement | null>(null)
   const activeTabTriggerRef = useRef<HTMLButtonElement | null>(null)
 
-  // Preserve legacy show-submission links while keeping unrelated invalid
-  // tab values on Library's existing normalization path.
+  // Keep unrelated invalid tab values on Library's existing normalization path.
   useEffect(() => {
-    if (rawTab === 'submissions') {
-      const nextParams = new URLSearchParams(searchParams.toString())
-      nextParams.delete('tab')
-      const queryString = nextParams.toString()
-      router.replace(
-        queryString
-          ? `/contribute/submissions?${queryString}`
-          : '/contribute/submissions',
-        { scroll: false }
-      )
-      return
-    }
-
     if (rawTab && !isLibraryTab(rawTab)) {
       const nextParams = new URLSearchParams(searchParams.toString())
       nextParams.delete('tab')
@@ -824,10 +832,6 @@ function LibraryContent() {
     router.replace(queryString ? `/library?${queryString}` : '/library', {
       scroll: false,
     })
-  }
-
-  if (rawTab === 'submissions') {
-    return <LibraryLoading />
   }
 
   if (!authLoading && !isAuthenticated) {

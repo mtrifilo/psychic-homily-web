@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Ban,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { queryKeys } from '@/lib/queryClient'
 import {
   formatPrice,
   formatShowDate,
@@ -56,12 +58,16 @@ interface SubmissionShowCardProps {
   show: ShowResponse
   currentUserId?: number
   isAdmin?: boolean
+  onSubmissionChanged: () => void
+  onSubmissionDeleted: () => void
 }
 
 function SubmissionShowCard({
   show,
   currentUserId,
   isAdmin,
+  onSubmissionChanged,
+  onSubmissionDeleted,
 }: SubmissionShowCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -244,10 +250,13 @@ function SubmissionShowCard({
 
                       <DropdownMenuItem
                         onClick={() =>
-                          setSoldOutMutation.mutate({
-                            showId: show.id,
-                            value: !show.is_sold_out,
-                          })
+                          setSoldOutMutation.mutate(
+                            {
+                              showId: show.id,
+                              value: !show.is_sold_out,
+                            },
+                            { onSuccess: onSubmissionChanged }
+                          )
                         }
                         disabled={setSoldOutMutation.isPending}
                       >
@@ -256,10 +265,13 @@ function SubmissionShowCard({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
-                          setCancelledMutation.mutate({
-                            showId: show.id,
-                            value: !show.is_cancelled,
-                          })
+                          setCancelledMutation.mutate(
+                            {
+                              showId: show.id,
+                              value: !show.is_cancelled,
+                            },
+                            { onSuccess: onSubmissionChanged }
+                          )
                         }
                         disabled={setCancelledMutation.isPending}
                       >
@@ -331,7 +343,10 @@ function SubmissionShowCard({
           <ShowForm
             mode="edit"
             initialData={show}
-            onSuccess={() => setIsEditing(false)}
+            onSuccess={() => {
+              setIsEditing(false)
+              onSubmissionChanged()
+            }}
             onCancel={() => setIsEditing(false)}
           />
         </div>
@@ -341,16 +356,19 @@ function SubmissionShowCard({
         show={show}
         open={isUnpublishDialogOpen}
         onOpenChange={setIsUnpublishDialogOpen}
+        onSuccess={onSubmissionChanged}
       />
       <MakePrivateDialog
         show={show}
         open={isMakePrivateDialogOpen}
         onOpenChange={setIsMakePrivateDialogOpen}
+        onSuccess={onSubmissionChanged}
       />
       <PublishShowDialog
         show={show}
         open={isPublishDialogOpen}
         onOpenChange={setIsPublishDialogOpen}
+        onSuccess={onSubmissionChanged}
       />
       <VenueDeniedDialog
         show={show}
@@ -361,6 +379,7 @@ function SubmissionShowCard({
         show={show}
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
+        onSuccess={onSubmissionDeleted}
       />
     </article>
   )
@@ -369,10 +388,13 @@ function SubmissionShowCard({
 export function ShowSubmissionsConsole() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
   const [submissionsOffset, setSubmissionsOffset] = useState(0)
-  const { data, isLoading, error } = useMySubmissions({
+  const submissionUserId = user?.id
+  const { data, isLoading, error, refetch } = useMySubmissions({
     enabled: isAuthenticated,
+    userId: submissionUserId,
     limit: SUBMISSIONS_PAGE_SIZE,
     offset: submissionsOffset,
   })
@@ -381,6 +403,19 @@ export function ShowSubmissionsConsole() {
   const showSuccessDialog = !dialogDismissed && isPrivateSubmission
   const currentUserId = user?.id ? Number(user.id) : undefined
   const queryString = searchParams.toString()
+  const refreshSubmissions = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.mySubmissions.all,
+    })
+  }, [queryClient])
+  const handleSubmissionDeleted = useCallback(() => {
+    refreshSubmissions()
+    if (submissionsOffset > 0 && data?.shows.length === 1) {
+      setSubmissionsOffset(offset =>
+        Math.max(0, offset - SUBMISSIONS_PAGE_SIZE)
+      )
+    }
+  }, [data?.shows.length, refreshSubmissions, submissionsOffset])
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -439,8 +474,28 @@ export function ShowSubmissionsConsole() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error ? (
-        <div className="py-12 text-center text-destructive">
-          <p>Failed to load your submissions. Please try again later.</p>
+        <div className="py-12 text-center">
+          <div className="text-destructive">
+            Failed to load your submissions. Please try again later.
+          </div>
+          <div className="mt-5 flex justify-center gap-3">
+            {submissionsOffset > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setSubmissionsOffset(offset =>
+                    Math.max(0, offset - SUBMISSIONS_PAGE_SIZE)
+                  )
+                }
+              >
+                Previous page
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
         </div>
       ) : data?.shows.length ? (
         <>
@@ -451,6 +506,8 @@ export function ShowSubmissionsConsole() {
                 show={show}
                 currentUserId={currentUserId}
                 isAdmin={user?.is_admin}
+                onSubmissionChanged={refreshSubmissions}
+                onSubmissionDeleted={handleSubmissionDeleted}
               />
             ))}
           </section>
@@ -489,6 +546,24 @@ export function ShowSubmissionsConsole() {
             </nav>
           )}
         </>
+      ) : submissionsOffset > 0 ? (
+        <div className="py-12 text-center">
+          <p className="font-medium text-foreground">
+            No submissions on this page.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-5"
+            onClick={() =>
+              setSubmissionsOffset(offset =>
+                Math.max(0, offset - SUBMISSIONS_PAGE_SIZE)
+              )
+            }
+          >
+            Previous page
+          </Button>
+        </div>
       ) : (
         <div className="pb-6 pt-12">
           <p className="font-medium text-foreground">

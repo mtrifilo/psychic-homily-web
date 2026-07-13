@@ -3,13 +3,27 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders, screen, waitFor } from '@/test/utils'
 import type { ShowResponse } from '../types'
 
+const { mockInvalidateQueries } = vi.hoisted(() => ({
+  mockInvalidateQueries: vi.fn(),
+}))
 const mockPush = vi.fn()
 const mockReplace = vi.fn()
+const mockRefetch = vi.fn()
 const mockUseAuthContext = vi.fn()
 const mockUseMySubmissions = vi.fn()
 const mockSetSoldOut = vi.fn()
 const mockSetCancelled = vi.fn()
 let mockSearchParams = new URLSearchParams()
+
+vi.mock('@tanstack/react-query', async () => {
+  const actual = await vi.importActual<typeof import('@tanstack/react-query')>(
+    '@tanstack/react-query'
+  )
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  }
+})
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
@@ -52,7 +66,12 @@ vi.mock('@/features/venues', () => ({
   VenueDeniedDialog: () => null,
 }))
 
-vi.mock('./DeleteShowDialog', () => ({ DeleteShowDialog: () => null }))
+vi.mock('./DeleteShowDialog', () => ({
+  DeleteShowDialog: (props: { open?: boolean; onSuccess?: () => void }) =>
+    props.open ? (
+      <button onClick={() => props.onSuccess?.()}>Confirm deletion</button>
+    ) : null,
+}))
 vi.mock('./MakePrivateDialog', () => ({ MakePrivateDialog: () => null }))
 vi.mock('./PublishShowDialog', () => ({ PublishShowDialog: () => null }))
 vi.mock('./UnpublishShowDialog', () => ({ UnpublishShowDialog: () => null }))
@@ -117,6 +136,7 @@ describe('ShowSubmissionsConsole', () => {
       data: { shows: [], total: 0 },
       isLoading: false,
       error: null,
+      refetch: mockRefetch,
     })
   })
 
@@ -136,6 +156,7 @@ describe('ShowSubmissionsConsole', () => {
     })
     expect(mockUseMySubmissions).toHaveBeenCalledWith({
       enabled: false,
+      userId: undefined,
       limit: 50,
       offset: 0,
     })
@@ -212,7 +233,16 @@ describe('ShowSubmissionsConsole', () => {
     ).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: 'Delete show' })).toBeTruthy()
 
-    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('menuitem', { name: 'Mark sold out' }))
+    expect(mockSetSoldOut).toHaveBeenCalledWith(
+      { showId: 1, value: true },
+      { onSuccess: expect.any(Function) }
+    )
+    mockSetSoldOut.mock.calls[0][1].onSuccess()
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['mySubmissions'],
+    })
+
     await user.click(actionButtons[1])
     expect(screen.getByRole('menuitem', { name: 'Publish show' })).toBeTruthy()
   })
@@ -227,6 +257,7 @@ describe('ShowSubmissionsConsole', () => {
         },
         isLoading: false,
         error: null,
+        refetch: mockRefetch,
       })
     )
 
@@ -237,9 +268,72 @@ describe('ShowSubmissionsConsole', () => {
 
     expect(mockUseMySubmissions).toHaveBeenLastCalledWith({
       enabled: true,
+      userId: '1',
       limit: 50,
       offset: 50,
     })
     expect(screen.getByText('51–51 of 51')).toBeTruthy()
+  })
+
+  it('offers retry and previous-page recovery after a later page fails', async () => {
+    const user = userEvent.setup()
+    mockUseMySubmissions.mockImplementation(({ offset }: { offset: number }) =>
+      offset === 50
+        ? {
+            data: undefined,
+            isLoading: false,
+            error: new Error('temporary failure'),
+            refetch: mockRefetch,
+          }
+        : {
+            data: { shows: [makeShow(1, 'approved')], total: 51 },
+            isLoading: false,
+            error: null,
+            refetch: mockRefetch,
+          }
+    )
+
+    renderWithProviders(<ShowSubmissionsConsole />)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.getByText(/Failed to load your submissions/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(mockRefetch).toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Previous page' }))
+    expect(screen.getByText('1–1 of 51')).toBeTruthy()
+  })
+
+  it('returns to the last valid page when deleting its only submission', async () => {
+    const user = userEvent.setup()
+    mockUseMySubmissions.mockImplementation(
+      ({ offset }: { offset: number }) => ({
+        data: {
+          shows: [makeShow(offset === 50 ? 51 : 1, 'approved')],
+          total: 51,
+        },
+        isLoading: false,
+        error: null,
+        refetch: mockRefetch,
+      })
+    )
+
+    renderWithProviders(<ShowSubmissionsConsole />)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('51–51 of 51')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Show actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Delete show' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm deletion' }))
+
+    await waitFor(() => {
+      expect(mockUseMySubmissions).toHaveBeenLastCalledWith({
+        enabled: true,
+        userId: '1',
+        limit: 50,
+        offset: 0,
+      })
+    })
+    expect(screen.queryByText('No show submissions yet.')).toBeNull()
   })
 })

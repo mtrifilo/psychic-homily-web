@@ -128,10 +128,11 @@ describe('Sidebar', () => {
   it('does not show Library/Profile when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.queryByText('Library')).not.toBeInTheDocument()
+    expect(screen.queryByText('Show Submissions')).not.toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
   })
 
-  it('shows Library/Profile when authenticated', () => {
+  it('shows Library, show submissions, and Profile when authenticated', () => {
     mockAuthContext.mockReturnValue({
       user: { email: 'test@test.com', is_admin: false },
       isAuthenticated: true,
@@ -140,6 +141,10 @@ describe('Sidebar', () => {
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.getByText('Library')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Show Submissions' })).toHaveAttribute(
+      'href',
+      '/contribute/submissions'
+    )
     expect(screen.getByText('Profile')).toBeInTheDocument()
   })
 

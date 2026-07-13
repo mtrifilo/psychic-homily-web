@@ -272,19 +272,18 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       })
     })
 
-    it('redirects the retired submissions tab and preserves its dialog query', async () => {
+    it('redirects the retired submissions tab before Library data hooks run', () => {
       mockSearchParams = new URLSearchParams(
         'tab=submissions&submitted=private'
       )
 
       renderWithProviders(<LibraryPage />)
 
-      await waitFor(() => {
-        expect(mockReplace).toHaveBeenCalledWith(
-          '/contribute/submissions?submitted=private',
-          { scroll: false }
-        )
-      })
+      expect(mockRedirect).toHaveBeenCalledWith(
+        '/contribute/submissions?submitted=private'
+      )
+      expect(mockUseMyFollowing).not.toHaveBeenCalled()
+      expect(mockUseSavedReleases).not.toHaveBeenCalled()
       expect(screen.queryByRole('tab', { name: /submissions/i })).toBeNull()
     })
 
