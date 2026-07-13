@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 // PSY-1344: staticViewport must translate into react-force-graph's
@@ -69,6 +70,33 @@ describe('ForceGraphView staticViewport (PSY-1344)', () => {
   it('pre-settles interactive surfaces the same way — the settle animation is retired (PSY-1447)', () => {
     renderGraph()
     expect(h.lastProps.warmupTicks).toBe(200)
+    expect(h.lastProps.cooldownTicks).toBe(0)
+  })
+
+  // PSY-1447: cooldownTicks=0 at rest means the engine never ticks after the
+  // synchronous warmup — verified against the real react-force-graph engine
+  // (node_modules/force-graph): with cooldownTicks=0, a node-drag's
+  // resetCountdown() is immediately followed by cntTicks(1) > cooldownTicks(0),
+  // so forceLayout.tick() never runs and every neighbor freezes mid-drag,
+  // leaving edges permanently stretched between the dragged node's live
+  // position and its frozen neighbors after release (reproduced in a real
+  // browser during manual repro — a materially worse regression than "less
+  // lively" once actually seen). cooldownTicks re-arms to the pre-PSY-1442
+  // interactive default for exactly the drag gesture's duration so dragging
+  // keeps its pre-existing live neighbor-reflow; every other path (mount,
+  // data digest, resize) stays governed by warmupTicks/zero-cooldown only.
+  it('re-arms live ticking for the duration of a node drag, then re-freezes on drag end (PSY-1447)', () => {
+    renderGraph()
+    expect(h.lastProps.cooldownTicks).toBe(0)
+
+    act(() => {
+      ;(h.lastProps.onNodeDrag as () => void)()
+    })
+    expect(h.lastProps.cooldownTicks).toBe(200)
+
+    act(() => {
+      ;(h.lastProps.onNodeDragEnd as () => void)()
+    })
     expect(h.lastProps.cooldownTicks).toBe(0)
   })
 })
