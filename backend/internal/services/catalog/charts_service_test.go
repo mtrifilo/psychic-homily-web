@@ -2640,6 +2640,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mode
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartScenes_FloorWindowAndDisplay() {
 	user := suite.createUser("scene-list@test.com")
 	artist := suite.createArtist("Roster Band")
+	suite.setArtistMetro(artist, phoenixCBSA)
+	secondPhxArtist := suite.createArtist("Second Phoenix Band")
+	suite.setArtistMetro(secondPhxArtist, phoenixCBSA)
 
 	phx1 := suite.createVenue("Phx Room A", "Tempe", "AZ")
 	suite.setVenueMetro(phx1, phoenixCBSA, true)
@@ -2680,7 +2683,10 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartScenes_FloorWindowAn
 	suite.Require().NoError(err)
 	suite.Require().Len(scenes, 1, "only the metro at/above the floor with verified venues qualifies")
 	suite.Equal(phoenixCBSA, scenes[0].Metro)
+	suite.Equal("Phoenix-Mesa-Chandler, AZ", scenes[0].Name)
 	suite.Equal(5, scenes[0].ShowCount, "out-of-window and future shows never count")
+	suite.Equal(2, scenes[0].ArtistCount, "artist vitals use the charts' strict home-metro scope")
+	suite.Equal(2, scenes[0].VenueCount, "venue vitals include every verified metro venue")
 	suite.Equal("Phoenix", scenes[0].City, "display identity is the metro principal city, not a member city")
 	suite.Equal("AZ", scenes[0].State)
 }

@@ -1802,12 +1802,13 @@ const chartSceneFloor = 5
 
 // GetChartScenes returns the scene switcher's option list: CBSA metros with
 // at least chartSceneFloor approved, non-cancelled shows played in the
-// window, show counts included, busiest first. Only venue-metro attribution
+// window, scene vitals included, busiest first. Only venue-metro attribution
 // counts (the same key the module endpoints scope by), and only real CBSA
-// metros appear — (city|state) fallback scenes are not chart scopes.
-// Display identity is the metro's principal city (the scenes directory's
-// convention); the venues' own MIN(city/state) is the fallback if the CBSA
-// somehow doesn't resolve.
+// metros appear — (city|state) fallback scenes are not chart scopes. The artist
+// vital deliberately uses Charts' strict artists.metro scope; the venue vital
+// uses the scene directory's verified-venue scope. Display identity includes
+// the official CBSA name plus its principal city; the venues' own deterministic
+// city/state pair is the fallback if the CBSA somehow doesn't resolve.
 func (s *ChartsService) GetChartScenes(window contracts.ChartWindow) ([]contracts.ChartScene, error) {
 	// Masthead instance on purpose: this key space is exactly the three
 	// window values (domain-bounded — chartsCacheFor's provenance rule), and
@@ -1828,10 +1829,12 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 	start := chartWindowStart(window, now)
 
 	type sceneRow struct {
-		Metro     string `gorm:"column:metro"`
-		City      string `gorm:"column:city"`
-		State     string `gorm:"column:state"`
-		ShowCount int    `gorm:"column:show_count"`
+		Metro       string `gorm:"column:metro"`
+		City        string `gorm:"column:city"`
+		State       string `gorm:"column:state"`
+		ShowCount   int    `gorm:"column:show_count"`
+		ArtistCount int    `gorm:"column:artist_count"`
+		VenueCount  int    `gorm:"column:venue_count"`
 	}
 
 	// COUNT(DISTINCT s.id): two venues of one metro on the same show must not
@@ -1850,7 +1853,13 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 	// The fallback display pair is taken from ONE deterministic venue row
 	// (lowest id) — independent MIN(city)/MIN(state) could pair a city from
 	// one venue with a state from another in a two-state metro.
+	//
+	// The two aggregate CTEs keep the richer Figma masthead vitals in this one
+	// database round trip. VenueCount is intentionally NOT windowed: "venues
+	// tracked" describes catalog coverage, while ShowCount alone determines
+	// whether the scene clears the requested window's navigation floor.
 	query := `
+		WITH eligible_scenes AS (
 		SELECT
 			v.metro,
 			(ARRAY_AGG(v.city ORDER BY v.id))[1] AS city,
@@ -1867,7 +1876,27 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 	query += `
 		GROUP BY v.metro
 		HAVING COUNT(DISTINCT s.id) >= ?
-		ORDER BY show_count DESC, v.metro ASC`
+		),
+		venue_counts AS (
+			SELECT v.metro, COUNT(DISTINCT v.id) AS venue_count
+			FROM venues v
+			WHERE v.metro IS NOT NULL
+			  ` + sceneVenueEligibilitySQL + `
+			GROUP BY v.metro
+		),
+		artist_counts AS (
+			SELECT a.metro, COUNT(DISTINCT a.id) AS artist_count
+			FROM artists a
+			WHERE a.metro IS NOT NULL AND a.metro <> ''
+			GROUP BY a.metro
+		)
+		SELECT es.metro, es.city, es.state, es.show_count,
+		       COALESCE(ac.artist_count, 0) AS artist_count,
+		       vc.venue_count
+		FROM eligible_scenes es
+		JOIN venue_counts vc ON vc.metro = es.metro
+		LEFT JOIN artist_counts ac ON ac.metro = es.metro
+		ORDER BY es.show_count DESC, es.metro ASC`
 	args = append(args, chartSceneFloor)
 
 	var rows []sceneRow
@@ -1877,15 +1906,22 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 
 	results := make([]contracts.ChartScene, len(rows))
 	for i, r := range rows {
-		city, state := r.City, r.State
+		name, city, state := r.City, r.City, r.State
+		if state != "" {
+			name += ", " + state
+		}
 		if mp, ok := geo.MetroPrincipalByCBSA(r.Metro); ok {
+			name = mp.Name
 			city, state = mp.City, mp.State
 		}
 		results[i] = contracts.ChartScene{
-			Metro:     r.Metro,
-			City:      city,
-			State:     state,
-			ShowCount: r.ShowCount,
+			Metro:       r.Metro,
+			Name:        name,
+			City:        city,
+			State:       state,
+			ShowCount:   r.ShowCount,
+			ArtistCount: r.ArtistCount,
+			VenueCount:  r.VenueCount,
 		}
 	}
 	return results, nil

@@ -7,4 +7,5 @@ export {
   useOpenersToWatch,
   useChartsSummary,
   useFreshlyAdded,
+  useChartScenes,
 } from './useCharts'

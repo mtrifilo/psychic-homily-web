@@ -278,15 +278,19 @@ type ChartsOverview struct {
 
 // ChartScene is one option in the charts scene switcher: a US Census CBSA
 // metro with at least the coverage floor of in-window shows. Metro is the
-// value the module endpoints accept as `scene`; City/State are the metro's
-// principal-city display identity (the same identity the scenes directory
-// shows). Fallback (city|state) scenes — non-US or no-CBSA — are not chart
-// scopes and never appear here.
+// value the module endpoints accept as `scene`; Name is the official CBSA
+// title, while City/State are its compact principal-city identity. ArtistCount
+// follows Charts' strict home-metro scope; VenueCount follows scene navigation's
+// verified-venue scope. Fallback (city|state) scenes — non-US or no-CBSA — are
+// not chart scopes and never appear here.
 type ChartScene struct {
-	Metro     string `json:"metro"`
-	City      string `json:"city"`
-	State     string `json:"state"`
-	ShowCount int    `json:"show_count"`
+	Metro       string `json:"metro"`
+	Name        string `json:"name"`
+	City        string `json:"city"`
+	State       string `json:"state"`
+	ShowCount   int    `json:"show_count"`
+	ArtistCount int    `json:"artist_count"`
+	VenueCount  int    `json:"venue_count"`
 }
 
 // ──────────────────────────────────────────────

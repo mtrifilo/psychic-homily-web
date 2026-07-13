@@ -4,10 +4,14 @@ import userEvent from '@testing-library/user-event'
 import { ChartsPage } from './ChartsPage'
 
 const mockSetWindow = vi.fn()
+const mockSetScene = vi.fn()
+const mockScopedHook = vi.fn()
 type EmptyQuery = {
   data: Record<string, never>
   isLoading: boolean
   isError: boolean
+  isSuccess: boolean
+  isFetching: boolean
 }
 const mockBatchFollowStatus = vi.fn<(...args: unknown[]) => EmptyQuery>(() =>
   query({})
@@ -19,7 +23,31 @@ const mockReleaseSaveCountBatch = vi.fn<(...args: unknown[]) => EmptyQuery>(
   () => query({})
 )
 let isAuthenticated = true
+let queryWindow: 'month' | 'quarter' | 'all_time' = 'quarter'
+let queryScene: string | null = null
+let sceneListError = false
+let sceneListFetching = false
 let anticipatedMode: 'ranked' | 'soonest_upcoming' = 'ranked'
+let chartScenes = [
+  {
+    metro: '38060',
+    name: 'Phoenix-Mesa-Chandler, AZ',
+    city: 'Phoenix',
+    state: 'AZ',
+    show_count: 42,
+    artist_count: 41,
+    venue_count: 12,
+  },
+  {
+    metro: '46060',
+    name: 'Tucson, AZ',
+    city: 'Tucson',
+    state: 'AZ',
+    show_count: 17,
+    artist_count: 19,
+    venue_count: 8,
+  },
+]
 let activeArtists = [
   {
     artist_id: 1,
@@ -37,14 +65,24 @@ let activeArtists = [
 ]
 
 function query<T>(data: T) {
-  return { data, isLoading: false, isError: false }
+  return {
+    data,
+    isLoading: false,
+    isError: false,
+    isSuccess: true,
+    isFetching: false,
+  }
 }
 
 vi.mock('nuqs', () => ({
+  parseAsString: { withOptions: () => ({}) },
   parseAsStringLiteral: () => ({
     withDefault: () => ({ withOptions: () => ({}) }),
   }),
-  useQueryState: () => ['quarter', mockSetWindow],
+  useQueryState: (key: string) =>
+    key === 'window'
+      ? [queryWindow, mockSetWindow]
+      : [queryScene, mockSetScene],
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ isAuthenticated }),
@@ -74,9 +112,29 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 vi.mock('../hooks', () => ({
-  useMostActiveArtists: () => query({ artists: activeArtists }),
-  useOnTheRadio: () =>
-    query({
+  useChartScenes: (window: string) => {
+    mockScopedHook('scenes', window)
+    if (sceneListError) {
+      return {
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isSuccess: false,
+        isFetching: false,
+      }
+    }
+    return {
+      ...query({ window: queryWindow, scenes: chartScenes }),
+      isFetching: sceneListFetching,
+    }
+  },
+  useMostActiveArtists: (...args: unknown[]) => {
+    mockScopedHook('active', ...args)
+    return query({ artists: activeArtists })
+  },
+  useOnTheRadio: (...args: unknown[]) => {
+    mockScopedHook('radio', ...args)
+    return query({
       artists: [
         {
           artist_id: 2,
@@ -90,9 +148,11 @@ vi.mock('../hooks', () => ({
           rank: 1,
         },
       ],
-    }),
-  useMostAnticipated: () =>
-    query({
+    })
+  },
+  useMostAnticipated: (...args: unknown[]) => {
+    mockScopedHook('anticipated', ...args)
+    return query({
       mode: anticipatedMode,
       shows: [
         {
@@ -108,9 +168,11 @@ vi.mock('../hooks', () => ({
           rank: anticipatedMode === 'ranked' ? 1 : undefined,
         },
       ],
-    }),
-  useBusiestVenues: () =>
-    query({
+    })
+  },
+  useBusiestVenues: (...args: unknown[]) => {
+    mockScopedHook('venues', ...args)
+    return query({
       venues: [
         {
           venue_id: 4,
@@ -122,9 +184,11 @@ vi.mock('../hooks', () => ({
           rank: 1,
         },
       ],
-    }),
-  useNewReleases: () =>
-    query({
+    })
+  },
+  useNewReleases: (...args: unknown[]) => {
+    mockScopedHook('releases', ...args)
+    return query({
       releases: [
         {
           release_id: 5,
@@ -138,9 +202,11 @@ vi.mock('../hooks', () => ({
           labels: [{ id: 6, name: 'Desert Static', slug: 'desert-static' }],
         },
       ],
-    }),
-  useOpenersToWatch: () =>
-    query({
+    })
+  },
+  useOpenersToWatch: (...args: unknown[]) => {
+    mockScopedHook('openers', ...args)
+    return query({
       artists: [
         {
           artist_id: 7,
@@ -152,17 +218,21 @@ vi.mock('../hooks', () => ({
           rank: 1,
         },
       ],
-    }),
-  useChartsSummary: () =>
-    query({
+    })
+  },
+  useChartsSummary: (...args: unknown[]) => {
+    mockScopedHook('summary', ...args)
+    return query({
       shows_added: 22,
       new_artists: 8,
       new_releases: 11,
       radio_plays: 47,
       active_scenes: 3,
-    }),
-  useFreshlyAdded: () =>
-    query({
+    })
+  },
+  useFreshlyAdded: (...args: unknown[]) => {
+    mockScopedHook('freshly', ...args)
+    return query({
       items: [
         {
           entity_type: 'release',
@@ -172,14 +242,39 @@ vi.mock('../hooks', () => ({
           added_at: '2026-07-02T00:00:00Z',
         },
       ],
-    }),
+    })
+  },
 }))
 
 describe('ChartsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthenticated = true
+    queryWindow = 'quarter'
+    queryScene = null
+    sceneListError = false
+    sceneListFetching = false
     anticipatedMode = 'ranked'
+    chartScenes = [
+      {
+        metro: '38060',
+        name: 'Phoenix-Mesa-Chandler, AZ',
+        city: 'Phoenix',
+        state: 'AZ',
+        show_count: 42,
+        artist_count: 41,
+        venue_count: 12,
+      },
+      {
+        metro: '46060',
+        name: 'Tucson, AZ',
+        city: 'Tucson',
+        state: 'AZ',
+        show_count: 17,
+        artist_count: 19,
+        venue_count: 8,
+      },
+    ]
     activeArtists = [
       {
         artist_id: 1,
@@ -230,6 +325,130 @@ describe('ChartsPage', () => {
     expect(mockSetWindow).toHaveBeenLastCalledWith(null)
     await user.click(screen.getByRole('button', { name: 'All Time' }))
     expect(mockSetWindow).toHaveBeenLastCalledWith('all_time')
+  })
+
+  it('lists floored scenes and writes the selected metro to the URL', async () => {
+    const user = userEvent.setup()
+    render(<ChartsPage />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Chart scene: All scenes' })
+    )
+    expect(
+      screen.getByRole('menuitemradio', { name: /Phoenix, AZ/ })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitemradio', { name: /Tucson, AZ/ })
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitemradio', { name: /Phoenix, AZ/ }))
+    expect(mockSetScene).toHaveBeenCalledWith('38060')
+  })
+
+  it('round-trips a known URL scene through the masthead and every module', () => {
+    queryScene = '38060'
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: Phoenix' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { level: 1, name: /Phoenix/ })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Scene charts · Phoenix–Mesa–Chandler metro · 41 artists based here · 12 venues tracked/
+      )
+    ).toBeInTheDocument()
+
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    expect(moduleCalls).toHaveLength(8)
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
+    }
+  })
+
+  it('clears an unknown URL scene and renders global charts', () => {
+    queryScene = '99999'
+    render(<ChartsPage />)
+
+    expect(mockSetScene).toHaveBeenCalledWith(null)
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: All scenes' })
+    ).toBeInTheDocument()
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '', enabled: true })
+    }
+  })
+
+  it('revalidates the selected scene when the chart window changes', () => {
+    queryScene = '38060'
+    const { rerender } = render(<ChartsPage />)
+
+    vi.clearAllMocks()
+    queryWindow = 'month'
+    chartScenes = [
+      {
+        metro: '46060',
+        name: 'Tucson, AZ',
+        city: 'Tucson',
+        state: 'AZ',
+        show_count: 6,
+        artist_count: 19,
+        venue_count: 8,
+      },
+    ]
+    rerender(<ChartsPage />)
+
+    expect(mockScopedHook).toHaveBeenCalledWith('scenes', 'month')
+    expect(mockSetScene).toHaveBeenCalledWith(null)
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '', enabled: true })
+    }
+  })
+
+  it('preserves a well-formed scoped URL when the scene list is unavailable', () => {
+    queryScene = '38060'
+    sceneListError = true
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: Scenes unavailable' })
+    ).toBeDisabled()
+    expect(mockSetScene).not.toHaveBeenCalled()
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
+    }
+  })
+
+  it('waits for cached scene data to revalidate before clearing the URL', () => {
+    queryScene = '99999'
+    sceneListFetching = true
+    const { rerender } = render(<ChartsPage />)
+
+    expect(mockSetScene).not.toHaveBeenCalled()
+    const pendingCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of pendingCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '', enabled: false })
+    }
+
+    vi.clearAllMocks()
+    sceneListFetching = false
+    rerender(<ChartsPage />)
+    expect(mockSetScene).toHaveBeenCalledWith(null)
   })
 
   it('renders the soonest-upcoming fallback without inventing a rank or save total', () => {

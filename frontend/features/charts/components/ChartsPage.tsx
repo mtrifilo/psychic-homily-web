@@ -1,9 +1,17 @@
 'use client'
 
-import { useMemo, useTransition, type ReactNode } from 'react'
+import { useEffect, useMemo, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
-import { parseAsStringLiteral, useQueryState } from 'nuqs'
+import { ChevronDown } from 'lucide-react'
+import { parseAsString, parseAsStringLiteral, useQueryState } from 'nuqs'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   FollowButton,
   ReleaseSaveButton,
@@ -20,6 +28,7 @@ import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { cn } from '@/lib/utils'
 import {
   useBusiestVenues,
+  useChartScenes,
   useChartsSummary,
   useFreshlyAdded,
   useMostActiveArtists,
@@ -31,6 +40,7 @@ import {
 import {
   CHART_WINDOWS,
   type ChartEntityReference,
+  type ChartScene,
   type ChartWindow,
   type FreshlyAddedItem,
 } from '../types'
@@ -52,6 +62,14 @@ const WINDOW_SUMMARY: Record<ChartWindow, string> = {
   month: 'THIS MONTH',
   quarter: 'THIS QUARTER',
   all_time: 'ALL TIME',
+}
+
+function metroDisplayName(name: string): string {
+  return name.replace(/,\s*[A-Z-]+$/, '').replaceAll('-', '–')
+}
+
+function countLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`
 }
 
 const linkClass =
@@ -100,6 +118,71 @@ function EntityReferenceList({
       </Link>
     </span>
   ))
+}
+
+function SceneSwitcher({
+  scenes,
+  selectedScene,
+  isLoading,
+  isError,
+  onChange,
+  treatment = 'chip',
+}: {
+  scenes: ChartScene[]
+  selectedScene: ChartScene | undefined
+  isLoading: boolean
+  isError: boolean
+  onChange: (scene: string | null) => void
+  treatment?: 'chip' | 'masthead'
+}) {
+  const triggerLabel = selectedScene?.city ?? 'All scenes'
+  const displayedLabel = isLoading
+    ? 'Loading scenes'
+    : isError
+      ? 'Scenes unavailable'
+      : triggerLabel
+
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger
+        disabled={isLoading || isError}
+        className={cn(
+          'inline-flex items-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
+          treatment === 'chip'
+            ? 'gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[11px] hover:border-foreground/50'
+            : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:text-primary/80'
+        )}
+        aria-label={`Chart scene: ${displayedLabel}`}
+      >
+        {displayedLabel}
+        <ChevronDown
+          className={treatment === 'chip' ? 'size-3' : 'size-5'}
+          aria-hidden
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align={treatment === 'chip' ? 'end' : 'start'}
+        className="min-w-64 font-mono"
+      >
+        <DropdownMenuRadioGroup
+          value={selectedScene?.metro ?? 'all'}
+          onValueChange={value => onChange(value === 'all' ? null : value)}
+        >
+          <DropdownMenuRadioItem value="all">All scenes</DropdownMenuRadioItem>
+          {scenes.map(scene => (
+            <DropdownMenuRadioItem key={scene.metro} value={scene.metro}>
+              <span className="min-w-0 flex-1 truncate">
+                {location(scene.city, scene.state)}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {scene.show_count} shows
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 function StatStrip({
@@ -190,16 +273,57 @@ export function ChartsPage() {
     'window',
     chartWindowParser.withOptions({ history: 'push', startTransition })
   )
+  const [scene, setScene] = useQueryState(
+    'scene',
+    parseAsString.withOptions({ history: 'push', startTransition })
+  )
   const { isAuthenticated, user } = useAuthContext()
 
-  const active = useMostActiveArtists(window)
-  const radio = useOnTheRadio(window)
-  const anticipated = useMostAnticipated()
-  const venues = useBusiestVenues(window)
-  const releases = useNewReleases(window)
-  const openers = useOpenersToWatch(window)
-  const summary = useChartsSummary(window)
-  const freshlyAdded = useFreshlyAdded()
+  const sceneList = useChartScenes(window)
+  const sceneListMatchesWindow = sceneList.data?.window === window
+  const selectedScene = sceneListMatchesWindow
+    ? sceneList.data?.scenes.find(option => option.metro === scene)
+    : undefined
+  const sceneHasValidShape = !scene || /^[0-9]{1,10}$/.test(scene)
+  const sceneValidationComplete =
+    sceneList.isSuccess && sceneListMatchesWindow && !sceneList.isFetching
+  const canUseUnverifiedScene =
+    Boolean(scene) && sceneHasValidShape && sceneList.isError
+  const sceneResolved =
+    !scene ||
+    Boolean(selectedScene) ||
+    sceneValidationComplete ||
+    canUseUnverifiedScene
+  const effectiveScene =
+    selectedScene?.metro ?? (canUseUnverifiedScene ? (scene ?? '') : '')
+  const chartQueryOptions = {
+    scene: effectiveScene,
+    enabled: sceneResolved,
+  }
+
+  useEffect(() => {
+    if (
+      scene &&
+      (!sceneHasValidShape || (sceneValidationComplete && !selectedScene))
+    ) {
+      void setScene(null)
+    }
+  }, [
+    scene,
+    sceneHasValidShape,
+    sceneValidationComplete,
+    selectedScene,
+    setScene,
+  ])
+
+  const active = useMostActiveArtists(window, 7, chartQueryOptions)
+  const radio = useOnTheRadio(window, 7, chartQueryOptions)
+  const anticipated = useMostAnticipated(6, chartQueryOptions)
+  const venues = useBusiestVenues(window, 7, chartQueryOptions)
+  const releases = useNewReleases(window, 6, chartQueryOptions)
+  const openers = useOpenersToWatch(window, 6, chartQueryOptions)
+  const summary = useChartsSummary(window, chartQueryOptions)
+  const freshlyAdded = useFreshlyAdded(6, chartQueryOptions)
 
   const artistIDs = useMemo(
     () =>
@@ -266,11 +390,32 @@ export function ChartsPage() {
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0">
           <h1 className="font-display text-3xl font-bold leading-none">
-            Charts
+            {selectedScene ? (
+              <SceneSwitcher
+                scenes={sceneList.data?.scenes ?? []}
+                selectedScene={selectedScene}
+                isLoading={sceneList.isLoading}
+                isError={sceneList.isError}
+                onChange={nextScene => void setScene(nextScene)}
+                treatment="masthead"
+              />
+            ) : (
+              'Charts'
+            )}
           </h1>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            The ledger of what’s moving — artists, shows, venues, releases,
-            airwaves.
+            {selectedScene ? (
+              <>
+                Scene charts · {metroDisplayName(selectedScene.name)} metro ·{' '}
+                {countLabel(selectedScene.artist_count, 'artist')} based here ·{' '}
+                {countLabel(selectedScene.venue_count, 'venue')} tracked
+              </>
+            ) : (
+              <>
+                The ledger of what’s moving — artists, shows, venues, releases,
+                airwaves.
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -294,20 +439,22 @@ export function ChartsPage() {
               </button>
             ))}
           </div>
-          <Badge
-            variant="outline"
-            aria-disabled="true"
-            className="rounded-sm px-2 py-1 text-[11px]"
-          >
-            All scenes ▾
-          </Badge>
+          {!selectedScene ? (
+            <SceneSwitcher
+              scenes={sceneList.data?.scenes ?? []}
+              selectedScene={selectedScene}
+              isLoading={sceneList.isLoading}
+              isError={sceneList.isError}
+              onChange={nextScene => void setScene(nextScene)}
+            />
+          ) : null}
         </div>
       </header>
 
       <StatStrip
         window={window}
         summary={summary.data}
-        isLoading={summary.isLoading}
+        isLoading={summary.isLoading || !sceneResolved}
       />
 
       <div className="grid items-start gap-x-6 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
@@ -315,7 +462,7 @@ export function ChartsPage() {
           title="Hardest-Working Artists"
           context={WINDOW_CONTEXT[window]}
           rowCount={active.data?.artists.length ?? 0}
-          isLoading={active.isLoading}
+          isLoading={active.isLoading || !sceneResolved}
           isError={active.isError}
           hasData={active.data !== undefined}
           testId="chart-most-active-artists"
@@ -357,7 +504,7 @@ export function ChartsPage() {
           title="On the Radio"
           context={WINDOW_CONTEXT[window]}
           rowCount={radio.data?.artists.length ?? 0}
-          isLoading={radio.isLoading}
+          isLoading={radio.isLoading || !sceneResolved}
           isError={radio.isError}
           hasData={radio.data !== undefined}
           testId="chart-on-the-radio"
@@ -406,7 +553,7 @@ export function ChartsPage() {
           title="Most Anticipated Shows"
           context="upcoming"
           rowCount={anticipated.data?.shows.length ?? 0}
-          isLoading={anticipated.isLoading}
+          isLoading={anticipated.isLoading || !sceneResolved}
           isError={anticipated.isError}
           hasData={anticipated.data !== undefined}
           testId="chart-most-anticipated"
@@ -470,7 +617,7 @@ export function ChartsPage() {
           title="Busiest Venues"
           context={WINDOW_CONTEXT[window]}
           rowCount={venues.data?.venues.length ?? 0}
-          isLoading={venues.isLoading}
+          isLoading={venues.isLoading || !sceneResolved}
           isError={venues.isError}
           hasData={venues.data !== undefined}
           testId="chart-busiest-venues"
@@ -518,7 +665,7 @@ export function ChartsPage() {
                 : 'this quarter'
           }
           rowCount={releases.data?.releases.length ?? 0}
-          isLoading={releases.isLoading}
+          isLoading={releases.isLoading || !sceneResolved}
           isError={releases.isError}
           hasData={releases.data !== undefined}
           testId="chart-new-releases"
@@ -589,7 +736,7 @@ export function ChartsPage() {
           title="Openers to Watch"
           context={WINDOW_CONTEXT[window]}
           rowCount={openers.data?.artists.length ?? 0}
-          isLoading={openers.isLoading}
+          isLoading={openers.isLoading || !sceneResolved}
           isError={openers.isError}
           hasData={openers.data !== undefined}
           testId="chart-openers-to-watch"
