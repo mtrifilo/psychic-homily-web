@@ -74,14 +74,14 @@ describe('ReleaseSaveButton', () => {
     ).toHaveTextContent('[Saved]')
   })
 
-  it('supports the dense Library remove label and accessible release name', () => {
+  it('supports the dense Library text action and accessible release name', () => {
     render(
       <ReleaseSaveButton
         releaseId={17}
         saveData={{ save_count: 4, is_saved: true }}
-        variant="bracket"
-        bracketLabel="× remove"
-        bracketAriaLabel="Remove Clarity from saved releases"
+        variant="text"
+        actionLabel="✕ remove"
+        actionAriaLabel="Remove Clarity from saved releases"
       />
     )
 
@@ -89,7 +89,7 @@ describe('ReleaseSaveButton', () => {
       screen.getByRole('button', {
         name: 'Remove Clarity from saved releases',
       })
-    ).toHaveTextContent('[× remove]')
+    ).toHaveTextContent('✕ remove')
   })
 
   it('sends anonymous users to auth with the current release as returnTo', async () => {

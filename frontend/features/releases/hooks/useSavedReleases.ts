@@ -12,9 +12,9 @@ import type {
 } from '../types'
 
 export function useSavedReleases(
-  limit = 50,
-  offset = 0,
-  userId?: string | number
+  limit: number,
+  offset: number,
+  userId: string | number | undefined
 ) {
   const params = new URLSearchParams({
     limit: String(limit),

@@ -88,7 +88,9 @@ test.describe('Library page (formerly /collection)', () => {
 
   test('saves a release and removes it from the Releases tab', async ({
     authenticatedPage,
+    cleanBetweenRetries,
   }) => {
+    void cleanBetweenRetries
     await authenticatedPage.goto('/releases/futures')
     await expect(
       authenticatedPage.getByRole('heading', { level: 1, name: 'Futures' })

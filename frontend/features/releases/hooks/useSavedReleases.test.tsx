@@ -35,7 +35,7 @@ describe('release save hooks', () => {
   })
 
   it('waits for an authenticated user identity before reading the private list', () => {
-    const { result } = renderHook(() => useSavedReleases(20, 0), {
+    const { result } = renderHook(() => useSavedReleases(20, 0, undefined), {
       wrapper: createWrapper(),
     })
 

@@ -12,11 +12,11 @@ import { cn } from '@/lib/utils'
 interface ReleaseSaveButtonProps {
   releaseId: number
   saveData?: { save_count: number; is_saved: boolean }
-  variant?: 'button' | 'bracket'
+  variant?: 'button' | 'bracket' | 'text'
   className?: string
   disabled?: boolean
-  bracketLabel?: string
-  bracketAriaLabel?: string
+  actionLabel?: string
+  actionAriaLabel?: string
 }
 
 /**
@@ -30,8 +30,8 @@ export function ReleaseSaveButton({
   variant = 'button',
   className,
   disabled = false,
-  bracketLabel,
-  bracketAriaLabel,
+  actionLabel,
+  actionAriaLabel,
 }: ReleaseSaveButtonProps) {
   const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
@@ -72,20 +72,32 @@ export function ReleaseSaveButton({
   }
 
   const label = isSaved ? 'Saved' : 'Save'
+  const ariaLabel =
+    actionAriaLabel ?? (isSaved ? 'Remove saved release' : 'Save release')
   return (
     <div className="relative inline-flex">
       {variant === 'bracket' ? (
         <BracketLink
-          label={bracketLabel ?? label}
+          label={actionLabel ?? label}
           active={isSaved}
           onClick={handleClick}
           disabled={isDisabled}
           className={cn('font-mono text-[11px]', className)}
-          ariaLabel={
-            bracketAriaLabel ??
-            (isSaved ? 'Remove saved release' : 'Save release')
-          }
+          ariaLabel={ariaLabel}
         />
+      ) : variant === 'text' ? (
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={isDisabled}
+          className={cn(
+            'whitespace-nowrap font-mono text-[11px] text-muted-foreground transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60',
+            className
+          )}
+          aria-label={ariaLabel}
+        >
+          {isLoading ? 'removing…' : (actionLabel ?? label)}
+        </button>
       ) : (
         <Button
           type="button"
@@ -94,7 +106,7 @@ export function ReleaseSaveButton({
           onClick={handleClick}
           disabled={isDisabled}
           className={cn('h-8 gap-1.5', className)}
-          aria-label={`${isSaved ? 'Remove saved release' : 'Save release'}${saveCount > 0 ? ` (${saveCount} saved)` : ''}`}
+          aria-label={`${ariaLabel}${saveCount > 0 ? ` (${saveCount} saved)` : ''}`}
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
