@@ -527,11 +527,17 @@ describe('useMyFollowing', () => {
         offset: 100,
       })
 
+    const queryClient = new QueryClient()
     const { result } = renderHook(() => useAllMyFollowing('artist'), {
-      wrapper: createWrapper(),
+      wrapper: createWrapperWithClient(queryClient),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryCache().getAll()[0].queryKey).toEqual([
+      'follows',
+      'my-following',
+      { type: 'artist', scope: 'all', userId: 1 },
+    ])
     expect(result.current.data?.following).toHaveLength(101)
     expect(mockApiRequest).toHaveBeenCalledTimes(2)
     expect(mockApiRequest.mock.calls[0][0]).toContain('offset=0')
