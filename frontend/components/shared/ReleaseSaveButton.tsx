@@ -29,18 +29,23 @@ export function ReleaseSaveButton({
   className,
   disabled = false,
 }: ReleaseSaveButtonProps) {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
   const { data: fetched, isLoading: statusLoading } = useReleaseSaveCount(
     releaseId,
     isAuthenticated,
-    !saveData
+    !saveData,
+    user?.id
   )
   const data = saveData ?? fetched
   const isSaved = data?.is_saved ?? false
   const saveCount = data?.save_count ?? 0
-  const { toggle, isLoading, error } = useReleaseSaveToggle(releaseId, isSaved)
+  const { toggle, isLoading, error } = useReleaseSaveToggle(
+    releaseId,
+    isSaved,
+    user?.id
+  )
   const [showError, setShowError] = useState(false)
   const isDisabled = disabled || statusLoading || isLoading
 
@@ -48,7 +53,8 @@ export function ReleaseSaveButton({
     event.preventDefault()
     event.stopPropagation()
     if (!isAuthenticated) {
-      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+      const returnTo = `${pathname}${window.location.search}`
+      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
       return
     }
     if (isDisabled) return

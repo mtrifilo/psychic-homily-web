@@ -419,7 +419,7 @@ func TestBatchFollowHandler_AcceptsPluralForm(t *testing.T) {
 	}
 }
 
-func TestBatchFollowHandler_UserFollowingError_GracefulDegradation(t *testing.T) {
+func TestBatchFollowHandler_UserFollowingError(t *testing.T) {
 	mock := &testhelpers.MockFollowService{
 		GetBatchFollowerCountsFn: func(_ string, entityIDs []uint) (map[uint]int64, error) {
 			result := make(map[uint]int64)
@@ -438,18 +438,8 @@ func TestBatchFollowHandler_UserFollowingError_GracefulDegradation(t *testing.T)
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, 2}
 
-	resp, err := h.BatchFollowHandler(ctx, req)
-	if err != nil {
-		t.Fatalf("expected no error (graceful degradation), got: %v", err)
-	}
-	// Counts still returned despite user following error
-	if resp.Body.Follows["1"].FollowerCount != 3 {
-		t.Errorf("expected follower_count=3, got %d", resp.Body.Follows["1"].FollowerCount)
-	}
-	// IsFollowing defaults to false when error
-	if resp.Body.Follows["1"].IsFollowing {
-		t.Error("expected is_following=false on error")
-	}
+	_, err := h.BatchFollowHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestBatchFollowHandler_ZeroEntityID(t *testing.T) {

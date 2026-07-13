@@ -51,11 +51,34 @@ export const releaseQueryKeys = {
     ['releases', 'detail', String(idOrSlug)] as const,
   artistReleases: (artistIdOrSlug: string | number) =>
     ['releases', 'artist', String(artistIdOrSlug)] as const,
-  savedList: (limit: number, offset: number) =>
-    ['releases', 'saved', 'list', limit, offset] as const,
-  saveCount: (releaseId: number, isAuthenticated: boolean) =>
-    ['releases', 'save-state', 'count', isAuthenticated, releaseId] as const,
-  saveCountBatchPrefix: ['releases', 'save-state', 'batch'] as const,
-  saveCountBatch: (releaseIds: number[], isAuthenticated: boolean) =>
-    ['releases', 'save-state', 'batch', isAuthenticated, releaseIds] as const,
+  savedList: (limit: number, offset: number, userId?: string | number) =>
+    ['releases', 'saved', 'list', userId ?? null, limit, offset] as const,
+  saveCount: (
+    releaseId: number,
+    isAuthenticated: boolean,
+    userId?: string | number
+  ) =>
+    [
+      'releases',
+      'save-state',
+      'count',
+      isAuthenticated,
+      userId ?? null,
+      releaseId,
+    ] as const,
+  saveCountBatchPrefix: (userId?: string | number) =>
+    ['releases', 'save-state', 'batch', true, userId ?? null] as const,
+  saveCountBatch: (
+    releaseIds: number[],
+    isAuthenticated: boolean,
+    userId?: string | number
+  ) =>
+    [
+      'releases',
+      'save-state',
+      'batch',
+      isAuthenticated,
+      userId ?? null,
+      releaseIds,
+    ] as const,
 } as const

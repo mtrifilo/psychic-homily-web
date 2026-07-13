@@ -612,6 +612,8 @@ type NewReleaseResponse struct {
 	ReleaseType string                           `json:"release_type"`
 	ReleaseDate *string                          `json:"release_date"`
 	AddedAt     time.Time                        `json:"added_at"`
+	ArtistNames []string                         `json:"artist_names"`
+	LabelNames  []string                         `json:"label_names"`
 	Artists     []contracts.ChartEntityReference `json:"artists"`
 	Labels      []contracts.ChartEntityReference `json:"labels"`
 	Rank        int                              `json:"rank"`

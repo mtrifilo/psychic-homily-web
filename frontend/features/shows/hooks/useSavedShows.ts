@@ -16,6 +16,7 @@ interface UseSavedShowsOptions {
   limit?: number
   offset?: number
   enabled?: boolean
+  userId?: string | number
 }
 
 /**
@@ -23,7 +24,7 @@ interface UseSavedShowsOptions {
  * Requires authentication
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
-  const { limit = 50, offset = 0, enabled = true } = options
+  const { limit = 50, offset = 0, enabled = true, userId } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -32,7 +33,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
   const endpoint = `${API_ENDPOINTS.SAVED_SHOWS.LIST}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.savedShows.list(),
+    queryKey: queryKeys.savedShows.list(userId?.toString()),
     queryFn: async (): Promise<SavedShowsListResponse> => {
       return apiRequest<SavedShowsListResponse>(endpoint, {
         method: 'GET',
@@ -50,16 +51,22 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
 export const useShowSaveCount = (
   showId: number,
   isAuthenticated: boolean,
-  enabled: boolean = true
+  enabled: boolean = true,
+  userId?: string | number
 ) => {
   return useQuery({
-    queryKey: queryKeys.savedShows.count(showId, isAuthenticated),
+    queryKey: queryKeys.savedShows.count(
+      showId,
+      isAuthenticated,
+      isAuthenticated ? userId : undefined
+    ),
     queryFn: async (): Promise<ShowSaveCount> => {
       return apiRequest<ShowSaveCount>(API_ENDPOINTS.SAVE_COUNTS.SHOW(showId), {
         method: 'GET',
       })
     },
-    enabled: showId > 0 && enabled,
+    enabled:
+      showId > 0 && enabled && (!isAuthenticated || userId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -74,10 +81,15 @@ export const useShowSaveCount = (
  */
 export const useShowSaveCountBatch = (
   showIds: number[],
-  isAuthenticated: boolean
+  isAuthenticated: boolean,
+  userId?: string | number
 ) => {
   return useQuery({
-    queryKey: queryKeys.savedShows.countBatch(showIds, isAuthenticated),
+    queryKey: queryKeys.savedShows.countBatch(
+      showIds,
+      isAuthenticated,
+      isAuthenticated ? userId : undefined
+    ),
     queryFn: async (): Promise<Record<string, SaveCountEntry>> => {
       const response = await apiRequest<BatchSaveCountsResponse>(
         API_ENDPOINTS.SAVE_COUNTS.BATCH,
@@ -88,7 +100,7 @@ export const useShowSaveCountBatch = (
       )
       return response.saves
     },
-    enabled: showIds.length > 0,
+    enabled: showIds.length > 0 && (!isAuthenticated || userId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -149,7 +161,11 @@ export const useUnsaveShow = () => {
  * of which return is_saved alongside the public count. Re-querying it would
  * mean two requests for the same fact.
  */
-export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
+export const useSaveShowToggle = (
+  showId: number,
+  isSaved: boolean,
+  userId?: string | number
+) => {
   const queryClient = useQueryClient()
   const saveShow = useSaveShow()
   const unsaveShow = useUnsaveShow()
@@ -159,10 +175,10 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
   const toggle = async () => {
     // Toggling requires auth, so the authenticated variant of the key is the
     // only one that can be live for this user.
-    const countQueryKey = queryKeys.savedShows.count(showId, true)
+    const countQueryKey = queryKeys.savedShows.count(showId, true, userId)
     // Prefix filter: patches every cached batch, regardless of its show-id set
     // or auth flag, so a row's count moves the instant the heart is clicked.
-    const countBatchPrefix = queryKeys.savedShows.countBatchPrefix
+    const countBatchPrefix = queryKeys.savedShows.countBatchPrefix(userId)
     const delta = isSaved ? -1 : 1
 
     // Cancel in-flight reads so stale responses don't overwrite the optimistic update
@@ -179,7 +195,7 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
       Record<string, SaveCountEntry>
     >({ queryKey: countBatchPrefix })
 
-    queryClient.setQueryData<ShowSaveCount>(countQueryKey, (prev) =>
+    queryClient.setQueryData<ShowSaveCount>(countQueryKey, prev =>
       prev
         ? {
             ...prev,
@@ -191,7 +207,7 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
 
     queryClient.setQueriesData<Record<string, SaveCountEntry>>(
       { queryKey: countBatchPrefix },
-      (prev) => {
+      prev => {
         const entry = prev?.[String(showId)]
         if (!prev || !entry) return prev
         return {
@@ -220,7 +236,7 @@ export const useSaveShowToggle = (showId: number, isSaved: boolean) => {
       for (const [key, snapshot] of previousBatches) {
         queryClient.setQueryData<Record<string, SaveCountEntry>>(
           key,
-          (current) => {
+          current => {
             const priorEntry = snapshot?.[String(showId)]
             if (!current || !priorEntry) return current
             return { ...current, [String(showId)]: priorEntry }

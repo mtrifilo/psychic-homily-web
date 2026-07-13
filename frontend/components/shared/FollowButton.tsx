@@ -68,7 +68,8 @@ export function FollowButton({
     e.stopPropagation()
 
     if (!isAuthenticated) {
-      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+      const returnTo = `${pathname}${window.location.search}`
+      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
       return
     }
 

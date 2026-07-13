@@ -392,19 +392,21 @@ func (h *FollowHandler) BatchFollowHandler(ctx context.Context, req *BatchFollow
 	if user != nil {
 		userFollowing, err := h.followService.GetBatchUserFollowing(user.ID, singular, entityIDs)
 		if err != nil {
-			logger.FromContext(ctx).Warn("batch_user_following_failed",
+			logger.FromContext(ctx).Error("batch_user_following_failed",
 				"user_id", user.ID,
 				"entity_type", singular,
 				"count", len(entityIDs),
 				"error", err.Error(),
+				"request_id", requestID,
 			)
-			// Non-fatal — still return counts
-		} else {
-			for entityID, isFollowing := range userFollowing {
-				key := strconv.FormatUint(uint64(entityID), 10)
-				if entry, ok := follows[key]; ok {
-					entry.IsFollowing = isFollowing
-				}
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to get follow status (request_id: %s)", requestID),
+			)
+		}
+		for entityID, isFollowing := range userFollowing {
+			key := strconv.FormatUint(uint64(entityID), 10)
+			if entry, ok := follows[key]; ok {
+				entry.IsFollowing = isFollowing
 			}
 		}
 	}

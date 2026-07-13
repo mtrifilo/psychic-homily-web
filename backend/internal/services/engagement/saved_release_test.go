@@ -154,6 +154,27 @@ func (suite *SavedReleaseServiceIntegrationTestSuite) TestUnsaveRelease_RemovesS
 	suite.False(isSaved)
 }
 
+func (suite *SavedReleaseServiceIntegrationTestSuite) TestDanglingBookmark_IsNotSavedState() {
+	user := suite.createUser(9)
+	release := suite.createRelease("Historical Orphan")
+	suite.Require().NoError(suite.savedRelease.SaveRelease(user.ID, release.ID))
+	suite.Require().NoError(suite.db.Delete(&catalogm.Release{}, release.ID).Error)
+
+	isSaved, err := suite.savedRelease.IsReleaseSaved(user.ID, release.ID)
+	suite.Require().NoError(err)
+	suite.False(isSaved)
+	savedIDs, err := suite.savedRelease.GetSavedReleaseIDs(user.ID, []uint{release.ID})
+	suite.Require().NoError(err)
+	suite.False(savedIDs[release.ID])
+	count, err := suite.savedRelease.GetSaveCount(release.ID)
+	suite.Require().NoError(err)
+	suite.Zero(count)
+	releases, total, err := suite.savedRelease.GetUserSavedReleases(user.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Zero(total)
+	suite.Empty(releases)
+}
+
 func (suite *SavedReleaseServiceIntegrationTestSuite) TestDeleteRelease_CleansPolymorphicBookmarks() {
 	user := suite.createUser(7)
 	release := suite.createRelease("Delete Me")

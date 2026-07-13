@@ -190,7 +190,7 @@ export function ChartsPage() {
     'window',
     chartWindowParser.withOptions({ history: 'push', startTransition })
   )
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
 
   const active = useMostActiveArtists(window)
   const radio = useOnTheRadio(window)
@@ -244,11 +244,13 @@ export function ChartsPage() {
   )
   const showSaves = useShowSaveCountBatch(
     isAuthenticated ? showIDs : [],
-    isAuthenticated
+    isAuthenticated,
+    user?.id
   )
   const releaseSaves = useReleaseSaveCountBatch(
     isAuthenticated ? releaseIDs : [],
-    isAuthenticated
+    isAuthenticated,
+    user?.id
   )
   const followFallback = { follower_count: 0, is_following: false }
   const saveFallback = { save_count: 0, is_saved: false }
@@ -315,6 +317,7 @@ export function ChartsPage() {
           rowCount={active.data?.artists.length ?? 0}
           isLoading={active.isLoading}
           isError={active.isError}
+          hasData={active.data !== undefined}
           testId="chart-most-active-artists"
         >
           {(active.data?.artists ?? []).map(artist => (
@@ -337,8 +340,10 @@ export function ChartsPage() {
                   entityId={artist.artist_id}
                   variant="bracket"
                   followData={
-                    artistFollows.data?.[String(artist.artist_id)] ??
-                    followFallback
+                    artistFollows.isError
+                      ? undefined
+                      : (artistFollows.data?.[String(artist.artist_id)] ??
+                        followFallback)
                   }
                   disabled={artistFollows.isLoading}
                   className="font-mono text-[11px]"
@@ -354,6 +359,7 @@ export function ChartsPage() {
           rowCount={radio.data?.artists.length ?? 0}
           isLoading={radio.isLoading}
           isError={radio.isError}
+          hasData={radio.data !== undefined}
           testId="chart-on-the-radio"
         >
           {(radio.data?.artists ?? []).map(artist => (
@@ -383,8 +389,10 @@ export function ChartsPage() {
                   entityId={artist.artist_id}
                   variant="bracket"
                   followData={
-                    artistFollows.data?.[String(artist.artist_id)] ??
-                    followFallback
+                    artistFollows.isError
+                      ? undefined
+                      : (artistFollows.data?.[String(artist.artist_id)] ??
+                        followFallback)
                   }
                   disabled={artistFollows.isLoading}
                   className="font-mono text-[11px]"
@@ -400,6 +408,7 @@ export function ChartsPage() {
           rowCount={anticipated.data?.shows.length ?? 0}
           isLoading={anticipated.isLoading}
           isError={anticipated.isError}
+          hasData={anticipated.data !== undefined}
           testId="chart-most-anticipated"
         >
           {(anticipated.data?.shows ?? []).map((show, index) => (
@@ -443,10 +452,12 @@ export function ChartsPage() {
                   showId={show.show_id}
                   variant="bracket"
                   saveData={
-                    showSaves.data?.[String(show.show_id)] ?? {
-                      save_count: show.save_count ?? 0,
-                      is_saved: false,
-                    }
+                    showSaves.isError
+                      ? undefined
+                      : (showSaves.data?.[String(show.show_id)] ?? {
+                          save_count: show.save_count ?? 0,
+                          is_saved: false,
+                        })
                   }
                   disabled={showSaves.isLoading}
                 />
@@ -461,6 +472,7 @@ export function ChartsPage() {
           rowCount={venues.data?.venues.length ?? 0}
           isLoading={venues.isLoading}
           isError={venues.isError}
+          hasData={venues.data !== undefined}
           testId="chart-busiest-venues"
         >
           {(venues.data?.venues ?? []).map(venue => (
@@ -483,8 +495,10 @@ export function ChartsPage() {
                   entityId={venue.venue_id}
                   variant="bracket"
                   followData={
-                    venueFollows.data?.[String(venue.venue_id)] ??
-                    followFallback
+                    venueFollows.isError
+                      ? undefined
+                      : (venueFollows.data?.[String(venue.venue_id)] ??
+                        followFallback)
                   }
                   disabled={venueFollows.isLoading}
                   className="font-mono text-[11px]"
@@ -506,6 +520,7 @@ export function ChartsPage() {
           rowCount={releases.data?.releases.length ?? 0}
           isLoading={releases.isLoading}
           isError={releases.isError}
+          hasData={releases.data !== undefined}
           testId="chart-new-releases"
         >
           {(releases.data?.releases ?? []).map(release => {
@@ -557,8 +572,10 @@ export function ChartsPage() {
                     releaseId={release.release_id}
                     variant="bracket"
                     saveData={
-                      releaseSaves.data?.[String(release.release_id)] ??
-                      saveFallback
+                      releaseSaves.isError
+                        ? undefined
+                        : (releaseSaves.data?.[String(release.release_id)] ??
+                          saveFallback)
                     }
                     disabled={releaseSaves.isLoading}
                   />
@@ -574,6 +591,7 @@ export function ChartsPage() {
           rowCount={openers.data?.artists.length ?? 0}
           isLoading={openers.isLoading}
           isError={openers.isError}
+          hasData={openers.data !== undefined}
           testId="chart-openers-to-watch"
         >
           {(openers.data?.artists ?? []).map(artist => (
@@ -596,8 +614,10 @@ export function ChartsPage() {
                   entityId={artist.artist_id}
                   variant="bracket"
                   followData={
-                    artistFollows.data?.[String(artist.artist_id)] ??
-                    followFallback
+                    artistFollows.isError
+                      ? undefined
+                      : (artistFollows.data?.[String(artist.artist_id)] ??
+                        followFallback)
                   }
                   disabled={artistFollows.isLoading}
                   className="font-mono text-[11px]"

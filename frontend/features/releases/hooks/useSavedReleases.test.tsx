@@ -59,8 +59,8 @@ describe('release save hooks', () => {
         mutations: { retry: false },
       },
     })
-    const singleKey = releaseQueryKeys.saveCount(7, true)
-    const batchKey = releaseQueryKeys.saveCountBatch([7], true)
+    const singleKey = releaseQueryKeys.saveCount(7, true, 42)
+    const batchKey = releaseQueryKeys.saveCountBatch([7], true, 42)
     queryClient.setQueryData(singleKey, {
       release_id: 7,
       save_count: 2,
@@ -71,7 +71,7 @@ describe('release save hooks', () => {
     })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
-    const { result } = renderHook(() => useReleaseSaveToggle(7, false), {
+    const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -94,7 +94,7 @@ describe('release save hooks', () => {
         mutations: { retry: false },
       },
     })
-    const batchKey = releaseQueryKeys.saveCountBatch([7, 8], true)
+    const batchKey = releaseQueryKeys.saveCountBatch([7, 8], true, 42)
     queryClient.setQueryData(batchKey, {
       '7': { save_count: 2, is_saved: false },
       '8': { save_count: 1, is_saved: false },
@@ -109,7 +109,7 @@ describe('release save hooks', () => {
       throw new Error('save failed')
     })
 
-    const { result } = renderHook(() => useReleaseSaveToggle(7, false), {
+    const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -120,5 +120,36 @@ describe('release save hooks', () => {
       >(batchKey)
     expect(batch?.['7']).toEqual({ save_count: 2, is_saved: false })
     expect(batch?.['8']).toEqual({ save_count: 2, is_saved: true })
+  })
+
+  it("does not patch another user's cached batch state", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    const userBatch = releaseQueryKeys.saveCountBatch([7], true, 42)
+    const otherUserBatch = releaseQueryKeys.saveCountBatch([7], true, 84)
+    queryClient.setQueryData(userBatch, {
+      '7': { save_count: 2, is_saved: false },
+    })
+    queryClient.setQueryData(otherUserBatch, {
+      '7': { save_count: 2, is_saved: true },
+    })
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+
+    const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.toggle()
+    })
+
+    expect(queryClient.getQueryData(otherUserBatch)).toEqual({
+      '7': { save_count: 2, is_saved: true },
+    })
+    expect(queryClient.getQueryState(otherUserBatch)?.isInvalidated).toBe(false)
   })
 })

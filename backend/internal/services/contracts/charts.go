@@ -192,6 +192,8 @@ type NewRelease struct {
 	ReleaseType string                 `json:"release_type"`
 	ReleaseDate *string                `json:"release_date"`
 	AddedAt     time.Time              `json:"added_at"`
+	ArtistNames []string               `json:"artist_names"`
+	LabelNames  []string               `json:"label_names"`
 	Artists     []ChartEntityReference `json:"artists"`
 	Labels      []ChartEntityReference `json:"labels"`
 	Rank        int                    `json:"rank"`

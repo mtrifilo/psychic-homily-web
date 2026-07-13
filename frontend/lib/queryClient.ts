@@ -258,14 +258,28 @@ export const queryKeys = {
     // same endpoint returns is_saved only for authenticated callers — without it
     // an anonymous cache entry would survive login and report is_saved: false
     // for a show the user had already saved.
-    count: (showId: number, isAuthenticated: boolean) =>
-      ['savedShows', 'count', isAuthenticated, showId] as const,
+    count: (
+      showId: number,
+      isAuthenticated: boolean,
+      userId?: string | number
+    ) =>
+      ['savedShows', 'count', isAuthenticated, userId ?? null, showId] as const,
     // Prefix, exported so the optimistic-update path can patch every cached
     // batch without re-typing the key segments (a rename here would otherwise
     // silently stop matching).
-    countBatchPrefix: SAVED_SHOWS_COUNT_BATCH_PREFIX,
-    countBatch: (showIds: number[], isAuthenticated: boolean) =>
-      [...SAVED_SHOWS_COUNT_BATCH_PREFIX, isAuthenticated, showIds] as const,
+    countBatchPrefix: (userId?: string | number) =>
+      [...SAVED_SHOWS_COUNT_BATCH_PREFIX, true, userId ?? null] as const,
+    countBatch: (
+      showIds: number[],
+      isAuthenticated: boolean,
+      userId?: string | number
+    ) =>
+      [
+        ...SAVED_SHOWS_COUNT_BATCH_PREFIX,
+        isAuthenticated,
+        userId ?? null,
+        showIds,
+      ] as const,
   },
 
   // User's submitted shows
@@ -406,10 +420,19 @@ export const queryKeys = {
     all: ['follows'] as const,
     // entityId: number for id-keyed entities; a scene SLUG for "scenes"
     // (PSY-1339 — slug-addressed follow routes).
-    entity: (entityType: string, entityId: number | string) =>
-      ['follows', entityType, entityId] as const,
-    batch: (entityType: string, entityIds: number[]) =>
-      ['follows', 'batch', entityType, ...entityIds] as const,
+    entity: (
+      entityType: string,
+      entityId: number | string,
+      userId?: string | number
+    ) => ['follows', entityType, userId ?? null, entityId] as const,
+    batchPrefix: (entityType: string, userId?: string | number) =>
+      ['follows', 'batch', entityType, userId ?? null] as const,
+    batch: (
+      entityType: string,
+      entityIds: number[],
+      userId?: string | number
+    ) =>
+      ['follows', 'batch', entityType, userId ?? null, ...entityIds] as const,
     myFollowing: (params?: Record<string, unknown>) =>
       ['follows', 'my-following', params] as const,
     followers: (entityType: string, entityId: number) =>

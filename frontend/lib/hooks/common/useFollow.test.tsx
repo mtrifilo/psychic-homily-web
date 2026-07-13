@@ -24,16 +24,21 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     follows: {
-      entity: (entityType: string, entityId: number) => [
-        'follows',
-        entityType,
-        entityId,
-      ],
-      batch: (entityType: string, entityIds: number[]) => [
+      entity: (
+        entityType: string,
+        entityId: number,
+        userId?: string | number
+      ) => ['follows', entityType, userId ?? null, entityId],
+      batch: (
+        entityType: string,
+        entityIds: number[],
+        userId?: string | number
+      ) => ['follows', 'batch', entityType, userId ?? null, ...entityIds],
+      batchPrefix: (entityType: string, userId?: string | number) => [
         'follows',
         'batch',
         entityType,
-        ...entityIds,
+        userId ?? null,
       ],
       myFollowing: (params?: Record<string, unknown>) => [
         'follows',
@@ -48,7 +53,7 @@ vi.mock('@/lib/queryClient', () => ({
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: true }),
+  useAuthContext: () => ({ isAuthenticated: true, user: { id: 1 } }),
 }))
 
 import {
@@ -192,9 +197,14 @@ describe('useFollow', () => {
       },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: false,
+    })
+    const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
+    queryClient.setQueryData(batchKey, {
+      '1': { follower_count: 10, is_following: false },
+      '2': { follower_count: 4, is_following: false },
     })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
@@ -210,10 +220,15 @@ describe('useFollow', () => {
     const cached = queryClient.getQueryData<{
       follower_count: number
       is_following: boolean
-    }>(['follows', 'artists', 1])
+    }>(['follows', 'artists', 1, 1])
 
     expect(cached?.follower_count).toBe(11)
     expect(cached?.is_following).toBe(true)
+    expect(
+      queryClient.getQueryData<
+        Record<string, { follower_count: number; is_following: boolean }>
+      >(batchKey)?.['1']
+    ).toEqual({ follower_count: 11, is_following: true })
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -234,9 +249,14 @@ describe('useFollow', () => {
       },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: false,
+    })
+    const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
+    queryClient.setQueryData(batchKey, {
+      '1': { follower_count: 10, is_following: true },
+      '2': { follower_count: 4, is_following: false },
     })
 
     const cancelGate = createDeferred<void>()
@@ -264,10 +284,10 @@ describe('useFollow', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(
-      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1])
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
     ).toEqual({ follower_count: 10, is_following: false })
     expect(cancelSpy).toHaveBeenCalledWith({
-      queryKey: ['follows', 'artists', 1],
+      queryKey: ['follows', 'artists', 1, 1],
     })
 
     // Release the cancellation; optimistic update must now run.
@@ -277,7 +297,7 @@ describe('useFollow', () => {
     })
 
     expect(
-      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1])
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
     ).toEqual({ follower_count: 11, is_following: true })
   })
 })
@@ -319,9 +339,14 @@ describe('useUnfollow', () => {
       },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: true,
+    })
+    const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
+    queryClient.setQueryData(batchKey, {
+      '1': { follower_count: 10, is_following: true },
+      '2': { follower_count: 4, is_following: false },
     })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
@@ -337,10 +362,15 @@ describe('useUnfollow', () => {
     const cached = queryClient.getQueryData<{
       follower_count: number
       is_following: boolean
-    }>(['follows', 'artists', 1])
+    }>(['follows', 'artists', 1, 1])
 
     expect(cached?.follower_count).toBe(9)
     expect(cached?.is_following).toBe(false)
+    expect(
+      queryClient.getQueryData<
+        Record<string, { follower_count: number; is_following: boolean }>
+      >(batchKey)?.['1']
+    ).toEqual({ follower_count: 9, is_following: false })
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -354,7 +384,7 @@ describe('useUnfollow', () => {
       },
     })
 
-    queryClient.setQueryData(['follows', 'artists', 1], {
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
       follower_count: 10,
       is_following: true,
     })
@@ -384,10 +414,10 @@ describe('useUnfollow', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(
-      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1])
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
     ).toEqual({ follower_count: 10, is_following: true })
     expect(cancelSpy).toHaveBeenCalledWith({
-      queryKey: ['follows', 'artists', 1],
+      queryKey: ['follows', 'artists', 1, 1],
     })
 
     await act(async () => {
@@ -396,7 +426,7 @@ describe('useUnfollow', () => {
     })
 
     expect(
-      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1])
+      queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1, 1])
     ).toEqual({ follower_count: 9, is_following: false })
   })
 

@@ -27,19 +27,28 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     savedShows: {
-      list: () => ['savedShows', 'list'],
-      count: (showId: number, isAuthenticated: boolean) => [
-        'savedShows',
-        'count',
-        isAuthenticated,
-        showId,
-      ],
+      list: (userId?: string) => ['savedShows', 'list', userId],
+      count: (
+        showId: number,
+        isAuthenticated: boolean,
+        userId?: string | number
+      ) => ['savedShows', 'count', isAuthenticated, userId ?? null, showId],
       all: ['savedShows'],
-      countBatchPrefix: ['savedShows', 'countBatch'],
-      countBatch: (showIds: number[], isAuthenticated: boolean) => [
+      countBatchPrefix: (userId?: string | number) => [
+        'savedShows',
+        'countBatch',
+        true,
+        userId ?? null,
+      ],
+      countBatch: (
+        showIds: number[],
+        isAuthenticated: boolean,
+        userId?: string | number
+      ) => [
         'savedShows',
         'countBatch',
         isAuthenticated,
+        userId ?? null,
         showIds,
       ],
     },
@@ -57,7 +66,6 @@ import {
   useUnsaveShow,
   useSaveShowToggle,
 } from './useSavedShows'
-
 
 describe('useSavedShows', () => {
   beforeEach(() => {
@@ -116,7 +124,6 @@ describe('useSavedShows', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
   })
-
 })
 
 describe('useSaveShow', () => {
@@ -299,7 +306,7 @@ describe('useSaveShowToggle', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const countKey = ['savedShows', 'count', true, 1400]
+    const countKey = ['savedShows', 'count', true, null, 1400]
     queryClient.setQueryData(countKey, {
       show_id: 1400,
       save_count: 4,
@@ -309,12 +316,17 @@ describe('useSaveShowToggle', () => {
     // Hold the mutation open so we can observe the pre-resolution cache state.
     let resolveSave: (v: unknown) => void = () => {}
     mockApiRequest.mockImplementationOnce(
-      () => new Promise((res) => { resolveSave = res })
+      () =>
+        new Promise(res => {
+          resolveSave = res
+        })
     )
 
     const { result } = renderHook(() => useSaveShowToggle(1400, false), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 
@@ -339,9 +351,12 @@ describe('useSaveShowToggle', () => {
 
   it('rolls the cached count back when the mutation fails', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     })
-    const countKey = ['savedShows', 'count', true, 1500]
+    const countKey = ['savedShows', 'count', true, null, 1500]
     queryClient.setQueryData(countKey, {
       show_id: 1500,
       save_count: 4,
@@ -352,7 +367,9 @@ describe('useSaveShowToggle', () => {
 
     const { result } = renderHook(() => useSaveShowToggle(1500, false), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 
@@ -376,7 +393,7 @@ describe('useSaveShowToggle', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const countKey = ['savedShows', 'count', true, 1600]
+    const countKey = ['savedShows', 'count', true, null, 1600]
     // Server said 0 saves but our local state thinks we saved it — unsaving
     // must clamp at 0 rather than render "-1".
     queryClient.setQueryData(countKey, {
@@ -388,7 +405,9 @@ describe('useSaveShowToggle', () => {
 
     const { result } = renderHook(() => useSaveShowToggle(1600, true), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 
@@ -405,9 +424,12 @@ describe('useSaveShowToggle', () => {
   // Re-inverting against an already-clamped 0 resurrects a phantom +1.
   it('rollback after a clamped unsave does not resurrect a phantom count', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     })
-    const countKey = ['savedShows', 'count', true, 1700]
+    const countKey = ['savedShows', 'count', true, null, 1700]
     queryClient.setQueryData(countKey, {
       show_id: 1700,
       save_count: 0,
@@ -417,7 +439,9 @@ describe('useSaveShowToggle', () => {
 
     const { result } = renderHook(() => useSaveShowToggle(1700, true), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 
@@ -440,7 +464,10 @@ describe('useSaveShowToggle', () => {
   // in both the optimistic apply and the rollback (symmetric `entry` guards).
   it('leaves unrelated batch caches untouched', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     })
     const otherBatchKey = queryKeys.savedShows.countBatch([2000, 2001], true)
     const untouched = {
@@ -453,7 +480,9 @@ describe('useSaveShowToggle', () => {
     // Toggle a show that appears in NO cached batch.
     const { result } = renderHook(() => useSaveShowToggle(9999, false), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 
@@ -473,7 +502,10 @@ describe('useSaveShowToggle', () => {
   // sibling show's save that succeeded while our request was in flight.
   it('rollback does not clobber a sibling show in the same batch', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     })
     const batchKey = queryKeys.savedShows.countBatch([1900, 1901], true)
     queryClient.setQueryData(batchKey, {
@@ -484,12 +516,17 @@ describe('useSaveShowToggle', () => {
     // Show 1900's save hangs, then fails.
     let rejectSave: (e: unknown) => void = () => {}
     mockApiRequest.mockImplementationOnce(
-      () => new Promise((_res, rej) => { rejectSave = rej })
+      () =>
+        new Promise((_res, rej) => {
+          rejectSave = rej
+        })
     )
 
     const { result } = renderHook(() => useSaveShowToggle(1900, false), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 
@@ -500,10 +537,13 @@ describe('useSaveShowToggle', () => {
     })
 
     // Meanwhile a sibling show in the SAME batch is saved successfully.
-    queryClient.setQueryData(batchKey, (prev: Record<string, { save_count: number; is_saved: boolean }>) => ({
-      ...prev,
-      '1901': { save_count: 10, is_saved: true },
-    }))
+    queryClient.setQueryData(
+      batchKey,
+      (prev: Record<string, { save_count: number; is_saved: boolean }>) => ({
+        ...prev,
+        '1901': { save_count: 10, is_saved: true },
+      })
+    )
 
     await act(async () => {
       rejectSave(new Error('Network error'))
@@ -534,12 +574,17 @@ describe('useSaveShowToggle', () => {
 
     let resolveSave: (v: unknown) => void = () => {}
     mockApiRequest.mockImplementationOnce(
-      () => new Promise((res) => { resolveSave = res })
+      () =>
+        new Promise(res => {
+          resolveSave = res
+        })
     )
 
     const { result } = renderHook(() => useSaveShowToggle(1800, false), {
       wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       ),
     })
 

@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -35,6 +36,45 @@ func TestSaveReleaseHandler_Success(t *testing.T) {
 	if err != nil || !resp.Body.Success {
 		t.Fatalf("expected success, got resp=%+v err=%v", resp, err)
 	}
+}
+
+func TestUnsaveReleaseHandler_RequiresAuthAndValidID(t *testing.T) {
+	h := NewSavedReleaseHandler(nil)
+	_, err := h.UnsaveReleaseHandler(context.Background(), &SaveReleaseRequest{ReleaseID: "1"})
+	testhelpers.AssertHumaError(t, err, 401)
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	_, err = h.UnsaveReleaseHandler(ctx, &SaveReleaseRequest{ReleaseID: "nope"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestUnsaveReleaseHandler_Success(t *testing.T) {
+	mock := &testhelpers.MockSavedReleaseService{
+		UnsaveReleaseFn: func(userID, releaseID uint) error {
+			if userID != 7 || releaseID != 42 {
+				t.Fatalf("unexpected args: %d/%d", userID, releaseID)
+			}
+			return nil
+		},
+	}
+	resp, err := NewSavedReleaseHandler(mock).UnsaveReleaseHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 7}),
+		&SaveReleaseRequest{ReleaseID: "42"},
+	)
+	if err != nil || !resp.Body.Success {
+		t.Fatalf("expected success, got resp=%+v err=%v", resp, err)
+	}
+}
+
+func TestUnsaveReleaseHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockSavedReleaseService{
+		UnsaveReleaseFn: func(uint, uint) error { return errors.New("db error") },
+	}
+	_, err := NewSavedReleaseHandler(mock).UnsaveReleaseHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 7}),
+		&SaveReleaseRequest{ReleaseID: "42"},
+	)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestGetSavedReleasesHandler_ForwardsPage(t *testing.T) {
@@ -77,6 +117,18 @@ func TestGetReleaseSaveCountHandler_AnonymousAndAuthenticated(t *testing.T) {
 	}
 }
 
+func TestGetReleaseSaveCountHandler_AuthenticatedStateError(t *testing.T) {
+	mock := &testhelpers.MockSavedReleaseService{
+		GetSaveCountFn:   func(uint) (int, error) { return 6, nil },
+		IsReleaseSavedFn: func(uint, uint) (bool, error) { return false, errors.New("db error") },
+	}
+	_, err := NewSavedReleaseHandler(mock).GetReleaseSaveCountHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 2}),
+		&GetReleaseSaveCountRequest{ReleaseID: "8"},
+	)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
 func TestBatchReleaseSaveCountsHandler_ZeroFillsAndAddsOwnState(t *testing.T) {
 	mock := &testhelpers.MockSavedReleaseService{
 		GetBatchSaveCountsFn: func(ids []uint) (map[uint]int, error) {
@@ -109,4 +161,21 @@ func TestBatchReleaseSaveCountsHandler_ValidatesBody(t *testing.T) {
 	req.Body.ReleaseIDs = make([]int, 201)
 	_, err = h.BatchReleaseSaveCountsHandler(context.Background(), req)
 	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestBatchReleaseSaveCountsHandler_AuthenticatedStateError(t *testing.T) {
+	mock := &testhelpers.MockSavedReleaseService{
+		GetBatchSaveCountsFn: func([]uint) (map[uint]int, error) {
+			return map[uint]int{4: 2}, nil
+		},
+		GetSavedReleaseIDsFn: func(uint, []uint) (map[uint]bool, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	req := &BatchReleaseSaveCountsRequest{}
+	req.Body.ReleaseIDs = []int{4}
+	_, err := NewSavedReleaseHandler(mock).BatchReleaseSaveCountsHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 2}), req,
+	)
+	testhelpers.AssertHumaError(t, err, 500)
 }

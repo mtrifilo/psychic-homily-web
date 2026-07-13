@@ -7,6 +7,7 @@ export function ChartModule({
   rowCount,
   isLoading,
   isError,
+  hasData,
   testId,
   children,
 }: {
@@ -15,10 +16,11 @@ export function ChartModule({
   rowCount: number
   isLoading: boolean
   isError: boolean
+  hasData: boolean
   testId: string
   children: ReactNode
 }) {
-  if (!isLoading && !isError && rowCount === 0) return null
+  if (!isLoading && rowCount === 0 && (!isError || hasData)) return null
 
   return (
     <section data-testid={testId} className="min-w-0 overflow-hidden">
@@ -50,7 +52,7 @@ export function ChartModule({
             </div>
           ))}
         </div>
-      ) : isError ? (
+      ) : isError && !hasData ? (
         <p className="border-b border-border py-3 text-xs text-destructive">
           Unable to load this chart.
         </p>

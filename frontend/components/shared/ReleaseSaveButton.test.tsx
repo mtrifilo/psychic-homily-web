@@ -33,6 +33,7 @@ vi.mock('@/features/releases', () => ({
 describe('ReleaseSaveButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.history.replaceState({}, '', '/releases/the-record')
     mockUseAuthContext.mockReturnValue({ isAuthenticated: true })
     mockUseReleaseSaveCount.mockReturnValue({
       data: undefined,
@@ -56,7 +57,7 @@ describe('ReleaseSaveButton', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Save release' }))
-    expect(mockUseReleaseSaveToggle).toHaveBeenCalledWith(17, false)
+    expect(mockUseReleaseSaveToggle).toHaveBeenCalledWith(17, false, undefined)
     expect(mockToggle).toHaveBeenCalledOnce()
   })
 
@@ -88,5 +89,22 @@ describe('ReleaseSaveButton', () => {
       '/auth?returnTo=%2Freleases%2Fthe-record'
     )
     expect(mockToggle).not.toHaveBeenCalled()
+  })
+
+  it('preserves active query state in the sign-in return path', async () => {
+    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/releases/the-record?window=all_time')
+    mockUseAuthContext.mockReturnValue({ isAuthenticated: false })
+    render(
+      <ReleaseSaveButton
+        releaseId={17}
+        saveData={{ save_count: 4, is_saved: false }}
+      />
+    )
+
+    await user.click(screen.getByRole('button'))
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Freleases%2Fthe-record%3Fwindow%3Dall_time'
+    )
   })
 })

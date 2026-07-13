@@ -36,6 +36,7 @@ import {
   useSavedReleases,
   type SavedReleaseResponse,
 } from '@/features/releases'
+import { getSavedReleasePageBounds } from '@/features/releases/savedReleasePagination'
 import { useMyFollowing, useUnfollow } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
 import {
@@ -196,8 +197,8 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
   )
 }
 
-function ShowsTab() {
-  const { data: savedData, isLoading, error } = useSavedShows()
+function ShowsTab({ userId }: { userId?: number }) {
+  const { data: savedData, isLoading, error } = useSavedShows({ userId })
 
   const savedShows = savedData?.shows ?? []
 
@@ -294,9 +295,46 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
   )
 }
 
-function ReleasesTab() {
-  const { data, isLoading, error } = useSavedReleases()
+const SAVED_RELEASES_PAGE_SIZE = 50
+
+function ReleasesTab({ userId }: { userId?: number }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const rawPage = Number.parseInt(searchParams.get('release_page') ?? '1', 10)
+  const { page } = getSavedReleasePageBounds(
+    rawPage,
+    0,
+    SAVED_RELEASES_PAGE_SIZE
+  )
+  const offset = (page - 1) * SAVED_RELEASES_PAGE_SIZE
+  const { data, isLoading, error } = useSavedReleases(
+    SAVED_RELEASES_PAGE_SIZE,
+    offset,
+    userId
+  )
   const savedReleases = data?.releases ?? []
+  const { totalPages, targetPage } = getSavedReleasePageBounds(
+    page,
+    data?.total ?? 0,
+    SAVED_RELEASES_PAGE_SIZE
+  )
+
+  useEffect(() => {
+    if (!data || page === targetPage) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (targetPage <= 1) params.delete('release_page')
+    else params.set('release_page', String(targetPage))
+    const query = params.toString()
+    router.replace(query ? `/library?${query}` : '/library', { scroll: false })
+  }, [data, page, router, searchParams, targetPage])
+
+  const changePage = (nextPage: number) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (nextPage <= 1) params.delete('release_page')
+    else params.set('release_page', String(nextPage))
+    const query = params.toString()
+    router.replace(query ? `/library?${query}` : '/library', { scroll: false })
+  }
 
   if (isLoading) {
     return (
@@ -306,10 +344,18 @@ function ReleasesTab() {
     )
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <div className="py-12 text-center text-destructive">
         <p>Failed to load your releases. Please try again later.</p>
+      </div>
+    )
+  }
+
+  if (data && page > totalPages) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
   }
@@ -327,11 +373,36 @@ function ReleasesTab() {
   }
 
   return (
-    <section className="w-full">
-      {savedReleases.map(release => (
-        <SavedReleaseCard key={release.id} release={release} />
-      ))}
-    </section>
+    <div>
+      <section className="w-full">
+        {savedReleases.map(release => (
+          <SavedReleaseCard key={release.id} release={release} />
+        ))}
+      </section>
+      {totalPages > 1 ? (
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => changePage(page - 1)}
+          >
+            Previous
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => changePage(page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -1085,7 +1156,7 @@ function LibraryContent() {
         </TabsList>
 
         <TabsContent value="shows">
-          <ShowsTab />
+          <ShowsTab userId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="artists">
@@ -1111,7 +1182,7 @@ function LibraryContent() {
         </TabsContent>
 
         <TabsContent value="releases">
-          <ReleasesTab />
+          <ReleasesTab userId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="labels">

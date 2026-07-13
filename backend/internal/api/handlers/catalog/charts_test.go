@@ -775,6 +775,7 @@ func TestChartsHandler_NewReleases_Success(t *testing.T) {
 			return []contracts.NewRelease{
 				{
 					ReleaseID: 9, Title: "Fresh Wax", Slug: "fresh-wax", ReleaseType: "lp", ReleaseDate: &released, AddedAt: addedAt,
+					ArtistNames: []string{"Band"}, LabelNames: []string{"Sub Rosa"},
 					Artists: []contracts.ChartEntityReference{{ID: 2, Name: "Band", Slug: "band"}},
 					Labels:  []contracts.ChartEntityReference{{ID: 3, Name: "Sub Rosa", Slug: "sub-rosa"}},
 				},
@@ -798,6 +799,9 @@ func TestChartsHandler_NewReleases_Success(t *testing.T) {
 	}
 	if r.Artists[0].Slug != "band" || r.Labels[0].Slug != "sub-rosa" {
 		t.Errorf("expected linkable nested refs, got %+v / %+v", r.Artists, r.Labels)
+	}
+	if len(r.ArtistNames) != 1 || r.ArtistNames[0] != "Band" || len(r.LabelNames) != 1 || r.LabelNames[0] != "Sub Rosa" {
+		t.Errorf("expected backwards-compatible name arrays, got %+v / %+v", r.ArtistNames, r.LabelNames)
 	}
 }
 

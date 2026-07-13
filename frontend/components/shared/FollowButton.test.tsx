@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createWrapper, createWrapperWithClient } from '@/test/utils'
+import { createWrapper } from '@/test/utils'
 
 const mockPush = vi.fn()
 const mockFollowMutate = vi.fn()
@@ -19,7 +19,10 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated }),
+  useAuthContext: () => ({
+    isAuthenticated: mockIsAuthenticated,
+    user: mockIsAuthenticated ? { id: 42 } : null,
+  }),
 }))
 
 // Hoist `mockApiRequest` so the `@/lib/api` mock below can reference it
@@ -71,6 +74,7 @@ import { FollowButton } from './FollowButton'
 
 describe('FollowButton', () => {
   beforeEach(() => {
+    window.history.replaceState({}, '', '/')
     vi.clearAllMocks()
     useMockedFollowHooks.value = true
     mockIsAuthenticated = true
@@ -135,6 +139,7 @@ describe('FollowButton', () => {
   it('redirects to /auth when not authenticated', async () => {
     const user = userEvent.setup()
     mockIsAuthenticated = false
+    window.history.replaceState({}, '', '/?window=all_time')
 
     render(<FollowButton entityType="artists" entityId={1} />, {
       wrapper: createWrapper(),
@@ -142,7 +147,7 @@ describe('FollowButton', () => {
 
     await user.click(screen.getByRole('button'))
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fartists%2Ftest-artist'
+      '/auth?returnTo=%2Fartists%2Ftest-artist%3Fwindow%3Dall_time'
     )
     expect(mockFollowMutate).not.toHaveBeenCalled()
   })
@@ -306,7 +311,7 @@ describe('FollowButton — optimistic update + rollback (real hooks)', () => {
   // (kept inline so this test isn't load-bearing on internal key shape).
   const ENTITY_TYPE = 'artists'
   const ENTITY_ID = 7
-  const FOLLOW_KEY = ['follows', 'entity', ENTITY_TYPE, ENTITY_ID]
+  const FOLLOW_KEY = ['follows', ENTITY_TYPE, 42, ENTITY_ID]
 
   function makeClient() {
     return new QueryClient({

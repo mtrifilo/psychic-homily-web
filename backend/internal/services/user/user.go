@@ -16,7 +16,9 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	catalogsvc "psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -163,20 +165,15 @@ type UserService struct {
 	incrementFailedAttemptsFn func(userID uint) error
 }
 
-// SetSavedReleaseService injects the release-save boundary after the service
-// graph constructs catalog dependencies. Keeping this interface here prevents
-// user-data export from knowing the legacy bookmark storage representation.
-func (s *UserService) SetSavedReleaseService(service contracts.SavedReleaseServiceInterface) {
-	s.savedReleaseService = service
-}
-
 // NewUserService creates a new user service
 func NewUserService(database *gorm.DB) *UserService {
 	if database == nil {
 		database = db.GetDB()
 	}
+	releaseService := catalogsvc.NewReleaseService(database)
 	return &UserService{
-		db: database,
+		db:                  database,
+		savedReleaseService: engagementsvc.NewSavedReleaseService(database, releaseService),
 	}
 }
 
@@ -859,10 +856,12 @@ func (s *UserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummar
 		return nil, fmt.Errorf("failed to count saved shows: %w", err)
 	}
 
-	if err := s.db.Model(&engagementm.UserBookmark{}).Where(
-		"user_id = ? AND entity_type = ? AND action = ?",
-		userID, engagementm.BookmarkEntityRelease, engagementm.BookmarkActionReleaseSave,
-	).Count(&summary.SavedReleasesCount).Error; err != nil {
+	if err := s.db.Table("user_bookmarks").
+		Joins("JOIN releases ON releases.id = user_bookmarks.entity_id").
+		Where(
+			"user_id = ? AND entity_type = ? AND action = ?",
+			userID, engagementm.BookmarkEntityRelease, engagementm.BookmarkActionReleaseSave,
+		).Count(&summary.SavedReleasesCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count saved releases: %w", err)
 	}
 
@@ -1059,26 +1058,18 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	if s.savedReleaseService == nil {
 		return nil, fmt.Errorf("saved release service not initialized")
 	}
-	const savedReleaseExportPageSize = 100
-	for offset := 0; ; offset += savedReleaseExportPageSize {
-		savedReleases, total, err := s.savedReleaseService.GetUserSavedReleases(
-			userID, savedReleaseExportPageSize, offset,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get saved releases: %w", err)
-		}
-		for _, release := range savedReleases {
-			export.SavedReleases = append(export.SavedReleases, contracts.SavedReleaseExport{
-				ReleaseID:   release.ID,
-				Title:       release.Title,
-				ReleaseType: release.ReleaseType,
-				ReleaseYear: release.ReleaseYear,
-				SavedAt:     release.SavedAt,
-			})
-		}
-		if int64(offset+len(savedReleases)) >= total || len(savedReleases) == 0 {
-			break
-		}
+	savedReleases, _, err := s.savedReleaseService.GetUserSavedReleases(userID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get saved releases: %w", err)
+	}
+	for _, release := range savedReleases {
+		export.SavedReleases = append(export.SavedReleases, contracts.SavedReleaseExport{
+			ReleaseID:   release.ID,
+			Title:       release.Title,
+			ReleaseType: release.ReleaseType,
+			ReleaseYear: release.ReleaseYear,
+			SavedAt:     release.SavedAt,
+		})
 	}
 
 	// Export submitted shows with details

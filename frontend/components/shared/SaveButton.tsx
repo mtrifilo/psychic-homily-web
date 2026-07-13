@@ -33,19 +33,28 @@ export function SaveButton({
   className,
   disabled = false,
 }: SaveButtonProps) {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own.
-  const { data: single } = useShowSaveCount(showId, isAuthenticated, !saveData)
+  const { data: single } = useShowSaveCount(
+    showId,
+    isAuthenticated,
+    !saveData,
+    user?.id
+  )
   const data = saveData ?? single
 
   const isSaved = data?.is_saved ?? false
   const saveCount = data?.save_count ?? 0
 
-  const { isLoading, toggle, error } = useSaveShowToggle(showId, isSaved)
+  const { isLoading, toggle, error } = useSaveShowToggle(
+    showId,
+    isSaved,
+    user?.id
+  )
   const isDisabled = disabled || isLoading
   const [showError, setShowError] = useState(false)
 
@@ -56,7 +65,8 @@ export function SaveButton({
     // Matches FollowButton: render for anonymous visitors so the public save
     // count stays visible, and send them to sign-in on click.
     if (!isAuthenticated) {
-      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+      const returnTo = `${pathname}${window.location.search}`
+      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
       return
     }
     if (isDisabled) return

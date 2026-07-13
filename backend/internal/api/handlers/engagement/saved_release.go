@@ -170,10 +170,13 @@ func (h *SavedReleaseHandler) GetReleaseSaveCountHandler(ctx context.Context, re
 	if user := middleware.GetUserFromContext(ctx); user != nil {
 		isSaved, err := h.service.IsReleaseSaved(user.ID, releaseID)
 		if err != nil {
-			logger.FromContext(ctx).Warn("get_release_save_count_is_saved_failed", "user_id", user.ID, "release_id", releaseID, "error", err.Error())
-		} else {
-			resp.Body.IsSaved = isSaved
+			requestID := logger.GetRequestID(ctx)
+			logger.FromContext(ctx).Error("get_release_save_count_is_saved_failed", "user_id", user.ID, "release_id", releaseID, "error", err.Error(), "request_id", requestID)
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to get release save status (request_id: %s)", requestID),
+			)
 		}
+		resp.Body.IsSaved = isSaved
 	}
 	return resp, nil
 }
@@ -206,12 +209,15 @@ func (h *SavedReleaseHandler) BatchReleaseSaveCountsHandler(ctx context.Context,
 	if user := middleware.GetUserFromContext(ctx); user != nil {
 		saved, err := h.service.GetSavedReleaseIDs(user.ID, releaseIDs)
 		if err != nil {
-			logger.FromContext(ctx).Warn("batch_release_save_counts_is_saved_failed", "user_id", user.ID, "count", len(releaseIDs), "error", err.Error())
-		} else {
-			for releaseID, isSaved := range saved {
-				if entry := resp.Body.Saves[strconv.FormatUint(uint64(releaseID), 10)]; entry != nil {
-					entry.IsSaved = isSaved
-				}
+			requestID := logger.GetRequestID(ctx)
+			logger.FromContext(ctx).Error("batch_release_save_counts_is_saved_failed", "user_id", user.ID, "count", len(releaseIDs), "error", err.Error(), "request_id", requestID)
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to get release save status (request_id: %s)", requestID),
+			)
+		}
+		for releaseID, isSaved := range saved {
+			if entry := resp.Body.Saves[strconv.FormatUint(uint64(releaseID), 10)]; entry != nil {
+				entry.IsSaved = isSaved
 			}
 		}
 	}

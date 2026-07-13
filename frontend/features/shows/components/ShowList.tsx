@@ -146,7 +146,11 @@ export function ShowList() {
     [accumulatedShows, data?.shows]
   )
   const allShowIds = useMemo(() => allShows.map(s => s.id), [allShows])
-  const { data: saveCounts } = useShowSaveCountBatch(allShowIds, isAuthenticated)
+  const { data: saveCounts } = useShowSaveCountBatch(
+    allShowIds,
+    isAuthenticated,
+    user?.id
+  )
 
   const handleLoadMore = useCallback(() => {
     if (data?.pagination.next_cursor) {

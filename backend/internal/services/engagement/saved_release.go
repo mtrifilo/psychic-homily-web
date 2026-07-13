@@ -115,12 +115,16 @@ func (s *SavedReleaseService) GetUserSavedReleases(userID uint, limit, offset in
 	}
 
 	var refs []savedReleaseRef
-	err := baseQuery().
+	pageQuery := baseQuery().
 		Select("user_bookmarks.entity_id AS release_id, user_bookmarks.created_at AS saved_at").
-		Order("user_bookmarks.created_at DESC, user_bookmarks.id DESC").
-		Limit(limit).
-		Offset(offset).
-		Find(&refs).Error
+		Order("user_bookmarks.created_at DESC, user_bookmarks.id DESC")
+	if limit > 0 {
+		pageQuery = pageQuery.Limit(limit)
+	}
+	if offset > 0 {
+		pageQuery = pageQuery.Offset(offset)
+	}
+	err := pageQuery.Find(&refs).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get saved releases: %w", err)
 	}
@@ -158,24 +162,48 @@ func (s *SavedReleaseService) IsReleaseSaved(userID, releaseID uint) (bool, erro
 	if s.db == nil {
 		return false, fmt.Errorf("database not initialized")
 	}
-	return s.bookmark.IsBookmarked(
-		userID,
-		engagementm.BookmarkEntityRelease,
-		releaseID,
-		engagementm.BookmarkActionReleaseSave,
-	)
+	var count int64
+	err := s.db.Table("user_bookmarks").
+		Joins("JOIN releases ON releases.id = user_bookmarks.entity_id").
+		Where(
+			"user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.entity_id = ? AND user_bookmarks.action = ?",
+			userID, engagementm.BookmarkEntityRelease, releaseID, engagementm.BookmarkActionReleaseSave,
+		).
+		Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("failed to check saved release: %w", err)
+	}
+	return count > 0, nil
 }
 
 func (s *SavedReleaseService) GetSavedReleaseIDs(userID uint, releaseIDs []uint) (map[uint]bool, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	return s.bookmark.GetBookmarkedEntityIDs(
-		userID,
-		engagementm.BookmarkEntityRelease,
-		engagementm.BookmarkActionReleaseSave,
-		releaseIDs,
-	)
+	result := make(map[uint]bool, len(releaseIDs))
+	for _, releaseID := range releaseIDs {
+		result[releaseID] = false
+	}
+	if len(releaseIDs) == 0 {
+		return result, nil
+	}
+
+	var savedIDs []uint
+	err := s.db.Table("user_bookmarks").
+		Select("DISTINCT user_bookmarks.entity_id").
+		Joins("JOIN releases ON releases.id = user_bookmarks.entity_id").
+		Where(
+			"user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.entity_id IN ? AND user_bookmarks.action = ?",
+			userID, engagementm.BookmarkEntityRelease, releaseIDs, engagementm.BookmarkActionReleaseSave,
+		).
+		Scan(&savedIDs).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get saved release IDs: %w", err)
+	}
+	for _, releaseID := range savedIDs {
+		result[releaseID] = true
+	}
+	return result, nil
 }
 
 func (s *SavedReleaseService) GetSaveCount(releaseID uint) (int, error) {

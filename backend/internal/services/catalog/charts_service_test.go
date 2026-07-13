@@ -1718,6 +1718,10 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ArtistAndLabe
 	first := suite.createArtist("First Credit")
 	second := suite.createArtist("Second Credit")
 	suite.addArtistToRelease(first.ID, release.ID)
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{
+		ArtistID: first.ID, ReleaseID: release.ID,
+		Role: catalogm.ArtistReleaseRoleProducer, Position: 2,
+	}).Error)
 	ar := &catalogm.ArtistRelease{ArtistID: second.ID, ReleaseID: release.ID, Role: catalogm.ArtistReleaseRoleMain, Position: 1}
 	suite.Require().NoError(suite.db.Create(ar).Error)
 	label := suite.addLabelToRelease(release.ID, "Sub Rosa")
@@ -1731,15 +1735,21 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_ArtistAndLabe
 	suite.Equal(first.ID, releases[0].Artists[0].ID)
 	suite.Equal("First Credit", releases[0].Artists[0].Name)
 	suite.Equal(second.ID, releases[0].Artists[1].ID, "artist credits stay in position order")
+	suite.Equal([]string{"First Credit", "Second Credit"}, releases[0].ArtistNames, "legacy names remain available")
 	suite.Require().Len(releases[0].Labels, 1)
 	suite.Equal(label.ID, releases[0].Labels[0].ID)
 	suite.Equal("Sub Rosa", releases[0].Labels[0].Name)
+	suite.Equal([]string{"Sub Rosa"}, releases[0].LabelNames, "legacy names remain available")
 	suite.NotEmpty(releases[0].Labels[0].Slug)
 	suite.Equal(bare.ID, releases[1].ReleaseID)
 	suite.NotNil(releases[1].Artists, "no credits -> empty non-nil slice")
 	suite.Empty(releases[1].Artists)
+	suite.NotNil(releases[1].ArtistNames)
+	suite.Empty(releases[1].ArtistNames)
 	suite.NotNil(releases[1].Labels)
 	suite.Empty(releases[1].Labels)
+	suite.NotNil(releases[1].LabelNames)
+	suite.Empty(releases[1].LabelNames)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_RespectsLimit() {

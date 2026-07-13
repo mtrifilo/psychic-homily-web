@@ -11,13 +11,17 @@ import type {
   SavedReleasesListResponse,
 } from '../types'
 
-export function useSavedReleases(limit = 50, offset = 0) {
+export function useSavedReleases(
+  limit = 50,
+  offset = 0,
+  userId?: string | number
+) {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   })
   return useQuery({
-    queryKey: releaseQueryKeys.savedList(limit, offset),
+    queryKey: releaseQueryKeys.savedList(limit, offset, userId),
     queryFn: () =>
       apiRequest<SavedReleasesListResponse>(
         `${releaseEndpoints.SAVED_LIST}?${params.toString()}`,
@@ -29,10 +33,11 @@ export function useSavedReleases(limit = 50, offset = 0) {
 export function useReleaseSaveCount(
   releaseId: number,
   isAuthenticated: boolean,
-  enabled = true
+  enabled = true,
+  userId?: string | number
 ) {
   return useQuery({
-    queryKey: releaseQueryKeys.saveCount(releaseId, isAuthenticated),
+    queryKey: releaseQueryKeys.saveCount(releaseId, isAuthenticated, userId),
     queryFn: () =>
       apiRequest<ReleaseSaveCount>(releaseEndpoints.SAVE_COUNT(releaseId), {
         method: 'GET',
@@ -44,10 +49,15 @@ export function useReleaseSaveCount(
 
 export function useReleaseSaveCountBatch(
   releaseIds: number[],
-  isAuthenticated: boolean
+  isAuthenticated: boolean,
+  userId?: string | number
 ) {
   return useQuery({
-    queryKey: releaseQueryKeys.saveCountBatch(releaseIds, isAuthenticated),
+    queryKey: releaseQueryKeys.saveCountBatch(
+      releaseIds,
+      isAuthenticated,
+      userId
+    ),
     queryFn: async (): Promise<Record<string, ReleaseSaveCountEntry>> => {
       const response = await apiRequest<BatchReleaseSaveCountsResponse>(
         releaseEndpoints.SAVE_COUNTS_BATCH,
@@ -63,7 +73,11 @@ export function useReleaseSaveCountBatch(
   })
 }
 
-export function useReleaseSaveToggle(releaseId: number, isSaved: boolean) {
+export function useReleaseSaveToggle(
+  releaseId: number,
+  isSaved: boolean,
+  userId?: string | number
+) {
   const queryClient = useQueryClient()
   const save = useMutation({
     mutationFn: () =>
@@ -79,8 +93,8 @@ export function useReleaseSaveToggle(releaseId: number, isSaved: boolean) {
   })
 
   const toggle = async () => {
-    const singleKey = releaseQueryKeys.saveCount(releaseId, true)
-    const batchPrefix = releaseQueryKeys.saveCountBatchPrefix
+    const singleKey = releaseQueryKeys.saveCount(releaseId, true, userId)
+    const batchPrefix = releaseQueryKeys.saveCountBatchPrefix(userId)
     const delta = isSaved ? -1 : 1
 
     await Promise.all([

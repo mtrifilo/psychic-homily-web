@@ -16,9 +16,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
-	catalogsvc "psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
-	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -179,11 +177,7 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 	suite.db = suite.testDB.DB
 
 	// Create UserService
-	suite.userService = &UserService{db: suite.testDB.DB}
-	releaseService := catalogsvc.NewReleaseService(suite.db)
-	suite.userService.SetSavedReleaseService(
-		engagementsvc.NewSavedReleaseService(suite.db, releaseService),
-	)
+	suite.userService = NewUserService(suite.testDB.DB)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TearDownSuite() {

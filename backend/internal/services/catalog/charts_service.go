@@ -1319,7 +1319,8 @@ func (s *ChartsService) releaseArtistNames(releaseIDs []uint) (map[uint][]string
 		FROM artist_releases ar
 		JOIN artists a ON a.id = ar.artist_id
 		WHERE ar.release_id IN ?
-		ORDER BY ar.release_id, ar.position
+		GROUP BY ar.release_id, a.id, a.name
+		ORDER BY ar.release_id, MIN(ar.position), a.name, a.id
 	`, releaseIDs, "release artists")
 }
 
@@ -1329,7 +1330,8 @@ func (s *ChartsService) releaseArtistReferences(releaseIDs []uint) (map[uint][]c
 		FROM artist_releases ar
 		JOIN artists a ON a.id = ar.artist_id
 		WHERE ar.release_id IN ?
-		ORDER BY ar.release_id, ar.position
+		GROUP BY ar.release_id, a.id, a.name, a.slug
+		ORDER BY ar.release_id, MIN(ar.position), a.name, a.id
 	`, releaseIDs, "release artist references")
 }
 
@@ -1439,6 +1441,8 @@ func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, sce
 			ReleaseType: r.ReleaseType,
 			ReleaseDate: formatDay(r.ReleaseDate),
 			AddedAt:     r.AddedAt,
+			ArtistNames: []string{},
+			LabelNames:  []string{},
 			Artists:     []contracts.ChartEntityReference{},
 			Labels:      []contracts.ChartEntityReference{},
 			Rank:        offset + i + 1,
@@ -1457,9 +1461,15 @@ func (s *ChartsService) getNewReleasesUncached(window contracts.ChartWindow, sce
 	for i := range results {
 		if artists, ok := artistMap[results[i].ReleaseID]; ok {
 			results[i].Artists = artists
+			for _, artist := range artists {
+				results[i].ArtistNames = append(results[i].ArtistNames, artist.Name)
+			}
 		}
 		if labels, ok := labelMap[results[i].ReleaseID]; ok {
 			results[i].Labels = labels
+			for _, label := range labels {
+				results[i].LabelNames = append(results[i].LabelNames, label.Name)
+			}
 		}
 	}
 

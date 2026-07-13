@@ -14,6 +14,7 @@ interface ReleaseCardProps {
   density?: ReleaseCardDensity
   saveData?: { save_count: number; is_saved: boolean }
   saveDisabled?: boolean
+  showSaveAction?: boolean
 }
 
 /**
@@ -65,6 +66,7 @@ export function ReleaseCard({
   density = 'comfortable',
   saveData,
   saveDisabled = false,
+  showSaveAction = false,
 }: ReleaseCardProps) {
   const releaseUrl = `/releases/${release.slug || release.id}`
   const typeLabel = getReleaseTypeLabel(release.release_type)
@@ -98,7 +100,7 @@ export function ReleaseCard({
             {release.release_year}
           </span>
         )}
-        {saveData ? (
+        {showSaveAction ? (
           <ReleaseSaveButton
             releaseId={release.id}
             saveData={saveData}
@@ -166,7 +168,7 @@ export function ReleaseCard({
               </div>
             )}
           </div>
-          {saveData ? (
+          {showSaveAction ? (
             <ReleaseSaveButton
               releaseId={release.id}
               saveData={saveData}
@@ -238,7 +240,7 @@ export function ReleaseCard({
             )}
           </div>
         </div>
-        {saveData ? (
+        {showSaveAction ? (
           <ReleaseSaveButton
             releaseId={release.id}
             saveData={saveData}

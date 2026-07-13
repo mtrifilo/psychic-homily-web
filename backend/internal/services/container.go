@@ -220,7 +220,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	labelSvc := catalog.NewLabelService(database)
 	releaseSvc := catalog.NewReleaseService(database)
 	savedRelease := engagement.NewSavedReleaseService(database, releaseSvc)
-	userService.SetSavedReleaseService(savedRelease)
 	festivalSvc := catalog.NewFestivalService(database)
 	showSvc := catalog.NewShowService(database)
 	entityRequestSvc := community.NewEntityRequestService(database)

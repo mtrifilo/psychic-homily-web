@@ -39,7 +39,7 @@ export function ReleaseList() {
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const { density, setDensity } = useDensity('releases')
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
 
   // Parse filters from URL
   const typeParam = searchParams.get('type') as ReleaseType | null
@@ -87,7 +87,8 @@ export function ReleaseList() {
   const releases = data?.releases ?? []
   const releaseSaveCounts = useReleaseSaveCountBatch(
     releases.map(release => release.id),
-    isAuthenticated
+    isAuthenticated,
+    user?.id
   )
 
   // URL update helper — preserves existing params unless explicitly overridden
@@ -407,11 +408,14 @@ export function ReleaseList() {
                   key={release.id}
                   release={release}
                   density={density}
+                  showSaveAction
                   saveData={
-                    releaseSaveCounts.data?.[String(release.id)] ?? {
-                      save_count: 0,
-                      is_saved: false,
-                    }
+                    releaseSaveCounts.isError
+                      ? undefined
+                      : (releaseSaveCounts.data?.[String(release.id)] ?? {
+                          save_count: 0,
+                          is_saved: false,
+                        })
                   }
                   saveDisabled={releaseSaveCounts.isLoading}
                 />

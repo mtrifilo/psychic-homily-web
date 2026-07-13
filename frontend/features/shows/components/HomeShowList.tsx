@@ -101,7 +101,11 @@ export function HomeShowList() {
     () => data?.shows?.map(s => s.id) ?? [],
     [data?.shows]
   )
-  const { data: saveCounts } = useShowSaveCountBatch(showIds, isAuthenticated)
+  const { data: saveCounts } = useShowSaveCountBatch(
+    showIds,
+    isAuthenticated,
+    user?.id
+  )
 
   // Determine if "Save as default" / "Clear defaults" should show
   const selectionDiffersFromFavorites = !citiesEqual(effectiveCities, favoriteCities)

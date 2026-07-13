@@ -56,6 +56,7 @@ describe('ReleaseCard', () => {
       <ReleaseCard
         release={makeRelease()}
         saveData={{ save_count: 2, is_saved: false }}
+        showSaveAction
       />
     )
     expect(
