@@ -138,8 +138,53 @@ describe('useSavedShows', () => {
     expect(fetchResult!.hasNextPage).toBe(false)
   })
 
-  it('patches infinite Library pages after removal without broad invalidation', async () => {
-    mockApiRequest.mockResolvedValueOnce({ success: true })
+  it('isolates infinite saved-show caches by user identity', async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({
+        shows: [{ id: 1, title: 'Alice show' }],
+        total: 1,
+        limit: 4,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        shows: [{ id: 2, title: 'Bob show' }],
+        total: 1,
+        limit: 4,
+        offset: 0,
+      })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const alice = renderHook(() => useInfiniteSavedShows('upcoming', 1), {
+      wrapper,
+    })
+    await waitFor(() => expect(alice.result.current.isSuccess).toBe(true))
+    expect(alice.result.current.data?.pages[0].shows[0].title).toBe(
+      'Alice show'
+    )
+    alice.unmount()
+
+    const bob = renderHook(() => useInfiniteSavedShows('upcoming', 2), {
+      wrapper,
+    })
+    await waitFor(() => expect(bob.result.current.isSuccess).toBe(true))
+    expect(bob.result.current.data?.pages[0].shows[0].title).toBe('Bob show')
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it('patches infinite Library pages and resumes at the shifted offset', async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({
+        shows: [{ id: 105 }],
+        total: 104,
+        limit: 100,
+        offset: 103,
+      })
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
@@ -147,13 +192,22 @@ describe('useSavedShows', () => {
     queryClient.setQueryData(queryKey, {
       pages: [
         {
-          shows: [{ id: 1 }, { id: 2 }],
-          total: 2,
+          shows: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+          total: 105,
           limit: 4,
           offset: 0,
         },
+        {
+          shows: Array.from({ length: 100 }, (_, index) => ({ id: index + 5 })),
+          total: 105,
+          limit: 100,
+          offset: 4,
+        },
       ],
-      pageParams: [{ limit: 4, offset: 0 }],
+      pageParams: [
+        { limit: 4, offset: 0 },
+        { limit: 100, offset: 4 },
+      ],
     })
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -170,9 +224,22 @@ describe('useSavedShows', () => {
     const cached = queryClient.getQueryData<{
       pages: Array<{ shows: Array<{ id: number }>; total: number }>
     }>(queryKey)
-    expect(cached?.pages[0].shows).toEqual([{ id: 2 }])
-    expect(cached?.pages[0].total).toBe(1)
+    expect(cached?.pages[0].shows).toEqual([{ id: 2 }, { id: 3 }, { id: 4 }])
+    expect(cached?.pages[0].total).toBe(104)
+    expect(cached?.pages[1].total).toBe(104)
     expect(mockInvalidateSavedShows).not.toHaveBeenCalled()
+
+    const infinite = renderHook(() => useInfiniteSavedShows('upcoming', 1), {
+      wrapper,
+    })
+    await act(async () => {
+      await infinite.result.current.fetchNextPage()
+    })
+    expect(mockApiRequest).toHaveBeenNthCalledWith(
+      2,
+      '/saved-shows?limit=100&offset=103&time_filter=upcoming',
+      { method: 'GET' }
+    )
   })
 
   it('fetches saved shows list', async () => {

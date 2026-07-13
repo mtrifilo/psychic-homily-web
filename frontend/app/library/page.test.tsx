@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders, screen, within } from '@/test/utils'
 
 const mockReplace = vi.fn()
@@ -447,7 +447,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockUnsaveShow).toHaveBeenNthCalledWith(2, 2)
     })
 
-    it('collapses each bucket to four rows and expands in place', () => {
+    it('loads every page on expansion and re-expands without refetching', async () => {
       const shows = Array.from({ length: 6 }, (_, index) =>
         makeSavedShow({
           id: index + 1,
@@ -456,13 +456,40 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
           savedAt: '2026-07-10T12:00:00Z',
         })
       )
-      mockUseSavedShows.mockImplementation(
-        (timeFilter: 'upcoming' | 'past') => ({
+      const fetchNextPage = vi.fn(async () => {
+        upcomingResult.data.pages.push({
+          shows: shows.slice(4),
+          total: shows.length,
+          limit: 100,
+          offset: 4,
+        })
+        upcomingResult.hasNextPage = false
+        return { hasNextPage: false, isFetchNextPageError: false }
+      })
+      const upcomingResult = {
+        data: {
+          pages: [
+            {
+              shows: shows.slice(0, 4),
+              total: shows.length,
+              limit: 4,
+              offset: 0,
+            },
+          ],
+          pageParams: [{ limit: 4, offset: 0 }],
+        },
+        isLoading: false,
+        error: null,
+        hasNextPage: true,
+        isFetchingNextPage: false,
+        fetchNextPage,
+      }
+      const pastResult = {
           data: {
             pages: [
               {
-                shows: timeFilter === 'upcoming' ? shows : [],
-                total: timeFilter === 'upcoming' ? shows.length : 0,
+                shows: [],
+                total: 0,
                 limit: 4,
                 offset: 0,
               },
@@ -474,16 +501,24 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
           hasNextPage: false,
           isFetchingNextPage: false,
           fetchNextPage: mockFetchNextPage,
-        })
+      }
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') =>
+          timeFilter === 'upcoming' ? upcomingResult : pastResult
       )
 
-      renderWithProviders(<LibraryPage />)
+      const { rerender } = renderWithProviders(<LibraryPage />)
 
       expect(screen.getAllByRole('article')).toHaveLength(4)
       fireEvent.click(screen.getByRole('button', { name: 'View all 6' }))
+      await waitFor(() => expect(fetchNextPage).toHaveBeenCalledTimes(1))
+      rerender(<LibraryPage />)
       expect(screen.getAllByRole('article')).toHaveLength(6)
       fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
       expect(screen.getAllByRole('article')).toHaveLength(4)
+      fireEvent.click(screen.getByRole('button', { name: 'View all 6' }))
+      expect(screen.getAllByRole('article')).toHaveLength(6)
+      expect(fetchNextPage).toHaveBeenCalledTimes(1)
     })
   })
 

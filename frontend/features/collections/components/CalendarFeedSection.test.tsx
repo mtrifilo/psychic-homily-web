@@ -4,10 +4,11 @@ import { renderWithProviders } from '@/test/utils'
 
 const mockCreateToken = vi.fn()
 const mockDeleteToken = vi.fn()
+let mockHasToken = false
 
 vi.mock('@/features/auth', () => ({
   useCalendarTokenStatus: () => ({
-    data: { has_token: false },
+    data: { has_token: mockHasToken },
     isLoading: false,
   }),
   useCreateCalendarToken: () => ({
@@ -25,6 +26,7 @@ import { CalendarFeedSection } from './CalendarFeedSection'
 describe('CalendarFeedSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockHasToken = false
     mockCreateToken.mockResolvedValue({
       token: 'calendar-token',
       feed_url: 'https://example.com/calendar.ics',
@@ -50,5 +52,17 @@ describe('CalendarFeedSection', () => {
 
     await waitFor(() => expect(mockCreateToken).toHaveBeenCalledTimes(1))
     expect(screen.getByText('Calendar Feed Active')).toBeTruthy()
+  })
+
+  it('stacks active-token details and actions on narrow screens', () => {
+    mockHasToken = true
+    const { container } = renderWithProviders(<CalendarFeedSection />)
+
+    expect(screen.getByText('Calendar Feed Active')).toBeTruthy()
+    const layout = container.firstElementChild?.firstElementChild as HTMLElement
+    expect(layout.className).toContain('flex-col')
+    expect(layout.className).toContain('sm:flex-row')
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Disable' })).toBeTruthy()
   })
 })

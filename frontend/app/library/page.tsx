@@ -146,11 +146,13 @@ function SavedShowCard({
   isPast,
   onRemove,
   isRemoving,
+  isRemovalPending,
 }: {
   show: SavedShowResponse
   isPast: boolean
   onRemove: (showId: number) => void
   isRemoving: boolean
+  isRemovalPending: boolean
 }) {
   const venue = show.venues[0]
   const artists = show.artists
@@ -227,7 +229,7 @@ function SavedShowCard({
         <button
           type="button"
           onClick={() => onRemove(show.id)}
-          disabled={isRemoving}
+          disabled={isRemovalPending}
           className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
           aria-label={`Remove ${show.title} from saved shows`}
         >
@@ -248,6 +250,7 @@ function SavedShowsSection({
   onExpand,
   onRemove,
   removingShowId,
+  isRemovalPending,
 }: {
   title: 'Upcoming' | 'Past'
   shows: SavedShowResponse[]
@@ -258,6 +261,7 @@ function SavedShowsSection({
   onExpand: () => Promise<void>
   onRemove: (showId: number) => void
   removingShowId?: number
+  isRemovalPending: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const visibleShows = expanded ? shows : shows.slice(0, COLLAPSED_SHOW_COUNT)
@@ -301,6 +305,7 @@ function SavedShowsSection({
               isPast={isPast}
               onRemove={onRemove}
               isRemoving={removingShowId === show.id}
+              isRemovalPending={isRemovalPending}
             />
           ))}
         </div>
@@ -318,14 +323,14 @@ function SavedShowsSection({
                     ? 'Show fewer'
                     : `View all ${total}`
             }
-            disabled={isFetchingNextPage}
+            disabled={isFetchingNextPage || isRemovalPending}
             onClick={async () => {
               if (expanded && !hasNextPage) {
                 setExpanded(false)
                 return
               }
               setExpanded(true)
-              await onExpand()
+              if (hasNextPage) await onExpand()
             }}
           />
           {expanded && hasNextPage && !isFetchingNextPage && (
@@ -339,12 +344,20 @@ function SavedShowsSection({
   )
 }
 
-function ShowsTab({ userId }: { userId?: number }) {
-  const upcoming = useInfiniteSavedShows('upcoming', userId, userId !== undefined)
-  const past = useInfiniteSavedShows('past', userId, userId !== undefined)
+function ShowsTab({ currentUserId }: { currentUserId?: number }) {
+  const upcoming = useInfiniteSavedShows(
+    'upcoming',
+    currentUserId,
+    currentUserId !== undefined
+  )
+  const past = useInfiniteSavedShows(
+    'past',
+    currentUserId,
+    currentUserId !== undefined
+  )
   const unsaveShow = useUnsaveShow({
     syncMode: 'patch-infinite',
-    userId,
+    userId: currentUserId,
   })
 
   const upcomingShows = upcoming.data?.pages.flatMap(page => page.shows) ?? []
@@ -355,6 +368,10 @@ function ShowsTab({ userId }: { userId?: number }) {
     (upcoming.isLoading && !upcoming.data) || (past.isLoading && !past.data)
   const error = upcoming.error ?? past.error
   const isEmpty = upcomingTotal + pastTotal === 0
+  const isSavedShowActionPending =
+    unsaveShow.isPending ||
+    upcoming.isFetchingNextPage ||
+    past.isFetchingNextPage
 
   const fetchAllPages = async (
     query: typeof upcoming | typeof past
@@ -402,6 +419,7 @@ function ShowsTab({ userId }: { userId?: number }) {
             removingShowId={
               unsaveShow.isPending ? unsaveShow.variables : undefined
             }
+            isRemovalPending={isSavedShowActionPending}
           />
           <SavedShowsSection
             title="Past"
@@ -415,6 +433,7 @@ function ShowsTab({ userId }: { userId?: number }) {
             removingShowId={
               unsaveShow.isPending ? unsaveShow.variables : undefined
             }
+            isRemovalPending={isSavedShowActionPending}
           />
         </div>
       )}
@@ -1350,7 +1369,7 @@ function LibraryContent() {
         </TabsList>
 
         <TabsContent value="shows">
-          <ShowsTab userId={currentUserId} />
+          <ShowsTab currentUserId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="artists">

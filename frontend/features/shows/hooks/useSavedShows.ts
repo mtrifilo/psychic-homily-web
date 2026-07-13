@@ -92,9 +92,12 @@ export const useInfiniteSavedShows = (
         { method: 'GET' }
       )
     },
-    getNextPageParam: lastPage => {
+    getNextPageParam: (lastPage, pages) => {
       if (lastPage.shows.length === 0) return undefined
-      const nextOffset = lastPage.offset + lastPage.shows.length
+      const nextOffset = pages.reduce(
+        (loaded, page) => loaded + page.shows.length,
+        0
+      )
       return nextOffset < lastPage.total
         ? { offset: nextOffset, limit: SAVED_SHOWS_NEXT_PAGE_SIZE }
         : undefined
@@ -255,7 +258,13 @@ export const useUnsaveShow = ({
         queryKey: queryKeys.savedShows.countBatchPrefix(userId),
       })
       void queryClient.invalidateQueries({
-        queryKey: ['savedShows', 'count', true, userId ?? null],
+        queryKey: ['savedShows', 'countBatch', false, null],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.savedShows.count(showId, true, userId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.savedShows.count(showId, false),
       })
     },
   })

@@ -166,8 +166,8 @@ export function CalendarFeedSection() {
   if (tokenStatus?.has_token) {
     return (
       <div className="rounded-md border border-border bg-card p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold">Calendar Feed Active</h3>
@@ -176,7 +176,7 @@ export function CalendarFeedSection() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
