@@ -29,21 +29,71 @@
 
 import type { GraphPalette } from './graphPalette'
 
+// ──────────────────────────────────────────────
+// Shared label typography (PSY-1445)
+//
+// Both canvas primitives (ForceGraphView + ArtistGraphVisualization) previously
+// carried their own gate / font clamp / truncation, so the same artist name
+// rendered differently across surfaces and labels vanished earlier on zoom-out
+// in ForceGraphView (gate 1.0 vs 0.7). These are now the single source; neither
+// primitive keeps local label constants.
+//
+// The gate took ArtistGraph's more-forgiving value (0.7); the font clamp and
+// truncation budget took ForceGraphView's tighter ones (9-13px/base 11,
+// 22→20 chars) rather than ArtistGraph's old 10-14px/base 12, 20→18 —
+// deliberately, not by default: ForceGraphView is the primitive tuned for the
+// more crowded surfaces (scene graphs, homepage, venue bill networks), so its
+// tighter budget is the safer shared default; ArtistGraph's ego dialog has
+// room to spare either way. Verified legible on both surfaces via manual
+// repro screenshots (PSY-1445 PR).
+// ──────────────────────────────────────────────
+
+/**
+ * Below this zoom, node labels are dropped (text becomes unreadable). 0.7 keeps
+ * labels visible earlier on zoom-out: at the gate the clamped 13px (graph-space)
+ * font paints at ~9.1 screen px — small but legible; collision culling bounds
+ * density. Static-viewport surfaces bypass this gate entirely (PSY-1443) — zoom
+ * is disabled there, so a fitted zoom at/below the gate would mean no visitor
+ * could ever see a label.
+ */
+export const LABEL_MIN_SCALE = 0.7
+
+/**
+ * Graph-space font size for a node label at the given zoom. `11/globalScale`
+ * targets a constant ~11 screen px, clamped so labels neither balloon when
+ * zoomed far out (13px graph ⇒ shrinking screen size below z≈0.85) nor dwindle
+ * when zoomed far in (9px graph ⇒ growing screen size past z≈1.2).
+ */
+export function labelFontSize(globalScale: number): number {
+  return Math.max(9, Math.min(13, 11 / globalScale))
+}
+
+// Budget carried over from ForceGraphView's pre-PSY-1445 threshold: long enough
+// that most artist/venue names fit on one line at the shared font size without
+// the canvas label overrunning a typical node's collision box, short enough
+// that a name near the cap still reads as a name (not a clipped fragment) once
+// the ellipsis lands. Named (not inlined) so both halves of the truncation
+// rule are as greppable/pinnable as LABEL_MIN_SCALE above.
+export const TRUNCATE_MAX_LENGTH = 22
+export const TRUNCATE_KEEP_LENGTH = 20
+
+/** Truncate a node name for canvas display: names over `TRUNCATE_MAX_LENGTH`
+ * keep their first `TRUNCATE_KEEP_LENGTH` characters plus an ellipsis. */
+export function truncateLabel(name: string): string {
+  return name.length > TRUNCATE_MAX_LENGTH ? name.slice(0, TRUNCATE_KEEP_LENGTH) + '…' : name
+}
+
 /**
  * One candidate label. Positioned for `textAlign='center'` / `textBaseline='top'`
  * — the caller passes the label's center-x and its top-y (node y + radius +
- * offset), plus the per-graph font/weight and a collision priority.
+ * offset), plus the font/weight and a collision priority.
  */
 export interface GraphLabelSpec {
   /** Center x of the label (textAlign center). */
   x: number
   /** Top y of the label (textBaseline top) — caller adds radius + offset. */
   y: number
-  /**
-   * The already-truncated label string. Each surface truncates with its own
-   * length/ellipsis (artist graph 20→18 `...`, ForceGraphView 22→20 `…`) — the
-   * thresholds differ ON PURPOSE because the surfaces use different font sizes.
-   */
+  /** The already-truncated label string (see `truncateLabel`). */
   text: string
   fontSize: number
   bold?: boolean

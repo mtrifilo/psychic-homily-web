@@ -56,7 +56,14 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
-import { degreeMap, renderGraphLabels, type GraphLabelSpec } from './graphLabels'
+import {
+  LABEL_MIN_SCALE,
+  degreeMap,
+  labelFontSize,
+  renderGraphLabels,
+  truncateLabel,
+  type GraphLabelSpec,
+} from './graphLabels'
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from './graphFocus'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipPlacement } from './nodeTooltip'
 import { EdgeLegend } from './EdgeLegend'
@@ -149,9 +156,11 @@ export const PLAYABLE_RING_COLOR = '#a855f7'
 
 // zoomToFit pads the NODE bbox — labels aren't measured, so shelf-END labels
 // can clip at the canvas edge. Deliberately small: a pad wide enough for the
-// labels (~64px) drops the fitted zoom below the 1.0 label gate (PSY-1209)
-// on typical overlay layouts, hiding EVERY label — clipped edge labels beat
-// none (PSY-1321; both measured on the seeded Phoenix fixture).
+// labels (~64px) drops the fitted zoom below the label gate (PSY-1209) on
+// typical overlay layouts, hiding EVERY label — clipped edge labels beat none
+// (PSY-1321; both measured on the seeded Phoenix fixture against the original
+// 1.0 gate; the shared LABEL_MIN_SCALE of 0.7 (PSY-1445) loosens that pressure
+// but the padding stays as measured).
 const ZOOM_FIT_PADDING_PX = 40
 
 const HULL_FADE_START = 1.0
@@ -610,7 +619,7 @@ export function ForceGraphView({
   //     engine stop over an empty/loading graph must not burn it.
   //   - Content already fully in view → spend the shot WITHOUT fitting, so
   //     inline mounts that frame fine today are byte-identical (and keep
-  //     their labels — a full zoomToFit can land below the 1.0 label gate).
+  //     their labels — a full zoomToFit can land below the label gate).
   //   - A canvas pointerdown/wheel means the user owns the viewport for the
   //     REST OF THE MOUNT: dimension changes re-arm the shot only until then.
   //     (Canvas-targeted, so EdgeLegend/tooltip clicks don't cancel.)
@@ -677,7 +686,7 @@ export function ForceGraphView({
       // 5% per-side slack: a bbox that pokes marginally past the viewport
       // (edge node half-clipped) still counts as in view — a full 400ms
       // zoomToFit for a few clipped pixels is a worse trade than the clip,
-      // and on inline mounts the fit could drop below the 1.0 label gate.
+      // and on inline mounts the fit could drop below the label gate.
       const slackX = halfW * 0.05
       const slackY = halfH * 0.05
       const inView =
@@ -942,17 +951,18 @@ export function ForceGraphView({
   // Node labels in one collision-culled post-frame pass (PSY-1209). Labels are
   // kept in degree order and dropped when they'd overlap a higher-priority one;
   // a culled node's name is still reachable via the hover tooltip below (reveal-
-  // on-hover in the canvas is PSY-1210). Same gate (globalScale > 1.0), font,
-  // truncation, and y-offset the per-node paint used; the theme-aware halo+fill
-  // recipe lives in renderGraphLabels (shared with ArtistGraph).
+  // on-hover in the canvas is PSY-1210). Gate, font clamp, and truncation are
+  // the shared label constants (graphLabels, PSY-1445), same as ArtistGraph;
+  // the theme-aware halo+fill recipe lives in renderGraphLabels too.
   //
   // Static viewports bypass the zoom gate entirely: zoom interaction is disabled
-  // there, so a fitted zoom at/below 1.0 would mean NO visitor could ever see a
-  // label ("unlabeled dots at rest"). Collision culling keeps density readable.
+  // there, so a fitted zoom at/below the gate would mean NO visitor could ever
+  // see a label ("unlabeled dots at rest"). Collision culling keeps density
+  // readable.
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (!staticViewport && globalScale <= 1.0) return
-      const fontSize = Math.max(9, Math.min(13, 11 / globalScale))
+      if (!staticViewport && globalScale <= LABEL_MIN_SCALE) return
+      const fontSize = labelFontSize(globalScale)
       const specs: GraphLabelSpec[] = renderData.nodes
         // Hover-focus (PSY-1225): when focused, label only the foreground set so the
         // background de-clutters; at rest (focusedIds null) label all, as before. This pass
@@ -965,7 +975,7 @@ export function ForceGraphView({
           return {
             x: node.x ?? 0,
             y: (node.y ?? 0) + radius + 3,
-            text: node.name.length > 22 ? node.name.slice(0, 20) + '…' : node.name,
+            text: truncateLabel(node.name),
             fontSize,
             // Always label the hovered node so the node you're pointing at is named even if a
             // higher-degree neighbor would win the collision cull. Only ever true while

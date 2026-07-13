@@ -826,6 +826,12 @@ type SceneGraphNode struct {
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	ClusterID         string `json:"cluster_id"` // matches SceneGraphCluster.ID; "other" for tail
 	IsIsolate         bool   `json:"is_isolate"` // true when the artist has no in-scene edges (post type-filter)
+	// NextShow summarizes the artist's soonest upcoming approved show so graph
+	// consumers can render a date/venue chip without a per-node graph-card
+	// fetch (PSY-1449). Reuses the graph-card's next-show type so the two
+	// surfaces can't disagree on shape. Omitted when UpcomingShowCount is 0 —
+	// both derive from the same "approved, event_date > now" cutoff.
+	NextShow *ArtistGraphCardShow `json:"next_show,omitempty"`
 	// HasPlayableAudio is true when selecting this node opens a playable embed
 	// (PSY-1379): a stored Bandcamp embed URL, or a Spotify URL the frontend can
 	// embed. Mirrors the ArtistContextPanel `hasPlayableAudio` gate so the canvas

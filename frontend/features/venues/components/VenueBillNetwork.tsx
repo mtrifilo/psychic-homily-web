@@ -27,6 +27,12 @@
 
 import { useState, useMemo } from 'react'
 import { Maximize2, X } from 'lucide-react'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import {
+  GraphStateCard,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_TEASER_HEIGHT_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useVenueBillNetwork } from '../hooks/useVenues'
@@ -56,7 +62,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   const [yearSelection, setYearSelection] = useState<number>(() => new Date().getFullYear())
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
-  const { data, isLoading } = useVenueBillNetwork({
+  const { data, isLoading, isError } = useVenueBillNetwork({
     venueIdOrSlug,
     window,
     year: window === 'year' ? yearSelection : undefined,
@@ -106,30 +112,12 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-  if (isLoading) return null
-  if (!data) return null
-
-  // Mobile + sparse: render nothing visible, but do NOT `return null` here.
-  // Returning null would unmount the `useContainerWidth` ref node, and the
-  // hook's cleanup resets the measured width to null on unmount — so the node
-  // would remount → remeasure (< breakpoint) → return null → unmount … in an
-  // infinite loop (React #185 "Maximum update depth exceeded"). It only
-  // reproduced on mobile: this branch needs a sub-breakpoint measured width,
-  // and the graph canvas never renders below the breakpoint, so desktop never
-  // reached it. Instead we keep a stable, zero-height measuring wrapper
-  // mounted (see the return below) and gate the section CONTENT on this flag.
-  // This matches the six peer graph surfaces (SceneGraph, StationGraph,
-  // CollectionGraph, InlineGraph, HomeSceneGraph, BillComposition): the ref
-  // node lives for the component's lifetime; only its children are width-gated.
-  // Desktop still shows the header + filter (below) so the user understands
-  // WHY the graph isn't drawing and can re-scope the window.
-  const hideSection =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
-
   // Time-window filter — three radio-style buttons + the year picker.
   // Inline keeps the markup co-located with the `setWindow` handler; the
   // toggle behavior is small enough that pulling it into a sub-component
-  // would be premature.
+  // would be premature. Defined before the loading/error guards because the
+  // error state below needs it (the filter is the user's path back to a
+  // window that worked — same stranding rationale as SceneGraph's toggle).
   const windowFilter = (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="text-muted-foreground" aria-hidden="true">
@@ -170,6 +158,57 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
       )}
     </div>
   )
+
+  // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
+  // of returning null — a null here shifts every section below when the
+  // canvas lands. keepPreviousData means this only fires on the initial load.
+  if (isLoading) {
+    return (
+      <div className="mt-8 px-4 md:px-0">
+        <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
+        <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+      </div>
+    )
+  }
+
+  // A settled fetch error leaves `data` undefined (keepPreviousData only
+  // bridges the pending window). Keep the section shell + window filter
+  // rendered — the filter is the user's path back to a window that worked —
+  // with a visible notice instead of vanishing (scene-page convention).
+  if (!data) {
+    if (isError) {
+      return (
+        <div className="mt-8 px-4 md:px-0">
+          <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
+          <div className="space-y-2">
+            {windowFilter}
+            <GraphStateCard
+              role="alert"
+              message="This view couldn't load. Try a different window above."
+            />
+          </div>
+        </div>
+      )
+    }
+    return null
+  }
+
+  // Mobile + sparse: render nothing visible, but do NOT `return null` here.
+  // Returning null would unmount the `useContainerWidth` ref node, and the
+  // hook's cleanup resets the measured width to null on unmount — so the node
+  // would remount → remeasure (< breakpoint) → return null → unmount … in an
+  // infinite loop (React #185 "Maximum update depth exceeded"). It only
+  // reproduced on mobile: this branch needs a sub-breakpoint measured width,
+  // and the graph canvas never renders below the breakpoint, so desktop never
+  // reached it. Instead we keep a stable, zero-height measuring wrapper
+  // mounted (see the return below) and gate the section CONTENT on this flag.
+  // This matches the six peer graph surfaces (SceneGraph, StationGraph,
+  // CollectionGraph, InlineGraph, HomeSceneGraph, BillComposition): the ref
+  // node lives for the component's lifetime; only its children are width-gated.
+  // Desktop still shows the header + filter (below) so the user understands
+  // WHY the graph isn't drawing and can re-scope the window.
+  const hideSection =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
 
   const sectionHeader = (
     <div>
@@ -246,6 +285,24 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
                 wider window or check back as more shows are approved.
               </p>
             )}
+
+            {/* Pre-measurement: hold the box height so the settle can't
+                shift the sections below (HomeSceneGraph precedent). */}
+            {!tooSparse && containerWidth === null && (
+              <GraphSkeleton className={`mt-2 ${GRAPH_BOX_HEIGHT_CLASS}`} />
+            )}
+
+            {/* Sub-640px, non-sparse: shared teaser card instead of the old
+                silent hide (PSY-1446). No link-out: the venue's show history
+                lives on this same page. */}
+            {!tooSparse &&
+              containerWidth !== null &&
+              containerWidth < GRAPH_BREAKPOINT_PX && (
+                <GraphStateCard
+                  className={`mt-2 ${GRAPH_TEASER_HEIGHT_CLASS}`}
+                  message="The interactive bill network is best on a larger screen."
+                />
+              )}
 
             {graphAvailable && !isFullscreen && (
               <div className="space-y-3 mt-2">

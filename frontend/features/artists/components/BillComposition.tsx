@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useArtistBillComposition } from '../hooks/useArtistBillComposition'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import type { BillCoArtist } from '../types'
@@ -46,7 +47,23 @@ export function BillComposition({ artistId, defaultCollapsed = false }: BillComp
   // Shared callback-ref measurement (PSY-1305; rationale in useContainerWidth.ts).
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
-  if (isLoading) return null
+  // Loading reserves a placeholder box (shared GraphSkeleton, PSY-1347)
+  // instead of returning null — a null here shifts the sections below when
+  // the tables land. Deliberately headerless: below-threshold artists never
+  // get this section, so a labeled header that then vanishes would read as
+  // broken; an anonymous pulse quietly collapsing is the lesser jank. The
+  // height stands in for the section's typical header + stats + tables mass,
+  // not a canvas (the graph itself is toggle-mounted after data arrives).
+  if (isLoading) {
+    return (
+      <div className="mt-8 px-4 md:px-0">
+        <GraphSkeleton className="h-[240px]" />
+      </div>
+    )
+  }
+  // Self-hide on missing data (error included) is intentional: this is a
+  // supplementary, toggle-gated section — not an unconditional graph surface,
+  // so the PSY-1446 error-card convention doesn't apply here.
   if (!data || data.below_threshold) return null
 
   const graphAvailable =

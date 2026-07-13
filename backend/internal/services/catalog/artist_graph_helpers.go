@@ -8,10 +8,12 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // batchArtistUpcomingShowCounts returns a map of artist_id → upcoming
@@ -39,6 +41,76 @@ func batchArtistUpcomingShowCounts(db *gorm.DB, artistIDs []uint) map[uint]int {
 		Scan(&rows)
 	for _, r := range rows {
 		out[r.ArtistID] = int(r.ShowCount)
+	}
+	return out
+}
+
+// batchArtistNextShows returns a map of artist_id → summary of that artist's
+// SOONEST upcoming approved show, in ONE query for the whole node set
+// (PSY-1449) — the batched analog of ArtistService.GetNextShowForArtist
+// (PSY-1352), whose per-artist 2-query join would cost 2N round-trips here.
+//
+// DISTINCT ON (artist_id) with the same event_date ASC + shows.id ASC ordering
+// keeps the pick deterministic and consistent with the graph-card's next-show
+// line; the trailing venue_id tiebreak pins which venue row wins for the rare
+// multi-venue show. The upcoming cutoff (event_date > NOW()) deliberately
+// matches batchArtistUpcomingShowCounts, NOT GetNextShowForArtist's
+// timezone-aware start-of-today — on a graph node the invariant that matters
+// is next_show ≠ nil ⟺ upcoming_show_count > 0.
+//
+// Artists with no upcoming show are simply absent (map lookup yields nil).
+// Errors degrade to an empty map — same decorative posture as the sibling
+// count helper above.
+func batchArtistNextShows(db *gorm.DB, artistIDs []uint) map[uint]*contracts.ArtistGraphCardShow {
+	out := make(map[uint]*contracts.ArtistGraphCardShow, len(artistIDs))
+	if len(artistIDs) == 0 {
+		return out
+	}
+	type row struct {
+		ArtistID      uint
+		ShowID        uint
+		EventDate     time.Time
+		VenueName     *string
+		VenueCity     *string
+		VenueState    *string
+		VenueTimezone *string
+	}
+	var rows []row
+	db.Table("show_artists").
+		Select(`DISTINCT ON (show_artists.artist_id)
+			show_artists.artist_id,
+			shows.id AS show_id,
+			shows.event_date,
+			venues.name AS venue_name,
+			venues.city AS venue_city,
+			venues.state AS venue_state,
+			venues.timezone AS venue_timezone`).
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Joins("LEFT JOIN show_venues ON show_venues.show_id = shows.id").
+		Joins("LEFT JOIN venues ON venues.id = show_venues.venue_id").
+		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
+			artistIDs, catalogm.ShowStatusApproved).
+		Order("show_artists.artist_id, shows.event_date ASC, shows.id ASC, show_venues.venue_id ASC").
+		Scan(&rows)
+	for _, r := range rows {
+		next := &contracts.ArtistGraphCardShow{
+			ID:            r.ShowID,
+			EventDate:     r.EventDate,
+			VenueTimezone: r.VenueTimezone,
+		}
+		// LEFT-JOINed venue columns are nil for a venueless show; the contract
+		// carries plain strings (empty = unknown), matching the graph-card
+		// handler's mapping of a nil ArtistShowResponse.Venue.
+		if r.VenueName != nil {
+			next.VenueName = *r.VenueName
+		}
+		if r.VenueCity != nil {
+			next.VenueCity = *r.VenueCity
+		}
+		if r.VenueState != nil {
+			next.VenueState = *r.VenueState
+		}
+		out[r.ArtistID] = next
 	}
 	return out
 }

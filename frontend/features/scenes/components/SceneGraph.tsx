@@ -41,6 +41,12 @@
 import { useState, useMemo } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import {
+  GraphStateCard,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_TEASER_HEIGHT_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
@@ -108,7 +114,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-  if (isLoading) return null
+  // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
+  // of returning null — a null here shifts every section below when the
+  // canvas lands. The header stays put so only the box swaps on settle.
+  if (isLoading) {
+    return (
+      <div id="graph" className="mt-2 scroll-mt-20">
+        <h2 className="text-lg font-semibold mb-2">Scene graph</h2>
+        <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+      </div>
+    )
+  }
 
   // Cluster-by mode toggle — radio-style pills (VenueBillNetwork's window
   // filter pattern), rendered above the legend inline and in the overlay.
@@ -150,9 +166,10 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         <h2 className="text-lg font-semibold mb-2">Scene graph</h2>
         <div className="space-y-2">
           {clusterByToggle}
-          <p className="text-sm text-muted-foreground">
-            This view couldn&apos;t load. Try switching clusters above.
-          </p>
+          <GraphStateCard
+            role="alert"
+            message="This view couldn't load. Try switching clusters above."
+          />
         </div>
       </div>
     )
@@ -263,6 +280,24 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
           {sceneHeader}
           {expandButton}
         </div>
+
+        {/* Pre-measurement: hold the box height so the settle can't shift
+            the sections below (HomeSceneGraph precedent). */}
+        {containerWidth === null && hasEnoughForGraph && (
+          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+        )}
+
+        {/* Sub-640px: shared teaser card instead of the old silent hide
+            (PSY-369/511 kept the canvas off; the card says WHY). No link-out:
+            the scene's list views live on this same page. */}
+        {containerWidth !== null &&
+          containerWidth < GRAPH_BREAKPOINT_PX &&
+          hasEnoughForGraph && (
+            <GraphStateCard
+              className={GRAPH_TEASER_HEIGHT_CLASS}
+              message="The interactive scene graph is best on a larger screen."
+            />
+          )}
 
         {graphAvailable && !isFullscreen && (
           <div className="space-y-3">

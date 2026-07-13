@@ -151,7 +151,7 @@ describe('BillComposition', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders nothing while loading', async () => {
+  it('renders a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
     const hooks = await import('../hooks/useArtistBillComposition')
     vi.mocked(hooks.useArtistBillComposition).mockReturnValue({
       data: undefined,
@@ -160,7 +160,10 @@ describe('BillComposition', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any)
     const { container } = renderWithProviders(<BillComposition artistId={1} />)
-    expect(container.firstChild).toBeNull()
+    // Headerless pulse box: reserves space without a labeled section that
+    // would vanish for below-threshold artists.
+    expect(container.querySelector('.animate-pulse')).not.toBeNull()
+    expect(screen.queryByText('Bill composition')).not.toBeInTheDocument()
   })
 
   it('shows empty-state copy when one bucket has rows and the other does not', async () => {
