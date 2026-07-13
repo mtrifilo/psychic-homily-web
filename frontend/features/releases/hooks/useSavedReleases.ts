@@ -12,9 +12,9 @@ import type {
 } from '../types'
 
 export function useSavedReleases(
-  limit = 50,
-  offset = 0,
-  userId?: string | number
+  limit: number,
+  offset: number,
+  userId: string | number | undefined
 ) {
   const params = new URLSearchParams({
     limit: String(limit),
@@ -27,6 +27,7 @@ export function useSavedReleases(
         `${releaseEndpoints.SAVED_LIST}?${params.toString()}`,
         { method: 'GET' }
       ),
+    enabled: userId !== undefined,
   })
 }
 

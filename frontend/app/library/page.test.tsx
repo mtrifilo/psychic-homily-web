@@ -12,12 +12,14 @@ const mockUseAllMyFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
 const mockUnfollowEntity = vi.fn()
+const mockToggleRelease = vi.fn()
 const mockUseUnfollow = vi.fn()
 const mockFetchNextPage = vi.fn(async () => ({ hasNextPage: false }))
 
 let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/library?tab=releases',
   useRouter: () => ({ replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
   redirect: (path: string) => mockRedirect(path),
@@ -58,6 +60,12 @@ vi.mock('@/features/shows', () => ({
 vi.mock('@/features/releases', () => ({
   getReleaseTypeLabel: (type: string) => type,
   useSavedReleases: (...args: unknown[]) => mockUseSavedReleases(...args),
+  useReleaseSaveCount: () => ({ data: undefined, isLoading: false }),
+  useReleaseSaveToggle: () => ({
+    toggle: mockToggleRelease,
+    isLoading: false,
+    error: null,
+  }),
 }))
 
 vi.mock('@/lib/hooks/common/useFollow', () => ({
@@ -166,6 +174,7 @@ function makeSavedShow({
 
 describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
     vi.clearAllMocks()
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
@@ -209,7 +218,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Scenes · 3',
         'Labels · 1',
         'Festivals · 0',
-        'Releases',
+        'Releases · 0',
         'Submissions',
       ])
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
@@ -218,6 +227,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockUseMyFollowing).toHaveBeenCalledTimes(5)
       expect(
         screen.getByRole('tab', { name: 'Artists, 4 followed' })
+      ).toBeTruthy()
+      expect(
+        screen.getByRole('tab', { name: 'Releases, 0 saved' })
       ).toBeTruthy()
     })
 
@@ -259,6 +271,63 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockScrollTo).toHaveBeenCalledWith({
         behavior: 'instant',
         left: 212,
+      })
+    })
+
+    it('realigns a deep-linked tab after asynchronous counts widen the row', () => {
+      mockSearchParams = new URLSearchParams('tab=releases')
+      let countsLoaded = false
+      mockUseMyFollowing.mockImplementation((opts?: { type?: string }) => ({
+        data: countsLoaded
+          ? {
+              following: [],
+              total: opts?.type === 'festival' ? 0 : 3,
+              limit: 1,
+              offset: 0,
+            }
+          : undefined,
+        isLoading: !countsLoaded,
+        isFetching: !countsLoaded,
+        error: null,
+      }))
+      mockUseSavedReleases.mockImplementation(() => ({
+        data: countsLoaded
+          ? { releases: [], total: 1, limit: 1, offset: 0 }
+          : undefined,
+        isLoading: !countsLoaded,
+        error: null,
+      }))
+
+      const defaultBounds = HTMLElement.prototype.getBoundingClientRect
+      vi.spyOn(
+        HTMLElement.prototype,
+        'getBoundingClientRect'
+      ).mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'tablist') {
+          return { ...defaultBounds.call(this), left: 0, right: 358 }
+        }
+        if (
+          this.getAttribute('role') === 'tab' &&
+          this.getAttribute('data-state') === 'active'
+        ) {
+          return {
+            ...defaultBounds.call(this),
+            left: countsLoaded ? 500 : 280,
+            right: countsLoaded ? 580 : 350,
+          }
+        }
+        return defaultBounds.call(this)
+      })
+
+      const { rerender } = renderWithProviders(<LibraryPage />)
+      expect(mockScrollTo).not.toHaveBeenCalled()
+
+      countsLoaded = true
+      rerender(<LibraryPage />)
+
+      expect(mockScrollTo).toHaveBeenCalledWith({
+        behavior: 'instant',
+        left: 222,
       })
     })
   })
@@ -409,6 +478,68 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       ).toHaveTextContent("Couldn't unfollow Chicago, IL. Try again.")
     })
 
+  })
+
+  describe('saved-release rows', () => {
+    it('matches board C metadata, saved time, count, and remove action', async () => {
+      mockSearchParams = new URLSearchParams('tab=releases')
+      const savedAt = new Date(
+        Date.now() - 2 * 24 * 60 * 60 * 1000
+      ).toISOString()
+      mockUseSavedReleases.mockReturnValue({
+        data: {
+          releases: [
+            {
+              id: 17,
+              title: 'Clarity',
+              slug: 'clarity',
+              release_type: 'lp',
+              release_year: 1999,
+              cover_art_url: null,
+              artist_count: 1,
+              artists: [
+                { id: 9, name: 'Jimmy Eat World', slug: 'jimmy-eat-world' },
+              ],
+              label_name: 'Capitol',
+              label_slug: 'capitol',
+              saved_at: savedAt,
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('tab', { name: 'Releases, 1 saved' }).textContent
+      ).toBe('Releases · 1')
+      const row = screen.getByRole('article')
+      expect(
+        within(row).getByRole('link', { name: 'Clarity' }).getAttribute('href')
+      ).toBe('/releases/clarity')
+      expect(
+        within(row)
+          .getByRole('link', { name: 'Jimmy Eat World' })
+          .getAttribute('href')
+      ).toBe('/artists/jimmy-eat-world')
+      expect(within(row).getByText(/1999/)).toBeTruthy()
+      expect(
+        within(row).getByRole('link', { name: 'Capitol' }).getAttribute('href')
+      ).toBe('/labels/capitol')
+      expect(within(row).getByText('saved 2d ago')).toBeTruthy()
+
+      fireEvent.click(
+        within(row).getByRole('button', {
+          name: 'Remove Clarity from saved releases',
+        })
+      )
+      await waitFor(() => expect(mockToggleRelease).toHaveBeenCalledOnce())
+    })
   })
 
   describe('saved-show rows', () => {

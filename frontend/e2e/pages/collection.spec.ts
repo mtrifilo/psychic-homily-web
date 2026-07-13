@@ -86,6 +86,66 @@ test.describe('Library page (formerly /collection)', () => {
     await expect(sceneRow).not.toBeVisible({ timeout: 5_000 })
   })
 
+  test('saves a release and removes it from the Releases tab', async ({
+    authenticatedPage,
+    cleanBetweenRetries,
+  }) => {
+    void cleanBetweenRetries
+    await authenticatedPage.goto('/releases/futures')
+    await expect(
+      authenticatedPage.getByRole('heading', { level: 1, name: 'Futures' })
+    ).toBeVisible({ timeout: 10_000 })
+
+    const saveButton = authenticatedPage.getByRole('button', {
+      name: 'Save release',
+    })
+    await expect(saveButton).toBeVisible({ timeout: 5_000 })
+
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        response =>
+          /\/saved-releases\/\d+$/.test(response.url()) &&
+          response.request().method() === 'POST',
+        { timeout: 10_000 }
+      ),
+      saveButton.click(),
+    ])
+
+    await authenticatedPage.goto('/library?tab=releases')
+    await expect(
+      authenticatedPage.getByRole('tab', { name: 'Releases, 1 saved' })
+    ).toHaveAttribute('data-state', 'active')
+
+    const releaseRow = authenticatedPage
+      .getByRole('article')
+      .filter({ hasText: 'Futures' })
+    await expect(releaseRow).toBeVisible({ timeout: 10_000 })
+    await expect(releaseRow.getByText(/2004/)).toBeVisible()
+    await expect(
+      releaseRow.getByRole('link', { name: 'Run For Cover Records' })
+    ).toBeVisible()
+    await expect(releaseRow.getByText(/^saved /)).toBeVisible()
+
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        response =>
+          /\/saved-releases\/\d+$/.test(response.url()) &&
+          response.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      releaseRow
+        .getByRole('button', {
+          name: 'Remove Futures from saved releases',
+        })
+        .click(),
+    ])
+
+    await expect(releaseRow).not.toBeVisible({ timeout: 5_000 })
+    await expect(
+      authenticatedPage.getByRole('tab', { name: 'Releases, 0 saved' })
+    ).toBeVisible()
+  })
+
   test(
     'shows saved show after saving one',
     { tag: '@smoke' },
