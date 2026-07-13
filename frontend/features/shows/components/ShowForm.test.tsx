@@ -523,6 +523,46 @@ describe('ShowForm — successful submit', () => {
       timeout: 2500,
     })
   })
+
+  it('routes private submissions to the Contribute console with its dialog trigger', async () => {
+    mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ status: 'private' })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" />)
+
+    await user.type(screen.getByPlaceholderText('Enter artist name'), 'Private Band')
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Private Venue')
+    await user.type(screen.getByLabelText(/^City$/i), 'Phoenix')
+    await user.type(screen.getByLabelText(/^State$/i), 'AZ')
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    await waitFor(() => {
+      expect(mockRouter.push).toHaveBeenCalledWith(
+        '/contribute/submissions?submitted=private'
+      )
+    })
+  })
+
+  it('routes approved submissions to the Contribute console after success feedback', async () => {
+    mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ status: 'approved' })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" />)
+
+    await user.type(screen.getByPlaceholderText('Enter artist name'), 'Approved Band')
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Approved Venue')
+    await user.type(screen.getByLabelText(/^City$/i), 'Phoenix')
+    await user.type(screen.getByLabelText(/^State$/i), 'AZ')
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    await waitFor(() => {
+      expect(mockRouter.push).toHaveBeenCalledWith('/contribute/submissions')
+    }, { timeout: 2500 })
+  })
 })
 
 // PSY-795: AI extraction is now folded into TanStack Form's `defaultValues`

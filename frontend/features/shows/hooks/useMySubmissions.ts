@@ -27,7 +27,7 @@ export const useMySubmissions = (options: UseMySubmissionsOptions = {}) => {
   const endpoint = `${showEndpoints.MY_SUBMISSIONS}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.mySubmissions.list(),
+    queryKey: [...queryKeys.mySubmissions.list(), { limit, offset }],
     queryFn: async (): Promise<MySubmissionsResponse> => {
       return apiRequest<MySubmissionsResponse>(endpoint, {
         method: 'GET',

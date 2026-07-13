@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures'
 
 // PSY-275: the old /collection page was merged into /library.
-// These tests now target /library and the consolidated tabs (Shows, Venues, Submissions).
+// These tests now target /library and its personal-taste tabs.
 test.describe('Library page (formerly /collection)', () => {
   test('displays Library heading and tabs', async ({ authenticatedPage }) => {
     await authenticatedPage.goto('/library')
@@ -11,7 +11,7 @@ test.describe('Library page (formerly /collection)', () => {
       authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Key tabs present in the consolidated Library
+    // Key personal-library tabs remain present.
     await expect(
       authenticatedPage.getByRole('tab', { name: /shows/i })
     ).toBeVisible()
@@ -20,7 +20,7 @@ test.describe('Library page (formerly /collection)', () => {
     ).toBeVisible()
     await expect(
       authenticatedPage.getByRole('tab', { name: /submissions/i })
-    ).toBeVisible()
+    ).toHaveCount(0)
 
     // Shows tab is selected by default
     await expect(
@@ -61,7 +61,9 @@ test.describe('Library page (formerly /collection)', () => {
     await authenticatedPage.waitForURL('/library')
   })
 
-  test('lists and unfollows a followed scene', async ({ authenticatedPage }) => {
+  test('lists and unfollows a followed scene', async ({
+    authenticatedPage,
+  }) => {
     const followResponse = await authenticatedPage.request.post(
       '/api/scenes/phoenix-az/follow'
     )

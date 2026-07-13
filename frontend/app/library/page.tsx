@@ -4,26 +4,10 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
-import {
-  Loader2,
-  Clock,
-  CheckCircle2,
-  EyeOff,
-  Pencil,
-  X,
-  Trash2,
-  Globe,
-  Ban,
-  TicketX,
-  MoreVertical,
-} from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import {
-  useInfiniteSavedShows,
-  useMySubmissions,
-  useUnsaveShow,
-} from '@/features/shows'
-import type { SavedShowResponse, ShowResponse } from '@/features/shows'
+import { useInfiniteSavedShows, useUnsaveShow } from '@/features/shows'
+import type { SavedShowResponse } from '@/features/shows'
 import {
   useSavedReleases,
   type SavedReleaseResponse,
@@ -35,42 +19,13 @@ import {
   useUnfollow,
 } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
-import {
-  formatShowDate,
-  formatShowTime,
-  formatPrice,
-} from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  BracketLink,
-  ReleaseSaveButton,
-  SaveButton,
-  SubmissionSuccessDialog,
-} from '@/components/shared'
-import {
-  DeleteShowDialog,
-  UnpublishShowDialog,
-  MakePrivateDialog,
-  PublishShowDialog,
-} from '@/features/shows'
-import { VenueDeniedDialog } from '@/features/venues'
+import { BracketLink, ReleaseSaveButton } from '@/components/shared'
 import { CalendarFeedSection } from '@/features/collections'
-import {
-  useSetShowSoldOut,
-  useSetShowCancelled,
-} from '@/lib/hooks/admin/useAdminShows'
-import { ShowForm } from '@/features/shows'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -84,7 +39,6 @@ const LIBRARY_TABS = [
   'labels',
   'festivals',
   'releases',
-  'submissions',
 ] as const
 type LibraryTab = (typeof LIBRARY_TABS)[number]
 
@@ -401,6 +355,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: number }) {
           discoveryLinks={[
             { label: 'explore the graph', href: '/explore' },
             { label: 'the atlas', href: '/atlas' },
+            { label: 'show submissions', href: '/contribute/submissions' },
           ]}
         />
       ) : (
@@ -619,430 +574,6 @@ function ReleasesTab({ userId }: { userId?: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// Submissions tab — user-submitted shows with owner controls
-// ---------------------------------------------------------------------------
-
-interface SubmissionShowCardProps {
-  show: SavedShowResponse | ShowResponse
-  currentUserId?: number
-  isAdmin?: boolean
-}
-
-function SubmissionShowCard({
-  show,
-  currentUserId,
-  isAdmin,
-}: SubmissionShowCardProps) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isUnpublishDialogOpen, setIsUnpublishDialogOpen] = useState(false)
-  const [isMakePrivateDialogOpen, setIsMakePrivateDialogOpen] = useState(false)
-  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false)
-  const [isVenueDeniedDialogOpen, setIsVenueDeniedDialogOpen] = useState(false)
-  const venue = show.venues[0]
-  const artists = show.artists
-
-  // Status mutation hooks
-  const setSoldOutMutation = useSetShowSoldOut()
-  const setCancelledMutation = useSetShowCancelled()
-
-  // Check if user owns this show
-  const isOwner = currentUserId && show.submitted_by === currentUserId
-
-  // Check if user can unpublish this show (approved -> private)
-  const canUnpublish = show.status === 'approved' && (isAdmin || isOwner)
-
-  // Check if user can make show private (pending -> private)
-  // Note: New shows are never pending, but legacy data may have this status
-  const canMakePrivate = show.status === 'pending' && (isAdmin || isOwner)
-
-  // Check if user can publish show (private/rejected -> approved)
-  const canPublish =
-    (show.status === 'private' || show.status === 'rejected') &&
-    (isAdmin || isOwner)
-
-  // Check if user can edit: admin or show owner
-  const canEdit = isAdmin || isOwner
-
-  // Check if user can delete: admin or show owner
-  const canDelete = isAdmin || isOwner
-
-  // Check if user can toggle status (admin or owner)
-  const canToggleStatus = isAdmin || isOwner
-
-  const handleToggleSoldOut = () => {
-    setSoldOutMutation.mutate({ showId: show.id, value: !show.is_sold_out })
-  }
-
-  const handleToggleCancelled = () => {
-    setCancelledMutation.mutate({ showId: show.id, value: !show.is_cancelled })
-  }
-
-  const handleEditSuccess = () => {
-    setIsEditing(false)
-  }
-
-  const handleEditCancel = () => {
-    setIsEditing(false)
-  }
-
-  return (
-    <article className="border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
-      <div className="flex flex-col md:flex-row">
-        {/* Left column: Date, Location, and Status */}
-        <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
-          <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatShowDate(
-              show.event_date,
-              show.state,
-              false,
-              show.venues?.[0]?.timezone
-            )}
-          </h2>
-          <h3 className="text-xs text-muted-foreground mt-0.5">
-            {show.city}, {show.state}
-          </h3>
-
-          {/* Status Badge - only show for owner's own shows or admins */}
-          <div className="mt-2 flex flex-col gap-1">
-            {(isAdmin || isOwner) &&
-              (show.status === 'approved' ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 w-fit">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Published
-                </span>
-              ) : show.status === 'pending' ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit">
-                  <Clock className="h-3 w-3" />
-                  Pending
-                </span>
-              ) : show.status === 'private' || show.status === 'rejected' ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 w-fit">
-                  <EyeOff className="h-3 w-3" />
-                  Private
-                </span>
-              ) : null)}
-
-            {/* Sold Out Badge */}
-            {show.is_sold_out && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 w-fit">
-                <TicketX className="h-3 w-3" />
-                Sold Out
-              </span>
-            )}
-
-            {/* Cancelled Badge */}
-            {show.is_cancelled && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 w-fit">
-                <Ban className="h-3 w-3" />
-                Cancelled
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Right column: Artists, Venue, Details */}
-        <div className="w-full md:w-4/5 md:pl-4">
-          <div className="flex items-start justify-between gap-2">
-            {/* Artists */}
-            <h1 className="text-lg font-semibold leading-tight tracking-tight flex-1">
-              {artists.map((artist, index) => (
-                <span key={artist.id}>
-                  {index > 0 && (
-                    <span className="text-muted-foreground/60 font-normal">
-                      &nbsp;•&nbsp;
-                    </span>
-                  )}
-                  {artist.slug ? (
-                    <Link
-                      href={`/artists/${artist.slug}`}
-                      className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                    >
-                      {artist.name}
-                    </Link>
-                  ) : artist.socials?.instagram ? (
-                    <a
-                      href={`https://instagram.com/${artist.socials.instagram}`}
-                      className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {artist.name}
-                    </a>
-                  ) : (
-                    <span>{artist.name}</span>
-                  )}
-                </span>
-              ))}
-            </h1>
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-1 shrink-0">
-              {/* Save Button - always visible for quick access */}
-              {SHOW_LIST_FEATURE_POLICY.ownership.showSaveButton && (
-                <SaveButton showId={show.id} variant="ghost" size="sm" />
-              )}
-
-              {/* Cancel Edit Button - shown when editing */}
-              {isEditing && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setIsEditing(false)}
-                  className="h-7 w-7 p-0"
-                  aria-label="Cancel editing"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-
-              {/* Overflow Menu - secondary actions */}
-              {SHOW_LIST_FEATURE_POLICY.ownership.showOwnerActions &&
-                canEdit &&
-                !isEditing && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                        <span className="sr-only">Show actions</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {/* Edit */}
-                      <DropdownMenuItem onClick={() => setIsEditing(true)}>
-                        <Pencil className="h-4 w-4 mr-2" />
-                        Edit show
-                      </DropdownMenuItem>
-
-                      {/* Visibility controls */}
-                      {canUnpublish && (
-                        <DropdownMenuItem
-                          onClick={() => setIsUnpublishDialogOpen(true)}
-                        >
-                          <EyeOff className="h-4 w-4 mr-2" />
-                          Make private
-                        </DropdownMenuItem>
-                      )}
-                      {canMakePrivate && (
-                        <DropdownMenuItem
-                          onClick={() => setIsMakePrivateDialogOpen(true)}
-                        >
-                          <EyeOff className="h-4 w-4 mr-2" />
-                          Make private
-                        </DropdownMenuItem>
-                      )}
-                      {canPublish && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            if (show.status === 'rejected') {
-                              setIsVenueDeniedDialogOpen(true)
-                            } else {
-                              setIsPublishDialogOpen(true)
-                            }
-                          }}
-                        >
-                          <Globe className="h-4 w-4 mr-2" />
-                          Publish show
-                        </DropdownMenuItem>
-                      )}
-
-                      <DropdownMenuSeparator />
-
-                      {/* Status toggles */}
-                      {canToggleStatus && (
-                        <DropdownMenuItem
-                          onClick={handleToggleSoldOut}
-                          disabled={setSoldOutMutation.isPending}
-                        >
-                          <TicketX className="h-4 w-4 mr-2" />
-                          {show.is_sold_out ? 'Undo sold out' : 'Mark sold out'}
-                        </DropdownMenuItem>
-                      )}
-                      {canToggleStatus && (
-                        <DropdownMenuItem
-                          onClick={handleToggleCancelled}
-                          disabled={setCancelledMutation.isPending}
-                        >
-                          <Ban className="h-4 w-4 mr-2" />
-                          {show.is_cancelled
-                            ? 'Undo cancelled'
-                            : 'Mark cancelled'}
-                        </DropdownMenuItem>
-                      )}
-
-                      {/* Delete - destructive, always last */}
-                      {canDelete && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => setIsDeleteDialogOpen(true)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete show
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-            </div>
-          </div>
-
-          {/* Venue and Details */}
-          <div className="text-sm mt-1.5 text-muted-foreground">
-            {venue &&
-              (venue.slug ? (
-                <Link
-                  href={`/venues/${venue.slug}`}
-                  className="text-primary/80 hover:text-primary font-medium transition-colors"
-                >
-                  {venue.name}
-                </Link>
-              ) : (
-                <span className="text-primary/80 font-medium">
-                  {venue.name}
-                </span>
-              ))}
-            {show.price != null && (
-              <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
-            )}
-            {show.age_requirement && (
-              <span>&nbsp;•&nbsp;{show.age_requirement}</span>
-            )}
-            <span>
-              &nbsp;•&nbsp;
-              {formatShowTime(
-                show.event_date,
-                show.state,
-                show.venues?.[0]?.timezone
-              )}
-            </span>
-            {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
-              <>
-                <span>&nbsp;•&nbsp;</span>
-                <Link
-                  href={`/shows/${show.slug || show.id}`}
-                  className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
-                >
-                  Details
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Inline Edit Form */}
-      {isEditing && (
-        <div className="mt-4 pt-4 border-t border-border/50">
-          <ShowForm
-            mode="edit"
-            initialData={show}
-            onSuccess={handleEditSuccess}
-            onCancel={handleEditCancel}
-          />
-        </div>
-      )}
-
-      {/* Unpublish Confirmation Dialog */}
-      <UnpublishShowDialog
-        show={show}
-        open={isUnpublishDialogOpen}
-        onOpenChange={setIsUnpublishDialogOpen}
-      />
-
-      {/* Make Private Dialog */}
-      <MakePrivateDialog
-        show={show}
-        open={isMakePrivateDialogOpen}
-        onOpenChange={setIsMakePrivateDialogOpen}
-      />
-
-      {/* Publish Show Dialog */}
-      <PublishShowDialog
-        show={show}
-        open={isPublishDialogOpen}
-        onOpenChange={setIsPublishDialogOpen}
-      />
-
-      {/* Venue Denied Dialog (for rejected shows) */}
-      <VenueDeniedDialog
-        show={show}
-        open={isVenueDeniedDialogOpen}
-        onOpenChange={setIsVenueDeniedDialogOpen}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <DeleteShowDialog
-        show={show}
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      />
-    </article>
-  )
-}
-
-function SubmissionsTab({
-  currentUserId,
-  isAdmin,
-}: {
-  currentUserId?: number
-  isAdmin?: boolean
-}) {
-  const { isAuthenticated } = useAuthContext()
-  const { data, isLoading, error } = useMySubmissions({
-    enabled: isAuthenticated,
-  })
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-center text-destructive py-12">
-        <p>Failed to load your submissions. Please try again later.</p>
-      </div>
-    )
-  }
-
-  const shows = data?.shows || []
-
-  if (shows.length === 0) {
-    return (
-      <EmptyState
-        title="No submissions yet."
-        description="Shows you submit will appear here."
-        browseHref="/shows/submit"
-        browseLabel="Submit a show"
-      />
-    )
-  }
-
-  return (
-    <section className="w-full">
-      {shows.map(show => (
-        <SubmissionShowCard
-          key={show.id}
-          show={show as SavedShowResponse}
-          currentUserId={currentUserId}
-          isAdmin={isAdmin}
-        />
-      ))}
-    </section>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Following entity card (reused for Artists, Labels, Festivals tabs)
 // ---------------------------------------------------------------------------
 
@@ -1075,8 +606,7 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
     if (!info || unfollow.isPending) return
     unfollow.mutate({
       entityType: info.plural,
-      entityId:
-        entity.entity_type === 'scene' ? entity.slug : entity.entity_id,
+      entityId: entity.entity_type === 'scene' ? entity.slug : entity.entity_id,
     })
   }
 
@@ -1182,7 +712,6 @@ function FollowingList({
           />
         ))}
       </section>
-
     </div>
   )
 }
@@ -1199,7 +728,6 @@ const TAB_LABELS: Record<LibraryTab, string> = {
   releases: 'Releases',
   labels: 'Labels',
   festivals: 'Festivals',
-  submissions: 'Submissions',
 }
 
 function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
@@ -1229,27 +757,38 @@ function LibraryContent() {
     ...followingTabCounts,
     releases: savedReleaseCount.data?.total,
   }
-  const tabCountSignature = LIBRARY_TABS.map(
-    tab => tabCounts[tab] ?? ''
-  ).join(':')
+  const tabCountSignature = LIBRARY_TABS.map(tab => tabCounts[tab] ?? '').join(
+    ':'
+  )
 
   const rawTab = searchParams.get('tab')
   const currentTab: LibraryTab = isLibraryTab(rawTab) ? rawTab : 'shows'
   const tabListRef = useRef<HTMLDivElement | null>(null)
   const activeTabTriggerRef = useRef<HTMLButtonElement | null>(null)
 
-  // Private-submission success dialog (preserved from old /collection page)
-  const isPrivateSubmission = searchParams.get('submitted') === 'private'
-  const [dialogDismissed, setDialogDismissed] = useState(false)
-  const showSuccessDialog = !dialogDismissed && isPrivateSubmission
-
-  // Normalize invalid tab query values
+  // Preserve legacy show-submission links while keeping unrelated invalid
+  // tab values on Library's existing normalization path.
   useEffect(() => {
+    if (rawTab === 'submissions') {
+      const nextParams = new URLSearchParams(searchParams.toString())
+      nextParams.delete('tab')
+      const queryString = nextParams.toString()
+      router.replace(
+        queryString
+          ? `/contribute/submissions?${queryString}`
+          : '/contribute/submissions',
+        { scroll: false }
+      )
+      return
+    }
+
     if (rawTab && !isLibraryTab(rawTab)) {
-      const newParams = new URLSearchParams(searchParams.toString())
-      newParams.delete('tab')
-      const qs = newParams.toString()
-      router.replace(qs ? `/library?${qs}` : '/library', { scroll: false })
+      const nextParams = new URLSearchParams(searchParams.toString())
+      nextParams.delete('tab')
+      const queryString = nextParams.toString()
+      router.replace(queryString ? `/library?${queryString}` : '/library', {
+        scroll: false,
+      })
     }
   }, [rawTab, router, searchParams])
 
@@ -1287,14 +826,8 @@ function LibraryContent() {
     })
   }
 
-  const handleDialogClose = (open: boolean) => {
-    if (!open) {
-      setDialogDismissed(true)
-      const newParams = new URLSearchParams(searchParams.toString())
-      newParams.delete('submitted')
-      const qs = newParams.toString()
-      router.replace(qs ? `/library?${qs}` : '/library', { scroll: false })
-    }
+  if (rawTab === 'submissions') {
+    return <LibraryLoading />
   }
 
   if (!authLoading && !isAuthenticated) {
@@ -1311,12 +844,6 @@ function LibraryContent() {
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-5 md:py-10">
-      {/* Private submission success dialog */}
-      <SubmissionSuccessDialog
-        open={showSuccessDialog}
-        onOpenChange={handleDialogClose}
-      />
-
       {/* Header (Library board A): plain editorial title, no icon */}
       <header className="mb-4 md:mb-7">
         <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">
@@ -1416,13 +943,6 @@ function LibraryContent() {
             emptyDescription="Follow festivals to get lineup and schedule updates."
             browseHref="/festivals"
             browseLabel="Browse festivals"
-          />
-        </TabsContent>
-
-        <TabsContent value="submissions">
-          <SubmissionsTab
-            currentUserId={currentUserId}
-            isAdmin={user?.is_admin}
           />
         </TabsContent>
       </Tabs>

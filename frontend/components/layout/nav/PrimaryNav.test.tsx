@@ -77,6 +77,7 @@ describe('PrimaryNav', () => {
     render(<PrimaryNav />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))
     expect(await screen.findByRole('menuitem', { name: '+ Submit a show' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Show Submissions' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'My Submissions' })).not.toBeInTheDocument()
   })
 
@@ -85,6 +86,7 @@ describe('PrimaryNav', () => {
     const user = userEvent.setup()
     render(<PrimaryNav />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))
+    expect(await screen.findByRole('menuitem', { name: 'Show Submissions' })).toHaveAttribute('href', '/contribute/submissions')
     expect(await screen.findByRole('menuitem', { name: 'My Submissions' })).toHaveAttribute('href', '/submissions')
   })
 

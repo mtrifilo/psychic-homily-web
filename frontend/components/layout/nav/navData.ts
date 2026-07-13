@@ -1,6 +1,6 @@
 import {
   Mic2, MapPin, Disc3, Tag, Tent, LayoutList, TrendingUp, Tags, Globe, Trophy,
-  MessageSquarePlus, Music, Send, HeartHandshake, BookOpen, Headphones, Newspaper,
+  MessageSquarePlus, Music, Send, ClipboardList, HeartHandshake, BookOpen, Headphones, Newspaper,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -82,6 +82,7 @@ export const browseGroups: NavGroup[] = [
 export const contributeItems: NavLink[] = [
   { href: '/shows/submit', label: 'Submit a Show', icon: Music, submitPrimary: true },
   { href: '/requests', label: 'Requests', icon: MessageSquarePlus },
+  { href: '/contribute/submissions', label: 'Show Submissions', icon: ClipboardList, authOnly: true },
   { href: '/submissions', label: 'My Submissions', icon: Send, authOnly: true },
   { href: '/community/leaderboard', label: 'Leaderboard', icon: Trophy },
   { href: '/contribute', label: 'Contribute hub', icon: HeartHandshake },

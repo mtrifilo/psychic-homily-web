@@ -42,7 +42,6 @@ vi.mock('@/features/shows', () => ({
     isPending: false,
     variables: undefined,
   }),
-  useMySubmissions: () => ({ data: undefined, isLoading: false, error: null }),
   DeleteShowDialog: () => null,
   UnpublishShowDialog: () => null,
   MakePrivateDialog: () => null,
@@ -219,7 +218,6 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Labels · 1',
         'Festivals · 0',
         'Releases · 0',
-        'Submissions',
       ])
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
       expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', 1, true)
@@ -243,7 +241,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     })
 
     it('scrolls a deep-linked trailing tab into the mobile tab viewport', () => {
-      mockSearchParams = new URLSearchParams('tab=submissions')
+      mockSearchParams = new URLSearchParams('tab=releases')
       const defaultBounds = HTMLElement.prototype.getBoundingClientRect
       vi.spyOn(
         HTMLElement.prototype,
@@ -254,7 +252,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         }
         if (
           this.getAttribute('role') === 'tab' &&
-          this.textContent === 'Submissions'
+          this.textContent === 'Releases · 0'
         ) {
           return { ...defaultBounds.call(this), left: 500, right: 570 }
         }
@@ -265,13 +263,29 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       expect(
         screen
-          .getByRole('tab', { name: 'Submissions' })
+          .getByRole('tab', { name: 'Releases, 0 saved' })
           .getAttribute('data-state')
       ).toBe('active')
       expect(mockScrollTo).toHaveBeenCalledWith({
         behavior: 'instant',
         left: 212,
       })
+    })
+
+    it('redirects the retired submissions tab and preserves its dialog query', async () => {
+      mockSearchParams = new URLSearchParams(
+        'tab=submissions&submitted=private'
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          '/contribute/submissions?submitted=private',
+          { scroll: false }
+        )
+      })
+      expect(screen.queryByRole('tab', { name: /submissions/i })).toBeNull()
     })
 
     it('realigns a deep-linked tab after asynchronous counts widen the row', () => {
@@ -350,6 +364,10 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(graph.getAttribute('href')).toBe('/explore')
       const atlas = screen.getByRole('link', { name: 'the atlas' })
       expect(atlas.getAttribute('href')).toBe('/atlas')
+      const submissions = screen.getByRole('link', {
+        name: 'show submissions',
+      })
+      expect(submissions.getAttribute('href')).toBe('/contribute/submissions')
     })
 
     it.each([
@@ -394,13 +412,6 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Follow festivals to get lineup and schedule updates.',
         'Browse festivals',
         '/festivals',
-      ],
-      [
-        'submissions',
-        'No submissions yet.',
-        'Shows you submit will appear here.',
-        'Submit a show',
-        '/shows/submit',
       ],
     ])(
       'renders exact %s empty-state copy and CTA',
@@ -473,11 +484,10 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         entityType: 'scenes',
         entityId: 'chicago-il',
       })
-      expect(
-        within(rows[0]).getByRole('alert')
-      ).toHaveTextContent("Couldn't unfollow Chicago, IL. Try again.")
+      expect(within(rows[0]).getByRole('alert')).toHaveTextContent(
+        "Couldn't unfollow Chicago, IL. Try again."
+      )
     })
-
   })
 
   describe('saved-release rows', () => {
@@ -711,26 +721,25 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         fetchNextPage,
       }
       const pastResult = {
-          data: {
-            pages: [
-              {
-                shows: [],
-                total: 0,
-                limit: 4,
-                offset: 0,
-              },
-            ],
-            pageParams: [{ limit: 4, offset: 0 }],
-          },
-          isLoading: false,
-          error: null,
-          hasNextPage: false,
-          isFetchingNextPage: false,
-          fetchNextPage: mockFetchNextPage,
+        data: {
+          pages: [
+            {
+              shows: [],
+              total: 0,
+              limit: 4,
+              offset: 0,
+            },
+          ],
+          pageParams: [{ limit: 4, offset: 0 }],
+        },
+        isLoading: false,
+        error: null,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: mockFetchNextPage,
       }
-      mockUseSavedShows.mockImplementation(
-        (timeFilter: 'upcoming' | 'past') =>
-          timeFilter === 'upcoming' ? upcomingResult : pastResult
+      mockUseSavedShows.mockImplementation((timeFilter: 'upcoming' | 'past') =>
+        timeFilter === 'upcoming' ? upcomingResult : pastResult
       )
 
       const { rerender } = renderWithProviders(<LibraryPage />)
