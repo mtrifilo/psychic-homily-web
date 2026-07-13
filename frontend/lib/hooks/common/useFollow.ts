@@ -292,3 +292,43 @@ export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
     staleTime: 2 * 60 * 1000,
   })
 }
+
+/**
+ * Fetch a complete following bucket for management surfaces that need a
+ * stable, global sort. The API caps pages at 100, so this query walks every
+ * page instead of presenting each recency-ordered page as if it were the
+ * complete alphabetical list.
+ */
+export const useAllMyFollowing = (type: string) => {
+  const { isAuthenticated } = useAuthContext()
+
+  return useQuery({
+    queryKey: queryKeys.follows.myFollowing({ type, scope: 'all' }),
+    queryFn: async (): Promise<FollowingListResponse> => {
+      const limit = 100
+      const following: FollowingListResponse['following'] = []
+      let offset = 0
+      let total = 0
+
+      do {
+        const params = new URLSearchParams({
+          type,
+          limit: limit.toString(),
+          offset: offset.toString(),
+        })
+        const page = await apiRequest<FollowingListResponse>(
+          `${API_ENDPOINTS.FOLLOW.MY_FOLLOWING}?${params.toString()}`,
+          { method: 'GET' }
+        )
+        following.push(...page.following)
+        total = page.total
+        if (page.following.length === 0) break
+        offset += page.following.length
+      } while (offset < total)
+
+      return { following, total, limit: following.length, offset: 0 }
+    },
+    enabled: isAuthenticated && type.length > 0,
+    staleTime: 2 * 60 * 1000,
+  })
+}

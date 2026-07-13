@@ -18,7 +18,7 @@ import type { SceneListItem } from '../types'
  * so the surface costs nothing until it has something to say.
  */
 // Visual cap: the strip is an overlay on the globe, not a management surface —
-// show the liveliest few and defer the rest to /following?tab=scene via the
+// show the liveliest few and defer the rest to /library?tab=scenes via the
 // "+N more" chip (which also surfaces the fetch cap below, so no follow is
 // ever silently invisible).
 const STRIP_CHIP_LIMIT = 8
@@ -90,7 +90,7 @@ export function MyScenesStrip({
       ))}
       {more > 0 && (
         <Link
-          href="/following?tab=scene"
+          href="/library?tab=scenes"
           className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           +{more} more

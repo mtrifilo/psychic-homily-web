@@ -1,17 +1,11 @@
 'use client'
 
-import { Suspense, createElement, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
 import {
-  Mic2,
-  MapPin,
-  Tag,
-  Tent,
   Loader2,
-  Users,
-  UserMinus,
   Clock,
   CheckCircle2,
   EyeOff,
@@ -36,7 +30,11 @@ import {
   type SavedReleaseResponse,
 } from '@/features/releases'
 import { getSavedReleasePageBounds } from '@/features/releases/savedReleasePagination'
-import { useMyFollowing, useUnfollow } from '@/lib/hooks/common/useFollow'
+import {
+  useAllMyFollowing,
+  useMyFollowing,
+  useUnfollow,
+} from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
 import {
   formatShowDate,
@@ -74,6 +72,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
+import { NotifyMeButton } from '@/features/notifications'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -83,9 +82,10 @@ const LIBRARY_TABS = [
   'shows',
   'artists',
   'venues',
-  'releases',
+  'scenes',
   'labels',
   'festivals',
+  'releases',
   'submissions',
 ] as const
 type LibraryTab = (typeof LIBRARY_TABS)[number]
@@ -1042,6 +1042,7 @@ const entityTypeInfo: Record<
     href: slug => `/artists/${slug}`,
   },
   venue: { plural: 'venues', label: 'Venue', href: slug => `/venues/${slug}` },
+  scene: { plural: 'scenes', label: 'Scene', href: slug => `/scenes/${slug}` },
   label: { plural: 'labels', label: 'Label', href: slug => `/labels/${slug}` },
   festival: {
     plural: 'festivals',
@@ -1050,27 +1051,18 @@ const entityTypeInfo: Record<
   },
 }
 
-function getEntityIcon(entityType: string) {
-  switch (entityType) {
-    case 'artist':
-      return Mic2
-    case 'venue':
-      return MapPin
-    case 'label':
-      return Tag
-    case 'festival':
-      return Tent
-    default:
-      return Users
-  }
+const ALERT_ENTITY_TYPES = ['artist', 'venue', 'label'] as const
+
+function supportsShowAlerts(
+  entityType: string
+): entityType is (typeof ALERT_ENTITY_TYPES)[number] {
+  return ALERT_ENTITY_TYPES.includes(
+    entityType as (typeof ALERT_ENTITY_TYPES)[number]
+  )
 }
 
 function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
   const unfollow = useUnfollow()
-  // `getEntityIcon` selects a stable, module-scope lucide component; render via
-  // `createElement` to satisfy react-hooks/static-components (a function-call
-  // result rendered as <Icon /> is misread as a component created per render).
-  const icon = getEntityIcon(entity.entity_type)
   const info = entityTypeInfo[entity.entity_type]
 
   const handleUnfollow = (e: React.MouseEvent) => {
@@ -1087,48 +1079,35 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
   const followedDate = new Date(entity.followed_at)
   const formattedDate = followedDate.toLocaleDateString(undefined, {
     month: 'short',
-    day: 'numeric',
     year: 'numeric',
   })
 
   return (
-    <article className="border-b border-border/50 py-4 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="shrink-0 h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-            {createElement(icon, {
-              className: 'h-4 w-4 text-muted-foreground',
-            })}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Link
-                href={href}
-                className="text-base font-semibold leading-tight hover:text-primary transition-colors truncate"
-              >
-                {entity.name}
-              </Link>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Followed {formattedDate}
-            </p>
-          </div>
-        </div>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleUnfollow}
-          disabled={unfollow.isPending}
-          className="text-muted-foreground hover:text-destructive shrink-0"
-          aria-label={`Unfollow ${entity.name}`}
+    <article className="border-b border-border py-3 first:border-t">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <Link
+          href={href}
+          className="min-w-0 truncate text-[15px] font-medium leading-tight transition-colors hover:text-primary"
         >
-          {unfollow.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <UserMinus className="h-4 w-4" />
+          {entity.name}
+        </Link>
+
+        <div className="flex shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <span className="whitespace-nowrap">followed {formattedDate}</span>
+          {supportsShowAlerts(entity.entity_type) && (
+            <NotifyMeButton
+              entityType={entity.entity_type}
+              entityId={entity.entity_id}
+              entityName={entity.name}
+              variant="alert-status"
+            />
           )}
-        </Button>
+          <BracketLink
+            label={unfollow.isPending ? 'unfollowing…' : 'unfollow'}
+            onClick={handleUnfollow}
+            disabled={unfollow.isPending || !info}
+          />
+        </div>
       </div>
     </article>
   )
@@ -1151,18 +1130,11 @@ function FollowingList({
   browseHref: string
   browseLabel: string
 }) {
-  const [offset, setOffset] = useState(0)
-  const limit = 20
+  const { data, isLoading, error, isFetching } = useAllMyFollowing(type)
 
-  const { data, isLoading, error, isFetching } = useMyFollowing({
-    type,
-    limit,
-    offset,
-  })
-
-  const following = data?.following ?? []
-  const total = data?.total ?? 0
-  const hasMore = offset + limit < total
+  const following = [...(data?.following ?? [])].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  )
 
   if (isLoading && !data) {
     return (
@@ -1208,23 +1180,6 @@ function FollowingList({
         ))}
       </section>
 
-      {hasMore && (
-        <div className="text-center py-6">
-          <Button
-            variant="outline"
-            onClick={() => setOffset(prev => prev + limit)}
-            disabled={isFetching}
-          >
-            {isFetching ? 'Loading...' : 'Load More'}
-          </Button>
-        </div>
-      )}
-
-      {total > 0 && (
-        <p className="text-center text-xs text-muted-foreground mt-2">
-          Showing {Math.min(offset + limit, total)} of {total}
-        </p>
-      )}
     </div>
   )
 }
@@ -1237,16 +1192,42 @@ const TAB_LABELS: Record<LibraryTab, string> = {
   shows: 'Shows',
   artists: 'Artists',
   venues: 'Venues',
+  scenes: 'Scenes',
   releases: 'Releases',
   labels: 'Labels',
   festivals: 'Festivals',
   submissions: 'Submissions',
 }
 
+const FOLLOWING_TAB_TYPES = {
+  artists: 'artist',
+  venues: 'venue',
+  scenes: 'scene',
+  labels: 'label',
+  festivals: 'festival',
+} as const satisfies Partial<Record<LibraryTab, string>>
+
+function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
+  const artists = useMyFollowing({ type: 'artist', limit: 1 })
+  const venues = useMyFollowing({ type: 'venue', limit: 1 })
+  const scenes = useMyFollowing({ type: 'scene', limit: 1 })
+  const labels = useMyFollowing({ type: 'label', limit: 1 })
+  const festivals = useMyFollowing({ type: 'festival', limit: 1 })
+
+  return {
+    artists: artists.data?.total,
+    venues: venues.data?.total,
+    scenes: scenes.data?.total,
+    labels: labels.data?.total,
+    festivals: festivals.data?.total,
+  }
+}
+
 function LibraryContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
+  const followingTabCounts = useFollowingTabCounts()
 
   const rawTab = searchParams.get('tab')
   const currentTab: LibraryTab = isLibraryTab(rawTab) ? rawTab : 'shows'
@@ -1364,6 +1345,10 @@ function LibraryContent() {
               className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
             >
               {TAB_LABELS[tab]}
+              {tab in FOLLOWING_TAB_TYPES &&
+                followingTabCounts[tab] !== undefined && (
+                  <span aria-hidden> · {followingTabCounts[tab]}</span>
+                )}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -1389,6 +1374,16 @@ function LibraryContent() {
             emptyDescription="Follow venues to keep up with their upcoming shows."
             browseHref="/venues"
             browseLabel="Browse venues"
+          />
+        </TabsContent>
+
+        <TabsContent value="scenes">
+          <FollowingList
+            type="scene"
+            emptyTitle="No scenes followed."
+            emptyDescription="Follow scenes to keep up with the places you care about."
+            browseHref="/atlas"
+            browseLabel="Explore scenes"
           />
         </TabsContent>
 

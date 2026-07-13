@@ -62,6 +62,7 @@ import {
   useFollow,
   useUnfollow,
   useMyFollowing,
+  useAllMyFollowing,
 } from './useFollow'
 
 type CachedFollow = { follower_count: number; is_following: boolean }
@@ -478,5 +479,46 @@ describe('useMyFollowing', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest.mock.calls[0][0]).toContain('type=artists')
+  })
+
+  it('fetches every API page for a complete management list', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      entity_type: 'artist',
+      entity_id: index + 1,
+      name: `Artist ${index + 1}`,
+      slug: `artist-${index + 1}`,
+      followed_at: '2026-07-01T00:00:00Z',
+    }))
+    mockApiRequest
+      .mockResolvedValueOnce({
+        following: firstPage,
+        total: 101,
+        limit: 100,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        following: [
+          {
+            entity_type: 'artist',
+            entity_id: 101,
+            name: 'Artist 101',
+            slug: 'artist-101',
+            followed_at: '2026-07-01T00:00:00Z',
+          },
+        ],
+        total: 101,
+        limit: 100,
+        offset: 100,
+      })
+
+    const { result } = renderHook(() => useAllMyFollowing('artist'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data?.following).toHaveLength(101)
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    expect(mockApiRequest.mock.calls[0][0]).toContain('offset=0')
+    expect(mockApiRequest.mock.calls[1][0]).toContain('offset=100')
   })
 })

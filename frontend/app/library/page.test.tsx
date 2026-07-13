@@ -8,8 +8,10 @@ const mockUseAuthContext = vi.fn()
 const mockUseSavedShows = vi.fn()
 const mockUseSavedReleases = vi.fn()
 const mockUseMyFollowing = vi.fn()
+const mockUseAllMyFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
+const mockUnfollowEntity = vi.fn()
 const mockFetchNextPage = vi.fn(async () => ({ hasNextPage: false }))
 
 let mockSearchParams = new URLSearchParams()
@@ -59,7 +61,14 @@ vi.mock('@/features/releases', () => ({
 
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useMyFollowing: (opts?: { type?: string }) => mockUseMyFollowing(opts),
-  useUnfollow: () => ({ mutate: vi.fn(), isPending: false }),
+  useAllMyFollowing: (type: string) => mockUseAllMyFollowing(type),
+  useUnfollow: () => ({ mutate: mockUnfollowEntity, isPending: false }),
+}))
+
+vi.mock('@/features/notifications', () => ({
+  NotifyMeButton: ({ entityName }: { entityName: string }) => (
+    <button type="button">alerts for {entityName}</button>
+  ),
 }))
 
 vi.mock('@/features/venues', () => ({
@@ -102,13 +111,26 @@ function setLoadedData() {
     isLoading: false,
     error: null,
   })
-  mockUseMyFollowing.mockReturnValue({
+  mockUseMyFollowing.mockImplementation((opts?: { type?: string }) => ({
     data: {
       following: [],
-      total: 0,
+      total:
+        {
+          artist: 4,
+          venue: 2,
+          scene: 3,
+          label: 1,
+          festival: 0,
+        }[opts?.type ?? ''] ?? 0,
       limit: 20,
       offset: 0,
     },
+    isLoading: false,
+    isFetching: false,
+    error: null,
+  }))
+  mockUseAllMyFollowing.mockReturnValue({
+    data: { following: [], total: 0, limit: 0, offset: 0 },
     isLoading: false,
     isFetching: false,
     error: null,
@@ -175,24 +197,25 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('tab row', () => {
-    it('renders stable count-less labels when no batch count source exists', () => {
+    it('renders counts for every follow-management tab', () => {
       renderWithProviders(<LibraryPage />)
 
       const tablist = screen.getByRole('tablist')
       const tabs = within(tablist).getAllByRole('tab')
       expect(tabs.map(t => t.textContent)).toEqual([
         'Shows',
-        'Artists',
-        'Venues',
+        'Artists · 4',
+        'Venues · 2',
+        'Scenes · 3',
+        'Labels · 1',
+        'Festivals · 0',
         'Releases',
-        'Labels',
-        'Festivals',
         'Submissions',
       ])
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
       expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', 1, true)
       expect(mockUseSavedShows).toHaveBeenCalledWith('past', 1, true)
-      expect(mockUseMyFollowing).not.toHaveBeenCalled()
+      expect(mockUseMyFollowing).toHaveBeenCalledTimes(5)
     })
 
     it('uses the horizontally scrollable underline tab row (no wrap)', () => {
@@ -273,6 +296,13 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         '/venues',
       ],
       [
+        'scenes',
+        'No scenes followed.',
+        'Follow scenes to keep up with the places you care about.',
+        'Explore scenes',
+        '/atlas',
+      ],
+      [
         'releases',
         'No releases saved yet.',
         'Save releases to see them here.',
@@ -314,6 +344,84 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         ).toBe(href)
       }
     )
+  })
+
+  describe('follow rows', () => {
+    it('sorts the complete Scenes list alphabetically and exposes management actions', () => {
+      mockSearchParams = new URLSearchParams('tab=scenes')
+      mockUseAllMyFollowing.mockReturnValue({
+        data: {
+          following: [
+            {
+              entity_type: 'scene',
+              entity_id: 2,
+              name: 'Phoenix, AZ',
+              slug: 'phoenix-az',
+              followed_at: '2026-07-01T00:00:00Z',
+            },
+            {
+              entity_type: 'scene',
+              entity_id: 1,
+              name: 'Chicago, IL',
+              slug: 'chicago-il',
+              followed_at: '2026-03-01T12:00:00Z',
+            },
+          ],
+          total: 2,
+          limit: 2,
+          offset: 0,
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      const rows = screen.getAllByRole('article')
+      expect(within(rows[0]).getByRole('link').textContent).toBe('Chicago, IL')
+      expect(within(rows[1]).getByRole('link').textContent).toBe('Phoenix, AZ')
+      expect(within(rows[0]).getByText('followed Mar 2026')).toBeTruthy()
+      expect(
+        within(rows[0]).getByRole('button', { name: 'unfollow' })
+      ).toBeTruthy()
+      expect(within(rows[0]).queryByText(/alerts for/i)).toBeNull()
+
+      fireEvent.click(within(rows[0]).getByRole('button', { name: 'unfollow' }))
+      expect(mockUnfollowEntity).toHaveBeenCalledWith({
+        entityType: 'scenes',
+        entityId: 1,
+      })
+    })
+
+    it('renders the real alert control for supported follow types', () => {
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseAllMyFollowing.mockReturnValue({
+        data: {
+          following: [
+            {
+              entity_type: 'artist',
+              entity_id: 7,
+              name: 'Boris',
+              slug: 'boris',
+              followed_at: '2026-07-01T00:00:00Z',
+            },
+          ],
+          total: 1,
+          limit: 1,
+          offset: 0,
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('button', { name: 'alerts for Boris' })
+      ).toBeTruthy()
+    })
   })
 
   describe('saved-show rows', () => {

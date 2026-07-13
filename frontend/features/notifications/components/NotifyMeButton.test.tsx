@@ -296,4 +296,35 @@ describe('NotifyMeButton — bracket variant (PSY-641)', () => {
     await user.click(screen.getByRole('button', { name: 'Notify me' }))
     expect(mutate).toHaveBeenCalledWith({ entityType: 'artist', entityId: 1 })
   })
+
+  it('renders the Library alert-status copy from real filter state', () => {
+    const { rerender } = render(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="alert-status"
+      />
+    )
+    expect(screen.getByRole('button', { name: 'alerts: off' })).toBeTruthy()
+
+    mockFilterCheck.mockReturnValue({
+      data: { id: 7 },
+      hasFilter: true,
+      isLoading: false,
+      isSuccess: true,
+    })
+    rerender(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="alert-status"
+      />
+    )
+    expect(screen.getByRole('button', { name: 'alerts: on' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
 })
