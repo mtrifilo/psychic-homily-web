@@ -169,18 +169,45 @@ const HULL_FILL_ALPHA_MAX = 0.12
 
 const OTHER_CLUSTER_ID = 'other'
 
-// PSY-1442: static-viewport surfaces pre-settle the simulation SYNCHRONOUSLY
+// PSY-1442/PSY-1447: EVERY surface pre-settles the simulation SYNCHRONOUSLY
 // via react-force-graph's warmupTicks so the first painted frame is already
 // final — no visible settle animation, no camera motion afterward. 200 ticks
-// matches the interactive surfaces' cooldownTicks budget, so the static
-// layout settles to the same quality the animated path reaches. (Static
-// embeds carry modest payloads — homepage scenes — so the sync cost is a few
-// ms; interactive surfaces keep warmup at 0 and are byte-identical.)
-const STATIC_WARMUP_TICKS = 200
-const INTERACTIVE_COOLDOWN_TICKS = 200
+// is the budget the retired animated cooldown used, so layouts settle to the
+// same quality the old animated path reached. Measured via Chrome trace
+// (PSY-1447 manual repro), two synchronous digest tasks per mount:
+//   - 75-node/85-link scene-shaped payload:  ~34ms + ~18ms ≈  52ms total
+//   - 300-node/419-link payload approximating the uncapped venue-bill-
+//     network query's plausible worst case (that query has no node/edge
+//     limit, unlike scene/station/festival graphs — see
+//     backend/internal/services/catalog/venue_bill_network.go): ~135ms +
+//     ~96ms ≈ 231ms total
+// The 300-node case exceeds the locked decision's "~100ms budget
+// assumption" — flagging for the user rather than silently shipping past
+// it. Still a large net win over the retired path (up to several SECONDS
+// of off-frame/mis-framed layout on every mount and overlay open, per the
+// comments this replaced), and it's a one-time mount cost, not a per-frame
+// one — but a venue with a genuinely large, highly-co-billed roster could
+// notice a mount-time pause. Candidate follow-ups (not done here — out of
+// this ticket's scope): cap venue_bill_network's query the way scene/
+// station/festival graphs already do, or lower WARMUP_TICKS for large
+// payloads specifically.
+const WARMUP_TICKS = 200
 
-// PSY-1442: what static mode feeds the engine until the dynamic chunk has
-// mounted — see the `engineData` doc-comment for the ordering contract.
+// PSY-1447: cooldownTicks stays 0 everywhere EXCEPT while a node is being
+// actively dragged. warmupTicks/cooldownTicks are independent engine
+// mechanisms (warmup runs synchronously before the tick-frame loop even
+// starts), so this doesn't reintroduce any visible settle animation on
+// mount or data digest — it only re-arms the SAME live-reflow behavior
+// interactive surfaces have always had for the drag gesture specifically.
+// Value matches the pre-PSY-1442 interactive default (verified: dragging
+// a connected node with cooldownTicks=0 freezes every neighbor in place,
+// producing permanently stretched edges after release — a real, more
+// severe regression than "less lively" once actually seen in a browser,
+// not merely a stylistic loss).
+const DRAG_LIVE_COOLDOWN_TICKS = 200
+
+// What the engine sees until the dynamic chunk has mounted — see the
+// `engineData` doc-comment for the ordering contract.
 // Module-level so its identity is stable across renders.
 const EMPTY_ENGINE_DATA = { nodes: [] as RenderNode[], links: [] as RenderLink[] }
 
@@ -313,11 +340,12 @@ export interface ForceGraphViewProps {
    * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
    * graph section). Disables wheel-zoom, drag-pan, and node drag so the
    * canvas never captures page scroll or invites tool-level interaction;
-   * click/hover select still work. PSY-1442: the simulation pre-settles
-   * synchronously (warmupTicks, zero cooldown) and the one-shot zoomToFit
-   * runs instantly at first render, so the first painted frame is the
-   * final framing — no settle animation, no visible camera motion. Off by
-   * default — full surfaces keep the tool feel.
+   * click/hover select still work. It also bypasses the zoom gate on
+   * labels and skips the cancel-fit gesture listeners (no gesture can own
+   * a locked viewport). Off by default — full surfaces keep the tool feel.
+   * (The pre-settle itself — warmupTicks, zero cooldown, instant one-shot
+   * zoomToFit — shipped here for static in PSY-1442 and was generalized to
+   * EVERY surface in PSY-1447; it is no longer mode-specific.)
    */
   staticViewport?: boolean
   /**
@@ -348,6 +376,15 @@ export function ForceGraphView({
   const reducedMotion = useReducedMotion()
   const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<RenderNode | null>(null)
+  // PSY-1447: ids of nodes currently mid-drag — drives cooldownTicks below
+  // so dragging keeps its pre-existing live neighbor-reflow instead of
+  // freezing at the drag/data-digest baseline. A Set (not a boolean) so two
+  // concurrent drags (multi-touch: two fingers each dragging a different
+  // node) can't have the FIRST finger's release re-freeze the SECOND one's
+  // still-in-progress drag (adversarial finding, round 1).
+  const [draggingNodeIds, setDraggingNodeIds] = useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  )
   // Edge types the user has hidden via the legend toggles (PSY-1083).
   // Purely presentational, so the component owns it — parents opt in via
   // `showEdgeLegend` without threading filter state.
@@ -453,23 +490,19 @@ export function ForceGraphView({
     setHoveredNode(null)
   }, [renderData, centroids, containerWidth, graphHeight])
 
-  // PSY-1442: static-viewport pre-settle needs the forces below configured
+  // PSY-1442/PSY-1447: the pre-settle needs the forces below configured
   // BEFORE the library runs its synchronous warmupTicks, and warmup runs in
   // a 1ms-debounced digest scheduled the moment the graphData prop lands
   // (react-kapsule propagates changed props during RENDER, so the timer can
   // beat a passive useEffect). Two mechanisms make the ordering
   // deterministic instead of a scheduler race:
-  //   1. `staticChunkReady` — static mode holds the payload back from the
-  //      engine until the dynamic chunk has mounted (see `engineData`), so
-  //      the first real-data digest is scheduled by the SAME render whose
-  //      commit runs this effect;
+  //   1. `canvasReady` — the payload is held back from the engine until the
+  //      dynamic chunk has mounted (see `engineData`), so the first
+  //      real-data digest is scheduled by the SAME render whose commit runs
+  //      this effect;
   //   2. useLayoutEffect — flushes synchronously inside that commit, before
   //      paint and therefore before any timer, so the forces (and isolate
   //      fx/fy pins) are always in place when warmup ticks.
-  // Interactive surfaces are untouched by both: staticChunkReady is
-  // constant false for them (no extra re-runs), warmup is 0, and their
-  // 200-tick cooldown settles with these forces exactly as before.
-  const staticChunkReady = staticViewport && canvasReady
 
   // Configure cluster-aware d3 forces. Re-runs whenever the graph data, the
   // viewport, or the visible cluster set changes — d3-force-3d's API allows
@@ -477,11 +510,11 @@ export function ForceGraphView({
   useLayoutEffect(() => {
     const fg = graphRef.current
     if (!fg) return
-    // Static mode: skip runs before the chunk mounts — the engine holds the
-    // empty payload until then (engineData), so there is nothing to
-    // configure, and the staticChunkReady flip re-runs this effect in the
-    // same commit that hands the engine its real payload.
-    if (staticViewport && !staticChunkReady) return
+    // Skip runs before the chunk mounts — the engine holds the empty
+    // payload until then (engineData), so there is nothing to configure,
+    // and the canvasReady flip re-runs this effect in the same commit that
+    // hands the engine its real payload.
+    if (!canvasReady) return
 
     // Pin isolates to a shelf along the bottom of the canvas.
     const isolates = renderData.nodes.filter(n => n.is_isolate)
@@ -576,7 +609,7 @@ export function ForceGraphView({
     )
 
     fg.d3ReheatSimulation()
-  }, [renderData, centroids, containerWidth, graphHeight, staticViewport, staticChunkReady])
+  }, [renderData, centroids, containerWidth, graphHeight, canvasReady])
 
   // a11y: expose the canvas as an image with a descriptive label, mirroring
   // ArtistGraphVisualization (PSY-369). The canvas is created asynchronously
@@ -659,8 +692,13 @@ export function ForceGraphView({
     }
   }, [staticViewport])
 
+  // PSY-1447: fits are ALWAYS instant now. The layout pre-settles via
+  // warmupTicks, so the initial fit happens before (or within a frame of)
+  // the first meaningful paint — a 400ms camera glide there would defeat
+  // "first painted frame is final". Re-fits after a dimension change frame
+  // an already-settled layout the same way; the animated variant is retired.
   const maybeFitViewport = useCallback(
-    (animated: boolean) => {
+    () => {
       if (!needsFitRef.current) return
       const fg = graphRef.current
       if (!fg || renderData.nodes.length === 0) return // stay armed
@@ -684,9 +722,9 @@ export function ForceGraphView({
       const halfW = containerWidth / zoom / 2
       const halfH = graphHeight / zoom / 2
       // 5% per-side slack: a bbox that pokes marginally past the viewport
-      // (edge node half-clipped) still counts as in view — a full 400ms
-      // zoomToFit for a few clipped pixels is a worse trade than the clip,
-      // and on inline mounts the fit could drop below the label gate.
+      // (edge node half-clipped) still counts as in view — a viewport jump
+      // for a few clipped pixels is a worse trade than the clip, and on
+      // inline mounts the fit could drop below the 1.0 label gate.
       const slackX = halfW * 0.05
       const slackY = halfH * 0.05
       const inView =
@@ -698,59 +736,65 @@ export function ForceGraphView({
       // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
       // has already stopped — dismiss like onZoom/onNodeDrag do.
       setHoveredNode(null)
-      fg.zoomToFit(animated ? 400 : 0, ZOOM_FIT_PADDING_PX)
+      fg.zoomToFit(0, ZOOM_FIT_PADDING_PX)
     },
     [renderData, containerWidth, graphHeight],
   )
 
-  // Static-viewport fits are always INSTANT (PSY-1442): the mode's contract
-  // is "first painted frame is final", so even the engine-stop backstop must
-  // not animate the camera.
-  const handleEngineStop = useCallback(
-    () => maybeFitViewport(!reducedMotion && !staticViewport),
-    [maybeFitViewport, reducedMotion, staticViewport],
-  )
+  // Engine-stop backstop for the mount-time fit below. With zero cooldown AT
+  // REST (mount/data-digest — see DRAG_LIVE_COOLDOWN_TICKS for the drag
+  // exception), the engine stops on the first rAF frame after each
+  // graphData digest — BEFORE that frame paints — so a fit from here still
+  // lands pre-paint when the mount-time attempt ran too early (warmup
+  // positions arrive in the library's 1ms-debounced digest).
+  const handleEngineStop = useCallback(() => maybeFitViewport(), [maybeFitViewport])
 
   // Reduced-motion: pause the simulation immediately on mount. A paused
-  // engine never reaches onEngineStop, so the fit for that path runs from
-  // the effect below instead (instant, over unsettled positions — an
-  // approximate frame still beats an off-view one). Keyed on the same
-  // signals that re-arm the shot, so async-arriving data and dimension
-  // changes are covered symmetrically with the animated path.
+  // engine never reaches onEngineStop, so the fit for that path relies on
+  // the mount-time attempt + bounded poll below. The positions it frames
+  // are already SETTLED (warmupTicks pre-settles before the loop pauses).
   useEffect(() => {
     if (reducedMotion && graphRef.current) {
       graphRef.current.pauseAnimation()
     }
   }, [reducedMotion])
 
-  // Instant (non-animated) fit for the two paths that can't wait for a
-  // settled engine stop. canvasReady is a dep so a cold chunk load (graphRef
-  // null on the first run) retries once the dynamic component actually
-  // mounts.
-  //   - reduced motion: the paused engine never reaches onEngineStop, so
-  //     fit over whatever positions exist (approximate beats off-view).
-  //   - staticViewport (PSY-1442): the pre-settled (warmupTicks) layout
-  //     renders no cooldown, so waiting for onEngineStop meant ~3–6s at the
-  //     library-default viewport with every recovery gesture disabled. The
-  //     positions here are already SETTLED, not approximate.
+  // Mount-time instant fit (PSY-1442 for static, PSY-1447 for every
+  // surface): the layout pre-settles synchronously via warmupTicks, so the
+  // one-shot fit runs as soon as the chunk is up instead of waiting seconds
+  // for an animated cooldown to stop. canvasReady is a dep so a cold chunk
+  // load (graphRef null on the first run) retries once the dynamic
+  // component actually mounts; maybeFitViewport's identity re-runs this on
+  // data/dimension changes, covering the re-armed overlay-open path too.
   // If the shot stays armed (warmup runs in the library's 1ms-debounced
   // digest, so positions may not exist yet — the NaN-bbox guard in
   // maybeFitViewport keeps it armed), the engine-stop handler is the
   // backstop — EXCEPT when reduced motion has paused the engine, which
-  // never stops. Static mode therefore also polls briefly; bounded so an
-  // empty payload doesn't poll forever (a data change recreates
-  // maybeFitViewport and restarts the budget).
+  // never stops. Hence the brief poll; bounded so an empty payload doesn't
+  // poll forever (a data change recreates maybeFitViewport and restarts the
+  // budget). Budget (20 attempts × 50ms = 1s, below) predates PSY-1447 and
+  // was validated only against small static-viewport embeds; PSY-1447
+  // widens this poll to every reduced-motion surface, including uncapped
+  // venue-bill-network payloads (see the WARMUP_TICKS comment above). The
+  // measured 300-node warmup digest (~231ms) leaves ~4x headroom under this
+  // 1s budget, so the poll should comfortably still catch the bbox becoming
+  // readable at that scale — not independently re-verified with a paused
+  // (reduced-motion) engine specifically, only the default animated-loop
+  // mount path, since jsdom/CI can't drive real rAF timing for that combo.
   useEffect(() => {
-    if (!canvasReady || (!reducedMotion && !staticViewport)) return
-    maybeFitViewport(false)
-    if (!staticViewport || !needsFitRef.current) return
+    if (!canvasReady) return
+    maybeFitViewport()
+    if (!needsFitRef.current) return
     let attempts = 0
     const id = window.setInterval(() => {
-      maybeFitViewport(false)
+      maybeFitViewport()
       if (!needsFitRef.current || ++attempts >= 20) window.clearInterval(id)
     }, 50)
     return () => window.clearInterval(id)
-  }, [reducedMotion, staticViewport, maybeFitViewport, canvasReady])
+    // reducedMotion is a re-run signal (not read): flipping it re-arms the
+    // shot (see the re-arm effect above) and may pause/resume the engine,
+    // so the fit attempt must re-run under the new regime.
+  }, [maybeFitViewport, canvasReady, reducedMotion])
 
   // PSY-1235: restart force-graph's rAF render loop on (re-)mount. On a fresh page load
   // react-force-graph starts its own loop, but after a client back-navigation re-mount the
@@ -848,13 +892,18 @@ export function ForceGraphView({
   }, [])
 
   // PSY-1220: while the d3-force sim is live (onEngineTick), re-anchor the open tooltip to the
-  // hovered node's CURRENT position via the shared placement helper. The node drifts during the
-  // settle/reheat but onNodeHover only re-fires when the object UNDER the cursor changes, so a
-  // stationary cursor over a drifting node would strand the anchored tooltip over empty canvas.
-  // onEngineTick stops firing once the sim cools, so this costs nothing at rest; the `hoveredNode`
-  // guard makes it a no-op when nothing is hovered. A node that lost its settled coords (filtered
-  // out) yields null → dismiss. (ForceGraphView's tooltip is pointer-events-none, so unlike
-  // ArtistGraph there's no over-the-tooltip case to guard against re-anchoring out from under.)
+  // hovered node's CURRENT position via the shared placement helper. onNodeHover only re-fires
+  // when the object UNDER the cursor changes, so a stationary cursor over a drifting node would
+  // strand the anchored tooltip over empty canvas. The `hoveredNode` guard makes it a no-op when
+  // nothing is hovered; a node that lost its settled coords (filtered out) yields null → dismiss.
+  // PSY-1447: with cooldownTicks=0 at rest, onEngineTick now only fires during an active node-drag
+  // (DRAG_LIVE_COOLDOWN_TICKS) — mount/reheat settle is instant via warmupTicks and never ticks the
+  // ongoing-engine loop this callback depends on. In the CURRENT wiring that makes this callback a
+  // no-op in practice (onNodeDrag dismisses the tooltip at drag start, so hoveredNode is already
+  // null whenever onEngineTick can fire) — kept rather than removed because it's a correct,
+  // cheap backstop if a future change ever reheats the sim while a tooltip is open outside a drag.
+  // (ForceGraphView's tooltip is pointer-events-none, so unlike ArtistGraph there's no
+  // over-the-tooltip case to guard against re-anchoring out from under.)
   const handleEngineTick = useCallback(() => {
     if (!hoveredNode) return
     const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, hoveredNode)
@@ -1127,12 +1176,11 @@ export function ForceGraphView({
     }
   }, [soloEdgeType, renderData.edgeTypeCounts])
 
-  // PSY-1442: what the ENGINE sees. Static mode holds the payload back until
+  // PSY-1442/PSY-1447: what the ENGINE sees. The payload is held back until
   // the dynamic chunk has mounted so the first real-data warmup digest is
   // scheduled by the same render whose commit configures the d3 forces (see
-  // the force-config effect's ordering comment). Interactive surfaces always
-  // feed renderData straight through, exactly as before.
-  const engineData = staticViewport && !canvasReady ? EMPTY_ENGINE_DATA : renderData
+  // the force-config effect's ordering comment).
+  const engineData = canvasReady ? renderData : EMPTY_ENGINE_DATA
 
   const handleToggleEdgeType = useCallback((type: string) => {
     setHiddenEdgeTypes(prev => {
@@ -1178,7 +1226,22 @@ export function ForceGraphView({
         // Dragging a node moves it without re-firing onNodeHover (the same node
         // stays under the cursor) or onZoom, so the anchored tooltip would strand
         // at the node's pre-drag position. Dismiss on drag too (PSY-1217 review).
-        onNodeDrag={() => setHoveredNode(null)}
+        // PSY-1447: also adds the node's id to draggingNodeIds so cooldownTicks
+        // below re-arms live ticking for the gesture's duration (see
+        // DRAG_LIVE_COOLDOWN_TICKS). Keyed by node id (not a single boolean)
+        // so concurrent drags of different nodes track independently.
+        onNodeDrag={(node: RenderNode) => {
+          setHoveredNode(null)
+          setDraggingNodeIds(prev => (prev.has(node.id) ? prev : new Set(prev).add(node.id)))
+        }}
+        onNodeDragEnd={(node: RenderNode) => {
+          setDraggingNodeIds(prev => {
+            if (!prev.has(node.id)) return prev
+            const next = new Set(prev)
+            next.delete(node.id)
+            return next
+          })
+        }}
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
@@ -1205,18 +1268,20 @@ export function ForceGraphView({
         onEngineTick={handleEngineTick}
         // PSY-1321: one-shot initial frame once the layout settles (see needsFitRef).
         onEngineStop={handleEngineStop}
-        // PSY-1442: static viewports pre-settle synchronously (warmup) and
-        // render no cooldown, so the first painted frame is final; the fit
-        // runs from the canvasReady effect instead of waiting for the
-        // engine to stop. Interactive surfaces keep the animated settle.
-        // Accepted limitation: with zero cooldown a post-mount RESIZE
-        // recomputes centroids/shelf but runs no ticks, so the layout keeps
-        // its old proportions (the re-armed instant fit still frames it —
-        // nothing goes off-screen). Data changes are unaffected: every
-        // graphData digest re-runs the warmup. Homepage embeds remount per
-        // scene anyway (key={scene.slug}).
-        warmupTicks={staticViewport ? STATIC_WARMUP_TICKS : 0}
-        cooldownTicks={staticViewport ? 0 : INTERACTIVE_COOLDOWN_TICKS}
+        // PSY-1442/PSY-1447: every surface pre-settles synchronously
+        // (warmup) and renders no cooldown at rest, so the first painted
+        // frame is final; the fit runs from the canvasReady effect (engine
+        // stop as backstop) instead of waiting seconds for an animated
+        // settle. Accepted limitation of zero cooldown at rest: a post-mount
+        // RESIZE recomputes centroids/shelf but runs no ticks, so the layout
+        // keeps its old proportions (the re-armed instant fit still frames
+        // it — nothing goes off-screen). Data changes are unaffected: every
+        // graphData digest re-runs the warmup, so filter toggles snap to
+        // their new settled layout (locked decision, PSY-1447: "no camera
+        // motion ever"). Node drag is the one gesture that still needs live
+        // ticks WHILE it's happening — see DRAG_LIVE_COOLDOWN_TICKS/draggingNodeIds.
+        warmupTicks={WARMUP_TICKS}
+        cooldownTicks={draggingNodeIds.size > 0 ? DRAG_LIVE_COOLDOWN_TICKS : 0}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}
         minZoom={0.4}
