@@ -30,6 +30,12 @@ vi.mock('@/components/shared/FollowButton', () => ({
   ),
 }))
 
+// SceneNotifyModeToggle also pulls AuthContext and has focused coverage in its
+// own suite; keep this list composition test isolated from that auth concern.
+vi.mock('./SceneNotifyModeToggle', () => ({
+  SceneNotifyModeToggle: () => null,
+}))
+
 const mockUseSceneShows = vi.fn()
 vi.mock('../hooks', () => ({
   useSceneArtists: (opts: unknown) => mockUseSceneArtists(opts),

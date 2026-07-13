@@ -36,6 +36,12 @@ vi.mock('@/components/shared/FollowButton', () => ({
   ),
 }))
 
+// SceneNotifyModeToggle also pulls AuthContext and has focused coverage in its
+// own suite; keep this globe composition test isolated from that auth concern.
+vi.mock('./SceneNotifyModeToggle', () => ({
+  SceneNotifyModeToggle: () => null,
+}))
+
 // useMyFollowing pulls AuthContext (unavailable here) — stub the follows hook
 // (PSY-1340); tests override via mockUseMyFollowing.
 const mockUseMyFollowing = vi.fn(() => ({ data: undefined }))
