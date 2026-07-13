@@ -52,6 +52,10 @@ describe('buildHomeSceneGraphMap', () => {
     expect(
       map.links.every(item => kept.has(item.source_id) && kept.has(item.target_id)),
     ).toBe(true)
+    const incidentIds = new Set(
+      map.links.flatMap(item => [item.source_id, item.target_id]),
+    )
+    expect(map.nodes.every(item => incidentIds.has(item.id))).toBe(true)
   })
 
   it('assigns deterministic 17/13/11 terciles and picks only the top two booked artists for chips', () => {
@@ -72,7 +76,11 @@ describe('buildHomeSceneGraphMap', () => {
       }),
     )
 
-    const map = buildHomeSceneGraphMap(nodes, [])
+    const links = [
+      ...Array.from({ length: 8 }, (_, index) => link(index + 1, index + 2)),
+      link(9, 1),
+    ]
+    const map = buildHomeSceneGraphMap(nodes, links)
 
     expect(map.nodes.map(item => item.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
     expect([...map.labelStyles.values()]).toEqual([
@@ -87,5 +95,18 @@ describe('buildHomeSceneGraphMap', () => {
       { fontSize: 11, fontWeight: 400 },
     ])
     expect(map.showChipNodes.map(item => item.id)).toEqual([1, 2])
+  })
+
+  it('backfills lower-ranked partners when top activity nodes form disjoint pairs', () => {
+    const nodes = Array.from({ length: 44 }, (_, index) =>
+      node(index + 1, { upcoming_show_count: index < 22 ? 100 - index : 0 }),
+    )
+    const links = Array.from({ length: 22 }, (_, index) => link(index + 1, index + 23))
+
+    const map = buildHomeSceneGraphMap(nodes, links)
+
+    expect(map.nodes).toHaveLength(HOME_GRAPH_MAX_NODES)
+    const incidentIds = new Set(map.links.flatMap(item => [item.source_id, item.target_id]))
+    expect(map.nodes.every(item => incidentIds.has(item.id))).toBe(true)
   })
 })

@@ -7,9 +7,10 @@
  *
  * Deliberately NOT the full graph tool: click-select only (no wheel-zoom,
  * no pan, no scope switcher, no interactive legend — `staticViewport` on
- * ForceGraphView), frozen after settle, one static caption. Clicking a
- * node opens the ArtistContextPanel (PSY-1345) — next show, labels, radio,
- * connections — with "Open page →" as the navigation path. Full-power
+ * ForceGraphView), frozen after settle, with an activity-ranked map of names,
+ * tiered labels, next-show chips, and a compact legend. Selecting a name opens
+ * the ArtistContextPanel (PSY-1345) with playable audio first and "Open page →"
+ * as the navigation path. Full-power
  * interactivity lives on the dedicated /graph page (the re-pointed
  * Observatory, PSY-1079…1086); until that ships the CTA links to the
  * scene page's graph section.
@@ -51,7 +52,7 @@ import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorB
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
 import type { SceneGraphNode } from '@/features/scenes/types'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
-import { formatShowDate } from '@/lib/utils/formatters'
+import { formatShowWeekday } from '@/lib/utils/formatters'
 import { pickDefaultScene, pickSurpriseScene } from './homeSceneGraphScenes'
 import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
 import { buildHomeSceneGraphMap } from './homeSceneGraphMap'
@@ -93,16 +94,16 @@ function SceneGraphSkeleton() {
 
 function ShowDateChip({ node }: { node: SceneGraphNode }) {
   if (!node.next_show) return null
-  const weekday = formatShowDate(
+  const weekday = formatShowWeekday(
     node.next_show.event_date,
     node.next_show.venue_state,
-    false,
     node.next_show.venue_timezone
-  ).split(',')[0]
+  )
+  const venueName = node.next_show.venue_name.trim()
 
   return (
     <span className="block max-w-[180px] truncate rounded border border-green-500 bg-background px-2 py-[3px] font-mono text-[10px] leading-none whitespace-nowrap text-foreground shadow-sm">
-      {weekday} · {node.next_show.venue_name}
+      {weekday}{venueName ? ` · ${venueName}` : ''}
     </span>
   )
 }
@@ -131,7 +132,7 @@ function HomeGraphLegend({ types }: { types: readonly string[] }) {
           className="size-[9px] rounded-full border-[1.5px] border-violet-500"
           aria-hidden="true"
         />
-        tap to listen
+        playable audio
       </span>
     </div>
   )
@@ -251,6 +252,16 @@ function HomeSceneGraphSection() {
   )
   const connectedNodes = graphMap.nodes
   const hasEnoughConnectedNodes = connectedNodes.length >= MIN_CONNECTED_NODES
+  const currentSelectedNode = selectedNode
+    ? connectedNodes.find(node => node.id === selectedNode.id) ?? null
+    : null
+  if (
+    selectedNode &&
+    settledGraphData &&
+    !currentSelectedNode
+  ) {
+    setSelectedNode(null)
+  }
   const showChipOverlays = useMemo(
     () =>
       new Map(
@@ -267,8 +278,8 @@ function HomeSceneGraphSection() {
   )
 
   const cardQuery = useArtistGraphCard({
-    artistId: selectedNode?.id ?? null,
-    enabled: selectedNode !== null,
+    artistId: currentSelectedNode?.id ?? null,
+    enabled: currentSelectedNode !== null,
   })
 
   const handleSurprise = useCallback(() => {
@@ -338,10 +349,12 @@ function HomeSceneGraphSection() {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        The {connectedNodes.length} most connected artists playing or tied to{' '}
-        {scene.city} this month — every name is clickable.
-      </p>
+      {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
+        <p className="text-xs text-muted-foreground">
+          The {connectedNodes.length} most connected artists playing or tied to{' '}
+          {scene.city} this month — every name is clickable.
+        </p>
+      )}
 
       <div ref={refCallback} className="w-full">
         {/* Pre-measurement: hold the (responsive) height so the section
@@ -398,6 +411,7 @@ function HomeSceneGraphSection() {
                   forceNodeLabels
                   nodeOverlays={showChipOverlays}
                   nodeOverlayPlacement="outward"
+                  nodeOverlayOutwardClearance={192}
                   showAccessibleNodeControls
                   // Count the CONNECTED nodes actually on the canvas, not the
                   // payload's full artist_count (which includes the isolates
@@ -408,11 +422,11 @@ function HomeSceneGraphSection() {
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handlePanelClose}
                 />
-                {selectedNode && (
+                {currentSelectedNode && (
                   <ArtistContextPanel
                     className="absolute top-2 right-2 z-40"
-                    artistName={selectedNode.name}
-                    artistSlug={selectedNode.slug}
+                    artistName={currentSelectedNode.name}
+                    artistSlug={currentSelectedNode.slug}
                     card={cardQuery.data}
                     isError={cardQuery.isError}
                     onClose={handlePanelClose}
@@ -452,7 +466,7 @@ function HomeSceneGraphSection() {
           <HomeGraphLegend types={edgeTypes} />
           <p className="text-xs text-muted-foreground">
             Name size = how active they are right now. Click any artist for
-            their next show, label, and a listen — no zooming required.
+            context; violet-ring artists include a listen — no zooming required.
           </p>
         </div>
       )}

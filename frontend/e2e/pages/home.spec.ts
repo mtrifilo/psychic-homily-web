@@ -90,20 +90,22 @@ test.describe('Homepage', () => {
     await expect(
       page.getByRole('link', { name: /open the graph/i })
     ).toBeVisible()
-    await expect(
-      page.getByText(/most connected artists playing or tied to .* this month/i)
-    ).toBeVisible()
     // The graph area must settle to a real state — canvas (aria-label) or
     // the honest empty-roster fallback — and never the error card. This
     // catches a 500ing graph endpoint or a failed ForceGraphView chunk,
     // which the heading/CTA assertions alone would miss. (The seed stamps
     // venue metros but not artist home metros, so an empty based-here
     // roster is a legitimate settled state here.)
-    await expect(
-      page
-        .getByLabel(/knowledge graph of the .* scene/i)
-        .or(page.getByText(/not enough connected artists/i))
-    ).toBeVisible({ timeout: 15_000 })
+    const graph = page.getByLabel(/knowledge graph of the .* scene/i)
+    const emptyGraph = page.getByText(/not enough connected artists/i)
+    await expect(graph.or(emptyGraph)).toBeVisible({ timeout: 15_000 })
+    // Count copy is truthful only when a settled canvas roster exists; the
+    // fallback deliberately carries no synthetic "0 artists" caption.
+    const graphCaption = page.getByText(
+      /most connected artists playing or tied to .* this month/i
+    )
+    if (await graph.isVisible()) await expect(graphCaption).toBeVisible()
+    else await expect(graphCaption).toHaveCount(0)
     await expect(page.getByText(/the graph couldn’t load/i)).toHaveCount(0)
 
     // Latest radio shows section + station cards deep-linking to their /radio

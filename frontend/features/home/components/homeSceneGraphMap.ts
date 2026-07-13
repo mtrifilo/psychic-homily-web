@@ -41,7 +41,7 @@ export function buildHomeSceneGraphMap(
   }
 
   const rankedNodes = nodes
-    .filter(node => !node.is_isolate)
+    .filter(node => !node.is_isolate && (degrees.get(node.id) ?? 0) > 0)
     .map(node => ({
       node,
       degree: degrees.get(node.id) ?? 0,
@@ -55,15 +55,44 @@ export function buildHomeSceneGraphMap(
         a.node.name.localeCompare(b.node.name) ||
         a.node.id - b.node.id,
     )
-    .slice(0, HOME_GRAPH_MAX_NODES)
+  const eligibleIds = new Set(rankedNodes.map(({ node }) => node.id))
+  const rankById = new Map(rankedNodes.map((entry, index) => [entry.node.id, index]))
+  const neighbors = new Map<number, number[]>()
+  for (const link of links) {
+    if (!eligibleIds.has(link.source_id) || !eligibleIds.has(link.target_id)) continue
+    neighbors.set(link.source_id, [...(neighbors.get(link.source_id) ?? []), link.target_id])
+    neighbors.set(link.target_id, [...(neighbors.get(link.target_id) ?? []), link.source_id])
+  }
+  for (const adjacent of neighbors.values()) {
+    adjacent.sort((a, b) => (rankById.get(a) ?? Infinity) - (rankById.get(b) ?? Infinity))
+  }
 
-  const selectedIds = new Set(rankedNodes.map(({ node }) => node.id))
+  // Preserve activity order while admitting nodes as connected pairs (or as
+  // neighbors of an existing selection). The cap therefore cannot erase every
+  // edge when high-activity endpoints only connect to lower-ranked partners.
+  const selectedIds = new Set<number>()
+  for (const { node } of rankedNodes) {
+    if (selectedIds.size >= HOME_GRAPH_MAX_NODES) break
+    if (selectedIds.has(node.id)) continue
+    const adjacent = neighbors.get(node.id) ?? []
+    if (adjacent.some(id => selectedIds.has(id))) {
+      selectedIds.add(node.id)
+      continue
+    }
+    if (selectedIds.size > HOME_GRAPH_MAX_NODES - 2) continue
+    const partner = adjacent.find(id => id !== node.id && !selectedIds.has(id))
+    if (partner === undefined) continue
+    selectedIds.add(node.id)
+    selectedIds.add(partner)
+  }
+
   const selectedLinks = links.filter(
     link => selectedIds.has(link.source_id) && selectedIds.has(link.target_id),
   )
-  const tierSize = Math.ceil(rankedNodes.length / LABEL_TIERS.length)
+  const selectedRankedNodes = rankedNodes.filter(({ node }) => selectedIds.has(node.id))
+  const tierSize = Math.ceil(selectedRankedNodes.length / LABEL_TIERS.length)
   const labelStyles = new Map<number, HomeGraphLabelStyle>()
-  rankedNodes.forEach(({ node }, index) => {
+  selectedRankedNodes.forEach(({ node }, index) => {
     const tierIndex = Math.min(
       LABEL_TIERS.length - 1,
       Math.floor(index / Math.max(1, tierSize)),
@@ -71,7 +100,7 @@ export function buildHomeSceneGraphMap(
     labelStyles.set(node.id, LABEL_TIERS[tierIndex])
   })
 
-  const selectedNodes = rankedNodes.map(({ node }) => node)
+  const selectedNodes = selectedRankedNodes.map(({ node }) => node)
   return {
     nodes: selectedNodes,
     links: selectedLinks,

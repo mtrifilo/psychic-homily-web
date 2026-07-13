@@ -129,6 +129,39 @@ function fontFor(spec: GraphLabelSpec): string {
   return `${weight} ${spec.fontSize}px sans-serif`
 }
 
+function measureLabelBox(
+  ctx: CanvasRenderingContext2D,
+  spec: GraphLabelSpec,
+): LabelBox {
+  const halfWidth = ctx.measureText(spec.text).width / 2 + LABEL_PADDING
+  return {
+    x0: spec.x - halfWidth,
+    // The halo stroke straddles the glyph top, so include its overhang.
+    y0: spec.y - LABEL_PADDING - spec.fontSize / 8,
+    x1: spec.x + halfWidth,
+    y1: spec.y + spec.fontSize * LABEL_HEIGHT_FACTOR + LABEL_PADDING,
+  }
+}
+
+/**
+ * Paint the exact label bounds into force-graph's hidden pointer canvas.
+ * Keeping measurement beside the visible renderer makes the displayed name
+ * and its pointer target one contract instead of two approximations.
+ */
+export function paintGraphLabelPointerArea(
+  ctx: CanvasRenderingContext2D,
+  spec: GraphLabelSpec,
+  color: string,
+): void {
+  if (spec.text.trim() === '') return
+  ctx.save()
+  ctx.font = fontFor(spec)
+  const box = measureLabelBox(ctx, spec)
+  ctx.fillStyle = color
+  ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0)
+  ctx.restore()
+}
+
 /**
  * Degree (link count) per node id — the collision `priority`, so a more-connected
  * node's label survives over a leaf's when they overlap. Robust to d3-force
@@ -187,15 +220,7 @@ export function renderGraphLabels(
   for (const spec of ordered) {
     if (spec.text.trim() === '') continue
     ctx.font = fontFor(spec) // set once: drives both measureText and the draw
-    const halfWidth = ctx.measureText(spec.text).width / 2 + LABEL_PADDING
-    const box: LabelBox = {
-      x0: spec.x - halfWidth,
-      // The halo stroke (lineWidth fontSize/4) straddles the glyph top, painting
-      // ~fontSize/8 above spec.y — reserve that so stacked halos can't kiss.
-      y0: spec.y - LABEL_PADDING - spec.fontSize / 8,
-      x1: spec.x + halfWidth,
-      y1: spec.y + spec.fontSize * LABEL_HEIGHT_FACTOR + LABEL_PADDING,
-    }
+    const box = measureLabelBox(ctx, spec)
     if (!spec.force && placed.some((p) => boxesIntersect(p, box))) continue
     ctx.lineWidth = spec.fontSize / 4
     ctx.strokeStyle = palette.labelHalo

@@ -271,7 +271,7 @@ describe('HomeSceneGraph', () => {
       'playing soon'
     )
     expect(screen.getByLabelText('Graph legend')).toHaveTextContent(
-      'tap to listen'
+      'playable audio'
     )
   })
 
@@ -487,6 +487,51 @@ describe('HomeSceneGraph', () => {
     expect(screen.queryByText(/the graph couldn’t load/i)).toBeNull()
   })
 
+  it('closes a selected artist panel when a same-scene refresh removes that artist', async () => {
+    const { rerender } = render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+    expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
+
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: GRAPH.nodes.filter(node => node.id !== 1),
+        links: [{ source_id: 2, target_id: 3, type: 'shared_bill' }],
+      },
+      isLoading: false,
+      isError: false,
+    })
+    rerender(<HomeSceneGraph />)
+    expect(screen.queryByRole('region', { name: 'About Alpha' })).toBeNull()
+  })
+
+  it('refreshes selected artist identity from same-scene graph data', async () => {
+    const { rerender } = render(<HomeSceneGraph />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
+
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: GRAPH.nodes.map(node =>
+          node.id === 1
+            ? { ...node, name: 'Alpha Renamed', slug: 'alpha-renamed' }
+            : node,
+        ),
+      },
+      isLoading: false,
+      isError: false,
+    })
+    rerender(<HomeSceneGraph />)
+
+    expect(
+      screen.getByRole('region', { name: 'About Alpha Renamed' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open page/i })).toHaveAttribute(
+      'href',
+      '/artists/alpha-renamed',
+    )
+  })
+
   it('does not fetch the graph payload below the canvas gate (teaser never reads it)', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
@@ -494,6 +539,7 @@ describe('HomeSceneGraph', () => {
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false })
     )
+    expect(screen.queryByText(/the 0 most connected artists/i)).toBeNull()
   })
 
   it('node click opens the context panel and fetches that artist’s card; second click deselects (PSY-1345)', async () => {

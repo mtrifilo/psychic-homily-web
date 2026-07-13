@@ -6,6 +6,7 @@ import {
   TRUNCATE_MAX_LENGTH,
   degreeMap,
   labelFontSize,
+  paintGraphLabelPointerArea,
   renderGraphLabels,
   truncateLabel,
   type GraphLabelSpec,
@@ -20,6 +21,7 @@ const PALETTE = { labelText: '#fff', labelHalo: '#000' } as unknown as GraphPale
 function makeCtx() {
   const fills: string[] = []
   const order: string[] = []
+  const pointerRects: number[][] = []
   const ctx = {
     font: '10px sans-serif',
     textAlign: '',
@@ -41,8 +43,16 @@ function makeCtx() {
       fills.push(t)
       order.push(`fill:${t}`)
     },
+    fillRect(...args: number[]) {
+      pointerRects.push(args)
+    },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, fills, order }
+  return {
+    ctx: ctx as unknown as CanvasRenderingContext2D,
+    fills,
+    order,
+    pointerRects,
+  }
 }
 
 function spec(p: Partial<GraphLabelSpec> & Pick<GraphLabelSpec, 'x' | 'y' | 'text'>): GraphLabelSpec {
@@ -122,6 +132,22 @@ describe('renderGraphLabels', () => {
       spec({ x: 0, y: 0, text: 'Headline', fontSize: 17, fontWeight: 600 }),
     ])
     expect(ctx.font).toBe('600 17px sans-serif')
+  })
+
+  it('paints a pointer target covering the visible label bounds', () => {
+    const { ctx, pointerRects } = makeCtx()
+    paintGraphLabelPointerArea(
+      ctx,
+      spec({ x: 100, y: 50, text: 'Headline', fontSize: 17, fontWeight: 600 }),
+      '#hit',
+    )
+    expect(pointerRects).toHaveLength(1)
+    const [x, y, width, height] = pointerRects[0]
+    expect(x).toBeLessThan(100)
+    expect(y).toBeLessThan(50)
+    expect(x + width).toBeGreaterThan(100)
+    expect(height).toBeGreaterThan(17)
+    expect(ctx.fillStyle).toBe('#hit')
   })
 
   it('skips empty/whitespace-only labels without reserving their collision box', () => {

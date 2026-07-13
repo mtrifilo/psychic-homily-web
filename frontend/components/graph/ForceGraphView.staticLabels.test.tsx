@@ -73,6 +73,10 @@ function makeCtx() {
     measureText: vi.fn(() => ({ width: 40 })),
     strokeText: vi.fn(),
     fillText: vi.fn(),
+    fillRect: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
     font: '',
     textAlign: '',
     textBaseline: '',
@@ -116,7 +120,7 @@ describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
     expect(fillText.mock.calls.map(c => c[0])).toContain('Alpha')
   })
 
-  it('forces every curated-map label and applies per-node typography', () => {
+  it('always draws every curated-map label and applies per-node typography', () => {
     renderGraph(true, {
       forceNodeLabels: true,
       nodeLabelStyles: new Map([
@@ -126,6 +130,31 @@ describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
     })
     const fillText = paintLabels(1)
     expect(fillText.mock.calls.map(call => call[0])).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('keeps all curated-map labels visible while hover-focus is active', () => {
+    renderGraph(true, { forceNodeLabels: true, links: [] })
+    act(() => {
+      ;(h.lastProps.onNodeHover as (node: GraphNode) => void)(
+        { ...nodes[0], x: 0, y: 0 } as GraphNode,
+      )
+    })
+    expect(paintLabels(1).mock.calls.map(call => call[0])).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('includes a curated visible label in the node pointer target', () => {
+    renderGraph(true, {
+      forceNodeLabels: true,
+      nodeLabelStyles: new Map([[1, { fontSize: 17, fontWeight: 600 }]]),
+    })
+    const paintPointerArea = h.lastProps.nodePointerAreaPaint as (
+      node: GraphNode,
+      color: string,
+      ctx: CanvasRenderingContext2D,
+    ) => void
+    const ctx = makeCtx()
+    paintPointerArea({ ...nodes[0], x: 100, y: 50 } as GraphNode, '#hit', ctx)
+    expect(ctx.fillRect).toHaveBeenCalled()
   })
 
   it('anchors opt-in DOM overlays to the node’s canvas position', () => {
@@ -174,6 +203,7 @@ describe('ForceGraphView static-viewport label gate (PSY-1443)', () => {
         [1, <span key="crescent-ballroom">Fri · Crescent Ballroom</span>],
       ]),
       nodeOverlayPlacement: 'outward',
+      nodeOverlayOutwardClearance: 192,
     })
     act(() => {
       paintLabels(1)

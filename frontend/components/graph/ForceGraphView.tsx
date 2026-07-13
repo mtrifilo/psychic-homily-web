@@ -70,6 +70,7 @@ import {
   LABEL_MIN_SCALE,
   degreeMap,
   labelFontSize,
+  paintGraphLabelPointerArea,
   renderGraphLabels,
   truncateLabel,
   type GraphLabelSpec,
@@ -383,7 +384,7 @@ export interface ForceGraphViewProps {
   staticViewport?: boolean
   /** Optional per-node typography for curated map surfaces. */
   nodeLabelStyles?: ReadonlyMap<number, GraphNodeLabelStyle>
-  /** Force every node label through collision culling (curated ≤20-node maps). */
+  /** Always draw every node label, even when labels overlap (curated ≤20-node maps). */
   forceNodeLabels?: boolean
   /**
    * DOM overlays anchored to settled node positions. The graph primitive owns
@@ -392,6 +393,8 @@ export interface ForceGraphViewProps {
   nodeOverlays?: ReadonlyMap<number, ReactNode>
   /** Above by default; outward keeps paired headline chips from colliding. */
   nodeOverlayPlacement?: 'above' | 'outward'
+  /** Outward anchor inset, including the caller's bounded overlay width + gap. */
+  nodeOverlayOutwardClearance?: number
   /**
    * Render keyboard-accessible controls that invoke the same callback as a
    * canvas node click. The compact control tray reveals itself on keyboard
@@ -433,6 +436,7 @@ export function ForceGraphView({
   forceNodeLabels = false,
   nodeOverlays = EMPTY_NODE_OVERLAYS,
   nodeOverlayPlacement = 'above',
+  nodeOverlayOutwardClearance = 0,
   showAccessibleNodeControls = false,
   onBackgroundClick,
 }: ForceGraphViewProps) {
@@ -1100,6 +1104,27 @@ export function ForceGraphView({
   // surfaces can't drift.
   const degreeById = useMemo(() => degreeMap(renderData.links), [renderData])
 
+  const labelSpecForNode = useCallback(
+    (node: RenderNode, globalScale: number): GraphLabelSpec => {
+      const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+      const labelStyle = nodeLabelStyles.get(node.id)
+      return {
+        x: node.x ?? 0,
+        y: (node.y ?? 0) + radius + 3,
+        text: truncateLabel(node.name),
+        // Curated tier sizes are screen-pixel contracts, so counter-scale
+        // them like the shared default. Collision boxes stay in graph space.
+        fontSize: labelStyle
+          ? labelStyle.fontSize / globalScale
+          : labelFontSize(globalScale),
+        fontWeight: labelStyle?.fontWeight,
+        force: forceNodeLabels || node.id === hoveredNode?.id,
+        priority: degreeById.get(node.id) ?? 0,
+      }
+    },
+    [degreeById, forceNodeLabels, hoveredNode, nodeLabelStyles],
+  )
+
   const syncNodeOverlayPositions = useCallback(() => {
     if (nodeOverlays.size === 0) return true
     const fg = graphRef.current
@@ -1150,35 +1175,17 @@ export function ForceGraphView({
   const handleRenderFramePost = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (staticViewport || globalScale > LABEL_MIN_SCALE) {
-        const defaultFontSize = labelFontSize(globalScale)
         const specs: GraphLabelSpec[] = renderData.nodes
           // Hover-focus (PSY-1225): when focused, label only the foreground set so the
           // background de-clutters; at rest (focusedIds null) label all, as before. This pass
           // runs in onRenderFramePost, which does NOT self-trigger a repaint on closure change
           // (PSY-1209) — but the nodeCanvasObject/linkColor repaint on the same hover redraws
           // the whole frame, so the new filter is applied without a separate resumeAnimation.
-          .filter(node => focusedIds == null || focusedIds.has(node.id))
-          .map(node => {
-            const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
-            const labelStyle = nodeLabelStyles.get(node.id)
-            return {
-              x: node.x ?? 0,
-              y: (node.y ?? 0) + radius + 3,
-              text: truncateLabel(node.name),
-              // Curated tier sizes are screen-pixel contracts (17/13/11 in the
-              // approved map mock), so counter-scale them like the shared
-              // default does. Collision boxes stay in graph space.
-              fontSize: labelStyle
-                ? labelStyle.fontSize / globalScale
-                : defaultFontSize,
-              fontWeight: labelStyle?.fontWeight,
-              // Always label the hovered node so the node you're pointing at is named even if a
-              // higher-degree neighbor would win the collision cull. Only ever true while
-              // hovering (hoveredNode null at rest), which is exactly when focus is active.
-              force: forceNodeLabels || node.id === hoveredNode?.id,
-              priority: degreeById.get(node.id) ?? 0,
-            }
-          })
+          .filter(
+            node =>
+              forceNodeLabels || focusedIds == null || focusedIds.has(node.id),
+          )
+          .map(node => labelSpecForNode(node, globalScale))
         renderGraphLabels(ctx, palette, specs)
       }
       if (nodeOverlaySyncNeededRef.current && syncNodeOverlayPositions()) {
@@ -1188,12 +1195,10 @@ export function ForceGraphView({
     [
       renderData,
       palette,
-      degreeById,
       focusedIds,
-      hoveredNode,
       staticViewport,
-      nodeLabelStyles,
       forceNodeLabels,
+      labelSpecForNode,
       syncNodeOverlayPositions,
     ]
   )
@@ -1395,6 +1400,15 @@ export function ForceGraphView({
           )
           ctx.fillStyle = color
           ctx.fill()
+
+          const globalScale = graphRef.current?.zoom?.() ?? 1
+          if (forceNodeLabels && (staticViewport || globalScale > LABEL_MIN_SCALE)) {
+            paintGraphLabelPointerArea(
+              ctx,
+              labelSpecForNode(node, globalScale),
+              color,
+            )
+          }
         }}
         onNodeClick={handleNodeClickInternal}
         onNodeHover={handleNodeHover}
@@ -1485,12 +1499,12 @@ export function ForceGraphView({
 
       {nodeOverlayPositions.map(position => {
         const placeLeft = position.x < containerWidth / 2
-        // Homepage chips are bounded to 180px. Keep their anchor at least
-        // 192px from the outward edge (chip + 12px gap), so overflow-hidden
-        // cannot crop a headline chip when a node settles near the frame.
         const x =
           nodeOverlayPlacement === 'outward'
-            ? Math.min(Math.max(position.x, 192), containerWidth - 192)
+            ? Math.min(
+                Math.max(position.x, nodeOverlayOutwardClearance),
+                containerWidth - nodeOverlayOutwardClearance,
+              )
             : position.x
         return (
           <div
@@ -1522,7 +1536,7 @@ export function ForceGraphView({
               <button
                 type="button"
                 className="rounded-sm px-2 py-1 text-xs text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onNodeClick(node)}
+                onClick={() => handleNodeClickInternal(node)}
               >
                 {node.name}
               </button>
