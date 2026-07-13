@@ -194,7 +194,7 @@ describe('useFollow', () => {
     expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 
-  it('does not refresh personal charts after following a non-artist', async () => {
+  it('refreshes first activity after following a non-artist', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
 
     const { result } = renderHook(() => useFollow(), {
@@ -206,7 +206,20 @@ describe('useFollow', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidatePersonalCharts).not.toHaveBeenCalled()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+  })
+
+  it('does not hold a successful follow open on personal-stats refresh', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
+    mockInvalidatePersonalCharts.mockReturnValueOnce(new Promise(() => {}))
+
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapper(),
+    })
+
+    await expect(
+      result.current.mutateAsync({ entityType: 'artists', entityId: 1 })
+    ).resolves.toEqual({ success: true, message: 'Followed' })
   })
 
   it('performs optimistic update on follow', async () => {
@@ -353,7 +366,7 @@ describe('useUnfollow', () => {
     expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 
-  it('does not refresh personal charts after unfollowing a non-artist', async () => {
+  it('refreshes first activity after unfollowing a non-artist', async () => {
     mockApiRequest.mockResolvedValueOnce({
       success: true,
       message: 'Unfollowed',
@@ -368,7 +381,7 @@ describe('useUnfollow', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidatePersonalCharts).not.toHaveBeenCalled()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 
   it('performs optimistic update on unfollow', async () => {
@@ -485,6 +498,7 @@ describe('useUnfollow', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeDefined()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 })
 

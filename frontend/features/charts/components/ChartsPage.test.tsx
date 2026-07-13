@@ -462,6 +462,22 @@ describe('ChartsPage', () => {
     expect(strip).not.toHaveTextContent('0 shows marked')
   })
 
+  it('shows first activity when history exists outside the counted facts', () => {
+    personalStats = {
+      saved_shows: 0,
+      artists_followed: 0,
+      top_venue: null,
+      first_activity_at: '2026-03-12T00:00:00Z',
+    }
+    render(<ChartsPage />)
+
+    const strip = screen.getByRole('region', { name: 'Your chart stats' })
+    expect(strip).toHaveTextContent('0 shows marked')
+    expect(strip).toHaveTextContent('0 artists followed')
+    expect(strip).toHaveTextContent('first logged: Mar 2026')
+    expect(strip).not.toHaveTextContent("Mark shows you're going to")
+  })
+
   it('keeps the default quarter out of the URL and writes explicit alternate windows', async () => {
     const user = userEvent.setup()
     render(<ChartsPage />)

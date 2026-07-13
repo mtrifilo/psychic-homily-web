@@ -70,6 +70,7 @@ describe('release save hooks', () => {
     })
     const singleKey = releaseQueryKeys.saveCount(7, true, 42)
     const batchKey = releaseQueryKeys.saveCountBatch([7], true, 42)
+    const personalChartsKey = ['charts', 'personal', '42'] as const
     queryClient.setQueryData(singleKey, {
       release_id: 7,
       save_count: 2,
@@ -78,6 +79,7 @@ describe('release save hooks', () => {
     queryClient.setQueryData(batchKey, {
       '7': { save_count: 2, is_saved: false },
     })
+    queryClient.setQueryData(personalChartsKey, { first_activity_at: null })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
@@ -94,6 +96,9 @@ describe('release save hooks', () => {
     )
     expect(queryClient.getQueryState(singleKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(batchKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(personalChartsKey)?.isInvalidated).toBe(
+      true
+    )
   })
 
   it('rolls back only the failed release when a sibling toggle changed the same batch', async () => {
@@ -104,10 +109,12 @@ describe('release save hooks', () => {
       },
     })
     const batchKey = releaseQueryKeys.saveCountBatch([7, 8], true, 42)
+    const personalChartsKey = ['charts', 'personal', '42'] as const
     queryClient.setQueryData(batchKey, {
       '7': { save_count: 2, is_saved: false },
       '8': { save_count: 1, is_saved: false },
     })
+    queryClient.setQueryData(personalChartsKey, { first_activity_at: null })
     mockApiRequest.mockImplementationOnce(async () => {
       queryClient.setQueryData<
         Record<string, { save_count: number; is_saved: boolean }>
@@ -129,6 +136,11 @@ describe('release save hooks', () => {
       >(batchKey)
     expect(batch?.['7']).toEqual({ save_count: 2, is_saved: false })
     expect(batch?.['8']).toEqual({ save_count: 2, is_saved: true })
+    await waitFor(() =>
+      expect(queryClient.getQueryState(personalChartsKey)?.isInvalidated).toBe(
+        true
+      )
+    )
   })
 
   it("does not patch another user's cached batch state", async () => {

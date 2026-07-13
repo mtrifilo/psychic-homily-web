@@ -181,7 +181,11 @@ export const useSaveShow = () => {
     onSuccess: () => {
       // Re-sync the user's list and every cached save count from the server.
       invalidateQueries.savedShows()
-      invalidateQueries.personalCharts()
+    },
+    onSettled: () => {
+      // Optional chart stats must reconcile even when the server committed but
+      // the mutation response was lost. Never hold the core save pending on it.
+      void invalidateQueries.personalCharts()
     },
   })
 }
@@ -212,7 +216,6 @@ export const useUnsaveShow = ({
       )
     },
     onSuccess: (_, showId) => {
-      invalidateQueries.personalCharts()
       if (syncMode === 'invalidate') {
         // Re-sync the user's list and every cached save count from the server.
         invalidateQueries.savedShows()
@@ -262,6 +265,9 @@ export const useUnsaveShow = ({
       void queryClient.invalidateQueries({
         queryKey: queryKeys.savedShows.count(showId, false),
       })
+    },
+    onSettled: () => {
+      void invalidateQueries.personalCharts()
     },
   })
 }

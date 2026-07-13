@@ -159,15 +159,15 @@ export const useFollow = () => {
         }
       }
     },
-    onSuccess: (_data, { entityType }) => {
-      if (entityType === 'artists') invalidateQueries.personalCharts()
-    },
     onSettled: (_data, _error, { entityType, entityId }) => {
       // Refetch to ensure consistency
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
+      // Reconcile broad first_activity_at semantics without making the core
+      // follow mutation wait on an optional /charts/me request.
+      void invalidateQueries.personalCharts()
     },
   })
 }
@@ -256,14 +256,12 @@ export const useUnfollow = () => {
         }
       }
     },
-    onSuccess: (_data, { entityType }) => {
-      if (entityType === 'artists') invalidateQueries.personalCharts()
-    },
     onSettled: (_data, _error, { entityType, entityId }) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
+      void invalidateQueries.personalCharts()
     },
   })
 }

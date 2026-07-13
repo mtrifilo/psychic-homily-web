@@ -400,6 +400,7 @@ describe('useSaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 })
 
@@ -467,6 +468,7 @@ describe('useUnsaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 })
 
