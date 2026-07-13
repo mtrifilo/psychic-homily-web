@@ -402,7 +402,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
               <div className="min-w-0">
                 <p className="text-sm font-semibold">Featured curation</p>
                 <p className="text-xs text-muted-foreground">
-                  Set the active Featured Bill and Featured Collection on /explore.
+                  Manage legacy featured slots retained after the /graph cutover.
                 </p>
               </div>
             </div>

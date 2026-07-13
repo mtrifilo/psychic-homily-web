@@ -514,7 +514,10 @@ export const queryKeys = {
       params && Object.values(params).some(v => v != null)
         ? (['explore', 'upcomingShows', params] as const)
         : (['explore', 'upcomingShows'] as const),
-    shuffleTarget: ['explore', 'shuffleTarget'] as const,
+  },
+
+  discovery: {
+    randomArtistTarget: ['discovery', 'randomArtistTarget'] as const,
   },
 
   // System queries

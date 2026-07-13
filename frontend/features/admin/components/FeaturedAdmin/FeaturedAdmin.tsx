@@ -1,9 +1,9 @@
 'use client'
 
 /**
- * /admin/featured — admin UI for the /explore landing's two editorial
- * slots (Featured Bill + Featured Collection). Wires up PSY-835 backend
- * (PSY-838 frontend).
+ * /admin/featured — admin UI for the two legacy editorial slots (Featured
+ * Bill + Featured Collection) retained after the PSY-1457 /graph cutover.
+ * Wires up the PSY-835 backend (PSY-838 frontend).
  *
  * Layout: two parallel panels (Bill / Collection). Each panel has
  *   - the current active card (read from /explore/featured for hydrated
@@ -11,8 +11,7 @@
  *   - a "Set new" form (entity picker → curator note → Save).
  *
  * No cadence UI — admin sets a slot whenever they want; current pick
- * stays visible until retired or replaced (locked product decision per
- * docs/open-questions/explore-landing.md).
+ * stays active until retired or replaced.
  *
  * Mutation feedback follows the project convention
  * (pattern_mutation_feedback.md): inline banners via StatusBanner /
@@ -276,8 +275,8 @@ function NoActivePick({ slotType }: { slotType: FeaturedSlotType }) {
       data-testid={`featured-admin-empty-${slotType}`}
     >
       <p className="text-sm text-muted-foreground">
-        No active {FEATURED_SLOT_LABEL[slotType]}. Pick one below — the
-        /explore page collapses this slot until you do.
+        No active {FEATURED_SLOT_LABEL[slotType]}. These legacy slots are
+        retained for their editorial data after the /graph cutover.
       </p>
     </div>
   )
@@ -747,9 +746,8 @@ function FeaturedSlotPanel({
           {FEATURED_SLOT_LABEL[slotType]}
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Pick the {slotType === 'bill' ? 'show' : 'collection'} that appears in the
-          {' '}Featured slot on /explore. Stays visible until you retire or
-          replace it.
+          Pick the {slotType === 'bill' ? 'show' : 'collection'} retained in this
+          {' '}legacy editorial slot. It stays active until you retire or replace it.
         </p>
       </div>
 
@@ -827,9 +825,9 @@ export function FeaturedAdmin() {
             <h1 className="text-2xl font-bold tracking-tight">Featured curation</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Set the active Featured Bill and Featured Collection that appear
-            on the /explore landing. No cadence requirement — pick whenever,
-            stays live until retired or replaced.
+            Manage the legacy Featured Bill and Featured Collection data retained
+            after /explore moved to the Graph Observatory. No cadence requirement —
+            each stays active until retired or replaced.
           </p>
         </header>
 

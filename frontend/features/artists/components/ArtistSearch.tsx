@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { forwardRef, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -14,23 +14,32 @@ import { getArtistLocation, type Artist } from '../types'
  * surfaces can instead own selection through `onSelect` without forking the
  * search interaction or its keyboard behavior.
  */
-export function ArtistSearch({
-  onSelect,
-  placeholder = 'Search artists...',
-  className,
-}: {
+export const ArtistSearch = forwardRef<HTMLInputElement, {
   onSelect?: (artist: Artist) => void
   placeholder?: string
   className?: string
-} = {}) {
+}>(function ArtistSearch({
+  onSelect,
+  placeholder = 'Search artists...',
+  className,
+}, forwardedRef) {
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const { data: searchResults } = useArtistSearch({ query })
+  const {
+    data: searchResults,
+    isPending,
+    isFetching,
+    isError,
+    refetch,
+  } = useArtistSearch({ query })
   const artists = searchResults?.artists ?? []
+  const hasQuery = query.trim().length > 0
+  const isSearching = hasQuery && (isPending || isFetching)
+  const showSearchFeedback = isOpen && hasQuery && (isSearching || isError || searchResults !== undefined)
 
   const handleSelect = (artist: Artist) => {
     setQuery('')
@@ -95,7 +104,11 @@ export function ArtistSearch({
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
-          ref={inputRef}
+          ref={node => {
+            inputRef.current = node
+            if (typeof forwardedRef === 'function') forwardedRef(node)
+            else if (forwardedRef) forwardedRef.current = node
+          }}
           type="text"
           value={query}
           onChange={handleChange}
@@ -107,7 +120,7 @@ export function ArtistSearch({
         />
       </div>
 
-      {isOpen && artists.length > 0 && (
+      {isOpen && artists.length > 0 && !isError && (
         <div className="absolute top-full left-0 w-full z-50 mt-1 rounded-md border bg-popover text-popover-foreground shadow-md">
           <div className="max-h-[300px] overflow-y-auto p-1">
             {artists.map((artist, i) => (
@@ -138,6 +151,32 @@ export function ArtistSearch({
           </div>
         </div>
       )}
+      {showSearchFeedback && (isSearching || isError || artists.length === 0) && (
+        <div
+          className="absolute top-full left-0 z-50 mt-1 w-full rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md"
+          role="status"
+        >
+          {isSearching ? (
+            'Searching…'
+          ) : isError ? (
+            <span className="flex items-center justify-between gap-3">
+              Search is unavailable.
+              <button
+                type="button"
+                className="shrink-0 text-primary hover:underline underline-offset-4"
+                onMouseDown={event => {
+                  event.preventDefault()
+                  void refetch()
+                }}
+              >
+                Try again
+              </button>
+            </span>
+          ) : (
+            'No artists found.'
+          )}
+        </div>
+      )}
     </div>
   )
-}
+})

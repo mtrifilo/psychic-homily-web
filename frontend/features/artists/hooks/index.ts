@@ -14,6 +14,7 @@ export {
 
 export {
   useArtistGraph,
+  useFetchArtistGraph,
   useArtistRelationshipVote,
   useCreateArtistRelationship,
 } from './useArtistGraph'

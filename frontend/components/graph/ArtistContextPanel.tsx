@@ -20,6 +20,7 @@
  * (auto-escaped); slugs are encodeURIComponent-pinned to one path segment.
  */
 
+import type { Ref } from 'react'
 import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
@@ -42,6 +43,8 @@ export interface ArtistContextPanelProps {
   onCenter?: () => void
   onClose: () => void
   className?: string
+  /** Optional focus target for list-driven graph inspectors. */
+  panelRef?: Ref<HTMLElement>
 }
 
 /** Mono-caps field label, matching the mock's NEXT SHOW / LABEL rows. */
@@ -65,6 +68,7 @@ export function ArtistContextPanel({
   onCenter,
   onClose,
   className,
+  panelRef,
 }: ArtistContextPanelProps) {
   // Esc closes via GraphPanelShell's DismissableLayer, coordinated innermost-first
   // against every other Radix layer (sibling panel, ⌘K palette, enclosing dialog)
@@ -96,6 +100,7 @@ export function ArtistContextPanel({
       ariaLabel={`About ${artistName}`}
       closeLabel={`Close details for ${artistName}`}
       onClose={onClose}
+      panelRef={panelRef}
       className={cn('max-h-[85%] p-4 space-y-2.5', className)}
       header={
         <div className="space-y-0.5">

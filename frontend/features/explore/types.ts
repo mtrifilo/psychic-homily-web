@@ -92,8 +92,4 @@ export interface ExploreFeaturedResponse {
  * nullable: a cold-start database with no qualifying artists returns
  * an all-null response with HTTP 200 (graceful empty state).
  */
-export interface ExploreShuffleTargetResponse {
-  artist_id: number | null
-  artist_slug: string | null
-  artist_name: string | null
-}
+export type { RandomArtistTargetResponse as ExploreShuffleTargetResponse } from '@/features/discovery/types'

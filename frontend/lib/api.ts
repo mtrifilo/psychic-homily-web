@@ -437,7 +437,12 @@ export const API_ENDPOINTS = {
   EXPLORE: {
     UPCOMING_SHOWS: `${API_BASE_URL}/explore/upcoming-shows`,
     FEATURED: `${API_BASE_URL}/explore/featured`,
-    SHUFFLE_TARGET: `${API_BASE_URL}/explore/shuffle-target`,
+  },
+
+  // Cross-surface discovery actions. The backend path remains under /explore
+  // for compatibility; consumers do not inherit the retired page's namespace.
+  DISCOVERY: {
+    RANDOM_ARTIST_TARGET: `${API_BASE_URL}/explore/shuffle-target`,
   },
 
   // System endpoints

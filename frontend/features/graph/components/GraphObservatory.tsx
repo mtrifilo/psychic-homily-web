@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react'
 import Link from 'next/link'
 import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
@@ -10,22 +17,25 @@ import {
   GRAPH_BREAKPOINT_PX,
   useContainerWidth,
 } from '@/components/graph/useContainerWidth'
-import { ArtistSearch } from '@/features/artists/components/ArtistSearch'
 import {
+  ArtistSearch,
   ArtistGraphVisualization,
+  useArtistGraph,
+  useArtistGraphCard,
+  useFetchArtistGraph,
+  useReducedMotion,
+  type Artist,
+  type ArtistGraph,
+  type ArtistGraphNode,
   type ArtistGraphSelection,
-} from '@/features/artists/components/ArtistGraph'
+} from '@/features/artists'
 import {
   pushTrail,
   resetTrail,
   truncateTrail,
   type TraversalEntry,
-} from '@/features/artists/components/graphTraversalHistory'
-import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
-import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
-import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
-import type { Artist, ArtistGraph, ArtistGraphNode } from '@/features/artists/types'
-import { useShuffleTarget } from '@/features/explore/hooks'
+} from '@/components/graph/graphTraversalHistory'
+import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
 
 interface GraphAnchor {
   id: number
@@ -37,6 +47,7 @@ interface GraphAnchor {
 // the example corpus beside the surface makes the editorial choice explicit;
 // it is copy, not a hidden ranking rule or production-data dependency.
 const CURATED_EXAMPLES = ['Diners', 'Gatecreeper', 'Playboy Manbaby'] as const
+const RANDOM_GRAPH_ATTEMPTS = 3
 
 function anchorFromArtist(artist: Artist): GraphAnchor {
   return { id: artist.id, slug: artist.slug, name: artist.name }
@@ -68,18 +79,16 @@ function RotatingExample() {
 function Trail({
   trail,
   current,
-  showReset,
   onJump,
   onReset,
+  resetButtonRef,
 }: {
   trail: TraversalEntry[]
   current: GraphAnchor
-  showReset: boolean
   onJump: (entry: TraversalEntry, index: number) => void
   onReset: () => void
+  resetButtonRef?: Ref<HTMLButtonElement>
 }) {
-  if (trail.length === 0 && !showReset) return null
-
   return (
     <nav
       aria-label="Graph traversal history"
@@ -103,16 +112,15 @@ function Trail({
       <span className="font-medium text-foreground" aria-current="page">
         {current.name}
       </span>
-      {showReset && (
-        <button
-          type="button"
-          onClick={onReset}
-          className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
-        >
-          <RotateCcw className="size-3" aria-hidden="true" />
-          Reset
-        </button>
-      )}
+      <button
+        ref={resetButtonRef}
+        type="button"
+        onClick={onReset}
+        className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+      >
+        <RotateCcw className="size-3" aria-hidden="true" />
+        Reset
+      </button>
     </nav>
   )
 }
@@ -123,17 +131,17 @@ function AccessibleGraphList({
   collapsible = false,
 }: {
   graph: ArtistGraph
-  onSelect: (node: ArtistGraphNode) => void
+  onSelect: (node: ArtistGraphNode, trigger: HTMLButtonElement) => void
   collapsible?: boolean
 }) {
-  const nodes = [graph.center, ...graph.nodes]
+  const nodes = graph.nodes
   const list = (
     <ul className="mt-3 divide-y divide-border/50" aria-label={`Artists connected to ${graph.center.name}`}>
       {nodes.map(node => (
         <li key={node.id}>
           <button
             type="button"
-            onClick={() => onSelect(node)}
+            onClick={event => onSelect(node, event.currentTarget)}
             className="flex w-full items-center justify-between gap-3 py-3 text-left hover:text-primary"
           >
             <span className="font-medium">{node.name}</span>
@@ -171,11 +179,17 @@ function AccessibleGraphList({
 
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
-  const [initialCenter, setInitialCenter] = useState<GraphAnchor | null>(null)
   const [center, setCenter] = useState<GraphAnchor | null>(null)
   const [trail, setTrail] = useState<TraversalEntry[]>([])
   const [selectedNode, setSelectedNode] = useState<ArtistGraphSelection | null>(null)
+  const [selectionSource, setSelectionSource] = useState<'canvas' | 'list' | null>(null)
   const [shuffleError, setShuffleError] = useState<string | null>(null)
+  const [isFindingRandom, setIsFindingRandom] = useState(false)
+  const panelRef = useRef<HTMLElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const listTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const resetButtonRef = useRef<HTMLButtonElement>(null)
+  const randomRequestGeneration = useRef(0)
 
   const graphQuery = useArtistGraph({
     artistId: center?.id ?? 0,
@@ -188,57 +202,142 @@ export function GraphObservatory() {
   const {
     refetch: refetchShuffle,
     isFetching: isShuffleFetching,
-  } = useShuffleTarget()
+  } = useRandomArtistTarget()
+  const fetchArtistGraph = useFetchArtistGraph()
+
+  const cancelRandomSearch = useCallback(() => {
+    randomRequestGeneration.current += 1
+    setIsFindingRandom(false)
+  }, [])
 
   const startAt = useCallback((next: GraphAnchor) => {
-    setInitialCenter(next)
     setCenter(next)
     setTrail(resetTrail())
     setSelectedNode(null)
+    setSelectionSource(null)
     setShuffleError(null)
+    listTriggerRef.current = null
   }, [])
 
   const handleArtistSelect = useCallback(
-    (artist: Artist) => startAt(anchorFromArtist(artist)),
-    [startAt],
+    (artist: Artist) => {
+      cancelRandomSearch()
+      startAt(anchorFromArtist(artist))
+    },
+    [cancelRandomSearch, startAt],
   )
 
   const handleCenterHere = useCallback(() => {
     if (!center || !selectedNode || selectedNode.id === center.id) return
+    cancelRandomSearch()
+    const shouldRestoreFocus = selectionSource === 'list'
     setTrail(previous => pushTrail(previous, center))
     setCenter(anchorFromNode(selectedNode))
     setSelectedNode(null)
-  }, [center, selectedNode])
+    setSelectionSource(null)
+    listTriggerRef.current = null
+    if (shouldRestoreFocus) {
+      window.requestAnimationFrame(() => resetButtonRef.current?.focus())
+    }
+  }, [cancelRandomSearch, center, selectedNode, selectionSource])
 
   const handleTrailJump = useCallback((entry: TraversalEntry, index: number) => {
+    cancelRandomSearch()
     setTrail(previous => truncateTrail(previous, index))
     setCenter(entry)
     setSelectedNode(null)
-  }, [])
+    setSelectionSource(null)
+    listTriggerRef.current = null
+    window.requestAnimationFrame(() => resetButtonRef.current?.focus())
+  }, [cancelRandomSearch])
 
   const handleReset = useCallback(() => {
-    if (!initialCenter) return
+    cancelRandomSearch()
+    setCenter(null)
     setTrail(resetTrail())
-    setCenter(initialCenter)
     setSelectedNode(null)
-  }, [initialCenter])
+    setSelectionSource(null)
+    setShuffleError(null)
+    listTriggerRef.current = null
+    window.requestAnimationFrame(() => searchInputRef.current?.focus())
+  }, [cancelRandomSearch])
+
+  const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
+    cancelRandomSearch()
+    listTriggerRef.current = null
+    setSelectedNode(node)
+    setSelectionSource('canvas')
+  }, [cancelRandomSearch])
+
+  const handleListSelect = useCallback((node: ArtistGraphSelection, trigger: HTMLButtonElement) => {
+    cancelRandomSearch()
+    listTriggerRef.current = trigger
+    setSelectedNode(node)
+    setSelectionSource('list')
+  }, [cancelRandomSearch])
+
+  const handlePanelClose = useCallback(() => {
+    const trigger = selectionSource === 'list' ? listTriggerRef.current : null
+    setSelectedNode(null)
+    setSelectionSource(null)
+    listTriggerRef.current = null
+    if (trigger) {
+      window.requestAnimationFrame(() => trigger.focus())
+    }
+  }, [selectionSource])
+
+  useEffect(() => {
+    if (!selectedNode || selectionSource !== 'list') return
+    const frame = window.requestAnimationFrame(() => {
+      panelRef.current?.focus({ preventScroll: true })
+      panelRef.current?.scrollIntoView?.({ block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectedNode, selectionSource])
 
   const handleShuffle = useCallback(async () => {
+    const requestGeneration = randomRequestGeneration.current + 1
+    randomRequestGeneration.current = requestGeneration
     setShuffleError(null)
-    const result = await refetchShuffle()
-    const target = result.isError ? undefined : result.data
-    if (target?.artist_id && target.artist_slug && target.artist_name) {
-      startAt({
-        id: target.artist_id,
-        slug: target.artist_slug,
-        name: target.artist_name,
-      })
-      return
+    setIsFindingRandom(true)
+    try {
+      for (let attempt = 0; attempt < RANDOM_GRAPH_ATTEMPTS; attempt += 1) {
+        const result = await refetchShuffle()
+        if (requestGeneration !== randomRequestGeneration.current) return
+        const target = result.isError ? undefined : result.data
+        if (!target?.artist_id || !target.artist_slug || !target.artist_name) break
+
+        const candidateGraph = await fetchArtistGraph(target.artist_id)
+        if (requestGeneration !== randomRequestGeneration.current) return
+        const hasCenterLink = candidateGraph.links.some(link =>
+          link.source_id === target.artist_id || link.target_id === target.artist_id,
+        )
+        if (!hasCenterLink) continue
+
+        startAt({
+          id: target.artist_id,
+          slug: target.artist_slug,
+          name: target.artist_name,
+        })
+        return
+      }
+    } catch {
+      // The shared random-target and graph requests both cross the network;
+      // collapse either failure into the same recoverable inline state.
+    } finally {
+      if (requestGeneration === randomRequestGeneration.current) {
+        setIsFindingRandom(false)
+      }
     }
-    setShuffleError('No rabbit hole is available right now — try again in a moment.')
-  }, [refetchShuffle, startAt])
+    if (requestGeneration === randomRequestGeneration.current) {
+      setShuffleError('No rabbit hole is available right now — try again in a moment.')
+    }
+  }, [fetchArtistGraph, refetchShuffle, startAt])
 
   const graph = graphQuery.data
+  const hasCenterConnections = graph?.links.some(link =>
+    link.source_id === graph.center.id || link.target_id === graph.center.id,
+  ) ?? false
   const activeTypes = useMemo(
     () => new Set(graph?.links.map(link => link.type) ?? []),
     [graph],
@@ -262,6 +361,7 @@ export function GraphObservatory() {
       <section className="overflow-visible rounded-xl border border-border/60 bg-card shadow-sm">
         <div className="relative z-50 flex flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center">
           <ArtistSearch
+            ref={searchInputRef}
             onSelect={handleArtistSelect}
             placeholder="Search an artist to begin…"
             className="max-w-2xl flex-1"
@@ -277,9 +377,9 @@ export function GraphObservatory() {
           <Trail
             trail={trail}
             current={center}
-            showReset={center.id !== initialCenter?.id}
             onJump={handleTrailJump}
             onReset={handleReset}
+            resetButtonRef={resetButtonRef}
           />
         )}
 
@@ -309,7 +409,7 @@ export function GraphObservatory() {
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 Mapping {center.name}…
               </div>
-            ) : graphQuery.isError ? (
+            ) : graphQuery.isError && !graph ? (
               <div role="alert" className="flex h-[400px] flex-col items-center justify-center gap-3 text-center">
                 <p className="text-sm text-muted-foreground">This graph couldn’t load.</p>
                 <button
@@ -320,8 +420,35 @@ export function GraphObservatory() {
                   Try again
                 </button>
               </div>
+            ) : graph && !hasCenterConnections ? (
+              <div role="status" className="flex h-[400px] flex-col items-center justify-center gap-3 px-6 text-center">
+                <div>
+                  <h2 className="font-display text-2xl font-medium">No mapped connections yet.</h2>
+                  <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                    {graph.center.name} is in the catalog, but nothing links to it yet. Search another artist or try a random rabbit hole.
+                  </p>
+                </div>
+                <Link
+                  href={`/artists/${graph.center.slug}`}
+                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline underline-offset-4"
+                >
+                  Open {graph.center.name}’s page <ArrowRight className="size-3.5" aria-hidden="true" />
+                </Link>
+              </div>
             ) : graph ? (
               <>
+                {graphQuery.isError && (
+                  <div role="status" className="mb-3 flex items-center justify-between gap-3 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    <span>Showing saved connections while the latest graph is unavailable.</span>
+                    <button
+                      type="button"
+                      onClick={() => graphQuery.refetch()}
+                      className="shrink-0 text-primary hover:underline underline-offset-4"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                )}
                 {isCanvasUsable ? (
                   <GraphSectionErrorBoundary
                     sentryTag="graph-observatory"
@@ -335,18 +462,18 @@ export function GraphObservatory() {
                       data={graph}
                       activeTypes={activeTypes}
                       containerWidth={containerWidth}
-                      onSelect={setSelectedNode}
-                      onBackgroundClick={() => setSelectedNode(null)}
+                      onSelect={handleCanvasSelect}
+                      onBackgroundClick={handlePanelClose}
                       showLegend={false}
                       canvasDescribedById="observatory-graph-guidance"
                       canvasAriaLabel={`Artist relationship graph for ${graph.center.name}. Use the Browse connections list below to select an artist.`}
                     />
                   </GraphSectionErrorBoundary>
                 ) : (
-                  <AccessibleGraphList graph={graph} onSelect={setSelectedNode} />
+                  <AccessibleGraphList graph={graph} onSelect={handleListSelect} />
                 )}
                 {isCanvasUsable && (
-                  <AccessibleGraphList graph={graph} onSelect={setSelectedNode} collapsible />
+                  <AccessibleGraphList graph={graph} onSelect={handleListSelect} collapsible />
                 )}
                 <p id="observatory-graph-guidance" className="sr-only">
                   Select an artist node for details. Use Center here in the details panel to re-root the graph.
@@ -359,7 +486,8 @@ export function GraphObservatory() {
                     card={cardQuery.data}
                     isError={cardQuery.isError}
                     onCenter={selectedNode.id !== center.id ? handleCenterHere : undefined}
-                    onClose={() => setSelectedNode(null)}
+                    onClose={handlePanelClose}
+                    panelRef={panelRef}
                   />
                 )}
               </>
@@ -379,10 +507,10 @@ export function GraphObservatory() {
         <button
           type="button"
           onClick={handleShuffle}
-          disabled={isShuffleFetching}
+          disabled={isShuffleFetching || isFindingRandom}
           className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
         >
-          {isShuffleFetching ? 'Finding a rabbit hole…' : 'A random rabbit hole'}
+          {isShuffleFetching || isFindingRandom ? 'Finding a rabbit hole…' : 'A random rabbit hole'}
           <Shuffle className="size-3.5" aria-hidden="true" />
         </button>
         {shuffleError && <p role="status" className="basis-full text-xs text-destructive">{shuffleError}</p>}

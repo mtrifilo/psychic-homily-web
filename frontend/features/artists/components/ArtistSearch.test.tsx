@@ -11,9 +11,17 @@ vi.mock('next/navigation', () => ({
 
 // Mock the search hook
 const mockSearchResults = vi.fn()
+const mockRefetch = vi.fn()
+const searchStatus = {
+  isPending: false,
+  isFetching: false,
+  isError: false,
+}
 vi.mock('../hooks/useArtistSearch', () => ({
   useArtistSearch: ({ query }: { query: string }) => ({
     data: mockSearchResults(query),
+    ...searchStatus,
+    refetch: mockRefetch,
   }),
 }))
 
@@ -23,6 +31,9 @@ describe('ArtistSearch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchResults.mockReturnValue(undefined)
+    searchStatus.isPending = false
+    searchStatus.isFetching = false
+    searchStatus.isError = false
   })
 
   it('renders search input with placeholder', () => {
@@ -119,5 +130,32 @@ describe('ArtistSearch', () => {
     fireEvent.mouseDown(screen.getByText('Radiohead'))
 
     expect(input.value).toBe('')
+  })
+
+  it('announces loading and empty results', async () => {
+    const { rerender } = renderWithProviders(<ArtistSearch />)
+    const input = screen.getByPlaceholderText('Search artists...')
+
+    searchStatus.isPending = true
+    await userEvent.type(input, 'unknown')
+    expect(screen.getByRole('status')).toHaveTextContent('Searching…')
+
+    searchStatus.isPending = false
+    mockSearchResults.mockReturnValue({ artists: [], count: 0 })
+    rerender(<ArtistSearch />)
+    expect(screen.getByRole('status')).toHaveTextContent('No artists found.')
+  })
+
+  it('announces errors and retries without blurring the input', async () => {
+    searchStatus.isError = true
+    renderWithProviders(<ArtistSearch />)
+    const input = screen.getByPlaceholderText('Search artists...')
+    await userEvent.type(input, 'radio')
+
+    expect(screen.getByRole('status')).toHaveTextContent('Search is unavailable.')
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(mockRefetch).toHaveBeenCalledOnce()
+    expect(input).toHaveFocus()
   })
 })

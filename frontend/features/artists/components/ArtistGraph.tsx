@@ -26,7 +26,7 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
-import type { ArtistGraph as ArtistGraphData } from '../types'
+import type { ArtistGraph as ArtistGraphData, ArtistGraphNode } from '../types'
 
 // Ego-dialog chunk-loading state: the shared GraphSkeleton primitive (PSY-1359)
 // with a visible spinner + label as `children` — in a modal an announced
@@ -71,14 +71,10 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 // fields are absent on the data we hand in and only appear once the simulation
 // ticks, so they're declared optional here rather than cast to `any` at each
 // read/write site. See d3-force's `simulation.nodes()` contract.
-export interface ArtistGraphSelection {
-  id: number
-  name: string
-  slug: string
-  city?: string
-  state?: string
-  upcoming_show_count: number
-}
+export type ArtistGraphSelection = Pick<
+  ArtistGraphNode,
+  'id' | 'name' | 'slug' | 'city' | 'state' | 'upcoming_show_count'
+>
 
 interface GraphNode extends ArtistGraphSelection {
   isCenter: boolean
@@ -106,7 +102,7 @@ interface GraphLink {
   isCrossConnection: boolean
 }
 
-interface ArtistGraphProps {
+interface ArtistGraphBaseProps {
   data: ArtistGraphData
   activeTypes: Set<string>
   containerWidth: number
@@ -116,19 +112,6 @@ interface ArtistGraphProps {
    * owns the traversal state + URL sync; this component just emits the request.
    */
   onRecenter?: (node: { id: number; slug: string; name: string }) => void
-  /**
-   * PSY-1259: Expand-on-demand handler. Fired when the user clicks a non-center
-   * node (the new primary gesture). The parent fetches that node's neighbors and
-   * merges them into the graph — or, if the node is already expanded, collapses
-   * it. ArtistGraph stays dumb about which: it just emits the click and renders
-   * `expandedIds`/`expandingIds` state the parent passes back.
-   */
-  onExpand?: (node: { id: number; slug: string; name: string }) => void
-  /**
-   * Tool-surface selection mode. When supplied, a node click selects instead
-   * of expanding; the existing artist-dialog expand contract is unchanged.
-   */
-  onSelect?: (node: ArtistGraphSelection) => void
   /** Called after the graph dismisses its own connection inspector. */
   onBackgroundClick?: () => void
   /** Hide the static edge legend when a tool surface owns that corner. */
@@ -173,6 +156,20 @@ interface ArtistGraphProps {
    */
   isRecentering?: boolean
 }
+
+type ArtistGraphInteraction =
+  | {
+      /** Tool surfaces select a node for context without expanding it. */
+      onSelect: (node: ArtistGraphSelection) => void
+      onExpand?: never
+    }
+  | {
+      /** Artist dialogs expand or collapse a node's neighborhood on click. */
+      onExpand?: (node: { id: number; slug: string; name: string }) => void
+      onSelect?: never
+    }
+
+type ArtistGraphProps = ArtistGraphBaseProps & ArtistGraphInteraction
 
 // PSY-361: Hover/long-press tooltip for non-center nodes. Extracted as its
 // own component so the "View artist page →" link can be unit-tested

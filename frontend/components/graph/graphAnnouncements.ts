@@ -3,7 +3,7 @@
  * keyboard / screen-reader user makes from the accessible connections list.
  *
  * The ego dialog already announces re-centers (buildRecenterAnnouncement, in
- * features/artists/.../graphTraversalHistory). These cover the other reachable
+ * components/graph/graphTraversalHistory). These cover the other reachable
  * mutations so EACH state change fires exactly one polite announcement:
  *   - expand / collapse a node's connections (the tree's core action)
  *   - toggle a relationship-type filter

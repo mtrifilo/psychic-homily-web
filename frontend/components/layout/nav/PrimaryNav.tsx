@@ -24,13 +24,13 @@ const primaryLinks = [
 ]
 
 // Desktop primary navigation. Condenses into the mobile hamburger sheet below
-// `lg` (the dense 8-item row + wide search needs the width); PSY-1020 replaces
+// `xl` (the dense 8-item row + wide search needs the width); PSY-1020 replaces
 // mobile with the bottom tab bar.
 export function PrimaryNav() {
   const pathname = usePathname()
 
   return (
-    <nav aria-label="Primary" className="hidden items-center gap-[22px] lg:flex">
+    <nav aria-label="Primary" className="hidden items-center gap-[22px] xl:flex">
       {primaryLinks.map(link => {
         const active = isNavActive(pathname, link.href)
         return (
