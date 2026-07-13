@@ -1,6 +1,12 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  type InfiniteData,
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
@@ -17,6 +23,7 @@ interface UseSavedShowsOptions {
   offset?: number
   enabled?: boolean
   userId?: string | number
+  timeFilter?: 'upcoming' | 'past'
 }
 
 /**
@@ -24,16 +31,28 @@ interface UseSavedShowsOptions {
  * Requires authentication
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
-  const { limit = 50, offset = 0, enabled = true, userId } = options
+  const {
+    limit = 50,
+    offset = 0,
+    enabled = true,
+    userId,
+    timeFilter,
+  } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
   params.set('offset', offset.toString())
+  if (timeFilter) params.set('time_filter', timeFilter)
 
   const endpoint = `${API_ENDPOINTS.SAVED_SHOWS.LIST}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.savedShows.list(userId?.toString()),
+    queryKey: queryKeys.savedShows.list(
+      userId?.toString(),
+      limit,
+      offset,
+      timeFilter
+    ),
     queryFn: async (): Promise<SavedShowsListResponse> => {
       return apiRequest<SavedShowsListResponse>(endpoint, {
         method: 'GET',
@@ -43,6 +62,49 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
+
+const SAVED_SHOWS_INITIAL_PAGE_SIZE = 4
+const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
+
+/**
+ * Fetch a date-partitioned saved-show list incrementally. The first request
+ * matches the Library's collapsed row count; expansion then uses the API's
+ * maximum page size so large collections remain reachable without making the
+ * initial Library load hydrate hundreds of hidden records.
+ */
+export const useInfiniteSavedShows = (
+  timeFilter: 'upcoming' | 'past',
+  userId: number | undefined,
+  enabled: boolean = true
+) =>
+  useInfiniteQuery({
+    queryKey: queryKeys.savedShows.infiniteList(userId, timeFilter),
+    initialPageParam: { offset: 0, limit: SAVED_SHOWS_INITIAL_PAGE_SIZE },
+    queryFn: async ({ pageParam }): Promise<SavedShowsListResponse> => {
+      const params = new URLSearchParams({
+        limit: pageParam.limit.toString(),
+        offset: pageParam.offset.toString(),
+        time_filter: timeFilter,
+      })
+
+      return apiRequest<SavedShowsListResponse>(
+        `${API_ENDPOINTS.SAVED_SHOWS.LIST}?${params.toString()}`,
+        { method: 'GET' }
+      )
+    },
+    getNextPageParam: (lastPage, pages) => {
+      if (lastPage.shows.length === 0) return undefined
+      const nextOffset = pages.reduce(
+        (loaded, page) => loaded + page.shows.length,
+        0
+      )
+      return nextOffset < lastPage.total
+        ? { offset: nextOffset, limit: SAVED_SHOWS_NEXT_PAGE_SIZE }
+        : undefined
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
 
 /**
  * Hook to fetch a single show's public save count (plus the caller's own
@@ -133,7 +195,15 @@ export const useSaveShow = () => {
  * Hook to unsave (remove) a show from user's list
  * Requires authentication
  */
-export const useUnsaveShow = () => {
+interface UseUnsaveShowOptions {
+  syncMode?: 'invalidate' | 'patch-infinite'
+  userId?: number
+}
+
+export const useUnsaveShow = ({
+  syncMode = 'invalidate',
+  userId,
+}: UseUnsaveShowOptions = {}) => {
   const queryClient = useQueryClient()
   const invalidateQueries = createInvalidateQueries(queryClient)
 
@@ -146,9 +216,56 @@ export const useUnsaveShow = () => {
         }
       )
     },
-    onSuccess: () => {
-      // Re-sync the user's list and every cached save count from the server.
-      invalidateQueries.savedShows()
+    onSuccess: (_, showId) => {
+      if (syncMode === 'invalidate') {
+        // Re-sync the user's list and every cached save count from the server.
+        invalidateQueries.savedShows()
+        return
+      }
+
+      // Library infinite lists may contain many loaded pages. Patch the saved
+      // row out locally instead of refetching every page in both date buckets.
+      queryClient.setQueriesData<InfiniteData<SavedShowsListResponse>>(
+        { queryKey: queryKeys.savedShows.infiniteListPrefix(userId) },
+        data => {
+          if (!data) return data
+          let removed = false
+          const pages = data.pages.map(page => {
+            const shows = page.shows.filter(show => show.id !== showId)
+            if (shows.length === page.shows.length) return page
+            removed = true
+            return { ...page, shows }
+          })
+
+          return removed
+            ? {
+                ...data,
+                pages: pages.map(page => ({
+                  ...page,
+                  total: Math.max(0, page.total - 1),
+                })),
+              }
+            : data
+        }
+      )
+
+      // Other list shapes and save-count surfaces still need server truth,
+      // but these narrow invalidations avoid reloading the infinite pages.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.savedShows.listPrefix(userId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.savedShows.countBatchPrefix(userId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['savedShows', 'countBatch', false, null],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.savedShows.count(showId, true, userId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.savedShows.count(showId, false),
+      })
     },
   })
 }

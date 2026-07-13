@@ -1,8 +1,4 @@
-export {
-  useUpcomingShows,
-  useShow,
-  useShowCities,
-} from './useShows'
+export { useUpcomingShows, useShow, useShowCities } from './useShows'
 
 export { useShowDelete } from './useShowDelete'
 export { useShowExtraction } from './useShowExtraction'
@@ -20,15 +16,9 @@ export { useShowMakePrivate } from './useShowMakePrivate'
 export { useShowPublish } from './useShowPublish'
 export { useSetShowReminders } from './useShowReminders'
 
-export {
-  useMyShowReport,
-  useReportShow,
-} from './useShowReports'
+export { useMyShowReport, useReportShow } from './useShowReports'
 
-export {
-  type ShowSubmission,
-  useShowSubmit,
-} from './useShowSubmit'
+export { type ShowSubmission, useShowSubmit } from './useShowSubmit'
 
 export { useShowUnpublish } from './useShowUnpublish'
 
@@ -41,6 +31,7 @@ export {
 } from './useShowUpdate'
 
 export {
+  useInfiniteSavedShows,
   useSavedShows,
   useSaveShow,
   useUnsaveShow,

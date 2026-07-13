@@ -24,7 +24,11 @@ import {
   MoreVertical,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useSavedShows, useMySubmissions } from '@/features/shows'
+import {
+  useInfiniteSavedShows,
+  useMySubmissions,
+  useUnsaveShow,
+} from '@/features/shows'
 import type { SavedShowResponse, ShowResponse } from '@/features/shows'
 import {
   getReleaseTypeLabel,
@@ -39,7 +43,8 @@ import {
   formatShowTime,
   formatPrice,
 } from '@/lib/utils/formatters'
-import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
+import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -134,10 +139,24 @@ function EmptyState({
 // Shows tab — the user's saved shows
 // ---------------------------------------------------------------------------
 
-function SavedShowCard({ show }: { show: SavedShowResponse }) {
+const COLLAPSED_SHOW_COUNT = 4
+
+function SavedShowCard({
+  show,
+  isPast,
+  onRemove,
+  isRemoving,
+  isRemovalPending,
+}: {
+  show: SavedShowResponse
+  isPast: boolean
+  onRemove: (showId: number) => void
+  isRemoving: boolean
+  isRemovalPending: boolean
+}) {
   const venue = show.venues[0]
   const artists = show.artists
-  const mobileDate = formatShowMonthDay(
+  const dateBadge = formatShowDateBadge(
     show.event_date,
     show.state,
     show.venues?.[0]?.timezone
@@ -146,17 +165,16 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
   return (
     <article
       aria-label={show.title}
-      className="grid grid-cols-[74px_minmax(0,1fr)] gap-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)] md:gap-5 md:py-3"
+      className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5 md:py-3"
     >
-      <div className="font-mono text-[11px] font-bold uppercase text-primary md:text-xs">
-        <span className="md:hidden">{mobileDate}</span>
+      <div
+        className={`row-span-2 font-mono text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${
+          isPast ? 'text-muted-foreground' : 'text-primary'
+        }`}
+      >
+        <span className="md:hidden">{dateBadge.monthDay}</span>
         <span className="hidden md:inline">
-          {formatShowDate(
-            show.event_date,
-            show.state,
-            false,
-            show.venues?.[0]?.timezone
-          )}
+          {dateBadge.dayOfWeek} {dateBadge.monthDay}
         </span>
         <div className="mt-0.5 hidden text-[11px] font-normal normal-case text-muted-foreground md:block">
           {formatShowTime(
@@ -167,7 +185,7 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
         </div>
       </div>
 
-      <div className="min-w-0">
+      <div className="min-w-0 self-center">
         <Link
           href={`/shows/${show.slug || show.id}`}
           className="block truncate text-sm font-medium leading-tight transition-colors hover:text-primary md:text-[15px]"
@@ -181,12 +199,16 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
               {venue.slug ? (
                 <Link
                   href={`/venues/${venue.slug}`}
-                  className="transition-colors hover:text-primary md:text-primary/80"
+                  className={`transition-colors hover:text-primary ${
+                    isPast ? '' : 'md:text-primary/80'
+                  }`}
                 >
                   {venue.name}
                 </Link>
               ) : (
-                <span className="md:text-primary/80">{venue.name}</span>
+                <span className={isPast ? undefined : 'md:text-primary/80'}>
+                  {venue.name}
+                </span>
               )}
               {(venue.city || venue.state) && (
                 <span>
@@ -199,37 +221,180 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
           )}
         </div>
       </div>
+
+      <div className="col-start-2 mt-1 flex items-center justify-between gap-3 font-mono text-[11px] text-muted-foreground md:col-start-3 md:row-start-1 md:mt-0 md:flex-col md:items-end md:self-center">
+        <span className="whitespace-nowrap">
+          saved {formatRelativeTime(show.saved_at, { short: true })}
+        </span>
+        <button
+          type="button"
+          onClick={() => onRemove(show.id)}
+          disabled={isRemovalPending}
+          className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
+          aria-label={`Remove ${show.title} from saved shows`}
+        >
+          {isRemoving ? 'removing…' : '✕ remove'}
+        </button>
+      </div>
     </article>
   )
 }
 
-function ShowsTab({ userId }: { userId?: number }) {
-  const { data: savedData, isLoading, error } = useSavedShows({ userId })
+function SavedShowsSection({
+  title,
+  shows,
+  total,
+  isPast,
+  hasNextPage,
+  isFetchingNextPage,
+  onExpand,
+  onRemove,
+  removingShowId,
+  isRemovalPending,
+}: {
+  title: 'Upcoming' | 'Past'
+  shows: SavedShowResponse[]
+  total: number
+  isPast: boolean
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  onExpand: () => Promise<void>
+  onRemove: (showId: number) => void
+  removingShowId?: number
+  isRemovalPending: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const visibleShows = expanded ? shows : shows.slice(0, COLLAPSED_SHOW_COUNT)
+  const hasExpandableRows = shows.length > COLLAPSED_SHOW_COUNT
+  const countLabel = `${total} ${total === 1 ? 'show' : 'shows'}`
+  const orderLabel = isPast ? 'most recent first' : 'soonest first'
+  const headingId = `saved-shows-${title.toLowerCase()}`
 
-  const savedShows = savedData?.shows ?? []
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+  return (
+    <section aria-labelledby={headingId}>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border pb-2">
+        <h2 id={headingId} className="text-base font-semibold">
+          {title}
+        </h2>
+        <p className="font-mono text-[11px] text-muted-foreground md:text-xs">
+          {countLabel} · {orderLabel}
+          {isPast && (
+            <span className="hidden md:inline">
+              {' '}
+              · saved shows move here automatically when the date passes
+            </span>
+          )}
+        </p>
+        {isPast && (
+          <p className="w-full font-mono text-[11px] text-muted-foreground md:hidden">
+            Saved shows move here automatically when the date passes.
+          </p>
+        )}
       </div>
-    )
-  }
 
-  if (error) {
-    return (
-      <div className="text-center text-destructive py-12">
-        <p>Failed to load your shows. Please try again later.</p>
-      </div>
-    )
+      {shows.length === 0 ? (
+        <p className="py-4 text-sm text-muted-foreground">
+          No {title.toLowerCase()} saved shows.
+        </p>
+      ) : (
+        <div>
+          {visibleShows.map(show => (
+            <SavedShowCard
+              key={show.id}
+              show={show}
+              isPast={isPast}
+              onRemove={onRemove}
+              isRemoving={removingShowId === show.id}
+              isRemovalPending={isRemovalPending}
+            />
+          ))}
+        </div>
+      )}
+
+      {(hasExpandableRows || hasNextPage) && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <BracketLink
+            label={
+              isFetchingNextPage
+                ? 'Loading…'
+                : expanded && hasNextPage
+                  ? 'Retry loading'
+                  : expanded
+                    ? 'Show fewer'
+                    : `View all ${total}`
+            }
+            disabled={isFetchingNextPage || isRemovalPending}
+            onClick={async () => {
+              if (expanded && !hasNextPage) {
+                setExpanded(false)
+                return
+              }
+              setExpanded(true)
+              if (hasNextPage) await onExpand()
+            }}
+          />
+          {expanded && hasNextPage && !isFetchingNextPage && (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              Could not load every saved show. Retry when ready.
+            </span>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ShowsTab({ currentUserId }: { currentUserId?: number }) {
+  const upcoming = useInfiniteSavedShows(
+    'upcoming',
+    currentUserId,
+    currentUserId !== undefined
+  )
+  const past = useInfiniteSavedShows(
+    'past',
+    currentUserId,
+    currentUserId !== undefined
+  )
+  const unsaveShow = useUnsaveShow({
+    syncMode: 'patch-infinite',
+    userId: currentUserId,
+  })
+
+  const upcomingShows = upcoming.data?.pages.flatMap(page => page.shows) ?? []
+  const pastShows = past.data?.pages.flatMap(page => page.shows) ?? []
+  const upcomingTotal = upcoming.data?.pages[0]?.total ?? 0
+  const pastTotal = past.data?.pages[0]?.total ?? 0
+  const isInitialLoading =
+    (upcoming.isLoading && !upcoming.data) || (past.isLoading && !past.data)
+  const error = upcoming.error ?? past.error
+  const isEmpty = upcomingTotal + pastTotal === 0
+  const isSavedShowActionPending =
+    unsaveShow.isPending ||
+    upcoming.isFetchingNextPage ||
+    past.isFetchingNextPage
+
+  const fetchAllPages = async (
+    query: typeof upcoming | typeof past
+  ): Promise<void> => {
+    let result = await query.fetchNextPage()
+    while (result.hasNextPage && !result.isFetchNextPageError) {
+      result = await query.fetchNextPage()
+    }
   }
 
   return (
-    <div className="space-y-8">
-      {/* Calendar feed subscription */}
+    <div className="space-y-7">
       <CalendarFeedSection />
 
-      {savedShows.length === 0 ? (
+      {isInitialLoading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : error ? (
+        <div className="py-12 text-center text-destructive">
+          <p>Failed to load your shows. Please try again later.</p>
+        </div>
+      ) : isEmpty ? (
         <EmptyState
           title="Nothing saved yet."
           description="Save a show and it lands here — upcoming shows first, past ones kept as your record."
@@ -241,11 +406,36 @@ function ShowsTab({ userId }: { userId?: number }) {
           ]}
         />
       ) : (
-        <section className="w-full">
-          {savedShows.map(show => (
-            <SavedShowCard key={show.id} show={show} />
-          ))}
-        </section>
+        <div className="space-y-8">
+          <SavedShowsSection
+            title="Upcoming"
+            shows={upcomingShows}
+            total={upcomingTotal}
+            isPast={false}
+            hasNextPage={upcoming.hasNextPage}
+            isFetchingNextPage={upcoming.isFetchingNextPage}
+            onExpand={() => fetchAllPages(upcoming)}
+            onRemove={unsaveShow.mutate}
+            removingShowId={
+              unsaveShow.isPending ? unsaveShow.variables : undefined
+            }
+            isRemovalPending={isSavedShowActionPending}
+          />
+          <SavedShowsSection
+            title="Past"
+            shows={pastShows}
+            total={pastTotal}
+            isPast
+            hasNextPage={past.hasNextPage}
+            isFetchingNextPage={past.isFetchingNextPage}
+            onExpand={() => fetchAllPages(past)}
+            onRemove={unsaveShow.mutate}
+            removingShowId={
+              unsaveShow.isPending ? unsaveShow.variables : undefined
+            }
+            isRemovalPending={isSavedShowActionPending}
+          />
+        </div>
       )}
     </div>
   )
@@ -1179,7 +1369,7 @@ function LibraryContent() {
         </TabsList>
 
         <TabsContent value="shows">
-          <ShowsTab userId={currentUserId} />
+          <ShowsTab currentUserId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="artists">
