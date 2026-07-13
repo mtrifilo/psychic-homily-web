@@ -26,6 +26,7 @@ const mockReleaseSaveCountBatch = vi.fn<(...args: unknown[]) => EmptyQuery>(
 let isAuthenticated = true
 let queryWindow: 'month' | 'quarter' | 'all_time' = 'quarter'
 let queryScene: string | null = null
+let sceneListLoading = false
 let sceneListError = false
 let sceneListFetching = false
 let sceneListRefetchError = false
@@ -116,6 +117,16 @@ vi.mock('@/components/shared', () => ({
 vi.mock('../hooks', () => ({
   useChartScenes: (window: string) => {
     mockScopedHook('scenes', window)
+    if (sceneListLoading) {
+      return {
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        isSuccess: false,
+        isFetching: true,
+        refetch: mockRefetchScenes,
+      }
+    }
     if (sceneListError) {
       return {
         data: undefined,
@@ -259,6 +270,7 @@ describe('ChartsPage', () => {
     isAuthenticated = true
     queryWindow = 'quarter'
     queryScene = null
+    sceneListLoading = false
     sceneListError = false
     sceneListFetching = false
     sceneListRefetchError = false
@@ -353,6 +365,18 @@ describe('ChartsPage', () => {
     expect(mockSetScene).toHaveBeenCalledWith('38060')
   })
 
+  it('clears a selected scene through the All scenes option', async () => {
+    const user = userEvent.setup()
+    queryScene = '38060'
+    render(<ChartsPage />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Chart scene: Phoenix' })
+    )
+    await user.click(screen.getByRole('menuitemradio', { name: 'All scenes' }))
+    expect(mockSetScene).toHaveBeenCalledWith(null)
+  })
+
   it('round-trips a known URL scene through the masthead and every module', () => {
     queryScene = '38060'
     render(<ChartsPage />)
@@ -392,6 +416,28 @@ describe('ChartsPage', () => {
     for (const call of moduleCalls) {
       expect(call.at(-1)).toMatchObject({ scene: '', enabled: true })
     }
+  })
+
+  it('clears a malformed URL scene before querying chart modules', () => {
+    queryScene = 'not-a-cbsa'
+    render(<ChartsPage />)
+
+    expect(mockSetScene).toHaveBeenCalledWith(null)
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '', enabled: true })
+    }
+  })
+
+  it('announces and disables the scene switcher while options load', () => {
+    sceneListLoading = true
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: Loading scenes' })
+    ).toBeDisabled()
   })
 
   it('revalidates the selected scene when the chart window changes', () => {
