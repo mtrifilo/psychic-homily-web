@@ -173,17 +173,24 @@ const OTHER_CLUSTER_ID = 'other'
 // via react-force-graph's warmupTicks so the first painted frame is already
 // final — no visible settle animation, no camera motion afterward. 200 ticks
 // is the budget the retired animated cooldown used, so layouts settle to the
-// same quality the old animated path reached. Measured via Chrome trace on a
-// 75-node/85-link scene-shaped payload (PSY-1447 manual repro): two
-// synchronous digest tasks, ~34ms (warmup) + ~18ms (force-config re-run) —
-// well under a frame-drop-noticeable threshold — a far better trade than
-// seconds of off-frame or mis-framed layout on every mount and overlay open.
-// Not yet measured against an uncapped venue-bill-network payload (that
-// query has no node/edge limit, unlike scene/station/festival graphs — see
-// backend/internal/services/catalog/venue_bill_network.go); flagged as a
-// follow-up rather than blocking, since the digest cost scales with node
-// count and the two measured tasks already leave headroom before either
-// crosses a user-perceptible (~100ms) threshold.
+// same quality the old animated path reached. Measured via Chrome trace
+// (PSY-1447 manual repro), two synchronous digest tasks per mount:
+//   - 75-node/85-link scene-shaped payload:  ~34ms + ~18ms ≈  52ms total
+//   - 300-node/419-link payload approximating the uncapped venue-bill-
+//     network query's plausible worst case (that query has no node/edge
+//     limit, unlike scene/station/festival graphs — see
+//     backend/internal/services/catalog/venue_bill_network.go): ~135ms +
+//     ~96ms ≈ 231ms total
+// The 300-node case exceeds the locked decision's "~100ms budget
+// assumption" — flagging for the user rather than silently shipping past
+// it. Still a large net win over the retired path (up to several SECONDS
+// of off-frame/mis-framed layout on every mount and overlay open, per the
+// comments this replaced), and it's a one-time mount cost, not a per-frame
+// one — but a venue with a genuinely large, highly-co-billed roster could
+// notice a mount-time pause. Candidate follow-ups (not done here — out of
+// this ticket's scope): cap venue_bill_network's query the way scene/
+// station/festival graphs already do, or lower WARMUP_TICKS for large
+// payloads specifically.
 const WARMUP_TICKS = 200
 
 // PSY-1447: cooldownTicks stays 0 everywhere EXCEPT while a node is being
@@ -369,10 +376,15 @@ export function ForceGraphView({
   const reducedMotion = useReducedMotion()
   const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<RenderNode | null>(null)
-  // PSY-1447: true only for the duration of an active node-drag gesture —
-  // drives cooldownTicks below so dragging keeps its pre-existing live
-  // neighbor-reflow instead of freezing at the drag/data-digest baseline.
-  const [isDragging, setIsDragging] = useState(false)
+  // PSY-1447: ids of nodes currently mid-drag — drives cooldownTicks below
+  // so dragging keeps its pre-existing live neighbor-reflow instead of
+  // freezing at the drag/data-digest baseline. A Set (not a boolean) so two
+  // concurrent drags (multi-touch: two fingers each dragging a different
+  // node) can't have the FIRST finger's release re-freeze the SECOND one's
+  // still-in-progress drag (adversarial finding, round 1).
+  const [draggingNodeIds, setDraggingNodeIds] = useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  )
   // Edge types the user has hidden via the legend toggles (PSY-1083).
   // Purely presentational, so the component owns it — parents opt in via
   // `showEdgeLegend` without threading filter state.
@@ -729,11 +741,12 @@ export function ForceGraphView({
     [renderData, containerWidth, graphHeight],
   )
 
-  // Engine-stop backstop for the mount-time fit below. With zero cooldown,
-  // the engine stops on the first rAF frame after each graphData digest —
-  // BEFORE that frame paints — so a fit from here still lands pre-paint
-  // when the mount-time attempt ran too early (warmup positions arrive in
-  // the library's 1ms-debounced digest).
+  // Engine-stop backstop for the mount-time fit below. With zero cooldown AT
+  // REST (mount/data-digest — see DRAG_LIVE_COOLDOWN_TICKS for the drag
+  // exception), the engine stops on the first rAF frame after each
+  // graphData digest — BEFORE that frame paints — so a fit from here still
+  // lands pre-paint when the mount-time attempt ran too early (warmup
+  // positions arrive in the library's 1ms-debounced digest).
   const handleEngineStop = useCallback(() => maybeFitViewport(), [maybeFitViewport])
 
   // Reduced-motion: pause the simulation immediately on mount. A paused
@@ -762,12 +775,12 @@ export function ForceGraphView({
   // budget). Budget (20 attempts × 50ms = 1s, below) predates PSY-1447 and
   // was validated only against small static-viewport embeds; PSY-1447
   // widens this poll to every reduced-motion surface, including uncapped
-  // venue-bill-network payloads (see the WARMUP_TICKS comment above) that
-  // could plausibly take longer than 1s to produce a finite bbox on a slow
-  // device — a timeout there leaves the graph unfit with no retry until the
-  // next data/dimension change. Not re-validated against that payload shape
-  // in this PR; flagged as a follow-up rather than blocking, since it only
-  // affects reduced-motion users on the largest, least-common surface.
+  // venue-bill-network payloads (see the WARMUP_TICKS comment above). The
+  // measured 300-node warmup digest (~231ms) leaves ~4x headroom under this
+  // 1s budget, so the poll should comfortably still catch the bbox becoming
+  // readable at that scale — not independently re-verified with a paused
+  // (reduced-motion) engine specifically, only the default animated-loop
+  // mount path, since jsdom/CI can't drive real rAF timing for that combo.
   useEffect(() => {
     if (!canvasReady) return
     maybeFitViewport()
@@ -1213,13 +1226,22 @@ export function ForceGraphView({
         // Dragging a node moves it without re-firing onNodeHover (the same node
         // stays under the cursor) or onZoom, so the anchored tooltip would strand
         // at the node's pre-drag position. Dismiss on drag too (PSY-1217 review).
-        // PSY-1447: also flips isDragging so cooldownTicks below re-arms live
-        // ticking for the gesture's duration (see DRAG_LIVE_COOLDOWN_TICKS).
-        onNodeDrag={() => {
+        // PSY-1447: also adds the node's id to draggingNodeIds so cooldownTicks
+        // below re-arms live ticking for the gesture's duration (see
+        // DRAG_LIVE_COOLDOWN_TICKS). Keyed by node id (not a single boolean)
+        // so concurrent drags of different nodes track independently.
+        onNodeDrag={(node: RenderNode) => {
           setHoveredNode(null)
-          setIsDragging(true)
+          setDraggingNodeIds(prev => (prev.has(node.id) ? prev : new Set(prev).add(node.id)))
         }}
-        onNodeDragEnd={() => setIsDragging(false)}
+        onNodeDragEnd={(node: RenderNode) => {
+          setDraggingNodeIds(prev => {
+            if (!prev.has(node.id)) return prev
+            const next = new Set(prev)
+            next.delete(node.id)
+            return next
+          })
+        }}
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
@@ -1257,9 +1279,9 @@ export function ForceGraphView({
         // graphData digest re-runs the warmup, so filter toggles snap to
         // their new settled layout (locked decision, PSY-1447: "no camera
         // motion ever"). Node drag is the one gesture that still needs live
-        // ticks WHILE it's happening — see DRAG_LIVE_COOLDOWN_TICKS/isDragging.
+        // ticks WHILE it's happening — see DRAG_LIVE_COOLDOWN_TICKS/draggingNodeIds.
         warmupTicks={WARMUP_TICKS}
-        cooldownTicks={isDragging ? DRAG_LIVE_COOLDOWN_TICKS : 0}
+        cooldownTicks={draggingNodeIds.size > 0 ? DRAG_LIVE_COOLDOWN_TICKS : 0}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}
         minZoom={0.4}

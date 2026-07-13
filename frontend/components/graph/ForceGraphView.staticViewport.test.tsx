@@ -25,7 +25,10 @@ vi.mock('next/dynamic', async () => {
 
 import { ForceGraphView, type GraphNode } from './ForceGraphView'
 
-const nodes: GraphNode[] = [{ id: 1, name: 'Alpha', slug: 'alpha', upcoming_show_count: 0 }]
+const nodes: GraphNode[] = [
+  { id: 1, name: 'Alpha', slug: 'alpha', upcoming_show_count: 0 },
+  { id: 2, name: 'Beta', slug: 'beta', upcoming_show_count: 0 },
+]
 
 const renderGraph = (staticViewport?: boolean) =>
   renderWithProviders(
@@ -90,12 +93,40 @@ describe('ForceGraphView staticViewport (PSY-1344)', () => {
     expect(h.lastProps.cooldownTicks).toBe(0)
 
     act(() => {
-      ;(h.lastProps.onNodeDrag as () => void)()
+      ;(h.lastProps.onNodeDrag as (node: GraphNode) => void)(nodes[0])
     })
     expect(h.lastProps.cooldownTicks).toBe(200)
 
     act(() => {
-      ;(h.lastProps.onNodeDragEnd as () => void)()
+      ;(h.lastProps.onNodeDragEnd as (node: GraphNode) => void)(nodes[0])
+    })
+    expect(h.lastProps.cooldownTicks).toBe(0)
+  })
+
+  // Adversarial-review finding (round 1, Saboteur): a boolean isDragging flag
+  // would have the FIRST finger's release re-freeze the SECOND finger's
+  // still-in-progress drag on a multi-touch device. Tracking by node id fixes
+  // that — cooldownTicks only drops back to 0 once EVERY dragged node has
+  // ended, not on the first onNodeDragEnd of any node.
+  it('keeps live ticking active while a second concurrent node drag is still in progress', () => {
+    renderGraph()
+
+    act(() => {
+      ;(h.lastProps.onNodeDrag as (node: GraphNode) => void)(nodes[0])
+    })
+    act(() => {
+      ;(h.lastProps.onNodeDrag as (node: GraphNode) => void)(nodes[1])
+    })
+    expect(h.lastProps.cooldownTicks).toBe(200)
+
+    act(() => {
+      ;(h.lastProps.onNodeDragEnd as (node: GraphNode) => void)(nodes[0])
+    })
+    // node 2 is still mid-drag — must NOT re-freeze yet.
+    expect(h.lastProps.cooldownTicks).toBe(200)
+
+    act(() => {
+      ;(h.lastProps.onNodeDragEnd as (node: GraphNode) => void)(nodes[1])
     })
     expect(h.lastProps.cooldownTicks).toBe(0)
   })
