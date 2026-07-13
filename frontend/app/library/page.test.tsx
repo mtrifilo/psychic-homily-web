@@ -8,8 +8,11 @@ const mockUseAuthContext = vi.fn()
 const mockUseSavedShows = vi.fn()
 const mockUseSavedReleases = vi.fn()
 const mockUseMyFollowing = vi.fn()
+const mockUseAllMyFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
+const mockUnfollowEntity = vi.fn()
+const mockUseUnfollow = vi.fn()
 const mockFetchNextPage = vi.fn(async () => ({ hasNextPage: false }))
 
 let mockSearchParams = new URLSearchParams()
@@ -59,7 +62,8 @@ vi.mock('@/features/releases', () => ({
 
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useMyFollowing: (opts?: { type?: string }) => mockUseMyFollowing(opts),
-  useUnfollow: () => ({ mutate: vi.fn(), isPending: false }),
+  useAllMyFollowing: (type: string) => mockUseAllMyFollowing(type),
+  useUnfollow: () => mockUseUnfollow(),
 }))
 
 vi.mock('@/features/venues', () => ({
@@ -102,13 +106,26 @@ function setLoadedData() {
     isLoading: false,
     error: null,
   })
-  mockUseMyFollowing.mockReturnValue({
+  mockUseMyFollowing.mockImplementation((opts?: { type?: string }) => ({
     data: {
       following: [],
-      total: 0,
+      total:
+        {
+          artist: 4,
+          venue: 2,
+          scene: 3,
+          label: 1,
+          festival: 0,
+        }[opts?.type ?? ''] ?? 0,
       limit: 20,
       offset: 0,
     },
+    isLoading: false,
+    isFetching: false,
+    error: null,
+  }))
+  mockUseAllMyFollowing.mockReturnValue({
+    data: { following: [], total: 0, limit: 0, offset: 0 },
     isLoading: false,
     isFetching: false,
     error: null,
@@ -157,6 +174,11 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     mockSearchParams = new URLSearchParams()
     setAuthenticated()
     setLoadedData()
+    mockUseUnfollow.mockReturnValue({
+      mutate: mockUnfollowEntity,
+      isPending: false,
+      isError: false,
+    })
   })
 
   describe('header', () => {
@@ -175,24 +197,28 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('tab row', () => {
-    it('renders stable count-less labels when no batch count source exists', () => {
+    it('renders counts for every follow-management tab', () => {
       renderWithProviders(<LibraryPage />)
 
       const tablist = screen.getByRole('tablist')
       const tabs = within(tablist).getAllByRole('tab')
       expect(tabs.map(t => t.textContent)).toEqual([
         'Shows',
-        'Artists',
-        'Venues',
+        'Artists · 4',
+        'Venues · 2',
+        'Scenes · 3',
+        'Labels · 1',
+        'Festivals · 0',
         'Releases',
-        'Labels',
-        'Festivals',
         'Submissions',
       ])
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
       expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', 1, true)
       expect(mockUseSavedShows).toHaveBeenCalledWith('past', 1, true)
-      expect(mockUseMyFollowing).not.toHaveBeenCalled()
+      expect(mockUseMyFollowing).toHaveBeenCalledTimes(5)
+      expect(
+        screen.getByRole('tab', { name: 'Artists, 4 followed' })
+      ).toBeTruthy()
     })
 
     it('uses the horizontally scrollable underline tab row (no wrap)', () => {
@@ -273,6 +299,13 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         '/venues',
       ],
       [
+        'scenes',
+        'No scenes followed.',
+        'Follow scenes to keep up with the places you care about.',
+        'Explore scenes',
+        '/atlas',
+      ],
+      [
         'releases',
         'No releases saved yet.',
         'Save releases to see them here.',
@@ -314,6 +347,68 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         ).toBe(href)
       }
     )
+  })
+
+  describe('follow rows', () => {
+    it('sorts the complete Scenes list alphabetically and exposes management actions', () => {
+      mockSearchParams = new URLSearchParams('tab=scenes')
+      mockUseUnfollow.mockReturnValue({
+        mutate: mockUnfollowEntity,
+        isPending: false,
+        isError: true,
+      })
+      mockUseAllMyFollowing.mockReturnValue({
+        data: {
+          following: [
+            {
+              entity_type: 'scene',
+              entity_id: 2,
+              name: 'Phoenix, AZ',
+              slug: 'phoenix-az',
+              followed_at: '2026-07-01T00:00:00Z',
+            },
+            {
+              entity_type: 'scene',
+              entity_id: 1,
+              name: 'Chicago, IL',
+              slug: 'chicago-il',
+              followed_at: '2026-03-01T12:00:00Z',
+            },
+          ],
+          total: 2,
+          limit: 2,
+          offset: 0,
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      const rows = screen.getAllByRole('article')
+      expect(within(rows[0]).getByRole('link').textContent).toBe('Chicago, IL')
+      expect(within(rows[1]).getByRole('link').textContent).toBe('Phoenix, AZ')
+      expect(within(rows[0]).getByText('followed Mar 2026')).toBeTruthy()
+      expect(
+        within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
+      ).toBeTruthy()
+      expect(
+        within(rows[0]).queryByRole('button', { name: /alerts/i })
+      ).toBeNull()
+
+      fireEvent.click(
+        within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
+      )
+      expect(mockUnfollowEntity).toHaveBeenCalledWith({
+        entityType: 'scenes',
+        entityId: 'chicago-il',
+      })
+      expect(
+        within(rows[0]).getByRole('alert')
+      ).toHaveTextContent("Couldn't unfollow Chicago, IL. Try again.")
+    })
+
   })
 
   describe('saved-show rows', () => {

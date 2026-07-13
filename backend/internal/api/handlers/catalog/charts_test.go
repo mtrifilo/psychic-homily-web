@@ -1302,7 +1302,15 @@ func TestChartsHandler_ChartScenes_Success(t *testing.T) {
 				t.Errorf("expected default window=quarter, got %q", window)
 			}
 			return []contracts.ChartScene{
-				{Metro: "38060", City: "Phoenix", State: "AZ", ShowCount: 42},
+				{
+					Metro:       "38060",
+					Name:        "Phoenix-Mesa-Chandler, AZ",
+					City:        "Phoenix",
+					State:       "AZ",
+					ShowCount:   42,
+					ArtistCount: 41,
+					VenueCount:  12,
+				},
 			}, nil
 		},
 	})
@@ -1318,7 +1326,8 @@ func TestChartsHandler_ChartScenes_Success(t *testing.T) {
 		t.Fatalf("expected 1 scene, got %d", len(resp.Body.Scenes))
 	}
 	sc := resp.Body.Scenes[0]
-	if sc.Metro != "38060" || sc.City != "Phoenix" || sc.State != "AZ" || sc.ShowCount != 42 {
+	if sc.Metro != "38060" || sc.Name != "Phoenix-Mesa-Chandler, AZ" || sc.City != "Phoenix" ||
+		sc.State != "AZ" || sc.ShowCount != 42 || sc.ArtistCount != 41 || sc.VenueCount != 12 {
 		t.Errorf("unexpected mapping: %+v", sc)
 	}
 	if resp.CacheControl != chartsModuleCacheControl {
