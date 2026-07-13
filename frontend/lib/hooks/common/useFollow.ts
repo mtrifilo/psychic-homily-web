@@ -273,7 +273,8 @@ interface UseMyFollowingOptions {
  * Only enabled when user is authenticated.
  */
 export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
   const { type = 'all', limit = 20, offset = 0 } = options
 
   const params = new URLSearchParams()
@@ -284,11 +285,61 @@ export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
   const endpoint = `${API_ENDPOINTS.FOLLOW.MY_FOLLOWING}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.follows.myFollowing({ type, limit, offset }),
+    queryKey: queryKeys.follows.myFollowing({
+      type,
+      limit,
+      offset,
+      userId: viewerId,
+    }),
     queryFn: async (): Promise<FollowingListResponse> => {
       return apiRequest<FollowingListResponse>(endpoint, { method: 'GET' })
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && viewerId !== undefined,
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+/**
+ * Fetch a complete following bucket for management surfaces that need a
+ * stable, global sort. The API caps pages at 100, so this query walks every
+ * page instead of presenting each recency-ordered page as if it were the
+ * complete alphabetical list.
+ */
+export const useAllMyFollowing = (type: string) => {
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
+
+  return useQuery({
+    queryKey: queryKeys.follows.myFollowing({
+      type,
+      scope: 'all',
+      userId: viewerId,
+    }),
+    queryFn: async (): Promise<FollowingListResponse> => {
+      const limit = 100
+      const following: FollowingListResponse['following'] = []
+      let offset = 0
+      let total = 0
+
+      do {
+        const params = new URLSearchParams({
+          type,
+          limit: limit.toString(),
+          offset: offset.toString(),
+        })
+        const page = await apiRequest<FollowingListResponse>(
+          `${API_ENDPOINTS.FOLLOW.MY_FOLLOWING}?${params.toString()}`,
+          { method: 'GET' }
+        )
+        following.push(...page.following)
+        total = page.total
+        if (page.following.length === 0) break
+        offset += page.following.length
+      } while (offset < total)
+
+      return { following, total, limit: following.length, offset: 0 }
+    },
+    enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
     staleTime: 2 * 60 * 1000,
   })
 }

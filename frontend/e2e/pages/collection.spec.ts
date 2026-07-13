@@ -61,6 +61,31 @@ test.describe('Library page (formerly /collection)', () => {
     await authenticatedPage.waitForURL('/library')
   })
 
+  test('lists and unfollows a followed scene', async ({ authenticatedPage }) => {
+    const followResponse = await authenticatedPage.request.post(
+      '/api/scenes/phoenix-az/follow'
+    )
+    expect(followResponse.ok()).toBe(true)
+
+    await authenticatedPage.goto('/library?tab=scenes')
+    const sceneRow = authenticatedPage
+      .getByRole('article')
+      .filter({ hasText: 'Phoenix, AZ' })
+    await expect(sceneRow).toBeVisible({ timeout: 10_000 })
+
+    const [unfollowResponse] = await Promise.all([
+      authenticatedPage.waitForResponse(
+        response =>
+          response.url().includes('/scenes/phoenix-az/follow') &&
+          response.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      sceneRow.getByRole('button', { name: 'Unfollow Phoenix, AZ' }).click(),
+    ])
+    expect(unfollowResponse.ok()).toBe(true)
+    await expect(sceneRow).not.toBeVisible({ timeout: 5_000 })
+  })
+
   test(
     'shows saved show after saving one',
     { tag: '@smoke' },

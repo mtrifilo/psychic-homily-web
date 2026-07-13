@@ -92,7 +92,7 @@ describe('MyScenesStrip (PSY-1340)', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('caps the chips and routes the overflow to /following?tab=scene', () => {
+  it('caps the chips and routes the overflow to the Library Scenes tab', () => {
     // 12 follows, total reported 30 (a truncated fetch page) — the strip shows
     // the cap, and "+N more" counts against the TOTAL so nothing is silently
     // invisible.
@@ -108,7 +108,7 @@ describe('MyScenesStrip (PSY-1340)', () => {
     const nav = screen.getByRole('navigation', { name: /my scenes/i })
     expect(nav.querySelectorAll('button')).toHaveLength(8)
     const moreLink = screen.getByRole('link', { name: '+22 more' })
-    expect(moreLink).toHaveAttribute('href', '/following?tab=scene')
+    expect(moreLink).toHaveAttribute('href', '/library?tab=scenes')
   })
 
   it('navigates to the scene page for a follow the globe cannot place', () => {
