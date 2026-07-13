@@ -808,7 +808,7 @@ export function ChartsPage() {
         </ChartModule>
       </div>
 
-      {!sceneValidationFailed ? (
+      {!sceneValidationFailed && sceneResolved ? (
         <FreshlyAddedTicker items={freshlyAdded.data?.items ?? []} />
       ) : null}
     </div>

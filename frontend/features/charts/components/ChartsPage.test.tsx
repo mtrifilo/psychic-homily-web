@@ -472,6 +472,7 @@ describe('ChartsPage', () => {
     for (const call of pendingCalls) {
       expect(call.at(-1)).toMatchObject({ scene: '', enabled: false })
     }
+    expect(screen.queryByText('Freshly Added')).not.toBeInTheDocument()
 
     vi.clearAllMocks()
     sceneListFetching = false
