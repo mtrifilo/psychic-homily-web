@@ -765,10 +765,13 @@ type GetChartScenesRequest struct {
 
 // ChartSceneResponse is one scene switcher option.
 type ChartSceneResponse struct {
-	Metro     string `json:"metro" doc:"CBSA metro code - the value the module endpoints accept as scene"`
-	City      string `json:"city" doc:"Metro principal city (display identity)"`
-	State     string `json:"state"`
-	ShowCount int    `json:"show_count" doc:"Approved, non-cancelled shows played at the metro's venues in the window"`
+	Metro       string `json:"metro" doc:"CBSA metro code - the value the module endpoints accept as scene"`
+	Name        string `json:"name" doc:"Official CBSA display name"`
+	City        string `json:"city" doc:"Metro principal city (compact display identity)"`
+	State       string `json:"state"`
+	ShowCount   int    `json:"show_count" doc:"Approved, non-cancelled shows played at the metro's venues in the window"`
+	ArtistCount int    `json:"artist_count" doc:"Artists whose home metro is this CBSA"`
+	VenueCount  int    `json:"venue_count" doc:"Verified venues tracked in this CBSA"`
 }
 
 // GetChartScenesResponse is the Huma response for GET /charts/scenes — the

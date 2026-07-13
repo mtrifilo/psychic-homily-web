@@ -1,6 +1,21 @@
 export const CHART_WINDOWS = ['month', 'quarter', 'all_time'] as const
 export type ChartWindow = (typeof CHART_WINDOWS)[number]
 
+export interface ChartScene {
+  metro: string
+  name: string
+  city: string
+  state: string
+  show_count: number
+  artist_count: number
+  venue_count: number
+}
+
+export interface ChartScenesResponse {
+  window: ChartWindow
+  scenes: ChartScene[]
+}
+
 export interface ChartEntityReference {
   id: number
   name: string
