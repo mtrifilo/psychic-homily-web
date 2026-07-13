@@ -96,6 +96,8 @@ export interface GraphLabelSpec {
   /** The already-truncated label string (see `truncateLabel`). */
   text: string
   fontSize: number
+  /** Numeric CSS font weight. Falls back to bold/regular for existing callers. */
+  fontWeight?: 400 | 500 | 600 | 700
   bold?: boolean
   /** Higher wins a collision against a lower one (e.g. node degree). Default 0. */
   priority?: number
@@ -123,7 +125,8 @@ function boxesIntersect(a: LabelBox, b: LabelBox): boolean {
 }
 
 function fontFor(spec: GraphLabelSpec): string {
-  return `${spec.bold ? 'bold ' : ''}${spec.fontSize}px sans-serif`
+  const weight = spec.fontWeight ?? (spec.bold ? 700 : 400)
+  return `${weight} ${spec.fontSize}px sans-serif`
 }
 
 /**

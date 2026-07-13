@@ -116,6 +116,14 @@ describe('renderGraphLabels', () => {
     expect(order).toEqual(['stroke:X', 'fill:X'])
   })
 
+  it('uses the requested numeric font weight for curated label tiers', () => {
+    const { ctx } = makeCtx()
+    renderGraphLabels(ctx, PALETTE, [
+      spec({ x: 0, y: 0, text: 'Headline', fontSize: 17, fontWeight: 600 }),
+    ])
+    expect(ctx.font).toBe('600 17px sans-serif')
+  })
+
   it('skips empty/whitespace-only labels without reserving their collision box', () => {
     const { ctx, fills } = makeCtx()
     renderGraphLabels(ctx, PALETTE, []) // no-op on empty input

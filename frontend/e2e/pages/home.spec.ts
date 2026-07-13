@@ -74,9 +74,9 @@ test.describe('Homepage', () => {
       page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
-    // Scene-graph section (PSY-1344). Lazy-mounted on scroll intent, and the
-    // heading names whichever seeded scene is liveliest — assert the stable
-    // "… music graph" suffix (PSY-1358 copy). The e2e seed carries a metro'd
+    // Scene-graph section (PSY-1344/1450). Lazy-mounted on scroll intent, and
+    // the heading names whichever seeded scene is liveliest — assert the
+    // show-anchored suffix. The e2e seed carries a metro'd
     // Phoenix scene (PSY-1319), so the section must not self-hide. Scroll
     // deterministically to the section BELOW it (radio renders immediately)
     // rather than a magic wheel delta, so content growth can't strand the
@@ -85,10 +85,13 @@ test.describe('Homepage', () => {
       .getByRole('heading', { name: /latest radio shows/i })
       .scrollIntoViewIfNeeded()
     await expect(
-      page.getByRole('heading', { name: /music graph$/i })
+      page.getByRole('heading', { name: /, this week$/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
-      page.getByRole('link', { name: /explore the full graph/i })
+      page.getByRole('link', { name: /open the graph/i })
+    ).toBeVisible()
+    await expect(
+      page.getByText(/most connected artists playing or tied to .* this month/i)
     ).toBeVisible()
     // The graph area must settle to a real state — canvas (aria-label) or
     // the honest empty-roster fallback — and never the error card. This

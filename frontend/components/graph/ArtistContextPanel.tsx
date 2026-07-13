@@ -123,6 +123,21 @@ export function ArtistContextPanel({
 
       {card && (
         <div className="space-y-2.5">
+          {/* Embed-first (PSY-1450): selecting a playable node pays off
+              immediately before metadata rows. The gate stays identical to
+              MusicEmbed's resolution contract, so no dead Listen header. */}
+          {hasPlayableAudio && (
+            <div className="space-y-0.5">
+              <FieldLabel>Listen</FieldLabel>
+              <MusicEmbed
+                compact
+                bandcampAlbumUrl={card.bandcamp_embed_url}
+                spotifyUrl={card.spotify}
+                artistName={card.name}
+              />
+            </div>
+          )}
+
           {card.next_show && (
             <div className="space-y-0.5">
               <FieldLabel>Next show</FieldLabel>
@@ -187,22 +202,6 @@ export function ArtistContextPanel({
             </div>
           )}
 
-          {/* Playable audio (PSY-1302) — the graph's payoff: hear the artist
-              without leaving the view. Gated on hasPlayableAudio so the row
-              appears only when MusicEmbed will render a player (never a dead
-              "Listen" header). Only one panel is open at a time, which is what
-              keeps a single embed playing. */}
-          {hasPlayableAudio && (
-            <div className="space-y-0.5">
-              <FieldLabel>Listen</FieldLabel>
-              <MusicEmbed
-                compact
-                bandcampAlbumUrl={card.bandcamp_embed_url}
-                spotifyUrl={card.spotify}
-                artistName={card.name}
-              />
-            </div>
-          )}
         </div>
       )}
 
