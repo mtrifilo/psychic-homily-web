@@ -7,9 +7,10 @@
  *
  * Deliberately NOT the full graph tool: click-select only (no wheel-zoom,
  * no pan, no scope switcher, no interactive legend — `staticViewport` on
- * ForceGraphView), frozen after settle, one static caption. Clicking a
- * node opens the ArtistContextPanel (PSY-1345) — next show, labels, radio,
- * connections — with "Open page →" as the navigation path. Full-power
+ * ForceGraphView), frozen after settle, with an activity-ranked map of names,
+ * tiered labels, next-show chips, and a compact legend. Selecting a name opens
+ * the ArtistContextPanel (PSY-1345) with playable audio first and "Open page →"
+ * as the navigation path. Full-power
  * interactivity lives on the dedicated /graph page (the re-pointed
  * Observatory, PSY-1079…1086); until that ships the CTA links to the
  * scene page's graph section.
@@ -32,6 +33,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
+import { EdgeSwatch } from '@/components/graph/EdgeLegend'
+import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -47,12 +50,12 @@ import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorB
 // scenes module code into the homepage's initial JS. Same precedent as
 // InlineGraph's deep import of useArtistGraph (PSY-868).
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
+import type { SceneGraphNode } from '@/features/scenes/types'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
-import {
-  pickDefaultScene,
-  pickSurpriseScene,
-} from './homeSceneGraphScenes'
+import { formatShowWeekday } from '@/lib/utils/formatters'
+import { pickDefaultScene, pickSurpriseScene } from './homeSceneGraphScenes'
 import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
+import { buildHomeSceneGraphMap } from './homeSceneGraphMap'
 
 const GRAPH_HEIGHT_PX = 560
 
@@ -87,6 +90,52 @@ const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[560px]'
 // fallback so they can't drift apart.
 function SceneGraphSkeleton() {
   return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
+}
+
+function ShowDateChip({ node }: { node: SceneGraphNode }) {
+  if (!node.next_show) return null
+  const weekday = formatShowWeekday(
+    node.next_show.event_date,
+    node.next_show.venue_state,
+    node.next_show.venue_timezone
+  )
+  const venueName = node.next_show.venue_name.trim()
+
+  return (
+    <span className="block max-w-[180px] truncate rounded border border-green-500 bg-background px-2 py-[3px] font-mono text-[10px] leading-none whitespace-nowrap text-foreground shadow-sm">
+      {weekday}{venueName ? ` · ${venueName}` : ''}
+    </span>
+  )
+}
+
+function HomeGraphLegend({ types }: { types: readonly string[] }) {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-[18px] gap-y-2 text-[11px] text-muted-foreground"
+      aria-label="Graph legend"
+    >
+      {orderEdgeTypes(types).map(type => (
+        <span key={type} className="flex items-center gap-1.5">
+          <EdgeSwatch type={type} />
+          {edgeTypeLabel(type).toLowerCase()}
+        </span>
+      ))}
+      <span className="flex items-center gap-1.5">
+        <span
+          className="size-[7px] rounded-full bg-green-500"
+          aria-hidden="true"
+        />
+        playing soon
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span
+          className="size-[9px] rounded-full border-[1.5px] border-violet-500"
+          aria-hidden="true"
+        />
+        playable audio
+      </span>
+    </div>
+  )
 }
 
 // Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk so
@@ -125,7 +174,7 @@ function HomeSceneGraphSection() {
   const scenesQuery = useScenes()
   const scenes = useMemo(
     () => scenesQuery.data?.scenes ?? [],
-    [scenesQuery.data?.scenes],
+    [scenesQuery.data?.scenes]
   )
   // Geo-personalize the default (PSY-1346): a visitor in a scene-city lands on
   // THEIR scene, not just the liveliest one. Non-blocking (like the shows
@@ -137,7 +186,7 @@ function HomeSceneGraphSection() {
   const geoSuggestion = useGeoDefaultScene()
   const defaultScene = useMemo(
     () => pickDefaultScene(scenes, geoSuggestion),
-    [scenes, geoSuggestion],
+    [scenes, geoSuggestion]
   )
 
   // The user's "Surprise me" pick; null = the liveliest-scene default.
@@ -163,7 +212,7 @@ function HomeSceneGraphSection() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const canvasWrapRef = useRef<HTMLDivElement>(null)
   const [prevSceneSlug, setPrevSceneSlug] = useState<string | undefined>(
-    scene?.slug,
+    scene?.slug
   )
   if (scene?.slug !== prevSceneSlug) {
     setPrevSceneSlug(scene?.slug)
@@ -188,21 +237,49 @@ function HomeSceneGraphSection() {
     ? undefined
     : graphQuery.data
 
-  // The homepage teaser shows the CONNECTED heart of the scene only
-  // (locked 2026-07-11): most scenes are majority-isolate, and the scene
-  // page's isolate shelf reads as broken data here while ballooning the
-  // bbox zoomToFit must frame (shrinking the connected mass). Drop
-  // isolates client-side — the scene page keeps its shelf. Links need no
-  // filtering: isolates have none by definition.
-  const connectedNodes = useMemo(
-    () => settledGraphData?.nodes.filter(node => !node.is_isolate) ?? [],
-    [settledGraphData],
+  // Curated map-of-names: one pure derivation owns the activity rank, ≤20
+  // cap, link pruning, typography terciles, and headline-show selection so
+  // those visible encodings cannot drift apart. Placeholder data is excluded
+  // above, so a Surprise-me rotation never ranks the outgoing scene under the
+  // incoming heading.
+  const graphMap = useMemo(
+    () =>
+      buildHomeSceneGraphMap(
+        settledGraphData?.nodes ?? [],
+        settledGraphData?.links ?? []
+      ),
+    [settledGraphData]
   )
+  const connectedNodes = graphMap.nodes
   const hasEnoughConnectedNodes = connectedNodes.length >= MIN_CONNECTED_NODES
+  const currentSelectedNode = selectedNode
+    ? connectedNodes.find(node => node.id === selectedNode.id) ?? null
+    : null
+  if (
+    selectedNode &&
+    settledGraphData &&
+    !currentSelectedNode
+  ) {
+    setSelectedNode(null)
+  }
+  const showChipOverlays = useMemo(
+    () =>
+      new Map(
+        graphMap.showChipNodes.map(node => [
+          node.id,
+          <ShowDateChip key={node.id} node={node} />,
+        ])
+      ),
+    [graphMap.showChipNodes]
+  )
+  const edgeTypes = useMemo(
+    () => [...new Set(graphMap.links.map(link => link.type).filter(Boolean))],
+    [graphMap.links]
+  )
 
   const cardQuery = useArtistGraphCard({
-    artistId: selectedNode?.id ?? null,
-    enabled: selectedNode !== null,
+    artistId: currentSelectedNode?.id ?? null,
+    enabled: currentSelectedNode !== null,
   })
 
   const handleSurprise = useCallback(() => {
@@ -220,7 +297,7 @@ function HomeSceneGraphSection() {
       setPinnedSlug(prev => prev ?? scene?.slug ?? null)
       setSelectedNode(prev => (prev?.id === node.id ? null : node))
     },
-    [scene?.slug],
+    [scene?.slug]
   )
 
   const handlePanelClose = useCallback(() => {
@@ -238,6 +315,7 @@ function HomeSceneGraphSection() {
   if (!scene) return <SceneGraphSkeleton />
 
   const sceneHref = `/scenes/${scene.slug}`
+  const sceneGraphHref = `${sceneHref}#graph`
 
   return (
     <section
@@ -250,7 +328,7 @@ function HomeSceneGraphSection() {
           aria-live="polite"
           className="text-2xl font-semibold tracking-tight text-foreground"
         >
-          {scene.city} music graph
+          {scene.city}, this week
         </h2>
         <div className="flex items-center gap-4 text-sm">
           {scenes.length > 1 && (
@@ -263,13 +341,20 @@ function HomeSceneGraphSection() {
             </button>
           )}
           <Link
-            href={sceneHref}
+            href={sceneGraphHref}
             className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
           >
-            Explore the full graph →
+            Open the graph →
           </Link>
         </div>
       </div>
+
+      {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
+        <p className="text-xs text-muted-foreground">
+          The {connectedNodes.length} most connected artists playing or tied to{' '}
+          {scene.city} this month — every name is clickable.
+        </p>
+      )}
 
       <div ref={refCallback} className="w-full">
         {/* Pre-measurement: hold the (responsive) height so the section
@@ -303,35 +388,45 @@ function HomeSceneGraphSection() {
           // skeleton. The branches are mutually exclusive by construction.
           (settledGraphData ? (
             hasEnoughConnectedNodes ? (
-              <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
+              <div
+                ref={canvasWrapRef}
+                tabIndex={-1}
+                className="relative outline-none"
+              >
                 <ForceGraphView
-                // Remount per scene: a rotation BACK to a cached scene
-                // arrives with isPlaceholderData false (no skeleton frame,
-                // no unmount), and the mounted canvas's one-shot zoomToFit
-                // is already spent — with zoom/pan disabled there'd be no
-                // gesture to recover a mis-framed swap. A fresh mount
-                // re-arms the fit and drops stale hover state.
-                key={scene.slug}
-                nodes={connectedNodes}
-                links={settledGraphData.links}
-                clusters={settledGraphData.clusters}
-                containerWidth={containerWidth}
-                height={GRAPH_HEIGHT_PX}
-                staticViewport
-                // Count the CONNECTED nodes actually on the canvas, not the
-                // payload's full artist_count (which includes the isolates
-                // filtered out above) — the caption promises "lines connect
-                // artists", so the label must not overstate. Always plural:
-                // this branch requires >= MIN_CONNECTED_NODES (3).
-                ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. Click a node for that artist’s details.`}
-                onNodeClick={handleNodeClick}
-                onBackgroundClick={handlePanelClose}
-              />
-                {selectedNode && (
+                  // Remount per scene: a rotation BACK to a cached scene
+                  // arrives with isPlaceholderData false (no skeleton frame,
+                  // no unmount), and the mounted canvas's one-shot zoomToFit
+                  // is already spent — with zoom/pan disabled there'd be no
+                  // gesture to recover a mis-framed swap. A fresh mount
+                  // re-arms the fit and drops stale hover state.
+                  key={scene.slug}
+                  nodes={connectedNodes}
+                  links={graphMap.links}
+                  clusters={settledGraphData.clusters}
+                  containerWidth={containerWidth}
+                  height={GRAPH_HEIGHT_PX}
+                  staticViewport
+                  nodeLabelStyles={graphMap.labelStyles}
+                  forceNodeLabels
+                  nodeOverlays={showChipOverlays}
+                  nodeOverlayPlacement="outward"
+                  nodeOverlayOutwardClearance={192}
+                  showAccessibleNodeControls
+                  // Count the CONNECTED nodes actually on the canvas, not the
+                  // payload's full artist_count (which includes the isolates
+                  // filtered out above) — the caption promises "lines connect
+                  // artists", so the label must not overstate. Always plural:
+                  // this branch requires >= MIN_CONNECTED_NODES (3).
+                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. Click a node for that artist’s details.`}
+                  onNodeClick={handleNodeClick}
+                  onBackgroundClick={handlePanelClose}
+                />
+                {currentSelectedNode && (
                   <ArtistContextPanel
                     className="absolute top-2 right-2 z-40"
-                    artistName={selectedNode.name}
-                    artistSlug={selectedNode.slug}
+                    artistName={currentSelectedNode.name}
+                    artistSlug={currentSelectedNode.slug}
                     card={cardQuery.data}
                     isError={cardQuery.isError}
                     onClose={handlePanelClose}
@@ -342,8 +437,8 @@ function HomeSceneGraphSection() {
               <div
                 className={`w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground ${PLACEHOLDER_HEIGHT_CLASS}`}
               >
-                Not enough connected artists in {scene.city} yet — try
-                another scene.
+                Not enough connected artists in {scene.city} yet — try another
+                scene.
               </div>
             )
           ) : graphQuery.isError ? (
@@ -363,15 +458,17 @@ function HomeSceneGraphSection() {
           ))}
       </div>
 
-      {/* Static mini-legend + payoff line (locked on PSY-1338: no
-          interactive legend on the homepage). Only rendered with the
-          canvas — the teaser/empty/error states carry their own copy and
-          "click any artist" would be a false instruction there. */}
+      {/* Static mini-legend + payoff line. Only rendered with the canvas —
+          teaser/empty/error states carry their own copy and click guidance
+          would be false there. */}
       {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
-        <p className="text-sm text-muted-foreground">
-          Lines connect artists — shared bills, label ties, band members.
-          Click any artist for their next show, labels, and radio plays.
-        </p>
+        <div className="space-y-3">
+          <HomeGraphLegend types={edgeTypes} />
+          <p className="text-xs text-muted-foreground">
+            Name size = how active they are right now. Click any artist for
+            context; violet-ring artists include a listen — no zooming required.
+          </p>
+        </div>
       )}
     </section>
   )

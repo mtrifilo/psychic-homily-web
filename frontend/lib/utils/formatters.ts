@@ -3,6 +3,7 @@ import {
   formatDateInTimezone,
   formatDateWithYearInTimezone,
   formatTimeInTimezone,
+  formatInTimezone,
 } from './timeUtils'
 
 /**
@@ -44,6 +45,17 @@ export function formatShowDate(
   return includeYear
     ? formatDateWithYearInTimezone(dateString, tz)
     : formatDateInTimezone(dateString, tz)
+}
+
+/** Format only the venue-local short weekday, e.g. "Fri". */
+export function formatShowWeekday(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null,
+): string {
+  return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
+    weekday: 'short',
+  })
 }
 
 /**

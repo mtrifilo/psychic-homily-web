@@ -48,7 +48,17 @@
  *     1.21:1 on the newsprint light bg)
  */
 
-import { useCallback, useMemo, useRef, useEffect, useLayoutEffect, useState, type ComponentType, type MutableRefObject } from 'react'
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type ComponentType,
+  type MutableRefObject,
+  type ReactNode,
+} from 'react'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import { polygonHull } from 'd3-polygon'
@@ -60,16 +70,33 @@ import {
   LABEL_MIN_SCALE,
   degreeMap,
   labelFontSize,
+  paintGraphLabelPointerArea,
   renderGraphLabels,
   truncateLabel,
   type GraphLabelSpec,
 } from './graphLabels'
-import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from './graphFocus'
-import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipPlacement } from './nodeTooltip'
+import {
+  buildAdjacency,
+  endpointId,
+  focusForeground,
+  BACKGROUND_ALPHA,
+  BACKGROUND_ALPHA_HEX,
+} from './graphFocus'
+import {
+  nodeTooltipPlacement,
+  tooltipPlacementStyle,
+  type TooltipPlacement,
+} from './nodeTooltip'
 import { EdgeLegend } from './EdgeLegend'
 import { ConnectionPanel } from './ConnectionPanel'
-import { aggregatePairConnections, useConnectionInspect } from './useConnectionInspect'
-import { mergeProvenanceEntities, useConnectionProvenance } from './useConnectionProvenance'
+import {
+  aggregatePairConnections,
+  useConnectionInspect,
+} from './useConnectionInspect'
+import {
+  mergeProvenanceEntities,
+  useConnectionProvenance,
+} from './useConnectionProvenance'
 
 // ──────────────────────────────────────────────
 // Public types — the generic graph payload shape
@@ -209,7 +236,10 @@ const DRAG_LIVE_COOLDOWN_TICKS = 200
 // What the engine sees until the dynamic chunk has mounted — see the
 // `engineData` doc-comment for the ordering contract.
 // Module-level so its identity is stable across renders.
-const EMPTY_ENGINE_DATA = { nodes: [] as RenderNode[], links: [] as RenderLink[] }
+const EMPTY_ENGINE_DATA = {
+  nodes: [] as RenderNode[],
+  links: [] as RenderLink[],
+}
 
 // A stable empty-clusters reference for the `clusters` default param. An omitted
 // (or inline `[]`) prop would otherwise hand a fresh array each render, giving the
@@ -217,6 +247,8 @@ const EMPTY_ENGINE_DATA = { nodes: [] as RenderNode[], links: [] as RenderLink[]
 // identity every render, so a stray re-render mid-hover would needlessly reheat the
 // sim and dismiss an open tooltip (PSY-1217 review).
 const EMPTY_CLUSTERS: GraphCluster[] = []
+const EMPTY_NODE_LABEL_STYLES = new Map<number, GraphNodeLabelStyle>()
+const EMPTY_NODE_OVERLAYS = new Map<number, ReactNode>()
 
 // ──────────────────────────────────────────────
 // Skeleton + dynamic-import boilerplate
@@ -246,7 +278,9 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   loading: () => <GraphSkeleton />,
 }) as unknown as ComponentType<
   ForceGraphProps<RenderNode, RenderLink> & {
-    ref?: MutableRefObject<ForceGraphMethods<RenderNode, RenderLink> | undefined>
+    ref?: MutableRefObject<
+      ForceGraphMethods<RenderNode, RenderLink> | undefined
+    >
   }
 >
 
@@ -256,7 +290,7 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 function computeCentroids(
   clusterIDs: string[],
   containerWidth: number,
-  graphHeight: number,
+  graphHeight: number
 ): Map<string, { x: number; y: number }> {
   const out = new Map<string, { x: number; y: number }>()
   if (clusterIDs.length === 0) return out
@@ -348,12 +382,42 @@ export interface ForceGraphViewProps {
    * EVERY surface in PSY-1447; it is no longer mode-specific.)
    */
   staticViewport?: boolean
+  /** Optional per-node typography for curated map surfaces. */
+  nodeLabelStyles?: ReadonlyMap<number, GraphNodeLabelStyle>
+  /** Always draw every node label, even when labels overlap (curated ≤20-node maps). */
+  forceNodeLabels?: boolean
+  /**
+   * DOM overlays anchored to settled node positions. The graph primitive owns
+   * canvas→screen coordinate conversion; callers own overlay content/styling.
+   */
+  nodeOverlays?: ReadonlyMap<number, ReactNode>
+  /** Above by default; outward keeps paired headline chips from colliding. */
+  nodeOverlayPlacement?: 'above' | 'outward'
+  /** Outward anchor inset, including the caller's bounded overlay width + gap. */
+  nodeOverlayOutwardClearance?: number
+  /**
+   * Render keyboard-accessible controls that invoke the same callback as a
+   * canvas node click. The compact control tray reveals itself on keyboard
+   * focus; richer expandable graphs provide their own accessible tree.
+   */
+  showAccessibleNodeControls?: boolean
   /**
    * PSY-1345: notified on canvas background clicks (in addition to the
    * internal connection-panel dismissal) so consumers can close their own
    * floating overlays (e.g. the artist context panel) on click-away.
    */
   onBackgroundClick?: () => void
+}
+
+export interface GraphNodeLabelStyle {
+  fontSize: number
+  fontWeight: 400 | 500 | 600 | 700
+}
+
+interface NodeOverlayPosition {
+  id: number
+  x: number
+  y: number
 }
 
 export function ForceGraphView({
@@ -368,6 +432,12 @@ export function ForceGraphView({
   showEdgeLegend = false,
   showConnectionPanel = false,
   staticViewport = false,
+  nodeLabelStyles = EMPTY_NODE_LABEL_STYLES,
+  forceNodeLabels = false,
+  nodeOverlays = EMPTY_NODE_OVERLAYS,
+  nodeOverlayPlacement = 'above',
+  nodeOverlayOutwardClearance = 0,
+  showAccessibleNodeControls = false,
   onBackgroundClick,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -383,13 +453,13 @@ export function ForceGraphView({
   // node) can't have the FIRST finger's release re-freeze the SECOND one's
   // still-in-progress drag (adversarial finding, round 1).
   const [draggingNodeIds, setDraggingNodeIds] = useState<ReadonlySet<number>>(
-    () => new Set<number>(),
+    () => new Set<number>()
   )
   // Edge types the user has hidden via the legend toggles (PSY-1083).
   // Purely presentational, so the component owns it — parents opt in via
   // `showEdgeLegend` without threading filter state.
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
+    () => new Set<string>()
   )
   // PSY-1334: soloed edge type (legend "only" affordance). Solo WINS over the
   // hidden set while active; the hidden set is never mutated by soloing, so
@@ -401,11 +471,26 @@ export function ForceGraphView({
   // the relative container). Set from the hovered node's screen position in
   // handleNodeHover via the shared nodeTooltipPlacement helper; flipX/flipY steer
   // it toward the container interior near the right/bottom edges (PSY-1217).
-  const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({ x: 0, y: 0, flipX: false, flipY: false })
+  const [tooltipPos, setTooltipPos] = useState<TooltipPlacement>({
+    x: 0,
+    y: 0,
+    flipX: false,
+    flipY: false,
+  })
   // "Dynamic chunk has mounted" signal — set by the a11y effect below when
   // the canvas appears. Declared up here because the force-config effect
   // depends on it (see its comment); the a11y effect owns setting it.
   const [canvasReady, setCanvasReady] = useState(false)
+  const [nodeOverlayPositions, setNodeOverlayPositions] = useState<
+    NodeOverlayPosition[]
+  >([])
+  const nodeOverlaySyncNeededRef = useRef(true)
+
+  useEffect(() => {
+    if (nodeOverlays.size === 0) {
+      setNodeOverlayPositions(current => (current.length === 0 ? current : []))
+    }
+  }, [nodeOverlays])
 
   const graphHeight = height ?? (containerWidth < 768 ? 400 : 560)
 
@@ -448,7 +533,10 @@ export function ForceGraphView({
         edgeTypeCounts.set(l.type, (edgeTypeCounts.get(l.type) ?? 0) + 1)
         // Solo wins over hidden (PSY-1334): while a type is soloed, only it
         // renders; the hidden set stays intact underneath for when solo ends.
-        if (soloEdgeType ? l.type !== soloEdgeType : hiddenEdgeTypes.has(l.type)) continue
+        if (
+          soloEdgeType ? l.type !== soloEdgeType : hiddenEdgeTypes.has(l.type)
+        )
+          continue
       }
       renderLinks.push({
         source: l.source_id,
@@ -605,7 +693,7 @@ export function ForceGraphView({
               node.x += (0 - node.x) * RECENTER_STRENGTH * alpha
               node.y += (0 - node.y) * RECENTER_STRENGTH * alpha
             }
-          },
+          }
     )
 
     fg.d3ReheatSimulation()
@@ -697,49 +785,46 @@ export function ForceGraphView({
   // the first meaningful paint — a 400ms camera glide there would defeat
   // "first painted frame is final". Re-fits after a dimension change frame
   // an already-settled layout the same way; the animated variant is retired.
-  const maybeFitViewport = useCallback(
-    () => {
-      if (!needsFitRef.current) return
-      const fg = graphRef.current
-      if (!fg || renderData.nodes.length === 0) return // stay armed
-      // Uninitialized positions don't yield a null bbox — force-graph returns
-      // {x:[undefined,undefined],...} (d3 min/max over undefined), which would
-      // sail into centerAt(NaN, NaN) and corrupt the d3-zoom transform for the
-      // rest of the mount (adversarial finding). Validate numerically.
-      const bbox = fg.getGraphBbox?.()
-      if (
-        !bbox ||
-        !Number.isFinite(bbox.x[0]) ||
-        !Number.isFinite(bbox.x[1]) ||
-        !Number.isFinite(bbox.y[0]) ||
-        !Number.isFinite(bbox.y[1])
-      ) {
-        return // positions not initialized yet — stay armed
-      }
-      needsFitRef.current = false
-      const zoom = fg.zoom()
-      const center = fg.centerAt()
-      const halfW = containerWidth / zoom / 2
-      const halfH = graphHeight / zoom / 2
-      // 5% per-side slack: a bbox that pokes marginally past the viewport
-      // (edge node half-clipped) still counts as in view — a viewport jump
-      // for a few clipped pixels is a worse trade than the clip, and on
-      // inline mounts the fit could drop below the 1.0 label gate.
-      const slackX = halfW * 0.05
-      const slackY = halfH * 0.05
-      const inView =
-        bbox.x[0] >= center.x - halfW - slackX &&
-        bbox.x[1] <= center.x + halfW + slackX &&
-        bbox.y[0] >= center.y - halfH - slackY &&
-        bbox.y[1] <= center.y + halfH + slackY
-      if (inView) return
-      // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
-      // has already stopped — dismiss like onZoom/onNodeDrag do.
-      setHoveredNode(null)
-      fg.zoomToFit(0, ZOOM_FIT_PADDING_PX)
-    },
-    [renderData, containerWidth, graphHeight],
-  )
+  const maybeFitViewport = useCallback(() => {
+    if (!needsFitRef.current) return
+    const fg = graphRef.current
+    if (!fg || renderData.nodes.length === 0) return // stay armed
+    // Uninitialized positions don't yield a null bbox — force-graph returns
+    // {x:[undefined,undefined],...} (d3 min/max over undefined), which would
+    // sail into centerAt(NaN, NaN) and corrupt the d3-zoom transform for the
+    // rest of the mount (adversarial finding). Validate numerically.
+    const bbox = fg.getGraphBbox?.()
+    if (
+      !bbox ||
+      !Number.isFinite(bbox.x[0]) ||
+      !Number.isFinite(bbox.x[1]) ||
+      !Number.isFinite(bbox.y[0]) ||
+      !Number.isFinite(bbox.y[1])
+    ) {
+      return // positions not initialized yet — stay armed
+    }
+    needsFitRef.current = false
+    const zoom = fg.zoom()
+    const center = fg.centerAt()
+    const halfW = containerWidth / zoom / 2
+    const halfH = graphHeight / zoom / 2
+    // 5% per-side slack: a bbox that pokes marginally past the viewport
+    // (edge node half-clipped) still counts as in view — a viewport jump
+    // for a few clipped pixels is a worse trade than the clip, and on
+    // inline mounts the fit could drop below the 1.0 label gate.
+    const slackX = halfW * 0.05
+    const slackY = halfH * 0.05
+    const inView =
+      bbox.x[0] >= center.x - halfW - slackX &&
+      bbox.x[1] <= center.x + halfW + slackX &&
+      bbox.y[0] >= center.y - halfH - slackY &&
+      bbox.y[1] <= center.y + halfH + slackY
+    if (inView) return
+    // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
+    // has already stopped — dismiss like onZoom/onNodeDrag do.
+    setHoveredNode(null)
+    fg.zoomToFit(0, ZOOM_FIT_PADDING_PX)
+  }, [renderData, containerWidth, graphHeight])
 
   // Engine-stop backstop for the mount-time fit below. With zero cooldown AT
   // REST (mount/data-digest — see DRAG_LIVE_COOLDOWN_TICKS for the drag
@@ -747,7 +832,10 @@ export function ForceGraphView({
   // graphData digest — BEFORE that frame paints — so a fit from here still
   // lands pre-paint when the mount-time attempt ran too early (warmup
   // positions arrive in the library's 1ms-debounced digest).
-  const handleEngineStop = useCallback(() => maybeFitViewport(), [maybeFitViewport])
+  const handleEngineStop = useCallback(
+    () => maybeFitViewport(),
+    [maybeFitViewport]
+  )
 
   // Reduced-motion: pause the simulation immediately on mount. A paused
   // engine never reaches onEngineStop, so the fit for that path relies on
@@ -821,7 +909,7 @@ export function ForceGraphView({
     // The hook's return is useMemo'd (identity tracks `pair` only), so this
     // dep is stable across the hover-driven render storms these surfaces
     // see; the React Compiler requires the whole object, not `.close`.
-    [onNodeClick, connectionInspect],
+    [onNodeClick, connectionInspect]
   )
 
   // PSY-1334: edge click opens the ConnectionPanel for that pair. d3-force
@@ -832,7 +920,7 @@ export function ForceGraphView({
       if (!showConnectionPanel || !link.type) return
       connectionInspect.open(endpointId(link.source), endpointId(link.target))
     },
-    [showConnectionPanel, connectionInspect],
+    [showConnectionPanel, connectionInspect]
   )
 
   // PSY-1335: lazily fetch the entities behind each connection for the
@@ -841,7 +929,7 @@ export function ForceGraphView({
   // untouched by this query's transients.
   const provenanceQuery = useConnectionProvenance(
     connectionInspect.pair,
-    showConnectionPanel,
+    showConnectionPanel
   )
 
   // Panel data derives from the RAW props, not renderData: the panel lists
@@ -863,7 +951,13 @@ export function ForceGraphView({
       target: { name: target.name, slug: target.slug },
       connections: mergeProvenanceEntities(connections, provenanceQuery.data),
     }
-  }, [showConnectionPanel, connectionInspect.pair, nodes, links, provenanceQuery.data])
+  }, [
+    showConnectionPanel,
+    connectionInspect.pair,
+    nodes,
+    links,
+    provenanceQuery.data,
+  ])
 
   // Release the selection when it can no longer resolve to panel data —
   // otherwise a payload refresh that drops and later re-adds the pair would
@@ -882,7 +976,11 @@ export function ForceGraphView({
   // position and node never desync; a null placement (hover-out, or a node without
   // settled coords) hides the tooltip rather than stranding it at a stale position.
   const handleNodeHover = useCallback((node: RenderNode | null) => {
-    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, node)
+    const placement = nodeTooltipPlacement(
+      graphRef.current,
+      containerRef.current,
+      node
+    )
     if (placement) {
       setTooltipPos(placement)
       setHoveredNode(node)
@@ -905,8 +1003,13 @@ export function ForceGraphView({
   // (ForceGraphView's tooltip is pointer-events-none, so unlike ArtistGraph there's no
   // over-the-tooltip case to guard against re-anchoring out from under.)
   const handleEngineTick = useCallback(() => {
+    nodeOverlaySyncNeededRef.current = true
     if (!hoveredNode) return
-    const placement = nodeTooltipPlacement(graphRef.current, containerRef.current, hoveredNode)
+    const placement = nodeTooltipPlacement(
+      graphRef.current,
+      containerRef.current,
+      hoveredNode
+    )
     if (placement) setTooltipPos(placement)
     else setHoveredNode(null)
   }, [hoveredNode])
@@ -923,7 +1026,10 @@ export function ForceGraphView({
   // source/target into resolved objects in place. (buildAdjacency accepts either shape, but
   // only bare ids occur here; the resolved {id} shape only appears later, in the per-frame
   // linkColor lookups, also via endpointId.)
-  const adjacency = useMemo(() => buildAdjacency(renderData.links), [renderData])
+  const adjacency = useMemo(
+    () => buildAdjacency(renderData.links),
+    [renderData]
+  )
   const focusedIds = useMemo(() => {
     if (hoveredNode == null) return null
     // Drop focus if the hovered node was filtered out (a hidden cluster / edge-type toggle):
@@ -953,7 +1059,8 @@ export function ForceGraphView({
       // needed — and not adding one keeps the reduced-motion pause intact here, avoiding the
       // ArtistGraph/PSY-1226 pause-defeat. (Reduced-motion users get the static snapshot with no
       // hover-focus, consistent with the hover tooltip also being inert while the loop is paused.)
-      ctx.globalAlpha = focusedIds != null && !focusedIds.has(node.id) ? BACKGROUND_ALPHA : 1
+      ctx.globalAlpha =
+        focusedIds != null && !focusedIds.has(node.id) ? BACKGROUND_ALPHA : 1
 
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, Math.PI * 2)
@@ -989,13 +1096,70 @@ export function ForceGraphView({
       // post-frame pass (nodeLabelsFrame) so overlapping labels can be dropped
       // across all nodes at once (PSY-1209).
     },
-    [clustersByID, palette, focusedIds],
+    [clustersByID, palette, focusedIds]
   )
 
   // Degree (link count) per node id → which label wins a collision; isolates
   // (degree 0) lose first. Shared with ArtistGraph via degreeMap so the two
   // surfaces can't drift.
   const degreeById = useMemo(() => degreeMap(renderData.links), [renderData])
+
+  const labelSpecForNode = useCallback(
+    (node: RenderNode, globalScale: number): GraphLabelSpec => {
+      const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+      const labelStyle = nodeLabelStyles.get(node.id)
+      return {
+        x: node.x ?? 0,
+        y: (node.y ?? 0) + radius + 3,
+        text: truncateLabel(node.name),
+        // Curated tier sizes are screen-pixel contracts, so counter-scale
+        // them like the shared default. Collision boxes stay in graph space.
+        fontSize: labelStyle
+          ? labelStyle.fontSize / globalScale
+          : labelFontSize(globalScale),
+        fontWeight: labelStyle?.fontWeight,
+        force: forceNodeLabels || node.id === hoveredNode?.id,
+        priority: degreeById.get(node.id) ?? 0,
+      }
+    },
+    [degreeById, forceNodeLabels, hoveredNode, nodeLabelStyles],
+  )
+
+  const syncNodeOverlayPositions = useCallback(() => {
+    if (nodeOverlays.size === 0) return true
+    const fg = graphRef.current
+    if (!fg) return false
+    const next: NodeOverlayPosition[] = []
+    for (const node of renderData.nodes) {
+      if (!nodeOverlays.has(node.id)) continue
+      if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue
+      const point = fg.graph2ScreenCoords(node.x, node.y)
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue
+      next.push({ id: node.id, x: point.x, y: point.y })
+    }
+    setNodeOverlayPositions(current => {
+      if (
+        current.length === next.length &&
+        current.every(
+          (position, index) =>
+            position.id === next[index].id &&
+            Math.abs(position.x - next[index].x) < 0.5 &&
+            Math.abs(position.y - next[index].y) < 0.5
+        )
+      ) {
+        return current
+      }
+      return next
+    })
+    return true
+  }, [nodeOverlays, renderData.nodes])
+
+  // A settled static graph only needs one overlay measurement. Dynamic graphs
+  // re-arm this flag on the events that can actually move the camera or nodes,
+  // avoiding React state work on every continuously-painted canvas frame.
+  useEffect(() => {
+    nodeOverlaySyncNeededRef.current = true
+  }, [nodeOverlays, renderData.nodes, containerWidth, graphHeight, canvasReady])
 
   // Node labels in one collision-culled post-frame pass (PSY-1209). Labels are
   // kept in degree order and dropped when they'd overlap a higher-priority one;
@@ -1008,34 +1172,35 @@ export function ForceGraphView({
   // there, so a fitted zoom at/below the gate would mean NO visitor could ever
   // see a label ("unlabeled dots at rest"). Collision culling keeps density
   // readable.
-  const nodeLabelsFrame = useCallback(
+  const handleRenderFramePost = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (!staticViewport && globalScale <= LABEL_MIN_SCALE) return
-      const fontSize = labelFontSize(globalScale)
-      const specs: GraphLabelSpec[] = renderData.nodes
-        // Hover-focus (PSY-1225): when focused, label only the foreground set so the
-        // background de-clutters; at rest (focusedIds null) label all, as before. This pass
-        // runs in onRenderFramePost, which does NOT self-trigger a repaint on closure change
-        // (PSY-1209) — but the nodeCanvasObject/linkColor repaint on the same hover redraws
-        // the whole frame, so the new filter is applied without a separate resumeAnimation.
-        .filter(node => focusedIds == null || focusedIds.has(node.id))
-        .map((node) => {
-          const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
-          return {
-            x: node.x ?? 0,
-            y: (node.y ?? 0) + radius + 3,
-            text: truncateLabel(node.name),
-            fontSize,
-            // Always label the hovered node so the node you're pointing at is named even if a
-            // higher-degree neighbor would win the collision cull. Only ever true while
-            // hovering (hoveredNode null at rest), which is exactly when focus is active.
-            force: node.id === hoveredNode?.id,
-            priority: degreeById.get(node.id) ?? 0,
-          }
-        })
-      renderGraphLabels(ctx, palette, specs)
+      if (staticViewport || globalScale > LABEL_MIN_SCALE) {
+        const specs: GraphLabelSpec[] = renderData.nodes
+          // Hover-focus (PSY-1225): when focused, label only the foreground set so the
+          // background de-clutters; at rest (focusedIds null) label all, as before. This pass
+          // runs in onRenderFramePost, which does NOT self-trigger a repaint on closure change
+          // (PSY-1209) — but the nodeCanvasObject/linkColor repaint on the same hover redraws
+          // the whole frame, so the new filter is applied without a separate resumeAnimation.
+          .filter(
+            node =>
+              forceNodeLabels || focusedIds == null || focusedIds.has(node.id),
+          )
+          .map(node => labelSpecForNode(node, globalScale))
+        renderGraphLabels(ctx, palette, specs)
+      }
+      if (nodeOverlaySyncNeededRef.current && syncNodeOverlayPositions()) {
+        nodeOverlaySyncNeededRef.current = false
+      }
     },
-    [renderData, palette, degreeById, focusedIds, hoveredNode, staticViewport],
+    [
+      renderData,
+      palette,
+      focusedIds,
+      staticViewport,
+      forceNodeLabels,
+      labelSpecForNode,
+      syncNodeOverlayPositions,
+    ]
   )
 
   // Convex hulls behind each cluster — drawn under the edges via
@@ -1046,15 +1211,18 @@ export function ForceGraphView({
       // Only draw the hull layer once per render pass — gate on the first
       // link so we don't repaint it for every link.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((ctx as any).__forceGraphHullPainted) return
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((ctx as any).__forceGraphHullPainted)
+        return // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(ctx as any).__forceGraphHullPainted = true
 
       if (globalScale >= HULL_FADE_END) return
 
       const fadeT = Math.max(
         0,
-        Math.min(1, (HULL_FADE_END - globalScale) / (HULL_FADE_END - HULL_FADE_START)),
+        Math.min(
+          1,
+          (HULL_FADE_END - globalScale) / (HULL_FADE_END - HULL_FADE_START)
+        )
       )
       // Hover-focus (PSY-1225): when a node is focused, fade the cluster hulls down with the
       // rest of the background (same BACKGROUND_ALPHA factor the nodes/links use). Without
@@ -1063,7 +1231,8 @@ export function ForceGraphView({
       // neighborhood (worst in light mode). At rest (no focus) hulls keep their normal
       // zoom-faded alpha. The hovered node's own cluster fades too: the tooltip already names
       // the cluster, and keeping one hull lit would re-introduce a competing bright wash.
-      const alpha = HULL_FILL_ALPHA_MAX * fadeT * (focusedIds ? BACKGROUND_ALPHA : 1)
+      const alpha =
+        HULL_FILL_ALPHA_MAX * fadeT * (focusedIds ? BACKGROUND_ALPHA : 1)
 
       // Group node positions by cluster (skip isolates and "other" — neither
       // wants a region indicator).
@@ -1103,17 +1272,14 @@ export function ForceGraphView({
         }
       }
     },
-    [renderData.nodes, clustersByID, palette, focusedIds],
+    [renderData.nodes, clustersByID, palette, focusedIds]
   )
 
   // Reset the per-frame hull-painted flag at the start of each render pass.
-  const handleRenderFramePre = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(ctx as any).__forceGraphHullPainted = false
-    },
-    [],
-  )
+  const handleRenderFramePre = useCallback((ctx: CanvasRenderingContext2D) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(ctx as any).__forceGraphHullPainted = false
+  }, [])
 
   // ── PSY-1083: typed-edge grammar ──
   // Links that carry a `type` speak the shared grammar (per-type color,
@@ -1128,10 +1294,13 @@ export function ForceGraphView({
       // can't touch, so they fade via an explicit low-alpha grey using BACKGROUND_ALPHA.
       if (focusedIds) {
         const foreground =
-          focusedIds.has(endpointId(link.source)) && focusedIds.has(endpointId(link.target))
+          focusedIds.has(endpointId(link.source)) &&
+          focusedIds.has(endpointId(link.target))
         if (!link.type) {
           // Foreground untyped → the resting intra grey (its "full"); background → faded.
-          return foreground ? 'rgba(148, 163, 184, 0.6)' : `rgba(148, 163, 184, ${BACKGROUND_ALPHA})`
+          return foreground
+            ? 'rgba(148, 163, 184, 0.6)'
+            : `rgba(148, 163, 184, ${BACKGROUND_ALPHA})`
         }
         const color = palette.edges[link.type] ?? palette.unknownEdge
         return foreground ? color : withHexAlpha(color, BACKGROUND_ALPHA_HEX)
@@ -1147,7 +1316,7 @@ export function ForceGraphView({
       // applies to its cross-connections.
       return link.is_cross_cluster ? withHexAlpha(color, '66') : color
     },
-    [palette, focusedIds],
+    [palette, focusedIds]
   )
 
   const linkWidth = useCallback((link: RenderLink) => {
@@ -1157,13 +1326,16 @@ export function ForceGraphView({
 
   // force-graph's native linkLineDash (PSY-1079 spike: cheap, no custom
   // canvas renderer needed). edgeLineDash('') returns [] = solid.
-  const linkLineDash = useCallback((link: RenderLink) => edgeLineDash(link.type), [])
+  const linkLineDash = useCallback(
+    (link: RenderLink) => edgeLineDash(link.type),
+    []
+  )
 
   // PSY-362-style hover tooltip on typed edges, surfacing the raw signal
   // behind the connection. Untyped links get no tooltip.
   const linkLabel = useCallback(
     (link: RenderLink) => (link.type ? buildLinkLabel(link) : ''),
-    [],
+    []
   )
 
   // Self-heal a stranded solo (code-review finding): if the soloed type's
@@ -1204,23 +1376,49 @@ export function ForceGraphView({
         // for "unfix this node"). The lib's `GraphData` types
         // model these as `number | undefined`, so we cast through
         // the prop boundary. Runtime behaviour is unchanged.
-        graphData={engineData as unknown as React.ComponentProps<typeof ForceGraph2D>['graphData']}
+        graphData={
+          engineData as unknown as React.ComponentProps<
+            typeof ForceGraph2D
+          >['graphData']
+        }
         width={containerWidth}
         height={graphHeight}
         nodeId="id"
         nodeCanvasObject={nodeCanvasObject}
-        nodePointerAreaPaint={(node: RenderNode, color: string, ctx: CanvasRenderingContext2D) => {
+        nodePointerAreaPaint={(
+          node: RenderNode,
+          color: string,
+          ctx: CanvasRenderingContext2D
+        ) => {
           ctx.beginPath()
-          ctx.arc(node.x ?? 0, node.y ?? 0, node.is_isolate ? 8 : 11, 0, Math.PI * 2)
+          ctx.arc(
+            node.x ?? 0,
+            node.y ?? 0,
+            node.is_isolate ? 8 : 11,
+            0,
+            Math.PI * 2
+          )
           ctx.fillStyle = color
           ctx.fill()
+
+          const globalScale = graphRef.current?.zoom?.() ?? 1
+          if (forceNodeLabels && (staticViewport || globalScale > LABEL_MIN_SCALE)) {
+            paintGraphLabelPointerArea(
+              ctx,
+              labelSpecForNode(node, globalScale),
+              color,
+            )
+          }
         }}
         onNodeClick={handleNodeClickInternal}
         onNodeHover={handleNodeHover}
         // Wheel-zoom moves the node under a stationary pointer without re-firing
         // onNodeHover, stranding the tooltip at a stale screen position — dismiss
         // it on zoom (re-hover re-anchors it). Matches ArtistGraph (PSY-1217).
-        onZoom={() => setHoveredNode(null)}
+        onZoom={() => {
+          setHoveredNode(null)
+          nodeOverlaySyncNeededRef.current = true
+        }}
         // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled by
         // default (staticViewport embeds disable it, PSY-1344).
         // Dragging a node moves it without re-firing onNodeHover (the same node
@@ -1232,9 +1430,13 @@ export function ForceGraphView({
         // so concurrent drags of different nodes track independently.
         onNodeDrag={(node: RenderNode) => {
           setHoveredNode(null)
-          setDraggingNodeIds(prev => (prev.has(node.id) ? prev : new Set(prev).add(node.id)))
+          nodeOverlaySyncNeededRef.current = true
+          setDraggingNodeIds(prev =>
+            prev.has(node.id) ? prev : new Set(prev).add(node.id)
+          )
         }}
         onNodeDragEnd={(node: RenderNode) => {
+          nodeOverlaySyncNeededRef.current = true
           setDraggingNodeIds(prev => {
             if (!prev.has(node.id)) return prev
             const next = new Set(prev)
@@ -1263,7 +1465,7 @@ export function ForceGraphView({
         linkCanvasObjectMode={() => 'before'}
         linkCanvasObject={drawHulls}
         onRenderFramePre={handleRenderFramePre}
-        onRenderFramePost={nodeLabelsFrame}
+        onRenderFramePost={handleRenderFramePost}
         // PSY-1220: keep the open tooltip pinned to its node as the node drifts during settle.
         onEngineTick={handleEngineTick}
         // PSY-1321: one-shot initial frame once the layout settles (see needsFitRef).
@@ -1294,6 +1496,54 @@ export function ForceGraphView({
         enableNodeDrag={!staticViewport}
         backgroundColor="transparent"
       />
+
+      {nodeOverlayPositions.map(position => {
+        const placeLeft = position.x < containerWidth / 2
+        const x =
+          nodeOverlayPlacement === 'outward'
+            ? Math.min(
+                Math.max(position.x, nodeOverlayOutwardClearance),
+                containerWidth - nodeOverlayOutwardClearance,
+              )
+            : position.x
+        return (
+          <div
+            key={position.id}
+            className="pointer-events-none absolute z-30"
+            style={{
+              left: x,
+              top: position.y,
+              transform:
+                nodeOverlayPlacement === 'outward'
+                  ? placeLeft
+                    ? 'translate(calc(-100% - 12px), -50%)'
+                    : 'translate(12px, -50%)'
+                  : 'translate(-50%, calc(-100% - 12px))',
+            }}
+          >
+            {nodeOverlays.get(position.id)}
+          </div>
+        )
+      })}
+
+      {showAccessibleNodeControls && (
+        <ul
+          className="pointer-events-none absolute bottom-2 left-2 z-50 flex max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-wrap gap-1 overflow-auto rounded-md border border-border bg-background/95 p-2 opacity-0 shadow-lg transition-opacity focus-within:pointer-events-auto focus-within:opacity-100"
+          aria-label="Artists in this graph"
+        >
+          {renderData.nodes.map(node => (
+            <li key={node.id}>
+              <button
+                type="button"
+                className="rounded-sm px-2 py-1 text-xs text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => handleNodeClickInternal(node)}
+              >
+                {node.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* PSY-1083: interactive edge legend — per-type swatch, live count,
           show/hide toggle. Only for surfaces that opt in, and only when the
@@ -1341,7 +1591,8 @@ export function ForceGraphView({
             if (!cluster) return null
             return (
               <div className="text-muted-foreground mt-0.5">
-                Cluster: <span className="text-foreground">{cluster.label}</span>
+                Cluster:{' '}
+                <span className="text-foreground">{cluster.label}</span>
               </div>
             )
           })()}

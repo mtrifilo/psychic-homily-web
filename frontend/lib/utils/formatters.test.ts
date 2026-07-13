@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   formatShowDate,
+  formatShowWeekday,
   formatShowTime,
   formatPrice,
   formatContentDate,
@@ -47,6 +48,11 @@ vi.mock('./timeUtils', () => ({
       hour12: true,
       timeZone: tz,
     }),
+  formatInTimezone: (
+    dateStr: string,
+    tz: string,
+    options: Intl.DateTimeFormatOptions,
+  ) => new Intl.DateTimeFormat('en-US', { ...options, timeZone: tz }).format(new Date(dateStr)),
 }))
 
 describe('formatShowDate', () => {
@@ -109,6 +115,11 @@ describe('venue timezone preference (PSY-986)', () => {
     // Phoenix → Mar 14; New York → Mar 15. The venue tz (Phoenix) must win.
     expect(formatShowDate(boundaryUtc, 'NY', false, 'America/Phoenix')).toContain('14')
     expect(formatShowDate(boundaryUtc, 'NY')).toContain('15')
+  })
+
+  it('formatShowWeekday returns only the venue-local weekday', () => {
+    expect(formatShowWeekday(boundaryUtc, 'NY', 'America/Phoenix')).toBe('Sat')
+    expect(formatShowWeekday(boundaryUtc, 'NY')).toBe('Sun')
   })
 
   it('falls back to the state map when no venue timezone is given', () => {

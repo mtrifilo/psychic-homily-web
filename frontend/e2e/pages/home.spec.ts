@@ -74,9 +74,9 @@ test.describe('Homepage', () => {
       page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
-    // Scene-graph section (PSY-1344). Lazy-mounted on scroll intent, and the
-    // heading names whichever seeded scene is liveliest — assert the stable
-    // "… music graph" suffix (PSY-1358 copy). The e2e seed carries a metro'd
+    // Scene-graph section (PSY-1344/1450). Lazy-mounted on scroll intent, and
+    // the heading names whichever seeded scene is liveliest — assert the
+    // show-anchored suffix. The e2e seed carries a metro'd
     // Phoenix scene (PSY-1319), so the section must not self-hide. Scroll
     // deterministically to the section BELOW it (radio renders immediately)
     // rather than a magic wheel delta, so content growth can't strand the
@@ -85,10 +85,10 @@ test.describe('Homepage', () => {
       .getByRole('heading', { name: /latest radio shows/i })
       .scrollIntoViewIfNeeded()
     await expect(
-      page.getByRole('heading', { name: /music graph$/i })
+      page.getByRole('heading', { name: /, this week$/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
-      page.getByRole('link', { name: /explore the full graph/i })
+      page.getByRole('link', { name: /open the graph/i })
     ).toBeVisible()
     // The graph area must settle to a real state — canvas (aria-label) or
     // the honest empty-roster fallback — and never the error card. This
@@ -96,11 +96,16 @@ test.describe('Homepage', () => {
     // which the heading/CTA assertions alone would miss. (The seed stamps
     // venue metros but not artist home metros, so an empty based-here
     // roster is a legitimate settled state here.)
-    await expect(
-      page
-        .getByLabel(/knowledge graph of the .* scene/i)
-        .or(page.getByText(/not enough connected artists/i))
-    ).toBeVisible({ timeout: 15_000 })
+    const graph = page.getByLabel(/knowledge graph of the .* scene/i)
+    const emptyGraph = page.getByText(/not enough connected artists/i)
+    await expect(graph.or(emptyGraph)).toBeVisible({ timeout: 15_000 })
+    // Count copy is truthful only when a settled canvas roster exists; the
+    // fallback deliberately carries no synthetic "0 artists" caption.
+    const graphCaption = page.getByText(
+      /most connected artists playing or tied to .* this month/i
+    )
+    if (await graph.isVisible()) await expect(graphCaption).toBeVisible()
+    else await expect(graphCaption).toHaveCount(0)
     await expect(page.getByText(/the graph couldn’t load/i)).toHaveCount(0)
 
     // Latest radio shows section + station cards deep-linking to their /radio

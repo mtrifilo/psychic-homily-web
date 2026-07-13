@@ -91,6 +91,12 @@ describe('ArtistContextPanel', () => {
     const embed = screen.getByTestId('music-embed')
     expect(embed).toHaveAttribute('data-bandcamp', 'https://lightningbolt.bandcamp.com/album/wonderful-rainbow')
     expect(embed).toHaveAttribute('data-artist', 'Lightning Bolt')
+    expect(
+      screen
+        .getByText('Listen')
+        .compareDocumentPosition(screen.getByText('Next show')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 
   it('falls back to the Spotify URL when there is no Bandcamp embed (PSY-1302)', () => {

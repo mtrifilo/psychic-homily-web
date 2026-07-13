@@ -5,6 +5,8 @@
  * from backend/internal/services/catalog/scene_service.go
  */
 
+import type { ArtistGraphCardShow } from '@/features/artists/types'
+
 export interface SceneListItem {
   city: string
   state: string
@@ -163,6 +165,8 @@ export interface SceneGraphNode {
   cluster_id: string
   /** True when the artist has zero in-scene edges (post type-filter). */
   is_isolate: boolean
+  /** Soonest upcoming approved show; omitted when upcoming_show_count is 0. */
+  next_show?: ArtistGraphCardShow
   /** True when selecting this node opens a playable embed (Bandcamp or an
    * embeddable Spotify URL) — drives the canvas playable-marker ring (PSY-1379). */
   has_playable_audio: boolean
