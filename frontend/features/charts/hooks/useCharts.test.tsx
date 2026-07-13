@@ -18,6 +18,7 @@ import {
   useNewReleases,
   useOnTheRadio,
   useOpenersToWatch,
+  usePersonalChartsStats,
 } from './useCharts'
 
 describe('chart hooks', () => {
@@ -143,5 +144,33 @@ describe('chart hooks', () => {
       expect.stringMatching(/\/charts\/scenes\?window=month$/),
       { method: 'GET' }
     )
+  })
+
+  it('fetches personal stats only after the authenticated user resolves', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      saved_shows: 12,
+      artists_followed: 34,
+      top_venue: null,
+      first_activity_at: '2026-03-12T00:00:00Z',
+    })
+    const { result } = renderHook(() => usePersonalChartsStats('42', true), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringMatching(/\/charts\/me$/),
+      { method: 'GET' }
+    )
+  })
+
+  it('does not request personal stats for an anonymous visitor', () => {
+    const { result } = renderHook(
+      () => usePersonalChartsStats(undefined, false),
+      { wrapper: createWrapper() }
+    )
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 })

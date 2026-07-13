@@ -628,6 +628,11 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate follow queries
   follows: () => queryClient.invalidateQueries({ queryKey: ['follows'] }),
 
+  // Invalidate the authenticated user's /charts summary after a contributing
+  // save/follow mutation. Public chart modules use sibling keys and stay cached.
+  personalCharts: () =>
+    queryClient.invalidateQueries({ queryKey: chartQueryKeys.personalRoot }),
+
   // Invalidate scene queries
   scenes: () => queryClient.invalidateQueries({ queryKey: ['scenes'] }),
 

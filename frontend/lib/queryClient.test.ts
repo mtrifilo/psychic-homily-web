@@ -176,6 +176,20 @@ describe('queryClient module', () => {
       })
     })
 
+    it('creates an invalidate helper for personal charts', async () => {
+      const { createInvalidateQueries } = await import('./queryClient')
+      const mockQueryClient = {
+        invalidateQueries: vi.fn(),
+      } as unknown as QueryClient
+
+      const helpers = createInvalidateQueries(mockQueryClient)
+      helpers.personalCharts()
+
+      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['charts', 'personal'],
+      })
+    })
+
     it('creates invalidate helpers for mySubmissions', async () => {
       const { createInvalidateQueries } = await import('./queryClient')
       const mockQueryClient = {

@@ -8,4 +8,5 @@ export {
   useChartsSummary,
   useFreshlyAdded,
   useChartScenes,
+  usePersonalChartsStats,
 } from './useCharts'

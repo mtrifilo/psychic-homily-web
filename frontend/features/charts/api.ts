@@ -11,6 +11,7 @@ export const chartEndpoints = {
   SUMMARY: `${API_BASE_URL}/charts/summary`,
   FRESHLY_ADDED: `${API_BASE_URL}/charts/freshly-added`,
   SCENES: `${API_BASE_URL}/charts/scenes`,
+  PERSONAL: `${API_BASE_URL}/charts/me`,
 } as const
 
 export const chartQueryKeys = {
@@ -32,4 +33,10 @@ export const chartQueryKeys = {
   freshlyAdded: (scene: string, limit: number) =>
     ['charts', 'freshly-added', scene, limit] as const,
   scenes: (window: ChartWindow) => ['charts', 'scenes', window] as const,
+  personalRoot: ['charts', 'personal'] as const,
+  personal: (userId?: string | number) =>
+    [
+      ...chartQueryKeys.personalRoot,
+      userId == null ? null : String(userId),
+    ] as const,
 } as const

@@ -31,13 +31,7 @@ interface UseSavedShowsOptions {
  * Requires authentication
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
-  const {
-    limit = 50,
-    offset = 0,
-    enabled = true,
-    userId,
-    timeFilter,
-  } = options
+  const { limit = 50, offset = 0, enabled = true, userId, timeFilter } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -187,6 +181,7 @@ export const useSaveShow = () => {
     onSuccess: () => {
       // Re-sync the user's list and every cached save count from the server.
       invalidateQueries.savedShows()
+      invalidateQueries.personalCharts()
     },
   })
 }
@@ -217,6 +212,7 @@ export const useUnsaveShow = ({
       )
     },
     onSuccess: (_, showId) => {
+      invalidateQueries.personalCharts()
       if (syncMode === 'invalidate') {
         // Re-sync the user's list and every cached save count from the server.
         invalidateQueries.savedShows()

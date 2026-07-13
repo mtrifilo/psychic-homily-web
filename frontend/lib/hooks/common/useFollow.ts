@@ -159,6 +159,9 @@ export const useFollow = () => {
         }
       }
     },
+    onSuccess: (_data, { entityType }) => {
+      if (entityType === 'artists') invalidateQueries.personalCharts()
+    },
     onSettled: (_data, _error, { entityType, entityId }) => {
       // Refetch to ensure consistency
       queryClient.invalidateQueries({
@@ -252,6 +255,9 @@ export const useUnfollow = () => {
           )
         }
       }
+    },
+    onSuccess: (_data, { entityType }) => {
+      if (entityType === 'artists') invalidateQueries.personalCharts()
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       queryClient.invalidateQueries({
