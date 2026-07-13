@@ -29,8 +29,7 @@ const DISCOVER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: '/artists', label: 'Artists' },
   { href: '/radio', label: 'Freeform Radio' },
   { href: '/labels', label: 'Record Labels' },
-  // The "/explore — and more" entry is hidden until the Observatory rebuild
-  // ships (PSY-1337).
+  { href: '/graph', label: 'Graph Observatory' },
 ]
 
 export function HomeHero() {

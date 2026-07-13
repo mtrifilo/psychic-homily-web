@@ -106,8 +106,7 @@ describe('TopBar', () => {
     it('renders the explicit links (incl. Radio, PSY-1057) + the two menus', () => {
       render(<TopBar />)
       expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
-      // Explore is hidden until the Observatory rebuild ships (PSY-1337).
-      expect(screen.queryByRole('link', { name: 'Explore' })).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute('href', '/graph')
       expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
       expect(screen.getByRole('button', { name: 'Browse the catalog' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Contribute' })).toBeInTheDocument()
@@ -116,7 +115,7 @@ describe('TopBar', () => {
     it('omits the primary nav in the slim (side-nav) variant — nav lives in the sidebar', () => {
       render(<TopBar variant="slim" />)
       expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'Explore' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Graph' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Browse the catalog' })).not.toBeInTheDocument()
       // Brand + search stay in the slim bar.
       expect(screen.getByRole('link', { name: 'Psychic Homily — home' })).toBeInTheDocument()

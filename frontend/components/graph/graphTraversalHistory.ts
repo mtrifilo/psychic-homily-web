@@ -1,5 +1,5 @@
 /**
- * PSY-361: Traversal history for the click-to-re-center artist graph.
+ * PSY-361: Shared traversal history for click-to-re-center graph surfaces.
  *
  * Tracks the breadcrumb of *prior* centers as the user clicks through the
  * graph. Pure logic, no React — easy to unit-test.

@@ -26,7 +26,7 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
-import type { ArtistGraph as ArtistGraphData } from '../types'
+import type { ArtistGraph as ArtistGraphData, ArtistGraphNode } from '../types'
 
 // Ego-dialog chunk-loading state: the shared GraphSkeleton primitive (PSY-1359)
 // with a visible spinner + label as `children` — in a modal an announced
@@ -71,13 +71,12 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 // fields are absent on the data we hand in and only appear once the simulation
 // ticks, so they're declared optional here rather than cast to `any` at each
 // read/write site. See d3-force's `simulation.nodes()` contract.
-interface GraphNode {
-  id: number
-  name: string
-  slug: string
-  city?: string
-  state?: string
-  upcoming_show_count: number
+export type ArtistGraphSelection = Pick<
+  ArtistGraphNode,
+  'id' | 'name' | 'slug' | 'city' | 'state' | 'upcoming_show_count'
+>
+
+interface GraphNode extends ArtistGraphSelection {
   isCenter: boolean
   val: number // node size
   // Simulation-runtime fields (mutated in place by d3-force):
@@ -103,7 +102,7 @@ interface GraphLink {
   isCrossConnection: boolean
 }
 
-interface ArtistGraphProps {
+interface ArtistGraphBaseProps {
   data: ArtistGraphData
   activeTypes: Set<string>
   containerWidth: number
@@ -113,14 +112,10 @@ interface ArtistGraphProps {
    * owns the traversal state + URL sync; this component just emits the request.
    */
   onRecenter?: (node: { id: number; slug: string; name: string }) => void
-  /**
-   * PSY-1259: Expand-on-demand handler. Fired when the user clicks a non-center
-   * node (the new primary gesture). The parent fetches that node's neighbors and
-   * merges them into the graph — or, if the node is already expanded, collapses
-   * it. ArtistGraph stays dumb about which: it just emits the click and renders
-   * `expandedIds`/`expandingIds` state the parent passes back.
-   */
-  onExpand?: (node: { id: number; slug: string; name: string }) => void
+  /** Called after the graph dismisses its own connection inspector. */
+  onBackgroundClick?: () => void
+  /** Hide the static edge legend when a tool surface owns that corner. */
+  showLegend?: boolean
   /**
    * PSY-1259: Shortest-path hop distance per node id (center = 0, its neighbors =
    * 1, …). Drives the concentric-ring radial layout — each ring is one hop out.
@@ -150,6 +145,8 @@ interface ArtistGraphProps {
    * as aria-describedby so assistive tech links the two.
    */
   canvasDescribedById?: string
+  /** Override the default artist-detail canvas label for standalone tools. */
+  canvasAriaLabel?: string
   /**
    * PSY-361: When true, an overlay spinner is shown over the graph while
    * the parent fetches the new center's payload. We deliberately do NOT
@@ -159,6 +156,20 @@ interface ArtistGraphProps {
    */
   isRecentering?: boolean
 }
+
+type ArtistGraphInteraction =
+  | {
+      /** Tool surfaces select a node for context without expanding it. */
+      onSelect: (node: ArtistGraphSelection) => void
+      onExpand?: never
+    }
+  | {
+      /** Artist dialogs expand or collapse a node's neighborhood on click. */
+      onExpand?: (node: { id: number; slug: string; name: string }) => void
+      onSelect?: never
+    }
+
+type ArtistGraphProps = ArtistGraphBaseProps & ArtistGraphInteraction
 
 // PSY-361: Hover/long-press tooltip for non-center nodes. Extracted as its
 // own component so the "View artist page →" link can be unit-tested
@@ -310,12 +321,16 @@ export function ArtistGraphVisualization({
   containerWidth,
   onRecenter,
   onExpand,
+  onSelect,
+  onBackgroundClick,
+  showLegend = true,
   hopByNodeId,
   expandedIds,
   expandingIds,
   doiByNodeId,
   suggestedIds,
   canvasDescribedById,
+  canvasAriaLabel,
   isRecentering = false,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -515,7 +530,8 @@ export function ArtistGraphVisualization({
       canvas.setAttribute('role', 'img')
       canvas.setAttribute(
         'aria-label',
-        `Artist relationship graph for ${data.center.name}. Use the Related Artists list below to navigate.`
+        canvasAriaLabel ??
+          `Artist relationship graph for ${data.center.name}. Use the Related Artists list below to navigate.`
       )
       // PSY-1304: link the canvas to the sr-only note that names the accessible
       // connections list as its keyboard/screen-reader equivalent.
@@ -542,7 +558,7 @@ export function ArtistGraphVisualization({
     })
     observer.observe(container, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [data.center.name, canvasDescribedById])
+  }, [data.center.name, canvasDescribedById, canvasAriaLabel])
 
   // Reduced-motion: pause the continuous force simulation after the
   // initial layout settles so motion-sensitive users get a static
@@ -615,19 +631,24 @@ export function ArtistGraphVisualization({
   // PSY-1259: clicking a non-center node EXPANDS it (fetch + merge its neighbors) — or
   // collapses it if already expanded; the parent decides which from expandedIds. Re-center
   // moved to the tooltip's "Center on this artist" action; "View artist page →" is the nav
-  // escape. Clicking the center is a no-op (it's the ego anchor, already "expanded").
+  // escape. Tool surfaces can opt into selection mode instead: every node opens
+  // the caller-owned context panel, including the center.
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
       // Node click shifts attention to the node (expand/collapse) — close an
       // open connection panel so a stale pair card doesn't linger (PSY-1334).
       connectionInspect.close()
+      if (onSelect) {
+        onSelect(node)
+        return
+      }
       if (node.isCenter) return
       onExpand?.({ id: node.id, slug: node.slug, name: node.name })
     },
     // The hook's return is useMemo'd (identity tracks `pair` only), so this
     // dep is stable across hover-driven re-renders; the React Compiler
     // requires the whole object, not `.close`.
-    [onExpand, connectionInspect]
+    [onExpand, onSelect, connectionInspect]
   )
 
   // PSY-1334: edge click opens the ConnectionPanel for that pair. Same
@@ -1024,8 +1045,12 @@ export function ArtistGraphVisualization({
         // precision), so 8 is the actual widening for ~1px strokes.
         linkHoverPrecision={8}
         onLinkClick={handleLinkClick}
-        // Background click closes the inspect panel (no-op when closed).
-        onBackgroundClick={connectionInspect.close}
+        // Background click closes both the built-in connection inspector and
+        // any caller-owned node inspector.
+        onBackgroundClick={() => {
+          connectionInspect.close()
+          onBackgroundClick?.()
+        }}
         linkDirectionalParticles={0}
         cooldownTicks={100}
         d3AlphaDecay={0.04}
@@ -1082,12 +1107,14 @@ export function ArtistGraphVisualization({
           The PSY-1334 solo affordance is deliberately NOT wired here: the
           pill row is this surface's single filter owner, and a legend solo
           would create a second, competing one. */}
-      <EdgeLegend
-        className="absolute top-2 right-2"
-        types={Array.from(activeTypes)}
-        counts={legendDisclosure.counts}
-        footnote={legendDisclosure.footnote}
-      />
+      {showLegend && (
+        <EdgeLegend
+          className="absolute top-2 right-2"
+          types={Array.from(activeTypes)}
+          counts={legendDisclosure.counts}
+          footnote={legendDisclosure.footnote}
+        />
+      )}
 
       {/* PSY-1334: click-to-inspect connection panel — same shared component
           the ForceGraphView surfaces mount, so the ego graph's "why

@@ -22,7 +22,7 @@ import { isNavActive } from './navData'
 // loaded only when an admin opens the drawer on /admin — off the public bundle.
 const AdminDrawerNav = dynamic(() => import('../AdminDrawerNav'), { ssr: false })
 
-// The hamburger sheet for small/tablet screens (below `lg`). This is the
+// The hamburger sheet for small/tablet screens (below `xl`). This is the
 // previous TopBar drawer, preserved verbatim — it still drives the long-tail nav
 // while the desktop top bar is condensed. PSY-1020 replaces it with the Option-A
 // bottom tab bar; until then it keeps the full `sidebarGroups` reachable on
@@ -44,7 +44,7 @@ export function MobileNav() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild className="lg:hidden">
+      <SheetTrigger asChild className="xl:hidden">
         <Button variant="ghost" size="icon" aria-label="Open menu">
           <Menu className="size-5" />
         </Button>

@@ -55,7 +55,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
 
       <header className="sticky top-0 z-50 flex h-[var(--topbar-height)] w-full items-center justify-between border-b border-border/50 bg-background/95 px-4 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 sm:px-6">
         {/* Left: mobile hamburger + brand + primary nav */}
-        <div className="flex items-center gap-3 lg:gap-[30px]">
+        <div className="flex items-center gap-3 xl:gap-[30px]">
           <div className="flex items-center gap-3">
             <MobileNav />
             <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">

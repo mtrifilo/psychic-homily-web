@@ -20,6 +20,7 @@
  * (auto-escaped); slugs are encodeURIComponent-pinned to one path segment.
  */
 
+import type { Ref } from 'react'
 import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
@@ -38,8 +39,12 @@ export interface ArtistContextPanelProps {
   card: ArtistGraphCard | undefined
   /** True when the card fetch failed — the panel degrades to name + link. */
   isError?: boolean
+  /** Optional graph-tool action that re-roots the graph on this artist. */
+  onCenter?: () => void
   onClose: () => void
   className?: string
+  /** Optional focus target for list-driven graph inspectors. */
+  panelRef?: Ref<HTMLElement>
 }
 
 /** Mono-caps field label, matching the mock's NEXT SHOW / LABEL rows. */
@@ -60,8 +65,10 @@ export function ArtistContextPanel({
   artistSlug,
   card,
   isError = false,
+  onCenter,
   onClose,
   className,
+  panelRef,
 }: ArtistContextPanelProps) {
   // Esc closes via GraphPanelShell's DismissableLayer, coordinated innermost-first
   // against every other Radix layer (sibling panel, ⌘K palette, enclosing dialog)
@@ -93,6 +100,7 @@ export function ArtistContextPanel({
       ariaLabel={`About ${artistName}`}
       closeLabel={`Close details for ${artistName}`}
       onClose={onClose}
+      panelRef={panelRef}
       className={cn('max-h-[85%] p-4 space-y-2.5', className)}
       header={
         <div className="space-y-0.5">
@@ -205,15 +213,26 @@ export function ArtistContextPanel({
         </div>
       )}
 
-      <Link
-        // Always rendered — the node's slug keeps navigation available even
-        // while the card loads or after a failed fetch (the panel replaced
-        // click-to-navigate, so it must never strand the user pathless).
-        href={`/artists/${encodeURIComponent(card?.slug ?? artistSlug)}`}
-        className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
-      >
-        [ Open page → ]
-      </Link>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {onCenter && (
+          <button
+            type="button"
+            onClick={onCenter}
+            className="font-mono text-[11px] text-primary hover:underline underline-offset-4"
+          >
+            [ Center here ⌾ ]
+          </button>
+        )}
+        <Link
+          // Always rendered — the node's slug keeps navigation available even
+          // while the card loads or after a failed fetch (the panel replaced
+          // click-to-navigate, so it must never strand the user pathless).
+          href={`/artists/${encodeURIComponent(card?.slug ?? artistSlug)}`}
+          className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
+        >
+          [ Open page → ]
+        </Link>
+      </div>
     </GraphPanelShell>
   )
 }

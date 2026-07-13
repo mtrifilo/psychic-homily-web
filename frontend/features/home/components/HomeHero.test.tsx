@@ -56,7 +56,7 @@ describe('HomeHero', () => {
       ['Artists', '/artists'],
       ['Freeform Radio', '/radio'],
       ['Record Labels', '/labels'],
-      // '/explore — and more' hidden until the Observatory ships (PSY-1337).
+      ['Graph Observatory', '/graph'],
     ]
     for (const [label, href] of expected) {
       expect(screen.getByRole('link', { name: label })).toHaveAttribute(

@@ -347,7 +347,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(browse.getAttribute('href')).toBe('/shows')
 
       const graph = screen.getByRole('link', { name: 'explore the graph' })
-      expect(graph.getAttribute('href')).toBe('/explore')
+      expect(graph.getAttribute('href')).toBe('/graph')
       const atlas = screen.getByRole('link', { name: 'the atlas' })
       expect(atlas.getAttribute('href')).toBe('/atlas')
     })

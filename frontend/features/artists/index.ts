@@ -52,11 +52,13 @@ export {
 
 export {
   useArtistGraph,
+  useFetchArtistGraph,
   useArtistRelationshipVote,
   useCreateArtistRelationship,
 } from './hooks'
 
 export { useReducedMotion } from './hooks'
+export { useArtistGraphCard } from './hooks'
 
 // Components
 // NOTE: ArtistDetail is intentionally omitted (PSY-950). The route page imports it
@@ -75,3 +77,5 @@ export {
   ReportArtistButton,
   ReportArtistDialog,
 } from './components'
+
+export type { ArtistGraphSelection } from './components'
