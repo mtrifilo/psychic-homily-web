@@ -25,7 +25,6 @@ import {
 } from '@/features/shows'
 import type { SavedShowResponse, ShowResponse } from '@/features/shows'
 import {
-  getReleaseTypeLabel,
   useSavedReleases,
   type SavedReleaseResponse,
 } from '@/features/releases'
@@ -445,49 +444,65 @@ function ShowsTab({ currentUserId }: { currentUserId?: number }) {
 // ---------------------------------------------------------------------------
 
 function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
+  const hasArtists = release.artists.length > 0
+
   return (
-    <article className="-mx-3 flex items-start justify-between gap-3 rounded-lg border-b border-border/50 px-3 py-4 transition-colors duration-200 hover:bg-muted/30">
-      <div className="min-w-0 flex-1">
-        <Link
-          href={`/releases/${release.slug || release.id}`}
-          className="font-semibold leading-tight transition-colors hover:text-primary"
-        >
-          {release.title}
-        </Link>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {release.artists.map((artist, index) => (
-            <span key={artist.id}>
-              {index > 0 ? ' · ' : null}
-              <Link
-                href={`/artists/${artist.slug || artist.id}`}
-                className="transition-colors hover:text-primary"
-              >
-                {artist.name}
-              </Link>
-            </span>
-          ))}
-          {release.artists.length > 0 && release.label_name ? ' · ' : null}
-          {release.label_name && release.label_slug ? (
-            <Link
-              href={`/labels/${release.label_slug}`}
-              className="transition-colors hover:text-primary"
-            >
-              {release.label_name}
-            </Link>
-          ) : (
-            release.label_name
-          )}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        <span className="hidden text-xs uppercase tracking-wide text-muted-foreground sm:inline">
-          {getReleaseTypeLabel(release.release_type)}
-        </span>
-        <ReleaseSaveButton
-          releaseId={release.id}
-          saveData={{ save_count: 0, is_saved: true }}
-          variant="bracket"
-        />
+    <article className="border-b border-border py-3 first:border-t">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <Link
+            href={`/releases/${release.slug || release.id}`}
+            className="block truncate text-[15px] font-medium leading-tight transition-colors hover:text-primary"
+          >
+            {release.title}
+          </Link>
+          <div className="mt-1 flex min-w-0 flex-wrap items-baseline text-[13px] text-muted-foreground">
+            {release.artists.map((artist, index) => (
+              <span key={artist.id}>
+                {index > 0 ? ' · ' : null}
+                <Link
+                  href={`/artists/${artist.slug || artist.id}`}
+                  className="text-primary transition-colors hover:text-primary/80"
+                >
+                  {artist.name}
+                </Link>
+              </span>
+            ))}
+            {release.release_year != null ? (
+              <span>
+                {hasArtists ? ' · ' : null}
+                {release.release_year}
+              </span>
+            ) : null}
+            {release.label_name ? (
+              <span>
+                {hasArtists || release.release_year != null ? ' · ' : null}
+                {release.label_slug ? (
+                  <Link
+                    href={`/labels/${release.label_slug}`}
+                    className="transition-colors hover:text-foreground"
+                  >
+                    {release.label_name}
+                  </Link>
+                ) : (
+                  release.label_name
+                )}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <span className="whitespace-nowrap">
+            saved {formatRelativeTime(release.saved_at, { short: true })}
+          </span>
+          <ReleaseSaveButton
+            releaseId={release.id}
+            saveData={{ save_count: 0, is_saved: true }}
+            variant="bracket"
+            bracketLabel="× remove"
+            ariaLabel={`Remove ${release.title} from saved releases`}
+          />
+        </div>
       </div>
     </article>
   )
@@ -1187,14 +1202,6 @@ const TAB_LABELS: Record<LibraryTab, string> = {
   submissions: 'Submissions',
 }
 
-const FOLLOWING_TAB_TYPES = {
-  artists: 'artist',
-  venues: 'venue',
-  scenes: 'scene',
-  labels: 'label',
-  festivals: 'festival',
-} as const satisfies Partial<Record<LibraryTab, string>>
-
 function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
   const artists = useMyFollowing({ type: 'artist', limit: 1 })
   const venues = useMyFollowing({ type: 'venue', limit: 1 })
@@ -1216,6 +1223,15 @@ function LibraryContent() {
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
   const followingTabCounts = useFollowingTabCounts()
+  const currentUserId = user?.id ? Number(user.id) : undefined
+  const savedReleaseCount = useSavedReleases(1, 0, currentUserId)
+  const tabCounts: Partial<Record<LibraryTab, number>> = {
+    ...followingTabCounts,
+    releases: savedReleaseCount.data?.total,
+  }
+  const tabCountSignature = LIBRARY_TABS.map(
+    tab => tabCounts[tab] ?? ''
+  ).join(':')
 
   const rawTab = searchParams.get('tab')
   const currentTab: LibraryTab = isLibraryTab(rawTab) ? rawTab : 'shows'
@@ -1257,7 +1273,7 @@ function LibraryContent() {
     }
 
     tabList.scrollTo({ left, behavior: 'instant' })
-  }, [currentTab])
+  }, [currentTab, tabCountSignature])
 
   const handleTabChange = (tab: string) => {
     if (!isLibraryTab(tab)) return
@@ -1292,8 +1308,6 @@ function LibraryContent() {
       </div>
     )
   }
-
-  const currentUserId = user?.id ? Number(user.id) : undefined
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-5 md:py-10">
@@ -1331,17 +1345,18 @@ function LibraryContent() {
               ref={tab === currentTab ? activeTabTriggerRef : undefined}
               value={tab}
               aria-label={
-                followingTabCounts[tab] === undefined
+                tabCounts[tab] === undefined
                   ? TAB_LABELS[tab]
-                  : `${TAB_LABELS[tab]}, ${followingTabCounts[tab]} followed`
+                  : tab === 'releases'
+                    ? `${TAB_LABELS[tab]}, ${tabCounts[tab]} saved`
+                    : `${TAB_LABELS[tab]}, ${tabCounts[tab]} followed`
               }
               className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
             >
               {TAB_LABELS[tab]}
-              {tab in FOLLOWING_TAB_TYPES &&
-                followingTabCounts[tab] !== undefined && (
-                  <span aria-hidden> · {followingTabCounts[tab]}</span>
-                )}
+              {tabCounts[tab] !== undefined && (
+                <span aria-hidden> · {tabCounts[tab]}</span>
+              )}
             </TabsTrigger>
           ))}
         </TabsList>

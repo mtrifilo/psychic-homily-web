@@ -15,6 +15,8 @@ interface ReleaseSaveButtonProps {
   variant?: 'button' | 'bracket'
   className?: string
   disabled?: boolean
+  bracketLabel?: string
+  ariaLabel?: string
 }
 
 /**
@@ -28,6 +30,8 @@ export function ReleaseSaveButton({
   variant = 'button',
   className,
   disabled = false,
+  bracketLabel,
+  ariaLabel,
 }: ReleaseSaveButtonProps) {
   const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
@@ -72,12 +76,14 @@ export function ReleaseSaveButton({
     <div className="relative inline-flex">
       {variant === 'bracket' ? (
         <BracketLink
-          label={label}
+          label={bracketLabel ?? label}
           active={isSaved}
           onClick={handleClick}
           disabled={isDisabled}
           className={cn('font-mono text-[11px]', className)}
-          ariaLabel={isSaved ? 'Remove saved release' : 'Save release'}
+          ariaLabel={
+            ariaLabel ?? (isSaved ? 'Remove saved release' : 'Save release')
+          }
         />
       ) : (
         <Button

@@ -74,6 +74,24 @@ describe('ReleaseSaveButton', () => {
     ).toHaveTextContent('[Saved]')
   })
 
+  it('supports the dense Library remove label and accessible release name', () => {
+    render(
+      <ReleaseSaveButton
+        releaseId={17}
+        saveData={{ save_count: 4, is_saved: true }}
+        variant="bracket"
+        bracketLabel="× remove"
+        ariaLabel="Remove Clarity from saved releases"
+      />
+    )
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Remove Clarity from saved releases',
+      })
+    ).toHaveTextContent('[× remove]')
+  })
+
   it('sends anonymous users to auth with the current release as returnTo', async () => {
     const user = userEvent.setup()
     mockUseAuthContext.mockReturnValue({ isAuthenticated: false })

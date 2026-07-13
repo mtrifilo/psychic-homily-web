@@ -23,7 +23,7 @@ describe('release save hooks', () => {
 
   it('fetches the authenticated saved-release list with pagination', async () => {
     mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0 })
-    const { result } = renderHook(() => useSavedReleases(20, 40), {
+    const { result } = renderHook(() => useSavedReleases(20, 40, 42), {
       wrapper: createWrapper(),
     })
 
@@ -32,6 +32,15 @@ describe('release save hooks', () => {
       expect.stringMatching(/\/saved-releases\?limit=20&offset=40$/),
       { method: 'GET' }
     )
+  })
+
+  it('waits for an authenticated user identity before reading the private list', () => {
+    const { result } = renderHook(() => useSavedReleases(20, 0), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
   it('posts release ids to the public batch status endpoint', async () => {

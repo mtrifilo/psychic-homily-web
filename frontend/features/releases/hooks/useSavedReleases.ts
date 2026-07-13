@@ -27,6 +27,7 @@ export function useSavedReleases(
         `${releaseEndpoints.SAVED_LIST}?${params.toString()}`,
         { method: 'GET' }
       ),
+    enabled: userId !== undefined,
   })
 }
 
