@@ -16,7 +16,7 @@ interface ReleaseSaveButtonProps {
   className?: string
   disabled?: boolean
   bracketLabel?: string
-  ariaLabel?: string
+  bracketAriaLabel?: string
 }
 
 /**
@@ -31,7 +31,7 @@ export function ReleaseSaveButton({
   className,
   disabled = false,
   bracketLabel,
-  ariaLabel,
+  bracketAriaLabel,
 }: ReleaseSaveButtonProps) {
   const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
@@ -82,7 +82,8 @@ export function ReleaseSaveButton({
           disabled={isDisabled}
           className={cn('font-mono text-[11px]', className)}
           ariaLabel={
-            ariaLabel ?? (isSaved ? 'Remove saved release' : 'Save release')
+            bracketAriaLabel ??
+            (isSaved ? 'Remove saved release' : 'Save release')
           }
         />
       ) : (

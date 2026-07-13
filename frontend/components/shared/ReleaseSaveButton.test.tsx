@@ -81,7 +81,7 @@ describe('ReleaseSaveButton', () => {
         saveData={{ save_count: 4, is_saved: true }}
         variant="bracket"
         bracketLabel="× remove"
-        ariaLabel="Remove Clarity from saved releases"
+        bracketAriaLabel="Remove Clarity from saved releases"
       />
     )
 

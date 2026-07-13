@@ -500,7 +500,7 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
             saveData={{ save_count: 0, is_saved: true }}
             variant="bracket"
             bracketLabel="× remove"
-            ariaLabel={`Remove ${release.title} from saved releases`}
+            bracketAriaLabel={`Remove ${release.title} from saved releases`}
           />
         </div>
       </div>
