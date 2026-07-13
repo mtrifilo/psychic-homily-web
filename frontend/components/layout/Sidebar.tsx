@@ -34,8 +34,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/festivals', label: 'Festivals', icon: Tent },
       { href: '/artists', label: 'Artists', icon: Mic2 },
       { href: '/venues', label: 'Venues', icon: MapPin },
-      // Explore is hidden until the Observatory rebuild ships (PSY-1337); the
-      // /explore route itself stays live.
+      { href: '/graph', label: 'Graph', icon: Orbit },
       { href: '/releases', label: 'Releases', icon: Disc3 },
       { href: '/labels', label: 'Labels', icon: Tag },
       { href: '/tags', label: 'Tags', icon: Tags },

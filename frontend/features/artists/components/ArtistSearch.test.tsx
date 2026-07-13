@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 
@@ -64,6 +64,28 @@ describe('ArtistSearch', () => {
     fireEvent.mouseDown(screen.getByText('Radiohead'))
 
     expect(mockPush).toHaveBeenCalledWith('/artists/radiohead')
+  })
+
+  it('hands the selected artist to tool surfaces without navigating', async () => {
+    const artist = {
+      id: 1,
+      slug: 'radiohead',
+      name: 'Radiohead',
+      city: null,
+      state: null,
+      social: {},
+    }
+    const onSelect = vi.fn()
+    mockSearchResults.mockReturnValue({ artists: [artist], count: 1 })
+
+    renderWithProviders(
+      <ArtistSearch onSelect={onSelect} placeholder="Search an artist to begin…" />,
+    )
+    await userEvent.type(screen.getByPlaceholderText('Search an artist to begin…'), 'radio')
+    fireEvent.mouseDown(screen.getByText('Radiohead'))
+
+    expect(onSelect).toHaveBeenCalledWith(artist)
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('shows location for artists with city data', async () => {

@@ -4,14 +4,25 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { useArtistSearch } from '../hooks/useArtistSearch'
-import { getArtistLocation } from '../types'
+import { getArtistLocation, type Artist } from '../types'
 
 /**
  * Artist search with autocomplete dropdown.
- * Navigates to the artist detail page on selection.
+ * Navigates to the artist detail page on selection by default. Graph/tool
+ * surfaces can instead own selection through `onSelect` without forking the
+ * search interaction or its keyboard behavior.
  */
-export function ArtistSearch() {
+export function ArtistSearch({
+  onSelect,
+  placeholder = 'Search artists...',
+  className,
+}: {
+  onSelect?: (artist: Artist) => void
+  placeholder?: string
+  className?: string
+} = {}) {
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
@@ -21,11 +32,15 @@ export function ArtistSearch() {
   const { data: searchResults } = useArtistSearch({ query })
   const artists = searchResults?.artists ?? []
 
-  const handleSelect = (slug: string) => {
+  const handleSelect = (artist: Artist) => {
     setQuery('')
     setIsOpen(false)
     setActiveIndex(-1)
-    router.push(`/artists/${slug}`)
+    if (onSelect) {
+      onSelect(artist)
+      return
+    }
+    router.push(`/artists/${artist.slug}`)
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,7 +71,7 @@ export function ArtistSearch() {
       case 'Enter':
         e.preventDefault()
         if (activeIndex >= 0 && activeIndex < artists.length) {
-          handleSelect(artists[activeIndex].slug)
+          handleSelect(artists[activeIndex])
         }
         break
       case 'Escape':
@@ -76,7 +91,7 @@ export function ArtistSearch() {
   }
 
   return (
-    <div className="relative w-full max-w-sm">
+    <div className={cn('relative w-full max-w-sm', className)}>
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
@@ -86,7 +101,7 @@ export function ArtistSearch() {
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
-          placeholder="Search artists..."
+          placeholder={placeholder}
           autoComplete="off"
           className="pl-8"
         />
@@ -106,7 +121,7 @@ export function ArtistSearch() {
                 }`}
                 onMouseDown={e => {
                   e.preventDefault()
-                  handleSelect(artist.slug)
+                  handleSelect(artist)
                 }}
                 onMouseEnter={() => setActiveIndex(i)}
               >

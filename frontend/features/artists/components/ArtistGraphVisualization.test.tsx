@@ -274,6 +274,41 @@ describe('ArtistGraphVisualization — expand gesture (PSY-1259)', () => {
     expect(onRecenter).not.toHaveBeenCalled() // re-center is the tooltip action now, not the click
   })
 
+  it('uses tool-surface selection mode for both satellite and center nodes', () => {
+    const onSelect = vi.fn()
+    const onExpand = vi.fn()
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={onSelect}
+        onExpand={onExpand}
+      />,
+    )
+
+    act(() => forceGraphProps.onNodeClick(satellite))
+    act(() => forceGraphProps.onNodeClick(centerNode))
+
+    expect(onSelect).toHaveBeenNthCalledWith(1, satellite)
+    expect(onSelect).toHaveBeenNthCalledWith(2, centerNode)
+    expect(onExpand).not.toHaveBeenCalled()
+  })
+
+  it('notifies the caller after a background click', () => {
+    const onBackgroundClick = vi.fn()
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onBackgroundClick={onBackgroundClick}
+      />,
+    )
+    act(() => forceGraphProps.onBackgroundClick())
+    expect(onBackgroundClick).toHaveBeenCalledTimes(1)
+  })
+
   it('clicking the center node is a no-op (the ego anchor is already expanded)', () => {
     const onExpand = vi.fn()
     renderWithProviders(

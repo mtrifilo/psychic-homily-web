@@ -8,14 +8,15 @@ import { isNavActive, navItemClassName } from './navData'
 
 // The explicit, labelled primary destinations (NN/G: a labelled "Home" link in
 // addition to the clickable logo — left-aligned logo alone is not discoverable).
-// Shows is our unique advantage. Explore is hidden until the Observatory
-// rebuild ships (PSY-1337; the /explore route itself stays live). Radio links
+// Shows is our unique advantage. Graph occupies the discovery slot that
+// PSY-1337 held open for the Observatory rebuild. Radio links
 // straight to the Dial hub (PSY-1057 retired the D2 popover once /radio itself
 // became the dial, PSY-1049). Browse / Contribute carry menus (own components).
 const primaryLinks = [
   { href: '/', label: 'Home' },
   { href: '/shows', label: 'Shows' },
   { href: '/artists', label: 'Artists' },
+  { href: '/graph', label: 'Graph' },
   { href: '/radio', label: 'Radio' },
   // Atlas — the spin-to-discover globe of scenes (PSY-1213); promoted to the top
   // bar as a flagship discovery surface (PSY-1219).
