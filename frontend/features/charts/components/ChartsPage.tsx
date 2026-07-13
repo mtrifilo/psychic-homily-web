@@ -126,6 +126,7 @@ function SceneSwitcher({
   isLoading,
   isError,
   onChange,
+  onRetry,
   treatment = 'chip',
 }: {
   scenes: ChartScene[]
@@ -133,6 +134,7 @@ function SceneSwitcher({
   isLoading: boolean
   isError: boolean
   onChange: (scene: string | null) => void
+  onRetry: () => void
   treatment?: 'chip' | 'masthead'
 }) {
   const triggerLabel = selectedScene?.city ?? 'All scenes'
@@ -141,17 +143,31 @@ function SceneSwitcher({
     : isError
       ? 'Scenes unavailable'
       : triggerLabel
+  const triggerClassName = cn(
+    'inline-flex items-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
+    treatment === 'chip'
+      ? 'gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[11px] hover:border-foreground/50'
+      : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:text-primary/80'
+  )
+
+  if (isError) {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        className={triggerClassName}
+        aria-label="Retry chart scenes"
+      >
+        Scenes unavailable · Retry
+      </button>
+    )
+  }
 
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
-        disabled={isLoading || isError}
-        className={cn(
-          'inline-flex items-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
-          treatment === 'chip'
-            ? 'gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[11px] hover:border-foreground/50'
-            : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:text-primary/80'
-        )}
+        disabled={isLoading}
+        className={triggerClassName}
         aria-label={`Chart scene: ${displayedLabel}`}
       >
         {displayedLabel}
@@ -290,7 +306,7 @@ export function ChartsPage() {
   const sceneResolved =
     !scene || Boolean(selectedScene) || sceneValidationComplete
   const sceneValidationFailed =
-    Boolean(scene) && sceneHasValidShape && sceneList.isError
+    Boolean(scene) && sceneHasValidShape && sceneList.isError && !selectedScene
   const effectiveScene = selectedScene?.metro ?? ''
   const chartQueryOptions = {
     scene: effectiveScene,
@@ -391,8 +407,9 @@ export function ChartsPage() {
                 scenes={sceneList.data?.scenes ?? []}
                 selectedScene={selectedScene}
                 isLoading={sceneList.isLoading}
-                isError={sceneList.isError}
+                isError={sceneList.isError && !selectedScene}
                 onChange={nextScene => void setScene(nextScene)}
+                onRetry={() => void sceneList.refetch()}
                 treatment="masthead"
               />
             ) : (
@@ -440,8 +457,9 @@ export function ChartsPage() {
               scenes={sceneList.data?.scenes ?? []}
               selectedScene={selectedScene}
               isLoading={sceneList.isLoading}
-              isError={sceneList.isError}
+              isError={sceneList.isError && !selectedScene}
               onChange={nextScene => void setScene(nextScene)}
+              onRetry={() => void sceneList.refetch()}
             />
           ) : null}
         </div>

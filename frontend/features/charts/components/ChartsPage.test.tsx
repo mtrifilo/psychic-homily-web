@@ -28,6 +28,7 @@ let queryWindow: 'month' | 'quarter' | 'all_time' = 'quarter'
 let queryScene: string | null = null
 let sceneListError = false
 let sceneListFetching = false
+let sceneListRefetchError = false
 let anticipatedMode: 'ranked' | 'soonest_upcoming' = 'ranked'
 let chartScenes = [
   {
@@ -125,10 +126,14 @@ vi.mock('../hooks', () => ({
         refetch: mockRefetchScenes,
       }
     }
-    return {
+    const response = {
       ...query({ window: queryWindow, scenes: chartScenes }),
       isFetching: sceneListFetching,
     }
+    if (sceneListRefetchError) {
+      return { ...response, isError: true, isSuccess: false }
+    }
+    return response
   },
   useMostActiveArtists: (...args: unknown[]) => {
     mockScopedHook('active', ...args)
@@ -256,6 +261,7 @@ describe('ChartsPage', () => {
     queryScene = null
     sceneListError = false
     sceneListFetching = false
+    sceneListRefetchError = false
     anticipatedMode = 'ranked'
     chartScenes = [
       {
@@ -424,8 +430,8 @@ describe('ChartsPage', () => {
     render(<ChartsPage />)
 
     expect(
-      screen.getByRole('button', { name: 'Chart scene: Scenes unavailable' })
-    ).toBeDisabled()
+      screen.getByRole('button', { name: 'Retry chart scenes' })
+    ).toBeEnabled()
     expect(mockSetScene).not.toHaveBeenCalled()
     expect(
       screen.getByText(
@@ -441,6 +447,16 @@ describe('ChartsPage', () => {
     }
 
     await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(mockRefetchScenes).toHaveBeenCalledOnce()
+  })
+
+  it('keeps global charts visible and offers retry when scene discovery fails', async () => {
+    const user = userEvent.setup()
+    sceneListError = true
+    render(<ChartsPage />)
+
+    expect(screen.getByText('Hardest-Working Artists')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Retry chart scenes' }))
     expect(mockRefetchScenes).toHaveBeenCalledOnce()
   })
 
@@ -461,6 +477,27 @@ describe('ChartsPage', () => {
     sceneListFetching = false
     rerender(<ChartsPage />)
     expect(mockSetScene).toHaveBeenCalledWith(null)
+  })
+
+  it('keeps a validated cached scene visible after a refetch error', () => {
+    queryScene = '38060'
+    sceneListRefetchError = true
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: Phoenix' })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'Unable to verify this scene. Your chart selection is preserved.'
+      )
+    ).not.toBeInTheDocument()
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
+    }
   })
 
   it('renders the soonest-upcoming fallback without inventing a rank or save total', () => {
