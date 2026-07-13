@@ -46,11 +46,7 @@ export type {
 } from './types'
 
 // Hooks
-export {
-  useUpcomingShows,
-  useShow,
-  useShowCities,
-} from './hooks'
+export { useUpcomingShows, useShow, useShowCities } from './hooks'
 
 export { useShowDelete } from './hooks'
 export { useShowExtraction } from './hooks'
@@ -68,15 +64,9 @@ export { useShowMakePrivate } from './hooks'
 export { useShowPublish } from './hooks'
 export { useSetShowReminders } from './hooks'
 
-export {
-  useMyShowReport,
-  useReportShow,
-} from './hooks'
+export { useMyShowReport, useReportShow } from './hooks'
 
-export {
-  type ShowSubmission,
-  useShowSubmit,
-} from './hooks'
+export { type ShowSubmission, useShowSubmit } from './hooks'
 
 export { useShowUnpublish } from './hooks'
 
@@ -89,6 +79,7 @@ export {
 } from './hooks'
 
 export {
+  useInfiniteSavedShows,
   useSavedShows,
   useSaveShow,
   useUnsaveShow,

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { fireEvent } from '@testing-library/react'
 import { renderWithProviders, screen, within } from '@/test/utils'
 
 const mockReplace = vi.fn()
@@ -8,6 +9,8 @@ const mockUseSavedShows = vi.fn()
 const mockUseSavedReleases = vi.fn()
 const mockUseMyFollowing = vi.fn()
 const mockScrollTo = vi.fn()
+const mockUnsaveShow = vi.fn()
+const mockFetchNextPage = vi.fn(async () => ({ hasNextPage: false }))
 
 let mockSearchParams = new URLSearchParams()
 
@@ -24,7 +27,16 @@ vi.mock('@/lib/context/AuthContext', () => ({
 // Stub the heavy feature modules so this suite stays focused on the Library
 // chrome and the compact saved-show row contract introduced by PSY-1440.
 vi.mock('@/features/shows', () => ({
-  useSavedShows: (opts?: unknown) => mockUseSavedShows(opts),
+  useInfiniteSavedShows: (
+    timeFilter: 'upcoming' | 'past',
+    userId: number | undefined,
+    enabled: boolean
+  ) => mockUseSavedShows(timeFilter, userId, enabled),
+  useUnsaveShow: () => ({
+    mutate: mockUnsaveShow,
+    isPending: false,
+    variables: undefined,
+  }),
   useMySubmissions: () => ({ data: undefined, isLoading: false, error: null }),
   DeleteShowDialog: () => null,
   UnpublishShowDialog: () => null,
@@ -75,9 +87,15 @@ function setAuthenticated() {
 
 function setLoadedData() {
   mockUseSavedShows.mockReturnValue({
-    data: { shows: [], total: 8, limit: 50, offset: 0 },
+    data: {
+      pages: [{ shows: [], total: 0, limit: 4, offset: 0 }],
+      pageParams: [{ limit: 4, offset: 0 }],
+    },
     isLoading: false,
     error: null,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: mockFetchNextPage,
   })
   mockUseSavedReleases.mockReturnValue({
     data: { releases: [], total: 0, limit: 50, offset: 0 },
@@ -97,7 +115,39 @@ function setLoadedData() {
   })
 }
 
-describe('LibraryPage chrome (PSY-1440)', () => {
+function makeSavedShow({
+  id,
+  title,
+  eventDate,
+  savedAt,
+}: {
+  id: number
+  title: string
+  eventDate: string
+  savedAt: string
+}) {
+  return {
+    id,
+    title,
+    slug: `show-${id}`,
+    event_date: eventDate,
+    saved_at: savedAt,
+    state: 'AZ',
+    artists: [{ id, name: title, slug: `artist-${id}` }],
+    venues: [
+      {
+        id,
+        name: `Venue ${id}`,
+        slug: `venue-${id}`,
+        city: 'Phoenix',
+        state: 'AZ',
+        timezone: 'America/Phoenix',
+      },
+    ],
+  }
+}
+
+describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
@@ -139,7 +189,9 @@ describe('LibraryPage chrome (PSY-1440)', () => {
         'Festivals',
         'Submissions',
       ])
-      expect(mockUseSavedShows).toHaveBeenCalledTimes(1)
+      expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
+      expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', 1, true)
+      expect(mockUseSavedShows).toHaveBeenCalledWith('past', 1, true)
       expect(mockUseMyFollowing).not.toHaveBeenCalled()
     })
 
@@ -266,35 +318,50 @@ describe('LibraryPage chrome (PSY-1440)', () => {
 
   describe('saved-show rows', () => {
     it('renders the compact mobile date and two-line show details', () => {
-      mockUseSavedShows.mockReturnValue({
-        data: {
-          shows: [
-            {
-              id: 56,
-              title: 'Calexico at E2E Reserved Venue',
-              slug: 'calexico-e2e-reserved-venue',
-              event_date: '2026-07-12T23:59:00Z',
-              state: 'AZ',
-              artists: [{ id: 1, name: 'Calexico', slug: 'calexico' }],
-              venues: [
-                {
-                  id: 2,
-                  name: 'E2E Reserved Venue',
-                  slug: 'e2e-reserved-venue',
-                  city: 'Phoenix',
-                  state: 'AZ',
-                  timezone: 'America/Phoenix',
-                },
-              ],
-            },
-          ],
-          total: 1,
-          limit: 50,
-          offset: 0,
-        },
-        isLoading: false,
-        error: null,
-      })
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') => ({
+          data: {
+            pages: [
+              {
+                shows:
+                  timeFilter === 'upcoming'
+                    ? [
+                        {
+                          ...makeSavedShow({
+                            id: 56,
+                            title: 'Calexico',
+                            eventDate: '2026-07-12T23:59:00Z',
+                            savedAt: '2026-07-10T12:00:00Z',
+                          }),
+                          title: 'Calexico at E2E Reserved Venue',
+                          slug: 'calexico-e2e-reserved-venue',
+                          venues: [
+                            {
+                              id: 2,
+                              name: 'E2E Reserved Venue',
+                              slug: 'e2e-reserved-venue',
+                              city: 'Phoenix',
+                              state: 'AZ',
+                              timezone: 'America/Phoenix',
+                            },
+                          ],
+                        },
+                      ]
+                    : [],
+                total: timeFilter === 'upcoming' ? 1 : 0,
+                limit: 4,
+                offset: 0,
+              },
+            ],
+            pageParams: [{ limit: 4, offset: 0 }],
+          },
+          isLoading: false,
+          error: null,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: mockFetchNextPage,
+        })
+      )
 
       renderWithProviders(<LibraryPage />)
 
@@ -312,6 +379,111 @@ describe('LibraryPage chrome (PSY-1440)', () => {
         within(row).getByRole('link', { name: 'E2E Reserved Venue' })
       ).toBeTruthy()
       expect(within(row).getByText(/Phoenix, AZ/)).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Upcoming' })).toBeTruthy()
+      expect(screen.getByText('1 show · soonest first')).toBeTruthy()
+      expect(screen.getByText(/0 shows · most recent first/)).toBeTruthy()
+      expect(
+        screen.getByText(
+          'Saved shows move here automatically when the date passes.'
+        )
+      ).toBeTruthy()
+    })
+
+    it('renders upcoming and past buckets and removes from either section', () => {
+      const upcomingShow = makeSavedShow({
+        id: 1,
+        title: 'Upcoming Artist',
+        eventDate: '2026-07-20T03:00:00Z',
+        savedAt: '2026-07-11T12:00:00Z',
+      })
+      const pastShow = makeSavedShow({
+        id: 2,
+        title: 'Past Artist',
+        eventDate: '2026-06-20T03:00:00Z',
+        savedAt: '2026-06-01T12:00:00Z',
+      })
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') => {
+          const show = timeFilter === 'past' ? pastShow : upcomingShow
+          return {
+            data: {
+              pages: [{ shows: [show], total: 1, limit: 4, offset: 0 }],
+              pageParams: [{ limit: 4, offset: 0 }],
+            },
+            isLoading: false,
+            error: null,
+            hasNextPage: false,
+            isFetchingNextPage: false,
+            fetchNextPage: mockFetchNextPage,
+          }
+        }
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      const upcomingRow = screen.getByRole('article', {
+        name: 'Upcoming Artist',
+      })
+      const pastRow = screen.getByRole('article', { name: 'Past Artist' })
+      expect(within(upcomingRow).getByText('JUL 19').className).toContain(
+        'md:hidden'
+      )
+      expect(
+        within(pastRow).getByText('JUN 19').closest('div')?.className
+      ).toContain('text-muted-foreground')
+
+      fireEvent.click(
+        within(upcomingRow).getByRole('button', {
+          name: 'Remove Upcoming Artist from saved shows',
+        })
+      )
+      fireEvent.click(
+        within(pastRow).getByRole('button', {
+          name: 'Remove Past Artist from saved shows',
+        })
+      )
+
+      expect(mockUnsaveShow).toHaveBeenNthCalledWith(1, 1)
+      expect(mockUnsaveShow).toHaveBeenNthCalledWith(2, 2)
+    })
+
+    it('collapses each bucket to four rows and expands in place', () => {
+      const shows = Array.from({ length: 6 }, (_, index) =>
+        makeSavedShow({
+          id: index + 1,
+          title: `Artist ${index + 1}`,
+          eventDate: `2026-07-${String(index + 20).padStart(2, '0')}T03:00:00Z`,
+          savedAt: '2026-07-10T12:00:00Z',
+        })
+      )
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') => ({
+          data: {
+            pages: [
+              {
+                shows: timeFilter === 'upcoming' ? shows : [],
+                total: timeFilter === 'upcoming' ? shows.length : 0,
+                limit: 4,
+                offset: 0,
+              },
+            ],
+            pageParams: [{ limit: 4, offset: 0 }],
+          },
+          isLoading: false,
+          error: null,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: mockFetchNextPage,
+        })
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.getAllByRole('article')).toHaveLength(4)
+      fireEvent.click(screen.getByRole('button', { name: 'View all 6' }))
+      expect(screen.getAllByRole('article')).toHaveLength(6)
+      fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+      expect(screen.getAllByRole('article')).toHaveLength(4)
     })
   })
 

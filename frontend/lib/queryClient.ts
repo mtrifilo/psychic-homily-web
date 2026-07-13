@@ -253,7 +253,26 @@ export const queryKeys = {
   // Saved shows queries (user's "My List")
   savedShows: {
     all: ['savedShows'] as const,
-    list: (userId?: string) => ['savedShows', 'list', userId] as const,
+    listPrefix: (userId?: string | number) =>
+      ['savedShows', 'list', userId ?? null] as const,
+    list: (
+      userId?: string,
+      limit: number = 50,
+      offset: number = 0,
+      timeFilter?: 'upcoming' | 'past'
+    ) =>
+      [
+        'savedShows',
+        'list',
+        userId ?? null,
+        { limit, offset, timeFilter },
+      ] as const,
+    infiniteList: (
+      userId: number | undefined,
+      timeFilter: 'upcoming' | 'past'
+    ) => ['savedShows', 'infiniteList', userId ?? null, timeFilter] as const,
+    infiniteListPrefix: (userId: number | undefined) =>
+      ['savedShows', 'infiniteList', userId ?? null] as const,
     // Public save counts. `isAuthenticated` is part of BOTH keys because the
     // same endpoint returns is_saved only for authenticated callers — without it
     // an anonymous cache entry would survive login and report is_saved: false

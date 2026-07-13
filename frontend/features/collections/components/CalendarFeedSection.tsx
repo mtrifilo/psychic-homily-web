@@ -75,7 +75,7 @@ export function CalendarFeedSection() {
     const googleCalUrl = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcalUrl)}`
 
     return (
-      <div className="mb-6 rounded-lg border border-border bg-card p-4">
+      <div className="rounded-md border border-border bg-card p-4">
         <div className="flex items-center gap-2 mb-3">
           <CalendarDays className="h-5 w-5 text-primary" />
           <h3 className="text-sm font-semibold">Calendar Feed Active</h3>
@@ -91,7 +91,7 @@ export function CalendarFeedSection() {
             readOnly
             value={createdToken.feed_url}
             className="font-mono text-xs"
-            onFocus={(e) => e.target.select()}
+            onFocus={e => e.target.select()}
           />
           <Button
             variant="outline"
@@ -165,7 +165,7 @@ export function CalendarFeedSection() {
   // Token exists (from a previous session) — show status
   if (tokenStatus?.has_token) {
     return (
-      <div className="mb-6 rounded-lg border border-border bg-card p-4">
+      <div className="rounded-md border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
@@ -213,17 +213,14 @@ export function CalendarFeedSection() {
 
   // No token — show setup prompt
   return (
-    <div className="mb-6 rounded-lg border border-dashed border-border bg-card/50 p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-5 w-5 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-semibold">Subscribe to Calendar</h3>
-            <p className="text-xs text-muted-foreground">
-              Sync your saved shows to Google Calendar, Apple Calendar, or
-              Outlook.
-            </p>
-          </div>
+    <div className="rounded-md border border-border bg-card px-5 py-3.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-medium">Subscribe to calendar</h3>
+          <p className="text-xs text-muted-foreground">
+            Sync your saved shows to Google Calendar, Apple Calendar, or
+            Outlook.
+          </p>
         </div>
         <Button
           variant="outline"
@@ -232,12 +229,7 @@ export function CalendarFeedSection() {
           disabled={createToken.isPending}
           className="text-xs"
         >
-          {createToken.isPending ? (
-            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-          ) : (
-            <CalendarDays className="h-3 w-3 mr-1" />
-          )}
-          Enable
+          {createToken.isPending ? 'Enabling…' : 'Enable'}
         </Button>
       </div>
     </div>
