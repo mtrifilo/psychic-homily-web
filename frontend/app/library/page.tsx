@@ -72,7 +72,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
-import { NotifyMeButton } from '@/features/notifications'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -1051,16 +1050,6 @@ const entityTypeInfo: Record<
   },
 }
 
-const ALERT_ENTITY_TYPES = ['artist', 'venue', 'label'] as const
-
-function supportsShowAlerts(
-  entityType: string
-): entityType is (typeof ALERT_ENTITY_TYPES)[number] {
-  return ALERT_ENTITY_TYPES.includes(
-    entityType as (typeof ALERT_ENTITY_TYPES)[number]
-  )
-}
-
 function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
   const unfollow = useUnfollow()
   const info = entityTypeInfo[entity.entity_type]
@@ -1095,14 +1084,6 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
 
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
           <span className="whitespace-nowrap">followed {formattedDate}</span>
-          {supportsShowAlerts(entity.entity_type) && (
-            <NotifyMeButton
-              entityType={entity.entity_type}
-              entityId={entity.entity_id}
-              entityName={entity.name}
-              variant="alert-status"
-            />
-          )}
           <BracketLink
             label={unfollow.isPending ? 'unfollowing…' : 'unfollow'}
             ariaLabel={`${unfollow.isPending ? 'Unfollowing' : 'Unfollow'} ${entity.name}`}
@@ -1111,6 +1092,11 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
           />
         </div>
       </div>
+      {unfollow.isError && (
+        <p className="mt-2 text-xs text-destructive" role="alert">
+          Couldn&apos;t unfollow {entity.name}. Try again.
+        </p>
+      )}
     </article>
   )
 }

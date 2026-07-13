@@ -24,10 +24,8 @@ interface NotifyMeButtonProps {
    * Rendering style. `button` (default) is the shadcn Button. `bracket`
    * renders a `<BracketLink>` for dense entity-page header linkboxes
    * (PSY-641) — `[Notify me]` toggling to `[Notifications on]`.
-   * `alert-status` uses the same real notification-filter behavior with the
-   * concise `[ alerts: on|off ]` copy used by Library rows.
    */
-  variant?: 'button' | 'bracket' | 'alert-status'
+  variant?: 'button' | 'bracket'
 }
 
 const entityLabels: Record<NotifyEntityType, string> = {
@@ -77,34 +75,13 @@ export function NotifyMeButton({
 
   // Bracket variant — dense header linkbox. handleClick already handles the
   // unauthenticated → /auth redirect, so a single BracketLink covers all states.
-  if (variant === 'bracket' || variant === 'alert-status') {
-    const label =
-      variant === 'alert-status'
-        ? `alerts: ${hasFilter ? 'on' : 'off'}`
-        : hasFilter
-          ? 'Notifications on'
-          : 'Notify me'
+  if (variant === 'bracket') {
     if (isAuthenticated && checkLoading) {
-      return (
-        <BracketLink
-          label={variant === 'alert-status' ? 'alerts: …' : 'Notify me'}
-          ariaLabel={
-            variant === 'alert-status'
-              ? `Alerts for ${entityName}: loading`
-              : undefined
-          }
-          disabled
-        />
-      )
+      return <BracketLink label="Notify me" disabled />
     }
     return (
       <BracketLink
-        label={label}
-        ariaLabel={
-          variant === 'alert-status'
-            ? `Alerts for ${entityName}: ${hasFilter ? 'on' : 'off'}`
-            : undefined
-        }
+        label={hasFilter ? 'Notifications on' : 'Notify me'}
         active={hasFilter}
         onClick={handleClick}
         disabled={isMutating}

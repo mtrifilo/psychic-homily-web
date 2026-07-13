@@ -481,6 +481,22 @@ describe('useMyFollowing', () => {
     expect(mockApiRequest.mock.calls[0][0]).toContain('type=artists')
   })
 
+  it('scopes private following caches to the authenticated user', async () => {
+    mockApiRequest.mockResolvedValueOnce({ following: [], total: 0 })
+    const queryClient = new QueryClient()
+
+    const { result } = renderHook(() => useMyFollowing({ type: 'artist' }), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryCache().getAll()[0].queryKey).toEqual([
+      'follows',
+      'my-following',
+      { type: 'artist', limit: 20, offset: 0, userId: 1 },
+    ])
+  })
+
   it('fetches every API page for a complete management list', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       entity_type: 'artist',

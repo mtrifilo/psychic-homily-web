@@ -12,6 +12,7 @@ const mockUseAllMyFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
 const mockUnfollowEntity = vi.fn()
+const mockUseUnfollow = vi.fn()
 const mockFetchNextPage = vi.fn(async () => ({ hasNextPage: false }))
 
 let mockSearchParams = new URLSearchParams()
@@ -62,15 +63,7 @@ vi.mock('@/features/releases', () => ({
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useMyFollowing: (opts?: { type?: string }) => mockUseMyFollowing(opts),
   useAllMyFollowing: (type: string) => mockUseAllMyFollowing(type),
-  useUnfollow: () => ({ mutate: mockUnfollowEntity, isPending: false }),
-}))
-
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityName: string }) => (
-    <button type="button" aria-label={`Alerts for ${entityName}: off`}>
-      alerts: off
-    </button>
-  ),
+  useUnfollow: () => mockUseUnfollow(),
 }))
 
 vi.mock('@/features/venues', () => ({
@@ -181,6 +174,11 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     mockSearchParams = new URLSearchParams()
     setAuthenticated()
     setLoadedData()
+    mockUseUnfollow.mockReturnValue({
+      mutate: mockUnfollowEntity,
+      isPending: false,
+      isError: false,
+    })
   })
 
   describe('header', () => {
@@ -354,6 +352,11 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   describe('follow rows', () => {
     it('sorts the complete Scenes list alphabetically and exposes management actions', () => {
       mockSearchParams = new URLSearchParams('tab=scenes')
+      mockUseUnfollow.mockReturnValue({
+        mutate: mockUnfollowEntity,
+        isPending: false,
+        isError: true,
+      })
       mockUseAllMyFollowing.mockReturnValue({
         data: {
           following: [
@@ -390,7 +393,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(
         within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
       ).toBeTruthy()
-      expect(within(rows[0]).queryByRole('button', { name: /alerts/i })).toBeNull()
+      expect(
+        within(rows[0]).queryByRole('button', { name: /alerts/i })
+      ).toBeNull()
 
       fireEvent.click(
         within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
@@ -399,36 +404,11 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         entityType: 'scenes',
         entityId: 'chicago-il',
       })
-    })
-
-    it('renders the real alert control for supported follow types', () => {
-      mockSearchParams = new URLSearchParams('tab=artists')
-      mockUseAllMyFollowing.mockReturnValue({
-        data: {
-          following: [
-            {
-              entity_type: 'artist',
-              entity_id: 7,
-              name: 'Boris',
-              slug: 'boris',
-              followed_at: '2026-07-01T00:00:00Z',
-            },
-          ],
-          total: 1,
-          limit: 1,
-          offset: 0,
-        },
-        isLoading: false,
-        isFetching: false,
-        error: null,
-      })
-
-      renderWithProviders(<LibraryPage />)
-
       expect(
-        screen.getByRole('button', { name: 'Alerts for Boris: off' })
-      ).toBeTruthy()
+        within(rows[0]).getByRole('alert')
+      ).toHaveTextContent("Couldn't unfollow Chicago, IL. Try again.")
     })
+
   })
 
   describe('saved-show rows', () => {

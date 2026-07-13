@@ -273,7 +273,8 @@ interface UseMyFollowingOptions {
  * Only enabled when user is authenticated.
  */
 export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
   const { type = 'all', limit = 20, offset = 0 } = options
 
   const params = new URLSearchParams()
@@ -284,11 +285,16 @@ export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
   const endpoint = `${API_ENDPOINTS.FOLLOW.MY_FOLLOWING}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.follows.myFollowing({ type, limit, offset }),
+    queryKey: queryKeys.follows.myFollowing({
+      type,
+      limit,
+      offset,
+      userId: viewerId,
+    }),
     queryFn: async (): Promise<FollowingListResponse> => {
       return apiRequest<FollowingListResponse>(endpoint, { method: 'GET' })
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && viewerId !== undefined,
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -300,10 +306,15 @@ export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
  * complete alphabetical list.
  */
 export const useAllMyFollowing = (type: string) => {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
 
   return useQuery({
-    queryKey: queryKeys.follows.myFollowing({ type, scope: 'all' }),
+    queryKey: queryKeys.follows.myFollowing({
+      type,
+      scope: 'all',
+      userId: viewerId,
+    }),
     queryFn: async (): Promise<FollowingListResponse> => {
       const limit = 100
       const following: FollowingListResponse['following'] = []
@@ -328,7 +339,7 @@ export const useAllMyFollowing = (type: string) => {
 
       return { following, total, limit: following.length, offset: 0 }
     },
-    enabled: isAuthenticated && type.length > 0,
+    enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
     staleTime: 2 * 60 * 1000,
   })
 }
