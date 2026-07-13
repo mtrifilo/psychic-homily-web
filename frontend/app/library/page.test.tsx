@@ -67,7 +67,9 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
 
 vi.mock('@/features/notifications', () => ({
   NotifyMeButton: ({ entityName }: { entityName: string }) => (
-    <button type="button">alerts for {entityName}</button>
+    <button type="button" aria-label={`Alerts for ${entityName}: off`}>
+      alerts: off
+    </button>
   ),
 }))
 
@@ -216,6 +218,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', 1, true)
       expect(mockUseSavedShows).toHaveBeenCalledWith('past', 1, true)
       expect(mockUseMyFollowing).toHaveBeenCalledTimes(5)
+      expect(
+        screen.getByRole('tab', { name: 'Artists, 4 followed' })
+      ).toBeTruthy()
     })
 
     it('uses the horizontally scrollable underline tab row (no wrap)', () => {
@@ -383,14 +388,16 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(within(rows[1]).getByRole('link').textContent).toBe('Phoenix, AZ')
       expect(within(rows[0]).getByText('followed Mar 2026')).toBeTruthy()
       expect(
-        within(rows[0]).getByRole('button', { name: 'unfollow' })
+        within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
       ).toBeTruthy()
-      expect(within(rows[0]).queryByText(/alerts for/i)).toBeNull()
+      expect(within(rows[0]).queryByRole('button', { name: /alerts/i })).toBeNull()
 
-      fireEvent.click(within(rows[0]).getByRole('button', { name: 'unfollow' }))
+      fireEvent.click(
+        within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
+      )
       expect(mockUnfollowEntity).toHaveBeenCalledWith({
         entityType: 'scenes',
-        entityId: 1,
+        entityId: 'chicago-il',
       })
     })
 
@@ -419,7 +426,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('button', { name: 'alerts for Boris' })
+        screen.getByRole('button', { name: 'Alerts for Boris: off' })
       ).toBeTruthy()
     })
   })

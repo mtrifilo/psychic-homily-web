@@ -88,6 +88,11 @@ export function NotifyMeButton({
       return (
         <BracketLink
           label={variant === 'alert-status' ? 'alerts: …' : 'Notify me'}
+          ariaLabel={
+            variant === 'alert-status'
+              ? `Alerts for ${entityName}: loading`
+              : undefined
+          }
           disabled
         />
       )
@@ -95,6 +100,11 @@ export function NotifyMeButton({
     return (
       <BracketLink
         label={label}
+        ariaLabel={
+          variant === 'alert-status'
+            ? `Alerts for ${entityName}: ${hasFilter ? 'on' : 'off'}`
+            : undefined
+        }
         active={hasFilter}
         onClick={handleClick}
         disabled={isMutating}

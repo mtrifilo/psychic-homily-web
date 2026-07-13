@@ -1071,7 +1071,8 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
     if (!info || unfollow.isPending) return
     unfollow.mutate({
       entityType: info.plural,
-      entityId: entity.entity_id,
+      entityId:
+        entity.entity_type === 'scene' ? entity.slug : entity.entity_id,
     })
   }
 
@@ -1104,6 +1105,7 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
           )}
           <BracketLink
             label={unfollow.isPending ? 'unfollowing…' : 'unfollow'}
+            ariaLabel={`${unfollow.isPending ? 'Unfollowing' : 'Unfollow'} ${entity.name}`}
             onClick={handleUnfollow}
             disabled={unfollow.isPending || !info}
           />
@@ -1342,6 +1344,11 @@ function LibraryContent() {
               key={tab}
               ref={tab === currentTab ? activeTabTriggerRef : undefined}
               value={tab}
+              aria-label={
+                followingTabCounts[tab] === undefined
+                  ? TAB_LABELS[tab]
+                  : `${TAB_LABELS[tab]}, ${followingTabCounts[tab]} followed`
+              }
               className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
             >
               {TAB_LABELS[tab]}

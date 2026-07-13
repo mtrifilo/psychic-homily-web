@@ -306,7 +306,9 @@ describe('NotifyMeButton — bracket variant (PSY-641)', () => {
         variant="alert-status"
       />
     )
-    expect(screen.getByRole('button', { name: 'alerts: off' })).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'Alerts for Test Artist: off' })
+    ).toBeTruthy()
 
     mockFilterCheck.mockReturnValue({
       data: { id: 7 },
@@ -322,9 +324,8 @@ describe('NotifyMeButton — bracket variant (PSY-641)', () => {
         variant="alert-status"
       />
     )
-    expect(screen.getByRole('button', { name: 'alerts: on' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(
+      screen.getByRole('button', { name: 'Alerts for Test Artist: on' })
+    ).toHaveAttribute('aria-pressed', 'true')
   })
 })
