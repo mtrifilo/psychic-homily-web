@@ -4,6 +4,8 @@
 // Types
 export type {
   ChartWindow,
+  ChartScene,
+  ChartScenesResponse,
   ChartEntityReference,
   MostActiveArtist,
   MostActiveArtistsResponse,
@@ -35,6 +37,7 @@ export {
   useOpenersToWatch,
   useChartsSummary,
   useFreshlyAdded,
+  useChartScenes,
 } from './hooks'
 
 // Components

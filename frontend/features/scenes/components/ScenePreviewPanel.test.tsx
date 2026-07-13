@@ -30,6 +30,12 @@ vi.mock('@/components/shared/FollowButton', () => ({
   ),
 }))
 
+// SceneNotifyModeToggle also pulls AuthContext and has focused coverage in its
+// own suite; keep this panel composition test isolated from that auth concern.
+vi.mock('./SceneNotifyModeToggle', () => ({
+  SceneNotifyModeToggle: () => null,
+}))
+
 // Default: a quiet week — tests for the "This week" section override this.
 const mockUseSceneShows = vi.fn()
 vi.mock('../hooks', () => ({
