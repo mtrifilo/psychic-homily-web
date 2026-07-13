@@ -65,7 +65,7 @@ const WINDOW_SUMMARY: Record<ChartWindow, string> = {
 }
 
 function metroDisplayName(name: string): string {
-  return name.replace(/,\s*[A-Z-]+$/, '').replaceAll('-', '–')
+  return name.replace(/,\s*[A-Z-]+$/, '')
 }
 
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
@@ -287,15 +287,11 @@ export function ChartsPage() {
   const sceneHasValidShape = !scene || /^[0-9]{1,10}$/.test(scene)
   const sceneValidationComplete =
     sceneList.isSuccess && sceneListMatchesWindow && !sceneList.isFetching
-  const canUseUnverifiedScene =
-    Boolean(scene) && sceneHasValidShape && sceneList.isError
   const sceneResolved =
-    !scene ||
-    Boolean(selectedScene) ||
-    sceneValidationComplete ||
-    canUseUnverifiedScene
-  const effectiveScene =
-    selectedScene?.metro ?? (canUseUnverifiedScene ? (scene ?? '') : '')
+    !scene || Boolean(selectedScene) || sceneValidationComplete
+  const sceneValidationFailed =
+    Boolean(scene) && sceneHasValidShape && sceneList.isError
+  const effectiveScene = selectedScene?.metro ?? ''
   const chartQueryOptions = {
     scene: effectiveScene,
     enabled: sceneResolved,
@@ -451,13 +447,32 @@ export function ChartsPage() {
         </div>
       </header>
 
-      <StatStrip
-        window={window}
-        summary={summary.data}
-        isLoading={summary.isLoading || !sceneResolved}
-      />
+      {sceneValidationFailed ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 border-y border-destructive/40 py-3 text-sm"
+        >
+          <p>Unable to verify this scene. Your chart selection is preserved.</p>
+          <button
+            type="button"
+            onClick={() => void sceneList.refetch()}
+            className="font-mono text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Try again
+          </button>
+        </div>
+      ) : (
+        <StatStrip
+          window={window}
+          summary={summary.data}
+          isLoading={summary.isLoading || !sceneResolved}
+        />
+      )}
 
-      <div className="grid items-start gap-x-6 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
+      <div
+        hidden={sceneValidationFailed}
+        className="grid items-start gap-x-6 gap-y-6 md:grid-cols-2 xl:grid-cols-3"
+      >
         <ChartModule
           title="Hardest-Working Artists"
           context={WINDOW_CONTEXT[window]}
@@ -775,7 +790,9 @@ export function ChartsPage() {
         </ChartModule>
       </div>
 
-      <FreshlyAddedTicker items={freshlyAdded.data?.items ?? []} />
+      {!sceneValidationFailed ? (
+        <FreshlyAddedTicker items={freshlyAdded.data?.items ?? []} />
+      ) : null}
     </div>
   )
 }

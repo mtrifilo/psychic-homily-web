@@ -5,6 +5,7 @@ import { ChartsPage } from './ChartsPage'
 
 const mockSetWindow = vi.fn()
 const mockSetScene = vi.fn()
+const mockRefetchScenes = vi.fn()
 const mockScopedHook = vi.fn()
 type EmptyQuery = {
   data: Record<string, never>
@@ -121,6 +122,7 @@ vi.mock('../hooks', () => ({
         isError: true,
         isSuccess: false,
         isFetching: false,
+        refetch: mockRefetchScenes,
       }
     }
     return {
@@ -357,7 +359,7 @@ describe('ChartsPage', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        /Scene charts · Phoenix–Mesa–Chandler metro · 41 artists based here · 12 venues tracked/
+        /Scene charts · Phoenix-Mesa-Chandler metro · 41 artists based here · 12 venues tracked/
       )
     ).toBeInTheDocument()
 
@@ -415,8 +417,9 @@ describe('ChartsPage', () => {
     }
   })
 
-  it('preserves a well-formed scoped URL when the scene list is unavailable', () => {
-    queryScene = '38060'
+  it('blocks an unverified scene and offers retry when the scene list is unavailable', async () => {
+    const user = userEvent.setup()
+    queryScene = '99999'
     sceneListError = true
     render(<ChartsPage />)
 
@@ -424,12 +427,21 @@ describe('ChartsPage', () => {
       screen.getByRole('button', { name: 'Chart scene: Scenes unavailable' })
     ).toBeDisabled()
     expect(mockSetScene).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(
+        'Unable to verify this scene. Your chart selection is preserved.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Hardest-Working Artists')).not.toBeVisible()
     const moduleCalls = mockScopedHook.mock.calls.filter(
       ([name]) => name !== 'scenes'
     )
     for (const call of moduleCalls) {
-      expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
+      expect(call.at(-1)).toMatchObject({ scene: '', enabled: false })
     }
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(mockRefetchScenes).toHaveBeenCalledOnce()
   })
 
   it('waits for cached scene data to revalidate before clearing the URL', () => {

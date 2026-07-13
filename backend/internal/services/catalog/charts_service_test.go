@@ -2652,6 +2652,8 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartScenes_FloorWindowAn
 	suite.setVenueMetro(chi, chicagoCBSA, true)
 	laUnverified := suite.createVenue("LA Room", "Los Angeles", "CA")
 	suite.setVenueMetro(laUnverified, laCBSA, false)
+	unknownMetroVenue := suite.createVenue("Unknown Metro Room", "Unknown", "ZZ")
+	suite.setVenueMetro(unknownMetroVenue, unknownCBSA, true)
 	fallback := suite.createVenue("Fallback Hall", "Winnipeg", "MB")
 	suite.Require().NoError(suite.db.Model(fallback).Update("verified", true).Error)
 
@@ -2673,6 +2675,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartScenes_FloorWindowAn
 	// LA: above the floor but the venue is unverified.
 	for i := 0; i < 5; i++ {
 		suite.createApprovedShow(fmt.Sprintf("LA %d", i), laUnverified.ID, artist.ID, user.ID, now.AddDate(0, 0, -(5+i)))
+		suite.createApprovedShow(fmt.Sprintf("Unknown metro %d", i), unknownMetroVenue.ID, artist.ID, user.ID, now.AddDate(0, 0, -(5+i)))
 	}
 	// Fallback (no metro): above the floor but not a CBSA scene.
 	for i := 0; i < 5; i++ {
@@ -2681,7 +2684,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartScenes_FloorWindowAn
 
 	scenes, err := suite.chartsService.GetChartScenes(contracts.ChartWindowQuarter)
 	suite.Require().NoError(err)
-	suite.Require().Len(scenes, 1, "only the metro at/above the floor with verified venues qualifies")
+	suite.Require().Len(scenes, 1, "only a real CBSA at/above the floor with verified venues qualifies")
 	suite.Equal(phoenixCBSA, scenes[0].Metro)
 	suite.Equal("Phoenix-Mesa-Chandler, AZ", scenes[0].Name)
 	suite.Equal(5, scenes[0].ShowCount, "out-of-window and future shows never count")

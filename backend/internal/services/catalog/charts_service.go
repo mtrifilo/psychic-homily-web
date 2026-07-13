@@ -1807,8 +1807,9 @@ const chartSceneFloor = 5
 // metros appear — (city|state) fallback scenes are not chart scopes. The artist
 // vital deliberately uses Charts' strict artists.metro scope; the venue vital
 // uses the scene directory's verified-venue scope. Display identity includes
-// the official CBSA name plus its principal city; the venues' own deterministic
-// city/state pair is the fallback if the CBSA somehow doesn't resolve.
+// the official CBSA name plus its principal city. A stored metro code missing
+// from the embedded geo domain is omitted so enumeration and module validation
+// cannot disagree.
 func (s *ChartsService) GetChartScenes(window contracts.ChartWindow) ([]contracts.ChartScene, error) {
 	// Masthead instance on purpose: this key space is exactly the three
 	// window values (domain-bounded — chartsCacheFor's provenance rule), and
@@ -1850,9 +1851,9 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 	// though its scene URL still resolves (scoped modules return its data);
 	// and the switcher show_count can undercount a scoped module's Total.
 	//
-	// The fallback display pair is taken from ONE deterministic venue row
-	// (lowest id) — independent MIN(city)/MIN(state) could pair a city from
-	// one venue with a state from another in a two-state metro.
+	// The city/state pair is taken from ONE deterministic venue row (lowest id)
+	// for the SQL envelope; the response replaces it with the canonical geo
+	// principal identity after validating that the CBSA still exists.
 	//
 	// The two aggregate CTEs keep the richer Figma masthead vitals in this one
 	// database round trip. VenueCount is intentionally NOT windowed: "venues
@@ -1904,25 +1905,23 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 		return nil, fmt.Errorf("failed to get chart scenes: %w", err)
 	}
 
-	results := make([]contracts.ChartScene, len(rows))
-	for i, r := range rows {
-		name, city, state := r.City, r.City, r.State
-		if state != "" {
-			name += ", " + state
+	results := make([]contracts.ChartScene, 0, len(rows))
+	for _, r := range rows {
+		mp, ok := geo.MetroPrincipalByCBSA(r.Metro)
+		if !ok {
+			// Keep enumeration aligned with chartSceneExists: a stored metro code
+			// outside the embedded CBSA domain must never become a selectable key.
+			continue
 		}
-		if mp, ok := geo.MetroPrincipalByCBSA(r.Metro); ok {
-			name = mp.Name
-			city, state = mp.City, mp.State
-		}
-		results[i] = contracts.ChartScene{
+		results = append(results, contracts.ChartScene{
 			Metro:       r.Metro,
-			Name:        name,
-			City:        city,
-			State:       state,
+			Name:        mp.Name,
+			City:        mp.City,
+			State:       mp.State,
 			ShowCount:   r.ShowCount,
 			ArtistCount: r.ArtistCount,
 			VenueCount:  r.VenueCount,
-		}
+		})
 	}
 	return results, nil
 }
