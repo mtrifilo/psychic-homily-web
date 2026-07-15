@@ -14,7 +14,7 @@ const ENTRY = (id: number, name = `A${id}`): TraversalEntry => ({
   name,
 })
 
-describe('graphTraversalHistory (PSY-361 trail reducer)', () => {
+describe('shared graphTraversalHistory (PSY-361 trail reducer)', () => {
   describe('pushTrail', () => {
     it('appends to an empty trail', () => {
       expect(pushTrail([], ENTRY(1))).toEqual([ENTRY(1)])

@@ -20,9 +20,10 @@ import { queryKeys } from '@/lib/queryClient'
 import { buildCitiesParam, type CityState } from '@/components/filters'
 import type {
   ExploreFeaturedResponse,
-  ExploreShuffleTargetResponse,
   ExploreUpcomingShowsResponse,
 } from '../types'
+
+export { useRandomArtistTarget as useShuffleTarget } from '@/features/discovery/useRandomArtistTarget'
 
 interface UseExploreUpcomingShowsOptions {
   limit?: number
@@ -82,25 +83,5 @@ export function useExploreFeatured() {
         method: 'GET',
       }),
     staleTime: 60 * 1000,
-  })
-}
-
-/**
- * Random artist from the ±90-day show pool. Disabled on mount — the
- * shuffle CTA calls `refetch()` then navigates with the returned slug
- * so each click pulls a fresh pick rather than reusing a cached one.
- */
-export function useShuffleTarget() {
-  return useQuery({
-    queryKey: queryKeys.explore.shuffleTarget,
-    queryFn: () =>
-      apiRequest<ExploreShuffleTargetResponse>(
-        API_ENDPOINTS.EXPLORE.SHUFFLE_TARGET,
-        { method: 'GET' },
-      ),
-    enabled: false,
-    // staleTime: 0 — every click should hit the backend for a fresh pick.
-    staleTime: 0,
-    gcTime: 0,
   })
 }

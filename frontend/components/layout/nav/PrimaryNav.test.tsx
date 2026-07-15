@@ -25,8 +25,7 @@ describe('PrimaryNav', () => {
   it('renders the explicit primary destinations with correct hrefs', () => {
     render(<PrimaryNav />)
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
-    // Explore is hidden until the Observatory rebuild ships (PSY-1337).
-    expect(screen.queryByRole('link', { name: 'Explore' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute('href', '/graph')
     expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows')
     expect(screen.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists')
     // PSY-1057: Radio is a plain link to the Dial hub, not a popover trigger.
@@ -47,6 +46,12 @@ describe('PrimaryNav', () => {
     render(<PrimaryNav />)
     expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('marks Graph active on the Observatory route', () => {
+    mockPathname = '/graph'
+    render(<PrimaryNav />)
+    expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('renders the Browse and Contribute menu triggers (Radio is a plain link)', () => {

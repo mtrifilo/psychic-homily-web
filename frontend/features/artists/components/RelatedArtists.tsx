@@ -46,7 +46,7 @@ import {
   resetTrail,
   buildRecenterAnnouncement,
   type TraversalEntry,
-} from './graphTraversalHistory'
+} from '@/components/graph/graphTraversalHistory'
 import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
 
 // Per-relationship-type badge styling. PSY-1290: each type carries BOTH a light- and a dark-mode

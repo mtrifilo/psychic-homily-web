@@ -78,6 +78,21 @@ describe('ArtistContextPanel', () => {
     )
   })
 
+  it('offers the caller-owned Center here action when supplied', () => {
+    const onCenter = vi.fn()
+    render(
+      <ArtistContextPanel
+        artistName="Lightning Bolt"
+        artistSlug="lightning-bolt"
+        card={CARD}
+        onCenter={onCenter}
+        onClose={onClose}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /center here/i }))
+    expect(onCenter).toHaveBeenCalledTimes(1)
+  })
+
   it('mounts a playable embed with the artist name when the card has a Bandcamp embed URL (PSY-1302)', () => {
     render(
       <ArtistContextPanel

@@ -21,7 +21,7 @@
  * defaultPrevented) still defers to the panel (AC3).
  */
 
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { X } from 'lucide-react'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 
@@ -37,6 +37,7 @@ export interface GraphPanelShellProps {
   header: ReactNode
   /** Per-panel spacing: padding, max-height, and space-y vary by panel. */
   className?: string
+  panelRef?: Ref<HTMLElement>
   children?: ReactNode
 }
 
@@ -46,6 +47,7 @@ export function GraphPanelShell({
   onClose,
   header,
   className,
+  panelRef,
   children,
 }: GraphPanelShellProps) {
   return (
@@ -59,6 +61,8 @@ export function GraphPanelShell({
       onFocusOutside={e => e.preventDefault()}
     >
       <section
+        ref={panelRef}
+        tabIndex={panelRef ? -1 : undefined}
         aria-label={ariaLabel}
         className={cn(
           'w-72 max-w-[calc(100%-1rem)] overflow-y-auto rounded-md border border-border/50',

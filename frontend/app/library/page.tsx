@@ -353,7 +353,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: number }) {
           browseHref="/shows"
           browseLabel="Browse shows"
           discoveryLinks={[
-            { label: 'explore the graph', href: '/explore' },
+            { label: 'explore the graph', href: '/graph' },
             { label: 'the atlas', href: '/atlas' },
             { label: 'show submissions', href: '/contribute/submissions' },
           ]}

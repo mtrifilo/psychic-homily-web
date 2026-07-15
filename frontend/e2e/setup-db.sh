@@ -92,6 +92,33 @@ VALUES
   ('Sundressed', NOW(), NOW(), 'sundressed'),
   ('ROAR', NOW(), NOW(), 'roar')
 ON CONFLICT DO NOTHING;
+
+-- PSY-1457: the isolated E2E stack disables relationship derivation, so seed
+-- one stable stored edge for the Observatory's search → recenter → open-page
+-- smoke path. LEAST/GREATEST preserves artist_relationships' canonical-order
+-- constraint regardless of sequence allocation.
+INSERT INTO artist_relationships (
+  source_artist_id,
+  target_artist_id,
+  relationship_type,
+  score,
+  auto_derived,
+  created_at,
+  updated_at
+)
+SELECT
+  LEAST(playboy.id, doll_skin.id),
+  GREATEST(playboy.id, doll_skin.id),
+  'similar',
+  1,
+  false,
+  NOW(),
+  NOW()
+FROM artists playboy
+CROSS JOIN artists doll_skin
+WHERE playboy.slug = 'playboy-manbaby'
+  AND doll_skin.slug = 'doll-skin'
+ON CONFLICT DO NOTHING;
 SQL
 
 echo "==> Seeding labels, releases, and linking them..."

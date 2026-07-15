@@ -31,10 +31,9 @@ describe('sidebarGroups', () => {
     expect(sidebarGroups.map(g => g.label)).toEqual(['Discover', 'Community'])
   })
 
-  // Explore is hidden until the Observatory rebuild ships (PSY-1337).
-  it('Discover contains Shows, Festivals, Artists, Venues, Releases, Labels, Tags, Scenes, Atlas, Collections, Charts, Radio', () => {
+  it('Discover contains the Graph Observatory and catalog destinations', () => {
     const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Atlas', 'Collections', 'Charts', 'Radio'])
+    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Graph', 'Releases', 'Labels', 'Tags', 'Scenes', 'Atlas', 'Collections', 'Charts', 'Radio'])
   })
 
   it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submit a Show, My Submissions', () => {
