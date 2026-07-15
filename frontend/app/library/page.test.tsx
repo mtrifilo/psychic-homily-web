@@ -518,6 +518,43 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
       expect(fetchNextPage).toHaveBeenCalledTimes(1)
     })
+
+    it('keeps loaded rows visible when the next page fails', () => {
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                {
+                  entity_type: 'artist',
+                  entity_id: 1,
+                  name: 'Alpha',
+                  slug: 'alpha',
+                  followed_at: '2026-07-01T00:00:00Z',
+                },
+              ],
+              limit: 50,
+              next_cursor: 'retry-cursor',
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: true,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: true,
+        error: new Error('next page failed'),
+      })
+
+      renderWithProviders(<LibraryPage />)
+      expect(screen.getByRole('link', { name: 'Alpha' })).toBeTruthy()
+      expect(screen.getByText("Couldn't load more. Try again.")).toBeTruthy()
+      expect(
+        screen.queryByText('Failed to load. Please try again later.')
+      ).toBeNull()
+    })
   })
 
   describe('saved-release rows', () => {

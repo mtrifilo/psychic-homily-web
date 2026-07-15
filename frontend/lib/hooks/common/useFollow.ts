@@ -15,6 +15,7 @@ import type {
   BatchFollowEntry,
   FollowingListResponse,
   LibraryFollowingCounts,
+  LibraryFollowingPage,
 } from '@/lib/types/follow'
 
 const LIBRARY_FOLLOWING_PAGE_SIZE = 50
@@ -44,12 +45,17 @@ const toLibraryCountKey = (
 
 const isMyFollowingQueryForType = (
   queryKey: readonly unknown[],
-  singularType: string
+  singularType: string,
+  userId?: string | number
 ) => {
   if (queryKey[0] !== 'follows' || queryKey[1] !== 'my-following') return false
   const params = queryKey[2]
   if (!params || typeof params !== 'object') return false
-  const type = (params as { type?: string }).type
+  const { type, userId: cachedUserId } = params as {
+    type?: string
+    userId?: string | number
+  }
+  if (cachedUserId !== userId) return false
   return type === singularType || type === 'all' || type === undefined
 }
 
@@ -232,10 +238,13 @@ export const useFollow = () => {
       })
       queryClient.invalidateQueries({
         predicate: query =>
-          isMyFollowingQueryForType(query.queryKey, singularType),
+          isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
       })
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.follows.libraryCounts(user?.id),
       })
     },
   })
@@ -286,7 +295,7 @@ export const useUnfollow = () => {
       const previousFollowingLists =
         queryClient.getQueriesData<FollowingListResponse>({
           predicate: query =>
-            isMyFollowingQueryForType(query.queryKey, singularType),
+            isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
         })
 
       if (previousData) {
@@ -384,6 +393,13 @@ export const useUnfollow = () => {
       void invalidateQueries.personalCharts()
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.follows.libraryCounts(user?.id),
+      })
+      queryClient.invalidateQueries({
+        predicate: query =>
+          isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
       })
     },
   })
@@ -494,23 +510,19 @@ export const useLibraryFollowing = (type: string) => {
 
   return useInfiniteQuery({
     queryKey: queryKeys.follows.libraryFollowing(type, viewerId),
-    initialPageParam: 0,
-    queryFn: async ({ pageParam }): Promise<FollowingListResponse> => {
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }): Promise<LibraryFollowingPage> => {
       const params = new URLSearchParams({
         type,
         limit: LIBRARY_FOLLOWING_PAGE_SIZE.toString(),
-        offset: pageParam.toString(),
       })
-      return apiRequest<FollowingListResponse>(
+      if (pageParam) params.set('cursor', pageParam)
+      return apiRequest<LibraryFollowingPage>(
         `${API_ENDPOINTS.FOLLOW.LIBRARY_FOLLOWING}?${params.toString()}`,
         { method: 'GET' }
       )
     },
-    getNextPageParam: page => {
-      if (page.following.length === 0) return undefined
-      const nextOffset = page.offset + page.following.length
-      return nextOffset < page.total ? nextOffset : undefined
-    },
+    getNextPageParam: page => page.next_cursor,
     enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
     staleTime: 2 * 60 * 1000,
   })

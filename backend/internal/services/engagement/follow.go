@@ -560,39 +560,69 @@ func libraryFollowingSourceFor(entityType string) (libraryFollowingSource, error
 }
 
 // GetLibraryFollowing returns one bounded, globally alphabetical Library page.
-// The stable entity-id tie-breaker prevents duplicate or skipped rows when names match.
-func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
+// Keyset pagination over the complete sort tuple remains stable when follows
+// are added or removed before a previously loaded page boundary.
+func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.FollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
 	if s.db == nil {
-		return nil, 0, fmt.Errorf("database not initialized")
+		return nil, nil, fmt.Errorf("database not initialized")
+	}
+	if limit < 1 || limit > 100 {
+		return nil, nil, fmt.Errorf("library following limit must be between 1 and 100")
 	}
 	if !libraryFollowEntityTypes[entityType] {
-		return nil, 0, fmt.Errorf("entity type %q is not available in Library", entityType)
+		return nil, nil, fmt.Errorf("entity type %q is not available in Library", entityType)
 	}
 
 	source, err := libraryFollowingSourceFor(entityType)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 
 	base := s.db.Table("user_bookmarks AS ub").
 		Joins(fmt.Sprintf("JOIN %s AS %s ON %s.id = ub.entity_id", source.table, source.alias, source.alias)).
 		Where("ub.user_id = ? AND ub.action = ? AND ub.entity_type = ?", userID, engagementm.BookmarkActionFollow, entityType)
-
-	var total int64
-	if err := base.Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to count library following page: %w", err)
-	}
-	if total == 0 {
-		return []*contracts.FollowingEntityResponse{}, 0, nil
+	if cursor != nil {
+		boundarySQL := fmt.Sprintf("(LOWER(%s), %s, ub.entity_id) > (?, ?, ?)", source.nameExpression, source.nameExpression)
+		base = base.Where(boundarySQL, cursor.SortName, cursor.Name, cursor.EntityID)
 	}
 
-	var following []*contracts.FollowingEntityResponse
-	selectSQL := fmt.Sprintf("ub.entity_type, ub.entity_id, %s AS name, %s AS slug, ub.created_at AS followed_at", source.nameExpression, source.slugExpression)
+	type libraryFollowingRow struct {
+		EntityType string
+		EntityID   uint
+		Name       string
+		Slug       string
+		FollowedAt time.Time
+		SortName   string
+	}
+	var rows []libraryFollowingRow
+	selectSQL := fmt.Sprintf("ub.entity_type, ub.entity_id, %s AS name, %s AS slug, ub.created_at AS followed_at, LOWER(%s) AS sort_name", source.nameExpression, source.slugExpression, source.nameExpression)
 	orderSQL := fmt.Sprintf("LOWER(%s) ASC, %s ASC, ub.entity_id ASC", source.nameExpression, source.nameExpression)
-	if err := base.Select(selectSQL).Order(orderSQL).Limit(limit).Offset(offset).Scan(&following).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to get library following: %w", err)
+	if err := base.Select(selectSQL).Order(orderSQL).Limit(limit + 1).Scan(&rows).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to get library following: %w", err)
 	}
-	return following, total, nil
+
+	var nextCursor *contracts.LibraryFollowingCursor
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		nextCursor = &contracts.LibraryFollowingCursor{
+			SortName: last.SortName,
+			Name:     last.Name,
+			EntityID: last.EntityID,
+		}
+	}
+
+	following := make([]*contracts.FollowingEntityResponse, 0, len(rows))
+	for _, row := range rows {
+		following = append(following, &contracts.FollowingEntityResponse{
+			EntityType: row.EntityType,
+			EntityID:   row.EntityID,
+			Name:       row.Name,
+			Slug:       row.Slug,
+			FollowedAt: row.FollowedAt,
+		})
+	}
+	return following, nextCursor, nil
 }
 
 // GetFollowers lists followers of an entity. Returns user info.

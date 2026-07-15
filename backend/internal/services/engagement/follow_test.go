@@ -85,9 +85,15 @@ func TestFollowService_InvalidEntityType(t *testing.T) {
 	})
 
 	t.Run("GetLibraryFollowing_InvalidType", func(t *testing.T) {
-		_, _, err := svc.GetLibraryFollowing(1, "radio_show", 10, 0)
+		_, _, err := svc.GetLibraryFollowing(1, "radio_show", 10, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not available in Library")
+	})
+
+	t.Run("GetLibraryFollowing_InvalidLimit", func(t *testing.T) {
+		_, _, err := svc.GetLibraryFollowing(1, "artist", 0, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "limit must be between")
 	})
 
 	t.Run("GetFollowers_InvalidType", func(t *testing.T) {
@@ -665,15 +671,20 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowing_Alphabet
 		suite.Require().NoError(suite.followService.Follow(user.ID, "artist", id))
 	}
 
-	page1, total, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 2, 0)
+	page1, cursor, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 2, nil)
 	suite.Require().NoError(err)
-	suite.Equal(int64(4), total)
 	suite.Require().Len(page1, 2)
+	suite.Require().NotNil(cursor)
 	suite.Equal([]string{"aardvark", "Alpha"}, []string{page1[0].Name, page1[1].Name})
 
-	page2, _, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 2, 2)
+	// A new row before the cursor must not duplicate or shift page two.
+	earlyID := suite.createTestArtist("AAA")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", earlyID))
+
+	page2, nextCursor, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 2, cursor)
 	suite.Require().NoError(err)
 	suite.Require().Len(page2, 2)
+	suite.Nil(nextCursor)
 	suite.Equal([]string{"Beta", "zebra"}, []string{page2[0].Name, page2[1].Name})
 
 	legacy, _, err := suite.followService.GetUserFollowing(user.ID, "artist", 4, 0)

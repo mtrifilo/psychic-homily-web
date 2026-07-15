@@ -684,7 +684,7 @@ function FollowingList({
     )
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <div className="text-center text-destructive py-12">
         <p>Failed to load. Please try again later.</p>

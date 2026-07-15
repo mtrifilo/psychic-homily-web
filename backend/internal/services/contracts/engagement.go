@@ -134,6 +134,14 @@ type LibraryFollowingCounts struct {
 	Festivals int64 `json:"festivals"`
 }
 
+// LibraryFollowingCursor is the stable keyset boundary for an alphabetical
+// Library page. SortName is the database-normalized name used by ORDER BY.
+type LibraryFollowingCursor struct {
+	SortName string
+	Name     string
+	EntityID uint
+}
+
 // FollowerResponse represents a follower of an entity.
 type FollowerResponse struct {
 	UserID      uint   `json:"user_id"`
@@ -205,7 +213,7 @@ type FollowServiceInterface interface {
 	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
 	GetLibraryFollowingCounts(userID uint) (*LibraryFollowingCounts, error)
-	GetLibraryFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
+	GetLibraryFollowing(userID uint, entityType string, limit int, cursor *LibraryFollowingCursor) ([]*FollowingEntityResponse, *LibraryFollowingCursor, error)
 	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
 }
 

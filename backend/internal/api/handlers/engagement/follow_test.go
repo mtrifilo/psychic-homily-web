@@ -671,11 +671,14 @@ func TestGetLibraryFollowingHandlers_NoAuth(t *testing.T) {
 func TestGetLibraryFollowingHandler_ValidatesAndClamps(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	var capturedType string
-	var capturedLimit, capturedOffset int
+	var capturedLimit int
+	var capturedCursor *contracts.LibraryFollowingCursor
 	mock := &testhelpers.MockFollowService{
-		GetLibraryFollowingFn: func(_ uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
-			capturedType, capturedLimit, capturedOffset = entityType, limit, offset
-			return []*contracts.FollowingEntityResponse{}, 0, nil
+		GetLibraryFollowingFn: func(_ uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.FollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
+			capturedType, capturedLimit, capturedCursor = entityType, limit, cursor
+			return []*contracts.FollowingEntityResponse{}, &contracts.LibraryFollowingCursor{
+				SortName: "alpha", Name: "Alpha", EntityID: 7,
+			}, nil
 		},
 	}
 	h := NewFollowHandler(mock)
@@ -683,18 +686,29 @@ func TestGetLibraryFollowingHandler_ValidatesAndClamps(t *testing.T) {
 	_, err := h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{Type: "radio_show"})
 	testhelpers.AssertHumaError(t, err, 400)
 
+	encodedCursor := encodeLibraryFollowingCursor(&contracts.LibraryFollowingCursor{
+		SortName: "phoenix, az", Name: "Phoenix, AZ", EntityID: 4,
+	})
 	resp, err := h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{
-		Type: "scene", Limit: 999, Offset: -4,
+		Type: "scene", Limit: 999, Cursor: *encodedCursor,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedType != "scene" || capturedLimit != 100 || capturedOffset != 0 {
-		t.Fatalf("unexpected service args: type=%s limit=%d offset=%d", capturedType, capturedLimit, capturedOffset)
+	if capturedType != "scene" || capturedLimit != 100 || capturedCursor == nil || capturedCursor.EntityID != 4 {
+		t.Fatalf("unexpected service args: type=%s limit=%d cursor=%+v", capturedType, capturedLimit, capturedCursor)
 	}
 	if resp.Body.Limit != 100 {
 		t.Fatalf("expected response limit=100, got %d", resp.Body.Limit)
 	}
+	if resp.Body.NextCursor == nil {
+		t.Fatal("expected encoded next cursor")
+	}
+
+	_, err = h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{
+		Type: "artist", Cursor: "not-base64!",
+	})
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- GetFollowersListHandler ---

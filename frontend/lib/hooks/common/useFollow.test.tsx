@@ -458,6 +458,24 @@ describe('useUnfollow', () => {
       limit: 2,
       offset: 0,
     })
+    const otherUserFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'artist', scope: 'all', userId: 2 },
+    ]
+    queryClient.setQueryData(otherUserFollowingKey, {
+      following: [
+        {
+          entity_type: 'artist',
+          entity_id: 1,
+          name: 'Other user artist',
+          slug: 'other',
+        },
+      ],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
@@ -488,11 +506,20 @@ describe('useUnfollow', () => {
       labels: 0,
       festivals: 0,
     })
+    expect(queryClient.getQueryState(countsKey)?.isInvalidated).toBe(true)
     expect(
       queryClient
         .getQueryData<{ following: Array<{ name: string }> }>(allFollowingKey)
         ?.following.map(entity => entity.name)
     ).toEqual(['Keep me'])
+    expect(queryClient.getQueryState(allFollowingKey)?.isInvalidated).toBe(true)
+    expect(
+      queryClient
+        .getQueryData<{
+          following: Array<{ name: string }>
+        }>(otherUserFollowingKey)
+        ?.following.map(entity => entity.name)
+    ).toEqual(['Other user artist'])
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -698,15 +725,12 @@ describe('Library following read model', () => {
     mockApiRequest
       .mockResolvedValueOnce({
         following: [{ entity_id: 1, name: 'Alpha' }],
-        total: 2,
         limit: 50,
-        offset: 0,
+        next_cursor: 'cursor-1',
       })
       .mockResolvedValueOnce({
         following: [{ entity_id: 2, name: 'Beta' }],
-        total: 2,
         limit: 50,
-        offset: 1,
       })
 
     const { result } = renderHook(() => useLibraryFollowing('artist'), {
@@ -721,18 +745,17 @@ describe('Library following read model', () => {
 
     expect(mockApiRequest).toHaveBeenCalledTimes(2)
     expect(mockApiRequest.mock.calls[0][0]).toContain(
-      '/me/library/following?type=artist&limit=50&offset=0'
+      '/me/library/following?type=artist&limit=50'
     )
-    expect(mockApiRequest.mock.calls[1][0]).toContain('offset=1')
+    expect(mockApiRequest.mock.calls[0][0]).not.toContain('cursor=')
+    expect(mockApiRequest.mock.calls[1][0]).toContain('cursor=cursor-1')
     await waitFor(() => expect(result.current.data?.pages).toHaveLength(2))
   })
 
-  it('stops pagination when a concurrent change produces an empty page', async () => {
+  it('stops pagination when the server omits a next cursor', async () => {
     mockApiRequest.mockResolvedValueOnce({
-      following: [],
-      total: 1,
+      following: [{ entity_id: 1, name: 'Alpha' }],
       limit: 50,
-      offset: 0,
     })
 
     const { result } = renderHook(() => useLibraryFollowing('artist'), {

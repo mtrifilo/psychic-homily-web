@@ -88,6 +88,24 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 			t.Errorf("Expected OpenAPI GET operation for %s", path)
 		}
 	}
+
+	operation := api.OpenAPI().Paths["/me/library/following"].Get
+	params := make(map[string]*huma.Param, len(operation.Parameters))
+	for _, param := range operation.Parameters {
+		params[param.Name] = param
+	}
+	entityType := params["type"]
+	if entityType == nil || !entityType.Required || len(entityType.Schema.Enum) != 5 {
+		t.Fatalf("expected required five-value type enum, got %+v", entityType)
+	}
+	limit := params["limit"]
+	if limit == nil || limit.Schema.Default != 50 || limit.Schema.Maximum == nil || *limit.Schema.Maximum != 100 {
+		t.Fatalf("expected documented limit default/max, got %+v", limit)
+	}
+	response := operation.Responses["200"]
+	if response == nil || response.Content["application/json"] == nil || response.Content["application/json"].Schema == nil {
+		t.Fatal("expected documented JSON response schema")
+	}
 }
 
 // TestSetupAuthRoutes tests authentication route setup

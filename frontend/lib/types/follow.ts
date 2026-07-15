@@ -47,6 +47,12 @@ export interface LibraryFollowingCounts {
   festivals: number
 }
 
+export interface LibraryFollowingPage {
+  following: FollowingEntity[]
+  limit: number
+  next_cursor?: string
+}
+
 export interface Follower {
   user_id: number
   username: string
