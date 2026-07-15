@@ -145,7 +145,9 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	if response == nil || response.Content["application/json"] == nil || response.Content["application/json"].Schema == nil {
 		t.Fatal("expected documented JSON response schema")
 	}
-	assertProperties(response.Content["application/json"].Schema, "following", "limit", "next_cursor")
+	pageSchema := resolveSchema(response.Content["application/json"].Schema)
+	assertProperties(pageSchema, "following", "limit", "next_cursor")
+	assertProperties(pageSchema.Properties["following"].Items, "entity_type", "entity_id", "name", "slug", "followed_at")
 
 	countsOperation := api.OpenAPI().Paths["/me/library/following/counts"].Get
 	countsResponse := countsOperation.Responses["200"].Content["application/json"].Schema

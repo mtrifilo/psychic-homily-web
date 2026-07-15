@@ -674,9 +674,9 @@ func TestGetLibraryFollowingHandler_ValidatesAndClamps(t *testing.T) {
 	var capturedLimit int
 	var capturedCursor *contracts.LibraryFollowingCursor
 	mock := &testhelpers.MockFollowService{
-		GetLibraryFollowingFn: func(_ uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.FollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
+		GetLibraryFollowingFn: func(_ uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.LibraryFollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
 			capturedType, capturedLimit, capturedCursor = entityType, limit, cursor
-			return []*contracts.FollowingEntityResponse{}, &contracts.LibraryFollowingCursor{
+			return []*contracts.LibraryFollowingEntityResponse{}, &contracts.LibraryFollowingCursor{
 				SortName: "alpha", Name: "Alpha", EntityID: 7,
 			}, nil
 		},

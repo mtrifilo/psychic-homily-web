@@ -2029,7 +2029,7 @@ type MockFollowService struct {
 	GetBatchUserFollowingFn     func(uint, string, []uint) (map[uint]bool, error)
 	GetUserFollowingFn          func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
 	GetLibraryFollowingCountsFn func(uint) (*contracts.LibraryFollowingCounts, error)
-	GetLibraryFollowingFn       func(uint, string, int, *contracts.LibraryFollowingCursor) ([]*contracts.FollowingEntityResponse, *contracts.LibraryFollowingCursor, error)
+	GetLibraryFollowingFn       func(uint, string, int, *contracts.LibraryFollowingCursor) ([]*contracts.LibraryFollowingEntityResponse, *contracts.LibraryFollowingCursor, error)
 	GetFollowersFn              func(string, uint, int, int) ([]*contracts.FollowerResponse, int64, error)
 }
 
@@ -2097,7 +2097,7 @@ func (m *MockFollowService) GetLibraryFollowingCounts(userID uint) (*contracts.L
 	}
 	return nil, nil
 }
-func (m *MockFollowService) GetLibraryFollowing(userID uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.FollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
+func (m *MockFollowService) GetLibraryFollowing(userID uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.LibraryFollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
 	if m.GetLibraryFollowingFn != nil {
 		return m.GetLibraryFollowingFn(userID, entityType, limit, cursor)
 	}

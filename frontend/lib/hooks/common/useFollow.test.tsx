@@ -532,6 +532,7 @@ describe('useUnfollow', () => {
         Record<string, { follower_count: number; is_following: boolean }>
       >(batchKey)?.['1']
     ).toEqual({ follower_count: 9, is_following: false })
+    expect(queryClient.getQueryState(batchKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryData(countsKey)).toEqual({
       artists: 3,
       venues: 2,

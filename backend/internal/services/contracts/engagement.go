@@ -134,6 +134,17 @@ type LibraryFollowingCounts struct {
 	Festivals int64 `json:"festivals"`
 }
 
+// LibraryFollowingEntityResponse is the non-radio entity shape returned by
+// Library pages. Keeping it separate prevents radio-only enrichment fields
+// from leaking into generated clients for this endpoint.
+type LibraryFollowingEntityResponse struct {
+	EntityType string    `json:"entity_type"`
+	EntityID   uint      `json:"entity_id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	FollowedAt time.Time `json:"followed_at"`
+}
+
 // LibraryFollowingCursor is the stable keyset boundary for an alphabetical
 // Library page. SortName is the database-normalized name used by ORDER BY.
 type LibraryFollowingCursor struct {
@@ -213,7 +224,7 @@ type FollowServiceInterface interface {
 	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
 	GetLibraryFollowingCounts(userID uint) (*LibraryFollowingCounts, error)
-	GetLibraryFollowing(userID uint, entityType string, limit int, cursor *LibraryFollowingCursor) ([]*FollowingEntityResponse, *LibraryFollowingCursor, error)
+	GetLibraryFollowing(userID uint, entityType string, limit int, cursor *LibraryFollowingCursor) ([]*LibraryFollowingEntityResponse, *LibraryFollowingCursor, error)
 	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
 }
 

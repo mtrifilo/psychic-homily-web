@@ -426,6 +426,9 @@ export const useUnfollow = () => {
       invalidateQueries.follows()
       void invalidateQueries.personalCharts()
       queryClient.invalidateQueries({
+        queryKey: queryKeys.follows.batchPrefix(entityType, user?.id),
+      })
+      queryClient.invalidateQueries({
         queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
       })
       queryClient.invalidateQueries({

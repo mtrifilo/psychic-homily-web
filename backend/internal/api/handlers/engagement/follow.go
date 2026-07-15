@@ -143,9 +143,9 @@ type GetLibraryFollowingRequest struct {
 
 type GetLibraryFollowingResponse struct {
 	Body struct {
-		Following  []*contracts.FollowingEntityResponse `json:"following"`
-		Limit      int                                  `json:"limit"`
-		NextCursor *string                              `json:"next_cursor,omitempty"`
+		Following  []*contracts.LibraryFollowingEntityResponse `json:"following"`
+		Limit      int                                         `json:"limit"`
+		NextCursor *string                                     `json:"next_cursor,omitempty"`
 	}
 }
 
@@ -584,9 +584,9 @@ func (h *FollowHandler) GetLibraryFollowingHandler(ctx context.Context, req *Get
 		return nil, huma.Error500InternalServerError("Failed to get Library following list")
 	}
 	return &GetLibraryFollowingResponse{Body: struct {
-		Following  []*contracts.FollowingEntityResponse `json:"following"`
-		Limit      int                                  `json:"limit"`
-		NextCursor *string                              `json:"next_cursor,omitempty"`
+		Following  []*contracts.LibraryFollowingEntityResponse `json:"following"`
+		Limit      int                                         `json:"limit"`
+		NextCursor *string                                     `json:"next_cursor,omitempty"`
 	}{Following: following, Limit: limit, NextCursor: encodeLibraryFollowingCursor(nextCursor)}}, nil
 }
 

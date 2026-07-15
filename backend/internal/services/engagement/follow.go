@@ -540,7 +540,7 @@ func libraryFollowingSourceFor(entityType string) (libraryFollowingSource, error
 // GetLibraryFollowing returns one bounded, globally alphabetical Library page.
 // Keyset pagination over the complete sort tuple remains stable when follows
 // are added or removed before a previously loaded page boundary.
-func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.FollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
+func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.LibraryFollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
@@ -590,9 +590,9 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 		}
 	}
 
-	following := make([]*contracts.FollowingEntityResponse, 0, len(rows))
+	following := make([]*contracts.LibraryFollowingEntityResponse, 0, len(rows))
 	for _, row := range rows {
-		following = append(following, &contracts.FollowingEntityResponse{
+		following = append(following, &contracts.LibraryFollowingEntityResponse{
 			EntityType: row.EntityType,
 			EntityID:   row.EntityID,
 			Name:       row.Name,
