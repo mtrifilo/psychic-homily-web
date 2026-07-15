@@ -2019,16 +2019,18 @@ func (m *MockFieldNoteService) ListFieldNotesByAuthor(userID uint, limit int, of
 // ============================================================================
 
 type MockFollowService struct {
-	FollowFn                 func(uint, string, uint) error
-	UnfollowFn               func(uint, string, uint) error
-	IsFollowingFn            func(uint, string, uint) (bool, error)
-	GetFollowerCountFn       func(string, uint) (int64, error)
-	SetSceneNotifyModeFn     func(uint, uint, string) error
-	SceneNotifyModeFn        func(uint, uint) (string, error)
-	GetBatchFollowerCountsFn func(string, []uint) (map[uint]int64, error)
-	GetBatchUserFollowingFn  func(uint, string, []uint) (map[uint]bool, error)
-	GetUserFollowingFn       func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
-	GetFollowersFn           func(string, uint, int, int) ([]*contracts.FollowerResponse, int64, error)
+	FollowFn                    func(uint, string, uint) error
+	UnfollowFn                  func(uint, string, uint) error
+	IsFollowingFn               func(uint, string, uint) (bool, error)
+	GetFollowerCountFn          func(string, uint) (int64, error)
+	SetSceneNotifyModeFn        func(uint, uint, string) error
+	SceneNotifyModeFn           func(uint, uint) (string, error)
+	GetBatchFollowerCountsFn    func(string, []uint) (map[uint]int64, error)
+	GetBatchUserFollowingFn     func(uint, string, []uint) (map[uint]bool, error)
+	GetUserFollowingFn          func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
+	GetLibraryFollowingCountsFn func(uint) (*contracts.LibraryFollowingCounts, error)
+	GetLibraryFollowingFn       func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
+	GetFollowersFn              func(string, uint, int, int) ([]*contracts.FollowerResponse, int64, error)
 }
 
 func (m *MockFollowService) Follow(userID uint, entityType string, entityID uint) error {
@@ -2086,6 +2088,18 @@ func (m *MockFollowService) GetBatchUserFollowing(userID uint, entityType string
 func (m *MockFollowService) GetUserFollowing(userID uint, entityType string, limit int, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 	if m.GetUserFollowingFn != nil {
 		return m.GetUserFollowingFn(userID, entityType, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockFollowService) GetLibraryFollowingCounts(userID uint) (*contracts.LibraryFollowingCounts, error) {
+	if m.GetLibraryFollowingCountsFn != nil {
+		return m.GetLibraryFollowingCountsFn(userID)
+	}
+	return nil, nil
+}
+func (m *MockFollowService) GetLibraryFollowing(userID uint, entityType string, limit int, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	if m.GetLibraryFollowingFn != nil {
+		return m.GetLibraryFollowingFn(userID, entityType, limit, offset)
 	}
 	return nil, 0, nil
 }

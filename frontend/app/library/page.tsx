@@ -14,8 +14,8 @@ import {
 } from '@/features/releases'
 import { getSavedReleasePageBounds } from '@/features/releases/savedReleasePagination'
 import {
-  useAllMyFollowing,
-  useMyFollowing,
+  useLibraryFollowing,
+  useLibraryFollowingCounts,
   useUnfollow,
 } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
@@ -663,11 +663,18 @@ function FollowingList({
   browseHref: string
   browseLabel: string
 }) {
-  const { data, isLoading, error, isFetching } = useAllMyFollowing(type)
+  const {
+    data,
+    isLoading,
+    error,
+    isFetching,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useLibraryFollowing(type)
 
-  const following = [...(data?.following ?? [])].sort((a, b) =>
-    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-  )
+  const following = data?.pages.flatMap(page => page.following) ?? []
 
   if (isLoading && !data) {
     return (
@@ -699,7 +706,7 @@ function FollowingList({
   return (
     <div
       className={
-        isFetching
+        isFetching && !isFetchingNextPage
           ? 'opacity-60 transition-opacity duration-75'
           : 'transition-opacity duration-75'
       }
@@ -712,6 +719,20 @@ function FollowingList({
           />
         ))}
       </section>
+      {hasNextPage && (
+        <div className="mt-4 flex items-center gap-3">
+          <BracketLink
+            label={isFetchingNextPage ? 'Loading…' : 'Load more'}
+            disabled={isFetchingNextPage}
+            onClick={() => fetchNextPage()}
+          />
+          {isFetchNextPageError && (
+            <span className="font-mono text-[11px] text-destructive">
+              Couldn&apos;t load more. Try again.
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -731,18 +752,14 @@ const TAB_LABELS: Record<LibraryTab, string> = {
 }
 
 function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
-  const artists = useMyFollowing({ type: 'artist', limit: 1 })
-  const venues = useMyFollowing({ type: 'venue', limit: 1 })
-  const scenes = useMyFollowing({ type: 'scene', limit: 1 })
-  const labels = useMyFollowing({ type: 'label', limit: 1 })
-  const festivals = useMyFollowing({ type: 'festival', limit: 1 })
+  const { data } = useLibraryFollowingCounts()
 
   return {
-    artists: artists.data?.total,
-    venues: venues.data?.total,
-    scenes: scenes.data?.total,
-    labels: labels.data?.total,
-    festivals: festivals.data?.total,
+    artists: data?.artists,
+    venues: data?.venues,
+    scenes: data?.scenes,
+    labels: data?.labels,
+    festivals: data?.festivals,
   }
 }
 

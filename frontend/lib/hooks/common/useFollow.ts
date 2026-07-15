@@ -1,6 +1,11 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -9,7 +14,44 @@ import type {
   BatchFollowResponse,
   BatchFollowEntry,
   FollowingListResponse,
+  LibraryFollowingCounts,
 } from '@/lib/types/follow'
+
+const LIBRARY_FOLLOWING_PAGE_SIZE = 50
+
+const toSingularFollowType = (entityType: string) =>
+  ({
+    artists: 'artist',
+    venues: 'venue',
+    scenes: 'scene',
+    labels: 'label',
+    festivals: 'festival',
+    'radio-shows': 'radio_show',
+  })[entityType] ?? entityType
+
+const toLibraryCountKey = (
+  entityType: string
+): keyof LibraryFollowingCounts | undefined =>
+  ({
+    artist: 'artists',
+    venue: 'venues',
+    scene: 'scenes',
+    label: 'labels',
+    festival: 'festivals',
+  })[toSingularFollowType(entityType)] as
+    | keyof LibraryFollowingCounts
+    | undefined
+
+const isMyFollowingQueryForType = (
+  queryKey: readonly unknown[],
+  singularType: string
+) => {
+  if (queryKey[0] !== 'follows' || queryKey[1] !== 'my-following') return false
+  const params = queryKey[2]
+  if (!params || typeof params !== 'object') return false
+  const type = (params as { type?: string }).type
+  return type === singularType || type === 'all' || type === undefined
+}
 
 /**
  * Hook to fetch follow status (follower count + user's follow status) for a single entity.
@@ -100,9 +142,11 @@ export const useFollow = () => {
     onMutate: async ({ entityType, entityId }) => {
       const entityKey = queryKeys.follows.entity(entityType, entityId, user?.id)
       const batchPrefix = queryKeys.follows.batchPrefix(entityType, user?.id)
+      const libraryCountsKey = queryKeys.follows.libraryCounts(user?.id)
       await Promise.all([
         queryClient.cancelQueries({ queryKey: entityKey }),
         queryClient.cancelQueries({ queryKey: batchPrefix }),
+        queryClient.cancelQueries({ queryKey: libraryCountsKey }),
       ])
 
       // Snapshot previous value
@@ -110,6 +154,8 @@ export const useFollow = () => {
       const previousBatches = queryClient.getQueriesData<
         Record<string, BatchFollowEntry>
       >({ queryKey: batchPrefix })
+      const previousLibraryCounts =
+        queryClient.getQueryData<LibraryFollowingCounts>(libraryCountsKey)
 
       // Optimistically update
       if (previousData) {
@@ -135,8 +181,15 @@ export const useFollow = () => {
           }
         )
       }
+      const countKey = toLibraryCountKey(entityType)
+      if (previousLibraryCounts && countKey) {
+        queryClient.setQueryData<LibraryFollowingCounts>(libraryCountsKey, {
+          ...previousLibraryCounts,
+          [countKey]: previousLibraryCounts[countKey] + 1,
+        })
+      }
 
-      return { previousData, previousBatches }
+      return { previousData, previousBatches, previousLibraryCounts }
     },
     onError: (_err, { entityType, entityId }, context) => {
       // Rollback on error
@@ -158,9 +211,15 @@ export const useFollow = () => {
           )
         }
       }
+      if (context?.previousLibraryCounts) {
+        queryClient.setQueryData(
+          queryKeys.follows.libraryCounts(user?.id),
+          context.previousLibraryCounts
+        )
+      }
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
-      // Refetch to ensure consistency
+      const singularType = toSingularFollowType(entityType)
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
@@ -168,6 +227,16 @@ export const useFollow = () => {
       // Reconcile broad first_activity_at semantics without making the core
       // follow mutation wait on an optional /charts/me request.
       void invalidateQueries.personalCharts()
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.follows.batchPrefix(entityType, user?.id),
+      })
+      queryClient.invalidateQueries({
+        predicate: query =>
+          isMyFollowingQueryForType(query.queryKey, singularType),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
+      })
     },
   })
 }
@@ -200,15 +269,25 @@ export const useUnfollow = () => {
     onMutate: async ({ entityType, entityId }) => {
       const entityKey = queryKeys.follows.entity(entityType, entityId, user?.id)
       const batchPrefix = queryKeys.follows.batchPrefix(entityType, user?.id)
+      const libraryCountsKey = queryKeys.follows.libraryCounts(user?.id)
+      const singularType = toSingularFollowType(entityType)
       await Promise.all([
         queryClient.cancelQueries({ queryKey: entityKey }),
         queryClient.cancelQueries({ queryKey: batchPrefix }),
+        queryClient.cancelQueries({ queryKey: libraryCountsKey }),
       ])
 
       const previousData = queryClient.getQueryData<FollowStatus>(entityKey)
       const previousBatches = queryClient.getQueriesData<
         Record<string, BatchFollowEntry>
       >({ queryKey: batchPrefix })
+      const previousLibraryCounts =
+        queryClient.getQueryData<LibraryFollowingCounts>(libraryCountsKey)
+      const previousFollowingLists =
+        queryClient.getQueriesData<FollowingListResponse>({
+          predicate: query =>
+            isMyFollowingQueryForType(query.queryKey, singularType),
+        })
 
       if (previousData) {
         queryClient.setQueryData(entityKey, {
@@ -233,8 +312,39 @@ export const useUnfollow = () => {
           }
         )
       }
+      const countKey = toLibraryCountKey(entityType)
+      if (previousLibraryCounts && countKey) {
+        queryClient.setQueryData<LibraryFollowingCounts>(libraryCountsKey, {
+          ...previousLibraryCounts,
+          [countKey]: Math.max(0, previousLibraryCounts[countKey] - 1),
+        })
+      }
 
-      return { previousData, previousBatches }
+      for (const [key, snapshot] of previousFollowingLists) {
+        if (!snapshot) continue
+        queryClient.setQueryData<FollowingListResponse>(key, current => {
+          if (!current) return current
+          const nextFollowing = current.following.filter(entity => {
+            if (entity.entity_type !== singularType) return true
+            return typeof entityId === 'number'
+              ? entity.entity_id !== entityId
+              : entity.slug !== entityId
+          })
+          if (nextFollowing.length === current.following.length) return current
+          return {
+            ...current,
+            following: nextFollowing,
+            total: Math.max(0, current.total - 1),
+          }
+        })
+      }
+
+      return {
+        previousData,
+        previousBatches,
+        previousLibraryCounts,
+        previousFollowingLists,
+      }
     },
     onError: (_err, { entityType, entityId }, context) => {
       if (context?.previousData) {
@@ -255,13 +365,26 @@ export const useUnfollow = () => {
           )
         }
       }
+      if (context?.previousLibraryCounts) {
+        queryClient.setQueryData(
+          queryKeys.follows.libraryCounts(user?.id),
+          context.previousLibraryCounts
+        )
+      }
+      for (const [key, snapshot] of context?.previousFollowingLists ?? []) {
+        queryClient.setQueryData(key, snapshot)
+      }
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
+      const singularType = toSingularFollowType(entityType)
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
       void invalidateQueries.personalCharts()
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
+      })
     },
   })
 }
@@ -342,6 +465,51 @@ export const useAllMyFollowing = (type: string) => {
       } while (offset < total)
 
       return { following, total, limit: following.length, offset: 0 }
+    },
+    enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+/** Fetch all Library follow-tab totals with one request. */
+export const useLibraryFollowingCounts = () => {
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
+
+  return useQuery({
+    queryKey: queryKeys.follows.libraryCounts(viewerId),
+    queryFn: () =>
+      apiRequest<LibraryFollowingCounts>(API_ENDPOINTS.FOLLOW.LIBRARY_COUNTS, {
+        method: 'GET',
+      }),
+    enabled: isAuthenticated && viewerId !== undefined,
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+/** Fetch bounded, server-sorted Library following pages for one entity type. */
+export const useLibraryFollowing = (type: string) => {
+  const { isAuthenticated, user } = useAuthContext()
+  const viewerId = isAuthenticated ? user?.id : undefined
+
+  return useInfiniteQuery({
+    queryKey: queryKeys.follows.libraryFollowing(type, viewerId),
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }): Promise<FollowingListResponse> => {
+      const params = new URLSearchParams({
+        type,
+        limit: LIBRARY_FOLLOWING_PAGE_SIZE.toString(),
+        offset: pageParam.toString(),
+      })
+      return apiRequest<FollowingListResponse>(
+        `${API_ENDPOINTS.FOLLOW.LIBRARY_FOLLOWING}?${params.toString()}`,
+        { method: 'GET' }
+      )
+    },
+    getNextPageParam: page => {
+      if (page.following.length === 0) return undefined
+      const nextOffset = page.offset + page.following.length
+      return nextOffset < page.total ? nextOffset : undefined
     },
     enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
     staleTime: 2 * 60 * 1000,

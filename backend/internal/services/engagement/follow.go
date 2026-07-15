@@ -29,7 +29,15 @@ var validFollowEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityFestival):  true,
 	string(engagementm.BookmarkEntityScene):     true,
 	string(engagementm.BookmarkEntityRadioShow): true,
-	FollowEntityUser:                            true,
+	FollowEntityUser: true,
+}
+
+var libraryFollowEntityTypes = map[string]bool{
+	string(engagementm.BookmarkEntityArtist):   true,
+	string(engagementm.BookmarkEntityVenue):    true,
+	string(engagementm.BookmarkEntityLabel):    true,
+	string(engagementm.BookmarkEntityFestival): true,
+	string(engagementm.BookmarkEntityScene):    true,
 }
 
 // FollowService handles follow/unfollow operations on entities.
@@ -482,6 +490,109 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 	}
 
 	return responses, total, nil
+}
+
+// GetLibraryFollowingCounts returns all Library follow-tab totals in one query.
+func (s *FollowService) GetLibraryFollowingCounts(userID uint) (*contracts.LibraryFollowingCounts, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	type countRow struct {
+		EntityType string
+		Total      int64
+	}
+	var rows []countRow
+	if err := s.db.Model(&engagementm.UserBookmark{}).
+		Select("entity_type, COUNT(*) AS total").
+		Where("user_id = ? AND action = ? AND entity_type IN ?", userID, engagementm.BookmarkActionFollow, []string{
+			string(engagementm.BookmarkEntityArtist),
+			string(engagementm.BookmarkEntityVenue),
+			string(engagementm.BookmarkEntityScene),
+			string(engagementm.BookmarkEntityLabel),
+			string(engagementm.BookmarkEntityFestival),
+		}).
+		Group("entity_type").
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to count library following: %w", err)
+	}
+
+	counts := &contracts.LibraryFollowingCounts{}
+	for _, row := range rows {
+		switch row.EntityType {
+		case string(engagementm.BookmarkEntityArtist):
+			counts.Artists = row.Total
+		case string(engagementm.BookmarkEntityVenue):
+			counts.Venues = row.Total
+		case string(engagementm.BookmarkEntityScene):
+			counts.Scenes = row.Total
+		case string(engagementm.BookmarkEntityLabel):
+			counts.Labels = row.Total
+		case string(engagementm.BookmarkEntityFestival):
+			counts.Festivals = row.Total
+		}
+	}
+	return counts, nil
+}
+
+type libraryFollowingSource struct {
+	table          string
+	alias          string
+	nameExpression string
+	slugExpression string
+}
+
+func libraryFollowingSourceFor(entityType string) (libraryFollowingSource, error) {
+	switch entityType {
+	case string(engagementm.BookmarkEntityArtist):
+		return libraryFollowingSource{"artists", "entity", "entity.name", "COALESCE(entity.slug, '')"}, nil
+	case string(engagementm.BookmarkEntityVenue):
+		return libraryFollowingSource{"venues", "entity", "entity.name", "COALESCE(entity.slug, '')"}, nil
+	case string(engagementm.BookmarkEntityScene):
+		return libraryFollowingSource{"scenes", "entity", "entity.city || ', ' || entity.state", "entity.slug"}, nil
+	case string(engagementm.BookmarkEntityLabel):
+		return libraryFollowingSource{"labels", "entity", "entity.name", "COALESCE(entity.slug, '')"}, nil
+	case string(engagementm.BookmarkEntityFestival):
+		return libraryFollowingSource{"festivals", "entity", "entity.name", "entity.slug"}, nil
+	default:
+		return libraryFollowingSource{}, fmt.Errorf("entity type %q is not available in Library", entityType)
+	}
+}
+
+// GetLibraryFollowing returns one bounded, globally alphabetical Library page.
+// The stable entity-id tie-breaker prevents duplicate or skipped rows when names match.
+func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+	if !libraryFollowEntityTypes[entityType] {
+		return nil, 0, fmt.Errorf("entity type %q is not available in Library", entityType)
+	}
+
+	source, err := libraryFollowingSourceFor(entityType)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	base := s.db.Table("user_bookmarks AS ub").
+		Joins(fmt.Sprintf("JOIN %s AS %s ON %s.id = ub.entity_id", source.table, source.alias, source.alias)).
+		Where("ub.user_id = ? AND ub.action = ? AND ub.entity_type = ?", userID, engagementm.BookmarkActionFollow, entityType)
+
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count library following page: %w", err)
+	}
+	if total == 0 {
+		return []*contracts.FollowingEntityResponse{}, 0, nil
+	}
+
+	var following []*contracts.FollowingEntityResponse
+	selectSQL := fmt.Sprintf("ub.entity_type, ub.entity_id, %s AS name, %s AS slug, ub.created_at AS followed_at", source.nameExpression, source.slugExpression)
+	orderSQL := fmt.Sprintf("LOWER(%s) ASC, %s ASC, ub.entity_id ASC", source.nameExpression, source.nameExpression)
+	if err := base.Select(selectSQL).Order(orderSQL).Limit(limit).Offset(offset).Scan(&following).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get library following: %w", err)
+	}
+	return following, total, nil
 }
 
 // GetFollowers lists followers of an entity. Returns user info.

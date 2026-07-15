@@ -129,6 +129,25 @@ type GetMyFollowingResponse struct {
 	}
 }
 
+type GetLibraryFollowingCountsResponse struct {
+	Body contracts.LibraryFollowingCounts
+}
+
+type GetLibraryFollowingRequest struct {
+	Type   string `query:"type" doc:"Library entity type: artist, venue, scene, label, or festival"`
+	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of items per page"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+}
+
+type GetLibraryFollowingResponse struct {
+	Body struct {
+		Following []*contracts.FollowingEntityResponse `json:"following"`
+		Total     int64                                `json:"total"`
+		Limit     int                                  `json:"limit"`
+		Offset    int                                  `json:"offset"`
+	}
+}
+
 // GetFollowersListRequest is the request for GET /{entity_type}/{entity_id}/followers/list
 type GetFollowersListRequest struct {
 	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals, radio-shows)"`
@@ -479,6 +498,52 @@ func (h *FollowHandler) GetMyFollowingHandler(ctx context.Context, req *GetMyFol
 			Offset:    offset,
 		},
 	}, nil
+}
+
+// GetLibraryFollowingCountsHandler handles GET /me/library/following/counts.
+func (h *FollowHandler) GetLibraryFollowingCountsHandler(ctx context.Context, _ *struct{}) (*GetLibraryFollowingCountsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	counts, err := h.followService.GetLibraryFollowingCounts(user.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get Library following counts")
+	}
+	return &GetLibraryFollowingCountsResponse{Body: *counts}, nil
+}
+
+// GetLibraryFollowingHandler handles GET /me/library/following.
+func (h *FollowHandler) GetLibraryFollowingHandler(ctx context.Context, req *GetLibraryFollowingRequest) (*GetLibraryFollowingResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if req.Type != "artist" && req.Type != "venue" && req.Type != "scene" && req.Type != "label" && req.Type != "festival" {
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'scene', 'label', or 'festival'")
+	}
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	following, total, err := h.followService.GetLibraryFollowing(user.ID, req.Type, limit, offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get Library following list")
+	}
+	return &GetLibraryFollowingResponse{Body: struct {
+		Following []*contracts.FollowingEntityResponse `json:"following"`
+		Total     int64                                `json:"total"`
+		Limit     int                                  `json:"limit"`
+		Offset    int                                  `json:"offset"`
+	}{Following: following, Total: total, Limit: limit, Offset: offset}}, nil
 }
 
 // GetFollowersListHandler handles GET /{entity_type}/{entity_id}/followers/list

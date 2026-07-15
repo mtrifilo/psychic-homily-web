@@ -638,6 +638,65 @@ func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 	}
 }
 
+func TestGetLibraryFollowingCountsHandler_Success(t *testing.T) {
+	mock := &testhelpers.MockFollowService{
+		GetLibraryFollowingCountsFn: func(userID uint) (*contracts.LibraryFollowingCounts, error) {
+			if userID != 1 {
+				t.Fatalf("unexpected userID=%d", userID)
+			}
+			return &contracts.LibraryFollowingCounts{Artists: 4, Scenes: 2}, nil
+		},
+	}
+	resp, err := NewFollowHandler(mock).GetLibraryFollowingCountsHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}), &struct{}{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Artists != 4 || resp.Body.Scenes != 2 {
+		t.Fatalf("unexpected counts: %+v", resp.Body)
+	}
+}
+
+func TestGetLibraryFollowingHandlers_NoAuth(t *testing.T) {
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+
+	_, err := h.GetLibraryFollowingCountsHandler(context.Background(), &struct{}{})
+	testhelpers.AssertHumaError(t, err, 401)
+
+	_, err = h.GetLibraryFollowingHandler(context.Background(), &GetLibraryFollowingRequest{Type: "artist"})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestGetLibraryFollowingHandler_ValidatesAndClamps(t *testing.T) {
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	var capturedType string
+	var capturedLimit, capturedOffset int
+	mock := &testhelpers.MockFollowService{
+		GetLibraryFollowingFn: func(_ uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
+			capturedType, capturedLimit, capturedOffset = entityType, limit, offset
+			return []*contracts.FollowingEntityResponse{}, 0, nil
+		},
+	}
+	h := NewFollowHandler(mock)
+
+	_, err := h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{Type: "radio_show"})
+	testhelpers.AssertHumaError(t, err, 400)
+
+	resp, err := h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{
+		Type: "scene", Limit: 999, Offset: -4,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedType != "scene" || capturedLimit != 100 || capturedOffset != 0 {
+		t.Fatalf("unexpected service args: type=%s limit=%d offset=%d", capturedType, capturedLimit, capturedOffset)
+	}
+	if resp.Body.Limit != 100 {
+		t.Fatalf("expected response limit=100, got %d", resp.Body.Limit)
+	}
+}
+
 // --- GetFollowersListHandler ---
 
 // --- Radio-show follow target (PSY-1356) ---

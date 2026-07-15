@@ -68,6 +68,28 @@ func TestSetupRoutes(t *testing.T) {
 	}
 }
 
+func TestSetupFollowRoutesOpenAPI(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	api := humachi.New(router, huma.DefaultConfig("Follow routes", "1.0.0"))
+	protected := huma.NewGroup(api, "")
+
+	setupFollowRoutes(RouteContext{
+		Router: router, API: api, Protected: protected, SC: sc, Cfg: cfg,
+	})
+
+	for _, path := range []string{
+		"/me/library/following",
+		"/me/library/following/counts",
+	} {
+		item, exists := api.OpenAPI().Paths[path]
+		if !exists || item.Get == nil {
+			t.Errorf("Expected OpenAPI GET operation for %s", path)
+		}
+	}
+}
+
 // TestSetupAuthRoutes tests authentication route setup
 func TestSetupAuthRoutes(t *testing.T) {
 	cfg := testConfig()

@@ -39,6 +39,14 @@ export interface FollowingListResponse {
   offset: number
 }
 
+export interface LibraryFollowingCounts {
+  artists: number
+  venues: number
+  scenes: number
+  labels: number
+  festivals: number
+}
+
 export interface Follower {
   user_id: number
   username: string

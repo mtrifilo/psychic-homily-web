@@ -17,6 +17,8 @@ vi.mock('@/lib/api', () => ({
         `/${entityType}/${entityId}/followers`,
       BATCH: '/follows/batch',
       MY_FOLLOWING: '/me/following',
+      LIBRARY_FOLLOWING: '/me/library/following',
+      LIBRARY_COUNTS: '/me/library/following/counts',
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -46,6 +48,19 @@ vi.mock('@/lib/queryClient', () => ({
         'my-following',
         params,
       ],
+      libraryCounts: (userId?: string | number) => [
+        'follows',
+        'library',
+        'counts',
+        userId ?? null,
+      ],
+      libraryFollowing: (entityType: string, userId?: string | number) => [
+        'follows',
+        'library',
+        'following',
+        userId ?? null,
+        entityType,
+      ],
     },
   },
   createInvalidateQueries: () => ({
@@ -65,6 +80,8 @@ import {
   useUnfollow,
   useMyFollowing,
   useAllMyFollowing,
+  useLibraryFollowing,
+  useLibraryFollowingCounts,
 } from './useFollow'
 
 type CachedFollow = { follower_count: number; is_following: boolean }
@@ -239,7 +256,14 @@ describe('useFollow', () => {
       '1': { follower_count: 10, is_following: false },
       '2': { follower_count: 4, is_following: false },
     })
-
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
+    })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const { result } = renderHook(() => useFollow(), {
@@ -262,6 +286,9 @@ describe('useFollow', () => {
         Record<string, { follower_count: number; is_following: boolean }>
       >(batchKey)?.['1']
     ).toEqual({ follower_count: 11, is_following: true })
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(5)
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -290,6 +317,14 @@ describe('useFollow', () => {
     queryClient.setQueryData(batchKey, {
       '1': { follower_count: 10, is_following: true },
       '2': { follower_count: 4, is_following: false },
+    })
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
     })
 
     const cancelGate = createDeferred<void>()
@@ -401,6 +436,28 @@ describe('useUnfollow', () => {
       '1': { follower_count: 10, is_following: true },
       '2': { follower_count: 4, is_following: false },
     })
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
+    })
+    const allFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'all', scope: 'all', userId: 1 },
+    ]
+    queryClient.setQueryData(allFollowingKey, {
+      following: [
+        { entity_type: 'artist', entity_id: 1, name: 'Remove me', slug: 'a' },
+        { entity_type: 'venue', entity_id: 1, name: 'Keep me', slug: 'v' },
+      ],
+      total: 2,
+      limit: 2,
+      offset: 0,
+    })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
@@ -424,6 +481,18 @@ describe('useUnfollow', () => {
         Record<string, { follower_count: number; is_following: boolean }>
       >(batchKey)?.['1']
     ).toEqual({ follower_count: 9, is_following: false })
+    expect(queryClient.getQueryData(countsKey)).toEqual({
+      artists: 3,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
+    })
+    expect(
+      queryClient
+        .getQueryData<{ following: Array<{ name: string }> }>(allFollowingKey)
+        ?.following.map(entity => entity.name)
+    ).toEqual(['Keep me'])
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -595,5 +664,81 @@ describe('useMyFollowing', () => {
     expect(mockApiRequest).toHaveBeenCalledTimes(2)
     expect(mockApiRequest.mock.calls[0][0]).toContain('offset=0')
     expect(mockApiRequest.mock.calls[1][0]).toContain('offset=100')
+  })
+})
+
+describe('Library following read model', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('fetches all tab counts in one request', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 3,
+    })
+
+    const { result } = renderHook(() => useLibraryFollowingCounts(), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      '/me/library/following/counts',
+      { method: 'GET' }
+    )
+  })
+
+  it('requests bounded alphabetical pages progressively', async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({
+        following: [{ entity_id: 1, name: 'Alpha' }],
+        total: 2,
+        limit: 50,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        following: [{ entity_id: 2, name: 'Beta' }],
+        total: 2,
+        limit: 50,
+        offset: 1,
+      })
+
+    const { result } = renderHook(() => useLibraryFollowing('artist'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.hasNextPage).toBe(true)
+
+    await act(async () => {
+      await result.current.fetchNextPage()
+    })
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    expect(mockApiRequest.mock.calls[0][0]).toContain(
+      '/me/library/following?type=artist&limit=50&offset=0'
+    )
+    expect(mockApiRequest.mock.calls[1][0]).toContain('offset=1')
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2))
+  })
+
+  it('stops pagination when a concurrent change produces an empty page', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      following: [],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    })
+
+    const { result } = renderHook(() => useLibraryFollowing('artist'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.hasNextPage).toBe(false)
   })
 })

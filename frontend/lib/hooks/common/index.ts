@@ -1,12 +1,6 @@
-export {
-  useCommandPalette,
-  openCommandPalette,
-} from './useCommandPalette'
+export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
-export {
-  type Density,
-  useDensity,
-} from './useDensity'
+export { type Density, useDensity } from './useDensity'
 
 export { useFilterNavigation } from './useFilterNavigation'
 export { usePrefetchRoutes } from './usePrefetchRoutes'
@@ -34,6 +28,8 @@ export {
   useUnfollow,
   useMyFollowing,
   useAllMyFollowing,
+  useLibraryFollowing,
+  useLibraryFollowingCounts,
 } from './useFollow'
 
 export {

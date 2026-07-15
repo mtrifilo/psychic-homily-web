@@ -124,6 +124,16 @@ type FollowingEntityResponse struct {
 	LastEpisodeDate *string `json:"last_episode_date,omitempty"`
 }
 
+// LibraryFollowingCounts contains the follow totals surfaced by Library tabs.
+// Radio shows are intentionally excluded because they are managed in Radio.
+type LibraryFollowingCounts struct {
+	Artists   int64 `json:"artists"`
+	Venues    int64 `json:"venues"`
+	Scenes    int64 `json:"scenes"`
+	Labels    int64 `json:"labels"`
+	Festivals int64 `json:"festivals"`
+}
+
 // FollowerResponse represents a follower of an entity.
 type FollowerResponse struct {
 	UserID      uint   `json:"user_id"`
@@ -194,6 +204,8 @@ type FollowServiceInterface interface {
 	GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error)
 	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
+	GetLibraryFollowingCounts(userID uint) (*LibraryFollowingCounts, error)
+	GetLibraryFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
 	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
 }
 

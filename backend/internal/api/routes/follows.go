@@ -42,4 +42,9 @@ func setupFollowRoutes(rc RouteContext) {
 
 	// User's following list (protected)
 	huma.Get(rc.Protected, "/me/following", followHandler.GetMyFollowingHandler)
+
+	// Library-specific following read model (protected): one aggregate-count
+	// query plus bounded, deterministic alphabetical pages by entity type.
+	huma.Get(rc.Protected, "/me/library/following/counts", followHandler.GetLibraryFollowingCountsHandler)
+	huma.Get(rc.Protected, "/me/library/following", followHandler.GetLibraryFollowingHandler)
 }
