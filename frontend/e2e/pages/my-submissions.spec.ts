@@ -1,24 +1,15 @@
 import { test, expect } from '../fixtures'
 
-// PSY-275: "My Submissions" now lives as a tab on the consolidated Library page.
-test.describe('Submissions tab (Library)', () => {
-  test('displays user submissions in Submissions tab', async ({
+// PSY-1438: show-owner controls live under Contribute, separate from Library.
+test.describe('Show submissions console (Contribute)', () => {
+  test("displays the signed-in user's submitted shows", async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/library')
+    await authenticatedPage.goto('/contribute/submissions')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /^library$/i })
+      authenticatedPage.getByRole('heading', { name: /^show submissions$/i })
     ).toBeVisible({ timeout: 10_000 })
-
-    // Click Submissions tab
-    await authenticatedPage
-      .getByRole('tab', { name: /submissions/i })
-      .click()
-
-    await expect(
-      authenticatedPage.getByRole('tab', { name: /submissions/i })
-    ).toHaveAttribute('data-state', 'active')
 
     // At least one submission should be visible
     // (ShowCard renders artist names + venue, not the show title)
@@ -32,18 +23,15 @@ test.describe('Submissions tab (Library)', () => {
     ).toBeVisible()
   })
 
-  test('shows submission status and details', async ({
+  test('redirects the retired Library deep-link and preserves the console', async ({
     authenticatedPage,
   }) => {
     await authenticatedPage.goto('/library?tab=submissions')
+    await authenticatedPage.waitForURL('/contribute/submissions')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /^library$/i })
+      authenticatedPage.getByRole('heading', { name: /^show submissions$/i })
     ).toBeVisible({ timeout: 10_000 })
-
-    await expect(
-      authenticatedPage.getByRole('tab', { name: /submissions/i })
-    ).toHaveAttribute('data-state', 'active')
 
     // Wait for submissions to load
     await expect(authenticatedPage.locator('article').first()).toBeVisible({
@@ -55,6 +43,23 @@ test.describe('Submissions tab (Library)', () => {
     await expect(authenticatedPage.getByText('Published').first()).toBeVisible()
 
     // Venue and location info should be present (Phoenix, AZ)
-    await expect(authenticatedPage.getByText('Phoenix, AZ').first()).toBeVisible()
+    await expect(
+      authenticatedPage.getByText('Phoenix, AZ').first()
+    ).toBeVisible()
+  })
+
+  test('shows and dismisses the private-submission success dialog', async ({
+    authenticatedPage,
+  }) => {
+    await authenticatedPage.goto('/contribute/submissions?submitted=private')
+
+    const dialog = authenticatedPage.getByRole('dialog', {
+      name: 'Private Show Added',
+    })
+    await expect(dialog).toBeVisible({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: 'Got it' }).click()
+
+    await expect(dialog).not.toBeVisible()
+    await authenticatedPage.waitForURL('/contribute/submissions')
   })
 })

@@ -5,6 +5,7 @@ import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, UserCircle, Shield, PanelLeftClose, PanelLeft,
   Globe, Orbit, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Palette,
+  ClipboardList,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -121,6 +122,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
               <div className="space-y-0.5">
                 {renderItem({ href: '/library', label: 'Library', icon: Library })}
+                {renderItem({ href: '/contribute/submissions', label: 'Show Submissions', icon: ClipboardList })}
                 {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
                 {renderItem({ href: '/settings/appearance', label: 'Appearance', icon: Palette })}
                 {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}

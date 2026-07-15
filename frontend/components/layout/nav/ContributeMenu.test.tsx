@@ -47,19 +47,24 @@ describe('ContributeMenu', () => {
     }
   })
 
-  it('hides the auth-only "My Submissions" item when logged out', async () => {
+  it('hides both auth-only submission destinations when logged out', async () => {
     const user = userEvent.setup()
     render(<ContributeMenu />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))
     expect(await screen.findByText('Participate')).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Show Submissions' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'My Submissions' })).not.toBeInTheDocument()
   })
 
-  it('shows the auth-only "My Submissions" item when authenticated', async () => {
+  it('distinguishes show submissions from pending entity edits when authenticated', async () => {
     mockIsAuthenticated = true
     const user = userEvent.setup()
     render(<ContributeMenu />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))
+    expect(await screen.findByRole('menuitem', { name: 'Show Submissions' })).toHaveAttribute(
+      'href',
+      '/contribute/submissions'
+    )
     expect(await screen.findByRole('menuitem', { name: 'My Submissions' })).toHaveAttribute(
       'href',
       '/submissions'

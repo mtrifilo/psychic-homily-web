@@ -31,6 +31,20 @@ test.describe('Protected route redirects', () => {
     ).toBeVisible({ timeout: 5_000 })
   })
 
+  test('unauthenticated user is redirected from the show submissions console to /auth', async ({
+    page,
+  }) => {
+    await page.goto('/contribute/submissions')
+
+    await page.waitForURL(
+      /\/auth\?returnTo=%2Fcontribute%2Fsubmissions/,
+      { timeout: 10_000 }
+    )
+    await expect(page.getByText('Sign in to your account')).toBeVisible({
+      timeout: 5_000,
+    })
+  })
+
   test('unauthenticated user is redirected from /settings/appearance to /auth', async ({
     page,
   }) => {

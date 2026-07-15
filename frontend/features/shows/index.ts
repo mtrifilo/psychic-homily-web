@@ -109,6 +109,8 @@ export {
   ReportShowButton,
   ReportShowDialog,
   ShowStatusBadge,
+  ShowSubmissionsConsole,
+  ShowSubmissionsLoading,
   CompactShowRow,
   AIFormFiller,
   SHOW_LIST_FEATURE_POLICY,

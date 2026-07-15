@@ -265,6 +265,22 @@ describe('TopBar', () => {
       expect(await screen.findByText('Light mode')).toBeInTheDocument()
     })
 
+    it('links authenticated mobile users to their show submissions console', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+
+      expect(
+        await screen.findByRole('link', { name: 'Show Submissions' })
+      ).toHaveAttribute('href', '/contribute/submissions')
+    })
+
     it('closes the sheet when a nav link is clicked', async () => {
       const user = userEvent.setup()
       render(<TopBar />)

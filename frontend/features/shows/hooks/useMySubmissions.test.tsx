@@ -31,7 +31,6 @@ vi.mock('@/lib/queryClient', () => ({
 // Import hooks after mocks are set up
 import { useMySubmissions } from './useMySubmissions'
 
-
 describe('useMySubmissions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -48,7 +47,7 @@ describe('useMySubmissions', () => {
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
 
-    const { result } = renderHook(() => useMySubmissions(), {
+    const { result } = renderHook(() => useMySubmissions({ userId: 1 }), {
       wrapper: createWrapper(),
     })
 
@@ -64,9 +63,12 @@ describe('useMySubmissions', () => {
   it('supports custom limit', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
 
-    const { result } = renderHook(() => useMySubmissions({ limit: 25 }), {
-      wrapper: createWrapper(),
-    })
+    const { result } = renderHook(
+      () => useMySubmissions({ userId: 1, limit: 25 }),
+      {
+        wrapper: createWrapper(),
+      }
+    )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
@@ -76,9 +78,12 @@ describe('useMySubmissions', () => {
   it('supports custom offset for pagination', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
 
-    const { result } = renderHook(() => useMySubmissions({ offset: 50 }), {
-      wrapper: createWrapper(),
-    })
+    const { result } = renderHook(
+      () => useMySubmissions({ userId: 1, offset: 50 }),
+      {
+        wrapper: createWrapper(),
+      }
+    )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
@@ -89,7 +94,7 @@ describe('useMySubmissions', () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
 
     const { result } = renderHook(
-      () => useMySubmissions({ limit: 10, offset: 20 }),
+      () => useMySubmissions({ userId: 1, limit: 10, offset: 20 }),
       { wrapper: createWrapper() }
     )
 
@@ -103,10 +108,38 @@ describe('useMySubmissions', () => {
   it('returns empty list when user has no submissions', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
 
-    const { result } = renderHook(() => useMySubmissions(), {
+    const { result } = renderHook(() => useMySubmissions({ userId: 1 }), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  it('does not fetch private submissions without a user identity', () => {
+    const { result } = renderHook(() => useMySubmissions(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('uses separate cache entries when the authenticated user changes', async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({ shows: [{ id: 1 }], total: 1 })
+      .mockResolvedValueOnce({ shows: [{ id: 2 }], total: 1 })
+
+    const { result, rerender } = renderHook(
+      ({ userId }) => useMySubmissions({ userId }),
+      {
+        initialProps: { userId: 1 },
+        wrapper: createWrapper(),
+      }
+    )
+
+    await waitFor(() => expect(result.current.data?.shows[0]?.id).toBe(1))
+    rerender({ userId: 2 })
+    await waitFor(() => expect(result.current.data?.shows[0]?.id).toBe(2))
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
   })
 })
