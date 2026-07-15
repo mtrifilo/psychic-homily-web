@@ -651,6 +651,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowingCounts_Al
 	} {
 		suite.Require().NoError(suite.followService.Follow(user.ID, entityType, entityID))
 	}
+	// Generic follows predate entity-existence enforcement. Library counts must
+	// match the inner-joined list even if an orphan bookmark survives.
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", 999999))
 
 	counts, err := suite.followService.GetLibraryFollowingCounts(user.ID)
 	suite.Require().NoError(err)

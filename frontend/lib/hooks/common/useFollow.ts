@@ -59,6 +59,22 @@ const isMyFollowingQueryForType = (
   return type === singularType || type === 'all' || type === undefined
 }
 
+const getCachedIsFollowing = (
+  entityId: number | string,
+  entityStatus: FollowStatus | undefined,
+  batches: Array<
+    readonly [readonly unknown[], Record<string, BatchFollowEntry> | undefined]
+  >
+) => {
+  if (entityStatus) return entityStatus.is_following
+  if (typeof entityId !== 'number') return undefined
+  for (const [, batch] of batches) {
+    const entry = batch?.[String(entityId)]
+    if (entry) return entry.is_following
+  }
+  return undefined
+}
+
 /**
  * Hook to fetch follow status (follower count + user's follow status) for a single entity.
  * Uses optional auth -- if authenticated, includes whether the user is following.
@@ -162,12 +178,18 @@ export const useFollow = () => {
       >({ queryKey: batchPrefix })
       const previousLibraryCounts =
         queryClient.getQueryData<LibraryFollowingCounts>(libraryCountsKey)
+      const wasFollowing = getCachedIsFollowing(
+        entityId,
+        previousData,
+        previousBatches
+      )
 
       // Optimistically update
       if (previousData) {
         queryClient.setQueryData(entityKey, {
           ...previousData,
-          follower_count: previousData.follower_count + 1,
+          follower_count:
+            previousData.follower_count + (previousData.is_following ? 0 : 1),
           is_following: true,
         })
       }
@@ -180,7 +202,8 @@ export const useFollow = () => {
             return {
               ...current,
               [String(entityId)]: {
-                follower_count: entry.follower_count + 1,
+                follower_count:
+                  entry.follower_count + (entry.is_following ? 0 : 1),
                 is_following: true,
               },
             }
@@ -188,7 +211,7 @@ export const useFollow = () => {
         )
       }
       const countKey = toLibraryCountKey(entityType)
-      if (previousLibraryCounts && countKey) {
+      if (previousLibraryCounts && countKey && wasFollowing === false) {
         queryClient.setQueryData<LibraryFollowingCounts>(libraryCountsKey, {
           ...previousLibraryCounts,
           [countKey]: previousLibraryCounts[countKey] + 1,
@@ -297,11 +320,19 @@ export const useUnfollow = () => {
           predicate: query =>
             isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
         })
+      const wasFollowing = getCachedIsFollowing(
+        entityId,
+        previousData,
+        previousBatches
+      )
 
       if (previousData) {
         queryClient.setQueryData(entityKey, {
           ...previousData,
-          follower_count: Math.max(0, previousData.follower_count - 1),
+          follower_count: Math.max(
+            0,
+            previousData.follower_count - (previousData.is_following ? 1 : 0)
+          ),
           is_following: false,
         })
       }
@@ -314,7 +345,10 @@ export const useUnfollow = () => {
             return {
               ...current,
               [String(entityId)]: {
-                follower_count: Math.max(0, entry.follower_count - 1),
+                follower_count: Math.max(
+                  0,
+                  entry.follower_count - (entry.is_following ? 1 : 0)
+                ),
                 is_following: false,
               },
             }
@@ -322,7 +356,7 @@ export const useUnfollow = () => {
         )
       }
       const countKey = toLibraryCountKey(entityType)
-      if (previousLibraryCounts && countKey) {
+      if (previousLibraryCounts && countKey && wasFollowing === true) {
         queryClient.setQueryData<LibraryFollowingCounts>(libraryCountsKey, {
           ...previousLibraryCounts,
           [countKey]: Math.max(0, previousLibraryCounts[countKey] - 1),

@@ -498,39 +498,17 @@ func (s *FollowService) GetLibraryFollowingCounts(userID uint) (*contracts.Libra
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	type countRow struct {
-		EntityType string
-		Total      int64
-	}
-	var rows []countRow
-	if err := s.db.Model(&engagementm.UserBookmark{}).
-		Select("entity_type, COUNT(*) AS total").
-		Where("user_id = ? AND action = ? AND entity_type IN ?", userID, engagementm.BookmarkActionFollow, []string{
-			string(engagementm.BookmarkEntityArtist),
-			string(engagementm.BookmarkEntityVenue),
-			string(engagementm.BookmarkEntityScene),
-			string(engagementm.BookmarkEntityLabel),
-			string(engagementm.BookmarkEntityFestival),
-		}).
-		Group("entity_type").
-		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to count library following: %w", err)
-	}
-
 	counts := &contracts.LibraryFollowingCounts{}
-	for _, row := range rows {
-		switch row.EntityType {
-		case string(engagementm.BookmarkEntityArtist):
-			counts.Artists = row.Total
-		case string(engagementm.BookmarkEntityVenue):
-			counts.Venues = row.Total
-		case string(engagementm.BookmarkEntityScene):
-			counts.Scenes = row.Total
-		case string(engagementm.BookmarkEntityLabel):
-			counts.Labels = row.Total
-		case string(engagementm.BookmarkEntityFestival):
-			counts.Festivals = row.Total
-		}
+	if err := s.db.Table("user_bookmarks AS ub").
+		Select(`
+			COUNT(*) FILTER (WHERE ub.entity_type = 'artist' AND EXISTS (SELECT 1 FROM artists e WHERE e.id = ub.entity_id)) AS artists,
+			COUNT(*) FILTER (WHERE ub.entity_type = 'venue' AND EXISTS (SELECT 1 FROM venues e WHERE e.id = ub.entity_id)) AS venues,
+			COUNT(*) FILTER (WHERE ub.entity_type = 'scene' AND EXISTS (SELECT 1 FROM scenes e WHERE e.id = ub.entity_id)) AS scenes,
+			COUNT(*) FILTER (WHERE ub.entity_type = 'label' AND EXISTS (SELECT 1 FROM labels e WHERE e.id = ub.entity_id)) AS labels,
+			COUNT(*) FILTER (WHERE ub.entity_type = 'festival' AND EXISTS (SELECT 1 FROM festivals e WHERE e.id = ub.entity_id)) AS festivals`).
+		Where("ub.user_id = ? AND ub.action = ?", userID, engagementm.BookmarkActionFollow).
+		Scan(counts).Error; err != nil {
+		return nil, fmt.Errorf("failed to count library following: %w", err)
 	}
 	return counts, nil
 }

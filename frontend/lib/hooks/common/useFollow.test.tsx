@@ -291,6 +291,39 @@ describe('useFollow', () => {
     ).toBe(5)
   })
 
+  it('does not increment counts for an idempotent duplicate follow', async () => {
+    const queryClient = new QueryClient()
+    const entityKey = ['follows', 'artists', 1, 1]
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(entityKey, {
+      follower_count: 10,
+      is_following: true,
+    })
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 0,
+      scenes: 0,
+      labels: 0,
+      festivals: 0,
+    })
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await act(async () => {
+      await result.current.mutateAsync({ entityType: 'artists', entityId: 1 })
+    })
+
+    expect(queryClient.getQueryData(entityKey)).toMatchObject({
+      follower_count: 10,
+      is_following: true,
+    })
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(4)
+  })
+
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
     // Regression for PSY-727: onMutate must `await queryClient.cancelQueries(...)`
     // before snapshotting/optimistically updating. Without the await, a concurrent
@@ -520,6 +553,39 @@ describe('useUnfollow', () => {
         }>(otherUserFollowingKey)
         ?.following.map(entity => entity.name)
     ).toEqual(['Other user artist'])
+  })
+
+  it('does not decrement counts for an idempotent duplicate unfollow', async () => {
+    const queryClient = new QueryClient()
+    const entityKey = ['follows', 'artists', 1, 1]
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(entityKey, {
+      follower_count: 9,
+      is_following: false,
+    })
+    queryClient.setQueryData(countsKey, {
+      artists: 3,
+      venues: 0,
+      scenes: 0,
+      labels: 0,
+      festivals: 0,
+    })
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await act(async () => {
+      await result.current.mutateAsync({ entityType: 'artists', entityId: 1 })
+    })
+
+    expect(queryClient.getQueryData(entityKey)).toMatchObject({
+      follower_count: 9,
+      is_following: false,
+    })
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(3)
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
