@@ -2,6 +2,8 @@ package engagement
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -127,6 +129,70 @@ type GetMyFollowingResponse struct {
 		Limit     int                                  `json:"limit"`
 		Offset    int                                  `json:"offset"`
 	}
+}
+
+type GetLibraryFollowingCountsResponse struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         contracts.LibraryFollowingCounts
+}
+
+type GetLibraryFollowingRequest struct {
+	Type   string `query:"type" required:"true" enum:"artist,venue,scene,label,festival" doc:"Library entity type"`
+	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of items per page"`
+	Cursor string `query:"cursor" required:"false" maxLength:"1024" doc:"Opaque cursor returned by the previous page"`
+}
+
+type GetLibraryFollowingResponse struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Following  []*contracts.LibraryFollowingEntityResponse `json:"following"`
+		Limit      int                                         `json:"limit"`
+		NextCursor *string                                     `json:"next_cursor,omitempty"`
+	}
+}
+
+type libraryFollowingCursorPayload struct {
+	SortName string `json:"sort_name"`
+	Name     string `json:"name"`
+	EntityID uint   `json:"entity_id"`
+}
+
+func decodeLibraryFollowingCursor(encoded string) (*contracts.LibraryFollowingCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 1024 {
+		return nil, fmt.Errorf("cursor is too long")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("decode cursor: %w", err)
+	}
+	var payload libraryFollowingCursorPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("parse cursor: %w", err)
+	}
+	if payload.SortName == "" || payload.Name == "" || payload.EntityID == 0 {
+		return nil, fmt.Errorf("cursor is incomplete")
+	}
+	return &contracts.LibraryFollowingCursor{
+		SortName: payload.SortName,
+		Name:     payload.Name,
+		EntityID: payload.EntityID,
+	}, nil
+}
+
+func encodeLibraryFollowingCursor(cursor *contracts.LibraryFollowingCursor) *string {
+	if cursor == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(libraryFollowingCursorPayload{
+		SortName: cursor.SortName,
+		Name:     cursor.Name,
+		EntityID: cursor.EntityID,
+	})
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+	return &encoded
 }
 
 // GetFollowersListRequest is the request for GET /{entity_type}/{entity_id}/followers/list
@@ -479,6 +545,51 @@ func (h *FollowHandler) GetMyFollowingHandler(ctx context.Context, req *GetMyFol
 			Offset:    offset,
 		},
 	}, nil
+}
+
+// GetLibraryFollowingCountsHandler handles GET /me/library/following/counts.
+func (h *FollowHandler) GetLibraryFollowingCountsHandler(ctx context.Context, _ *struct{}) (*GetLibraryFollowingCountsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	counts, err := h.followService.GetLibraryFollowingCounts(user.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get Library following counts")
+	}
+	return &GetLibraryFollowingCountsResponse{CacheControl: "no-store", Body: *counts}, nil
+}
+
+// GetLibraryFollowingHandler handles GET /me/library/following.
+func (h *FollowHandler) GetLibraryFollowingHandler(ctx context.Context, req *GetLibraryFollowingRequest) (*GetLibraryFollowingResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if req.Type != "artist" && req.Type != "venue" && req.Type != "scene" && req.Type != "label" && req.Type != "festival" {
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'scene', 'label', or 'festival'")
+	}
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	cursor, err := decodeLibraryFollowingCursor(req.Cursor)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Cursor is invalid")
+	}
+
+	following, nextCursor, err := h.followService.GetLibraryFollowing(user.ID, req.Type, limit, cursor)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get Library following list")
+	}
+	return &GetLibraryFollowingResponse{CacheControl: "no-store", Body: struct {
+		Following  []*contracts.LibraryFollowingEntityResponse `json:"following"`
+		Limit      int                                         `json:"limit"`
+		NextCursor *string                                     `json:"next_cursor,omitempty"`
+	}{Following: following, Limit: limit, NextCursor: encodeLibraryFollowingCursor(nextCursor)}}, nil
 }
 
 // GetFollowersListHandler handles GET /{entity_type}/{entity_id}/followers/list

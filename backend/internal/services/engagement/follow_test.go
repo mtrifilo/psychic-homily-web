@@ -84,6 +84,18 @@ func TestFollowService_InvalidEntityType(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid entity type for follow")
 	})
 
+	t.Run("GetLibraryFollowing_InvalidType", func(t *testing.T) {
+		_, _, err := svc.GetLibraryFollowing(1, "radio_show", 10, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not available in Library")
+	})
+
+	t.Run("GetLibraryFollowing_InvalidLimit", func(t *testing.T) {
+		_, _, err := svc.GetLibraryFollowing(1, "artist", 0, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "limit must be between")
+	})
+
 	t.Run("GetFollowers_InvalidType", func(t *testing.T) {
 		_, _, err := svc.GetFollowers("show", 1, 10, 0)
 		assert.Error(t, err)
@@ -125,6 +137,7 @@ func (suite *FollowServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM scenes")
 	// FK order: episodes → shows → stations (episode.show_id, show.station_id).
 	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
 	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
@@ -621,6 +634,67 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_Empty() {
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)
 	suite.Empty(following)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowingCounts_AllTypesInOneResult() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Count Artist")
+	venueID := suite.createTestVenue("Count Venue")
+	labelID := suite.createTestLabel("Count Label")
+	festivalID := suite.createTestFestival("Count Festival")
+	scene := &catalogm.Scene{City: "Phoenix", State: "AZ", Slug: "phoenix-az"}
+	suite.Require().NoError(suite.db.Create(scene).Error)
+
+	for entityType, entityID := range map[string]uint{
+		"artist": artistID, "venue": venueID, "scene": scene.ID,
+		"label": labelID, "festival": festivalID,
+	} {
+		suite.Require().NoError(suite.followService.Follow(user.ID, entityType, entityID))
+	}
+	// Generic follows predate entity-existence enforcement. Library counts must
+	// match the inner-joined list even if an orphan bookmark survives.
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", 999999))
+
+	counts, err := suite.followService.GetLibraryFollowingCounts(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(&contracts.LibraryFollowingCounts{
+		Artists: 1, Venues: 1, Scenes: 1, Labels: 1, Festivals: 1,
+	}, counts)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowing_AlphabeticalStablePagination() {
+	user := suite.createTestUser()
+	ids := []uint{
+		suite.createTestArtist("zebra"),
+		suite.createTestArtist("Alpha"),
+		suite.createTestArtist("aardvark"),
+		suite.createTestArtist("Beta"),
+	}
+	for _, id := range ids {
+		suite.Require().NoError(suite.followService.Follow(user.ID, "artist", id))
+	}
+
+	page1, cursor, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 2, nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(page1, 2)
+	suite.Require().NotNil(cursor)
+	suite.Equal([]string{"aardvark", "Alpha"}, []string{page1[0].Name, page1[1].Name})
+
+	// A new row before the cursor must not duplicate or shift page two.
+	earlyID := suite.createTestArtist("AAA")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", earlyID))
+
+	page2, nextCursor, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 2, cursor)
+	suite.Require().NoError(err)
+	suite.Require().Len(page2, 2)
+	suite.Nil(nextCursor)
+	suite.Equal([]string{"Beta", "zebra"}, []string{page2[0].Name, page2[1].Name})
+
+	legacy, _, err := suite.followService.GetUserFollowing(user.ID, "artist", 4, 0)
+	suite.Require().NoError(err)
+	suite.NotEqual([]string{"aardvark", "Alpha", "Beta", "zebra"}, []string{
+		legacy[0].Name, legacy[1].Name, legacy[2].Name, legacy[3].Name,
+	})
 }
 
 // =============================================================================

@@ -410,6 +410,8 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/${entityType}/${entityId}/followers/list`,
     BATCH: `${API_BASE_URL}/follows/batch`,
     MY_FOLLOWING: `${API_BASE_URL}/me/following`,
+    LIBRARY_FOLLOWING: `${API_BASE_URL}/me/library/following`,
+    LIBRARY_COUNTS: `${API_BASE_URL}/me/library/following/counts`,
   },
 
   // Scene endpoints

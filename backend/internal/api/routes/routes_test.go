@@ -68,6 +68,92 @@ func TestSetupRoutes(t *testing.T) {
 	}
 }
 
+func TestSetupFollowRoutesOpenAPI(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	api := humachi.New(router, huma.DefaultConfig("Follow routes", "1.0.0"))
+	protected := huma.NewGroup(api, "")
+
+	setupFollowRoutes(RouteContext{
+		Router: router, API: api, Protected: protected, SC: sc, Cfg: cfg,
+	})
+
+	for _, path := range []string{
+		"/me/library/following",
+		"/me/library/following/counts",
+	} {
+		item, exists := api.OpenAPI().Paths[path]
+		if !exists || item.Get == nil {
+			t.Errorf("Expected OpenAPI GET operation for %s", path)
+		}
+	}
+
+	operation := api.OpenAPI().Paths["/me/library/following"].Get
+	params := make(map[string]*huma.Param, len(operation.Parameters))
+	for _, param := range operation.Parameters {
+		params[param.Name] = param
+	}
+	entityType := params["type"]
+	expectedTypes := map[any]bool{
+		"artist": true, "venue": true, "scene": true, "label": true, "festival": true,
+	}
+	if entityType == nil || !entityType.Required || len(entityType.Schema.Enum) != len(expectedTypes) {
+		t.Fatalf("expected required five-value type enum, got %+v", entityType)
+	}
+	for _, value := range entityType.Schema.Enum {
+		if !expectedTypes[value] {
+			t.Fatalf("unexpected type enum value %v", value)
+		}
+	}
+	limit := params["limit"]
+	if limit == nil || limit.Schema.Default != 50 || limit.Schema.Minimum == nil || *limit.Schema.Minimum != 1 || limit.Schema.Maximum == nil || *limit.Schema.Maximum != 100 {
+		t.Fatalf("expected documented limit default/max, got %+v", limit)
+	}
+	cursor := params["cursor"]
+	if len(params) != 3 || cursor == nil || cursor.Required || cursor.Schema.MaxLength == nil || *cursor.Schema.MaxLength != 1024 {
+		t.Fatalf("expected exact type/limit/cursor parameters, got %+v", params)
+	}
+
+	resolveSchema := func(schema *huma.Schema) *huma.Schema {
+		if schema == nil || schema.Ref == "" {
+			return schema
+		}
+		return api.OpenAPI().Components.Schemas.SchemaFromRef(schema.Ref)
+	}
+	assertProperties := func(schema *huma.Schema, expected ...string) {
+		t.Helper()
+		schema = resolveSchema(schema)
+		propertyCount := 0
+		if schema != nil {
+			for name := range schema.Properties {
+				if name != "$schema" {
+					propertyCount++
+				}
+			}
+		}
+		if schema == nil || propertyCount != len(expected) {
+			t.Fatalf("expected response properties %v, got %+v", expected, schema)
+		}
+		for _, name := range expected {
+			if schema.Properties[name] == nil {
+				t.Errorf("expected response property %q", name)
+			}
+		}
+	}
+	response := operation.Responses["200"]
+	if response == nil || response.Content["application/json"] == nil || response.Content["application/json"].Schema == nil {
+		t.Fatal("expected documented JSON response schema")
+	}
+	pageSchema := resolveSchema(response.Content["application/json"].Schema)
+	assertProperties(pageSchema, "following", "limit", "next_cursor")
+	assertProperties(pageSchema.Properties["following"].Items, "entity_type", "entity_id", "name", "slug", "followed_at")
+
+	countsOperation := api.OpenAPI().Paths["/me/library/following/counts"].Get
+	countsResponse := countsOperation.Responses["200"].Content["application/json"].Schema
+	assertProperties(countsResponse, "artists", "venues", "scenes", "labels", "festivals")
+}
+
 // TestSetupAuthRoutes tests authentication route setup
 func TestSetupAuthRoutes(t *testing.T) {
 	cfg := testConfig()

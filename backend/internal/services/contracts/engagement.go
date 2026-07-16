@@ -124,6 +124,35 @@ type FollowingEntityResponse struct {
 	LastEpisodeDate *string `json:"last_episode_date,omitempty"`
 }
 
+// LibraryFollowingCounts contains the follow totals surfaced by Library tabs.
+// Radio shows are intentionally excluded because they are managed in Radio.
+type LibraryFollowingCounts struct {
+	Artists   int64 `json:"artists"`
+	Venues    int64 `json:"venues"`
+	Scenes    int64 `json:"scenes"`
+	Labels    int64 `json:"labels"`
+	Festivals int64 `json:"festivals"`
+}
+
+// LibraryFollowingEntityResponse is the non-radio entity shape returned by
+// Library pages. Keeping it separate prevents radio-only enrichment fields
+// from leaking into generated clients for this endpoint.
+type LibraryFollowingEntityResponse struct {
+	EntityType string    `json:"entity_type"`
+	EntityID   uint      `json:"entity_id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	FollowedAt time.Time `json:"followed_at"`
+}
+
+// LibraryFollowingCursor is the stable keyset boundary for an alphabetical
+// Library page. SortName is the database-normalized name used by ORDER BY.
+type LibraryFollowingCursor struct {
+	SortName string
+	Name     string
+	EntityID uint
+}
+
 // FollowerResponse represents a follower of an entity.
 type FollowerResponse struct {
 	UserID      uint   `json:"user_id"`
@@ -194,6 +223,8 @@ type FollowServiceInterface interface {
 	GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error)
 	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
+	GetLibraryFollowingCounts(userID uint) (*LibraryFollowingCounts, error)
+	GetLibraryFollowing(userID uint, entityType string, limit int, cursor *LibraryFollowingCursor) ([]*LibraryFollowingEntityResponse, *LibraryFollowingCursor, error)
 	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
 }
 

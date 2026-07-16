@@ -454,6 +454,10 @@ export const queryKeys = {
       ['follows', 'batch', entityType, userId ?? null, ...entityIds] as const,
     myFollowing: (params?: Record<string, unknown>) =>
       ['follows', 'my-following', params] as const,
+    libraryCounts: (userId?: string | number) =>
+      ['follows', 'library', 'counts', userId ?? null] as const,
+    libraryFollowing: (entityType: string, userId?: string | number) =>
+      ['follows', 'library', 'following', userId ?? null, entityType] as const,
     followers: (entityType: string, entityId: number) =>
       ['follows', 'followers', entityType, entityId] as const,
   },

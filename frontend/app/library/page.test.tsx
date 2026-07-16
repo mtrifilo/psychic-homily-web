@@ -7,8 +7,8 @@ const mockRedirect = vi.fn()
 const mockUseAuthContext = vi.fn()
 const mockUseSavedShows = vi.fn()
 const mockUseSavedReleases = vi.fn()
-const mockUseMyFollowing = vi.fn()
-const mockUseAllMyFollowing = vi.fn()
+const mockUseLibraryFollowingCounts = vi.fn()
+const mockUseLibraryFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
 const mockUnfollowEntity = vi.fn()
@@ -68,8 +68,8 @@ vi.mock('@/features/releases', () => ({
 }))
 
 vi.mock('@/lib/hooks/common/useFollow', () => ({
-  useMyFollowing: (opts?: { type?: string }) => mockUseMyFollowing(opts),
-  useAllMyFollowing: (type: string) => mockUseAllMyFollowing(type),
+  useLibraryFollowingCounts: () => mockUseLibraryFollowingCounts(),
+  useLibraryFollowing: (type: string) => mockUseLibraryFollowing(type),
   useUnfollow: () => mockUseUnfollow(),
 }))
 
@@ -113,28 +113,20 @@ function setLoadedData() {
     isLoading: false,
     error: null,
   })
-  mockUseMyFollowing.mockImplementation((opts?: { type?: string }) => ({
-    data: {
-      following: [],
-      total:
-        {
-          artist: 4,
-          venue: 2,
-          scene: 3,
-          label: 1,
-          festival: 0,
-        }[opts?.type ?? ''] ?? 0,
-      limit: 20,
-      offset: 0,
-    },
+  mockUseLibraryFollowingCounts.mockReturnValue({
+    data: { artists: 4, venues: 2, scenes: 3, labels: 1, festivals: 0 },
     isLoading: false,
     isFetching: false,
     error: null,
-  }))
-  mockUseAllMyFollowing.mockReturnValue({
-    data: { following: [], total: 0, limit: 0, offset: 0 },
+  })
+  mockUseLibraryFollowing.mockReturnValue({
+    data: { pages: [{ following: [], total: 0, limit: 50, offset: 0 }] },
     isLoading: false,
     isFetching: false,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(),
+    isFetchingNextPage: false,
+    isFetchNextPageError: false,
     error: null,
   })
 }
@@ -222,7 +214,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
       expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', 1, true)
       expect(mockUseSavedShows).toHaveBeenCalledWith('past', 1, true)
-      expect(mockUseMyFollowing).toHaveBeenCalledTimes(5)
+      expect(mockUseLibraryFollowingCounts).toHaveBeenCalledTimes(1)
       expect(
         screen.getByRole('tab', { name: 'Artists, 4 followed' })
       ).toBeTruthy()
@@ -282,7 +274,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockRedirect).toHaveBeenCalledWith(
         '/contribute/submissions?submitted=private'
       )
-      expect(mockUseMyFollowing).not.toHaveBeenCalled()
+      expect(mockUseLibraryFollowingCounts).not.toHaveBeenCalled()
       expect(mockUseSavedReleases).not.toHaveBeenCalled()
       expect(screen.queryByRole('tab', { name: /submissions/i })).toBeNull()
     })
@@ -290,14 +282,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     it('realigns a deep-linked tab after asynchronous counts widen the row', () => {
       mockSearchParams = new URLSearchParams('tab=releases')
       let countsLoaded = false
-      mockUseMyFollowing.mockImplementation((opts?: { type?: string }) => ({
+      mockUseLibraryFollowingCounts.mockImplementation(() => ({
         data: countsLoaded
-          ? {
-              following: [],
-              total: opts?.type === 'festival' ? 0 : 3,
-              limit: 1,
-              offset: 0,
-            }
+          ? { artists: 3, venues: 3, scenes: 3, labels: 3, festivals: 0 }
           : undefined,
         isLoading: !countsLoaded,
         isFetching: !countsLoaded,
@@ -429,37 +416,45 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('follow rows', () => {
-    it('sorts the complete Scenes list alphabetically and exposes management actions', () => {
+    it('renders the server-sorted Scenes page and exposes management actions', () => {
       mockSearchParams = new URLSearchParams('tab=scenes')
       mockUseUnfollow.mockReturnValue({
         mutate: mockUnfollowEntity,
         isPending: false,
         isError: true,
       })
-      mockUseAllMyFollowing.mockReturnValue({
+      mockUseLibraryFollowing.mockReturnValue({
         data: {
-          following: [
+          pages: [
             {
-              entity_type: 'scene',
-              entity_id: 2,
-              name: 'Phoenix, AZ',
-              slug: 'phoenix-az',
-              followed_at: '2026-07-01T00:00:00Z',
-            },
-            {
-              entity_type: 'scene',
-              entity_id: 1,
-              name: 'Chicago, IL',
-              slug: 'chicago-il',
-              followed_at: '2026-03-01T12:00:00Z',
+              following: [
+                {
+                  entity_type: 'scene',
+                  entity_id: 1,
+                  name: 'Chicago, IL',
+                  slug: 'chicago-il',
+                  followed_at: '2026-03-01T12:00:00Z',
+                },
+                {
+                  entity_type: 'scene',
+                  entity_id: 2,
+                  name: 'Phoenix, AZ',
+                  slug: 'phoenix-az',
+                  followed_at: '2026-07-01T00:00:00Z',
+                },
+              ],
+              total: 2,
+              limit: 50,
+              offset: 0,
             },
           ],
-          total: 2,
-          limit: 2,
-          offset: 0,
         },
         isLoading: false,
         isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
         error: null,
       })
 
@@ -486,6 +481,79 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(within(rows[0]).getByRole('alert')).toHaveTextContent(
         "Couldn't unfollow Chicago, IL. Try again."
       )
+    })
+
+    it('loads the next bounded following page on demand', () => {
+      mockSearchParams = new URLSearchParams('tab=artists')
+      const fetchNextPage = vi.fn()
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                {
+                  entity_type: 'artist',
+                  entity_id: 1,
+                  name: 'Alpha',
+                  slug: 'alpha',
+                  followed_at: '2026-07-01T00:00:00Z',
+                },
+              ],
+              total: 51,
+              limit: 50,
+              offset: 0,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: true,
+        fetchNextPage,
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+      expect(fetchNextPage).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps loaded rows visible when the next page fails', () => {
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                {
+                  entity_type: 'artist',
+                  entity_id: 1,
+                  name: 'Alpha',
+                  slug: 'alpha',
+                  followed_at: '2026-07-01T00:00:00Z',
+                },
+              ],
+              limit: 50,
+              next_cursor: 'retry-cursor',
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: true,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: true,
+        error: new Error('next page failed'),
+      })
+
+      renderWithProviders(<LibraryPage />)
+      expect(screen.getByRole('link', { name: 'Alpha' })).toBeTruthy()
+      expect(screen.getByText("Couldn't load more. Try again.")).toBeTruthy()
+      expect(
+        screen.queryByText('Failed to load. Please try again later.')
+      ).toBeNull()
     })
   })
 

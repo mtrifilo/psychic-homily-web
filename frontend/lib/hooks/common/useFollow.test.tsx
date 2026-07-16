@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient } from '@/test/utils'
+import type { FollowingListResponse } from '@/lib/types/follow'
 
 const mockApiRequest = vi.fn()
-const mockInvalidateFollows = vi.fn()
 const mockInvalidatePersonalCharts = vi.fn()
 
 vi.mock('@/lib/api', () => ({
@@ -17,6 +17,8 @@ vi.mock('@/lib/api', () => ({
         `/${entityType}/${entityId}/followers`,
       BATCH: '/follows/batch',
       MY_FOLLOWING: '/me/following',
+      LIBRARY_FOLLOWING: '/me/library/following',
+      LIBRARY_COUNTS: '/me/library/following/counts',
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -46,10 +48,22 @@ vi.mock('@/lib/queryClient', () => ({
         'my-following',
         params,
       ],
+      libraryCounts: (userId?: string | number) => [
+        'follows',
+        'library',
+        'counts',
+        userId ?? null,
+      ],
+      libraryFollowing: (entityType: string, userId?: string | number) => [
+        'follows',
+        'library',
+        'following',
+        userId ?? null,
+        entityType,
+      ],
     },
   },
   createInvalidateQueries: () => ({
-    follows: mockInvalidateFollows,
     personalCharts: mockInvalidatePersonalCharts,
   }),
 }))
@@ -65,6 +79,8 @@ import {
   useUnfollow,
   useMyFollowing,
   useAllMyFollowing,
+  useLibraryFollowing,
+  useLibraryFollowingCounts,
 } from './useFollow'
 
 type CachedFollow = { follower_count: number; is_following: boolean }
@@ -72,12 +88,15 @@ type CachedFollow = { follower_count: number; is_following: boolean }
 function createDeferred<T = void>(): {
   promise: Promise<T>
   resolve: (value: T) => void
+  reject: (reason?: unknown) => void
 } {
   let resolve: (value: T) => void = () => {}
-  const promise = new Promise<T>(res => {
+  let reject: (reason?: unknown) => void = () => {}
+  const promise = new Promise<T>((res, rej) => {
     resolve = res
+    reject = rej
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 describe('useFollowStatus', () => {
@@ -170,7 +189,6 @@ describe('useFollow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateFollows.mockReset()
     mockInvalidatePersonalCharts.mockReset()
   })
 
@@ -234,12 +252,61 @@ describe('useFollow', () => {
       follower_count: 10,
       is_following: false,
     })
+    const anonymousEntityKey = ['follows', 'artists', null, 1]
+    queryClient.setQueryData(anonymousEntityKey, {
+      follower_count: 10,
+      is_following: false,
+    })
     const batchKey = ['follows', 'batch', 'artists', 1, 1, 2]
     queryClient.setQueryData(batchKey, {
       '1': { follower_count: 10, is_following: false },
       '2': { follower_count: 4, is_following: false },
     })
-
+    const anonymousBatchKey = ['follows', 'batch', 'artists', null, 1, 3]
+    queryClient.setQueryData(anonymousBatchKey, {
+      '1': { follower_count: 10, is_following: false },
+      '3': { follower_count: 2, is_following: false },
+    })
+    const unrelatedAnonymousBatchKey = [
+      'follows',
+      'batch',
+      'artists',
+      null,
+      3,
+      4,
+    ]
+    queryClient.setQueryData(unrelatedAnonymousBatchKey, {
+      '3': { follower_count: 2, is_following: false },
+      '4': { follower_count: 1, is_following: false },
+    })
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
+    })
+    const allFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'all', scope: 'all', userId: 1 },
+    ]
+    queryClient.setQueryData(allFollowingKey, { following: [], total: 0 })
+    const otherUserFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'artist', scope: 'all', userId: 2 },
+    ]
+    queryClient.setQueryData(otherUserFollowingKey, {
+      following: [],
+      total: 0,
+    })
+    const libraryFollowingKey = ['follows', 'library', 'following', 1, 'artist']
+    queryClient.setQueryData(libraryFollowingKey, {
+      pages: [{ following: [] }],
+      pageParams: [undefined],
+    })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const { result } = renderHook(() => useFollow(), {
@@ -262,6 +329,63 @@ describe('useFollow', () => {
         Record<string, { follower_count: number; is_following: boolean }>
       >(batchKey)?.['1']
     ).toEqual({ follower_count: 11, is_following: true })
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(5)
+    expect(queryClient.getQueryState(countsKey)?.isInvalidated).toBe(true)
+    expect(
+      queryClient.getQueryState(['follows', 'artists', 1, 1])?.isInvalidated
+    ).toBe(true)
+    expect(queryClient.getQueryState(batchKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(anonymousEntityKey)?.isInvalidated).toBe(
+      true
+    )
+    expect(queryClient.getQueryState(anonymousBatchKey)?.isInvalidated).toBe(
+      true
+    )
+    expect(
+      queryClient.getQueryState(unrelatedAnonymousBatchKey)?.isInvalidated
+    ).toBe(false)
+    expect(queryClient.getQueryState(allFollowingKey)?.isInvalidated).toBe(true)
+    expect(
+      queryClient.getQueryState(otherUserFollowingKey)?.isInvalidated
+    ).toBe(false)
+    expect(queryClient.getQueryState(libraryFollowingKey)?.isInvalidated).toBe(
+      true
+    )
+  })
+
+  it('does not increment counts for an idempotent duplicate follow', async () => {
+    const queryClient = new QueryClient()
+    const entityKey = ['follows', 'artists', 1, 1]
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(entityKey, {
+      follower_count: 10,
+      is_following: true,
+    })
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 0,
+      scenes: 0,
+      labels: 0,
+      festivals: 0,
+    })
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await act(async () => {
+      await result.current.mutateAsync({ entityType: 'artists', entityId: 1 })
+    })
+
+    expect(queryClient.getQueryData(entityKey)).toMatchObject({
+      follower_count: 10,
+      is_following: true,
+    })
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(4)
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -290,6 +414,14 @@ describe('useFollow', () => {
     queryClient.setQueryData(batchKey, {
       '1': { follower_count: 10, is_following: true },
       '2': { follower_count: 4, is_following: false },
+    })
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
     })
 
     const cancelGate = createDeferred<void>()
@@ -339,7 +471,6 @@ describe('useUnfollow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateFollows.mockReset()
     mockInvalidatePersonalCharts.mockReset()
   })
 
@@ -401,6 +532,51 @@ describe('useUnfollow', () => {
       '1': { follower_count: 10, is_following: true },
       '2': { follower_count: 4, is_following: false },
     })
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(countsKey, {
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
+    })
+    const allFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'all', scope: 'all', userId: 1 },
+    ]
+    queryClient.setQueryData(allFollowingKey, {
+      following: [
+        { entity_type: 'artist', entity_id: 1, name: 'Remove me', slug: 'a' },
+        { entity_type: 'venue', entity_id: 1, name: 'Keep me', slug: 'v' },
+      ],
+      total: 2,
+      limit: 2,
+      offset: 0,
+    })
+    const otherUserFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'artist', scope: 'all', userId: 2 },
+    ]
+    queryClient.setQueryData(otherUserFollowingKey, {
+      following: [
+        {
+          entity_type: 'artist',
+          entity_id: 1,
+          name: 'Other user artist',
+          slug: 'other',
+        },
+      ],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    })
+    const libraryFollowingKey = ['follows', 'library', 'following', 1, 'artist']
+    queryClient.setQueryData(libraryFollowingKey, {
+      pages: [{ following: [] }],
+      pageParams: [undefined],
+    })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
@@ -424,6 +600,67 @@ describe('useUnfollow', () => {
         Record<string, { follower_count: number; is_following: boolean }>
       >(batchKey)?.['1']
     ).toEqual({ follower_count: 9, is_following: false })
+    expect(queryClient.getQueryState(batchKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryData(countsKey)).toEqual({
+      artists: 3,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 0,
+    })
+    expect(queryClient.getQueryState(countsKey)?.isInvalidated).toBe(true)
+    expect(
+      queryClient
+        .getQueryData<{ following: Array<{ name: string }> }>(allFollowingKey)
+        ?.following.map(entity => entity.name)
+    ).toEqual(['Keep me'])
+    expect(queryClient.getQueryState(allFollowingKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(libraryFollowingKey)?.isInvalidated).toBe(
+      true
+    )
+    expect(
+      queryClient
+        .getQueryData<{
+          following: Array<{ name: string }>
+        }>(otherUserFollowingKey)
+        ?.following.map(entity => entity.name)
+    ).toEqual(['Other user artist'])
+    expect(
+      queryClient.getQueryState(otherUserFollowingKey)?.isInvalidated
+    ).toBe(false)
+  })
+
+  it('does not decrement counts for an idempotent duplicate unfollow', async () => {
+    const queryClient = new QueryClient()
+    const entityKey = ['follows', 'artists', 1, 1]
+    const countsKey = ['follows', 'library', 'counts', 1]
+    queryClient.setQueryData(entityKey, {
+      follower_count: 9,
+      is_following: false,
+    })
+    queryClient.setQueryData(countsKey, {
+      artists: 3,
+      venues: 0,
+      scenes: 0,
+      labels: 0,
+      festivals: 0,
+    })
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await act(async () => {
+      await result.current.mutateAsync({ entityType: 'artists', entityId: 1 })
+    })
+
+    expect(queryClient.getQueryData(entityKey)).toMatchObject({
+      follower_count: 9,
+      is_following: false,
+    })
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(3)
   })
 
   it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
@@ -499,6 +736,106 @@ describe('useUnfollow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeDefined()
     expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+  })
+
+  it('rolls back only the failed entity when unfollows overlap', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
+    })
+    const countsKey = ['follows', 'library', 'counts', 1]
+    const followingKey = [
+      'follows',
+      'my-following',
+      { type: 'all', scope: 'all', userId: 1 },
+    ]
+    const first = {
+      entity_type: 'artist',
+      entity_id: 1,
+      name: 'First',
+      slug: 'first',
+      followed_at: '2026-07-01T00:00:00Z',
+    }
+    const second = {
+      entity_type: 'artist',
+      entity_id: 2,
+      name: 'Second',
+      slug: 'second',
+      followed_at: '2026-07-02T00:00:00Z',
+    }
+    queryClient.setQueryData(countsKey, {
+      artists: 2,
+      venues: 0,
+      scenes: 0,
+      labels: 0,
+      festivals: 0,
+    })
+    queryClient.setQueryData(followingKey, {
+      following: [first, second],
+      total: 2,
+      limit: 20,
+      offset: 0,
+    })
+    queryClient.setQueryData(['follows', 'artists', 1, 1], {
+      follower_count: 10,
+      is_following: true,
+    })
+    queryClient.setQueryData(['follows', 'artists', 1, 2], {
+      follower_count: 8,
+      is_following: true,
+    })
+
+    const failed = createDeferred<{ success: boolean }>()
+    const succeeded = createDeferred<{ success: boolean }>()
+    mockApiRequest
+      .mockReturnValueOnce(failed.promise)
+      .mockReturnValueOnce(succeeded.promise)
+
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    let failedMutation: Promise<unknown>
+    let successfulMutation: Promise<unknown>
+    act(() => {
+      failedMutation = result.current
+        .mutateAsync({ entityType: 'artists', entityId: 1 })
+        .catch(error => error)
+      successfulMutation = result.current.mutateAsync({
+        entityType: 'artists',
+        entityId: 2,
+      })
+    })
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+      ).toBe(0)
+    })
+    expect(
+      queryClient.getQueryData<FollowingListResponse>(followingKey)?.following
+    ).toEqual([])
+
+    await act(async () => {
+      succeeded.resolve({ success: true })
+      await successfulMutation
+      failed.reject(new Error('Network error'))
+      await failedMutation
+    })
+
+    expect(
+      queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
+    ).toBe(1)
+    expect(
+      queryClient
+        .getQueryData<FollowingListResponse>(followingKey)
+        ?.following.map(entity => entity.name)
+    ).toEqual(['First'])
+    expect(
+      queryClient.getQueryData<FollowingListResponse>(followingKey)?.total
+    ).toBe(1)
   })
 })
 
@@ -595,5 +932,77 @@ describe('useMyFollowing', () => {
     expect(mockApiRequest).toHaveBeenCalledTimes(2)
     expect(mockApiRequest.mock.calls[0][0]).toContain('offset=0')
     expect(mockApiRequest.mock.calls[1][0]).toContain('offset=100')
+  })
+})
+
+describe('Library following read model', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('fetches all tab counts in one request', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      artists: 4,
+      venues: 2,
+      scenes: 1,
+      labels: 0,
+      festivals: 3,
+    })
+
+    const { result } = renderHook(() => useLibraryFollowingCounts(), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      '/me/library/following/counts',
+      { method: 'GET' }
+    )
+  })
+
+  it('requests bounded alphabetical pages progressively', async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({
+        following: [{ entity_id: 1, name: 'Alpha' }],
+        limit: 50,
+        next_cursor: 'cursor-1',
+      })
+      .mockResolvedValueOnce({
+        following: [{ entity_id: 2, name: 'Beta' }],
+        limit: 50,
+      })
+
+    const { result } = renderHook(() => useLibraryFollowing('artist'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.hasNextPage).toBe(true)
+
+    await act(async () => {
+      await result.current.fetchNextPage()
+    })
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    expect(mockApiRequest.mock.calls[0][0]).toContain(
+      '/me/library/following?type=artist&limit=50'
+    )
+    expect(mockApiRequest.mock.calls[0][0]).not.toContain('cursor=')
+    expect(mockApiRequest.mock.calls[1][0]).toContain('cursor=cursor-1')
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2))
+  })
+
+  it('stops pagination when the server omits a next cursor', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      following: [{ entity_id: 1, name: 'Alpha' }],
+      limit: 50,
+    })
+
+    const { result } = renderHook(() => useLibraryFollowing('artist'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.hasNextPage).toBe(false)
   })
 })

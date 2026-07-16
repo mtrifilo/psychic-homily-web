@@ -638,6 +638,85 @@ func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 	}
 }
 
+func TestGetLibraryFollowingCountsHandler_Success(t *testing.T) {
+	mock := &testhelpers.MockFollowService{
+		GetLibraryFollowingCountsFn: func(userID uint) (*contracts.LibraryFollowingCounts, error) {
+			if userID != 1 {
+				t.Fatalf("unexpected userID=%d", userID)
+			}
+			return &contracts.LibraryFollowingCounts{Artists: 4, Scenes: 2}, nil
+		},
+	}
+	resp, err := NewFollowHandler(mock).GetLibraryFollowingCountsHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}), &struct{}{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Artists != 4 || resp.Body.Scenes != 2 {
+		t.Fatalf("unexpected counts: %+v", resp.Body)
+	}
+	if resp.CacheControl != "no-store" {
+		t.Fatalf("expected private counts response to be no-store, got %q", resp.CacheControl)
+	}
+}
+
+func TestGetLibraryFollowingHandlers_NoAuth(t *testing.T) {
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+
+	_, err := h.GetLibraryFollowingCountsHandler(context.Background(), &struct{}{})
+	testhelpers.AssertHumaError(t, err, 401)
+
+	_, err = h.GetLibraryFollowingHandler(context.Background(), &GetLibraryFollowingRequest{Type: "artist"})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestGetLibraryFollowingHandler_ValidatesAndClamps(t *testing.T) {
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	var capturedType string
+	var capturedLimit int
+	var capturedCursor *contracts.LibraryFollowingCursor
+	mock := &testhelpers.MockFollowService{
+		GetLibraryFollowingFn: func(_ uint, entityType string, limit int, cursor *contracts.LibraryFollowingCursor) ([]*contracts.LibraryFollowingEntityResponse, *contracts.LibraryFollowingCursor, error) {
+			capturedType, capturedLimit, capturedCursor = entityType, limit, cursor
+			return []*contracts.LibraryFollowingEntityResponse{}, &contracts.LibraryFollowingCursor{
+				SortName: "alpha", Name: "Alpha", EntityID: 7,
+			}, nil
+		},
+	}
+	h := NewFollowHandler(mock)
+
+	_, err := h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{Type: "radio_show"})
+	testhelpers.AssertHumaError(t, err, 400)
+
+	encodedCursor := encodeLibraryFollowingCursor(&contracts.LibraryFollowingCursor{
+		SortName: "phoenix, az", Name: "Phoenix, AZ", EntityID: 4,
+	})
+	resp, err := h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{
+		Type: "scene", Limit: 999, Cursor: *encodedCursor,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedType != "scene" || capturedLimit != 100 || capturedCursor == nil || capturedCursor.EntityID != 4 {
+		t.Fatalf("unexpected service args: type=%s limit=%d cursor=%+v", capturedType, capturedLimit, capturedCursor)
+	}
+	if resp.Body.Limit != 100 {
+		t.Fatalf("expected response limit=100, got %d", resp.Body.Limit)
+	}
+	if resp.Body.NextCursor == nil {
+		t.Fatal("expected encoded next cursor")
+	}
+	if resp.CacheControl != "no-store" {
+		t.Fatalf("expected private following response to be no-store, got %q", resp.CacheControl)
+	}
+
+	_, err = h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{
+		Type: "artist", Cursor: "not-base64!",
+	})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
 // --- GetFollowersListHandler ---
 
 // --- Radio-show follow target (PSY-1356) ---
