@@ -633,7 +633,7 @@ func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) (
 
 type MockChartsService struct {
 	GetTrendingShowsFn        func(int) ([]contracts.TrendingShow, error)
-	GetMostAnticipatedShowsFn func(string, int, int) (*contracts.MostAnticipatedShows, error)
+	GetMostAnticipatedShowsFn func(contracts.ChartWindow, string, int, int) (*contracts.MostAnticipatedShows, error)
 	GetMostActiveArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.MostActiveArtist, int, error)
 	GetBusiestVenuesFn        func(contracts.ChartWindow, string, int, int) ([]contracts.BusiestVenue, int, error)
 	GetOpenersToWatchFn       func(contracts.ChartWindow, string, int, int) ([]contracts.OpenerToWatch, int, error)
@@ -655,9 +655,9 @@ func (m *MockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingSho
 	}
 	return []contracts.TrendingShow{}, nil
 }
-func (m *MockChartsService) GetMostAnticipatedShows(scene string, limit int, offset int) (*contracts.MostAnticipatedShows, error) {
+func (m *MockChartsService) GetMostAnticipatedShows(window contracts.ChartWindow, scene string, limit int, offset int) (*contracts.MostAnticipatedShows, error) {
 	if m.GetMostAnticipatedShowsFn != nil {
-		return m.GetMostAnticipatedShowsFn(scene, limit, offset)
+		return m.GetMostAnticipatedShowsFn(window, scene, limit, offset)
 	}
 	return &contracts.MostAnticipatedShows{
 		Mode:  contracts.MostAnticipatedModeSoonestUpcoming,

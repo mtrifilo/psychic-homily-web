@@ -1,26 +1,88 @@
 package contracts
 
-import "time"
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"time"
+)
 
 // ──────────────────────────────────────────────
 // Charts types (top charts / trending content)
 // ──────────────────────────────────────────────
 
-// ChartWindow selects the rolling time window a chart is computed over.
-// Windows are rolling (last 30/90 days), not calendar-aligned, so lists stay
-// full on month/quarter boundaries.
+// ChartWindow selects the rolling or UTC calendar window a chart is computed
+// over. Calendar values use YYYY or YYYY-q1..q4.
 //
-// The string values are duplicated in `enum:"..."` struct tags on chart
-// request structs (api/handlers/catalog/charts.go) — Go tags must be literals,
-// so adding a value here means updating those tags, OrDefault below, AND the
-// chartWindowStart switch in services/catalog/charts_service.go.
+// The grammar is duplicated in `pattern:"..."` struct tags on chart request
+// structs (api/handlers/catalog/charts.go) because Go tags must be literals.
+// Keep those tags, ParseChartWindow, OrDefault, and the service bounds helper
+// coordinated when extending this contract.
 type ChartWindow string
 
 const (
 	ChartWindowMonth   ChartWindow = "month"
 	ChartWindowQuarter ChartWindow = "quarter"
 	ChartWindowAllTime ChartWindow = "all_time"
+
+	// ChartCalendarLaunchUTC is the public lower boundary for calendar chart
+	// archives. A calendar period ending at or before this instant is
+	// pre-launch and is not a meaningful public chart contract.
+	ChartCalendarLaunchUTC = "2026-01-01T00:00:00Z"
 )
+
+var calendarChartWindowPattern = regexp.MustCompile(`^([0-9]{4})(?:-q([1-4]))?$`)
+
+// ParseChartWindow validates the strict public grammar and rejects future or
+// verified pre-launch calendar periods. Empty input owns the quarter default.
+func ParseChartWindow(value string, now time.Time) (ChartWindow, error) {
+	if value == "" {
+		return ChartWindowQuarter, nil
+	}
+	w := ChartWindow(value)
+	switch w {
+	case ChartWindowMonth, ChartWindowQuarter, ChartWindowAllTime:
+		return w, nil
+	}
+
+	start, end, ok := w.CalendarBounds()
+	if !ok {
+		return "", fmt.Errorf("window must be month, quarter, all_time, YYYY, or YYYY-q1..q4")
+	}
+	launch, err := time.Parse(time.RFC3339, ChartCalendarLaunchUTC)
+	if err != nil {
+		panic("invalid ChartCalendarLaunchUTC: " + err.Error())
+	}
+	if !end.After(launch) {
+		return "", fmt.Errorf("calendar window is before chart launch")
+	}
+	if start.After(now.UTC()) {
+		return "", fmt.Errorf("calendar window is in the future")
+	}
+	return w, nil
+}
+
+// CalendarBounds returns the exact UTC [start,end) bounds for a calendar
+// value. ok is false for rolling, all-time, and malformed values.
+func (w ChartWindow) CalendarBounds() (start, end time.Time, ok bool) {
+	matches := calendarChartWindowPattern.FindStringSubmatch(string(w))
+	if matches == nil {
+		return time.Time{}, time.Time{}, false
+	}
+	year, err := strconv.Atoi(matches[1])
+	if err != nil || year == 0 {
+		return time.Time{}, time.Time{}, false
+	}
+	month := time.January
+	months := 12
+	if matches[2] != "" {
+		quarter, _ := strconv.Atoi(matches[2])
+		month = time.Month((quarter-1)*3 + 1)
+		months = 3
+	}
+	start = time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+	return start, start.AddDate(0, months, 0), true
+}
 
 // OrDefault maps the empty/unknown window to the default (quarter). This is
 // the single owner of the default — both the API layer and the services use
@@ -30,6 +92,9 @@ func (w ChartWindow) OrDefault() ChartWindow {
 	case ChartWindowMonth, ChartWindowQuarter, ChartWindowAllTime:
 		return w
 	default:
+		if _, _, ok := w.CalendarBounds(); ok {
+			return w
+		}
 		return ChartWindowQuarter
 	}
 }
@@ -307,7 +372,7 @@ type ChartScene struct {
 // with a valid envelope, never an error.
 type ChartsServiceInterface interface {
 	GetTrendingShows(limit int) ([]TrendingShow, error)
-	GetMostAnticipatedShows(scene string, limit, offset int) (*MostAnticipatedShows, error)
+	GetMostAnticipatedShows(window ChartWindow, scene string, limit, offset int) (*MostAnticipatedShows, error)
 	GetMostActiveArtists(window ChartWindow, scene string, limit, offset int) ([]MostActiveArtist, int, error)
 	GetBusiestVenues(window ChartWindow, scene string, limit, offset int) ([]BusiestVenue, int, error)
 	GetOpenersToWatch(window ChartWindow, scene string, limit, offset int) ([]OpenerToWatch, int, error)

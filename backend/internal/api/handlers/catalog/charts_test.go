@@ -446,6 +446,40 @@ func TestChartsHandler_MostActiveArtists_InvalidWindow422(t *testing.T) {
 	}
 }
 
+func TestChartsHandlers_CalendarWindowContract(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/most-anticipated", h.GetMostAnticipatedShowsHandler)
+	huma.Get(api, "/charts/most-active-artists", h.GetMostActiveArtistsHandler)
+	huma.Get(api, "/charts/busiest-venues", h.GetBusiestVenuesHandler)
+	huma.Get(api, "/charts/openers-to-watch", h.GetOpenersToWatchHandler)
+	huma.Get(api, "/charts/on-the-radio", h.GetOnTheRadioArtistsHandler)
+	huma.Get(api, "/charts/new-releases", h.GetNewReleasesHandler)
+	huma.Get(api, "/charts/summary", h.GetChartsSummaryHandler)
+
+	paths := []string{
+		"/charts/most-anticipated",
+		"/charts/most-active-artists",
+		"/charts/busiest-venues",
+		"/charts/openers-to-watch",
+		"/charts/on-the-radio",
+		"/charts/new-releases",
+		"/charts/summary",
+	}
+	for _, path := range paths {
+		for _, window := range []string{"2026", "2026-q1"} {
+			if resp := api.Get(path + "?window=" + window); resp.Code != 200 {
+				t.Errorf("%s window=%s: expected 200, got %d (%s)", path, window, resp.Code, resp.Body.String())
+			}
+		}
+		for _, window := range []string{"2025", "9999", "2026-q5"} {
+			if resp := api.Get(path + "?window=" + window); resp.Code != 422 {
+				t.Errorf("%s window=%s: expected 422, got %d", path, window, resp.Code)
+			}
+		}
+	}
+}
+
 // ============================================================================
 // Tests: GetBusiestVenuesHandler + GetOpenersToWatchHandler
 // ============================================================================
@@ -639,7 +673,7 @@ func TestChartsHandler_OnTheRadio_InvalidWindow422(t *testing.T) {
 func TestChartsHandler_MostAnticipated_RankedMapping(t *testing.T) {
 	three := 3
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(_ contracts.ChartWindow, scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
 			if limit != 10 {
 				t.Errorf("expected limit=10 forwarded, got %d", limit)
 			}
@@ -666,7 +700,7 @@ func TestChartsHandler_MostAnticipated_RankedMapping(t *testing.T) {
 
 func TestChartsHandler_MostAnticipated_FallbackMapping(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(_ contracts.ChartWindow, scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
 			return &contracts.MostAnticipatedShows{
 				Mode: contracts.MostAnticipatedModeSoonestUpcoming,
 				Shows: []contracts.MostAnticipatedShow{
@@ -690,7 +724,7 @@ func TestChartsHandler_MostAnticipated_FallbackMapping(t *testing.T) {
 
 func TestChartsHandler_MostAnticipated_ServiceError(t *testing.T) {
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(string, int, int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(contracts.ChartWindow, string, int, int) (*contracts.MostAnticipatedShows, error) {
 			return nil, fmt.Errorf("db exploded")
 		},
 	})
@@ -716,7 +750,7 @@ func TestChartsHandler_MostAnticipated_WireShape(t *testing.T) {
 	}
 	current := "ranked"
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(string, int, int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(contracts.ChartWindow, string, int, int) (*contracts.MostAnticipatedShows, error) {
 			return payloads[current], nil
 		},
 	})
@@ -744,7 +778,7 @@ func TestChartsHandler_MostAnticipated_WireShape(t *testing.T) {
 func TestChartsHandler_MostAnticipated_ExplicitLimitForwarded(t *testing.T) {
 	var receivedLimit int
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(_ contracts.ChartWindow, scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
 			receivedLimit = limit
 			return &contracts.MostAnticipatedShows{Mode: contracts.MostAnticipatedModeRanked, Shows: []contracts.MostAnticipatedShow{}}, nil
 		},
@@ -1186,7 +1220,7 @@ func TestChartsHandler_MostAnticipated_WireRankOmittedInFallback(t *testing.T) {
 	}
 	current := "ranked"
 	h := NewChartsHandler(&testhelpers.MockChartsService{
-		GetMostAnticipatedShowsFn: func(string, int, int) (*contracts.MostAnticipatedShows, error) {
+		GetMostAnticipatedShowsFn: func(contracts.ChartWindow, string, int, int) (*contracts.MostAnticipatedShows, error) {
 			return payloads[current], nil
 		},
 	})

@@ -96,6 +96,7 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 
 // GetMostAnticipatedShowsRequest is the Huma request for GET /charts/most-anticipated
 type GetMostAnticipatedShowsRequest struct {
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
@@ -123,10 +124,11 @@ type GetMostAnticipatedShowsResponse struct {
 	// the charts*CacheControl consts for the staleness math.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
-		Mode  string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks (paginated); soonest_upcoming = date-ordered fallback, counts/ranks omitted, offset ignored"`
-		Scene string                        `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
-		Total int                           `json:"total" doc:"Full-set size for the active mode: qualifying shows (ranked) or all upcoming shows (fallback)"`
-		Shows []MostAnticipatedShowResponse `json:"shows"`
+		Window string                        `json:"window"`
+		Mode   string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks (paginated); soonest_upcoming = date-ordered fallback, counts/ranks omitted, offset ignored"`
+		Scene  string                        `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
+		Total  int                           `json:"total" doc:"Full-set size for the active mode: qualifying shows (ranked) or all upcoming shows (fallback)"`
+		Shows  []MostAnticipatedShowResponse `json:"shows"`
 	}
 }
 
@@ -136,15 +138,20 @@ type GetMostAnticipatedShowsResponse struct {
 // /charts/trending-shows; the legacy route stays until the redesigned charts
 // frontend migrates off it.
 func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req *GetMostAnticipatedShowsRequest) (*GetMostAnticipatedShowsResponse, error) {
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 	// limit/offset defaults and bounds are owned by the huma tags; scene shape
 	// is owned by its pattern tag (malformed -> 422 before this runs).
-	data, err := h.chartsService.GetMostAnticipatedShows(req.Scene, req.Limit, req.Offset)
+	data, err := h.chartsService.GetMostAnticipatedShows(window, req.Scene, req.Limit, req.Offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("charts_most_anticipated_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get most-anticipated shows")
 	}
 
 	resp := &GetMostAnticipatedShowsResponse{CacheControl: chartsModuleCacheControl}
+	resp.Body.Window = string(window)
 	resp.Body.Mode = string(data.Mode)
 	resp.Body.Scene = req.Scene
 	resp.Body.Total = data.Total
@@ -162,7 +169,7 @@ func (h *ChartsHandler) GetMostAnticipatedShowsHandler(ctx context.Context, req 
 
 // GetMostActiveArtistsRequest is the Huma request for GET /charts/most-active-artists
 type GetMostActiveArtistsRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
@@ -198,7 +205,10 @@ type GetMostActiveArtistsResponse struct {
 
 // GetMostActiveArtistsHandler handles GET /charts/most-active-artists
 func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *GetMostActiveArtistsRequest) (*GetMostActiveArtistsResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
@@ -235,7 +245,7 @@ func (h *ChartsHandler) GetMostActiveArtistsHandler(ctx context.Context, req *Ge
 
 // GetBusiestVenuesRequest is the Huma request for GET /charts/busiest-venues
 type GetBusiestVenuesRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; venues IN the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
@@ -269,7 +279,10 @@ type GetBusiestVenuesResponse struct {
 // shows HOSTED in the window (past tense). Contrast /charts/active-venues,
 // which scores venues by upcoming shows + follows.
 func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBusiestVenuesRequest) (*GetBusiestVenuesResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
@@ -302,7 +315,7 @@ func (h *ChartsHandler) GetBusiestVenuesHandler(ctx context.Context, req *GetBus
 
 // GetOpenersToWatchRequest is the Huma request for GET /charts/openers-to-watch
 type GetOpenersToWatchRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
@@ -334,7 +347,10 @@ type GetOpenersToWatchResponse struct {
 
 // GetOpenersToWatchHandler handles GET /charts/openers-to-watch
 func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOpenersToWatchRequest) (*GetOpenersToWatchResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
@@ -367,7 +383,7 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 
 // GetOnTheRadioArtistsRequest is the Huma request for GET /charts/on-the-radio
 type GetOnTheRadioArtistsRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
@@ -404,7 +420,10 @@ type GetOnTheRadioArtistsResponse struct {
 // (network-grouped stations collapse to one); is_new means any in-window play
 // was flagged new rotation.
 func (h *ChartsHandler) GetOnTheRadioArtistsHandler(ctx context.Context, req *GetOnTheRadioArtistsRequest) (*GetOnTheRadioArtistsResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
@@ -594,7 +613,7 @@ func (h *ChartsHandler) GetHotReleasesHandler(ctx context.Context, req *GetHotRe
 
 // GetNewReleasesRequest is the Huma request for GET /charts/new-releases
 type GetNewReleasesRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; releases by artists BASED in the metro (omitted = all scenes; unknown = empty results)"`
 	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
 	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
@@ -637,7 +656,10 @@ type GetNewReleasesResponse struct {
 // no engagement inputs. Replaces /charts/hot-releases; the legacy route stays
 // until the redesigned charts frontend migrates off it.
 func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewReleasesRequest) (*GetNewReleasesResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	// limit/offset defaults and bounds are owned by the huma tags (default/
 	// minimum/maximum) — the request never reaches here outside [1,100]/[0,10000].
@@ -664,7 +686,7 @@ func (h *ChartsHandler) GetNewReleasesHandler(ctx context.Context, req *GetNewRe
 
 // GetChartsSummaryRequest is the Huma request for GET /charts/summary
 type GetChartsSummaryRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes (omitted = all scenes; unknown = zero counts)"`
 }
 
@@ -687,7 +709,10 @@ type GetChartsSummaryResponse struct {
 
 // GetChartsSummaryHandler handles GET /charts/summary
 func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetChartsSummaryRequest) (*GetChartsSummaryResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	data, err := h.chartsService.GetChartsSummary(window, req.Scene)
 	if err != nil {
@@ -760,7 +785,7 @@ func (h *ChartsHandler) GetFreshlyAddedHandler(ctx context.Context, req *GetFres
 
 // GetChartScenesRequest is the Huma request for GET /charts/scenes
 type GetChartScenesRequest struct {
-	Window string `query:"window" required:"false" enum:"month,quarter,all_time" doc:"Rolling time window the coverage floor is judged over (default quarter)"`
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window the coverage floor is judged over: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
 }
 
 // ChartSceneResponse is one scene switcher option.
@@ -791,7 +816,10 @@ type GetChartScenesResponse struct {
 // zero-row rule to the filter itself: a metro that would render near-empty
 // modules never appears as an option.
 func (h *ChartsHandler) GetChartScenesHandler(ctx context.Context, req *GetChartScenesRequest) (*GetChartScenesResponse, error) {
-	window := normalizeChartWindow(req.Window)
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
 
 	data, err := h.chartsService.GetChartScenes(window)
 	if err != nil {
@@ -965,8 +993,12 @@ func (h *ChartsHandler) GetChartsOverviewHandler(ctx context.Context, _ *GetChar
 // normalizeChartWindow maps the optional window query param to a ChartWindow.
 // Invalid values never reach here — the enum tag on the request struct 422s
 // them; the absent-param default is owned by ChartWindow.OrDefault.
-func normalizeChartWindow(window string) contracts.ChartWindow {
-	return contracts.ChartWindow(window).OrDefault()
+func normalizeChartWindow(window string) (contracts.ChartWindow, error) {
+	normalized, err := contracts.ParseChartWindow(window, time.Now().UTC())
+	if err != nil {
+		return "", huma.Error422UnprocessableEntity(err.Error())
+	}
+	return normalized, nil
 }
 
 // normalizeChartsLimit clamps the limit param to a valid range [1, 50],

@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Chart payloads are stale-tolerant by nature: every public chart surface is
@@ -23,8 +25,9 @@ import (
 // keys are client-controlled and need the entry cap below. Consolidate into
 // one shared cache only when a third consumer appears.
 const (
-	chartsModuleTTL   = 5 * time.Minute
-	chartsMastheadTTL = time.Minute
+	chartsModuleTTL         = 5 * time.Minute
+	chartsMastheadTTL       = time.Minute
+	chartsClosedCalendarTTL = 24 * time.Hour
 
 	// chartsCacheMaxEntries bounds memory: offset/limit are client-controlled
 	// and scene, while gated to real CBSA codes (chartSceneExists — the gate
@@ -33,19 +36,35 @@ const (
 	// expired entries are swept; if the map is still full of FRESH entries,
 	// the NEW key is simply not cached (the request runs uncached) —
 	// overflow traffic never evicts a fresh entry, but an EXPIRED organic
-	// entry's slot is claimable by any traffic. Sizing: 6 modules x 3
-	// windows x page shapes x [global + every switcher metro] plus
+	// entry's slot is claimable by any traffic. Sizing: 6 modules x accepted
+	// rolling/calendar windows x page shapes x [global + every switcher metro] plus
 	// per-(module,window,scene) count keys and the scoped summary/ticker
-	// keys chartsCacheFor routes here — a few dozen active scenes lands in
-	// the low thousands of keys, so 4096 keeps organic traffic cached.
+	// keys chartsCacheFor routes here — calendar values are grammar-, launch-,
+	// and future-gated before reaching this layer; a few dozen active scenes
+	// lands in the low thousands of keys, so 4096 keeps organic traffic cached.
 	// Worst-case memory is cap x a full limit=100 page (tens of KB with
 	// name-enrichment slices), i.e. low hundreds of MB only if every slot
 	// held a max-size page — real pages are the front page's limit=10 shape
 	// for all but drill-down traffic. The masthead instance holds only the
-	// GLOBAL summary/ticker keys and the 3 scenes|window keys, all
-	// domain-bounded by the chartsCacheFor routing rule.
+	// GLOBAL summary/ticker/scenes keys, all domain-bounded by request
+	// validation and the chartsCacheFor routing rule.
 	chartsCacheMaxEntries = 4096
 )
+
+func chartWindowTTL(c *chartsCache, window contracts.ChartWindow, currentTTL time.Duration) time.Duration {
+	_, end, ok := window.OrDefault().CalendarBounds()
+	if !ok {
+		return currentTTL
+	}
+	now := time.Now().UTC()
+	if c != nil {
+		now = c.now().UTC()
+	}
+	if !end.After(now) {
+		return chartsClosedCalendarTTL
+	}
+	return currentTTL
+}
 
 // chartsCacheEntry is one cached payload. The per-entry mutex serializes
 // fetches: while one request computes, concurrent requests for the same key
@@ -210,9 +229,10 @@ type pagedChartRows[T any] struct {
 // NOTE: pages cache independently, so two pages of one window can come from
 // snapshots up to a TTL apart — totals (and most-anticipated's mode) are
 // per-response facts, not cross-page guarantees.
-func cachedChartPage[T any](c *chartsCache, module string, window string, scene string, limit, offset int, fetch func() ([]T, int, error)) ([]T, int, error) {
-	key := module + "|" + window + "|" + scene + "|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
-	page, err := chartsCached(c, key, chartsModuleTTL, func() (pagedChartRows[T], error) {
+func cachedChartPage[T any](c *chartsCache, module string, window contracts.ChartWindow, scene string, limit, offset int, fetch func() ([]T, int, error)) ([]T, int, error) {
+	normalizedWindow := window.OrDefault()
+	key := module + "|" + string(normalizedWindow) + "|" + scene + "|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
+	page, err := chartsCached(c, key, chartWindowTTL(c, normalizedWindow, chartsModuleTTL), func() (pagedChartRows[T], error) {
 		rows, total, err := fetch()
 		return pagedChartRows[T]{rows: rows, total: total}, err
 	})
