@@ -14,6 +14,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -44,6 +45,7 @@ func (suite *ShowServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -512,6 +514,32 @@ func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_AssociationsCleaned
 	var saCount int64
 	suite.db.Model(&catalogm.ShowArtist{}).Where("show_id = ?", showID).Count(&saCount)
 	suite.Zero(saCount)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_RemovesSavedShowFromBookmarkBackedTotals() {
+	user := suite.createTestUser()
+	created := suite.createTestShow()
+	savedShows := engagement.NewSavedShowService(suite.db)
+	charts := NewChartsService(suite.db)
+
+	suite.Require().NoError(savedShows.SaveShow(user.ID, created.ID))
+	shows, total, err := savedShows.GetUserSavedShows(user.ID, 10, 0, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1)
+	suite.Equal(int64(1), total)
+	stats, err := charts.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, stats.SavedShows)
+
+	suite.Require().NoError(suite.showService.DeleteShow(created.ID))
+
+	shows, total, err = savedShows.GetUserSavedShows(user.ID, 10, 0, "")
+	suite.Require().NoError(err)
+	suite.Empty(shows)
+	suite.Zero(total)
+	stats, err = charts.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Zero(stats.SavedShows)
 }
 
 // =============================================================================
