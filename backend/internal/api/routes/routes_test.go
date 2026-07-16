@@ -152,6 +152,27 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	countsOperation := api.OpenAPI().Paths["/me/library/following/counts"].Get
 	countsResponse := countsOperation.Responses["200"].Content["application/json"].Schema
 	assertProperties(countsResponse, "artists", "venues", "scenes", "labels", "festivals")
+
+	// PSY-1466: the scene follow body's notify_mode enum must include "off"
+	// alongside the pre-existing "all" and "followed_bands_only".
+	sceneFollowOp := api.OpenAPI().Paths["/scenes/{slug}/follow"].Post
+	if sceneFollowOp == nil || sceneFollowOp.RequestBody == nil {
+		t.Fatal("expected documented POST /scenes/{slug}/follow request body")
+	}
+	bodySchema := resolveSchema(sceneFollowOp.RequestBody.Content["application/json"].Schema)
+	notifyModeSchema := bodySchema.Properties["notify_mode"]
+	if notifyModeSchema == nil {
+		t.Fatal("expected notify_mode property on scene follow body")
+	}
+	expectedModes := map[any]bool{"all": true, "followed_bands_only": true, "off": true}
+	if len(notifyModeSchema.Enum) != len(expectedModes) {
+		t.Fatalf("expected three-value notify_mode enum, got %+v", notifyModeSchema.Enum)
+	}
+	for _, value := range notifyModeSchema.Enum {
+		if !expectedModes[value] {
+			t.Fatalf("unexpected notify_mode enum value %v", value)
+		}
+	}
 }
 
 // TestSetupAuthRoutes tests authentication route setup

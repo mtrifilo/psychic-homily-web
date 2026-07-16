@@ -207,6 +207,15 @@ func (s *SceneDigestSuite) followScene(userID, sceneID uint, cursor *time.Time, 
 	}
 }
 
+// followSceneWithNotifyMode is followScene plus an explicit scene_notify_mode
+// setting — used to prove the digest selection query doesn't read it.
+func (s *SceneDigestSuite) followSceneWithNotifyMode(userID, sceneID uint, mode string, followedAt time.Time) {
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at, settings)
+		 VALUES (?, 'scene', ?, 'follow', ?, jsonb_build_object('scene_notify_mode', ?::text))`,
+		userID, sceneID, followedAt, mode).Error)
+}
+
 func (s *SceneDigestSuite) createThisWeekShow(venueID uint) uint {
 	slug := fmt.Sprintf("show-%d", time.Now().UnixNano())
 	show := catalogm.Show{
@@ -332,6 +341,21 @@ func (s *SceneDigestSuite) TestIdempotentAcrossRestart() {
 	s.mock.calls = nil
 	s.svc.RunDigestCycleNow()
 	s.Empty(s.mock.calls, "an immediate re-run must not re-send this-week shows")
+}
+
+// PSY-1466 regression: the weekly scene digest is a separate, global opt-in
+// (user_preferences.notify_on_scene_digest). scene_notify_mode="off" — which
+// mutes immediate new-show notifications (PSY-1466) — must have NO effect on
+// digest selection.
+func (s *SceneDigestSuite) TestNotifyModeOffDoesNotAffectDigestSelection() {
+	userID, _ := s.createUser()
+	sceneID, venueID := s.createScene()
+	s.setSceneDigestPref(userID, true)
+	s.followSceneWithNotifyMode(userID, sceneID, "off", time.Now().Add(-24*time.Hour))
+	s.createThisWeekShow(venueID)
+
+	s.svc.RunDigestCycleNow()
+	s.Require().Len(s.mock.calls, 1, "an 'off' immediate-notify scene follow must still be digested weekly")
 }
 
 func (s *SceneDigestSuite) TestNewBandsOverflowRendersMore() {

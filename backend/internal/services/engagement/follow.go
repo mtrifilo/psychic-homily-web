@@ -89,11 +89,15 @@ func (s *FollowService) Follow(userID uint, entityType string, entityID uint) er
 	return nil
 }
 
-// Scene-follow notify modes (PSY-1341) — stored in user_bookmarks.settings
-// under "scene_notify_mode". Absent settings mean SceneNotifyModeAll.
+// Scene-follow notify modes (PSY-1341, +off in PSY-1466) — stored in
+// user_bookmarks.settings under "scene_notify_mode". Absent settings mean
+// SceneNotifyModeAll. SceneNotifyModeOff opts a scene follow out of
+// immediate new-show notifications entirely; it does NOT affect the
+// separate weekly scene digest opt-in (user_preferences.notify_on_scene_digest).
 const (
 	SceneNotifyModeAll           = "all"
 	SceneNotifyModeFollowedBands = "followed_bands_only"
+	SceneNotifyModeOff           = "off"
 	sceneNotifyModeKey           = "scene_notify_mode"
 )
 
@@ -104,7 +108,7 @@ func (s *FollowService) SetSceneNotifyMode(userID uint, sceneID uint, mode strin
 	if s.db == nil {
 		return apperrors.ErrFollowInternal(fmt.Errorf("database not initialized"))
 	}
-	if mode != SceneNotifyModeAll && mode != SceneNotifyModeFollowedBands {
+	if mode != SceneNotifyModeAll && mode != SceneNotifyModeFollowedBands && mode != SceneNotifyModeOff {
 		return apperrors.ErrFollowInvalidEntityType(fmt.Sprintf("invalid notify mode: %s", mode))
 	}
 	res := s.db.Model(&engagementm.UserBookmark{}).

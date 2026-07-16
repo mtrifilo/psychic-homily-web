@@ -91,6 +91,35 @@ func TestSceneFollowHandler_SetsNotifyMode(t *testing.T) {
 	}
 }
 
+// PSY-1466: "off" round-trips through the handler exactly like the other
+// modes — no special-casing.
+func TestSceneFollowHandler_SetsOffNotifyMode(t *testing.T) {
+	modeSet := ""
+	scenes := &testhelpers.MockSceneService{
+		GetOrCreateSceneIDFn: func(string) (uint, error) { return 7, nil },
+	}
+	follows := &testhelpers.MockFollowService{
+		FollowFn: func(uint, string, uint) error { return nil },
+		SetSceneNotifyModeFn: func(userID uint, sceneID uint, mode string) error {
+			modeSet = mode
+			return nil
+		},
+	}
+	h := NewSceneFollowHandler(follows, scenes)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	req := &SceneFollowRequest{
+		Slug: "phoenix-az",
+		Body: &SceneFollowBody{NotifyMode: "off"},
+	}
+	if _, err := h.SceneFollowHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if modeSet != "off" {
+		t.Errorf("expected off mode set, got %q", modeSet)
+	}
+}
+
 func TestSceneFollowersHandler_IncludesMyMode(t *testing.T) {
 	scenes := &testhelpers.MockSceneService{
 		LookupSceneIDFn: func(string) (uint, bool, error) { return 7, true, nil },
