@@ -1235,6 +1235,34 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Calenda
 	suite.Equal(2, artists[0].PlayCount, "calendar radio windows are UTC [start,end)")
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_CalendarBoundsUseUTCInstant() {
+	artist := suite.createArtist("Timezone Boundary Band")
+	laShow := suite.createRadioStack("KCAL-LA", "kcal-la", nil, "America/Los_Angeles")
+	tokyoShow := suite.createRadioStack("KCAL-TYO", "kcal-tyo", nil, "Asia/Tokyo")
+
+	createEpisode := func(showID uint, airDate string, starts time.Time, position int) {
+		ends := starts.Add(time.Hour)
+		episode := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
+		suite.Require().NoError(suite.db.Create(episode).Error)
+		suite.createRadioPlay(episode.ID, &artist.ID, position, false)
+	}
+	// Local March 31 in Los Angeles starts after the UTC Q1 end: exclude.
+	createEpisode(laShow.ID, "2026-03-31", time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC), 1)
+	// Local April 1 in Tokyo starts before the UTC Q1 end: include.
+	createEpisode(tokyoShow.ID, "2026-04-01", time.Date(2026, 3, 31, 16, 0, 0, 0, time.UTC), 1)
+	// An unambiguous in-quarter episode keeps the expected artist row present.
+	createEpisode(laShow.ID, "2026-02-01", time.Date(2026, 2, 1, 20, 0, 0, 0, time.UTC), 2)
+
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindow("2026-q1"), "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(2, artists[0].PlayCount)
+
+	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindow("2026-q1"), "")
+	suite.Require().NoError(err)
+	suite.Equal(2, summary.RadioPlays, "summary shares the UTC occurrence bounds")
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_StationCountCollapsesNetworks() {
 	network := suite.createRadioNetwork("WTEST", "wtest")
 	flagship := suite.createRadioStack("WTEST 91.1", "wtest-fm", &network.ID)
@@ -1452,6 +1480,29 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Past
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Zero(result.Total)
 	suite.Empty(result.Shows)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_RollingHorizons() {
+	user := suite.createUser("ma-rolling-owner@test.com")
+	venue := suite.createVenue("MA Rolling Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA Rolling Artist")
+	now := time.Now().UTC().Truncate(24 * time.Hour)
+	near := suite.createApprovedShow("Near Upcoming", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 20))
+	far := suite.createApprovedShow("Far Upcoming", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 40))
+
+	month, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowMonth, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(month.Shows, 1)
+	suite.Equal(near.ID, month.Shows[0].ShowID)
+
+	quarter, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(quarter.Shows, 2)
+	suite.ElementsMatch([]uint{near.ID, far.ID}, []uint{quarter.Shows[0].ShowID, quarter.Shows[1].ShowID})
+
+	allTime, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowAllTime, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(allTime.Shows, 2)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_RankedMode() {

@@ -318,7 +318,9 @@ func primaryVenueLateralSQL(cols, showIDExpr string) string {
 
 // GetMostAnticipatedShows returns the mode-discriminated most-anticipated
 // module: upcoming approved shows with saves >= the floor, ranked by save
-// count (ties by soonest date, then id). When fewer than
+// count (ties by soonest date, then id). Rolling month/quarter values bound
+// the upcoming horizon to 30/90 days; calendar values use their UTC end.
+// When fewer than
 // mostAnticipatedMinQualifying shows clear the floor IN TOTAL, it returns
 // soonest-upcoming fallback mode instead — ALL upcoming approved shows
 // date-ordered with SaveCount and Rank nil on every row (fail-closed:
@@ -361,6 +363,19 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(window contracts.ChartWi
 	if isCalendar && calendarStart.After(startOfToday) {
 		startOfToday = calendarStart
 	}
+	var windowEnd *time.Time
+	switch window.OrDefault() {
+	case contracts.ChartWindowMonth:
+		end := startOfToday.AddDate(0, 0, 30)
+		windowEnd = &end
+	case contracts.ChartWindowQuarter:
+		end := startOfToday.AddDate(0, 0, 90)
+		windowEnd = &end
+	default:
+		if isCalendar {
+			windowEnd = &calendarEnd
+		}
+	}
 
 	type showRow struct {
 		ShowID    uint      `gorm:"column:show_id"`
@@ -390,10 +405,10 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(window contracts.ChartWi
 	// page).
 	eligibilitySQL, eligibilityArgs := appendShowSceneScope(
 		mostAnticipatedEligibilitySQL, []any{catalogm.ShowStatusApproved, startOfToday}, scene)
-	if isCalendar {
+	if windowEnd != nil {
 		eligibilitySQL += `
 			AND s.event_date < ?`
-		eligibilityArgs = append(eligibilityArgs, calendarEnd)
+		eligibilityArgs = append(eligibilityArgs, *windowEnd)
 	}
 
 	// COUNT(*) OVER() counts qualifying groups post-HAVING — the full ranked
@@ -1547,10 +1562,15 @@ func appendWindowBounds(query string, args []any, column string, bounds chartBou
 	return query, args
 }
 
+const chartRadioOccurrenceUTC = `COALESCE(re.starts_at, re.air_date::timestamp AT TIME ZONE COALESCE(tzn.name, 'UTC'))`
+
 // appendRadioAiredWindow appends the radio aired pair — pseudo-artist
 // exclusion, station-local aired date bound, air-window gate — plus the
-// optional window lower bound on air_date, and the matching args (now, now[,
-// start date]). It must be appended immediately after a bare `WHERE ` (the
+// rolling lower bound on air_date OR exact UTC calendar bounds on the
+// episode occurrence instant, and the matching args. `starts_at` is already
+// UTC-aware; windowless episodes derive their occurrence from station-local
+// air_date through the resolved timezone. It must be appended immediately
+// after a bare `WHERE ` (the
 // fragment starts with a predicate, not AND), and the FROM clause must join
 // radio_episodes re, radio_stations rst, and stationTimezoneJoinSQL. Both radio-backed chart surfaces
 // (on-the-radio, the summary's radio_plays count) build through this so the
@@ -1560,15 +1580,15 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, bounds char
 			AND ` + stationLocalAiredDateBoundSQL("re.") + `
 			AND ` + airedEpisodeVisibleSQL("re.")
 	args = append(args, now, now)
-	if bounds.start != nil {
+	if bounds.calendarEnd != nil {
+		query += `
+			AND ` + chartRadioOccurrenceUTC + ` >= ?
+			AND ` + chartRadioOccurrenceUTC + ` < ?`
+		args = append(args, *bounds.start, *bounds.calendarEnd)
+	} else if bounds.start != nil {
 		query += `
 			AND re.air_date >= ?`
 		args = append(args, bounds.start.Format("2006-01-02"))
-	}
-	if bounds.calendarEnd != nil && !bounds.calendarEnd.After(now.UTC()) {
-		query += `
-			AND re.air_date < ?`
-		args = append(args, bounds.calendarEnd.Format("2006-01-02"))
 	}
 	return query, args
 }
