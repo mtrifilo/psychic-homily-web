@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Unit tests for the chartsCache mechanics — the injectable clock makes
@@ -15,6 +17,21 @@ func cacheAt(t0 time.Time) (*chartsCache, *time.Time) {
 	now := t0
 	c.now = func() time.Time { return now }
 	return c, &now
+}
+
+func TestChartWindowTTL_ClosedAndCurrentCalendarPeriods(t *testing.T) {
+	c, _ := cacheAt(time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC))
+	if got := chartWindowTTL(c, contracts.ChartWindow("2026-q1"), chartsModuleTTL); got != chartsClosedCalendarTTL {
+		t.Fatalf("closed quarter TTL = %v, want %v", got, chartsClosedCalendarTTL)
+	}
+	for _, window := range []contracts.ChartWindow{"2026", "2026-q3"} {
+		if got := chartWindowTTL(c, window, chartsModuleTTL); got != chartsModuleTTL {
+			t.Fatalf("current %q TTL = %v, want module TTL %v", window, got, chartsModuleTTL)
+		}
+	}
+	if got := chartWindowTTL(c, contracts.ChartWindowQuarter, chartsMastheadTTL); got != chartsMastheadTTL {
+		t.Fatalf("rolling quarter TTL = %v, want masthead TTL %v", got, chartsMastheadTTL)
+	}
 }
 
 func TestChartsCached_HitAndExpiry(t *testing.T) {
@@ -344,15 +361,15 @@ func TestCachedChartPage_SceneSegmentsCacheKeys(t *testing.T) {
 		}
 	}
 
-	global, _, err := cachedChartPage(c, "mod", "quarter", "", 10, 0, fetchReturning("global"))
+	global, _, err := cachedChartPage(c, "mod", contracts.ChartWindowQuarter, "", 10, 0, fetchReturning("global"))
 	if err != nil || global[0] != "global" {
 		t.Fatalf("global fetch: %v %v", global, err)
 	}
-	phx, _, err := cachedChartPage(c, "mod", "quarter", "38060", 10, 0, fetchReturning("phx"))
+	phx, _, err := cachedChartPage(c, "mod", contracts.ChartWindowQuarter, "38060", 10, 0, fetchReturning("phx"))
 	if err != nil || phx[0] != "phx" {
 		t.Fatalf("phx fetch: %v %v", phx, err)
 	}
-	chi, _, err := cachedChartPage(c, "mod", "quarter", "16980", 10, 0, fetchReturning("chi"))
+	chi, _, err := cachedChartPage(c, "mod", contracts.ChartWindowQuarter, "16980", 10, 0, fetchReturning("chi"))
 	if err != nil || chi[0] != "chi" {
 		t.Fatalf("chi fetch: %v %v", chi, err)
 	}
@@ -361,11 +378,11 @@ func TestCachedChartPage_SceneSegmentsCacheKeys(t *testing.T) {
 	}
 
 	// Re-reads hit the per-scope cached values — no cross-scope bleed.
-	phx2, _, _ := cachedChartPage(c, "mod", "quarter", "38060", 10, 0, fetchReturning("wrong"))
+	phx2, _, _ := cachedChartPage(c, "mod", contracts.ChartWindowQuarter, "38060", 10, 0, fetchReturning("wrong"))
 	if phx2[0] != "phx" {
 		t.Fatalf("scoped re-read returned %q, want cached phx", phx2[0])
 	}
-	global2, _, _ := cachedChartPage(c, "mod", "quarter", "", 10, 0, fetchReturning("wrong"))
+	global2, _, _ := cachedChartPage(c, "mod", contracts.ChartWindowQuarter, "", 10, 0, fetchReturning("wrong"))
 	if global2[0] != "global" {
 		t.Fatalf("global re-read returned %q, want cached global", global2[0])
 	}

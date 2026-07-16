@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -616,31 +617,64 @@ func (suite *ChartsServiceIntegrationTestSuite) addArtistToShow(showID, artistID
 	suite.Require().NoError(err)
 }
 
-func TestChartWindowStart(t *testing.T) {
+func TestChartWindowBounds(t *testing.T) {
 	// Deliberately mid-day: the start bound must truncate to midnight UTC so a
 	// midnight-timestamped show exactly N days ago stays inside the window.
 	now := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 
-	month := chartWindowStart(contracts.ChartWindowMonth, now)
-	if month == nil || !month.Equal(time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("month window: got %v", month)
+	month := chartWindowBounds(contracts.ChartWindowMonth, now)
+	if month.start == nil || !month.start.Equal(time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)) || month.endExclusive {
+		t.Fatalf("month window: got %+v", month)
 	}
-	quarter := chartWindowStart(contracts.ChartWindowQuarter, now)
-	if quarter == nil || !quarter.Equal(time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("quarter window: got %v", quarter)
+	quarter := chartWindowBounds(contracts.ChartWindowQuarter, now)
+	if quarter.start == nil || !quarter.start.Equal(time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)) || quarter.endExclusive {
+		t.Fatalf("quarter window: got %+v", quarter)
 	}
-	if allTime := chartWindowStart(contracts.ChartWindowAllTime, now); allTime != nil {
-		t.Fatalf("all_time window: expected nil lower bound, got %v", allTime)
+	if allTime := chartWindowBounds(contracts.ChartWindowAllTime, now); allTime.start != nil {
+		t.Fatalf("all_time window: expected nil lower bound, got %+v", allTime)
 	}
 	// Empty/unknown values fall back to quarter via ChartWindow.OrDefault.
-	if def := chartWindowStart(contracts.ChartWindow(""), now); def == nil || !def.Equal(*quarter) {
-		t.Fatalf("default window: got %v", def)
+	if def := chartWindowBounds(contracts.ChartWindow(""), now); def.start == nil || !def.start.Equal(*quarter.start) {
+		t.Fatalf("default window: got %+v", def)
+	}
+	year := chartWindowBounds(contracts.ChartWindow("2026"), now)
+	if year.start == nil || !year.start.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) ||
+		!year.end.Equal(now) || !year.endExclusive || year.calendarEnd == nil ||
+		!year.calendarEnd.Equal(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("current calendar year bounds: got %+v", year)
+	}
+	closedQuarter := chartWindowBounds(contracts.ChartWindow("2026-q1"), now)
+	if closedQuarter.start == nil || !closedQuarter.start.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) ||
+		!closedQuarter.end.Equal(time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)) || !closedQuarter.endExclusive {
+		t.Fatalf("closed calendar quarter bounds: got %+v", closedQuarter)
 	}
 	if got := contracts.ChartWindow("bogus").OrDefault(); got != contracts.ChartWindowQuarter {
 		t.Fatalf("OrDefault(bogus): got %v", got)
 	}
 	if got := contracts.ChartWindowMonth.OrDefault(); got != contracts.ChartWindowMonth {
 		t.Fatalf("OrDefault(month): got %v", got)
+	}
+}
+
+func TestAppendWindowBoundsCalendarIsUTCStartInclusiveEndExclusive(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	bounds := chartWindowBounds(contracts.ChartWindow("2026-q1"), now)
+	query, args := appendWindowBounds("WHERE true", nil, "s.event_date", bounds)
+	if !strings.Contains(query, "s.event_date < ?") || !strings.Contains(query, "s.event_date >= ?") {
+		t.Fatalf("calendar query must use [start,end), got %q", query)
+	}
+	wantArgs := []time.Time{
+		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if len(args) != len(wantArgs) {
+		t.Fatalf("args = %#v", args)
+	}
+	for i, want := range wantArgs {
+		got, ok := args[i].(time.Time)
+		if !ok || !got.Equal(want) || got.Location() != time.UTC {
+			t.Errorf("arg %d = %#v, want %v", i, args[i], want)
+		}
 	}
 }
 
@@ -675,6 +709,26 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_WindowB
 	suite.Require().NoError(err)
 	suite.Require().Len(allTime, 1)
 	suite.Equal(3, allTime[0].ShowCount, "future shows never count, even all-time")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_CalendarQuarterBoundaries() {
+	user := suite.createUser("maa-calendar@test.com")
+	venue := suite.createVenue("Calendar Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Calendar Artist")
+
+	for title, date := range map[string]time.Time{
+		"Before": time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC),
+		"Start":  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		"End-1":  time.Date(2026, 3, 31, 23, 59, 59, 0, time.UTC),
+		"End":    time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+	} {
+		suite.createApprovedShow(title, venue.ID, artist.ID, user.ID, date)
+	}
+
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindow("2026-q1"), "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(2, artists[0].ShowCount, "calendar windows are UTC [start,end)")
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_HeadlinePctAndLastShow() {
@@ -1136,7 +1190,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_WindowB
 	artist := suite.createArtist("Windowed Band")
 
 	// 30 sits exactly ON the month window's inclusive lower edge
-	// (chartWindowStart truncates to midnight of the day 30 days back); 31 is
+	// (chartWindowBounds truncates to midnight of the day 30 days back); 31 is
 	// the first excluded day. Pinning both guards the >= vs > off-by-one.
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 10).ID, &artist.ID, 1, false)
 	suite.createRadioPlay(suite.createWindowedEpisode(show.ID, 30).ID, &artist.ID, 1, false)
@@ -1158,6 +1212,55 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_WindowB
 	suite.Require().NoError(err)
 	suite.Require().Len(allTime, 1)
 	suite.Equal(5, allTime[0].PlayCount, "all_time counts every aired play")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_CalendarQuarterBoundaries() {
+	show := suite.createRadioStack("KCAL", "kcal", nil)
+	artist := suite.createArtist("Calendar Radio Band")
+	for i, day := range []time.Time{
+		time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+	} {
+		starts, ends := day.Add(12*time.Hour), day.Add(13*time.Hour)
+		episode := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: day.Format("2006-01-02"), StartsAt: &starts, EndsAt: &ends}
+		suite.Require().NoError(suite.db.Create(episode).Error)
+		suite.createRadioPlay(episode.ID, &artist.ID, i+1, false)
+	}
+
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindow("2026-q1"), "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(2, artists[0].PlayCount, "calendar radio windows are UTC [start,end)")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_CalendarBoundsUseUTCInstant() {
+	artist := suite.createArtist("Timezone Boundary Band")
+	laShow := suite.createRadioStack("KCAL-LA", "kcal-la", nil, "America/Los_Angeles")
+	tokyoShow := suite.createRadioStack("KCAL-TYO", "kcal-tyo", nil, "Asia/Tokyo")
+
+	createEpisode := func(showID uint, airDate string, starts time.Time, position int) {
+		ends := starts.Add(time.Hour)
+		episode := &catalogm.RadioEpisode{ShowID: showID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
+		suite.Require().NoError(suite.db.Create(episode).Error)
+		suite.createRadioPlay(episode.ID, &artist.ID, position, false)
+	}
+	// Local March 31 in Los Angeles starts after the UTC Q1 end: exclude.
+	createEpisode(laShow.ID, "2026-03-31", time.Date(2026, 4, 1, 2, 0, 0, 0, time.UTC), 1)
+	// Local April 1 in Tokyo starts before the UTC Q1 end: include.
+	createEpisode(tokyoShow.ID, "2026-04-01", time.Date(2026, 3, 31, 16, 0, 0, 0, time.UTC), 1)
+	// An unambiguous in-quarter episode keeps the expected artist row present.
+	createEpisode(laShow.ID, "2026-02-01", time.Date(2026, 2, 1, 20, 0, 0, 0, time.UTC), 2)
+
+	artists, _, err := suite.chartsService.GetOnTheRadioArtists(contracts.ChartWindow("2026-q1"), "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1)
+	suite.Equal(2, artists[0].PlayCount)
+
+	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindow("2026-q1"), "")
+	suite.Require().NoError(err)
+	suite.Equal(2, summary.RadioPlays, "summary shares the UTC occurrence bounds")
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_StationCountCollapsesNetworks() {
@@ -1366,6 +1469,42 @@ func (suite *ChartsServiceIntegrationTestSuite) createSaves(showID uint, users [
 	}
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_PastCalendarWindowIsEmpty() {
+	user := suite.createUser("ma-past-owner@test.com")
+	venue := suite.createVenue("MA Past Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA Past Artist")
+	suite.createApprovedShow("Actually Upcoming", venue.ID, artist.ID, user.ID, time.Now().UTC().AddDate(0, 0, 10))
+
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindow("2026-q1"), "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
+	suite.Zero(result.Total)
+	suite.Empty(result.Shows)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_RollingHorizons() {
+	user := suite.createUser("ma-rolling-owner@test.com")
+	venue := suite.createVenue("MA Rolling Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("MA Rolling Artist")
+	now := time.Now().UTC().Truncate(24 * time.Hour)
+	near := suite.createApprovedShow("Near Upcoming", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 20))
+	far := suite.createApprovedShow("Far Upcoming", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 40))
+
+	month, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowMonth, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(month.Shows, 1)
+	suite.Equal(near.ID, month.Shows[0].ShowID)
+
+	quarter, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(quarter.Shows, 2)
+	suite.ElementsMatch([]uint{near.ID, far.ID}, []uint{quarter.Shows[0].ShowID, quarter.Shows[1].ShowID})
+
+	allTime, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowAllTime, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(allTime.Shows, 2)
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_RankedMode() {
 	user := suite.createUser("ma-owner@test.com")
 	venue := suite.createVenue("MA Venue", "Phoenix", "AZ")
@@ -1393,7 +1532,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 	suite.createSaves(subFloor.ID, savers, 2)
 	suite.createApprovedShow("No Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 6))
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Require().Len(result.Shows, 5, "only floor-clearing shows rank; 2-save and 0-save shows stay out")
@@ -1430,7 +1569,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Fall
 	}
 	soonest := suite.createApprovedShow("Soonest Zero Saves", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 2))
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 5, "fallback lists ALL upcoming shows, floor ignored")
@@ -1457,7 +1596,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Excl
 	suite.createSaves(pending.ID, savers, 3)
 	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Empty(result.Shows, "past and pending shows appear in neither mode")
@@ -1479,7 +1618,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Resp
 		suite.createSaves(show.ID, savers, 3)
 	}
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 5, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 5, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Len(result.Shows, 5)
@@ -1503,7 +1642,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Smal
 
 	// The mode is about how many shows QUALIFY, not how many were requested:
 	// a compact 2-row widget must still get ranked mode when 6 shows qualify.
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 2, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 2, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "a limit below the qualifying minimum must not force fallback")
 	suite.Require().Len(result.Shows, 2)
@@ -1532,7 +1671,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mult
 
 	// Fallback mode (1 qualifying < 5): the two-venue show must still be ONE
 	// row, carrying the lowest-venue_id pick.
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 1, "a multi-venue show is one row, not one per venue")
@@ -1544,7 +1683,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mult
 		show := suite.createApprovedShow(fmt.Sprintf("MV Pad %d", i), venueA.ID, artist.ID, user.ID, now.AddDate(0, 0, 20+i))
 		suite.createSaves(show.ID, savers, 3)
 	}
-	result, err = suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err = suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Len(result.Shows, 5, "5 distinct qualifying shows — the two-venue show counted once")
@@ -1565,7 +1704,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Excl
 	suite.createSaves(cancelled.ID, savers, 3)
 	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Empty(result.Shows, "a cancelled show never appears in either mode, saves or not")
@@ -1588,7 +1727,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Incl
 	tonight := suite.createApprovedShow("Tonight Show", venue.ID, artist.ID, user.ID, today)
 	suite.createSaves(tonight.ID, savers, 3)
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Require().Len(result.Shows, 1, "a show happening today must count as upcoming in fallback mode")
@@ -1598,7 +1737,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Incl
 		show := suite.createApprovedShow(fmt.Sprintf("TD Pad %d", i), venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 15+i))
 		suite.createSaves(show.ID, savers, 3)
 	}
-	result, err = suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	result, err = suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode, "today's show is the 5th qualifier — it must count toward ranked mode")
 	suite.Require().Len(result.Shows, 5)
@@ -1638,6 +1777,22 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_Empty() {
 	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Empty(releases)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_CalendarQuarterBoundaries() {
+	for title, day := range map[string]time.Time{
+		"Before": time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
+		"Start":  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		"End-1":  time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		"End":    time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+	} {
+		suite.createDatedRelease(title, dateStr(day), day)
+	}
+
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindow("2026-q1"), "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 2)
+	suite.ElementsMatch([]string{"Start", "End-1"}, []string{releases[0].Title, releases[1].Title})
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetNewReleases_CoalescedDateOrdering() {
@@ -1777,6 +1932,31 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_Empty() {
 	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowQuarter, "")
 	suite.Require().NoError(err)
 	suite.Equal(&contracts.ChartsSummary{}, summary)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_CalendarQuarterCreatedAtBoundaries() {
+	user := suite.createUser("summary-calendar@test.com")
+	venue := suite.createVenue("Summary Calendar Venue", "Phoenix", "AZ")
+	showArtist := suite.createArtist("Summary Calendar Show Artist")
+	dates := []time.Time{
+		time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC),
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 31, 23, 59, 59, 0, time.UTC),
+		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+	}
+	for i, date := range dates {
+		show := suite.createApprovedShow(fmt.Sprintf("Summary Calendar Show %d", i), venue.ID, showArtist.ID, user.ID, date)
+		suite.setCreatedAt("shows", show.ID, date)
+		artist := suite.createArtist(fmt.Sprintf("Summary Calendar Artist %d", i))
+		suite.setCreatedAt("artists", artist.ID, date)
+		suite.createDatedRelease(fmt.Sprintf("Summary Calendar Release %d", i), nil, date)
+	}
+
+	summary, err := suite.chartsService.GetChartsSummary(contracts.ChartWindow("2026-q1"), "")
+	suite.Require().NoError(err)
+	suite.Equal(2, summary.ShowsAdded)
+	suite.Equal(2, summary.NewArtists)
+	suite.Equal(2, summary.NewReleases)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_WindowScopedCounts() {
@@ -2216,7 +2396,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 	}
 
 	// Page 2 of size 2: still ranked (6 qualify), ranks continue at 3.
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 2, 2)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, result.Mode)
 	suite.Equal(6, result.Total)
@@ -2229,7 +2409,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 
 	// Beyond-the-end offset: mode STAYS ranked (total >= floor), empty page,
 	// true total.
-	deep, err := suite.chartsService.GetMostAnticipatedShows("", 2, 100)
+	deep, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 2, 100)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, deep.Mode)
 	suite.Equal(6, deep.Total)
@@ -2249,7 +2429,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Fall
 	suite.createApprovedShow("Later", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 1))
 	suite.createApprovedShow("Latest", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 2))
 
-	result, err := suite.chartsService.GetMostAnticipatedShows("", 2, 2)
+	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Equal(3, result.Total, "fallback total is its own universe (all upcoming shows)")
@@ -2408,16 +2588,16 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOnTheRadioArtists_Paginat
 func TestResolveChartPageTotal_NonDBBranches(t *testing.T) {
 	s := &ChartsService{} // no DB: these branches must not touch it
 
-	total, err := s.resolveChartPageTotal(7, 2, 0, "", nil, "k", "test module")
+	total, err := s.resolveChartPageTotal(contracts.ChartWindowQuarter, 7, 2, 0, "", nil, "k", "test module")
 	if err != nil || total != 7 {
 		t.Fatalf("rows with total must pass through: %d %v", total, err)
 	}
 
-	if _, err := s.resolveChartPageTotal(0, 2, 0, "", nil, "k", "test module"); err == nil {
+	if _, err := s.resolveChartPageTotal(contracts.ChartWindowQuarter, 0, 2, 0, "", nil, "k", "test module"); err == nil {
 		t.Fatal("rows with zero total must fail loudly (missing COUNT(*) OVER() column)")
 	}
 
-	total, err = s.resolveChartPageTotal(0, 0, 0, "", nil, "k", "test module")
+	total, err = s.resolveChartPageTotal(contracts.ChartWindowQuarter, 0, 0, 0, "", nil, "k", "test module")
 	if err != nil || total != 0 {
 		t.Fatalf("empty first page must be a genuine zero: %d %v", total, err)
 	}
@@ -2609,12 +2789,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mode
 		suite.createBookmark(u.ID, engagementm.BookmarkEntityShow, chiShow.ID, engagementm.BookmarkActionSave)
 	}
 
-	global, err := suite.chartsService.GetMostAnticipatedShows("", 20, 0)
+	global, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, global.Mode)
 	suite.Equal(6, global.Total)
 
-	phx, err := suite.chartsService.GetMostAnticipatedShows(phoenixCBSA, 20, 0)
+	phx, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, phoenixCBSA, 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeRanked, phx.Mode, "5 qualifying shows in-scene keep ranked mode")
 	suite.Equal(5, phx.Total)
@@ -2622,7 +2802,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mode
 		suite.Equal("Rebel Lounge", s.VenueName)
 	}
 
-	chi, err := suite.chartsService.GetMostAnticipatedShows(chicagoCBSA, 20, 0)
+	chi, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, chicagoCBSA, 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, chi.Mode, "1 qualifying show < min-qualifying flips the SCOPED mode to fallback")
 	suite.Require().Len(chi.Shows, 1, "scoped fallback lists the scene's upcoming shows only")
@@ -2630,7 +2810,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Mode
 	suite.Nil(chi.Shows[0].SaveCount, "fallback omits counts even though the show cleared the floor")
 	suite.Equal(1, chi.Total)
 
-	none, err := suite.chartsService.GetMostAnticipatedShows(unknownCBSA, 20, 0)
+	none, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, unknownCBSA, 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, none.Mode)
 	suite.Empty(none.Shows)
