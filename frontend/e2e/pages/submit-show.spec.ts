@@ -109,12 +109,16 @@ test.describe('Submit a show', () => {
       authenticatedPage.getByText('Show Submitted!')
     ).toBeVisible({ timeout: 10_000 })
 
-    // Wait for redirect to /library (PSY-275: collection merged into library)
-    await authenticatedPage.waitForURL(/\/library/, { timeout: 10_000 })
+    // PSY-1438: approved submissions land on the Contribute console
+    // (not Library). PSY-1469: keep this assertion in sync with ShowForm.
+    await authenticatedPage.waitForURL(/\/contribute\/submissions/, {
+      timeout: 10_000,
+    })
 
-    // Verify we're on the library page
     await expect(
-      authenticatedPage.getByRole('heading', { name: /^library$/i })
+      authenticatedPage.getByRole('heading', {
+        name: /^show submissions$/i,
+      })
     ).toBeVisible({ timeout: 10_000 })
   })
 })
