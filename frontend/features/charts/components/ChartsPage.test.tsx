@@ -24,6 +24,24 @@ const mockReleaseSaveCountBatch = vi.fn<(...args: unknown[]) => EmptyQuery>(
   () => query({})
 )
 let isAuthenticated = true
+let personalStatsLoading = false
+let personalStatsError = false
+let personalStats = {
+  saved_shows: 12,
+  artists_followed: 34,
+  top_venue: {
+    venue_id: 9,
+    name: 'The Rebel Lounge',
+    slug: 'the-rebel-lounge',
+    saved_show_count: 5,
+  } as {
+    venue_id: number
+    name: string
+    slug: string
+    saved_show_count: number
+  } | null,
+  first_activity_at: '2026-03-12T00:00:00Z' as string | null,
+}
 let queryWindow: 'month' | 'quarter' | 'all_time' = 'quarter'
 let queryScene: string | null = null
 let sceneListLoading = false
@@ -88,7 +106,11 @@ vi.mock('nuqs', () => ({
       : [queryScene, mockSetScene],
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated }),
+  useAuthContext: () => ({
+    isAuthenticated,
+    isLoading: false,
+    user: isAuthenticated ? { id: '42' } : null,
+  }),
 }))
 vi.mock('@/lib/hooks/common/useFollow', () => ({
   useBatchFollowStatus: (entityType: string, ids: number[]) =>
@@ -115,6 +137,36 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 vi.mock('../hooks', () => ({
+  usePersonalChartsStats: (_userId: string | undefined, enabled: boolean) => {
+    if (!enabled) {
+      return {
+        data: undefined,
+        isLoading: false,
+        isError: false,
+        isSuccess: false,
+        isFetching: false,
+      }
+    }
+    if (personalStatsLoading) {
+      return {
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        isSuccess: false,
+        isFetching: true,
+      }
+    }
+    if (personalStatsError) {
+      return {
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isSuccess: false,
+        isFetching: false,
+      }
+    }
+    return query(personalStats)
+  },
   useChartScenes: (window: string) => {
     mockScopedHook('scenes', window)
     if (sceneListLoading) {
@@ -268,6 +320,19 @@ describe('ChartsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthenticated = true
+    personalStatsLoading = false
+    personalStatsError = false
+    personalStats = {
+      saved_shows: 12,
+      artists_followed: 34,
+      top_venue: {
+        venue_id: 9,
+        name: 'The Rebel Lounge',
+        slug: 'the-rebel-lounge',
+        saved_show_count: 5,
+      },
+      first_activity_at: '2026-03-12T00:00:00Z',
+    }
     queryWindow = 'quarter'
     queryScene = null
     sceneListLoading = false
@@ -335,6 +400,82 @@ describe('ChartsPage', () => {
     expect(
       screen.getByRole('button', { name: 'save-release-5' })
     ).toBeInTheDocument()
+  })
+
+  it('renders the logged-in personal stats strip without the deferred year link', () => {
+    render(<ChartsPage />)
+
+    const strip = screen.getByRole('region', { name: 'Your chart stats' })
+    expect(strip).toHaveTextContent('YOU')
+    expect(strip).toHaveTextContent('12 shows marked')
+    expect(strip).toHaveTextContent('34 artists followed')
+    expect(strip).toHaveTextContent('top venue: The Rebel Lounge (5)')
+    expect(strip).toHaveTextContent('first logged: Mar 2026')
+    expect(screen.queryByText(/Your year in shows/i)).not.toBeInTheDocument()
+  })
+
+  it('renders no personal-stats trace for an anonymous visitor', () => {
+    isAuthenticated = false
+    render(<ChartsPage />)
+
+    expect(
+      screen.queryByRole('region', { name: 'Your chart stats' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('YOU')).not.toBeInTheDocument()
+  })
+
+  it('renders a labeled personal-stats skeleton while the request loads', () => {
+    personalStatsLoading = true
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('region', { name: 'Your chart stats' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Loading your chart stats')
+    ).toBeInTheDocument()
+  })
+
+  it('renders no personal-stats trace when the optional request fails', () => {
+    personalStatsError = true
+    render(<ChartsPage />)
+
+    expect(
+      screen.queryByRole('region', { name: 'Your chart stats' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('YOU')).not.toBeInTheDocument()
+  })
+
+  it('replaces zero-history stats with the actionable nudge', () => {
+    personalStats = {
+      saved_shows: 0,
+      artists_followed: 0,
+      top_venue: null,
+      first_activity_at: null,
+    }
+    render(<ChartsPage />)
+
+    const strip = screen.getByRole('region', { name: 'Your chart stats' })
+    expect(strip).toHaveTextContent(
+      "Mark shows you're going to and this fills in"
+    )
+    expect(strip).not.toHaveTextContent('0 shows marked')
+  })
+
+  it('shows first activity when history exists outside the counted facts', () => {
+    personalStats = {
+      saved_shows: 0,
+      artists_followed: 0,
+      top_venue: null,
+      first_activity_at: '2026-03-12T00:00:00Z',
+    }
+    render(<ChartsPage />)
+
+    const strip = screen.getByRole('region', { name: 'Your chart stats' })
+    expect(strip).toHaveTextContent('0 shows marked')
+    expect(strip).toHaveTextContent('0 artists followed')
+    expect(strip).toHaveTextContent('first logged: Mar 2026')
+    expect(strip).not.toHaveTextContent("Mark shows you're going to")
   })
 
   it('keeps the default quarter out of the URL and writes explicit alternate windows', async () => {

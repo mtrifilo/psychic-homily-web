@@ -165,6 +165,9 @@ export const useFollow = () => {
         queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
+      // Reconcile broad first_activity_at semantics without making the core
+      // follow mutation wait on an optional /charts/me request.
+      void invalidateQueries.personalCharts()
     },
   })
 }
@@ -258,6 +261,7 @@ export const useUnfollow = () => {
         queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
       })
       invalidateQueries.follows()
+      void invalidateQueries.personalCharts()
     },
   })
 }

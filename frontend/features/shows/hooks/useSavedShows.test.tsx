@@ -6,6 +6,7 @@ import { createWrapper } from '@/test/utils'
 // Create mocks
 const mockApiRequest = vi.fn()
 const mockInvalidateSavedShows = vi.fn()
+const mockInvalidatePersonalCharts = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -79,6 +80,7 @@ vi.mock('@/lib/queryClient', () => ({
   },
   createInvalidateQueries: () => ({
     savedShows: mockInvalidateSavedShows,
+    personalCharts: mockInvalidatePersonalCharts,
   }),
 }))
 
@@ -338,6 +340,7 @@ describe('useSaveShow', () => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
     mockInvalidateSavedShows.mockReset()
+    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('saves a show with correct endpoint', async () => {
@@ -378,6 +381,7 @@ describe('useSaveShow', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(mockInvalidateSavedShows).toHaveBeenCalled()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 
   it('handles save errors', async () => {
@@ -396,6 +400,7 @@ describe('useSaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 })
 
@@ -404,6 +409,7 @@ describe('useUnsaveShow', () => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
     mockInvalidateSavedShows.mockReset()
+    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('unsaves a show with correct endpoint', async () => {
@@ -443,6 +449,7 @@ describe('useUnsaveShow', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(mockInvalidateSavedShows).toHaveBeenCalled()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 
   it('handles unsave errors', async () => {
@@ -461,6 +468,7 @@ describe('useUnsaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 })
 

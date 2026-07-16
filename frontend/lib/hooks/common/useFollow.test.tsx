@@ -5,6 +5,7 @@ import { createWrapper, createWrapperWithClient } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 const mockInvalidateFollows = vi.fn()
+const mockInvalidatePersonalCharts = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
@@ -49,6 +50,7 @@ vi.mock('@/lib/queryClient', () => ({
   },
   createInvalidateQueries: () => ({
     follows: mockInvalidateFollows,
+    personalCharts: mockInvalidatePersonalCharts,
   }),
 }))
 
@@ -169,6 +171,7 @@ describe('useFollow', () => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
     mockInvalidateFollows.mockReset()
+    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('follows an entity with POST', async () => {
@@ -188,6 +191,35 @@ describe('useFollow', () => {
       '/artists/1/follow',
       expect.objectContaining({ method: 'POST' })
     )
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+  })
+
+  it('refreshes first activity after following a non-artist', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
+
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ entityType: 'venues', entityId: 1 })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+  })
+
+  it('does not hold a successful follow open on personal-stats refresh', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
+    mockInvalidatePersonalCharts.mockReturnValueOnce(new Promise(() => {}))
+
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapper(),
+    })
+
+    await expect(
+      result.current.mutateAsync({ entityType: 'artists', entityId: 1 })
+    ).resolves.toEqual({ success: true, message: 'Followed' })
   })
 
   it('performs optimistic update on follow', async () => {
@@ -308,6 +340,7 @@ describe('useUnfollow', () => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
     mockInvalidateFollows.mockReset()
+    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('unfollows an entity with DELETE', async () => {
@@ -330,6 +363,25 @@ describe('useUnfollow', () => {
       '/artists/1/follow',
       expect.objectContaining({ method: 'DELETE' })
     )
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+  })
+
+  it('refreshes first activity after unfollowing a non-artist', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      success: true,
+      message: 'Unfollowed',
+    })
+
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ entityType: 'venues', entityId: 1 })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 
   it('performs optimistic update on unfollow', async () => {
@@ -446,6 +498,7 @@ describe('useUnfollow', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeDefined()
+    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
   })
 })
 

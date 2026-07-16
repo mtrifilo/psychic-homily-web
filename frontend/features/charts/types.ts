@@ -16,6 +16,20 @@ export interface ChartScenesResponse {
   scenes: ChartScene[]
 }
 
+export interface PersonalTopVenue {
+  venue_id: number
+  name: string
+  slug: string
+  saved_show_count: number
+}
+
+export interface PersonalChartsStats {
+  saved_shows: number
+  artists_followed: number
+  top_venue: PersonalTopVenue | null
+  first_activity_at: string | null
+}
+
 export interface ChartEntityReference {
   id: number
   name: string

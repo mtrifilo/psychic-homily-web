@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
+import { createInvalidateQueries } from '@/lib/queryClient'
 import { releaseEndpoints, releaseQueryKeys } from '../api'
 import type {
   BatchReleaseSaveCountsResponse,
@@ -80,6 +81,7 @@ export function useReleaseSaveToggle(
   userId?: string | number
 ) {
   const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
   const save = useMutation({
     mutationFn: () =>
       apiRequest<ReleaseSaveResponse>(releaseEndpoints.SAVE(releaseId), {
@@ -148,6 +150,10 @@ export function useReleaseSaveToggle(
       }
       throw error
     } finally {
+      // Release bookmarks contribute to first_activity_at even when a lost
+      // mutation response makes the outcome ambiguous. Keep this optional
+      // reconciliation out of the core toggle's awaited invalidations.
+      void invalidateQueries.personalCharts()
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['releases', 'saved'] }),
         queryClient.invalidateQueries({ queryKey: singleKey }),

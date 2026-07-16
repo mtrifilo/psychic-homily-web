@@ -45,6 +45,7 @@ import {
   type FreshlyAddedItem,
 } from '../types'
 import { ChartModule, ChartRow } from './ChartModule'
+import { PersonalStatsStrip } from './PersonalStatsStrip'
 
 const chartWindowParser =
   parseAsStringLiteral(CHART_WINDOWS).withDefault('quarter')
@@ -486,6 +487,8 @@ export function ChartsPage() {
           isLoading={summary.isLoading || !sceneResolved}
         />
       )}
+
+      <PersonalStatsStrip />
 
       <div
         hidden={sceneValidationFailed}

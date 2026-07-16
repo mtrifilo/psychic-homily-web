@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
+
+function createDeferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  const promise = new Promise<T>(res => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
 
 describe('queryClient module', () => {
   beforeEach(() => {
@@ -174,6 +182,50 @@ describe('queryClient module', () => {
       expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
         queryKey: ['savedShows'],
       })
+    })
+
+    it('creates an invalidate helper for personal charts', async () => {
+      const { createInvalidateQueries } = await import('./queryClient')
+      const mockQueryClient = {
+        cancelQueries: vi.fn(),
+        invalidateQueries: vi.fn(),
+      } as unknown as QueryClient
+
+      const helpers = createInvalidateQueries(mockQueryClient)
+      await helpers.personalCharts()
+
+      expect(mockQueryClient.cancelQueries).toHaveBeenCalledWith({
+        queryKey: ['charts', 'personal'],
+      })
+      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['charts', 'personal'],
+      })
+    })
+
+    it('restarts a pending personal fetch before stale data can land', async () => {
+      const { createInvalidateQueries } = await import('./queryClient')
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      const queryKey = ['charts', 'personal', '42'] as const
+      const firstResponse = createDeferred<{ saved_shows: number }>()
+      const queryFn = vi
+        .fn<() => Promise<{ saved_shows: number }>>()
+        .mockImplementationOnce(() => firstResponse.promise)
+        .mockResolvedValue({ saved_shows: 1 })
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn })
+      const unsubscribe = observer.subscribe(() => {})
+
+      await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
+      await createInvalidateQueries(queryClient).personalCharts()
+
+      expect(queryFn).toHaveBeenCalledTimes(2)
+      expect(queryClient.getQueryData(queryKey)).toEqual({ saved_shows: 1 })
+
+      firstResponse.resolve({ saved_shows: 0 })
+      await Promise.resolve()
+      expect(queryClient.getQueryData(queryKey)).toEqual({ saved_shows: 1 })
+      unsubscribe()
     })
 
     it('creates invalidate helpers for mySubmissions', async () => {

@@ -628,6 +628,18 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate follow queries
   follows: () => queryClient.invalidateQueries({ queryKey: ['follows'] }),
 
+  // Invalidate the authenticated user's /charts summary after a contributing
+  // save/follow mutation. Public chart modules use sibling keys and stay cached.
+  personalCharts: async () => {
+    // A plain invalidation cannot restart an active query whose initial fetch
+    // is still pending. Cancel first so a mutation cannot be overwritten by a
+    // pre-mutation /charts/me snapshot that resolves afterward.
+    await queryClient.cancelQueries({ queryKey: chartQueryKeys.personalRoot })
+    return queryClient.invalidateQueries({
+      queryKey: chartQueryKeys.personalRoot,
+    })
+  },
+
   // Invalidate scene queries
   scenes: () => queryClient.invalidateQueries({ queryKey: ['scenes'] }),
 

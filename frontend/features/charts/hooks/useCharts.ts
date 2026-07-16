@@ -14,6 +14,7 @@ import type {
   NewReleasesResponse,
   OnTheRadioResponse,
   OpenersToWatchResponse,
+  PersonalChartsStats,
 } from '../types'
 
 function withParams(
@@ -169,5 +170,19 @@ export function useChartScenes(window: ChartWindow) {
         withParams(chartEndpoints.SCENES, { window }),
         { method: 'GET' }
       ),
+  })
+}
+
+export function usePersonalChartsStats(
+  userId?: string | number,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: chartQueryKeys.personal(userId),
+    queryFn: () =>
+      apiRequest<PersonalChartsStats>(chartEndpoints.PERSONAL, {
+        method: 'GET',
+      }),
+    enabled: enabled && userId != null,
   })
 }
