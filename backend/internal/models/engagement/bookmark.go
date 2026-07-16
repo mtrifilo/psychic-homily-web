@@ -46,9 +46,10 @@ type UserBookmark struct {
 	Action         BookmarkAction     `gorm:"not null;column:action"`
 	CreatedAt      time.Time          `gorm:"not null;column:created_at"`
 	ReminderSentAt *time.Time         `gorm:"column:reminder_sent_at"`
-	// Settings holds follow-scoped preferences (PSY-1341). First key:
-	// "scene_notify_mode" — "all" (default when absent) or
-	// "followed_bands_only" for scene follows' new-show notifications.
+	// Settings holds follow-scoped preferences (PSY-1341, +off in PSY-1466).
+	// First key: "scene_notify_mode" — "all" (default when absent),
+	// "followed_bands_only", or "off" for scene follows' new-show
+	// notifications. Does not affect the separate weekly scene digest opt-in.
 	Settings *json.RawMessage `gorm:"type:jsonb;column:settings"`
 	// SceneDigestSentAt is the per-scene-follow weekly-digest cursor (PSY-1342):
 	// the digest job includes new bands with created_at after this. NULL until

@@ -103,6 +103,16 @@ func TestFollowService_InvalidEntityType(t *testing.T) {
 	})
 }
 
+// PSY-1466: an unrecognized scene notify mode is rejected before any DB
+// access ("off" acceptance is covered by the integration round-trip below).
+func TestFollowService_SetSceneNotifyMode_InvalidMode(t *testing.T) {
+	svc := &FollowService{db: &gorm.DB{}}
+
+	err := svc.SetSceneNotifyMode(1, 1, "muted")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid notify mode")
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -255,6 +265,13 @@ func (suite *FollowServiceIntegrationTestSuite) createTestRadioShowTZ(
 		suite.Require().NoError(suite.db.Create(ep).Error)
 	}
 	return show.ID
+}
+
+func (suite *FollowServiceIntegrationTestSuite) createTestScene(city, state, slug string) uint {
+	scene := &catalogm.Scene{City: city, State: state, Slug: slug}
+	err := suite.db.Create(scene).Error
+	suite.Require().NoError(err)
+	return scene.ID
 }
 
 func (suite *FollowServiceIntegrationTestSuite) createTestFestival(name string) uint {
@@ -695,6 +712,72 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowing_Alphabet
 	suite.NotEqual([]string{"aardvark", "Alpha", "Beta", "zebra"}, []string{
 		legacy[0].Name, legacy[1].Name, legacy[2].Name, legacy[3].Name,
 	})
+}
+
+// =============================================================================
+// Group 6b: Scene follow notify mode (PSY-1341, +off in PSY-1466)
+// =============================================================================
+
+func (suite *FollowServiceIntegrationTestSuite) TestSceneNotifyMode_DefaultsToAllWhenUnset() {
+	user := suite.createTestUser()
+	sceneID := suite.createTestScene("Phoenix", "AZ", "phoenix-az")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "scene", sceneID))
+
+	mode, err := suite.followService.SceneNotifyMode(user.ID, sceneID)
+	suite.Require().NoError(err)
+	suite.Equal(SceneNotifyModeAll, mode)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestSceneNotifyMode_NoFollowDefaultsToAll() {
+	user := suite.createTestUser()
+	sceneID := suite.createTestScene("Tucson", "AZ", "tucson-az")
+
+	mode, err := suite.followService.SceneNotifyMode(user.ID, sceneID)
+	suite.Require().NoError(err)
+	suite.Equal(SceneNotifyModeAll, mode)
+}
+
+// PSY-1466 AC: "off" round-trips through Set/Get.
+func (suite *FollowServiceIntegrationTestSuite) TestSceneNotifyMode_OffRoundTrips() {
+	user := suite.createTestUser()
+	sceneID := suite.createTestScene("Flagstaff", "AZ", "flagstaff-az")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "scene", sceneID))
+
+	suite.Require().NoError(suite.followService.SetSceneNotifyMode(user.ID, sceneID, SceneNotifyModeOff))
+
+	mode, err := suite.followService.SceneNotifyMode(user.ID, sceneID)
+	suite.Require().NoError(err)
+	suite.Equal(SceneNotifyModeOff, mode)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestSceneNotifyMode_SwitchingBetweenAllModes() {
+	user := suite.createTestUser()
+	sceneID := suite.createTestScene("Tempe", "AZ", "tempe-az")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "scene", sceneID))
+
+	for _, mode := range []string{SceneNotifyModeFollowedBands, SceneNotifyModeOff, SceneNotifyModeAll} {
+		suite.Require().NoError(suite.followService.SetSceneNotifyMode(user.ID, sceneID, mode))
+		got, err := suite.followService.SceneNotifyMode(user.ID, sceneID)
+		suite.Require().NoError(err)
+		suite.Equal(mode, got)
+	}
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestSetSceneNotifyMode_InvalidModeRejected() {
+	user := suite.createTestUser()
+	sceneID := suite.createTestScene("Mesa", "AZ", "mesa-az")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "scene", sceneID))
+
+	err := suite.followService.SetSceneNotifyMode(user.ID, sceneID, "muted")
+	suite.Error(err)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestSetSceneNotifyMode_NoFollowIsError() {
+	user := suite.createTestUser()
+	sceneID := suite.createTestScene("Yuma", "AZ", "yuma-az")
+
+	err := suite.followService.SetSceneNotifyMode(user.ID, sceneID, SceneNotifyModeOff)
+	suite.Error(err)
 }
 
 // =============================================================================

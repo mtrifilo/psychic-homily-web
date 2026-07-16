@@ -168,6 +168,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneNotifyMode_RoundTrip() {
 	suite.Require().NoError(err)
 	suite.Equal(engagement.SceneNotifyModeFollowedBands, mode)
 
+	// PSY-1466: "off" round-trips the same as the other two modes.
+	suite.Require().NoError(follows.SetSceneNotifyMode(user.ID, sceneID, engagement.SceneNotifyModeOff))
+	mode, err = follows.SceneNotifyMode(user.ID, sceneID)
+	suite.Require().NoError(err)
+	suite.Equal(engagement.SceneNotifyModeOff, mode)
+
 	// Invalid mode rejected.
 	suite.Error(follows.SetSceneNotifyMode(user.ID, sceneID, "hourly"))
 }

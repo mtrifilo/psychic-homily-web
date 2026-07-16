@@ -9,21 +9,20 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
+	"psychic-homily-backend/internal/services/engagement"
 )
 
-// Scene-follow new-show notifications (PSY-1341, from the PSY-1314 spike).
-// Runs inside MatchAndNotify AFTER the filter pass, so both admin approval
-// call sites get it and the cross-system dedup below can defer to filter
-// notifications already logged for the same show.
+// Scene-follow new-show notifications (PSY-1341, from the PSY-1314 spike;
+// +off mode in PSY-1466). Runs inside MatchAndNotify AFTER the filter pass,
+// so both admin approval call sites get it and the cross-system dedup below
+// can defer to filter notifications already logged for the same show.
 //
 // Deliberately NOT modeled as auto-managed notification_filters rows: a
 // filter's artist_ids is a static snapshot, and the "followed bands only"
 // mode must track the user's LIVE artist follows.
-
-const (
-	sceneNotifyModeAll           = "all"
-	sceneNotifyModeFollowedBands = "followed_bands_only"
-)
+//
+// Mode constants are shared from the engagement package (the single owner
+// of scene_notify_mode's accepted values) rather than duplicated here.
 
 // sceneFollower is one scene follow joined with its notify mode.
 type sceneFollower struct {
@@ -50,11 +49,15 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 	// Group per user: a show can map to multiple followed scene rows (multi-
 	// venue shows, scope-drift duplicates), and the user qualifies if ANY of
 	// their follows does — an explicit "all" subscription on one scene must
-	// not be vetoed by a stricter mode on another (review-caught: iteration
-	// order was deciding).
+	// not be vetoed by a stricter (or off) mode on another (review-caught:
+	// iteration order was deciding). "off" contributes to NEITHER bucket, so
+	// a scene followed with "off" can never veto a qualifying follow on
+	// another scene; a user whose EVERY matching follow is "off" gets no
+	// notification at all (checked below).
 	type userAgg struct {
-		anyAll   bool
-		city, st string
+		anyAll               bool
+		anyFollowedBandsOnly bool
+		city, st             string
 	}
 	byUser := make(map[uint]*userAgg, len(followers))
 	for _, f := range followers {
@@ -63,7 +66,18 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			agg = &userAgg{city: f.SceneCity, st: f.SceneSt}
 			byUser[f.UserID] = agg
 		}
-		if f.Mode == nil || *f.Mode != sceneNotifyModeFollowedBands {
+		mode := engagement.SceneNotifyModeAll
+		if f.Mode != nil {
+			mode = *f.Mode
+		}
+		switch mode {
+		case engagement.SceneNotifyModeOff:
+			// Contributes nothing — must not veto another qualifying follow.
+		case engagement.SceneNotifyModeFollowedBands:
+			agg.anyFollowedBandsOnly = true
+		default:
+			// "all" and any unrecognized/legacy value default to "all"
+			// (matches FollowService.SceneNotifyMode's read-side default).
 			agg.anyAll = true
 		}
 	}
@@ -82,6 +96,11 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			continue
 		}
 		if !agg.anyAll {
+			if !agg.anyFollowedBandsOnly {
+				// Every matching follow for this user is "off" — no
+				// qualifying subscription, regardless of artist follows.
+				continue
+			}
 			ok, err := s.userFollowsAnyArtist(f.UserID, showArtistIDs)
 			if err != nil {
 				log.Printf("scene-follow notify: artist intersection for user %d: %v", f.UserID, err)

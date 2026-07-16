@@ -76,6 +76,62 @@ func (s *NotificationFilterSuite) TestSceneFollow_DefaultModeNotifiesAllShows() 
 	s.Equal(int64(1), s.sceneLogCount(userID, showID))
 }
 
+// PSY-1466: "off" must suppress the immediate new-show notification entirely
+// — no dedup log row, no email — regardless of the show's artists.
+func (s *NotificationFilterSuite) TestSceneFollow_OffModeSuppressesNotification() {
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "off")
+
+	artistID := s.createTestArtist("Muted Band")
+	s.followArtist(userID, artistID) // even a followed-band match must not override "off"
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Muted Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(0), s.sceneLogCount(userID, showID))
+}
+
+// PSY-1466: a show mapping to two scenes the user follows — one "off", one
+// qualifying ("all") — must still produce exactly one notification. The "off"
+// row must not veto the qualifying row regardless of iteration order.
+func (s *NotificationFilterSuite) TestSceneFollow_OffFollowDoesNotVetoAnotherQualifyingFollow() {
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "off") // phoenix-az
+
+	var tucsonID uint
+	s.Require().NoError(s.db.Raw(`
+		INSERT INTO scenes (metro, city, state, slug)
+		VALUES (NULL, 'Tucson', 'AZ', 'tucson-az') RETURNING id`).Scan(&tucsonID).Error)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'scene', ?, 'follow', now())`, userID, tucsonID).Error)
+
+	artistID := s.createTestArtist("Two City Band")
+	phxVenue := s.createTestVenue("The Rebel Lounge")
+	tucsonVenue := catalogm.Venue{Name: "Club Congress", City: "Tucson", State: "AZ"}
+	s.Require().NoError(s.db.Create(&tucsonVenue).Error)
+
+	showID := s.createTestShow("Off Plus All Show", []uint{artistID}, []uint{phxVenue, tucsonVenue.ID})
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+}
+
+// PSY-1466: when EVERY matching follow for a user is "off", the followed-
+// bands gate must not be consulted at all — an artist match on an "off"
+// scene follow must not accidentally qualify the user.
+func (s *NotificationFilterSuite) TestSceneFollow_AllOffFollowsNeverNotify() {
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "off")
+
+	artistID := s.createTestArtist("Off Only Band")
+	s.followArtist(userID, artistID)
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Off Only Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(0), s.sceneLogCount(userID, showID))
+}
+
 func (s *NotificationFilterSuite) TestSceneFollow_FollowedBandsOnlyGate() {
 	fan := s.createTestUser()     // follows the artist → notified
 	tourist := s.createTestUser() // follows only the scene → gated out

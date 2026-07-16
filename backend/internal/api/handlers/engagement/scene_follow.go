@@ -48,9 +48,12 @@ type SceneFollowRequest struct {
 	Body *SceneFollowBody `required:"false"`
 }
 
-// SceneFollowBody is the optional POST /scenes/{slug}/follow body (PSY-1341).
+// SceneFollowBody is the optional POST /scenes/{slug}/follow body (PSY-1341,
+// +off in PSY-1466). "off" mutes immediate new-show notifications for this
+// scene follow only — it does not touch the separate weekly scene digest
+// opt-in.
 type SceneFollowBody struct {
-	NotifyMode string `json:"notify_mode,omitempty" enum:"all,followed_bands_only" doc:"New-show notification mode (default all)"`
+	NotifyMode string `json:"notify_mode,omitempty" enum:"all,followed_bands_only,off" doc:"New-show notification mode (default all)"`
 }
 
 // SceneUnfollowRequest is the request for DELETE /scenes/{slug}/follow.
