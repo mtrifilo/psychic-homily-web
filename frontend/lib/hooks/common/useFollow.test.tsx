@@ -4,7 +4,6 @@ import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
-const mockInvalidateFollows = vi.fn()
 const mockInvalidatePersonalCharts = vi.fn()
 
 vi.mock('@/lib/api', () => ({
@@ -64,7 +63,6 @@ vi.mock('@/lib/queryClient', () => ({
     },
   },
   createInvalidateQueries: () => ({
-    follows: mockInvalidateFollows,
     personalCharts: mockInvalidatePersonalCharts,
   }),
 }))
@@ -187,7 +185,6 @@ describe('useFollow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateFollows.mockReset()
     mockInvalidatePersonalCharts.mockReset()
   })
 
@@ -264,6 +261,23 @@ describe('useFollow', () => {
       labels: 0,
       festivals: 0,
     })
+    const allFollowingKey = [
+      'follows',
+      'my-following',
+      { type: 'all', scope: 'all', userId: 1 },
+    ]
+    queryClient.setQueryData(allFollowingKey, { following: [], total: 0 })
+    const libraryFollowingKey = [
+      'follows',
+      'library',
+      'following',
+      1,
+      'artist',
+    ]
+    queryClient.setQueryData(libraryFollowingKey, {
+      pages: [{ following: [] }],
+      pageParams: [undefined],
+    })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const { result } = renderHook(() => useFollow(), {
@@ -289,6 +303,11 @@ describe('useFollow', () => {
     expect(
       queryClient.getQueryData<{ artists: number }>(countsKey)?.artists
     ).toBe(5)
+    expect(queryClient.getQueryState(countsKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(allFollowingKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(libraryFollowingKey)?.isInvalidated).toBe(
+      true
+    )
   })
 
   it('does not increment counts for an idempotent duplicate follow', async () => {
@@ -407,7 +426,6 @@ describe('useUnfollow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateFollows.mockReset()
     mockInvalidatePersonalCharts.mockReset()
   })
 
@@ -509,6 +527,17 @@ describe('useUnfollow', () => {
       limit: 1,
       offset: 0,
     })
+    const libraryFollowingKey = [
+      'follows',
+      'library',
+      'following',
+      1,
+      'artist',
+    ]
+    queryClient.setQueryData(libraryFollowingKey, {
+      pages: [{ following: [] }],
+      pageParams: [undefined],
+    })
 
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
@@ -547,6 +576,9 @@ describe('useUnfollow', () => {
         ?.following.map(entity => entity.name)
     ).toEqual(['Keep me'])
     expect(queryClient.getQueryState(allFollowingKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(libraryFollowingKey)?.isInvalidated).toBe(
+      true
+    )
     expect(
       queryClient
         .getQueryData<{
@@ -554,6 +586,9 @@ describe('useUnfollow', () => {
         }>(otherUserFollowingKey)
         ?.following.map(entity => entity.name)
     ).toEqual(['Other user artist'])
+    expect(queryClient.getQueryState(otherUserFollowingKey)?.isInvalidated).toBe(
+      false
+    )
   })
 
   it('does not decrement counts for an idempotent duplicate unfollow', async () => {
