@@ -1,13 +1,10 @@
 import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
+import { API_BASE_URL } from '@/lib/api-base'
+import { createBuildTimeApiSignal } from '@/lib/build-time-api'
 
 const BASE_URL = 'https://psychichomily.com'
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
 
 interface ShowResponse {
   slug?: string
@@ -28,6 +25,7 @@ async function fetchShows(): Promise<ShowResponse[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/shows`, {
       next: { revalidate: 3600 },
+      signal: createBuildTimeApiSignal(),
     })
     if (res.ok) {
       return res.json()
@@ -49,6 +47,7 @@ async function fetchVenues(): Promise<{ venues: VenueResponse[] }> {
   try {
     const res = await fetch(`${API_BASE_URL}/venues`, {
       next: { revalidate: 3600 },
+      signal: createBuildTimeApiSignal(),
     })
     if (res.ok) {
       return res.json()
@@ -70,6 +69,7 @@ async function fetchArtists(): Promise<{ artists: ArtistResponse[] }> {
   try {
     const res = await fetch(`${API_BASE_URL}/artists`, {
       next: { revalidate: 3600 },
+      signal: createBuildTimeApiSignal(),
     })
     if (res.ok) {
       return res.json()
