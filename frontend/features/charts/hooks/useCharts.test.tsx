@@ -41,6 +41,22 @@ describe('chart hooks', () => {
     )
   })
 
+  it('includes the drill-down offset in the request and cache key', async () => {
+    mockApiRequest.mockResolvedValueOnce({ artists: [] })
+    const { result } = renderHook(
+      () => useMostActiveArtists('quarter', 50, { offset: 100 }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /\/charts\/most-active-artists\?window=quarter&limit=50&offset=100$/
+      ),
+      { method: 'GET' }
+    )
+  })
+
   it('keeps most anticipated independent of the historical window', async () => {
     mockApiRequest.mockResolvedValueOnce({
       mode: 'soonest_upcoming',

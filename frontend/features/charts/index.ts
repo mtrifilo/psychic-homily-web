@@ -41,4 +41,10 @@ export {
 } from './hooks'
 
 // Components
-export { ChartsPage } from './components'
+export { ChartsPage, ChartDrilldownPage } from './components'
+export {
+  CHART_MODULE_CONFIG,
+  CHART_MODULE_SLUGS,
+  isChartModuleSlug,
+} from './moduleConfig'
+export type { ChartModuleSlug } from './moduleConfig'

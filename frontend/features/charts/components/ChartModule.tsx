@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
 export function ChartModule({
@@ -10,6 +11,7 @@ export function ChartModule({
   hasData,
   testId,
   children,
+  fullListHref,
 }: {
   title: string
   context: string
@@ -19,6 +21,7 @@ export function ChartModule({
   hasData: boolean
   testId: string
   children: ReactNode
+  fullListHref?: string
 }) {
   if (!isLoading && rowCount === 0 && (!isError || hasData)) return null
 
@@ -31,13 +34,14 @@ export function ChartModule({
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {context}
         </span>
-        <span
-          aria-disabled="true"
-          title="Full lists arrive in PSY-1410"
-          className="hidden shrink-0 text-[10px] text-primary sm:inline"
-        >
-          full list →
-        </span>
+        {fullListHref ? (
+          <Link
+            href={fullListHref}
+            className="shrink-0 text-[10px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            full list →
+          </Link>
+        ) : null}
       </header>
       {isLoading ? (
         <div aria-label={`Loading ${title}`} role="status">

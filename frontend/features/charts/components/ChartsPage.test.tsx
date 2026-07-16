@@ -541,6 +541,22 @@ describe('ChartsPage', () => {
     for (const call of moduleCalls) {
       expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
     }
+    const fullListLinks = screen.getAllByRole('link', { name: 'full list →' })
+    expect(fullListLinks).toHaveLength(6)
+    for (const link of fullListLinks) {
+      expect(link.getAttribute('href')).toContain('scene=38060')
+    }
+  })
+
+  it('carries a non-default window into every full-list link', () => {
+    queryWindow = 'month'
+    render(<ChartsPage />)
+
+    const fullListLinks = screen.getAllByRole('link', { name: 'full list →' })
+    expect(fullListLinks).toHaveLength(6)
+    for (const link of fullListLinks) {
+      expect(link.getAttribute('href')).toContain('window=month')
+    }
   })
 
   it('clears an unknown URL scene and renders global charts', () => {

@@ -101,6 +101,14 @@ function entityHref(route: string, slug: string, id: number): string {
   return `/${route}/${slug || id}`
 }
 
+function fullListHref(module: string, window: ChartWindow, scene: string) {
+  const search = new URLSearchParams()
+  if (window !== 'quarter') search.set('window', window)
+  if (scene) search.set('scene', scene)
+  const query = search.toString()
+  return `/charts/${module}${query ? `?${query}` : ''}`
+}
+
 function EntityReferenceList({
   references,
   route,
@@ -502,6 +510,11 @@ export function ChartsPage() {
           isError={active.isError}
           hasData={active.data !== undefined}
           testId="chart-most-active-artists"
+          fullListHref={fullListHref(
+            'most-active-artists',
+            window,
+            effectiveScene
+          )}
         >
           {(active.data?.artists ?? []).map(artist => (
             <ChartRow
@@ -544,6 +557,7 @@ export function ChartsPage() {
           isError={radio.isError}
           hasData={radio.data !== undefined}
           testId="chart-on-the-radio"
+          fullListHref={fullListHref('on-the-radio', window, effectiveScene)}
         >
           {(radio.data?.artists ?? []).map(artist => (
             <ChartRow
@@ -593,6 +607,11 @@ export function ChartsPage() {
           isError={anticipated.isError}
           hasData={anticipated.data !== undefined}
           testId="chart-most-anticipated"
+          fullListHref={fullListHref(
+            'most-anticipated',
+            window,
+            effectiveScene
+          )}
         >
           {(anticipated.data?.shows ?? []).map((show, index) => (
             <ChartRow
@@ -657,6 +676,7 @@ export function ChartsPage() {
           isError={venues.isError}
           hasData={venues.data !== undefined}
           testId="chart-busiest-venues"
+          fullListHref={fullListHref('busiest-venues', window, effectiveScene)}
         >
           {(venues.data?.venues ?? []).map(venue => (
             <ChartRow
@@ -705,6 +725,7 @@ export function ChartsPage() {
           isError={releases.isError}
           hasData={releases.data !== undefined}
           testId="chart-new-releases"
+          fullListHref={fullListHref('new-releases', window, effectiveScene)}
         >
           {(releases.data?.releases ?? []).map(release => {
             const meta: ReactNode = (
@@ -776,6 +797,11 @@ export function ChartsPage() {
           isError={openers.isError}
           hasData={openers.data !== undefined}
           testId="chart-openers-to-watch"
+          fullListHref={fullListHref(
+            'openers-to-watch',
+            window,
+            effectiveScene
+          )}
         >
           {(openers.data?.artists ?? []).map(artist => (
             <ChartRow
