@@ -1931,10 +1931,10 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 // composite-PK join-table conventions — aggregate queries, no counters).
 // Saved shows and the top venue count save rows uniformly, with no
 // status/cancellation gate: this is the user's own private list, and the
-// count matches the saved-shows page's total (both count bookmark rows —
-// including a dangling row whose show was since hard-deleted, which counts
-// in both places). First activity is the MIN(created_at) across ALL the
-// user's bookmark rows (any entity type or action) — the day they first
+// count matches the saved-shows page's total (both count bookmark rows;
+// DeleteShow removes those rows transactionally). First activity is the
+// MIN(created_at) across ALL the user's bookmark rows (any entity type or
+// action) — the day they first
 // engaged, not just their first show save.
 //
 // The top venue attributes each saved show to its primary venue — the

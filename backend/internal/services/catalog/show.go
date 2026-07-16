@@ -20,6 +20,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
@@ -1186,6 +1187,17 @@ func (s *ShowService) DeleteShow(showID uint) error {
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Polymorphic bookmarks have no FK to shows. Remove every action for
+		// this entity inside the same transaction so saved-show totals cannot
+		// retain a dangling row after deletion.
+		if err := tx.Where(
+			"entity_type = ? AND entity_id = ?",
+			engagementm.BookmarkEntityShow,
+			showID,
+		).Delete(&engagementm.UserBookmark{}).Error; err != nil {
+			return fmt.Errorf("failed to delete show bookmarks: %w", err)
+		}
+
 		// Delete show associations first (cascade will handle this, but being explicit)
 		if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowVenue{}).Error; err != nil {
 			return fmt.Errorf("failed to delete show venues: %w", err)
