@@ -2,13 +2,9 @@ import { Suspense } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { VenueList } from '@/features/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
+import { API_BASE_URL } from '@/lib/api-base'
+import { createBuildTimeApiSignal } from '@/lib/build-time-api'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
 
 export const metadata = {
   title: 'Venues',
@@ -37,6 +33,7 @@ async function getVenues(): Promise<VenueListItem[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/venues?limit=200`, {
       next: { revalidate: 3600 },
+      signal: createBuildTimeApiSignal(),
     })
     if (res.ok) {
       const data: VenuesApiResponse = await res.json()

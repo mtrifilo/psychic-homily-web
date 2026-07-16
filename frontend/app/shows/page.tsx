@@ -2,13 +2,9 @@ import { Suspense } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import { JsonLd } from '@/components/seo/JsonLd'
+import { API_BASE_URL } from '@/lib/api-base'
+import { createBuildTimeApiSignal } from '@/lib/build-time-api'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
 
 export const metadata = {
   title: 'Upcoming Shows',
@@ -39,6 +35,7 @@ async function getUpcomingShows(): Promise<ShowListItem[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/upcoming`, {
       next: { revalidate: 3600 },
+      signal: createBuildTimeApiSignal(),
     })
     if (res.ok) {
       const data: UpcomingShowsApiResponse = await res.json()

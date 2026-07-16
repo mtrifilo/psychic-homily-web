@@ -1,14 +1,8 @@
 import { Suspense } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { ArtistList, ArtistListSkeleton } from '@/features/artists'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import { getArtistsForMetadata, type ArtistListItem } from './artistsMetadata'
 
 export const metadata = {
   title: 'Artists',
@@ -24,42 +18,8 @@ export const metadata = {
   },
 }
 
-interface ArtistListItem {
-  slug: string
-  name: string
-}
-
-interface ArtistsApiResponse {
-  artists: ArtistListItem[]
-}
-
-async function getArtists(): Promise<ArtistListItem[]> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/artists`, {
-      next: { revalidate: 3600 },
-    })
-    if (res.ok) {
-      const data: ArtistsApiResponse = await res.json()
-      return data.artists ?? []
-    }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Artists listing: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'artists-listing' },
-        extra: { status: res.status },
-      })
-    }
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'artists-listing' },
-    })
-  }
-  return []
-}
-
 export default async function ArtistsPage() {
-  const artists = await getArtists()
+  const artists = await getArtistsForMetadata()
 
   const artistsWithSlugs = artists.filter(
     (a): a is ArtistListItem & { slug: string } => !!a.slug
