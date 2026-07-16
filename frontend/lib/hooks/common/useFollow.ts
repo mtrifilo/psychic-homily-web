@@ -59,6 +59,38 @@ const isMyFollowingQueryForType = (
   return type === singularType || type === 'all' || type === undefined
 }
 
+const isEntityFollowQuery = (
+  queryKey: readonly unknown[],
+  entityType: string,
+  entityId: number | string
+) =>
+  queryKey[0] === 'follows' &&
+  queryKey[1] === entityType &&
+  queryKey[3] === entityId
+
+const isBatchFollowQueryForEntity = (
+  queryKey: readonly unknown[],
+  entityType: string,
+  entityId: number | string
+) =>
+  typeof entityId === 'number' &&
+  queryKey[0] === 'follows' &&
+  queryKey[1] === 'batch' &&
+  queryKey[2] === entityType &&
+  queryKey.slice(4).includes(entityId)
+
+const invalidateGlobalFollowCounts = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  entityType: string,
+  entityId: number | string
+) => {
+  queryClient.invalidateQueries({
+    predicate: query =>
+      isEntityFollowQuery(query.queryKey, entityType, entityId) ||
+      isBatchFollowQueryForEntity(query.queryKey, entityType, entityId),
+  })
+}
+
 const getCachedIsFollowing = (
   entityId: number | string,
   entityStatus: FollowStatus | undefined,
@@ -218,7 +250,13 @@ export const useFollow = () => {
         })
       }
 
-      return { previousData, previousBatches, previousLibraryCounts }
+      return {
+        previousData,
+        previousBatches,
+        countKey,
+        didUpdateLibraryCount:
+          Boolean(previousLibraryCounts && countKey) && wasFollowing === false,
+      }
     },
     onError: (_err, { entityType, entityId }, context) => {
       // Rollback on error
@@ -240,24 +278,26 @@ export const useFollow = () => {
           )
         }
       }
-      if (context?.previousLibraryCounts) {
-        queryClient.setQueryData(
+      const countKey = context?.countKey
+      if (countKey && context.didUpdateLibraryCount) {
+        queryClient.setQueryData<LibraryFollowingCounts>(
           queryKeys.follows.libraryCounts(user?.id),
-          context.previousLibraryCounts
+          current =>
+            current
+              ? {
+                  ...current,
+                  [countKey]: Math.max(0, current[countKey] - 1),
+                }
+              : current
         )
       }
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
-      })
+      invalidateGlobalFollowCounts(queryClient, entityType, entityId)
       // Reconcile broad first_activity_at semantics without making the core
       // follow mutation wait on an optional /charts/me request.
       void invalidateQueries.personalCharts()
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.batchPrefix(entityType, user?.id),
-      })
       queryClient.invalidateQueries({
         predicate: query =>
           isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
@@ -306,6 +346,10 @@ export const useUnfollow = () => {
         queryClient.cancelQueries({ queryKey: entityKey }),
         queryClient.cancelQueries({ queryKey: batchPrefix }),
         queryClient.cancelQueries({ queryKey: libraryCountsKey }),
+        queryClient.cancelQueries({
+          predicate: query =>
+            isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
+        }),
       ])
 
       const previousData = queryClient.getQueryData<FollowStatus>(entityKey)
@@ -319,6 +363,23 @@ export const useUnfollow = () => {
           predicate: query =>
             isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
         })
+      const removedFollowingEntries = previousFollowingLists.map(
+        ([key, snapshot]) => {
+          const index =
+            snapshot?.following.findIndex(entity => {
+              if (entity.entity_type !== singularType) return false
+              return typeof entityId === 'number'
+                ? entity.entity_id === entityId
+                : entity.slug === entityId
+            }) ?? -1
+          return [
+            key,
+            index >= 0 && snapshot
+              ? { entity: snapshot.following[index], index }
+              : undefined,
+          ] as const
+        }
+      )
       const wasFollowing = getCachedIsFollowing(
         entityId,
         previousData,
@@ -384,8 +445,10 @@ export const useUnfollow = () => {
       return {
         previousData,
         previousBatches,
-        previousLibraryCounts,
-        previousFollowingLists,
+        countKey,
+        didUpdateLibraryCount:
+          Boolean(previousLibraryCounts && countKey) && wasFollowing === true,
+        removedFollowingEntries,
       }
     },
     onError: (_err, { entityType, entityId }, context) => {
@@ -407,25 +470,45 @@ export const useUnfollow = () => {
           )
         }
       }
-      if (context?.previousLibraryCounts) {
-        queryClient.setQueryData(
+      const countKey = context?.countKey
+      if (countKey && context.didUpdateLibraryCount) {
+        queryClient.setQueryData<LibraryFollowingCounts>(
           queryKeys.follows.libraryCounts(user?.id),
-          context.previousLibraryCounts
+          current =>
+            current
+              ? {
+                  ...current,
+                  [countKey]: current[countKey] + 1,
+                }
+              : current
         )
       }
-      for (const [key, snapshot] of context?.previousFollowingLists ?? []) {
-        queryClient.setQueryData(key, snapshot)
+      for (const [key, removed] of context?.removedFollowingEntries ?? []) {
+        if (!removed) continue
+        queryClient.setQueryData<FollowingListResponse>(key, current => {
+          if (!current) return current
+          const alreadyPresent = current.following.some(entity =>
+            typeof entityId === 'number'
+              ? entity.entity_type === removed.entity.entity_type &&
+                entity.entity_id === entityId
+              : entity.entity_type === removed.entity.entity_type &&
+                entity.slug === entityId
+          )
+          if (alreadyPresent) return current
+          const following = [...current.following]
+          following.splice(
+            Math.min(removed.index, following.length),
+            0,
+            removed.entity
+          )
+          return { ...current, following, total: current.total + 1 }
+        })
       }
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.entity(entityType, entityId, user?.id),
-      })
+      invalidateGlobalFollowCounts(queryClient, entityType, entityId)
       void invalidateQueries.personalCharts()
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.batchPrefix(entityType, user?.id),
-      })
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
       })

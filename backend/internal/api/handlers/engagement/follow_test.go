@@ -656,6 +656,9 @@ func TestGetLibraryFollowingCountsHandler_Success(t *testing.T) {
 	if resp.Body.Artists != 4 || resp.Body.Scenes != 2 {
 		t.Fatalf("unexpected counts: %+v", resp.Body)
 	}
+	if resp.CacheControl != "no-store" {
+		t.Fatalf("expected private counts response to be no-store, got %q", resp.CacheControl)
+	}
 }
 
 func TestGetLibraryFollowingHandlers_NoAuth(t *testing.T) {
@@ -703,6 +706,9 @@ func TestGetLibraryFollowingHandler_ValidatesAndClamps(t *testing.T) {
 	}
 	if resp.Body.NextCursor == nil {
 		t.Fatal("expected encoded next cursor")
+	}
+	if resp.CacheControl != "no-store" {
+		t.Fatalf("expected private following response to be no-store, got %q", resp.CacheControl)
 	}
 
 	_, err = h.GetLibraryFollowingHandler(ctx, &GetLibraryFollowingRequest{

@@ -132,7 +132,8 @@ type GetMyFollowingResponse struct {
 }
 
 type GetLibraryFollowingCountsResponse struct {
-	Body contracts.LibraryFollowingCounts
+	CacheControl string `header:"Cache-Control"`
+	Body         contracts.LibraryFollowingCounts
 }
 
 type GetLibraryFollowingRequest struct {
@@ -142,7 +143,8 @@ type GetLibraryFollowingRequest struct {
 }
 
 type GetLibraryFollowingResponse struct {
-	Body struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Following  []*contracts.LibraryFollowingEntityResponse `json:"following"`
 		Limit      int                                         `json:"limit"`
 		NextCursor *string                                     `json:"next_cursor,omitempty"`
@@ -555,7 +557,7 @@ func (h *FollowHandler) GetLibraryFollowingCountsHandler(ctx context.Context, _ 
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to get Library following counts")
 	}
-	return &GetLibraryFollowingCountsResponse{Body: *counts}, nil
+	return &GetLibraryFollowingCountsResponse{CacheControl: "no-store", Body: *counts}, nil
 }
 
 // GetLibraryFollowingHandler handles GET /me/library/following.
@@ -583,7 +585,7 @@ func (h *FollowHandler) GetLibraryFollowingHandler(ctx context.Context, req *Get
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to get Library following list")
 	}
-	return &GetLibraryFollowingResponse{Body: struct {
+	return &GetLibraryFollowingResponse{CacheControl: "no-store", Body: struct {
 		Following  []*contracts.LibraryFollowingEntityResponse `json:"following"`
 		Limit      int                                         `json:"limit"`
 		NextCursor *string                                     `json:"next_cursor,omitempty"`
