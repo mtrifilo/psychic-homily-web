@@ -882,9 +882,16 @@ type VenueBillNetworkInfo struct {
 	Name        string `json:"name"`
 	City        string `json:"city,omitempty"`
 	State       string `json:"state,omitempty"`
-	ArtistCount int    `json:"artist_count"` // distinct artists matching the time-window filter
-	EdgeCount   int    `json:"edge_count"`   // co-bill pairs above the min-shared-shows threshold
-	ShowCount   int    `json:"show_count"`   // approved shows used to derive the network
+	ArtistCount int    `json:"artist_count"` // artists in the graph — assigned from the built node list, so it always equals len(nodes) (time-window filtered AND node-capped)
+	// ArtistTotal + RosterTruncated mirror the scene graph's
+	// MetroRosterTotal + RosterTruncated (PSY-1081 "not a silent cap"
+	// convention): the full in-window artist count before the node cap, and
+	// whether the cap bit, so the frontend can render "top N of M" copy
+	// without another API change.
+	ArtistTotal     int  `json:"artist_total"`     // distinct in-window artists BEFORE the node cap
+	RosterTruncated bool `json:"roster_truncated"` // true when artist_total > the node cap
+	EdgeCount       int  `json:"edge_count"`       // co-bill pairs above the min-shared-shows threshold
+	ShowCount       int  `json:"show_count"`       // approved shows used to derive the network
 	// WindowLabel describes the active time window in the response so the
 	// frontend can label the graph without reverse-engineering the filter.
 	// One of: "all_time", "last_12m", "year".

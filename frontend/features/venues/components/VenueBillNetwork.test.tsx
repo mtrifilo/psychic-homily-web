@@ -14,6 +14,8 @@ const mockData: VenueBillNetworkResponse = {
     city: 'Phoenix',
     state: 'AZ',
     artist_count: 8,
+    artist_total: 8,
+    roster_truncated: false,
     edge_count: 5,
     show_count: 25,
     window: 'all_time',

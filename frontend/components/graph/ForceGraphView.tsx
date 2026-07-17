@@ -202,24 +202,29 @@ export const OTHER_CLUSTER_ID = 'other'
 // via react-force-graph's warmupTicks so the first painted frame is already
 // final — no visible settle animation, no camera motion afterward. 200 ticks
 // is the budget the retired animated cooldown used, so layouts settle to the
-// same quality the old animated path reached. Measured via Chrome trace
-// (PSY-1447 manual repro), two synchronous digest tasks per mount:
-//   - 75-node/85-link scene-shaped payload:  ~34ms + ~18ms ≈  52ms total
-//   - 300-node/419-link payload approximating the uncapped venue-bill-
-//     network query's plausible worst case (that query has no node/edge
-//     limit, unlike scene/station/festival graphs — see
-//     backend/internal/services/catalog/venue_bill_network.go): ~135ms +
-//     ~96ms ≈ 231ms total
-// The 300-node case exceeds the locked decision's "~100ms budget
-// assumption" — flagging for the user rather than silently shipping past
-// it. Still a large net win over the retired path (up to several SECONDS
-// of off-frame/mis-framed layout on every mount and overlay open, per the
-// comments this replaced), and it's a one-time mount cost, not a per-frame
-// one — but a venue with a genuinely large, highly-co-billed roster could
-// notice a mount-time pause. Candidate follow-ups (not done here — out of
-// this ticket's scope): cap venue_bill_network's query the way scene/
-// station/festival graphs already do, or lower WARMUP_TICKS for large
-// payloads specifically.
+// same quality the old animated path reached. The synchronous cost stays
+// inside the locked decision's ~100ms main-thread budget because the graph
+// queries are node-capped at the source: scene caps at 75, station at 75
+// (max 150), festival at 150, and venue_bill_network — previously
+// uncapped — got its own 150-node ceiling in PSY-1461 (see
+// venueBillMaxNodes in
+// backend/internal/services/catalog/venue_bill_network.go). Known
+// remaining exception: the collection graph (GetCollectionGraph) has no
+// node cap — its payload is every collection item, so a 300+-item
+// collection can still blow the budget on this warmup path. Link counts
+// are nowhere hard-capped (bounded only by each query's edge threshold
+// and the node cap's pair space), but that's fine: the digest cost is
+// dominated by NODE count, measured flat across a link-density sweep.
+// Measured synchronous digest cost per mount/data-change (PSY-1461 manual
+// repro, mocked payloads on the venue surface):
+//   -  75 nodes /   85 links (scene scale):              ~37-44ms
+//   - 150 nodes /  375 links (capped, assumed density):  ~48-98ms
+//   - 150 nodes / 750 and 1125 links (density sweep):    ~47-90ms (flat)
+//   - 300 nodes /  750 links (uncapped, for reference):  ~116-134ms
+// If a surface ships a bigger payload, cap its query the way the existing
+// graph endpoints do rather than lowering WARMUP_TICKS — partial warmup
+// with cooldownTicks=0 would freeze layouts mid-settle (see the
+// enableNodeDrag comment for why cooldown stays 0).
 const WARMUP_TICKS = 200
 
 // What the engine sees until the dynamic chunk has mounted — see the
@@ -851,11 +856,12 @@ export function ForceGraphView({
   // poll forever (a data change recreates maybeFitViewport and restarts the
   // budget). Budget (20 attempts × 50ms = 1s, below) predates PSY-1447 and
   // was validated only against small static-viewport embeds; PSY-1447
-  // widens this poll to every reduced-motion surface, including uncapped
-  // venue-bill-network payloads (see the WARMUP_TICKS comment above). The
-  // measured 300-node warmup digest (~231ms) leaves ~4x headroom under this
-  // 1s budget, so the poll should comfortably still catch the bbox becoming
-  // readable at that scale — not independently re-verified with a paused
+  // widens this poll to every reduced-motion surface, including venue-
+  // bill-network payloads (node-capped since PSY-1461 — see the
+  // WARMUP_TICKS comment above). The measured capped-worst-case warmup
+  // digest (~48-98ms at 150 nodes) leaves >10x headroom under this 1s
+  // budget, so the poll comfortably catches the bbox becoming readable at
+  // that scale — not independently re-verified with a paused
   // (reduced-motion) engine specifically, only the default animated-loop
   // mount path, since jsdom/CI can't drive real rAF timing for that combo.
   useEffect(() => {
