@@ -40,6 +40,13 @@ describe('pickSceneEscapeHatches (PSY-1474 F4)', () => {
     expect(picks.map(s => s.city)).toEqual(['Los Angeles', 'Phoenix'])
   })
 
+  it('does not claim a home scene from a city alone (city names alias across states)', () => {
+    const scenes = [...SCENES, SCENE('Portland', 'ME', 2)]
+    const picks = pickSceneEscapeHatches(scenes, 'Portland', undefined)
+    // Without a state, "Portland" is ambiguous — fall back to liveliest.
+    expect(picks.map(s => s.city)).toEqual(['Los Angeles', 'Phoenix'])
+  })
+
   it('falls back past the state when it has no other scenes', () => {
     const picks = pickSceneEscapeHatches(SCENES, 'Portland', 'OR')
     expect(picks.map(s => s.city)).toEqual(['Portland', 'Los Angeles'])

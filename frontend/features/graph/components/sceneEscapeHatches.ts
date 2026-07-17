@@ -10,6 +10,14 @@
  * then the liveliest scenes overall — ordered by the shared
  * `compareScenesByActivity` rule so this surface can't disagree with Atlas.
  *
+ * Known limits, accepted for a best-effort escape hatch:
+ * - The graph payload carries the artist's raw home city, not its CBSA metro,
+ *   so a suburb (Tempe) doesn't exact-match its metro scene (Phoenix) and
+ *   degrades to the same-state-liveliest fallback.
+ * - A home match requires BOTH city and state: city names alias across states
+ *   (Portland OR/ME), so a missing state makes a "home" claim a guess — the
+ *   activity fallback is safer than a confidently wrong link.
+ *
  * Pure selection logic, no React — easy to unit-test.
  */
 
@@ -36,12 +44,14 @@ export function pickSceneEscapeHatches(
   for (const scene of scenes) {
     const isHome =
       cityKey !== '' &&
+      stateKey !== '' &&
       normalize(scene.city) === cityKey &&
-      (stateKey === '' || normalize(scene.state) === stateKey)
+      normalize(scene.state) === stateKey
     if (isHome) home.push(scene)
     else if (stateKey !== '' && normalize(scene.state) === stateKey) sameState.push(scene)
     else elsewhere.push(scene)
   }
+  home.sort(compareScenesByActivity)
   sameState.sort(compareScenesByActivity)
   elsewhere.sort(compareScenesByActivity)
 

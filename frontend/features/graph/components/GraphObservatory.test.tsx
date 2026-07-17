@@ -206,7 +206,9 @@ describe('GraphObservatory', () => {
     renderWithProviders(<GraphObservatory />)
 
     expect(screen.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeInTheDocument()
-    expect(screen.getByText(/Try searching for/)).toHaveTextContent('Diners')
+    // All three curated names are stacked in the crossfade; the ACTIVE one is
+    // what the button announces (reduced-motion mock freezes it on index 0).
+    expect(screen.getByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Search Diners' }))
     expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
@@ -252,10 +254,8 @@ describe('GraphObservatory', () => {
 
     await user.click(screen.getByRole('button', { name: 'Search for Diners' }))
 
-    expect(searchRequest).toHaveBeenCalledWith(
-      expect.stringContaining('/artists/search?q=Diners'),
-      expect.anything(),
-    )
+    expect(searchRequest).toHaveBeenCalled()
+    expect(String(searchRequest.mock.calls[0][0])).toContain('/artists/search?q=Diners')
     expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
   })
 
@@ -292,6 +292,11 @@ describe('GraphObservatory', () => {
     expect(screen.queryByRole('button', { name: 'Show 2 more trail entries' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Diners' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Playboy Manbaby' })).toHaveLength(2)
+    // The disclosure unmounts on expand; focus hands off to the first
+    // revealed chip so keyboard users keep their place.
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Playboy Manbaby' })[0]).toHaveFocus(),
+    )
 
     // A jump re-collapses implicitly (length changes); trail still works.
     await user.click(screen.getAllByRole('button', { name: 'Playboy Manbaby' })[0])

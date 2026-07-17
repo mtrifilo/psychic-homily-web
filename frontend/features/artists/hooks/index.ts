@@ -5,7 +5,7 @@ export {
   useArtistShows,
 } from './useArtists'
 
-export { useArtistSearch } from './useArtistSearch'
+export { useArtistSearch, artistSearchQueryOptions } from './useArtistSearch'
 
 export {
   useMyArtistReport,
