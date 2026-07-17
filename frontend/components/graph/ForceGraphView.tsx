@@ -98,6 +98,11 @@ import {
   mergeProvenanceEntities,
   useConnectionProvenance,
 } from './useConnectionProvenance'
+import {
+  drawIsolateShelfBand,
+  drawIsolateShelfCaption,
+  isolateShelfGeometry,
+} from './isolateShelf'
 
 // ──────────────────────────────────────────────
 // Public types — the generic graph payload shape
@@ -408,6 +413,16 @@ export interface ForceGraphViewProps {
    * floating overlays (e.g. the artist context panel) on click-away.
    */
   onBackgroundClick?: () => void
+  /**
+   * Label the isolate shelf as a group (locked grammar decision 4): faint
+   * containment band + hairline behind the pinned shelf row, plus a
+   * "+{N} not yet connected artists" caption drawn in the label pass. N is
+   * the CURRENTLY RENDERED isolate count (post cluster filtering), not the
+   * raw payload count. Off by default — Section surfaces (scene, station)
+   * opt in; the homepage teaser excludes isolates from its payload and the
+   * ego graph has none, so neither is affected either way.
+   */
+  showIsolateShelfLabel?: boolean
 }
 
 export interface GraphNodeLabelStyle {
@@ -441,6 +456,7 @@ export function ForceGraphView({
   nodeOverlayOutwardClearance = 0,
   showAccessibleNodeControls = false,
   onBackgroundClick,
+  showIsolateShelfLabel = false,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null)
@@ -556,6 +572,20 @@ export function ForceGraphView({
     return computeCentroids(visibleClusterIDs, containerWidth, graphHeight)
   }, [clusters, hiddenClusterIDs, containerWidth, graphHeight])
 
+  // Labeled isolate shelf (PSY-1454): geometry shared with the pinning effect
+  // below, and the caption's {N} — the isolates ACTUALLY rendered after the
+  // cluster filter, not the raw payload count. (Edge-type toggles never drop
+  // nodes, and an isolate has no edges to toggle, so the cluster filter is
+  // the only thing that changes this count.)
+  const shelfGeometry = useMemo(
+    () => isolateShelfGeometry(containerWidth, graphHeight),
+    [containerWidth, graphHeight]
+  )
+  const renderedIsolateCount = useMemo(
+    () => renderData.nodes.reduce((n, node) => n + (node.is_isolate ? 1 : 0), 0),
+    [renderData]
+  )
+
   // ForceGraphView explicitly reheats the simulation (d3ReheatSimulation in the
   // effect below) whenever the data, edge-type/cluster filter, or viewport changes
   // — which pans the nodes and would strand an already-open tooltip at its now-stale
@@ -597,13 +627,15 @@ export function ForceGraphView({
     // hands the engine its real payload.
     if (!canvasReady) return
 
-    // Pin isolates to a shelf along the bottom of the canvas.
+    // Pin isolates to a shelf along the bottom of the canvas. Geometry is
+    // single-sourced with the labeled-shelf band/caption draws (isolateShelf)
+    // so the group treatment can never drift from where the dots pin.
     const isolates = renderData.nodes.filter(n => n.is_isolate)
-    const shelfY = graphHeight * 0.42
-    const shelfStart = -containerWidth * 0.4
-    const shelfEnd = containerWidth * 0.4
+    const shelf = isolateShelfGeometry(containerWidth, graphHeight)
     const stride =
-      isolates.length > 1 ? (shelfEnd - shelfStart) / (isolates.length - 1) : 0
+      isolates.length > 1
+        ? (shelf.endX - shelf.startX) / (isolates.length - 1)
+        : 0
     // d3-force-3d steers the layout by mutating the node datums in place:
     // `fx`/`fy` pin/unpin coordinates, `x`/`y` are the live positions it reads
     // and writes each tick. The graph holds these exact object instances, so we
@@ -617,8 +649,8 @@ export function ForceGraphView({
     // so if the directive ever reports as unused, prefer leaving it in place.
     /* eslint-disable react-hooks/immutability */
     isolates.forEach((node, i) => {
-      node.fx = shelfStart + stride * i
-      node.fy = shelfY
+      node.fx = shelf.startX + stride * i
+      node.fy = shelf.y
     })
     for (const node of renderData.nodes) {
       if (!node.is_isolate) {
@@ -1168,8 +1200,33 @@ export function ForceGraphView({
             node =>
               forceNodeLabels || focusedIds == null || focusedIds.has(node.id),
           )
+          // Labeled shelf (PSY-1454, approved mock): the group caption names
+          // the shelf, so individual isolate names are hover-only there —
+          // a resting scatter of isolate labels would compete with the
+          // caption. Hover still draws the name (labelSpecForNode forces the
+          // hovered node's label).
+          .filter(
+            node =>
+              !showIsolateShelfLabel ||
+              !node.is_isolate ||
+              node.id === hoveredNode?.id,
+          )
           .map(node => labelSpecForNode(node, globalScale))
         renderGraphLabels(ctx, palette, specs)
+      }
+      // Labeled-shelf caption (PSY-1454): drawn AFTER the collision-culled
+      // node labels (the group label always wins) and OUTSIDE the zoom gate —
+      // like the band, the caption is the group boundary and renders at every
+      // zoom. Anchored to the shelf's world coords, so it pans/zooms with the
+      // pinned dots.
+      if (showIsolateShelfLabel && renderedIsolateCount > 0) {
+        drawIsolateShelfCaption(
+          ctx,
+          palette,
+          shelfGeometry,
+          renderedIsolateCount,
+          globalScale
+        )
       }
       if (nodeOverlaySyncNeededRef.current && syncNodeOverlayPositions()) {
         nodeOverlaySyncNeededRef.current = false
@@ -1183,6 +1240,10 @@ export function ForceGraphView({
       forceNodeLabels,
       labelSpecForNode,
       syncNodeOverlayPositions,
+      showIsolateShelfLabel,
+      renderedIsolateCount,
+      shelfGeometry,
+      hoveredNode,
     ]
   )
 
@@ -1258,11 +1319,23 @@ export function ForceGraphView({
     [renderData.nodes, clustersByID, palette, focusedIds]
   )
 
-  // Reset the per-frame hull-painted flag at the start of each render pass.
-  const handleRenderFramePre = useCallback((ctx: CanvasRenderingContext2D) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(ctx as any).__forceGraphHullPainted = false
-  }, [])
+  // Reset the per-frame hull-painted flag at the start of each render pass,
+  // then paint the labeled-shelf containment band (PSY-1454) under everything
+  // the frame draws — pre-frame runs before hulls, links, and nodes, and the
+  // ctx is already in graph coords, so the band pans/zooms with the pinned
+  // dots and renders at EVERY zoom (it IS the group boundary — no hull-style
+  // fade). Gated on the rendered isolate count so a cluster filter that
+  // hides the last isolate removes the band with it.
+  const handleRenderFramePre = useCallback(
+    (ctx: CanvasRenderingContext2D, globalScale: number) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(ctx as any).__forceGraphHullPainted = false
+      if (showIsolateShelfLabel && renderedIsolateCount > 0) {
+        drawIsolateShelfBand(ctx, palette, shelfGeometry, globalScale)
+      }
+    },
+    [showIsolateShelfLabel, renderedIsolateCount, palette, shelfGeometry]
+  )
 
   // ── PSY-1083: typed-edge grammar ──
   // Links that carry a `type` speak the shared grammar (per-type color,
