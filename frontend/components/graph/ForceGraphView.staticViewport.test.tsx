@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 // PSY-1344: staticViewport must translate into react-force-graph's
-// interaction flags — zoom, pan, and node drag all disabled — so an embed
-// surface (homepage graph section) never captures page scroll. jsdom can't
-// exercise real wheel/drag handling, so we lock in the prop contract at the
-// ForceGraph2D boundary instead.
+// interaction flags — zoom and pan disabled — so an embed surface (homepage
+// graph section) never captures page scroll. Node drag is retired on EVERY
+// surface (PSY-1452 locked grammar decision), so enableNodeDrag must be
+// false regardless of mode. jsdom can't exercise real wheel/drag handling,
+// so we lock in the prop contract at the ForceGraph2D boundary instead.
 
 const h = vi.hoisted(() => ({
   lastProps: {} as Record<string, unknown>,
@@ -47,23 +47,34 @@ beforeEach(() => {
 })
 
 describe('ForceGraphView staticViewport (PSY-1344)', () => {
-  it('defaults to full interaction (zoom, pan, drag enabled)', () => {
+  it('defaults to zoom/pan enabled with node drag retired (PSY-1452)', () => {
     renderGraph()
     expect(h.lastProps.enableZoomInteraction).toBe(true)
     expect(h.lastProps.enablePanInteraction).toBe(true)
-    expect(h.lastProps.enableNodeDrag).toBe(true)
+    expect(h.lastProps.enableNodeDrag).toBe(false)
   })
 
-  it('disables zoom, pan, and node drag in static-viewport mode', () => {
+  it('disables zoom and pan in static-viewport mode (node drag is retired regardless of mode)', () => {
     renderGraph(true)
     expect(h.lastProps.enableZoomInteraction).toBe(false)
     expect(h.lastProps.enablePanInteraction).toBe(false)
     expect(h.lastProps.enableNodeDrag).toBe(false)
   })
 
+  // PSY-1452: drag is retired outright, so no drag handlers are wired —
+  // the PSY-1447 drag-time cooldown re-arm and the PSY-1217 drag-dismiss
+  // for tooltips went with them.
+  it('wires no drag handlers on any surface (PSY-1452)', () => {
+    renderGraph()
+    expect(h.lastProps.onNodeDrag).toBeUndefined()
+    expect(h.lastProps.onNodeDragEnd).toBeUndefined()
+  })
+
   // PSY-1442 shipped the synchronous pre-settle (warmup on, visible settle
   // off) for static viewports; PSY-1447 generalized it to EVERY surface so
-  // the first painted frame is final everywhere.
+  // the first painted frame is final everywhere. With node drag retired
+  // (PSY-1452), cooldownTicks is unconditionally 0 — the drag-time re-arm
+  // was the only exception.
   it('pre-settles via warmupTicks with no cooldown in static-viewport mode (PSY-1442)', () => {
     renderGraph(true)
     expect(h.lastProps.warmupTicks).toBe(200)
@@ -73,61 +84,6 @@ describe('ForceGraphView staticViewport (PSY-1344)', () => {
   it('pre-settles interactive surfaces the same way — the settle animation is retired (PSY-1447)', () => {
     renderGraph()
     expect(h.lastProps.warmupTicks).toBe(200)
-    expect(h.lastProps.cooldownTicks).toBe(0)
-  })
-
-  // PSY-1447: cooldownTicks=0 at rest means the engine never ticks after the
-  // synchronous warmup — verified against the real react-force-graph engine
-  // (node_modules/force-graph): with cooldownTicks=0, a node-drag's
-  // resetCountdown() is immediately followed by cntTicks(1) > cooldownTicks(0),
-  // so forceLayout.tick() never runs and every neighbor freezes mid-drag,
-  // leaving edges permanently stretched between the dragged node's live
-  // position and its frozen neighbors after release (reproduced in a real
-  // browser during manual repro — a materially worse regression than "less
-  // lively" once actually seen). cooldownTicks re-arms to the pre-PSY-1442
-  // interactive default for exactly the drag gesture's duration so dragging
-  // keeps its pre-existing live neighbor-reflow; every other path (mount,
-  // data digest, resize) stays governed by warmupTicks/zero-cooldown only.
-  it('re-arms live ticking for the duration of a node drag, then re-freezes on drag end (PSY-1447)', () => {
-    renderGraph()
-    expect(h.lastProps.cooldownTicks).toBe(0)
-
-    act(() => {
-      ;(h.lastProps.onNodeDrag as (node: GraphNode) => void)(nodes[0])
-    })
-    expect(h.lastProps.cooldownTicks).toBe(200)
-
-    act(() => {
-      ;(h.lastProps.onNodeDragEnd as (node: GraphNode) => void)(nodes[0])
-    })
-    expect(h.lastProps.cooldownTicks).toBe(0)
-  })
-
-  // Adversarial-review finding (round 1, Saboteur): a boolean isDragging flag
-  // would have the FIRST finger's release re-freeze the SECOND finger's
-  // still-in-progress drag on a multi-touch device. Tracking by node id fixes
-  // that — cooldownTicks only drops back to 0 once EVERY dragged node has
-  // ended, not on the first onNodeDragEnd of any node.
-  it('keeps live ticking active while a second concurrent node drag is still in progress', () => {
-    renderGraph()
-
-    act(() => {
-      ;(h.lastProps.onNodeDrag as (node: GraphNode) => void)(nodes[0])
-    })
-    act(() => {
-      ;(h.lastProps.onNodeDrag as (node: GraphNode) => void)(nodes[1])
-    })
-    expect(h.lastProps.cooldownTicks).toBe(200)
-
-    act(() => {
-      ;(h.lastProps.onNodeDragEnd as (node: GraphNode) => void)(nodes[0])
-    })
-    // node 2 is still mid-drag — must NOT re-freeze yet.
-    expect(h.lastProps.cooldownTicks).toBe(200)
-
-    act(() => {
-      ;(h.lastProps.onNodeDragEnd as (node: GraphNode) => void)(nodes[1])
-    })
     expect(h.lastProps.cooldownTicks).toBe(0)
   })
 })
