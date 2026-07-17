@@ -328,7 +328,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
               <p className="text-xs text-muted-foreground">
                 Showing artists based in the {city}, {state} scene, ranked by their
                 approved shows here. {clusterCaption} Click a cluster pill above to hide
-                it; click any artist to open their page.
+                it; click any artist for their details.
               </p>
             </div>
           </div>
