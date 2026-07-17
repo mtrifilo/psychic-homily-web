@@ -1447,6 +1447,9 @@ export function ForceGraphView({
         // PSY-1452 locked grammar decision: node drag is retired on every
         // graph surface — "physics as toy" teaches nothing and lets users
         // wreck the layout. Explicit false (the library default is true).
+        // If drag is ever un-retired: with cooldownTicks=0 a drag freezes
+        // every neighbor mid-gesture, leaving permanently stretched edges —
+        // the PSY-1447 drag-time cooldown re-arm must come back with it.
         enableNodeDrag={false}
         backgroundColor="transparent"
       />

@@ -34,8 +34,9 @@
  *
  * Trade-off accepted: the canvas mounts on every Phoenix-scale scene visit
  * and pushes other sections down, but `react-force-graph-2d` is dynamic-
- * imported with `ssr: false`, the canvas pauses after `cooldownTicks=200`,
- * and mobile already gates it off.
+ * imported with `ssr: false`, the layout pre-settles synchronously via
+ * warmupTicks (cooldownTicks=0, so the engine never runs a post-mount tick
+ * loop), and mobile already gates it off.
  */
 
 import { useState, useMemo } from 'react'
