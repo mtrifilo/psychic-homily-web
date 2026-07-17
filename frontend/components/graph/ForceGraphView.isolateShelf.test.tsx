@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 // PSY-1454: the labeled isolate shelf (locked grammar decision 4). Opt-in
@@ -221,6 +222,19 @@ describe('ForceGraphView labeled isolate shelf (PSY-1454)', () => {
     )
     expect(drawn).toContain('Gamma')
     expect(drawn).toContain('Delta')
+  })
+
+  it('hovering an isolate restores its name (the promise the suppression rests on)', () => {
+    renderGraph({ showIsolateShelfLabel: true })
+    act(() => {
+      ;(h.lastProps.onNodeHover as (node: GraphNode) => void)(nodes[2])
+    })
+    const { postCtx } = paintFrame(1)
+    const drawn = (postCtx.fillText as ReturnType<typeof vi.fn>).mock.calls.map(
+      c => c[0]
+    )
+    expect(drawn).toContain('Gamma') // hovered isolate labels again
+    expect(drawn).not.toContain('Delta') // the other isolate stays hover-only
   })
 
   it('forceNodeLabels wins over the isolate suppression (curated-map contract)', () => {

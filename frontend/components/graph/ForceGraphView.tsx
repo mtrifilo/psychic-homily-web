@@ -655,7 +655,13 @@ export function ForceGraphView({
     // so if the directive ever reports as unused, prefer leaving it in place.
     /* eslint-disable react-hooks/immutability */
     isolates.forEach((node, i) => {
-      node.fx = shelf.startX + stride * i
+      // A lone isolate centers on the shelf — pinned at startX it would sit
+      // in the far-left corner of the labeled band (PSY-1454), visually
+      // framing an empty group.
+      node.fx =
+        isolates.length === 1
+          ? (shelf.startX + shelf.endX) / 2
+          : shelf.startX + stride * i
       node.fy = shelf.y
     })
     for (const node of renderData.nodes) {
@@ -1212,8 +1218,9 @@ export function ForceGraphView({
           // Labeled shelf (PSY-1454, approved mock): the group caption names
           // the shelf, so individual isolate names are hover-only there — a
           // resting scatter of isolate labels would compete with the caption.
-          // Hover still draws the name (labelSpecForNode forces the hovered
-          // node's label). forceNodeLabels WINS over the suppression: it is
+          // Hover still draws the name ABOVE the zoom gate (labelSpecForNode
+          // forces the hovered node's label; below the gate the DOM tooltip
+          // covers it). forceNodeLabels WINS over the suppression: it is
           // the curated-map "every label always" contract, and a static
           // surface combining both flags would otherwise lose isolate names
           // with no hover available to recover them.

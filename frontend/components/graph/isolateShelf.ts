@@ -33,9 +33,10 @@ import { withHexAlpha } from './graphPalette'
 export interface IsolateShelfGeometry {
   /** World-space y the isolate dots pin to. */
   y: number
-  /** World-space x of the first pinned isolate (shelf left edge). */
+  /** World-space left extent of the shelf (dots distribute from here;
+   * a LONE isolate is centered between the extents instead). */
   startX: number
-  /** World-space x of the last pinned isolate (shelf right edge). */
+  /** World-space right extent of the shelf. */
   endX: number
 }
 
@@ -51,8 +52,10 @@ const SHELF_HALF_WIDTH_RATIO = 0.4
 const BAND_PAD_X = 32
 const BAND_TOP_OFFSET = 44
 const BAND_BOTTOM_OFFSET = 40
-// Caption anchor: left-aligned to the band's left edge, on its own row above
-// the dot centers (dots sit at geometry.y; hover names draw below them).
+// Caption anchor: left-aligned to the band's left edge (the approved mock
+// anchors the caption at the band inset, LEFT of the first dot — not at the
+// first dot itself), on its own row above the dot centers (dots sit at
+// geometry.y; hover names draw below them).
 const CAPTION_INSET_X = 16
 const CAPTION_TOP_OFFSET = 32
 
@@ -63,12 +66,14 @@ const HAIRLINE_ALPHA_HEX = '26' // ≈ 15%
 
 // Caption targets a constant screen size (like the node labels, which
 // counter-scale via labelFontSize) so the group stays named at every zoom.
-// The world-space clamp keeps a far-zoomed-out caption (counter-scaling
-// makes it GROW in world units) from reaching the dot row anchored
-// CAPTION_TOP_OFFSET below it. The component's minZoom (0.4) never triggers
-// the clamp today; it guards a future looser zoom floor.
+// The world-space clamp bounds a far-zoomed-out caption (counter-scaling
+// makes it GROW in world units) so its glyphs can never reach the dot row
+// CAPTION_TOP_OFFSET below the anchor (26 + dot radius 5 < 32). It ENGAGES
+// below zoom 12/26 ≈ 0.46 — reachable above the component's 0.4 minZoom —
+// costing the caption ~1.6 screen px at the very bottom of the zoom range;
+// deliberate trade so the group label never paints over its own dots.
 const CAPTION_FONT_SCREEN_PX = 12
-const CAPTION_MAX_WORLD_PX = 24
+const CAPTION_MAX_WORLD_PX = 26
 const CAPTION_FONT_WEIGHT = 500
 
 /** Shelf placement for a given canvas size — single source shared by the
