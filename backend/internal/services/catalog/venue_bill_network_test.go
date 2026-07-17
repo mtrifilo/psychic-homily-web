@@ -86,26 +86,39 @@ func TestCapVenueBillArtistsRanking(t *testing.T) {
 	}
 }
 
-// TestCapVenueBillArtistsDeterministic: equal count + equal last-played
-// ranks by ID ascending, so repeated calls over identically-shaped maps
-// (whose iteration order is random) keep the same survivors.
-func TestCapVenueBillArtistsDeterministic(t *testing.T) {
+// TestCapVenueBillArtistsDenseVenueDropsEdgedArtists: when even the cut
+// line sits at 2+ shows (every artist could carry edges), the cap still
+// trims to the ceiling and still scrubs the dropped artists out of every
+// per-show set — the pair build must never see a dropped artist, or the
+// payload would ship a link pointing at a node that isn't there.
+func TestCapVenueBillArtistsDenseVenueDropsEdgedArtists(t *testing.T) {
 	when := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	build := func() map[uint]*venueBillArtistAggregate {
-		m := make(map[uint]*venueBillArtistAggregate)
-		for id := uint(1); id <= uint(venueBillMaxNodes)+5; id++ {
-			m[id] = &venueBillArtistAggregate{ID: id, AtVenueShowCount: 1, LastPlayedAt: when}
-		}
-		return m
+	artists := make(map[uint]*venueBillArtistAggregate)
+	for id := uint(1); id <= uint(venueBillMaxNodes)+1; id++ {
+		artists[id] = &venueBillArtistAggregate{ID: id, AtVenueShowCount: 2, LastPlayedAt: when}
+	}
+	dropped := uint(venueBillMaxNodes) + 1 // equal count + date → highest ID loses
+	// The dropped artist shares both its shows with artist 1 — an edge that
+	// would clear venueBillMinSharedShows if the cap didn't scrub it.
+	byShow := map[uint]map[uint]struct{}{
+		30: {1: {}, dropped: {}},
+		31: {1: {}, dropped: {}},
 	}
 
-	for run := 0; run < 3; run++ {
-		artists := build()
-		capVenueBillArtists(artists, map[uint]map[uint]struct{}{})
-		for id := uint(1); id <= uint(venueBillMaxNodes); id++ {
-			if _, ok := artists[id]; !ok {
-				t.Fatalf("run %d: expected lowest-ID artists kept, missing %d", run, id)
-			}
+	capVenueBillArtists(artists, byShow)
+
+	if len(artists) != venueBillMaxNodes {
+		t.Fatalf("expected %d artists after cap, got %d", venueBillMaxNodes, len(artists))
+	}
+	if _, ok := artists[dropped]; ok {
+		t.Fatalf("artist %d should be dropped by the ID tiebreak", dropped)
+	}
+	for showID, artistSet := range byShow {
+		if _, ok := artistSet[dropped]; ok {
+			t.Errorf("dropped artist %d must be scrubbed from show %d's set", dropped, showID)
+		}
+		if _, ok := artistSet[1]; !ok {
+			t.Errorf("kept artist 1 must remain in show %d's set", showID)
 		}
 	}
 }

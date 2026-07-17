@@ -46,13 +46,17 @@ const (
 	// venueBillMaxNodes is the hard ceiling on graph nodes. This was the
 	// only uncapped graph surface — festivalGraphMaxNodes and
 	// stationGraphMaxNodeLimit are both 150 — and an unbounded payload made
-	// the frontend's synchronous warmup pre-settle (ForceGraphView's
-	// warmupTicks) blow the ~100ms main-thread budget on large venues
-	// (~116-134ms measured at 300 nodes / 750 edges; ~48-64ms at this cap).
-	// When the cap bites, at-venue show count decides who stays — the
-	// venue's regulars, i.e. the dense co-bill core the graph exists to
-	// show — and the long tail of one-off performers (guaranteed isolates:
-	// one show can never reach venueBillMinSharedShows) drops first.
+	// the frontend's synchronous warmup pre-settle blow its ~100ms
+	// main-thread budget on large venues (measurements live with
+	// WARMUP_TICKS in frontend/components/graph/ForceGraphView.tsx; this
+	// cap is what keeps that budget honest). When the cap bites, at-venue
+	// show count decides who stays — the venue's regulars, i.e. the dense
+	// co-bill core the graph exists to show. In the common shape the cut
+	// line falls among one-off performers, which are guaranteed isolates
+	// (one show can never reach venueBillMinSharedShows); at a venue dense
+	// enough that even the 150th artist has 2+ shows, the cap can drop
+	// edged artists — and leave a kept partner isolate — like any top-N
+	// truncation.
 	venueBillMaxNodes = 150
 )
 
@@ -155,14 +159,14 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 
 	// 2b. Enforce the node ceiling BEFORE hydration and pair enumeration so
 	//     an oversized roster can't inflate the payload, the batch queries,
-	//     or the O(k²)-per-show pair build. ArtistCount is set AFTER the cap
-	//     so it always equals the rendered node count (the frontend header
-	//     and aria-label both describe the graph, not the venue's full
-	//     history). ShowCount stays uncapped — it describes the source data.
+	//     or the O(k²)-per-show pair build. ShowCount stays uncapped — it
+	//     describes the source data. ArtistCount is assigned from the built
+	//     node list at the end (not from the capped artist set) so it always
+	//     equals len(nodes): the frontend header and aria-label both
+	//     describe the graph, not the venue's full history.
 	capVenueBillArtists(artistsByID, byShow)
 
 	resp.Venue.ShowCount = len(showsByID)
-	resp.Venue.ArtistCount = len(artistsByID)
 
 	if len(artistsByID) == 0 {
 		return resp, nil
@@ -281,6 +285,10 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 			AtVenueShowCount:  agg.AtVenueShowCount,
 		})
 	}
+	// From the node list, not the artist set: the loop above skips artists
+	// whose details row vanished, and the contract promises the count
+	// describes the rendered graph.
+	resp.Venue.ArtistCount = len(resp.Nodes)
 
 	return resp, nil
 }

@@ -365,10 +365,10 @@ func (s *VenueBillNetworkIntegrationSuite) TestNodeCapKeepsVenueRegulars() {
 	}
 	s.True(present[r1.ID], "regular must survive the cap")
 	s.True(present[r2.ID], "regular must survive the cap")
-	// Survivors: the 148 lowest-ID one-offs. Dropped: the 3 highest.
-	for _, id := range oneOffIDs[:148] {
-		s.Truef(present[id], "one-off %d should survive the cap", id)
-	}
+	// With len==150 and both regulars present, pinning the 3 dropped IDs
+	// (highest one-off IDs, per the ID-asc tiebreak) fully determines the
+	// survivor set — the ranking internals themselves are unit-tested next
+	// to capVenueBillArtists.
 	for _, id := range oneOffIDs[148:] {
 		s.Falsef(present[id], "one-off %d should be dropped by the cap", id)
 	}

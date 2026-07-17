@@ -201,19 +201,22 @@ const OTHER_CLUSTER_ID = 'other'
 // final — no visible settle animation, no camera motion afterward. 200 ticks
 // is the budget the retired animated cooldown used, so layouts settle to the
 // same quality the old animated path reached. The synchronous cost stays
-// inside the locked decision's ~100ms main-thread budget because every graph
-// query is node-capped at the source — venue_bill_network was the last
-// uncapped one and got its 150-node ceiling in PSY-1461 (scene/station/
-// festival were already capped; see venueBillMaxNodes in
-// backend/internal/services/catalog/venue_bill_network.go). Measured
-// synchronous digest cost per mount/data-change (PSY-1461 manual repro,
-// mocked payloads on the venue surface):
+// inside the locked decision's ~100ms main-thread budget because the graph
+// queries are node-capped at the source: scene/station/festival cap at 150,
+// and venue_bill_network — previously uncapped — got its own 150-node
+// ceiling in PSY-1461 (see venueBillMaxNodes in
+// backend/internal/services/catalog/venue_bill_network.go). Known remaining
+// exception: the collection graph (GetCollectionGraph) has no node cap —
+// its payload is every collection item, so a 300+-item collection can still
+// blow the budget on this same warmup path. Measured synchronous digest
+// cost per mount/data-change (PSY-1461 manual repro, mocked payloads on the
+// venue surface):
 //   -  75 nodes /  85 links (scene scale):      ~37-44ms
 //   - 150 nodes / 375 links (capped worst case): ~48-64ms
-//   - 300 nodes / 750 links (pre-cap worst case, for reference): ~116-134ms
-// If a future surface ships a bigger payload, cap its query the way the
-// existing graph endpoints do rather than lowering WARMUP_TICKS — partial
-// warmup with cooldownTicks=0 would freeze layouts mid-settle (see the
+//   - 300 nodes / 750 links (uncapped, for reference): ~116-134ms
+// If a surface ships a bigger payload, cap its query the way the existing
+// graph endpoints do rather than lowering WARMUP_TICKS — partial warmup
+// with cooldownTicks=0 would freeze layouts mid-settle (see the
 // enableNodeDrag comment for why cooldown stays 0).
 const WARMUP_TICKS = 200
 
