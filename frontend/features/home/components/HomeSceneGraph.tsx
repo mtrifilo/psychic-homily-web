@@ -38,6 +38,7 @@ import {
 } from '@/components/graph/ArtistContextPanel'
 import { EdgeSwatch } from '@/components/graph/EdgeLegend'
 import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
+import { PLAYABLE_RING_COLOR, UPCOMING_SHOW_DOT_COLOR } from '@/components/graph/graphMarkers'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -125,14 +126,16 @@ function HomeGraphLegend({ types }: { types: readonly string[] }) {
       ))}
       <span className="flex items-center gap-1.5">
         <span
-          className="size-[7px] rounded-full bg-green-500"
+          className="size-[7px] rounded-full"
+          style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           aria-hidden="true"
         />
         playing soon
       </span>
       <span className="flex items-center gap-1.5">
         <span
-          className="size-[9px] rounded-full border-[1.5px] border-violet-500"
+          className="size-[9px] rounded-full border-[1.5px]"
+          style={{ borderColor: PLAYABLE_RING_COLOR }}
           aria-hidden="true"
         />
         playable audio

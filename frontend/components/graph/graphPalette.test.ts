@@ -32,6 +32,9 @@ describe('useGraphPalette (jsdom fallback path)', () => {
     // Node-label fallbacks are the dark `--foreground` / `--background` (PSY-1091).
     expect(result.current.labelText).toBe('#eee7d9')
     expect(result.current.labelHalo).toBe('#0d0805')
+    // Suggested-direction + ego-center fallbacks (PSY-1453).
+    expect(result.current.primary).toBe('#e89960')
+    expect(result.current.mutedForeground).toBe('#9c8c7c')
   })
 
   it('covers every canonical edge type', () => {
@@ -97,6 +100,14 @@ describe('dark-theme token sync (globals.css ↔ fallback constants)', () => {
     expect(result.current.labelText.toLowerCase(), '--foreground').toBe(darkToken('--foreground'))
     expect(result.current.labelHalo.toLowerCase(), '--background').toBe(darkToken('--background'))
   })
+
+  it('matches the primary + muted-foreground fallbacks to their .dark tokens (PSY-1453)', () => {
+    const { result } = renderHook(() => useGraphPalette())
+    expect(result.current.primary.toLowerCase(), '--primary').toBe(darkToken('--primary'))
+    expect(result.current.mutedForeground.toLowerCase(), '--muted-foreground').toBe(
+      darkToken('--muted-foreground'),
+    )
+  })
 })
 
 describe('clusterColor', () => {
@@ -107,6 +118,8 @@ describe('clusterColor', () => {
     otherCluster: '#94A3B8',
     labelText: '#eee7d9',
     labelHalo: '#0d0805',
+    primary: '#e89960',
+    mutedForeground: '#9c8c7c',
   }
 
   it('indexes into the resolved chart palette', () => {

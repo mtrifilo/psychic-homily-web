@@ -46,6 +46,21 @@ export interface GraphPalette {
    * legible over colored nodes / cluster hulls on either theme (PSY-1091).
    */
   labelHalo: string
+  /**
+   * Resolved `--primary` — the shared suggested-direction affordance (dashed
+   * primary ring + "+" badge restyle of the DOI hint). NOTE: the design
+   * tokens currently give `--primary` the same value as `--chart-1` on both
+   * themes, so the hint hue matches the bills node fill — the affordance
+   * stays legible via SHAPE (dash pattern, offset ring, "+" badge with a
+   * background-token outline), not hue. Token values are design-owned;
+   * change them in globals.css, not here.
+   */
+  primary: string
+  /**
+   * Resolved `--muted-foreground` — the ego center node's neutral fill
+   * (center is distinguished by size + ink ring, not a hue).
+   */
+  mutedForeground: string
 }
 
 export const CHART_TOKEN_COUNT = 8
@@ -77,6 +92,11 @@ const OTHER_CLUSTER_COLOR = '#94A3B8'
 const FALLBACK_LABEL_TEXT = '#eee7d9' // --foreground (dark)
 const FALLBACK_LABEL_HALO = '#0d0805' // --background (dark)
 
+// Suggested-direction + ego-center tokens — dark values, same
+// stay-in-sync contract with the `.dark` block as the label tokens above.
+const FALLBACK_PRIMARY = '#e89960' // --primary (dark)
+const FALLBACK_MUTED_FOREGROUND = '#9c8c7c' // --muted-foreground (dark)
+
 const FALLBACK_PALETTE: GraphPalette = {
   edges: FALLBACK_EDGE_COLORS,
   unknownEdge: FALLBACK_UNKNOWN_EDGE_COLOR,
@@ -84,6 +104,8 @@ const FALLBACK_PALETTE: GraphPalette = {
   otherCluster: OTHER_CLUSTER_COLOR,
   labelText: FALLBACK_LABEL_TEXT,
   labelHalo: FALLBACK_LABEL_HALO,
+  primary: FALLBACK_PRIMARY,
+  mutedForeground: FALLBACK_MUTED_FOREGROUND,
 }
 
 /** Cluster fill for a canvas paint callback. -1 / out-of-range = "other". */
@@ -135,6 +157,8 @@ function resolveGraphPalette(): GraphPalette {
     otherCluster: OTHER_CLUSTER_COLOR,
     labelText: readToken(style, '--foreground', FALLBACK_LABEL_TEXT),
     labelHalo: readToken(style, '--background', FALLBACK_LABEL_HALO),
+    primary: readToken(style, '--primary', FALLBACK_PRIMARY),
+    mutedForeground: readToken(style, '--muted-foreground', FALLBACK_MUTED_FOREGROUND),
   }
 }
 

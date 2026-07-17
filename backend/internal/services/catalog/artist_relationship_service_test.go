@@ -733,6 +733,51 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_U
 	suite.Assert().Equal(1, graph.Nodes[0].UpcomingShowCount)
 }
 
+// Ego payloads carry has_playable_audio (mirrors the scene graph's flag) so
+// the canvas can draw the shared violet playable-marker ring.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_PlayableAudioFlags() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Bandcamp Band")
+	a3 := suite.createArtist("Silent Band")
+
+	// Center: embeddable Spotify URL; a2: Bandcamp embed; a3: nothing.
+	spotify := "https://open.spotify.com/artist/4UgQ3EFa8fEeaIEg54uV5b"
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Artist{}).Where("id = ?", a1).Update("spotify", &spotify).Error)
+	embed := "https://bandcamp.com/EmbeddedPlayer/album=123"
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Artist{}).Where("id = ?", a2).Update("bandcamp_embed_url", &embed).Error)
+
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "similar", false)
+	suite.Require().NoError(err)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+	suite.Assert().True(graph.Center.HasPlayableAudio, "center should carry its embeddable-Spotify flag")
+
+	byID := make(map[uint]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		byID[n.ID] = n.HasPlayableAudio
+	}
+	suite.Assert().True(byID[a2], "Bandcamp-embed artist should be flagged playable")
+	suite.Assert().False(byID[a3], "artist with no embeds must not be flagged")
+}
+
+// The playable-audio flag also survives the no-relationships early return.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_PlayableAudio_EmptyGraphCenter() {
+	a1 := suite.createArtist("Lonely Playable")
+	embed := "https://bandcamp.com/EmbeddedPlayer/album=456"
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Artist{}).Where("id = ?", a1).Update("bandcamp_embed_url", &embed).Error)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Empty(graph.Nodes)
+	suite.Assert().True(graph.Center.HasPlayableAudio)
+}
+
 // ──────────────────────────────────────────────
 // PSY-363 — Festival co-lineup (query-time) tests
 // ──────────────────────────────────────────────
