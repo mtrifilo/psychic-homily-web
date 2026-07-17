@@ -27,6 +27,7 @@ interface CapturedProps {
   showAccessibleNodeControls?: boolean
   showEdgeLegend?: boolean
   showConnectionPanel?: boolean
+  showIsolateShelfLabel?: boolean
 }
 let lastProps: CapturedProps | null = null
 
@@ -139,6 +140,7 @@ describe('VenueBillNetworkAdapter selection (PSY-1451)', () => {
     expect(lastProps!.showEdgeLegend).toBe(true)
     expect(lastProps!.showConnectionPanel).toBe(true)
     expect(lastProps!.showAccessibleNodeControls).toBe(true)
+    expect(lastProps!.showIsolateShelfLabel).toBe(true)
   })
 
   it('node click opens the context panel and fetches that artist’s card; second click deselects', () => {
