@@ -138,7 +138,7 @@ export function drawIsolateShelfCaption(
   globalScale: number
 ): void {
   if (count <= 0) return
-  const fontSize = Math.min(
+  let fontSize = Math.min(
     CAPTION_FONT_SCREEN_PX / globalScale,
     CAPTION_MAX_WORLD_PX
   )
@@ -147,6 +147,19 @@ export function drawIsolateShelfCaption(
   const y = geometry.y - CAPTION_TOP_OFFSET
   ctx.save()
   ctx.font = `${CAPTION_FONT_WEIGHT} ${fontSize}px sans-serif`
+  // Measured width clamp (PSY-1456, deferred from the PSY-1454 review): on a
+  // very narrow container at min zoom the counter-scaled caption can grow
+  // wider than the band itself in world units. Shrink the font just enough
+  // that the measured text fits inside the band (mirrored inset on the
+  // right), rather than letting the group label spill past its own boundary.
+  // No lower floor: a smaller-but-contained caption beats an overflowing one,
+  // and the clamp only engages on the smallest screens at the deepest zoom.
+  const maxWidth = geometry.endX + BAND_PAD_X - CAPTION_INSET_X - x
+  const measuredWidth = ctx.measureText(text).width
+  if (measuredWidth > maxWidth && maxWidth > 0) {
+    fontSize = fontSize * (maxWidth / measuredWidth)
+    ctx.font = `${CAPTION_FONT_WEIGHT} ${fontSize}px sans-serif`
+  }
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.lineJoin = 'round'

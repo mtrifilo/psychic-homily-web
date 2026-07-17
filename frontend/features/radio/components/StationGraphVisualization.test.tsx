@@ -28,6 +28,7 @@ interface CapturedProps {
   onConnectionInspectOpen?: () => void
   showAccessibleNodeControls?: boolean
   showIsolateShelfLabel?: boolean
+  labelTiers?: readonly { fontSize: number; fontWeight: number }[]
 }
 let lastProps: CapturedProps | null = null
 
@@ -68,6 +69,7 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
 
 import { StationGraphVisualization } from './StationGraphVisualization'
 import { graphSelectGestureHint } from '@/components/graph/ArtistContextPanel'
+import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
 
 const data: RadioStationGraphResponse = {
   station: {
@@ -154,6 +156,17 @@ describe('StationGraphVisualization', () => {
       />,
     )
     expect(lastProps!.showIsolateShelfLabel).toBe(true)
+  })
+
+  it('opts into the Section label-tier ladder (PSY-1456, locked)', () => {
+    render(
+      <StationGraphVisualization
+        data={data}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />,
+    )
+    expect(lastProps!.labelTiers).toBe(SECTION_LABEL_TIERS)
   })
 
   it('omits height when not provided so ForceGraphView applies its default', () => {

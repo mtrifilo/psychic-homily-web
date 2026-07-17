@@ -68,6 +68,64 @@ export function labelFontSize(globalScale: number): number {
   return Math.max(9, Math.min(13, 11 / globalScale))
 }
 
+// ──────────────────────────────────────────────
+// Tiered label ladders (PSY-1456, locked spec)
+//
+// Labels tier by connectivity so hubs read before leaves. Sizes are SCREEN px
+// at fitted zoom — labels draw in GRAPH space, so the consumer divides by the
+// zoom factor at draw time (the PSY-1443 gotcha; reason about the ladders in
+// screen px, never in graph-space clamp values). Weights are canvas numeric
+// font weights. The homepage teaser's EMBED ladder (17/13/11) predates this
+// module and stays in homeSceneGraphMap.ts — it tiers by a curated activity
+// blend, not raw degree, so it is deliberately NOT unified here.
+// ──────────────────────────────────────────────
+
+export interface GraphLabelTierStyle {
+  fontSize: number
+  fontWeight: 400 | 500 | 600
+}
+
+/** Section-class surfaces (scene · station · venue): 14/11/9 @ 600/500/400. */
+export const SECTION_LABEL_TIERS: readonly GraphLabelTierStyle[] = [
+  { fontSize: 14, fontWeight: 600 },
+  { fontSize: 11, fontWeight: 500 },
+  { fontSize: 9, fontWeight: 400 },
+]
+
+/** Tool-class surfaces (/graph Observatory · artist ego dialog): 15/12/10
+ * @ 600/500/400. DOI score replaces raw degree as the tier rank when the
+ * host supplies it; the ego center is always assigned the top tier. */
+export const TOOL_LABEL_TIERS: readonly GraphLabelTierStyle[] = [
+  { fontSize: 15, fontWeight: 600 },
+  { fontSize: 12, fontWeight: 500 },
+  { fontSize: 10, fontWeight: 400 },
+]
+
+/**
+ * Assign each rendered node a tier style: rank by `scoreOf` (degree, or DOI on
+ * Tool surfaces) descending and split into equal terciles — same derivation as
+ * the homepage teaser's curated map, so the grammar reads identically across
+ * surfaces. `nodeIds` must be the RENDERED set (post cluster/edge-type
+ * filtering), so hiding a cluster re-terciles what's actually on screen.
+ * JS sort is stable, so equal scores keep the caller's input order — pass a
+ * deterministic node order for deterministic tiers. Pure; memoize in the
+ * caller (never per frame).
+ */
+export function labelTierStyles<Id extends string | number>(
+  nodeIds: readonly Id[],
+  scoreOf: (id: Id) => number,
+  tiers: readonly GraphLabelTierStyle[],
+): Map<Id, GraphLabelTierStyle> {
+  const ranked = [...nodeIds].sort((a, b) => scoreOf(b) - scoreOf(a))
+  const tierSize = Math.max(1, Math.ceil(ranked.length / tiers.length))
+  const styles = new Map<Id, GraphLabelTierStyle>()
+  ranked.forEach((id, index) => {
+    const tierIndex = Math.min(tiers.length - 1, Math.floor(index / tierSize))
+    styles.set(id, tiers[tierIndex])
+  })
+  return styles
+}
+
 // Budget carried over from ForceGraphView's pre-PSY-1445 threshold: long enough
 // that most artist/venue names fit on one line at the shared font size without
 // the canvas label overrunning a typical node's collision box, short enough

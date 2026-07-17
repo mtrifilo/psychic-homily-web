@@ -28,6 +28,12 @@ function makeCtx() {
   return {
     save: vi.fn(),
     restore: vi.fn(),
+    // Deterministic width from the current font px (jsdom canvas returns 0):
+    // ~0.6em per glyph, the same heuristic the graphLabels tests use.
+    measureText(this: { font: string }, text: string) {
+      const px = Number(/(\d+(?:\.\d+)?)px/.exec(this.font)?.[1] ?? 10)
+      return { width: text.length * px * 0.6 }
+    },
     fillRect: vi.fn(),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
@@ -149,6 +155,30 @@ describe('drawIsolateShelfCaption', () => {
     const ctx = makeCtx()
     drawIsolateShelfCaption(ctx, palette, isolateShelfGeometry(1000, 500), 5, 2)
     expect(ctx.font).toContain(`${12 / 2}px`)
+  })
+
+  // PSY-1456 (deferred LOW from the PSY-1454 adversarial review): on a very
+  // narrow container at min zoom the counter-scaled caption grew wider than
+  // the band in world units and spilled past its right edge. The draw now
+  // measures the text and shrinks the font just enough to fit the band.
+  it('shrinks the caption to fit the band on a narrow container at min zoom', () => {
+    const ctx = makeCtx()
+    const geometry = isolateShelfGeometry(400, 500)
+    drawIsolateShelfCaption(ctx, palette, geometry, 5, 0.4)
+    const fontPx = Number(/(\d+(?:\.\d+)?)px/.exec((ctx as unknown as { font: string }).font)?.[1])
+    // Unclamped it would be the 26 world-px cap; the measured clamp shrinks it…
+    expect(fontPx).toBeLessThan(26)
+    // …so the measured text exactly fits the band's inner width (band spans
+    // ±0.4*400 plus 32px padding each side, minus the mirrored 16px inset).
+    const maxWidth = 400 * 0.8 + 2 * 32 - 2 * 16
+    const text = '+5 not yet connected artists'
+    expect(text.length * fontPx * 0.6).toBeCloseTo(maxWidth, 5)
+  })
+
+  it('leaves the caption font at the world-px cap when the band is wide enough', () => {
+    const ctx = makeCtx()
+    drawIsolateShelfCaption(ctx, palette, isolateShelfGeometry(1000, 500), 5, 0.4)
+    expect((ctx as unknown as { font: string }).font).toContain('26px')
   })
 
   it('draws nothing for a zero or negative count', () => {

@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   LABEL_MIN_SCALE,
+  SECTION_LABEL_TIERS,
+  TOOL_LABEL_TIERS,
   TRUNCATE_KEEP_LENGTH,
   TRUNCATE_MAX_LENGTH,
   degreeMap,
   labelFontSize,
+  labelTierStyles,
   paintGraphLabelPointerArea,
   renderGraphLabels,
   truncateLabel,
@@ -191,6 +194,96 @@ describe('shared label constants (PSY-1445)', () => {
     expect(truncateLabel(exactly22)).toBe(exactly22)
     expect(truncateLabel('B'.repeat(23))).toBe('B'.repeat(TRUNCATE_KEEP_LENGTH) + '…')
     expect(truncateLabel('They Are Gutting a Body of Water')).toBe('They Are Gutting a B…')
+  })
+})
+
+// PSY-1456: tiered label ladders are a LOCKED design decision (spec cards on
+// the "Grammar build-out mocks" Figma board). These tests pin both the ladder
+// values and the tercile derivation so a ranking change can't silently
+// reshuffle which names read largest.
+describe('tiered label ladders (PSY-1456)', () => {
+  it('pins the Section ladder at 14/11/9 @ 600/500/400', () => {
+    expect(SECTION_LABEL_TIERS).toEqual([
+      { fontSize: 14, fontWeight: 600 },
+      { fontSize: 11, fontWeight: 500 },
+      { fontSize: 9, fontWeight: 400 },
+    ])
+  })
+
+  it('pins the Tool ladder at 15/12/10 @ 600/500/400', () => {
+    expect(TOOL_LABEL_TIERS).toEqual([
+      { fontSize: 15, fontWeight: 600 },
+      { fontSize: 12, fontWeight: 500 },
+      { fontSize: 10, fontWeight: 400 },
+    ])
+  })
+})
+
+describe('labelTierStyles', () => {
+  const score = (byId: Record<number, number>) => (id: number) => byId[id] ?? 0
+
+  it('splits a set into equal terciles by descending score', () => {
+    const styles = labelTierStyles<number>(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      score({ 1: 90, 2: 80, 3: 70, 4: 60, 5: 50, 6: 40, 7: 30, 8: 20, 9: 10 }),
+      SECTION_LABEL_TIERS,
+    )
+    expect([1, 2, 3].map(id => styles.get(id))).toEqual(
+      Array(3).fill(SECTION_LABEL_TIERS[0]),
+    )
+    expect([4, 5, 6].map(id => styles.get(id))).toEqual(
+      Array(3).fill(SECTION_LABEL_TIERS[1]),
+    )
+    expect([7, 8, 9].map(id => styles.get(id))).toEqual(
+      Array(3).fill(SECTION_LABEL_TIERS[2]),
+    )
+  })
+
+  it('ranks by score, not input order', () => {
+    const styles = labelTierStyles(
+      [7, 1, 4],
+      score({ 1: 100, 4: 50, 7: 5 }),
+      TOOL_LABEL_TIERS,
+    )
+    expect(styles.get(1)).toEqual(TOOL_LABEL_TIERS[0])
+    expect(styles.get(4)).toEqual(TOOL_LABEL_TIERS[1])
+    expect(styles.get(7)).toEqual(TOOL_LABEL_TIERS[2])
+  })
+
+  it('keeps input order among equal scores (stable sort → deterministic tiers)', () => {
+    const styles = labelTierStyles([5, 6, 7], () => 3, SECTION_LABEL_TIERS)
+    expect(styles.get(5)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(6)).toEqual(SECTION_LABEL_TIERS[1])
+    expect(styles.get(7)).toEqual(SECTION_LABEL_TIERS[2])
+  })
+
+  it('gives every node the top tier when the set is a single node', () => {
+    const styles = labelTierStyles([42], () => 0, SECTION_LABEL_TIERS)
+    expect(styles.get(42)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.size).toBe(1)
+  })
+
+  it('fills tiers top-down for sets smaller than the ladder', () => {
+    const styles = labelTierStyles([1, 2], score({ 1: 2, 2: 1 }), TOOL_LABEL_TIERS)
+    expect(styles.get(1)).toEqual(TOOL_LABEL_TIERS[0])
+    expect(styles.get(2)).toEqual(TOOL_LABEL_TIERS[1])
+  })
+
+  it('rounds tier size up so the bottom tier absorbs the remainder', () => {
+    // n=4 → tierSize ceil(4/3)=2 → tiers 0,0,1,1 (no node falls off the ladder).
+    const styles = labelTierStyles(
+      [1, 2, 3, 4],
+      score({ 1: 9, 2: 8, 3: 7, 4: 6 }),
+      SECTION_LABEL_TIERS,
+    )
+    expect(styles.get(1)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(2)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(3)).toEqual(SECTION_LABEL_TIERS[1])
+    expect(styles.get(4)).toEqual(SECTION_LABEL_TIERS[1])
+  })
+
+  it('returns an empty map for an empty rendered set', () => {
+    expect(labelTierStyles([], () => 0, SECTION_LABEL_TIERS).size).toBe(0)
   })
 })
 

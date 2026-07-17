@@ -71,6 +71,8 @@ import {
   LABEL_MIN_SCALE,
   degreeMap,
   labelFontSize,
+  labelTierStyles,
+  type GraphLabelTierStyle,
   paintGraphLabelPointerArea,
   renderGraphLabels,
   truncateLabel,
@@ -388,8 +390,19 @@ export interface ForceGraphViewProps {
    * EVERY surface in PSY-1447; it is no longer mode-specific.)
    */
   staticViewport?: boolean
-  /** Optional per-node typography for curated map surfaces. */
+  /** Optional per-node typography for curated map surfaces. Wins over
+   * `labelTiers` per node — a curated map's editorial ranking is the point. */
   nodeLabelStyles?: ReadonlyMap<number, GraphNodeLabelStyle>
+  /**
+   * Degree-tiered label typography (PSY-1456, locked spec): pass a ladder
+   * (e.g. `SECTION_LABEL_TIERS` from graphLabels) to size labels by tercile
+   * of degree over the RENDERED node set (post cluster/edge-type filtering),
+   * so hubs read before leaves at rest. Ladder sizes are screen px — the
+   * label pass counter-scales them by zoom. Omit for the legacy flat
+   * `labelFontSize` clamp. Collision priority, hover force-label, and the
+   * zoom gate are unaffected.
+   */
+  labelTiers?: readonly GraphLabelTierStyle[]
   /** Always draw every node label, even when labels overlap (curated ≤20-node maps). */
   forceNodeLabels?: boolean
   /**
@@ -455,6 +468,7 @@ export function ForceGraphView({
   onConnectionInspectOpen,
   staticViewport = false,
   nodeLabelStyles = EMPTY_NODE_LABEL_STYLES,
+  labelTiers,
   forceNodeLabels = false,
   nodeOverlays = EMPTY_NODE_OVERLAYS,
   nodeOverlayPlacement = 'above',
@@ -1138,16 +1152,32 @@ export function ForceGraphView({
   // surfaces can't drift.
   const degreeById = useMemo(() => degreeMap(renderData.links), [renderData])
 
+  // Degree-tiered typography (PSY-1456): terciles over the RENDERED node set,
+  // so toggling a cluster or edge type re-terciles what's actually on screen.
+  // Null when the surface didn't opt in (legacy flat clamp).
+  const tierStylesById = useMemo(
+    () =>
+      labelTiers
+        ? labelTierStyles(
+            renderData.nodes.map(node => node.id),
+            id => degreeById.get(id) ?? 0,
+            labelTiers
+          )
+        : null,
+    [labelTiers, renderData, degreeById]
+  )
+
   const labelSpecForNode = useCallback(
     (node: RenderNode, globalScale: number): GraphLabelSpec => {
       const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
-      const labelStyle = nodeLabelStyles.get(node.id)
+      const labelStyle =
+        nodeLabelStyles.get(node.id) ?? tierStylesById?.get(node.id)
       return {
         x: node.x ?? 0,
         y: (node.y ?? 0) + radius + 3,
         text: truncateLabel(node.name),
-        // Curated tier sizes are screen-pixel contracts, so counter-scale
-        // them like the shared default. Collision boxes stay in graph space.
+        // Curated and degree-tier sizes are screen-pixel contracts, so
+        // counter-scale them by zoom. Collision boxes stay in graph space.
         fontSize: labelStyle
           ? labelStyle.fontSize / globalScale
           : labelFontSize(globalScale),
@@ -1156,7 +1186,7 @@ export function ForceGraphView({
         priority: degreeById.get(node.id) ?? 0,
       }
     },
-    [degreeById, forceNodeLabels, hoveredNode, nodeLabelStyles],
+    [degreeById, forceNodeLabels, hoveredNode, nodeLabelStyles, tierStylesById],
   )
 
   const syncNodeOverlayPositions = useCallback(() => {

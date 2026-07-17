@@ -29,6 +29,7 @@
  */
 
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
+import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
 import {
   ArtistContextPanel,
   graphSelectGestureHint,
@@ -111,6 +112,9 @@ export function StationGraphVisualization({
         // shelf reads as a labeled group (containment band + "+{N} not yet
         // connected artists" caption).
         showIsolateShelfLabel
+        // PSY-1456 (locked): Section-class labels tier 14/11/9 by degree
+        // tercile over the rendered set, so hubs read before leaves at rest.
+        labelTiers={SECTION_LABEL_TIERS}
       />
       {selectedNode && (
         <ArtistContextPanel
