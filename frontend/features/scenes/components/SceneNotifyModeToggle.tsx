@@ -5,17 +5,23 @@ import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useFollowStatus } from '@/lib/hooks/common/useFollow'
+import { InfoTooltip } from '@/components/shared/InfoTooltip'
 import { cn } from '@/lib/utils'
 
 const MODES = [
-  { value: 'all', label: 'All shows' },
+  { value: 'off', label: 'Off' },
   { value: 'followed_bands_only', label: 'Bands I follow' },
+  { value: 'all', label: 'All shows' },
 ] as const
 
 /**
- * Scene-follow notification mode (PSY-1341): once following, choose between
- * every new show in the metro or only shows featuring bands you already
- * follow (the maintainer-decided semantics from the PSY-1314 spike). Renders
+ * Scene-follow immediate new-show alert mode (PSY-1341; `off` added in
+ * PSY-1466/PSY-1468): once following, choose whether to get alerted on every
+ * new show in the metro, only shows featuring bands you already follow (the
+ * maintainer-decided semantics from the PSY-1314 spike), or nothing at all.
+ * This is scoped to immediate alerts ONLY — it's independent of the separate
+ * weekly Scene digest opt-in (account notification settings); muting alerts
+ * here does not touch the digest subscription, and vice versa. Renders
  * nothing until the scene is followed — the mode is meaningless before then.
  * Re-POSTing the follow with a mode updates it (the endpoint is idempotent).
  */
@@ -61,32 +67,38 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
   const current = data.notify_mode || 'all'
 
   return (
-    <div
-      role="radiogroup"
-      aria-label="New-show notifications"
-      className="flex items-center gap-1 text-xs"
-    >
-      <span className="text-muted-foreground">Notify:</span>
-      {MODES.map(m => (
-        <button
-          key={m.value}
-          type="button"
-          role="radio"
-          aria-checked={current === m.value}
-          disabled={setMode.isPending}
-          onClick={() => {
-            if (current !== m.value) setMode.mutate(m.value)
-          }}
-          className={cn(
-            'rounded-full border px-2 py-0.5 transition-colors',
-            current === m.value
-              ? 'border-primary text-foreground'
-              : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground'
-          )}
-        >
-          {m.label}
-        </button>
-      ))}
+    <div className="flex flex-wrap items-center gap-1 text-xs">
+      <div
+        role="radiogroup"
+        aria-label="New-show alerts"
+        className="flex flex-wrap items-center gap-1"
+      >
+        <span className="text-muted-foreground">Alerts:</span>
+        {MODES.map(m => (
+          <button
+            key={m.value}
+            type="button"
+            role="radio"
+            aria-checked={current === m.value}
+            disabled={setMode.isPending}
+            onClick={() => {
+              if (current !== m.value) setMode.mutate(m.value)
+            }}
+            className={cn(
+              'rounded-full border px-2 py-0.5 transition-colors',
+              current === m.value
+                ? 'border-primary text-foreground'
+                : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground'
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <InfoTooltip
+        label="What do these alerts control?"
+        copy="Controls immediate alerts when a new show is added to this scene. It doesn't change the separate weekly Scene digest email."
+      />
     </div>
   )
 }
