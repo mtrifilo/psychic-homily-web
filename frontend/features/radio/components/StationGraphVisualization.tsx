@@ -107,6 +107,10 @@ export function StationGraphVisualization({
         // Edge click opens the ConnectionPanel — deselect so the two
         // inspectors never stack.
         onConnectionInspectOpen={handleConnectionInspectOpen}
+        // Locked grammar decision 4 (PSY-1454): the Section-class isolate
+        // shelf reads as a labeled group (containment band + "+{N} not yet
+        // connected artists" caption).
+        showIsolateShelfLabel
       />
       {selectedNode && (
         <ArtistContextPanel

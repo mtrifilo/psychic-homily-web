@@ -27,6 +27,7 @@ interface CapturedProps {
   onBackgroundClick?: () => void
   onConnectionInspectOpen?: () => void
   showAccessibleNodeControls?: boolean
+  showIsolateShelfLabel?: boolean
 }
 let lastProps: CapturedProps | null = null
 
@@ -142,6 +143,17 @@ describe('StationGraphVisualization', () => {
     expect(lastProps!.containerWidth).toBe(777)
     expect(lastProps!.height).toBe(500)
     expect(lastProps!.hiddenClusterIDs).toBe(hidden)
+  })
+
+  it('opts into the labeled isolate shelf (PSY-1454, locked grammar decision 4)', () => {
+    render(
+      <StationGraphVisualization
+        data={data}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />,
+    )
+    expect(lastProps!.showIsolateShelfLabel).toBe(true)
   })
 
   it('omits height when not provided so ForceGraphView applies its default', () => {

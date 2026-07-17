@@ -47,6 +47,7 @@ vi.mock('@/components/graph/ForceGraphView', () => ({
     showAccessibleNodeControls?: boolean
     onNodeClick: (node: { id: number; name: string; slug: string }) => void
     onBackgroundClick?: () => void
+    showIsolateShelfLabel?: boolean
   }) => (
     <div
       data-testid="force-graph-view"
@@ -55,6 +56,7 @@ vi.mock('@/components/graph/ForceGraphView', () => ({
       data-accessible-node-controls={String(
         props.showAccessibleNodeControls ?? false
       )}
+      data-isolate-shelf-label={String(props.showIsolateShelfLabel ?? false)}
       data-label-sizes={JSON.stringify(
         [...(props.nodeLabelStyles?.values() ?? [])].map(
           style => style.fontSize
@@ -299,6 +301,12 @@ describe('HomeSceneGraph', () => {
     ).toBeInTheDocument()
     // Delta is is_isolate: true — it must not reach ForceGraphView.
     expect(screen.queryByRole('button', { name: 'node-delta' })).toBeNull()
+    // PSY-1454 negative pin: the homepage teaser must NOT opt into the
+    // labeled isolate shelf (its payload excludes isolates entirely).
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'data-isolate-shelf-label',
+      'false'
+    )
   })
 
   it('shows the empty card when the scene has fewer than 3 CONNECTED artists, even with isolates present (PSY-1444)', async () => {

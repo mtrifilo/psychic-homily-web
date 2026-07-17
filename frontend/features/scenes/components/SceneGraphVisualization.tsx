@@ -130,6 +130,10 @@ export function SceneGraphVisualization({
         // PSY-1334: click an edge to inspect why the pair is connected.
         showConnectionPanel
         onConnectionInspectOpen={handleConnectionInspectOpen}
+        // Locked grammar decision 4 (PSY-1454): the Section-class isolate
+        // shelf reads as a labeled group (containment band + "+{N} not yet
+        // connected artists" caption).
+        showIsolateShelfLabel
       />
       {currentSelectedNode && (
         <ArtistContextPanel

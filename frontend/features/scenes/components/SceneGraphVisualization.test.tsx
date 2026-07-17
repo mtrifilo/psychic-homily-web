@@ -33,6 +33,7 @@ interface CapturedProps {
   onBackgroundClick?: () => void
   onConnectionInspectOpen?: () => void
   showAccessibleNodeControls?: boolean
+  showIsolateShelfLabel?: boolean
 }
 let lastProps: CapturedProps | null = null
 
@@ -214,6 +215,17 @@ describe('SceneGraphVisualization', () => {
       />
     )
     expect(lastProps!.showAccessibleNodeControls).toBe(true)
+  })
+
+  it('opts into the labeled isolate shelf (PSY-1454, locked grammar decision 4)', () => {
+    render(
+      <SceneGraphVisualization
+        data={data}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    expect(lastProps!.showIsolateShelfLabel).toBe(true)
   })
 
   // ── PSY-1451: node click selects into the context panel ──
