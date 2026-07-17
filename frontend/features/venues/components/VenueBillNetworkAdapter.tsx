@@ -23,9 +23,11 @@
  * capture phase, so the overlay's own Esc listener (which skips
  * defaultPrevented) closes only on the NEXT press.
  *
- * The "StyleAdapter" suffix in the export name is intentional: it signals
- * that this component does *no* layout / canvas work itself, only data
- * shaping, so future readers don't expect to find d3-force config here.
+ * The "StyleAdapter" suffix in the export name signals that this component
+ * does *no* canvas / d3-force work itself — that all lives in ForceGraphView.
+ * It DOES own the venue surface's selection state, the graph-card query, and
+ * the floating panel's mount point (the focusable canvas wrap), same as the
+ * scene and station adapters.
  */
 
 import { ForceGraphView } from '@/components/graph/ForceGraphView'

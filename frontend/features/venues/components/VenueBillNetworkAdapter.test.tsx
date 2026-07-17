@@ -45,6 +45,12 @@ vi.mock('@/features/artists/hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
 }))
 
+// The adapter no longer imports the router (PSY-1451 removed the
+// click-navigates path). The mock is a TRIPWIRE only: if someone
+// reintroduces a `router.push` into this render tree, the assertion below
+// catches it. It does NOT guard against navigation via <Link> or
+// window.location — the selection test's "Open page →" href assertion pins
+// where navigation actually lives.
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -162,7 +168,7 @@ describe('VenueBillNetworkAdapter connection panel (PSY-1455)', () => {
     // row). Scoped to the panel — the adapter's EdgeLegend also says
     // "Shared Bills".
     expect(within(panel).getByText('Shared Bills')).toBeInTheDocument()
-    // Edge clicks inspect; nothing on this surface navigates directly —
+    // Tripwire for a reintroduced router.push (see the mock's comment) —
     // node clicks select into the ArtistContextPanel (PSY-1451 grammar).
     expect(mockPush).not.toHaveBeenCalled()
   })
