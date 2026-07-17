@@ -74,6 +74,8 @@ const data: VenueBillNetworkResponse = {
     city: 'Phoenix',
     state: 'AZ',
     artist_count: 3,
+    artist_total: 3,
+    roster_truncated: false,
     edge_count: 2,
     show_count: 25,
     window: 'all_time',

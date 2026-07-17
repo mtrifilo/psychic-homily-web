@@ -44,12 +44,16 @@ const (
 	venueBillMinSharedShows = 2
 
 	// venueBillMaxNodes is the hard ceiling on graph nodes. This was the
-	// only uncapped graph surface — festivalGraphMaxNodes and
-	// stationGraphMaxNodeLimit are both 150 — and an unbounded payload made
-	// the frontend's synchronous warmup pre-settle blow its ~100ms
-	// main-thread budget on large venues (measurements live with
-	// WARMUP_TICKS in frontend/components/graph/ForceGraphView.tsx; this
-	// cap is what keeps that budget honest). When the cap bites, at-venue
+	// only uncapped catalog graph surface — festivalGraphMaxNodes and
+	// stationGraphMaxNodeLimit are both 150 (the community collection graph
+	// remains uncapped; see the WARMUP_TICKS comment in
+	// frontend/components/graph/ForceGraphView.tsx) — and an unbounded
+	// payload made the frontend's synchronous warmup pre-settle blow its
+	// ~100ms main-thread budget on large venues (measurements live with
+	// that WARMUP_TICKS comment; this cap is what keeps the budget honest;
+	// link count needs no cap of its own — the digest cost is dominated by
+	// node count, measured flat across a 375→1125-link sweep at this
+	// ceiling). When the cap bites, at-venue
 	// show count decides who stays — the venue's regulars, i.e. the dense
 	// co-bill core the graph exists to show. In the common shape the cut
 	// line falls among one-off performers, which are guaranteed isolates
@@ -163,8 +167,12 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 	//     describes the source data. ArtistCount is assigned from the built
 	//     node list at the end (not from the capped artist set) so it always
 	//     equals len(nodes): the frontend header and aria-label both
-	//     describe the graph, not the venue's full history.
+	//     describe the graph, not the venue's full history. ArtistTotal +
+	//     RosterTruncated disclose the cap (scene graph's "not a silent
+	//     cap" convention) so the truncation is visible to the client.
+	resp.Venue.ArtistTotal = len(artistsByID)
 	capVenueBillArtists(artistsByID, byShow)
+	resp.Venue.RosterTruncated = resp.Venue.ArtistTotal > len(artistsByID)
 
 	resp.Venue.ShowCount = len(showsByID)
 

@@ -202,18 +202,23 @@ const OTHER_CLUSTER_ID = 'other'
 // is the budget the retired animated cooldown used, so layouts settle to the
 // same quality the old animated path reached. The synchronous cost stays
 // inside the locked decision's ~100ms main-thread budget because the graph
-// queries are node-capped at the source: scene/station/festival cap at 150,
-// and venue_bill_network — previously uncapped — got its own 150-node
-// ceiling in PSY-1461 (see venueBillMaxNodes in
-// backend/internal/services/catalog/venue_bill_network.go). Known remaining
-// exception: the collection graph (GetCollectionGraph) has no node cap —
-// its payload is every collection item, so a 300+-item collection can still
-// blow the budget on this same warmup path. Measured synchronous digest
-// cost per mount/data-change (PSY-1461 manual repro, mocked payloads on the
-// venue surface):
-//   -  75 nodes /  85 links (scene scale):      ~37-44ms
-//   - 150 nodes / 375 links (capped worst case): ~48-64ms
-//   - 300 nodes / 750 links (uncapped, for reference): ~116-134ms
+// queries are node-capped at the source: scene caps at 75, station at 75
+// (max 150), festival at 150, and venue_bill_network — previously
+// uncapped — got its own 150-node ceiling in PSY-1461 (see
+// venueBillMaxNodes in
+// backend/internal/services/catalog/venue_bill_network.go). Known
+// remaining exception: the collection graph (GetCollectionGraph) has no
+// node cap — its payload is every collection item, so a 300+-item
+// collection can still blow the budget on this warmup path. Link counts
+// are nowhere hard-capped (bounded only by each query's edge threshold
+// and the node cap's pair space), but that's fine: the digest cost is
+// dominated by NODE count, measured flat across a link-density sweep.
+// Measured synchronous digest cost per mount/data-change (PSY-1461 manual
+// repro, mocked payloads on the venue surface):
+//   -  75 nodes /   85 links (scene scale):              ~37-44ms
+//   - 150 nodes /  375 links (capped, assumed density):  ~48-98ms
+//   - 150 nodes / 750 and 1125 links (density sweep):    ~47-90ms (flat)
+//   - 300 nodes /  750 links (uncapped, for reference):  ~116-134ms
 // If a surface ships a bigger payload, cap its query the way the existing
 // graph endpoints do rather than lowering WARMUP_TICKS — partial warmup
 // with cooldownTicks=0 would freeze layouts mid-settle (see the

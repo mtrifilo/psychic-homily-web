@@ -206,6 +206,13 @@ export interface VenueBillNetworkInfo {
   city?: string
   state?: string
   artist_count: number
+  /**
+   * Full in-window artist count BEFORE the backend's 150-node cap, plus
+   * whether the cap bit — the scene graph's "not a silent cap" convention,
+   * so "top N of M" copy is possible without an API change.
+   */
+  artist_total: number
+  roster_truncated: boolean
   edge_count: number
   show_count: number
   /** Backend-normalized label: "all_time", "last_12m", or "year". */

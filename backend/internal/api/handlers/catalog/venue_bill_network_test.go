@@ -129,6 +129,8 @@ func (s *VenueBillNetworkIntegrationSuite) TestSingleShowNoCoBills() {
 	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(1, graph.Venue.ArtistCount)
+	s.Equal(1, graph.Venue.ArtistTotal, "under the cap, total equals the graph count")
+	s.False(graph.Venue.RosterTruncated, "under the cap, no truncation is disclosed")
 	s.Equal(1, graph.Venue.ShowCount)
 	s.Equal(0, graph.Venue.EdgeCount)
 	s.Require().Len(graph.Nodes, 1)
@@ -337,10 +339,10 @@ func (s *VenueBillNetworkIntegrationSuite) TestNodeCapKeepsVenueRegulars() {
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, r1.ID, r2.ID)
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, r1.ID, r2.ID)
 
-	// 151 one-off artists on a single big bill (equal count=1, equal
+	// maxNodes+1 one-off artists on a single big bill (equal count=1, equal
 	// last-played) → ID-ascending tiebreak drops the 3 highest IDs once the
-	// regulars take 2 of the 150 slots.
-	oneOffs := make([]catalogm.Artist, 151)
+	// regulars take 2 of the maxNodes slots.
+	oneOffs := make([]catalogm.Artist, maxNodes+1)
 	for i := range oneOffs {
 		oneOffs[i] = catalogm.Artist{Name: fmt.Sprintf("One-Off %03d", i)}
 	}
@@ -356,6 +358,8 @@ func (s *VenueBillNetworkIntegrationSuite) TestNodeCapKeepsVenueRegulars() {
 
 	s.Equal(maxNodes, graph.Venue.ArtistCount, "ArtistCount reflects the capped graph")
 	s.Require().Len(graph.Nodes, maxNodes)
+	s.Equal(maxNodes+3, graph.Venue.ArtistTotal, "ArtistTotal discloses the uncapped in-window roster")
+	s.True(graph.Venue.RosterTruncated, "RosterTruncated discloses that the cap bit")
 	s.Equal(3, graph.Venue.ShowCount, "ShowCount stays uncapped")
 	s.Equal(1, graph.Venue.EdgeCount, "regulars' co-bill edge survives the cap")
 
@@ -365,11 +369,12 @@ func (s *VenueBillNetworkIntegrationSuite) TestNodeCapKeepsVenueRegulars() {
 	}
 	s.True(present[r1.ID], "regular must survive the cap")
 	s.True(present[r2.ID], "regular must survive the cap")
-	// With len==150 and both regulars present, pinning the 3 dropped IDs
-	// (highest one-off IDs, per the ID-asc tiebreak) fully determines the
-	// survivor set — the ranking internals themselves are unit-tested next
-	// to capVenueBillArtists.
-	for _, id := range oneOffIDs[148:] {
+	// With len==maxNodes and both regulars present, pinning the 3 dropped
+	// IDs (highest one-off IDs, per the ID-asc tiebreak: maxNodes+1 one-offs
+	// minus the maxNodes-2 slots left after the regulars) fully determines
+	// the survivor set — the ranking internals themselves are unit-tested
+	// next to capVenueBillArtists.
+	for _, id := range oneOffIDs[maxNodes-2:] {
 		s.Falsef(present[id], "one-off %d should be dropped by the cap", id)
 	}
 }
