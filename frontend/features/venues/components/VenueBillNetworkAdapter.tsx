@@ -12,7 +12,11 @@
  *
  * Click semantics: PSY-361 inheritance — clicking a node navigates to that
  * artist's page (the recentering UX lives on the artist side, where the
- * URL `?center=` query param drives the breadcrumb).
+ * URL `?center=` query param drives the breadcrumb). NOTE: the scene
+ * adapter has since moved to the locked click-selects grammar (PSY-1451:
+ * click opens the ArtistContextPanel; navigation only via "Open page →");
+ * this surface is scheduled to follow in its own PR — don't "sync" the
+ * navigation behavior back the other way.
  *
  * The "StyleAdapter" suffix in the export name is intentional: it signals
  * that this component does *no* layout / canvas work itself, only data

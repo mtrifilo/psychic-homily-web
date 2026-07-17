@@ -31,10 +31,12 @@ interface CapturedProps {
   ariaLabel: string
   onNodeClick: (node: GraphNode) => void
   onBackgroundClick?: () => void
+  showAccessibleNodeControls?: boolean
 }
 let lastProps: CapturedProps | null = null
 
 vi.mock('@/components/graph/ForceGraphView', () => ({
+  OTHER_CLUSTER_ID: 'other',
   ForceGraphView: (props: CapturedProps) => {
     lastProps = props
     return (
@@ -66,6 +68,7 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
 }))
 
 import { SceneGraphVisualization } from './SceneGraphVisualization'
+import { graphSelectGestureHint } from './sceneGraphCopy'
 
 const data: SceneGraphResponse = {
   scene: {
@@ -95,8 +98,8 @@ const data: SceneGraphResponse = {
   links: [],
 }
 
-// The select-gesture sentence appended to every scene aria-label (PSY-1451).
-const SELECT_HINT = ' Click a node for that artist’s details.'
+// The shared select-gesture sentence appended to every scene aria-label.
+const SELECT_HINT = ` ${graphSelectGestureHint}`
 
 describe('SceneGraphVisualization', () => {
   beforeEach(() => {
@@ -198,6 +201,17 @@ describe('SceneGraphVisualization', () => {
     expect(lastProps!.height).toBeUndefined()
   })
 
+  it('opts into the accessible node controls so the advertised select gesture has a keyboard path', () => {
+    render(
+      <SceneGraphVisualization
+        data={data}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    expect(lastProps!.showAccessibleNodeControls).toBe(true)
+  })
+
   // ── PSY-1451: node click selects into the context panel ──
 
   it('node click opens the context panel and fetches that artist’s card; second click deselects', () => {
@@ -242,6 +256,19 @@ describe('SceneGraphVisualization', () => {
     ).toBeNull()
     const canvasWrap = screen.getByTestId('force-graph-view').parentElement
     expect(document.activeElement).toBe(canvasWrap)
+  })
+
+  it('background click with no panel open is a no-op (no focus steal)', () => {
+    render(
+      <SceneGraphVisualization
+        data={data}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'canvas-background' }))
+    const canvasWrap = screen.getByTestId('force-graph-view').parentElement
+    expect(document.activeElement).not.toBe(canvasWrap)
   })
 
   it('Escape closes the panel (real DismissableLayer) and claims the keypress from outer layers', () => {

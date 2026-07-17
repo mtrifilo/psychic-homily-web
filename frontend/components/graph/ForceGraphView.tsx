@@ -194,7 +194,9 @@ const HULL_FADE_START = 1.0
 const HULL_FADE_END = 1.6
 const HULL_FILL_ALPHA_MAX = 0.12
 
-const OTHER_CLUSTER_ID = 'other'
+// Exported so callers that mirror the node cull (e.g. a wrapper deciding
+// whether a selected node is still on canvas) can't drift from it.
+export const OTHER_CLUSTER_ID = 'other'
 
 // PSY-1442/PSY-1447: EVERY surface pre-settles the simulation SYNCHRONOUSLY
 // via react-force-graph's warmupTicks so the first painted frame is already

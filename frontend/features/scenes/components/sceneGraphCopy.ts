@@ -1,6 +1,16 @@
 import type { SceneGraphInfo } from '../types'
 
 /**
+ * The select-gesture sentence appended to graph canvas aria-labels under the
+ * locked click-selects grammar: click no longer navigates, so the label must
+ * set that expectation. One shared literal so assistive tech can't hear
+ * different gesture affordances for the same interaction across surfaces
+ * (HomeSceneGraph currently inlines the identical sentence — candidate to
+ * adopt this constant when that surface is next touched).
+ */
+export const graphSelectGestureHint = 'Click a node for that artist’s details.'
+
+/**
  * The ONE source for "how many artists is this graph showing" (PSY-1296) —
  * consumed by both the visual header (SceneGraph) and the canvas aria-label
  * (SceneGraphVisualization), so sighted users and assistive tech can never

@@ -17,9 +17,9 @@
  *   3. Owns the scene-specific aria-label + click semantics; equivalent
  *      pattern lives in `VenueBillNetwork.tsx` for venue scope.
  *
- * Locked grammar (PSY-1451, decision 2026-07-11): on Section-class surfaces
- * a node click SELECTS into the shared ArtistContextPanel; navigation
- * happens only via the panel's "Open page →". Conventions match
+ * Locked grammar (PSY-1451): on Section-class surfaces a node click SELECTS
+ * into the shared ArtistContextPanel; navigation happens only via the
+ * panel's "Open page →". Conventions match
  * HomeSceneGraph (PSY-1345): a second click on the selected node deselects,
  * background click and Esc close, and focus returns to the canvas wrap on
  * close. Esc layering with the fullscreen overlay is handled by the panel's
@@ -37,7 +37,10 @@
  */
 
 import { useCallback, useRef, useState } from 'react'
-import { ForceGraphView } from '@/components/graph/ForceGraphView'
+import {
+  ForceGraphView,
+  OTHER_CLUSTER_ID,
+} from '@/components/graph/ForceGraphView'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
@@ -45,7 +48,7 @@ import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 // code into the scene page's graph chunk (HomeSceneGraph precedent, PSY-868).
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import type { SceneGraphResponse } from '../types'
-import { sceneArtistCountPhrase } from './sceneGraphCopy'
+import { graphSelectGestureHint, sceneArtistCountPhrase } from './sceneGraphCopy'
 
 interface SceneGraphVisualizationProps {
   data: SceneGraphResponse
@@ -79,14 +82,14 @@ export function SceneGraphVisualization({
   // a legend hide or a cluster-mode refetch that drops the node must put the
   // panel away rather than strand it naming an off-canvas artist. The filter
   // mirrors ForceGraphView's own node cull (empty cluster_id falls back to
-  // "other"). React 19.2: clear stale state via the previous-value-guard
-  // idiom (adjust state during render), not a setState-in-effect —
-  // HomeSceneGraph precedent.
+  // OTHER_CLUSTER_ID). React 19.2: clear stale state via the
+  // previous-value-guard idiom (adjust state during render), not a
+  // setState-in-effect — HomeSceneGraph precedent.
   const currentSelectedNode = selectedNode
     ? (data.nodes.find(
         node =>
           node.id === selectedNode.id &&
-          !hiddenClusterIDs.has(node.cluster_id || 'other')
+          !hiddenClusterIDs.has(node.cluster_id || OTHER_CLUSTER_ID)
       ) ?? null)
     : null
   if (selectedNode && !currentSelectedNode) {
@@ -112,12 +115,19 @@ export function SceneGraphVisualization({
     canvasWrapRef.current?.focus()
   }, [])
 
+  // Background click only acts while a panel is open — otherwise a plain
+  // click on empty canvas would steal document focus (and can scroll a
+  // partially-visible canvas into view) as the side effect of a no-op.
+  const handleBackgroundClick = useCallback(() => {
+    if (selectedNode) handlePanelClose()
+  }, [selectedNode, handlePanelClose])
+
   // PSY-1296: describe a capped graph honestly — assistive tech hears the
   // exact phrase the visual header shows (shared sceneGraphCopy source), so
   // the two surfaces can't state different numbers for the same graph. The
-  // trailing sentence names the select gesture (HomeSceneGraph phrasing) —
-  // click no longer navigates, so the label must set that expectation.
-  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. Click a node for that artist’s details.`
+  // trailing shared hint names the select gesture — click no longer
+  // navigates, so the label must set that expectation.
+  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. ${graphSelectGestureHint}`
 
   return (
     <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
@@ -130,7 +140,12 @@ export function SceneGraphVisualization({
         hiddenClusterIDs={hiddenClusterIDs}
         ariaLabel={ariaLabel}
         onNodeClick={handleNodeClick}
-        onBackgroundClick={handlePanelClose}
+        onBackgroundClick={handleBackgroundClick}
+        // The aria-label advertises the select gesture, so keyboard and
+        // screen-reader users need an equivalent: the focus-revealed node
+        // button list drives the same handleNodeClick path (HomeSceneGraph
+        // convention).
+        showAccessibleNodeControls
         // PSY-1083: scene edges are typed (shared_bills / shared_label /
         // member_of / side_project) — opt into the shared edge legend.
         showEdgeLegend

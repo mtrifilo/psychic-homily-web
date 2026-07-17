@@ -7,7 +7,11 @@
  * co-occurrence graph — the station analog of `SceneGraphVisualization`.
  * It owns only the station-specific concerns (a11y label phrasing, click →
  * artist navigation) and delegates canvas, layout, hulls, isolate shelf,
- * and tooltips to the shared component.
+ * and tooltips to the shared component. NOTE: the scene adapter has since
+ * moved to the locked click-selects grammar (PSY-1451: click opens the
+ * ArtistContextPanel; navigation only via "Open page →"); this surface is
+ * scheduled to follow in its own PR, so the click semantics intentionally
+ * differ for now.
  *
  * The edge legend is intentionally OFF: every station edge is the single
  * `radio_cooccurrence` type, so a one-row legend adds noise. The cluster
