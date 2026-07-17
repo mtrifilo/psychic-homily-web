@@ -54,7 +54,7 @@ describe('ForceGraphView staticViewport (PSY-1344)', () => {
     expect(h.lastProps.enableNodeDrag).toBe(false)
   })
 
-  it('disables zoom, pan, and node drag in static-viewport mode', () => {
+  it('disables zoom and pan in static-viewport mode (node drag is retired regardless of mode)', () => {
     renderGraph(true)
     expect(h.lastProps.enableZoomInteraction).toBe(false)
     expect(h.lastProps.enablePanInteraction).toBe(false)

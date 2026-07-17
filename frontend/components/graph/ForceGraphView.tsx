@@ -361,10 +361,11 @@ export interface ForceGraphViewProps {
    * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
    * graph section). Disables wheel-zoom and drag-pan so the canvas never
    * captures page scroll or invites tool-level interaction; click/hover
-   * select still work. (Node drag is retired on EVERY surface — PSY-1452
-   * locked grammar decision — so it is not mode-specific.) It also bypasses the zoom gate on
-   * labels and skips the cancel-fit gesture listeners (no gesture can own
-   * a locked viewport). Off by default — full surfaces keep the tool feel.
+   * select still work. It also bypasses the zoom gate on labels and
+   * skips the cancel-fit gesture listeners (no gesture can own a locked
+   * viewport). Off by default — full surfaces keep the tool feel.
+   * (Node drag is retired on EVERY surface — PSY-1452 locked grammar
+   * decision — so it is not part of this mode; see enableNodeDrag.)
    * (The pre-settle itself — warmupTicks, zero cooldown, instant one-shot
    * zoomToFit — shipped here for static in PSY-1442 and was generalized to
    * EVERY surface in PSY-1447; it is no longer mode-specific.)

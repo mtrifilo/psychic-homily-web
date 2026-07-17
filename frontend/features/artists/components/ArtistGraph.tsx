@@ -1032,7 +1032,9 @@ export function ArtistGraphVisualization({
         nodeLabel={(node: GraphNode) => (node.isCenter ? node.name : '')}
         // PSY-361 / PSY-369 spike: disable node drag to remove the tap-vs-drag ambiguity on
         // touch devices. Tap = expand (PSY-1259), long-press = tooltip (which holds re-center +
-        // view-page); nothing for drag to do.
+        // view-page); nothing for drag to do. Also PSY-1452 (locked grammar decision): node
+        // drag is retired on EVERY graph surface — do not re-enable here even if the
+        // touch-ambiguity tradeoff is revisited.
         enableNodeDrag={false}
         linkSource="source"
         linkTarget="target"
