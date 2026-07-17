@@ -7,6 +7,9 @@ import { Loader2 } from 'lucide-react'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { buildLinkLabel, edgeLineDash, edgeTypeLabel, edgeWidth } from '@/components/graph/edgeGrammar'
 import { useGraphPalette, withHexAlpha } from '@/components/graph/graphPalette'
+import { drawPlayableRing, drawUpcomingShowDot } from '@/components/graph/graphMarkers'
+import { egoFamilyByNodeId, egoFamilyFill, type EgoFillFamily } from '@/components/graph/egoPalette'
+import { EgoTypeLegend } from '@/components/graph/EgoTypeLegend'
 import {
   LABEL_MIN_SCALE,
   degreeMap,
@@ -73,7 +76,7 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 // read/write site. See d3-force's `simulation.nodes()` contract.
 export type ArtistGraphSelection = Pick<
   ArtistGraphNode,
-  'id' | 'name' | 'slug' | 'city' | 'state' | 'upcoming_show_count'
+  'id' | 'name' | 'slug' | 'city' | 'state' | 'upcoming_show_count' | 'has_playable_audio'
 >
 
 interface GraphNode extends ArtistGraphSelection {
@@ -411,6 +414,7 @@ export function ArtistGraphVisualization({
       city: data.center.city,
       state: data.center.state,
       upcoming_show_count: data.center.upcoming_show_count,
+      has_playable_audio: data.center.has_playable_audio,
       isCenter: true,
       val: 8,
     })
@@ -426,6 +430,7 @@ export function ArtistGraphVisualization({
         city: node.city,
         state: node.state,
         upcoming_show_count: node.upcoming_show_count,
+        has_playable_audio: node.has_playable_audio,
         isCenter: false,
         val: 4,
       })
@@ -480,7 +485,25 @@ export function ArtistGraphVisualization({
     // geometry + the why-pinned rationale live in the pure, unit-tested ./egoRingLayout helper.
     pinEgoLayoutPositions(filteredNodes, hopByNodeId, EGO_RING_RADIUS, RING_GAP)
 
-    return { nodes: filteredNodes, links, edgeCounts, cappedTypes }
+    // PSY-1453: relationship-type node fills (locked Option B). Assign each
+    // satellite its fill family from the edges connecting it toward the
+    // center, on the FRESH bare-id links (d3-force later mutates
+    // source/target into objects in place — same capture rationale as the
+    // adjacency memo below). Legend rows key off what's actually rendered.
+    const familyByNodeId = egoFamilyByNodeId(
+      links.map(l => ({
+        sourceId: typeof l.source === 'number' ? l.source : l.source.id,
+        targetId: typeof l.target === 'number' ? l.target : l.target.id,
+        type: l.type,
+      })),
+      data.center.id,
+      hopByNodeId,
+    )
+    const legendFamilies: (EgoFillFamily | null)[] = filteredNodes
+      .filter(n => !n.isCenter)
+      .map(n => familyByNodeId.get(n.id) ?? null)
+
+    return { nodes: filteredNodes, links, edgeCounts, cappedTypes, familyByNodeId, legendFamilies }
   }, [data, activeTypes, hopByNodeId])
 
   // PSY-1275: no force-config effect — the layout is deterministic. Every node carries its pin
@@ -798,69 +821,86 @@ export function ArtistGraphVisualization({
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, 2 * Math.PI)
 
+      // PSY-1453 (locked grammar): the ego indigo/zinc palette is retired —
+      // every surface speaks the shared color language (chart-token fills,
+      // ink rings, and the graphMarkers set).
       if (isCenter) {
-        ctx.fillStyle = '#6366f1' // indigo-500 accent
+        // Center = neutral fill + ink (foreground) ring: distinguished by
+        // size + ring, never a unique hue. ~60% muted-foreground matches the
+        // locked Option B mock's center swatch on both themes.
+        ctx.fillStyle = withHexAlpha(palette.mutedForeground, '99')
         ctx.fill()
-        ctx.strokeStyle = '#818cf8' // indigo-400
+        ctx.strokeStyle = palette.labelText
         ctx.lineWidth = 2
         ctx.stroke()
       } else {
-        // PSY-1259: an expanded satellite reads as an "opened" hub (indigo accent, matching
-        // the center) so the user can see what they've walked into and what's collapsible.
+        // Satellite fill keys to the relationship type of its connecting
+        // edge (locked Option B), mapped onto the shared --chart tokens;
+        // types outside the four families render the neutral "other" grey.
+        const fill = egoFamilyFill(palette, graphData.familyByNodeId.get(node.id) ?? null)
         const isExpanded = expandedIds?.has(node.id) ?? false
-        ctx.fillStyle = isExpanded ? 'rgba(99, 102, 241, 0.3)' : 'rgba(63, 63, 70, 0.6)' // indigo-500/30 vs zinc-700/60
+        ctx.fillStyle = fill
         ctx.fill()
-        ctx.strokeStyle = isExpanded ? '#818cf8' : 'rgba(161, 161, 170, 0.5)' // indigo-400 vs zinc-400/50
+        // PSY-1259: an expanded satellite reads as an "opened" hub — the same
+        // ink ring the center wears, so the user can see what they've walked
+        // into and what's collapsible.
+        ctx.strokeStyle = isExpanded ? palette.labelText : fill
         ctx.lineWidth = isExpanded ? 2 : 1
         ctx.stroke()
 
-        // PSY-1259: a dashed outer ring while this node's expansion fetch is in flight — a
-        // lightweight loading cue (fetches are usually fast/cached, so no animation needed).
+        // PSY-1259: a dashed outer ring while this node's expansion fetch is in
+        // flight — a lightweight loading cue (fetches are usually fast/cached,
+        // so no animation needed). Ink, transitional to the expanded ink ring.
         if (expandingIds?.has(node.id)) {
           ctx.beginPath()
           ctx.arc(x, y, radius + 3, 0, 2 * Math.PI)
           ctx.setLineDash([3, 3])
-          ctx.strokeStyle = '#818cf8'
+          ctx.strokeStyle = palette.labelText
           ctx.lineWidth = 1.5
           ctx.stroke()
           ctx.setLineDash([])
         }
 
         // PSY-1273: suggested expansion direction. The few highest-DOI unexpanded nodes
-        // (suggestedIds, already excludes expanded + expanding from the parent) get a subtle
-        // indigo halo ring + "+" badge so the click-to-expand gesture is discoverable and the
-        // eye is steered toward the most-interesting next steps. Indigo ties the hint to the
-        // "opened" (indigo) state expanding leads to. Static (no animation) so it's reduced-
-        // motion-safe. The ring + badge are world-units, so they scale with the node and stay
-        // visible at EVERY zoom — including the zoomed-out multi-expand view where "which way
-        // next?" matters most. The soft glow (shadowBlur) is the only zoom-gated part: it's a
-        // device-px effect that would bloom over far-zoom dots, so it's added on top only at
-        // readable zoom (when labels show too). save/restore scopes the shadow so it can't leak
-        // onto later paints, and preserves globalAlpha (the hover-focus dim) across it.
+        // (suggestedIds, already excludes expanded + expanding from the parent) get a
+        // DASHED PRIMARY halo ring + "+" badge (PSY-1453 restyle per the approved
+        // Observatory concept) so the click-to-expand gesture is discoverable and the
+        // eye is steered toward the most-interesting next steps. Static (no animation)
+        // so it's reduced-motion-safe. The ring + badge are world-units, so they scale
+        // with the node and stay visible at EVERY zoom — including the zoomed-out
+        // multi-expand view where "which way next?" matters most. The soft glow
+        // (shadowBlur) is the only zoom-gated part: it's a device-px effect that would
+        // bloom over far-zoom dots, so it's added on top only at readable zoom (when
+        // labels show too). save/restore scopes the shadow so it can't leak onto later
+        // paints, and preserves globalAlpha (the hover-focus dim) across it.
         if (suggestedIds?.has(node.id)) {
           ctx.save()
           if (globalScale > LABEL_MIN_SCALE) {
-            ctx.shadowColor = '#818cf8' // indigo-400
+            ctx.shadowColor = palette.primary
             ctx.shadowBlur = 8
           }
           ctx.beginPath()
           ctx.arc(x, y, radius + 1.5, 0, 2 * Math.PI)
-          ctx.strokeStyle = '#a5b4fc' // indigo-300
+          ctx.setLineDash([3, 3])
+          ctx.strokeStyle = palette.primary
           ctx.lineWidth = 1.5
           ctx.stroke()
+          ctx.setLineDash([])
           ctx.restore()
 
           // "+" badge, bottom-right (mirrors the green show dot's top-right geometry).
+          // Primary fill; the glyph + outline use the background token so the badge
+          // holds contrast over any node fill on both themes.
           const bx = x + radius - 1
           const by = y + radius - 1
           ctx.beginPath()
           ctx.arc(bx, by, 4, 0, 2 * Math.PI)
-          ctx.fillStyle = '#6366f1' // indigo-500
+          ctx.fillStyle = palette.primary
           ctx.fill()
-          ctx.strokeStyle = '#c7d2fe' // indigo-200 (contrast on both themes)
+          ctx.strokeStyle = palette.labelHalo
           ctx.lineWidth = 1
           ctx.stroke()
-          ctx.strokeStyle = '#ffffff'
+          ctx.strokeStyle = palette.labelHalo
           ctx.lineWidth = 1.2
           ctx.beginPath()
           ctx.moveTo(bx - 2, by)
@@ -871,17 +911,22 @@ export function ArtistGraphVisualization({
         }
       }
 
-      // Show indicator for upcoming shows
+      // PSY-1379/PSY-1453: shared playable-audio ring — drawn inside the
+      // globalAlpha block so it dims with hover-focus like the rest of the node.
+      if (node.has_playable_audio) {
+        drawPlayableRing(ctx, x, y, radius)
+      }
+
+      // Show indicator for upcoming shows — shared geometry (graphMarkers).
+      // The center keeps no dot: its own page already carries the schedule,
+      // and the locked mock reserves the center for size + ring only.
       if (node.upcoming_show_count > 0 && !isCenter) {
-        ctx.beginPath()
-        ctx.arc(x + radius - 2, y - radius + 2, 3, 0, 2 * Math.PI)
-        ctx.fillStyle = '#22c55e' // green-500
-        ctx.fill()
+        drawUpcomingShowDot(ctx, x, y, radius)
       }
 
       ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
     },
-    [focusedIds, expandedIds, expandingIds, suggestedIds]
+    [focusedIds, expandedIds, expandingIds, suggestedIds, palette, graphData]
   )
 
   // Degree (link count) per node id → label collision priority FALLBACK, used only when no
@@ -1061,6 +1106,10 @@ export function ArtistGraphVisualization({
         maxZoom={3}
         backgroundColor="transparent"
       />
+
+      {/* PSY-1453: canvas-foot legend for the relationship-type node fills
+          (locked Option B mock) — one swatch per family present. */}
+      <EgoTypeLegend families={graphData.legendFamilies} />
 
       {hoveredNode && !hoveredNode.isCenter && (
         <ArtistNodeTooltip

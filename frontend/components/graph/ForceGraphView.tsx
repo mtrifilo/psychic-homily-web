@@ -66,6 +66,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
+import { drawPlayableRing, drawUpcomingShowDot } from './graphMarkers'
 import {
   LABEL_MIN_SCALE,
   degreeMap,
@@ -174,12 +175,9 @@ const CHARGE_STRENGTH = -120
 const NODE_RADIUS = 8
 const ISOLATE_RADIUS = 5
 
-// PSY-1379: playable-audio ring color. A saturated violet, deliberately outside
-// the warm Okabe-Ito cluster palette AND distinct from the green (#22c55e)
-// upcoming-show dot, so the marker reads unambiguously on both themes and against
-// any cluster fill. Hardcoded like the show-dot color (functional indicator, not
-// a cluster/theme token). Exported for the marker test.
-export const PLAYABLE_RING_COLOR = '#a855f7'
+// PSY-1379/PSY-1453: the playable-audio ring + upcoming-show dot are the shared
+// marker set — colors, geometry, and draw calls single-sourced in
+// ./graphMarkers so this surface and the ego graph cannot drift.
 
 // zoomToFit pads the NODE bbox — labels aren't measured, so shelf-END labels
 // can clip at the canvas edge. Deliberately small: a pad wide enough for the
@@ -1048,24 +1046,15 @@ export function ForceGraphView({
       ctx.stroke()
 
       // PSY-1379: playable-audio marker — a ring hugging the node so playability
-      // is scannable at a glance (selecting the node opens a MusicEmbed). Violet
-      // keeps it distinct from the green upcoming-show dot below AND from the warm
-      // Okabe-Ito cluster fills; it hugs the circle (vs a corner badge) so it never
-      // collides with the post-frame labels. Drawn inside the globalAlpha block so
-      // it dims with hover-focus like the rest of the node.
+      // is scannable at a glance (selecting the node opens a MusicEmbed). Drawn
+      // inside the globalAlpha block so it dims with hover-focus like the rest
+      // of the node. Geometry + color shared via graphMarkers (PSY-1453).
       if (node.has_playable_audio) {
-        ctx.beginPath()
-        ctx.arc(x, y, radius + 2.5, 0, Math.PI * 2)
-        ctx.lineWidth = 1.5
-        ctx.strokeStyle = PLAYABLE_RING_COLOR
-        ctx.stroke()
+        drawPlayableRing(ctx, x, y, radius)
       }
 
       if (node.upcoming_show_count > 0) {
-        ctx.beginPath()
-        ctx.arc(x + radius - 1.5, y - radius + 1.5, 2.5, 0, Math.PI * 2)
-        ctx.fillStyle = '#22c55e'
-        ctx.fill()
+        drawUpcomingShowDot(ctx, x, y, radius)
       }
 
       ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed

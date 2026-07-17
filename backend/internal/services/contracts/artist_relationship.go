@@ -41,6 +41,10 @@ type ArtistGraphNode struct {
 	State             string `json:"state,omitempty"`
 	ImageURL          string `json:"image_url,omitempty"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
+	// HasPlayableAudio reports whether selecting this node opens a playable
+	// embed — drives the shared violet playable-marker ring on the ego graph
+	// canvas. Mirrors SceneGraphNode's flag.
+	HasPlayableAudio bool `json:"has_playable_audio,omitempty"`
 }
 
 // ArtistGraphLink represents an edge in the artist relationship graph.

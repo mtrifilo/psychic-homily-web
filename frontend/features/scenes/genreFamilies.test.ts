@@ -9,6 +9,8 @@ const palette: GraphPalette = {
   otherCluster: '#94A3B8',
   labelText: '#ffffff',
   labelHalo: '#000000',
+  primary: '#e89960',
+  mutedForeground: '#9c8c7c',
 }
 
 describe('genreFamilyColor', () => {

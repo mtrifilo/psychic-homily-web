@@ -17,7 +17,8 @@ vi.mock('next/dynamic', () => ({
     },
 }))
 
-import { ForceGraphView, PLAYABLE_RING_COLOR, type GraphNode, type GraphLink } from './ForceGraphView'
+import { ForceGraphView, type GraphNode, type GraphLink } from './ForceGraphView'
+import { PLAYABLE_RING_COLOR } from './graphMarkers'
 
 const nodes: GraphNode[] = [
   { id: 1, name: 'Playable', slug: 'playable', upcoming_show_count: 0, has_playable_audio: true },

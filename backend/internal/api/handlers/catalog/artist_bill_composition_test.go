@@ -255,6 +255,39 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_ArtistNotFou
 
 // --- Helper: minimal artist insert (no upcoming-show requirement) ---
 
+// PSY-1453: bill-composition graph nodes carry has_playable_audio so the
+// mini-graph canvas can draw the shared violet playable-marker ring.
+func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_PlayableAudioFlags() {
+	a := s.deps.ArtistRelationshipService
+	headliner := s.createArtist("HL Playable")
+	opener := s.createArtist("Opener Playable")
+	silent := s.createArtist("Opener Silent")
+
+	embed := "https://bandcamp.com/EmbeddedPlayer/album=789"
+	s.deps.DB.Model(&catalogm.Artist{}).Where("id = ?", headliner).Update("bandcamp_embed_url", &embed)
+	s.deps.DB.Model(&catalogm.Artist{}).Where("id = ?", opener).Update("bandcamp_embed_url", &embed)
+
+	now := time.Now().UTC()
+	for i := 1; i <= 3; i++ {
+		s.seedShowWithBill(fmt.Sprintf("Playable Show %d", i), now.AddDate(0, -i, 0), []billLineupEntry{
+			{headliner, 0, "headliner"}, {opener, 1, "opener"}, {silent, 2, "opener"},
+		})
+	}
+
+	bc, err := a.GetArtistBillComposition(headliner, 0)
+	s.Require().NoError(err)
+	s.Require().False(bc.BelowThreshold)
+
+	s.True(bc.Artist.HasPlayableAudio)
+	s.True(bc.Graph.Center.HasPlayableAudio)
+	byID := make(map[uint]bool, len(bc.Graph.Nodes))
+	for _, n := range bc.Graph.Nodes {
+		byID[n.ID] = n.HasPlayableAudio
+	}
+	s.True(byID[opener], "co-artist with a Bandcamp embed should be flagged playable")
+	s.False(byID[silent], "co-artist with no embeds must not be flagged")
+}
+
 func (s *ArtistBillCompositionIntegrationSuite) createArtist(name string) uint {
 	artist := &catalogm.Artist{Name: name}
 	s.deps.DB.Create(artist)

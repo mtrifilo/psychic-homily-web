@@ -395,6 +395,11 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 		centerState = *centerArtist.State
 	}
 
+	// Playable-audio flag for the center — queried on its own (not batched
+	// with the related artists below) so the no-relationships early return
+	// still carries it. Decorative posture: errors degrade to false.
+	centerPlayable := batchArtistPlayableAudio(s.db, []uint{artistID})[artistID]
+
 	graph := &contracts.ArtistGraph{
 		Center: contracts.ArtistGraphNode{
 			ID:                centerArtist.ID,
@@ -403,6 +408,7 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 			City:              centerCity,
 			State:             centerState,
 			UpcomingShowCount: int(centerShowCount),
+			HasPlayableAudio:  centerPlayable,
 		},
 		Nodes: []contracts.ArtistGraphNode{},
 		Links: []contracts.ArtistGraphLink{},
@@ -550,6 +556,10 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 		showCountMap[sc.ArtistID] = int(sc.ShowCount)
 	}
 
+	// 4b. Batch query playable-audio for every related artist (PSY-1453):
+	// which nodes have an embed worth marking with the shared violet ring.
+	playableMap := batchArtistPlayableAudio(s.db, relatedIDs)
+
 	// 5. Build nodes
 	for _, id := range relatedIDs {
 		a, ok := artistMap[id]
@@ -577,6 +587,7 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 			City:              city,
 			State:             state,
 			UpcomingShowCount: showCountMap[a.ID],
+			HasPlayableAudio:  playableMap[a.ID],
 		})
 	}
 
@@ -801,6 +812,10 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 	}
 
 	centerNode := buildArtistGraphNode(centerArtist, 0)
+	// Playable-audio flag for the shared violet marker ring (PSY-1453).
+	// Queried up front so both the standalone Artist field and the mini
+	// graph's Center copy carry it; decorative — errors degrade to false.
+	centerNode.HasPlayableAudio = batchArtistPlayableAudio(s.db, []uint{artistID})[artistID]
 
 	result := &contracts.ArtistBillComposition{
 		Artist:           centerNode,
@@ -964,6 +979,9 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 		upcomingByID[sc.ArtistID] = int(sc.ShowCount)
 	}
 
+	// Playable-audio batched for the mini graph's co-artist nodes (PSY-1453).
+	playableByID := batchArtistPlayableAudio(s.db, idList)
+
 	// 7. Build OpensWith and ClosesWith lists, top N each.
 	result.OpensWith = sortAndCapCoArtists(opensWithBest, artistByID, upcomingByID, billCompositionTopRows)
 	result.ClosesWith = sortAndCapCoArtists(closesWithBest, artistByID, upcomingByID, billCompositionTopRows)
@@ -974,7 +992,9 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 		if !ok {
 			continue
 		}
-		result.Graph.Nodes = append(result.Graph.Nodes, buildArtistGraphNode(a, upcomingByID[id]))
+		node := buildArtistGraphNode(a, upcomingByID[id])
+		node.HasPlayableAudio = playableByID[id]
+		result.Graph.Nodes = append(result.Graph.Nodes, node)
 
 		agg := graphLinkAgg[id]
 		score := math.Min(float64(agg.count)/10.0, 1.0)

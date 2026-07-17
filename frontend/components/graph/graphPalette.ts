@@ -46,6 +46,16 @@ export interface GraphPalette {
    * legible over colored nodes / cluster hulls on either theme (PSY-1091).
    */
   labelHalo: string
+  /**
+   * Resolved `--primary` — the shared suggested-direction affordance (dashed
+   * primary ring + "+" badge, PSY-1453 restyle of the PSY-1273 DOI hint).
+   */
+  primary: string
+  /**
+   * Resolved `--muted-foreground` — the ego center node's neutral fill
+   * (PSY-1453: center is distinguished by size + ink ring, not a hue).
+   */
+  mutedForeground: string
 }
 
 export const CHART_TOKEN_COUNT = 8
@@ -77,6 +87,11 @@ const OTHER_CLUSTER_COLOR = '#94A3B8'
 const FALLBACK_LABEL_TEXT = '#eee7d9' // --foreground (dark)
 const FALLBACK_LABEL_HALO = '#0d0805' // --background (dark)
 
+// Suggested-direction + ego-center tokens (PSY-1453) — dark values, same
+// stay-in-sync contract with the `.dark` block as the label tokens above.
+const FALLBACK_PRIMARY = '#e89960' // --primary (dark)
+const FALLBACK_MUTED_FOREGROUND = '#9c8c7c' // --muted-foreground (dark)
+
 const FALLBACK_PALETTE: GraphPalette = {
   edges: FALLBACK_EDGE_COLORS,
   unknownEdge: FALLBACK_UNKNOWN_EDGE_COLOR,
@@ -84,6 +99,8 @@ const FALLBACK_PALETTE: GraphPalette = {
   otherCluster: OTHER_CLUSTER_COLOR,
   labelText: FALLBACK_LABEL_TEXT,
   labelHalo: FALLBACK_LABEL_HALO,
+  primary: FALLBACK_PRIMARY,
+  mutedForeground: FALLBACK_MUTED_FOREGROUND,
 }
 
 /** Cluster fill for a canvas paint callback. -1 / out-of-range = "other". */
@@ -135,6 +152,8 @@ function resolveGraphPalette(): GraphPalette {
     otherCluster: OTHER_CLUSTER_COLOR,
     labelText: readToken(style, '--foreground', FALLBACK_LABEL_TEXT),
     labelHalo: readToken(style, '--background', FALLBACK_LABEL_HALO),
+    primary: readToken(style, '--primary', FALLBACK_PRIMARY),
+    mutedForeground: readToken(style, '--muted-foreground', FALLBACK_MUTED_FOREGROUND),
   }
 }
 
