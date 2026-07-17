@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -313,4 +314,62 @@ func (s *VenueBillNetworkIntegrationSuite) TestIsolatesAndUpcomingCount() {
 	s.True(graph.Nodes[0].IsIsolate)
 	s.Equal(1, graph.Nodes[0].AtVenueShowCount, "only past show at this venue counts")
 	s.Equal(1, graph.Nodes[0].UpcomingShowCount, "UpcomingShowCount counts future shows globally")
+}
+
+// TestNodeCapKeepsVenueRegulars (PSY-1461): a roster over the 150-node
+// ceiling is capped, keeping the highest at-venue show counts (the venue's
+// regulars) and dropping the highest-ID one-off performers. ArtistCount
+// reflects the capped graph (it must match the rendered node set), while
+// ShowCount keeps describing the uncapped source data. The cap's ranking
+// semantics are unit-tested next to the service (capVenueBillArtists);
+// this pins the end-to-end wiring. The literal 150 mirrors
+// venueBillMaxNodes in services/catalog (not exported).
+func (s *VenueBillNetworkIntegrationSuite) TestNodeCapKeepsVenueRegulars() {
+	const maxNodes = 150
+
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Cap Bar", "Phoenix", "AZ")
+	now := time.Now().UTC()
+
+	// Two regulars with 2 shared shows — top of the ranking AND the only
+	// pair above the edge threshold.
+	r1 := s.seedArtist("Regular One")
+	r2 := s.seedArtist("Regular Two")
+	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, r1.ID, r2.ID)
+	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, r1.ID, r2.ID)
+
+	// 151 one-off artists on a single big bill (equal count=1, equal
+	// last-played) → ID-ascending tiebreak drops the 3 highest IDs once the
+	// regulars take 2 of the 150 slots.
+	oneOffs := make([]catalogm.Artist, 151)
+	for i := range oneOffs {
+		oneOffs[i] = catalogm.Artist{Name: fmt.Sprintf("One-Off %03d", i)}
+	}
+	s.Require().NoError(s.deps.DB.Create(&oneOffs).Error)
+	oneOffIDs := make([]uint, len(oneOffs))
+	for i, a := range oneOffs {
+		oneOffIDs[i] = a.ID
+	}
+	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, oneOffIDs...)
+
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	s.Require().NoError(err)
+
+	s.Equal(maxNodes, graph.Venue.ArtistCount, "ArtistCount reflects the capped graph")
+	s.Require().Len(graph.Nodes, maxNodes)
+	s.Equal(3, graph.Venue.ShowCount, "ShowCount stays uncapped")
+	s.Equal(1, graph.Venue.EdgeCount, "regulars' co-bill edge survives the cap")
+
+	present := make(map[uint]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		present[n.ID] = true
+	}
+	s.True(present[r1.ID], "regular must survive the cap")
+	s.True(present[r2.ID], "regular must survive the cap")
+	// Survivors: the 148 lowest-ID one-offs. Dropped: the 3 highest.
+	for _, id := range oneOffIDs[:148] {
+		s.Truef(present[id], "one-off %d should survive the cap", id)
+	}
+	for _, id := range oneOffIDs[148:] {
+		s.Falsef(present[id], "one-off %d should be dropped by the cap", id)
+	}
 }

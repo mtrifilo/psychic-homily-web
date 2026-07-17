@@ -19,6 +19,7 @@ package catalog
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,6 +42,18 @@ const (
 	// co-bill pairs at a busy venue would explode the edge count without
 	// the weight-based bounding the stored graph gets from its score.
 	venueBillMinSharedShows = 2
+
+	// venueBillMaxNodes is the hard ceiling on graph nodes. This was the
+	// only uncapped graph surface — festivalGraphMaxNodes and
+	// stationGraphMaxNodeLimit are both 150 — and an unbounded payload made
+	// the frontend's synchronous warmup pre-settle (ForceGraphView's
+	// warmupTicks) blow the ~100ms main-thread budget on large venues
+	// (~116-134ms measured at 300 nodes / 750 edges; ~48-64ms at this cap).
+	// When the cap bites, at-venue show count decides who stays — the
+	// venue's regulars, i.e. the dense co-bill core the graph exists to
+	// show — and the long tail of one-off performers (guaranteed isolates:
+	// one show can never reach venueBillMinSharedShows) drops first.
+	venueBillMaxNodes = 150
 )
 
 // venueBillSourceShow is one approved show at the venue, scoped to the active
@@ -117,18 +130,13 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 	//    to enumerate co-bill pairs in step 4 without the pair-set blowing up
 	//    on a show that listed an artist twice).
 	showsByID := make(map[uint]venueBillSourceShow)
-	type artistAggregate struct {
-		ID               uint
-		AtVenueShowCount int
-		LastPlayedAt     time.Time
-	}
-	artistsByID := make(map[uint]*artistAggregate)
+	artistsByID := make(map[uint]*venueBillArtistAggregate)
 	byShow := make(map[uint]map[uint]struct{})
 	for _, r := range rows {
 		showsByID[r.ShowID] = venueBillSourceShow{ShowID: r.ShowID, EventDate: r.EventDate}
 		agg, ok := artistsByID[r.ArtistID]
 		if !ok {
-			agg = &artistAggregate{ID: r.ArtistID}
+			agg = &venueBillArtistAggregate{ID: r.ArtistID}
 			artistsByID[r.ArtistID] = agg
 		}
 		artists := byShow[r.ShowID]
@@ -144,6 +152,14 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 			}
 		}
 	}
+
+	// 2b. Enforce the node ceiling BEFORE hydration and pair enumeration so
+	//     an oversized roster can't inflate the payload, the batch queries,
+	//     or the O(k²)-per-show pair build. ArtistCount is set AFTER the cap
+	//     so it always equals the rendered node count (the frontend header
+	//     and aria-label both describe the graph, not the venue's full
+	//     history). ShowCount stays uncapped — it describes the source data.
+	capVenueBillArtists(artistsByID, byShow)
 
 	resp.Venue.ShowCount = len(showsByID)
 	resp.Venue.ArtistCount = len(artistsByID)
@@ -267,6 +283,49 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 	}
 
 	return resp, nil
+}
+
+// venueBillArtistAggregate accumulates one artist's at-venue stats while the
+// source rows are folded down; AtVenueShowCount ends up on the node payload
+// and drives the cap ranking below.
+type venueBillArtistAggregate struct {
+	ID               uint
+	AtVenueShowCount int
+	LastPlayedAt     time.Time
+}
+
+// capVenueBillArtists trims artistsByID (and the per-show artist sets that
+// feed the pairwise edge build) down to venueBillMaxNodes. Ranking: at-venue
+// show count desc (the venue's regulars stay), last-played desc as the
+// tiebreak (recent one-offs beat ancient ones), then ID asc so the result is
+// deterministic. Mutates both maps in place; a no-op under the cap.
+func capVenueBillArtists(artistsByID map[uint]*venueBillArtistAggregate, byShow map[uint]map[uint]struct{}) {
+	if len(artistsByID) <= venueBillMaxNodes {
+		return
+	}
+	ranked := make([]*venueBillArtistAggregate, 0, len(artistsByID))
+	for _, agg := range artistsByID {
+		ranked = append(ranked, agg)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].AtVenueShowCount != ranked[j].AtVenueShowCount {
+			return ranked[i].AtVenueShowCount > ranked[j].AtVenueShowCount
+		}
+		if !ranked[i].LastPlayedAt.Equal(ranked[j].LastPlayedAt) {
+			return ranked[i].LastPlayedAt.After(ranked[j].LastPlayedAt)
+		}
+		return ranked[i].ID < ranked[j].ID
+	})
+	for _, agg := range ranked[venueBillMaxNodes:] {
+		delete(artistsByID, agg.ID)
+	}
+	for _, artistSet := range byShow {
+		for id := range artistSet {
+			if _, kept := artistsByID[id]; !kept {
+				delete(artistSet, id)
+			}
+		}
+	}
 }
 
 // normalizeVenueWindow coerces the caller's `window` string to a known value.

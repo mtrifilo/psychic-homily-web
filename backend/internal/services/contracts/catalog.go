@@ -882,7 +882,7 @@ type VenueBillNetworkInfo struct {
 	Name        string `json:"name"`
 	City        string `json:"city,omitempty"`
 	State       string `json:"state,omitempty"`
-	ArtistCount int    `json:"artist_count"` // distinct artists matching the time-window filter
+	ArtistCount int    `json:"artist_count"` // artists in the graph (time-window filtered AND node-capped, so it tracks len(nodes))
 	EdgeCount   int    `json:"edge_count"`   // co-bill pairs above the min-shared-shows threshold
 	ShowCount   int    `json:"show_count"`   // approved shows used to derive the network
 	// WindowLabel describes the active time window in the response so the
