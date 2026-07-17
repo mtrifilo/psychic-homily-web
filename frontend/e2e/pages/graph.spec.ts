@@ -34,7 +34,7 @@ test.describe('Graph Observatory', () => {
     )
 
     await page.getByRole('button', { name: 'Reset' }).click()
-    await expect(page.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Explore the graph.' })).toBeVisible()
     await expect(page.getByText(/Centered on/)).toHaveCount(0)
     await expect(page.getByRole('navigation', { name: 'Graph traversal history' })).toHaveCount(0)
   })

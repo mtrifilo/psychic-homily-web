@@ -658,7 +658,7 @@ export function GraphObservatory() {
               )}
             </button>
             <div className="space-y-1">
-              <h2 className="font-display text-2xl font-medium">Pick a name. See what it touches.</h2>
+              <h2 className="font-display text-2xl font-medium">Explore the graph.</h2>
               <RotatingExample onPick={handleExampleSearch} disabled={pendingLookup === 'example'} />
               {lookupError && (
                 <p role="status" className="text-xs text-destructive">{lookupError}</p>

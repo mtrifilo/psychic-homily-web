@@ -205,7 +205,7 @@ describe('GraphObservatory', () => {
     const user = userEvent.setup()
     renderWithProviders(<GraphObservatory />)
 
-    expect(screen.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
     // All three curated names are stacked in the crossfade; the ACTIVE one is
     // what the button announces (reduced-motion mock freezes it on index 0).
     expect(screen.getByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
@@ -223,7 +223,7 @@ describe('GraphObservatory', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Reset' }))
-    expect(screen.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Graph centered on Diners')).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Graph traversal history' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Mock artist search' })).toHaveFocus())
@@ -267,7 +267,7 @@ describe('GraphObservatory', () => {
     await user.click(screen.getByRole('button', { name: 'Search for Diners' }))
 
     expect(screen.getByRole('status')).toHaveTextContent('Couldn’t find Diners')
-    expect(screen.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
   })
 
   it('does not substitute a fuzzy search hit for the promised example artist', async () => {
@@ -485,7 +485,7 @@ describe('GraphObservatory', () => {
       resolveShuffle?.({ data: shuffleTarget, isError: false })
     })
 
-    expect(screen.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
     expect(fetchGraph).not.toHaveBeenCalled()
   })
 
