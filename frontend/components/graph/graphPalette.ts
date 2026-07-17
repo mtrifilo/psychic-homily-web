@@ -48,7 +48,12 @@ export interface GraphPalette {
   labelHalo: string
   /**
    * Resolved `--primary` — the shared suggested-direction affordance (dashed
-   * primary ring + "+" badge restyle of the DOI hint).
+   * primary ring + "+" badge restyle of the DOI hint). NOTE: the design
+   * tokens currently give `--primary` the same value as `--chart-1` on both
+   * themes, so the hint hue matches the bills node fill — the affordance
+   * stays legible via SHAPE (dash pattern, offset ring, "+" badge with a
+   * background-token outline), not hue. Token values are design-owned;
+   * change them in globals.css, not here.
    */
   primary: string
   /**

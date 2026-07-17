@@ -502,8 +502,21 @@ export function ArtistGraphVisualization({
     const legendFamilies: (EgoFillFamily | null)[] = filteredNodes
       .filter(n => !n.isCenter)
       .map(n => familyByNodeId.get(n.id) ?? null)
+    // Marker legend rows appear only when the marker is actually on canvas
+    // (the center never wears the show dot, so it's excluded there).
+    const hasUpcomingDot = filteredNodes.some(n => !n.isCenter && n.upcoming_show_count > 0)
+    const hasPlayableRing = filteredNodes.some(n => n.has_playable_audio)
 
-    return { nodes: filteredNodes, links, edgeCounts, cappedTypes, familyByNodeId, legendFamilies }
+    return {
+      nodes: filteredNodes,
+      links,
+      edgeCounts,
+      cappedTypes,
+      familyByNodeId,
+      legendFamilies,
+      hasUpcomingDot,
+      hasPlayableRing,
+    }
   }, [data, activeTypes, hopByNodeId])
 
   // PSY-1275: no force-config effect — the layout is deterministic. Every node carries its pin
@@ -863,10 +876,12 @@ export function ArtistGraphVisualization({
         // A dashed ink outer ring while this node's expansion fetch is in
         // flight — a lightweight loading cue (fetches are usually fast/
         // cached, so no animation needed), transitional to the expanded
-        // ink ring above.
+        // ink ring above. Radius +4 sits clear of the playable ring's
+        // annulus (stroke center at +2.5, width 1.5 => outer edge +3.25),
+        // so the two cues never smear together on a playable node.
         if (expandingIds?.has(node.id)) {
           ctx.beginPath()
-          ctx.arc(x, y, radius + 3, 0, 2 * Math.PI)
+          ctx.arc(x, y, radius + 4, 0, 2 * Math.PI)
           ctx.setLineDash([3, 3])
           ctx.strokeStyle = palette.labelText
           ctx.lineWidth = 1.5
@@ -933,8 +948,11 @@ export function ArtistGraphVisualization({
       }
 
       // Show indicator for upcoming shows — shared geometry (graphMarkers).
-      // The center keeps no dot: its own page already carries the schedule,
-      // and the locked mock reserves the center for size + ring only.
+      // The center keeps no SHOW DOT: its own page already carries the
+      // schedule, and the locked mock reserves the center for size + ring.
+      // (The playable ring above is the deliberate exception: the locked AC
+      // gives the center "neutral fill + ink ring + violet playable ring
+      // when applicable".)
       if (node.upcoming_show_count > 0 && !isCenter) {
         drawUpcomingShowDot(ctx, x, y, radius)
       }
@@ -1124,7 +1142,11 @@ export function ArtistGraphVisualization({
 
       {/* Canvas-foot legend for the relationship-type node fills
           (locked Option B mock) — one swatch per family present. */}
-      <EgoTypeLegend families={graphData.legendFamilies} />
+      <EgoTypeLegend
+        families={graphData.legendFamilies}
+        showUpcomingDot={graphData.hasUpcomingDot}
+        showPlayableRing={graphData.hasPlayableRing}
+      />
 
       {hoveredNode && !hoveredNode.isCenter && (
         <ArtistNodeTooltip

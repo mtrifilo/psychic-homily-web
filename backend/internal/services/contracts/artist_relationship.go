@@ -44,7 +44,7 @@ type ArtistGraphNode struct {
 	// HasPlayableAudio reports whether selecting this node opens a playable
 	// embed — drives the shared violet playable-marker ring on the ego graph
 	// canvas. Mirrors SceneGraphNode's flag.
-	HasPlayableAudio bool `json:"has_playable_audio,omitempty"`
+	HasPlayableAudio bool `json:"has_playable_audio"`
 }
 
 // ArtistGraphLink represents an edge in the artist relationship graph.

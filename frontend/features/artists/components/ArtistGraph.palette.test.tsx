@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { ArtistGraph } from '../types'
 
-// PSY-1453: the ego graph retired its indigo/zinc palette for the shared
+// The ego graph retired its indigo/zinc palette for the shared
 // color language — relationship-type chart-token fills (locked Option B),
 // ink center/expanded rings, and the shared graphMarkers set. The visuals
 // are canvas paints jsdom can't render, so this suite guards the glue the
@@ -12,6 +12,10 @@ import type { ArtistGraph } from '../types'
 //
 // jsdom resolves no CSS tokens, so useGraphPalette returns the DARK
 // fallback palette — the values asserted below are those fallbacks.
+// EXCEPTION: --primary is stubbed to a sentinel (see beforeEach). In the
+// real tokens --primary === --chart-1, so fallback-only assertions could
+// not tell "hint uses primary" apart from "hint uses the bills fill";
+// the sentinel makes token misuse in either direction fail loudly.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let forceGraphProps: any = null
@@ -36,7 +40,7 @@ const CHART_8 = '#6db3a6' // radio
 const OTHER = '#94A3B8'
 const INK = '#eee7d9' // --foreground (dark)
 const HALO = '#0d0805' // --background (dark)
-const PRIMARY = '#e89960' // --primary (dark)
+const PRIMARY = '#0f62fe' // sentinel set on documentElement in beforeEach
 const CENTER_FILL = '#9c8c7c99' // --muted-foreground (dark) @ 60%
 
 const graphData: ArtistGraph = {
@@ -133,8 +137,10 @@ function paint(nodeArg: ReturnType<typeof node>, extraProps: Record<string, unkn
 describe('ArtistGraphVisualization — shared palette adoption (PSY-1453)', () => {
   beforeEach(() => {
     forceGraphProps = null
+    document.documentElement.style.setProperty('--primary', PRIMARY)
   })
   afterEach(() => {
+    document.documentElement.style.removeProperty('--primary')
     vi.clearAllMocks()
   })
 
@@ -225,7 +231,8 @@ describe('ArtistGraphVisualization — shared palette adoption (PSY-1453)', () =
       />,
     )
     const legend = screen.getByTestId('ego-type-legend')
-    // bills + radio families, plus the neutral bucket for the similar edge.
-    expect(legend.textContent).toBe('billsradioother')
+    // bills + radio families, the neutral bucket for the similar edge, then
+    // the marker rows (a satellite has an upcoming show; nodes are playable).
+    expect(legend.textContent).toBe('billsradiootherplaying soonplayable audio')
   })
 })

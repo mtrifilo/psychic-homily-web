@@ -3,18 +3,19 @@
  *
  * The ego graph once re-implemented these markers with drifted geometry
  * (show dot radius 3 @ offset 2 vs ForceGraphView's 2.5 @ 1.5).
- * Single-sourcing the colors, geometry, AND the draw calls here
- * makes drift structurally impossible: ArtistGraphVisualization and
- * ForceGraphView both call these helpers instead of hand-rolling arcs.
+ * Single-sourcing the colors, geometry, AND the draw calls here removes
+ * that drift class: ArtistGraphVisualization and ForceGraphView both call
+ * these helpers instead of hand-rolling arcs. (DOM legend swatches that
+ * name these markers should read the color constants too.)
  *
  * Both markers are FUNCTIONAL indicators, not theme/cluster tokens, so the
  * colors are deliberately hardcoded (same posture as pre-extraction):
  *   - green = "has upcoming shows" — matches the green used app-wide for
  *     upcoming-show affordances;
- *   - violet = "selecting this node opens a playable embed" —
- *     deliberately outside the warm chart palette AND distinct from the
- *     green dot, so it reads unambiguously on both themes and over any
- *     node fill.
+ *   - violet = "this artist has playable audio" (surfaces with a
+ *     selection panel open an embed from it) — deliberately outside the
+ *     warm chart palette AND distinct from the green dot, so it reads
+ *     unambiguously on both themes and over any node fill.
  *
  * All geometry is in graph world-units (scales with zoom), relative to the
  * node's circle radius, so the markers hug nodes of any size identically.
