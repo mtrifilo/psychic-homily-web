@@ -39,6 +39,23 @@ test.describe('Graph Observatory', () => {
     await expect(page.getByRole('navigation', { name: 'Graph traversal history' })).toHaveCount(0)
   })
 
+  test('clickable zero-state example centers the graph (PSY-1474 F1/F4)', async ({ page }) => {
+    // Reduced motion freezes the rotating example on its first entry
+    // ('Diners'), making the clicked name deterministic.
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto('/graph')
+
+    await page.getByRole('button', { name: 'Search for Diners' }).click()
+    await expect(page.getByText('Centered on Diners')).toBeVisible()
+
+    // Diners is seeded without relationships → the F4 empty state, with its
+    // random-rabbit-hole escape hatch, replaces the canvas.
+    await expect(page.getByText('No mapped connections yet.')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'A random rabbit hole' }).first(),
+    ).toBeVisible()
+  })
+
   test('/explore hands off to the Observatory', async ({ page }) => {
     await page.goto('/explore')
     await expect(page).toHaveURL(/\/graph$/)

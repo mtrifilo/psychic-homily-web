@@ -90,7 +90,12 @@ VALUES
   ('The Format', NOW(), NOW(), 'the-format'),
   ('Dear and the Headlights', NOW(), NOW(), 'dear-and-the-headlights'),
   ('Sundressed', NOW(), NOW(), 'sundressed'),
-  ('ROAR', NOW(), NOW(), 'roar')
+  ('ROAR', NOW(), NOW(), 'roar'),
+  -- PSY-1474: 'Diners' is the Observatory zero-state's first curated example
+  -- (frozen under reduced motion). Seeded with NO shows/relationships on
+  -- purpose: the clickable-example e2e lands on the "No mapped connections
+  -- yet" empty state, covering the F4 escape hatches in the same pass.
+  ('Diners', NOW(), NOW(), 'diners')
 ON CONFLICT DO NOTHING;
 
 -- PSY-1457: the isolated E2E stack disables relationship derivation, so seed

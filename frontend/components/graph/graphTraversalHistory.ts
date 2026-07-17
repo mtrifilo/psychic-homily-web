@@ -6,13 +6,57 @@
  *
  * The "current" center is *not* stored in the trail. The trail only contains
  * historical anchors (oldest at index 0, most-recent prior at the tail).
- * UI shows up to MAX_TRAIL_SLOTS chips; once exceeded, the OLDEST entry is
- * dropped first so the most recent context is preserved.
+ * Once MAX_TRAIL_SLOTS is exceeded, the OLDEST entry is dropped first so the
+ * most recent context is preserved.
  *
- * Decision: max 3 chips (resolved by user before implementation).
+ * History: the original decision (resolved by user, PSY-361) was max 3 chips
+ * rendered flat. The Observatory refinement board (PSY-1474 F3) supersedes
+ * the RENDER side: long trails middle-collapse into a "… N more" disclosure,
+ * so the history cap is now a memory bound rather than a display bound. The
+ * cap was raised so the collapse is actually reachable.
  */
 
-export const MAX_TRAIL_SLOTS = 3
+export const MAX_TRAIL_SLOTS = 10
+
+/**
+ * Minimum number of trail entries (prior centers, current excluded) at which
+ * the display middle-collapses: first entry, "… N more" disclosure, last
+ * entry. At 4 trail entries the bar would otherwise show 5 names (4 + the
+ * current center) — the "beyond 4 entries" line from the refinement board.
+ */
+export const TRAIL_COLLAPSE_MIN_ENTRIES = 4
+
+export interface IndexedTrailEntry {
+  entry: TraversalEntry
+  /** Original index in the trail — stable jump target for truncateTrail. */
+  index: number
+}
+
+export interface TrailDisplaySegments {
+  leading: IndexedTrailEntry[]
+  /** Middle entries hidden behind the "… N more" disclosure. Empty ⟹ flat. */
+  hidden: IndexedTrailEntry[]
+  trailing: IndexedTrailEntry[]
+}
+
+/**
+ * Split the trail into display segments (PSY-1474 F3). Below
+ * TRAIL_COLLAPSE_MIN_ENTRIES everything is `leading` and renders flat;
+ * at or beyond it, only the first and last entries stay visible and the
+ * middle collapses behind a disclosure. Pure display math — the trail
+ * itself (and jump/truncate semantics) is untouched.
+ */
+export function collapseTrail(trail: TraversalEntry[]): TrailDisplaySegments {
+  const indexed = trail.map((entry, index) => ({ entry, index }))
+  if (trail.length < TRAIL_COLLAPSE_MIN_ENTRIES) {
+    return { leading: indexed, hidden: [], trailing: [] }
+  }
+  return {
+    leading: [indexed[0]],
+    hidden: indexed.slice(1, -1),
+    trailing: [indexed[indexed.length - 1]],
+  }
+}
 
 export interface TraversalEntry {
   id: number

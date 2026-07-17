@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   MAX_TRAIL_SLOTS,
+  TRAIL_COLLAPSE_MIN_ENTRIES,
+  collapseTrail,
   pushTrail,
   truncateTrail,
   resetTrail,
@@ -25,22 +27,28 @@ describe('shared graphTraversalHistory (PSY-361 trail reducer)', () => {
     })
 
     it('caps the trail at MAX_TRAIL_SLOTS by dropping the oldest entry', () => {
-      // Sanity: the user-resolved decision is 3.
-      expect(MAX_TRAIL_SLOTS).toBe(3)
+      // PSY-1474 F3: the middle-collapse display supersedes the original
+      // 3-chip render decision; the cap is now a memory bound, and must sit
+      // above the collapse threshold so the disclosure is reachable.
+      expect(MAX_TRAIL_SLOTS).toBe(10)
+      expect(MAX_TRAIL_SLOTS).toBeGreaterThanOrEqual(TRAIL_COLLAPSE_MIN_ENTRIES)
 
-      const trail = [ENTRY(1), ENTRY(2), ENTRY(3)]
-      const next = pushTrail(trail, ENTRY(4))
-      expect(next).toHaveLength(3)
+      const trail = Array.from({ length: MAX_TRAIL_SLOTS }, (_, i) => ENTRY(i + 1))
+      const next = pushTrail(trail, ENTRY(MAX_TRAIL_SLOTS + 1))
+      expect(next).toHaveLength(MAX_TRAIL_SLOTS)
       // Oldest dropped, newest is the tail.
-      expect(next.map(e => e.id)).toEqual([2, 3, 4])
+      expect(next[0].id).toBe(2)
+      expect(next[next.length - 1].id).toBe(MAX_TRAIL_SLOTS + 1)
     })
 
     it('continues to drop oldest on each subsequent overflow push', () => {
       let trail: TraversalEntry[] = []
-      for (let i = 1; i <= 6; i++) {
+      for (let i = 1; i <= MAX_TRAIL_SLOTS + 3; i++) {
         trail = pushTrail(trail, ENTRY(i))
       }
-      expect(trail.map(e => e.id)).toEqual([4, 5, 6])
+      expect(trail.map(e => e.id)).toEqual(
+        Array.from({ length: MAX_TRAIL_SLOTS }, (_, i) => i + 4),
+      )
     })
 
     it('skips no-op when the same artist is already the tail', () => {
@@ -70,6 +78,41 @@ describe('shared graphTraversalHistory (PSY-361 trail reducer)', () => {
 
     it('returns empty when index is negative', () => {
       expect(truncateTrail([ENTRY(1)], -1)).toEqual([])
+    })
+  })
+
+  describe('collapseTrail (PSY-1474 F3 display segments)', () => {
+    it('renders flat below the collapse threshold', () => {
+      const trail = [ENTRY(1), ENTRY(2), ENTRY(3)]
+      expect(collapseTrail(trail)).toEqual({
+        leading: trail.map((entry, index) => ({ entry, index })),
+        hidden: [],
+        trailing: [],
+      })
+    })
+
+    it('collapses the middle at the threshold, preserving original indices', () => {
+      const trail = [ENTRY(1), ENTRY(2), ENTRY(3), ENTRY(4)]
+      expect(collapseTrail(trail)).toEqual({
+        leading: [{ entry: ENTRY(1), index: 0 }],
+        hidden: [
+          { entry: ENTRY(2), index: 1 },
+          { entry: ENTRY(3), index: 2 },
+        ],
+        trailing: [{ entry: ENTRY(4), index: 3 }],
+      })
+    })
+
+    it('hides everything but first and last on long trails', () => {
+      const trail = Array.from({ length: 7 }, (_, i) => ENTRY(i + 1))
+      const segments = collapseTrail(trail)
+      expect(segments.leading.map(s => s.entry.id)).toEqual([1])
+      expect(segments.hidden.map(s => s.entry.id)).toEqual([2, 3, 4, 5, 6])
+      expect(segments.trailing.map(s => s.entry.id)).toEqual([7])
+    })
+
+    it('handles the empty trail', () => {
+      expect(collapseTrail([])).toEqual({ leading: [], hidden: [], trailing: [] })
     })
   })
 

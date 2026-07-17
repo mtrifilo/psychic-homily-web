@@ -9,10 +9,13 @@ import {
   type Ref,
 } from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import { GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
 import {
   GRAPH_BREAKPOINT_PX,
   useContainerWidth,
@@ -20,6 +23,8 @@ import {
 import {
   ArtistSearch,
   ArtistGraphVisualization,
+  artistEndpoints,
+  artistQueryKeys,
   useArtistGraph,
   useArtistGraphCard,
   useFetchArtistGraph,
@@ -28,14 +33,19 @@ import {
   type ArtistGraph,
   type ArtistGraphNode,
   type ArtistGraphSelection,
+  type ArtistSearchResponse,
 } from '@/features/artists'
 import {
+  collapseTrail,
   pushTrail,
   resetTrail,
   truncateTrail,
   type TraversalEntry,
 } from '@/components/graph/graphTraversalHistory'
 import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
+import { useScenes } from '@/features/scenes/hooks/useScenes'
+import { apiRequest } from '@/lib/api'
+import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 
 interface GraphAnchor {
   id: number
@@ -49,6 +59,16 @@ interface GraphAnchor {
 const CURATED_EXAMPLES = ['Diners', 'Gatecreeper', 'Playboy Manbaby'] as const
 const RANDOM_GRAPH_ATTEMPTS = 3
 
+// Refinement-board pill for "A random rabbit hole" (PSY-1474 F2): primary-
+// tinted border/fill, pill radius, 13px medium. Shared by the serendipity
+// footer and the empty-state escape hatch so the affordance reads the same.
+const SHUFFLE_PILL_CLASS =
+  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-[13px] font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60'
+
+// Trail chip hit-area (PSY-1474 F3): 4px 8px padding, hover background.
+const TRAIL_CHIP_CLASS =
+  'rounded-md bg-muted/50 px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+
 function anchorFromArtist(artist: Artist): GraphAnchor {
   return { id: artist.id, slug: artist.slug, name: artist.name }
 }
@@ -57,7 +77,13 @@ function anchorFromNode(node: ArtistGraphSelection): GraphAnchor {
   return { id: node.id, slug: node.slug, name: node.name }
 }
 
-function RotatingExample() {
+function RotatingExample({
+  onPick,
+  disabled,
+}: {
+  onPick: (name: string) => void
+  disabled?: boolean
+}) {
   const reducedMotion = useReducedMotion()
   const [index, setIndex] = useState(0)
 
@@ -69,9 +95,33 @@ function RotatingExample() {
     return () => window.clearInterval(timer)
   }, [reducedMotion])
 
+  const active = CURATED_EXAMPLES[index]
+
   return (
     <p className="text-sm text-muted-foreground">
-      Try searching for <span className="font-medium text-foreground">{CURATED_EXAMPLES[index]}</span>
+      Try searching for{' '}
+      <button
+        type="button"
+        onClick={() => onPick(active)}
+        disabled={disabled}
+        aria-label={`Search for ${active}`}
+        className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none disabled:opacity-60"
+      >
+        {/* All examples share one grid cell so the line crossfades in place
+            (and reserves the widest name's width — no layout jitter). Under
+            reduced motion the rotation is frozen AND the fade is disabled. */}
+        {CURATED_EXAMPLES.map((name, exampleIndex) => (
+          <span
+            key={name}
+            aria-hidden="true"
+            className={`col-start-1 row-start-1 ${
+              reducedMotion ? '' : 'transition-opacity duration-500 motion-reduce:transition-none'
+            } ${exampleIndex === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+          >
+            {name}
+          </span>
+        ))}
+      </button>
     </p>
   )
 }
@@ -89,6 +139,27 @@ function Trail({
   onReset: () => void
   resetButtonRef?: Ref<HTMLButtonElement>
 }) {
+  // "Expanded" is remembered per trail LENGTH: any hop or jump changes the
+  // length, which re-collapses the bar without an effect (no
+  // useEffect-for-prop-derived-state).
+  const [expandedAtLength, setExpandedAtLength] = useState<number | null>(null)
+  const segments = collapseTrail(trail)
+  const isCollapsed = segments.hidden.length > 0 && expandedAtLength !== trail.length
+  const visibleEntries = isCollapsed
+    ? [...segments.leading, ...segments.trailing]
+    : trail.map((entry, index) => ({ entry, index }))
+
+  const chip = (entry: TraversalEntry, index: number) => (
+    <button
+      key={`${entry.id}-${index}`}
+      type="button"
+      onClick={() => onJump(entry, index)}
+      className={TRAIL_CHIP_CLASS}
+    >
+      {entry.name}
+    </button>
+  )
+
   return (
     <nav
       aria-label="Graph traversal history"
@@ -97,18 +168,26 @@ function Trail({
       <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         Trail
       </span>
-      {trail.map((entry, index) => (
-        <span key={`${entry.id}-${index}`} className="flex items-center gap-1.5">
+      {isCollapsed ? (
+        <>
+          {segments.leading.map(({ entry, index }) => chip(entry, index))}
           <button
             type="button"
-            onClick={() => onJump(entry, index)}
-            className="text-muted-foreground transition-colors hover:text-foreground hover:underline underline-offset-4"
+            aria-expanded={false}
+            aria-label={`Show ${segments.hidden.length} more trail entries`}
+            onClick={() => setExpandedAtLength(trail.length)}
+            className={TRAIL_CHIP_CLASS}
           >
-            {entry.name}
+            … {segments.hidden.length} more
           </button>
-          <ArrowRight className="size-3 text-muted-foreground/50" aria-hidden="true" />
-        </span>
-      ))}
+          {segments.trailing.map(({ entry, index }) => chip(entry, index))}
+        </>
+      ) : (
+        visibleEntries.map(({ entry, index }) => chip(entry, index))
+      )}
+      {trail.length > 0 && (
+        <ArrowRight className="size-3 text-muted-foreground/50" aria-hidden="true" />
+      )}
       <span className="font-medium text-foreground" aria-current="page">
         {current.name}
       </span>
@@ -177,6 +256,61 @@ function AccessibleGraphList({
   )
 }
 
+/**
+ * Escape hatches for the no-connections empty state (PSY-1474 F4): two scene
+ * links anchored on the artist's metro plus the random rabbit hole. Mounted
+ * only while the empty state is visible, so the scenes list is fetched only
+ * when a hatch can actually render (it's cached for 10 minutes anyway).
+ */
+function EmptyGraphEscapeHatches({
+  city,
+  state,
+  onShuffle,
+  isShuffleBusy,
+}: {
+  city?: string
+  state?: string
+  onShuffle: () => void
+  isShuffleBusy: boolean
+}) {
+  const scenesQuery = useScenes()
+  const scenes = useMemo(
+    () => pickSceneEscapeHatches(scenesQuery.data?.scenes ?? [], city, state),
+    [scenesQuery.data, city, state],
+  )
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      {scenes.map(scene => (
+        <Link
+          key={scene.slug}
+          href={`/scenes/${scene.slug}`}
+          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/30 px-3.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
+        >
+          The {scene.city} scene <ArrowRight className="size-3.5" aria-hidden="true" />
+        </Link>
+      ))}
+      <button
+        type="button"
+        onClick={onShuffle}
+        disabled={isShuffleBusy}
+        className={SHUFFLE_PILL_CLASS}
+      >
+        {isShuffleBusy ? (
+          <>
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            Finding a rabbit hole…
+          </>
+        ) : (
+          <>
+            A random rabbit hole <Shuffle className="size-3.5" aria-hidden="true" />
+          </>
+        )}
+      </button>
+    </div>
+  )
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -185,6 +319,8 @@ export function GraphObservatory() {
   const [selectionSource, setSelectionSource] = useState<'canvas' | 'list' | null>(null)
   const [shuffleError, setShuffleError] = useState<string | null>(null)
   const [isFindingRandom, setIsFindingRandom] = useState(false)
+  const [isExampleSearching, setIsExampleSearching] = useState(false)
+  const queryClient = useQueryClient()
   const panelRef = useRef<HTMLElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const listTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -205,9 +341,12 @@ export function GraphObservatory() {
   } = useRandomArtistTarget()
   const fetchArtistGraph = useFetchArtistGraph()
 
+  // Cancels any in-flight async lookup (random rabbit hole OR example
+  // search) — bumping the generation makes the pending promise a no-op.
   const cancelRandomSearch = useCallback(() => {
     randomRequestGeneration.current += 1
     setIsFindingRandom(false)
+    setIsExampleSearching(false)
   }, [])
 
   const startAt = useCallback((next: GraphAnchor) => {
@@ -299,6 +438,7 @@ export function GraphObservatory() {
     const requestGeneration = randomRequestGeneration.current + 1
     randomRequestGeneration.current = requestGeneration
     setShuffleError(null)
+    setIsExampleSearching(false)
     setIsFindingRandom(true)
     try {
       for (let attempt = 0; attempt < RANDOM_GRAPH_ATTEMPTS; attempt += 1) {
@@ -334,6 +474,48 @@ export function GraphObservatory() {
     }
   }, [fetchArtistGraph, refetchShuffle, startAt])
 
+  // Zero-state clickable example (PSY-1474 F1): resolve the curated name via
+  // the same search endpoint (and cache key) the search box uses, then center
+  // the graph on the best match. Shares the random-lookup generation counter
+  // so search/reset/shuffle clicks cancel a pending example lookup too.
+  const handleExampleSearch = useCallback(async (name: string) => {
+    const requestGeneration = randomRequestGeneration.current + 1
+    randomRequestGeneration.current = requestGeneration
+    setIsFindingRandom(false)
+    setShuffleError(null)
+    setIsExampleSearching(true)
+    try {
+      const result = await queryClient.fetchQuery({
+        queryKey: artistQueryKeys.search(name),
+        queryFn: () =>
+          apiRequest<ArtistSearchResponse>(
+            `${artistEndpoints.SEARCH}?q=${encodeURIComponent(name)}`,
+            { method: 'GET' },
+          ),
+        staleTime: 5 * 60 * 1000,
+      })
+      if (requestGeneration !== randomRequestGeneration.current) return
+      const artists = result.artists ?? []
+      const match =
+        artists.find(artist => artist.name.toLowerCase() === name.toLowerCase()) ??
+        artists[0]
+      if (match) {
+        startAt(anchorFromArtist(match))
+        return
+      }
+      setShuffleError(`Couldn’t find ${name} right now — try the search box.`)
+    } catch {
+      if (requestGeneration === randomRequestGeneration.current) {
+        setShuffleError(`Couldn’t find ${name} right now — try the search box.`)
+      }
+    } finally {
+      if (requestGeneration === randomRequestGeneration.current) {
+        setIsExampleSearching(false)
+      }
+    }
+  }, [queryClient, startAt])
+
+  const isShuffleBusy = isShuffleFetching || isFindingRandom
   const graph = graphQuery.data
   const hasCenterConnections = graph?.links.some(link =>
     link.source_id === graph.center.id || link.target_id === graph.center.id,
@@ -391,26 +573,36 @@ export function GraphObservatory() {
               backgroundSize: '22px 22px',
             }}
           >
-            <div
-              className="flex size-14 items-center justify-center rounded-full border border-primary/40 bg-primary/10"
+            <button
+              type="button"
+              onClick={handleShuffle}
+              disabled={isShuffleBusy}
+              aria-label="Take a random rabbit hole"
+              className="flex size-14 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary transition-colors hover:border-primary/60 hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60"
               style={{ boxShadow: '0 0 50px color-mix(in srgb, var(--primary) 18%, transparent)' }}
             >
-              <Shuffle className="size-5 text-primary" aria-hidden="true" />
-            </div>
+              {isShuffleBusy ? (
+                <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Shuffle className="size-5" aria-hidden="true" />
+              )}
+            </button>
             <div className="space-y-1">
               <h2 className="font-display text-2xl font-medium">Pick a name. See what it touches.</h2>
-              <RotatingExample />
+              <RotatingExample onPick={handleExampleSearch} disabled={isExampleSearching} />
             </div>
           </div>
         ) : (
           <div ref={refCallback} className="relative min-h-[240px] p-3 sm:min-h-[400px]">
             {containerWidth === null || graphQuery.isPending ? (
-              <div className="flex h-[400px] items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Mapping {center.name}…
-              </div>
+              <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS}>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  Mapping {center.name}…
+                </div>
+              </GraphSkeleton>
             ) : graphQuery.isError && !graph ? (
-              <div role="alert" className="flex h-[400px] flex-col items-center justify-center gap-3 text-center">
+              <div role="alert" className={`flex flex-col items-center justify-center gap-3 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}>
                 <p className="text-sm text-muted-foreground">This graph couldn’t load.</p>
                 <button
                   type="button"
@@ -421,13 +613,19 @@ export function GraphObservatory() {
                 </button>
               </div>
             ) : graph && !hasCenterConnections ? (
-              <div role="status" className="flex h-[400px] flex-col items-center justify-center gap-3 px-6 text-center">
+              <div role="status" className={`flex flex-col items-center justify-center gap-3 px-6 py-4 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}>
                 <div>
                   <h2 className="font-display text-2xl font-medium">No mapped connections yet.</h2>
                   <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                    {graph.center.name} is in the catalog, but nothing links to it yet. Search another artist or try a random rabbit hole.
+                    {graph.center.name} is in the catalog, but nothing links to it yet. Try a nearby scene or a random rabbit hole.
                   </p>
                 </div>
+                <EmptyGraphEscapeHatches
+                  city={graph.center.city}
+                  state={graph.center.state}
+                  onShuffle={handleShuffle}
+                  isShuffleBusy={isShuffleBusy}
+                />
                 <Link
                   href={`/artists/${graph.center.slug}`}
                   className="inline-flex items-center gap-1 text-sm text-primary hover:underline underline-offset-4"
@@ -453,7 +651,7 @@ export function GraphObservatory() {
                   <GraphSectionErrorBoundary
                     sentryTag="graph-observatory"
                     fallback={(
-                      <div role="status" className="flex h-[400px] items-center justify-center text-sm text-muted-foreground">
+                      <div role="status" className={`flex items-center justify-center text-sm text-muted-foreground ${GRAPH_BOX_HEIGHT_CLASS}`}>
                         The interactive graph is unavailable. Browse its connections below.
                       </div>
                     )}
@@ -498,20 +696,28 @@ export function GraphObservatory() {
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border/50 pt-4 text-sm">
         <span className="font-display text-base font-medium">No artist in mind?</span>
-        <Link href="/shows" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-          Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
-        </Link>
         <Link href="/scenes" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
           Your scene <ArrowRight className="size-3.5" aria-hidden="true" />
+        </Link>
+        <Link href="/shows" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+          Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
         <button
           type="button"
           onClick={handleShuffle}
-          disabled={isShuffleFetching || isFindingRandom}
-          className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
+          disabled={isShuffleBusy}
+          className={SHUFFLE_PILL_CLASS}
         >
-          {isShuffleFetching || isFindingRandom ? 'Finding a rabbit hole…' : 'A random rabbit hole'}
-          <Shuffle className="size-3.5" aria-hidden="true" />
+          {isShuffleBusy ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              Finding a rabbit hole…
+            </>
+          ) : (
+            <>
+              A random rabbit hole <Shuffle className="size-3.5" aria-hidden="true" />
+            </>
+          )}
         </button>
         {shuffleError && <p role="status" className="basis-full text-xs text-destructive">{shuffleError}</p>}
       </div>
