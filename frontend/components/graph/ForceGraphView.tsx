@@ -421,6 +421,11 @@ export interface ForceGraphViewProps {
    * raw payload count. Off by default — Section surfaces (scene, station)
    * opt in; the homepage teaser excludes isolates from its payload and the
    * ego graph has none, so neither is affected either way.
+   *
+   * Isolate names go hover-only on labeled-shelf surfaces (the caption names
+   * the group), EXCEPT under `forceNodeLabels`, which wins — its "every
+   * label always" curated-map contract must hold on static surfaces where
+   * hover cannot recover a suppressed name.
    */
   showIsolateShelfLabel?: boolean
 }
@@ -627,11 +632,12 @@ export function ForceGraphView({
     // hands the engine its real payload.
     if (!canvasReady) return
 
-    // Pin isolates to a shelf along the bottom of the canvas. Geometry is
-    // single-sourced with the labeled-shelf band/caption draws (isolateShelf)
-    // so the group treatment can never drift from where the dots pin.
+    // Pin isolates to a shelf along the bottom of the canvas. `shelfGeometry`
+    // is the single source shared with the labeled-shelf band/caption draws
+    // (isolateShelf) so the group treatment can never drift from where the
+    // dots pin.
     const isolates = renderData.nodes.filter(n => n.is_isolate)
-    const shelf = isolateShelfGeometry(containerWidth, graphHeight)
+    const shelf = shelfGeometry
     const stride =
       isolates.length > 1
         ? (shelf.endX - shelf.startX) / (isolates.length - 1)
@@ -722,7 +728,14 @@ export function ForceGraphView({
     )
 
     fg.d3ReheatSimulation()
-  }, [renderData, centroids, containerWidth, graphHeight, canvasReady])
+  }, [
+    renderData,
+    centroids,
+    containerWidth,
+    graphHeight,
+    canvasReady,
+    shelfGeometry,
+  ])
 
   // a11y: expose the canvas as an image with a descriptive label, mirroring
   // ArtistGraphVisualization (PSY-369). The canvas is created asynchronously
@@ -1196,20 +1209,21 @@ export function ForceGraphView({
           // runs in onRenderFramePost, which does NOT self-trigger a repaint on closure change
           // (PSY-1209) — but the nodeCanvasObject/linkColor repaint on the same hover redraws
           // the whole frame, so the new filter is applied without a separate resumeAnimation.
-          .filter(
-            node =>
-              forceNodeLabels || focusedIds == null || focusedIds.has(node.id),
-          )
           // Labeled shelf (PSY-1454, approved mock): the group caption names
-          // the shelf, so individual isolate names are hover-only there —
-          // a resting scatter of isolate labels would compete with the
-          // caption. Hover still draws the name (labelSpecForNode forces the
-          // hovered node's label).
-          .filter(
-            node =>
-              !showIsolateShelfLabel ||
-              !node.is_isolate ||
-              node.id === hoveredNode?.id,
+          // the shelf, so individual isolate names are hover-only there — a
+          // resting scatter of isolate labels would compete with the caption.
+          // Hover still draws the name (labelSpecForNode forces the hovered
+          // node's label). forceNodeLabels WINS over the suppression: it is
+          // the curated-map "every label always" contract, and a static
+          // surface combining both flags would otherwise lose isolate names
+          // with no hover available to recover them.
+          .filter(node =>
+            forceNodeLabels
+              ? true
+              : (focusedIds == null || focusedIds.has(node.id)) &&
+                (!showIsolateShelfLabel ||
+                  !node.is_isolate ||
+                  node.id === hoveredNode?.id),
           )
           .map(node => labelSpecForNode(node, globalScale))
         renderGraphLabels(ctx, palette, specs)
@@ -1326,6 +1340,13 @@ export function ForceGraphView({
   // dots and renders at EVERY zoom (it IS the group boundary — no hull-style
   // fade). Gated on the rendered isolate count so a cluster filter that
   // hides the last isolate removes the band with it.
+  //
+  // Identity caveat (same trap as onRenderFramePost, see
+  // pattern_force_graph_onrenderframepost_norepaint): the library registers
+  // this callback with triggerUpdate:false, so swapping it does NOT repaint
+  // by itself. Every current dep change co-travels with a repaint-triggering
+  // prop (renderData → graphData, resize → width/height, theme →
+  // nodeCanvasObject); keep it that way when adding deps.
   const handleRenderFramePre = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

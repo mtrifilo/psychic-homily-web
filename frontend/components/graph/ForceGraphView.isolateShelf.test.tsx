@@ -223,6 +223,16 @@ describe('ForceGraphView labeled isolate shelf (PSY-1454)', () => {
     expect(drawn).toContain('Delta')
   })
 
+  it('forceNodeLabels wins over the isolate suppression (curated-map contract)', () => {
+    renderGraph({ showIsolateShelfLabel: true, forceNodeLabels: true })
+    const { postCtx } = paintFrame(1)
+    const drawn = (postCtx.fillText as ReturnType<typeof vi.fn>).mock.calls.map(
+      c => c[0]
+    )
+    expect(drawn).toContain('Gamma')
+    expect(drawn).toContain('Delta')
+  })
+
   it('still resets the hull-painted frame flag alongside the band draw', () => {
     renderGraph({ showIsolateShelfLabel: true })
     const pre = h.lastProps.onRenderFramePre as FrameFn

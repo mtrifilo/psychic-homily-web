@@ -63,7 +63,12 @@ const HAIRLINE_ALPHA_HEX = '26' // ≈ 15%
 
 // Caption targets a constant screen size (like the node labels, which
 // counter-scale via labelFontSize) so the group stays named at every zoom.
+// The world-space clamp keeps a far-zoomed-out caption (counter-scaling
+// makes it GROW in world units) from reaching the dot row anchored
+// CAPTION_TOP_OFFSET below it. The component's minZoom (0.4) never triggers
+// the clamp today; it guards a future looser zoom floor.
 const CAPTION_FONT_SCREEN_PX = 12
+const CAPTION_MAX_WORLD_PX = 24
 const CAPTION_FONT_WEIGHT = 500
 
 /** Shelf placement for a given canvas size — single source shared by the
@@ -128,7 +133,11 @@ export function drawIsolateShelfCaption(
   globalScale: number
 ): void {
   if (count <= 0) return
-  const fontSize = CAPTION_FONT_SCREEN_PX / globalScale
+  const fontSize = Math.min(
+    CAPTION_FONT_SCREEN_PX / globalScale,
+    CAPTION_MAX_WORLD_PX
+  )
+  const text = isolateShelfCaption(count)
   const x = geometry.startX - BAND_PAD_X + CAPTION_INSET_X
   const y = geometry.y - CAPTION_TOP_OFFSET
   ctx.save()
@@ -138,8 +147,8 @@ export function drawIsolateShelfCaption(
   ctx.lineJoin = 'round'
   ctx.lineWidth = fontSize / 4
   ctx.strokeStyle = palette.labelHalo
-  ctx.strokeText(isolateShelfCaption(count), x, y)
+  ctx.strokeText(text, x, y)
   ctx.fillStyle = palette.mutedForeground
-  ctx.fillText(isolateShelfCaption(count), x, y)
+  ctx.fillText(text, x, y)
   ctx.restore()
 }
