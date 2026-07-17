@@ -220,19 +220,6 @@ const OTHER_CLUSTER_ID = 'other'
 // payloads specifically.
 const WARMUP_TICKS = 200
 
-// PSY-1447: cooldownTicks stays 0 everywhere EXCEPT while a node is being
-// actively dragged. warmupTicks/cooldownTicks are independent engine
-// mechanisms (warmup runs synchronously before the tick-frame loop even
-// starts), so this doesn't reintroduce any visible settle animation on
-// mount or data digest — it only re-arms the SAME live-reflow behavior
-// interactive surfaces have always had for the drag gesture specifically.
-// Value matches the pre-PSY-1442 interactive default (verified: dragging
-// a connected node with cooldownTicks=0 freezes every neighbor in place,
-// producing permanently stretched edges after release — a real, more
-// severe regression than "less lively" once actually seen in a browser,
-// not merely a stylistic loss).
-const DRAG_LIVE_COOLDOWN_TICKS = 200
-
 // What the engine sees until the dynamic chunk has mounted — see the
 // `engineData` doc-comment for the ordering contract.
 // Module-level so its identity is stable across renders.
@@ -372,9 +359,10 @@ export interface ForceGraphViewProps {
   showConnectionPanel?: boolean
   /**
    * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
-   * graph section). Disables wheel-zoom, drag-pan, and node drag so the
-   * canvas never captures page scroll or invites tool-level interaction;
-   * click/hover select still work. It also bypasses the zoom gate on
+   * graph section). Disables wheel-zoom and drag-pan so the canvas never
+   * captures page scroll or invites tool-level interaction; click/hover
+   * select still work. (Node drag is retired on EVERY surface — PSY-1452
+   * locked grammar decision — so it is not mode-specific.) It also bypasses the zoom gate on
    * labels and skips the cancel-fit gesture listeners (no gesture can own
    * a locked viewport). Off by default — full surfaces keep the tool feel.
    * (The pre-settle itself — warmupTicks, zero cooldown, instant one-shot
@@ -446,15 +434,6 @@ export function ForceGraphView({
   const reducedMotion = useReducedMotion()
   const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<RenderNode | null>(null)
-  // PSY-1447: ids of nodes currently mid-drag — drives cooldownTicks below
-  // so dragging keeps its pre-existing live neighbor-reflow instead of
-  // freezing at the drag/data-digest baseline. A Set (not a boolean) so two
-  // concurrent drags (multi-touch: two fingers each dragging a different
-  // node) can't have the FIRST finger's release re-freeze the SECOND one's
-  // still-in-progress drag (adversarial finding, round 1).
-  const [draggingNodeIds, setDraggingNodeIds] = useState<ReadonlySet<number>>(
-    () => new Set<number>()
-  )
   // Edge types the user has hidden via the legend toggles (PSY-1083).
   // Purely presentational, so the component owns it — parents opt in via
   // `showEdgeLegend` without threading filter state.
@@ -761,7 +740,7 @@ export function ForceGraphView({
 
   useEffect(() => {
     // PSY-1344: in static-viewport mode the user CANNOT own the viewport
-    // (zoom/pan/drag are disabled), so a wheel passing over the canvas
+    // (zoom/pan are disabled), so a wheel passing over the canvas
     // mid-page-scroll must not burn the one-shot initial fit — there would
     // be no user gesture left to recover the framing.
     if (staticViewport) return
@@ -821,17 +800,16 @@ export function ForceGraphView({
       bbox.y[1] <= center.y + halfH + slackY
     if (inView) return
     // The fit pans/zooms under an open tooltip and onEngineTick re-anchoring
-    // has already stopped — dismiss like onZoom/onNodeDrag do.
+    // has already stopped — dismiss like onZoom does.
     setHoveredNode(null)
     fg.zoomToFit(0, ZOOM_FIT_PADDING_PX)
   }, [renderData, containerWidth, graphHeight])
 
-  // Engine-stop backstop for the mount-time fit below. With zero cooldown AT
-  // REST (mount/data-digest — see DRAG_LIVE_COOLDOWN_TICKS for the drag
-  // exception), the engine stops on the first rAF frame after each
-  // graphData digest — BEFORE that frame paints — so a fit from here still
-  // lands pre-paint when the mount-time attempt ran too early (warmup
-  // positions arrive in the library's 1ms-debounced digest).
+  // Engine-stop backstop for the mount-time fit below. With zero cooldown,
+  // the engine stops on the first rAF frame after each graphData digest —
+  // BEFORE that frame paints — so a fit from here still lands pre-paint
+  // when the mount-time attempt ran too early (warmup positions arrive in
+  // the library's 1ms-debounced digest).
   const handleEngineStop = useCallback(
     () => maybeFitViewport(),
     [maybeFitViewport]
@@ -994,12 +972,10 @@ export function ForceGraphView({
   // when the object UNDER the cursor changes, so a stationary cursor over a drifting node would
   // strand the anchored tooltip over empty canvas. The `hoveredNode` guard makes it a no-op when
   // nothing is hovered; a node that lost its settled coords (filtered out) yields null → dismiss.
-  // PSY-1447: with cooldownTicks=0 at rest, onEngineTick now only fires during an active node-drag
-  // (DRAG_LIVE_COOLDOWN_TICKS) — mount/reheat settle is instant via warmupTicks and never ticks the
-  // ongoing-engine loop this callback depends on. In the CURRENT wiring that makes this callback a
-  // no-op in practice (onNodeDrag dismisses the tooltip at drag start, so hoveredNode is already
-  // null whenever onEngineTick can fire) — kept rather than removed because it's a correct,
-  // cheap backstop if a future change ever reheats the sim while a tooltip is open outside a drag.
+  // PSY-1447/PSY-1452: with cooldownTicks=0 and node drag retired, the engine never runs the
+  // tick-frame loop — mount/reheat settle is instant via warmupTicks — so in the CURRENT wiring
+  // this callback never fires. Kept rather than removed because it's a correct, cheap backstop
+  // if a future change ever reheats the sim while a tooltip is open.
   // (ForceGraphView's tooltip is pointer-events-none, so unlike ArtistGraph there's no
   // over-the-tooltip case to guard against re-anchoring out from under.)
   const handleEngineTick = useCallback(() => {
@@ -1419,31 +1395,6 @@ export function ForceGraphView({
           setHoveredNode(null)
           nodeOverlaySyncNeededRef.current = true
         }}
-        // Unlike ArtistGraph, ForceGraphView leaves node-drag enabled by
-        // default (staticViewport embeds disable it, PSY-1344).
-        // Dragging a node moves it without re-firing onNodeHover (the same node
-        // stays under the cursor) or onZoom, so the anchored tooltip would strand
-        // at the node's pre-drag position. Dismiss on drag too (PSY-1217 review).
-        // PSY-1447: also adds the node's id to draggingNodeIds so cooldownTicks
-        // below re-arms live ticking for the gesture's duration (see
-        // DRAG_LIVE_COOLDOWN_TICKS). Keyed by node id (not a single boolean)
-        // so concurrent drags of different nodes track independently.
-        onNodeDrag={(node: RenderNode) => {
-          setHoveredNode(null)
-          nodeOverlaySyncNeededRef.current = true
-          setDraggingNodeIds(prev =>
-            prev.has(node.id) ? prev : new Set(prev).add(node.id)
-          )
-        }}
-        onNodeDragEnd={(node: RenderNode) => {
-          nodeOverlaySyncNeededRef.current = true
-          setDraggingNodeIds(prev => {
-            if (!prev.has(node.id)) return prev
-            const next = new Set(prev)
-            next.delete(node.id)
-            return next
-          })
-        }}
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
@@ -1480,10 +1431,9 @@ export function ForceGraphView({
         // it — nothing goes off-screen). Data changes are unaffected: every
         // graphData digest re-runs the warmup, so filter toggles snap to
         // their new settled layout (locked decision, PSY-1447: "no camera
-        // motion ever"). Node drag is the one gesture that still needs live
-        // ticks WHILE it's happening — see DRAG_LIVE_COOLDOWN_TICKS/draggingNodeIds.
+        // motion ever").
         warmupTicks={WARMUP_TICKS}
-        cooldownTicks={draggingNodeIds.size > 0 ? DRAG_LIVE_COOLDOWN_TICKS : 0}
+        cooldownTicks={0}
         d3AlphaDecay={0.04}
         d3VelocityDecay={0.3}
         minZoom={0.4}
@@ -1493,7 +1443,10 @@ export function ForceGraphView({
         // one-shot initial frame) is unaffected by these flags.
         enableZoomInteraction={!staticViewport}
         enablePanInteraction={!staticViewport}
-        enableNodeDrag={!staticViewport}
+        // PSY-1452 locked grammar decision: node drag is retired on every
+        // graph surface — "physics as toy" teaches nothing and lets users
+        // wreck the layout. Explicit false (the library default is true).
+        enableNodeDrag={false}
         backgroundColor="transparent"
       />
 
