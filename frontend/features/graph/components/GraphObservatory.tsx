@@ -101,12 +101,15 @@ function RotatingExample({
   return (
     <p className="text-sm text-muted-foreground">
       Try searching for{' '}
-      {/* Mouse pause lives on the WRAPPER: disabled buttons don't dispatch
-          mouseleave, so tracking hover on the button itself would strand
-          isPaused=true after a failed lookup froze the rotation forever. */}
+      {/* Pause handlers live on the WRAPPER (React focus events bubble as
+          focusin/focusout): a disabled button reliably dispatches neither
+          mouseleave nor blur, so tracking either on the button itself could
+          strand isPaused=true after a failed lookup. */}
       <span
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
+        onFocus={() => setIsPaused(true)}
+        onBlur={() => setIsPaused(false)}
       >
         <button
           type="button"
@@ -114,8 +117,6 @@ function RotatingExample({
           disabled={disabled}
           aria-label={`Search for ${active}`}
           aria-busy={disabled || undefined}
-          onFocus={() => setIsPaused(true)}
-          onBlur={() => setIsPaused(false)}
           className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none disabled:opacity-60"
         >
           {/* All examples share one grid cell so the line crossfades in place
@@ -364,7 +365,8 @@ export function GraphObservatory() {
   const [center, setCenter] = useState<GraphAnchor | null>(null)
   const [trail, setTrail] = useState<TraversalEntry[]>([])
   // Bumped on every trail mutation; keys <Trail> so its local disclosure
-  // state resets (re-collapses) on any hop, jump, search, or reset.
+  // state resets (re-collapses) on any hop, jump, search, or reset. Mutate
+  // trail ONLY through updateTrail below — it owns the epoch bump.
   const [trailEpoch, setTrailEpoch] = useState(0)
   const [selectedNode, setSelectedNode] = useState<ArtistGraphSelection | null>(null)
   const [selectionSource, setSelectionSource] = useState<'canvas' | 'list' | null>(null)
@@ -378,6 +380,16 @@ export function GraphObservatory() {
   const listTriggerRef = useRef<HTMLButtonElement | null>(null)
   const resetButtonRef = useRef<HTMLButtonElement>(null)
   const lookupGeneration = useRef(0)
+
+  // The single way to mutate the trail: pairs the state update with the
+  // epoch bump so no future mutation site can forget the re-collapse.
+  const updateTrail = useCallback(
+    (next: TraversalEntry[] | ((previous: TraversalEntry[]) => TraversalEntry[])) => {
+      setTrail(next)
+      setTrailEpoch(epoch => epoch + 1)
+    },
+    [],
+  )
 
   const graphQuery = useArtistGraph({
     artistId: center?.id ?? 0,
@@ -402,13 +414,12 @@ export function GraphObservatory() {
 
   const startAt = useCallback((next: GraphAnchor) => {
     setCenter(next)
-    setTrail(resetTrail())
-    setTrailEpoch(epoch => epoch + 1)
+    updateTrail(resetTrail())
     setSelectedNode(null)
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
-  }, [])
+  }, [updateTrail])
 
   const handleArtistSelect = useCallback(
     (artist: Artist) => {
@@ -422,8 +433,7 @@ export function GraphObservatory() {
     if (!center || !selectedNode || selectedNode.id === center.id) return
     cancelPendingLookup()
     const shouldRestoreFocus = selectionSource === 'list'
-    setTrail(previous => pushTrail(previous, center))
-    setTrailEpoch(epoch => epoch + 1)
+    updateTrail(previous => pushTrail(previous, center))
     setCenter(anchorFromNode(selectedNode))
     setSelectedNode(null)
     setSelectionSource(null)
@@ -431,30 +441,28 @@ export function GraphObservatory() {
     if (shouldRestoreFocus) {
       window.requestAnimationFrame(() => resetButtonRef.current?.focus())
     }
-  }, [cancelPendingLookup, center, selectedNode, selectionSource])
+  }, [cancelPendingLookup, center, selectedNode, selectionSource, updateTrail])
 
   const handleTrailJump = useCallback((entry: TraversalEntry, index: number) => {
     cancelPendingLookup()
-    setTrail(previous => truncateTrail(previous, index))
-    setTrailEpoch(epoch => epoch + 1)
+    updateTrail(previous => truncateTrail(previous, index))
     setCenter(entry)
     setSelectedNode(null)
     setSelectionSource(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => resetButtonRef.current?.focus())
-  }, [cancelPendingLookup])
+  }, [cancelPendingLookup, updateTrail])
 
   const handleReset = useCallback(() => {
     cancelPendingLookup()
     setCenter(null)
-    setTrail(resetTrail())
-    setTrailEpoch(epoch => epoch + 1)
+    updateTrail(resetTrail())
     setSelectedNode(null)
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => searchInputRef.current?.focus())
-  }, [cancelPendingLookup])
+  }, [cancelPendingLookup, updateTrail])
 
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
     cancelPendingLookup()
@@ -553,9 +561,9 @@ export function GraphObservatory() {
         startAt(anchorFromArtist(match))
         return
       }
-      // Drop the cached miss so a retry (or the search box, which shares
-      // this key) actually re-queries instead of serving the fresh empty
-      // result for the next five minutes.
+      // Drop the cache entry so a retry re-queries. The result may be a
+      // valid (non-empty) fuzzy set — it just contains no exact match, and
+      // keeping it would pin this outcome for the next five minutes.
       queryClient.removeQueries({ queryKey: searchOptions.queryKey, exact: true })
       setLookupError(`Couldn’t find ${name} right now — try the search box.`)
     } catch {
@@ -574,6 +582,9 @@ export function GraphObservatory() {
   const hasCenterConnections = graph?.links.some(link =>
     link.source_id === graph.center.id || link.target_id === graph.center.id,
   ) ?? false
+  // True when the no-connections card is the active surface — it then owns
+  // the lookup-error slot (adjacent to its own shuffle pill), not the footer.
+  const isEmptyGraph = graph !== undefined && !hasCenterConnections
   const activeTypes = useMemo(
     () => new Set(graph?.links.map(link => link.type) ?? []),
     [graph],
@@ -674,7 +685,7 @@ export function GraphObservatory() {
                   Try again
                 </button>
               </div>
-            ) : graph && !hasCenterConnections ? (
+            ) : isEmptyGraph ? (
               // min-height (not the fixed-height contract): this card is
               // content-driven — the escape hatches wrap to several rows on
               // narrow phones, and growing beats trapping the third hatch in
@@ -693,6 +704,9 @@ export function GraphObservatory() {
                     onShuffle={handleShuffle}
                     isShuffleBusy={isShuffleBusy}
                   />
+                  {lookupError && (
+                    <p role="status" className="text-xs text-destructive">{lookupError}</p>
+                  )}
                   <Link
                     href={`/artists/${graph.center.slug}`}
                     className="inline-flex items-center gap-1 text-sm text-primary hover:underline underline-offset-4"
@@ -771,10 +785,11 @@ export function GraphObservatory() {
           Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
         <ShufflePill onClick={handleShuffle} busy={isShuffleBusy} />
-        {/* On the zero state the error renders beside the affordance the user
-            clicked (in the hero); once a graph is centered, this footer slot
-            is the only shuffle entry point, so it renders here instead. */}
-        {lookupError && center && (
+        {/* The lookup error renders beside the affordance the user most
+            likely clicked: the hero on the zero state, the no-connections
+            card when that surface (with its own shuffle pill) is active,
+            and this footer slot otherwise. */}
+        {lookupError && center && !isEmptyGraph && (
           <p role="status" className="basis-full text-xs text-destructive">{lookupError}</p>
         )}
       </div>
