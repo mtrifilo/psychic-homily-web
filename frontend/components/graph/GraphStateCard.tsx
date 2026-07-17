@@ -58,5 +58,14 @@ export function GraphStateCard({
  */
 export const GRAPH_BOX_HEIGHT_CLASS = 'h-[240px] sm:h-[400px] md:h-[560px]'
 
+/**
+ * min-height mirror of GRAPH_BOX_HEIGHT_CLASS for content-driven state cards
+ * (e.g. the Observatory's no-connections empty state with its escape-hatch
+ * pill rows): reserves the same contract heights but grows with the content
+ * on narrow viewports instead of forcing an inner scroll region. Keep the
+ * values in lockstep with GRAPH_BOX_HEIGHT_CLASS above.
+ */
+export const GRAPH_BOX_MIN_HEIGHT_CLASS = 'min-h-[240px] sm:min-h-[400px] md:min-h-[560px]'
+
 /** Height for the sub-640px mobile teaser card (HomeSceneGraph precedent). */
 export const GRAPH_TEASER_HEIGHT_CLASS = 'h-[240px]'

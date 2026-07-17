@@ -43,7 +43,7 @@ export {
   useArtistShows,
 } from './hooks'
 
-export { useArtistSearch } from './hooks'
+export { useArtistSearch, artistSearchQueryOptions } from './hooks'
 
 export {
   useMyArtistReport,
