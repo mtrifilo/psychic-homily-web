@@ -32,7 +32,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
-import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
+import {
+  ArtistContextPanel,
+  graphSelectGestureHint,
+} from '@/components/graph/ArtistContextPanel'
 import { EdgeSwatch } from '@/components/graph/EdgeLegend'
 import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
 import {
@@ -418,7 +421,7 @@ function HomeSceneGraphSection() {
                   // filtered out above) — the caption promises "lines connect
                   // artists", so the label must not overstate. Always plural:
                   // this branch requires >= MIN_CONNECTED_NODES (3).
-                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. Click a node for that artist’s details.`}
+                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. ${graphSelectGestureHint}`}
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handlePanelClose}
                 />

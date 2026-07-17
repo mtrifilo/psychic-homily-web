@@ -194,7 +194,9 @@ const HULL_FADE_START = 1.0
 const HULL_FADE_END = 1.6
 const HULL_FILL_ALPHA_MAX = 0.12
 
-const OTHER_CLUSTER_ID = 'other'
+// Exported so callers that mirror the node cull (e.g. a wrapper deciding
+// whether a selected node is still on canvas) can't drift from it.
+export const OTHER_CLUSTER_ID = 'other'
 
 // PSY-1442/PSY-1447: EVERY surface pre-settles the simulation SYNCHRONOUSLY
 // via react-force-graph's warmupTicks so the first painted frame is already
@@ -358,6 +360,13 @@ export interface ForceGraphViewProps {
    */
   showConnectionPanel?: boolean
   /**
+   * Notifies the consumer that an edge click just opened the connection
+   * inspector. Callers that float their own node panel over the canvas
+   * close it here — the mirror of the existing symmetry where a node click
+   * closes the connection inspector — so two panels never stack.
+   */
+  onConnectionInspectOpen?: () => void
+  /**
    * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
    * graph section). Disables wheel-zoom and drag-pan so the canvas never
    * captures page scroll or invites tool-level interaction; click/hover
@@ -420,6 +429,7 @@ export function ForceGraphView({
   onNodeClick,
   showEdgeLegend = false,
   showConnectionPanel = false,
+  onConnectionInspectOpen,
   staticViewport = false,
   nodeLabelStyles = EMPTY_NODE_LABEL_STYLES,
   forceNodeLabels = false,
@@ -898,8 +908,9 @@ export function ForceGraphView({
     (link: RenderLink) => {
       if (!showConnectionPanel || !link.type) return
       connectionInspect.open(endpointId(link.source), endpointId(link.target))
+      onConnectionInspectOpen?.()
     },
-    [showConnectionPanel, connectionInspect]
+    [showConnectionPanel, connectionInspect, onConnectionInspectOpen]
   )
 
   // PSY-1335: lazily fetch the entities behind each connection for the
