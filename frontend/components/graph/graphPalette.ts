@@ -48,12 +48,12 @@ export interface GraphPalette {
   labelHalo: string
   /**
    * Resolved `--primary` — the shared suggested-direction affordance (dashed
-   * primary ring + "+" badge, PSY-1453 restyle of the PSY-1273 DOI hint).
+   * primary ring + "+" badge restyle of the DOI hint).
    */
   primary: string
   /**
    * Resolved `--muted-foreground` — the ego center node's neutral fill
-   * (PSY-1453: center is distinguished by size + ink ring, not a hue).
+   * (center is distinguished by size + ink ring, not a hue).
    */
   mutedForeground: string
 }
@@ -87,7 +87,7 @@ const OTHER_CLUSTER_COLOR = '#94A3B8'
 const FALLBACK_LABEL_TEXT = '#eee7d9' // --foreground (dark)
 const FALLBACK_LABEL_HALO = '#0d0805' // --background (dark)
 
-// Suggested-direction + ego-center tokens (PSY-1453) — dark values, same
+// Suggested-direction + ego-center tokens — dark values, same
 // stay-in-sync contract with the `.dark` block as the label tokens above.
 const FALLBACK_PRIMARY = '#e89960' // --primary (dark)
 const FALLBACK_MUTED_FOREGROUND = '#9c8c7c' // --muted-foreground (dark)

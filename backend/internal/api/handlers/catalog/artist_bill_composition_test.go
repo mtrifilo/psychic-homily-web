@@ -255,7 +255,7 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_ArtistNotFou
 
 // --- Helper: minimal artist insert (no upcoming-show requirement) ---
 
-// PSY-1453: bill-composition graph nodes carry has_playable_audio so the
+// Bill-composition graph nodes carry has_playable_audio so the
 // mini-graph canvas can draw the shared violet playable-marker ring.
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_PlayableAudioFlags() {
 	a := s.deps.ArtistRelationshipService

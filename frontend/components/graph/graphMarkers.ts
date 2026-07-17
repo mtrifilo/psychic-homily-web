@@ -1,9 +1,9 @@
 /**
- * Shared canvas node markers for every graph surface (PSY-1453).
+ * Shared canvas node markers for every graph surface.
  *
- * The PSY-1451..1457 audit found the ego graph re-implementing these markers
- * with drifted geometry (show dot radius 3 @ offset 2 vs ForceGraphView's
- * 2.5 @ 1.5). Single-sourcing the colors, geometry, AND the draw calls here
+ * The ego graph once re-implemented these markers with drifted geometry
+ * (show dot radius 3 @ offset 2 vs ForceGraphView's 2.5 @ 1.5).
+ * Single-sourcing the colors, geometry, AND the draw calls here
  * makes drift structurally impossible: ArtistGraphVisualization and
  * ForceGraphView both call these helpers instead of hand-rolling arcs.
  *
@@ -11,7 +11,7 @@
  * colors are deliberately hardcoded (same posture as pre-extraction):
  *   - green = "has upcoming shows" — matches the green used app-wide for
  *     upcoming-show affordances;
- *   - violet = "selecting this node opens a playable embed" (PSY-1379) —
+ *   - violet = "selecting this node opens a playable embed" —
  *     deliberately outside the warm chart palette AND distinct from the
  *     green dot, so it reads unambiguously on both themes and over any
  *     node fill.
@@ -26,7 +26,7 @@ export const UPCOMING_SHOW_DOT_RADIUS = 2.5
 /** Inset of the dot's center from the node's bounding corner. */
 export const UPCOMING_SHOW_DOT_INSET = 1.5
 
-/** Playable-audio indicator (PSY-1379): violet ring hugging the node. */
+/** Playable-audio indicator: violet ring hugging the node. */
 export const PLAYABLE_RING_COLOR = '#a855f7'
 /** Gap between the node's edge and the ring's stroke center. */
 export const PLAYABLE_RING_GAP = 2.5

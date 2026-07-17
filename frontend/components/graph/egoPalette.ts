@@ -1,10 +1,11 @@
 /**
- * Ego-graph relationship-type fills (PSY-1453, locked design "Option B").
+ * Ego-graph relationship-type node fills (locked design: "Option B").
  *
  * Ego payloads carry no cluster_id, so ego neighbor fills key to the
  * relationship TYPE of the node's connecting edge(s) instead — mapped onto
  * the same `--chart-*` tokens the cluster surfaces use, so the whole app
- * speaks one color language (locked grammar decision 3, 2026-07-11):
+ * speaks one color language (locked grammar decision: one shared palette
+ * on every surface):
  *
  *   bills   → --chart-1   (shared_bills)
  *   label   → --chart-6   (shared_label)
@@ -19,9 +20,9 @@
  * neutral ForceGraphView uses for ungrouped nodes — rather than borrowing
  * a family hue they don't mean.
  *
- * Multi-type connections tie-break on a fixed priority (locked, PROPOSED
- * pending PR screenshot review): bills > members > label > radio — bills
- * is the product's differentiator and the most specific relationship.
+ * Multi-type connections tie-break on a fixed priority: bills > members >
+ * label > radio — bills is the product's differentiator and the most
+ * specific relationship.
  */
 
 import { clusterColor, clusterColorCSS, type GraphPalette } from './graphPalette'
@@ -29,14 +30,6 @@ import { clusterColor, clusterColorCSS, type GraphPalette } from './graphPalette
 /** Fill families in TIE-BREAK PRIORITY order (first match wins). */
 export const EGO_FAMILY_PRIORITY = ['bills', 'members', 'label', 'radio'] as const
 export type EgoFillFamily = (typeof EGO_FAMILY_PRIORITY)[number]
-
-/** Legend display order (mocked canvas-foot order, chart-index ascending). */
-export const EGO_FAMILY_LEGEND_ORDER: readonly EgoFillFamily[] = [
-  'bills',
-  'label',
-  'members',
-  'radio',
-]
 
 /** 0-based `--chart-{i+1}` token index per family (locked mapping). */
 export const EGO_FAMILY_CHART_INDEX: Record<EgoFillFamily, number> = {
@@ -46,13 +39,14 @@ export const EGO_FAMILY_CHART_INDEX: Record<EgoFillFamily, number> = {
   radio: 7, // --chart-8
 }
 
-/** Lowercase legend copy, as mocked. */
-export const EGO_FAMILY_LABELS: Record<EgoFillFamily, string> = {
-  bills: 'bills',
-  label: 'label',
-  members: 'members',
-  radio: 'radio',
-}
+/**
+ * Legend display order: chart-index ascending (bills, label, members,
+ * radio — the mocked canvas-foot order). Derived from the chart mapping so
+ * a future family can't be colored on canvas yet forgotten here.
+ */
+export const EGO_FAMILY_LEGEND_ORDER: readonly EgoFillFamily[] = [...EGO_FAMILY_PRIORITY].sort(
+  (a, b) => EGO_FAMILY_CHART_INDEX[a] - EGO_FAMILY_CHART_INDEX[b],
+)
 
 const FAMILY_BY_EDGE_TYPE: Record<string, EgoFillFamily> = {
   shared_bills: 'bills',
@@ -110,7 +104,7 @@ export interface EgoTypedEdge {
  * color either endpoint: a radio neighbor that happens to share a bill
  * with ANOTHER neighbor is still a radio neighbor of the center.
  *
- * `hopByNodeId` is the merged-ego hop map (PSY-1259); absent (the
+ * `hopByNodeId` is the merged-ego hop map (expand-on-demand); absent (the
  * bill-composition mini graph) every non-center node is hop 1, so only
  * edges touching the center assign fills. Multi-type ties resolve via
  * egoFamilyForTypes' fixed priority. Nodes whose connecting edges all
@@ -172,7 +166,7 @@ export function egoLegendRows(
   const rows: EgoLegendRow[] = EGO_FAMILY_LEGEND_ORDER.filter(f => families.has(f)).map(
     family => ({
       key: family,
-      label: EGO_FAMILY_LABELS[family],
+      label: family,
       swatchCSS: egoFamilyFillCSS(family),
     }),
   )

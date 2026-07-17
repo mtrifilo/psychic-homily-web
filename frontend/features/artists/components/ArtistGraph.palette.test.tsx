@@ -35,6 +35,7 @@ const CHART_1 = '#e89960' // bills
 const CHART_8 = '#6db3a6' // radio
 const OTHER = '#94A3B8'
 const INK = '#eee7d9' // --foreground (dark)
+const HALO = '#0d0805' // --background (dark)
 const PRIMARY = '#e89960' // --primary (dark)
 const CENTER_FILL = '#9c8c7c99' // --muted-foreground (dark) @ 60%
 
@@ -137,10 +138,10 @@ describe('ArtistGraphVisualization — shared palette adoption (PSY-1453)', () =
     vi.clearAllMocks()
   })
 
-  it('fills a bills neighbor with the chart-1 token color', () => {
+  it('fills a bills neighbor with the chart-1 token color (no redundant self-stroke)', () => {
     const ctx = paint(node(2))
     expect(ctx.fills[0]).toBe(CHART_1)
-    expect(ctx.strokes[0]).toMatchObject({ style: CHART_1, lineWidth: 1 })
+    expect(ctx.strokes).toEqual([])
   })
 
   it('fills a radio neighbor with the chart-8 token color', () => {
@@ -153,9 +154,12 @@ describe('ArtistGraphVisualization — shared palette adoption (PSY-1453)', () =
     expect(ctx.fills[0]).toBe(OTHER)
   })
 
-  it('paints the center with a neutral fill and an ink ring — never a hue', () => {
+  it('paints the center with an opaque underlay + neutral fill and an ink ring — never a hue', () => {
     const ctx = paint(node(1, { isCenter: true, val: 8, upcoming_show_count: 2 }))
-    expect(ctx.fills[0]).toBe(CENTER_FILL)
+    // Opaque background disc first (occludes the converging edge ends
+    // painted under the node), then the translucent neutral swatch over it.
+    expect(ctx.fills[0]).toBe(HALO)
+    expect(ctx.fills[1]).toBe(CENTER_FILL)
     expect(ctx.strokes[0]).toMatchObject({ style: INK, lineWidth: 2 })
   })
 

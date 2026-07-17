@@ -485,17 +485,17 @@ export function ArtistGraphVisualization({
     // geometry + the why-pinned rationale live in the pure, unit-tested ./egoRingLayout helper.
     pinEgoLayoutPositions(filteredNodes, hopByNodeId, EGO_RING_RADIUS, RING_GAP)
 
-    // PSY-1453: relationship-type node fills (locked Option B). Assign each
-    // satellite its fill family from the edges connecting it toward the
-    // center, on the FRESH bare-id links (d3-force later mutates
-    // source/target into objects in place — same capture rationale as the
-    // adjacency memo below). Legend rows key off what's actually rendered.
+    // Relationship-type node fills (locked Option B). Assign each satellite
+    // its fill family from the edges connecting it toward the center, using
+    // the PRE-CAP active links: classification is about the DATA, not the
+    // per-node top-k render cap (same posture as the ConnectionPanel, which
+    // also reads the raw payload) — otherwise a genuine radio neighbor whose
+    // center edge lost the cap would render as unclassified grey. Type
+    // toggles still apply (activeRaw is post-filter), so a node's fill never
+    // names a relationship type the user has hidden. Legend rows key off the
+    // families of the nodes actually rendered.
     const familyByNodeId = egoFamilyByNodeId(
-      links.map(l => ({
-        sourceId: typeof l.source === 'number' ? l.source : l.source.id,
-        targetId: typeof l.target === 'number' ? l.target : l.target.id,
-        type: l.type,
-      })),
+      activeRaw.map(l => ({ sourceId: l.source_id, targetId: l.target_id, type: l.type })),
       data.center.id,
       hopByNodeId,
     )
@@ -802,6 +802,12 @@ export function ArtistGraphVisualization({
     return focusForeground(adjacency, hoveredNode.id, data.center.id)
   }, [adjacency, hoveredNode, graphData, data.center.id])
 
+  // Center-node fill, hoisted out of the paint callback: ~60% alpha
+  // muted-foreground matches the locked Option B mock's center swatch on
+  // both themes, and hoisting avoids a per-node-per-frame regex + string
+  // allocation inside the hot canvas paint path.
+  const centerFill = withHexAlpha(palette.mutedForeground, '99')
+
   const nodeCanvasObject = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const x = node.x ?? 0
@@ -821,14 +827,19 @@ export function ArtistGraphVisualization({
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, 2 * Math.PI)
 
-      // PSY-1453 (locked grammar): the ego indigo/zinc palette is retired —
-      // every surface speaks the shared color language (chart-token fills,
-      // ink rings, and the graphMarkers set).
+      // Locked grammar: the ego indigo/zinc palette is retired — every
+      // surface speaks the shared color language (chart-token fills, ink
+      // rings, and the graphMarkers set).
       if (isCenter) {
         // Center = neutral fill + ink (foreground) ring: distinguished by
-        // size + ring, never a unique hue. ~60% muted-foreground matches the
-        // locked Option B mock's center swatch on both themes.
-        ctx.fillStyle = withHexAlpha(palette.mutedForeground, '99')
+        // size + ring, never a unique hue. The translucent muted-foreground
+        // is composited over an OPAQUE background disc so the hop-1 edges
+        // (painted before nodes, all terminating at the origin) don't show
+        // through the page's subject as a starburst of line ends — while
+        // the resulting swatch still matches the locked mock on both themes.
+        ctx.fillStyle = palette.labelHalo
+        ctx.fill()
+        ctx.fillStyle = centerFill
         ctx.fill()
         ctx.strokeStyle = palette.labelText
         ctx.lineWidth = 2
@@ -837,20 +848,22 @@ export function ArtistGraphVisualization({
         // Satellite fill keys to the relationship type of its connecting
         // edge (locked Option B), mapped onto the shared --chart tokens;
         // types outside the four families render the neutral "other" grey.
-        const fill = egoFamilyFill(palette, graphData.familyByNodeId.get(node.id) ?? null)
-        const isExpanded = expandedIds?.has(node.id) ?? false
-        ctx.fillStyle = fill
+        ctx.fillStyle = egoFamilyFill(palette, graphData.familyByNodeId.get(node.id) ?? null)
         ctx.fill()
-        // PSY-1259: an expanded satellite reads as an "opened" hub — the same
-        // ink ring the center wears, so the user can see what they've walked
-        // into and what's collapsible.
-        ctx.strokeStyle = isExpanded ? palette.labelText : fill
-        ctx.lineWidth = isExpanded ? 2 : 1
-        ctx.stroke()
+        // An expanded satellite reads as an "opened" hub — the same ink ring
+        // the center wears, so the user can see what they've walked into and
+        // what's collapsible. Unexpanded satellites get no stroke (a stroke
+        // in the fill color is a no-op).
+        if (expandedIds?.has(node.id)) {
+          ctx.strokeStyle = palette.labelText
+          ctx.lineWidth = 2
+          ctx.stroke()
+        }
 
-        // PSY-1259: a dashed outer ring while this node's expansion fetch is in
-        // flight — a lightweight loading cue (fetches are usually fast/cached,
-        // so no animation needed). Ink, transitional to the expanded ink ring.
+        // A dashed ink outer ring while this node's expansion fetch is in
+        // flight — a lightweight loading cue (fetches are usually fast/
+        // cached, so no animation needed), transitional to the expanded
+        // ink ring above.
         if (expandingIds?.has(node.id)) {
           ctx.beginPath()
           ctx.arc(x, y, radius + 3, 0, 2 * Math.PI)
@@ -860,61 +873,63 @@ export function ArtistGraphVisualization({
           ctx.stroke()
           ctx.setLineDash([])
         }
-
-        // PSY-1273: suggested expansion direction. The few highest-DOI unexpanded nodes
-        // (suggestedIds, already excludes expanded + expanding from the parent) get a
-        // DASHED PRIMARY halo ring + "+" badge (PSY-1453 restyle per the approved
-        // Observatory concept) so the click-to-expand gesture is discoverable and the
-        // eye is steered toward the most-interesting next steps. Static (no animation)
-        // so it's reduced-motion-safe. The ring + badge are world-units, so they scale
-        // with the node and stay visible at EVERY zoom — including the zoomed-out
-        // multi-expand view where "which way next?" matters most. The soft glow
-        // (shadowBlur) is the only zoom-gated part: it's a device-px effect that would
-        // bloom over far-zoom dots, so it's added on top only at readable zoom (when
-        // labels show too). save/restore scopes the shadow so it can't leak onto later
-        // paints, and preserves globalAlpha (the hover-focus dim) across it.
-        if (suggestedIds?.has(node.id)) {
-          ctx.save()
-          if (globalScale > LABEL_MIN_SCALE) {
-            ctx.shadowColor = palette.primary
-            ctx.shadowBlur = 8
-          }
-          ctx.beginPath()
-          ctx.arc(x, y, radius + 1.5, 0, 2 * Math.PI)
-          ctx.setLineDash([3, 3])
-          ctx.strokeStyle = palette.primary
-          ctx.lineWidth = 1.5
-          ctx.stroke()
-          ctx.setLineDash([])
-          ctx.restore()
-
-          // "+" badge, bottom-right (mirrors the green show dot's top-right geometry).
-          // Primary fill; the glyph + outline use the background token so the badge
-          // holds contrast over any node fill on both themes.
-          const bx = x + radius - 1
-          const by = y + radius - 1
-          ctx.beginPath()
-          ctx.arc(bx, by, 4, 0, 2 * Math.PI)
-          ctx.fillStyle = palette.primary
-          ctx.fill()
-          ctx.strokeStyle = palette.labelHalo
-          ctx.lineWidth = 1
-          ctx.stroke()
-          ctx.strokeStyle = palette.labelHalo
-          ctx.lineWidth = 1.2
-          ctx.beginPath()
-          ctx.moveTo(bx - 2, by)
-          ctx.lineTo(bx + 2, by)
-          ctx.moveTo(bx, by - 2)
-          ctx.lineTo(bx, by + 2)
-          ctx.stroke()
-        }
       }
 
-      // PSY-1379/PSY-1453: shared playable-audio ring — drawn inside the
-      // globalAlpha block so it dims with hover-focus like the rest of the node.
+      // Shared playable-audio ring — drawn inside the globalAlpha block so
+      // it dims with hover-focus like the rest of the node. Painted BEFORE
+      // the suggested-direction badge below so the badge (an interactive
+      // affordance) is never struck through by the ring.
       if (node.has_playable_audio) {
         drawPlayableRing(ctx, x, y, radius)
+      }
+
+      // Suggested expansion direction. The few highest-DOI unexpanded nodes
+      // (suggestedIds, already excludes expanded + expanding from the parent) get a
+      // DASHED PRIMARY halo ring + "+" badge (the shared-language restyle of the
+      // approved Observatory concept) so the click-to-expand gesture is discoverable
+      // and the eye is steered toward the most-interesting next steps. Static (no
+      // animation) so it's reduced-motion-safe. The ring + badge are world-units, so
+      // they scale with the node and stay visible at EVERY zoom — including the
+      // zoomed-out multi-expand view where "which way next?" matters most. The soft
+      // glow (shadowBlur) is the only zoom-gated part: it's a device-px effect that
+      // would bloom over far-zoom dots, so it's added on top only at readable zoom
+      // (when labels show too). save/restore scopes the shadow so it can't leak onto
+      // later paints, and preserves globalAlpha (the hover-focus dim) across it.
+      if (!isCenter && suggestedIds?.has(node.id)) {
+        ctx.save()
+        if (globalScale > LABEL_MIN_SCALE) {
+          ctx.shadowColor = palette.primary
+          ctx.shadowBlur = 8
+        }
+        ctx.beginPath()
+        ctx.arc(x, y, radius + 1.5, 0, 2 * Math.PI)
+        ctx.setLineDash([3, 3])
+        ctx.strokeStyle = palette.primary
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.restore()
+
+        // "+" badge at the node's bottom-right (the show dot owns the
+        // top-right corner). Primary fill; the glyph + outline use the
+        // background token so the badge holds contrast over any node fill
+        // on both themes.
+        const bx = x + radius - 1
+        const by = y + radius - 1
+        ctx.beginPath()
+        ctx.arc(bx, by, 4, 0, 2 * Math.PI)
+        ctx.fillStyle = palette.primary
+        ctx.fill()
+        ctx.strokeStyle = palette.labelHalo
+        ctx.lineWidth = 1
+        ctx.stroke()
+        ctx.lineWidth = 1.2
+        ctx.beginPath()
+        ctx.moveTo(bx - 2, by)
+        ctx.lineTo(bx + 2, by)
+        ctx.moveTo(bx, by - 2)
+        ctx.lineTo(bx, by + 2)
+        ctx.stroke()
       }
 
       // Show indicator for upcoming shows — shared geometry (graphMarkers).
@@ -926,7 +941,7 @@ export function ArtistGraphVisualization({
 
       ctx.globalAlpha = 1 // reset so the next node / post-frame labels aren't dimmed
     },
-    [focusedIds, expandedIds, expandingIds, suggestedIds, palette, graphData]
+    [focusedIds, expandedIds, expandingIds, suggestedIds, palette, centerFill, graphData]
   )
 
   // Degree (link count) per node id → label collision priority FALLBACK, used only when no
@@ -1107,7 +1122,7 @@ export function ArtistGraphVisualization({
         backgroundColor="transparent"
       />
 
-      {/* PSY-1453: canvas-foot legend for the relationship-type node fills
+      {/* Canvas-foot legend for the relationship-type node fills
           (locked Option B mock) — one swatch per family present. */}
       <EgoTypeLegend families={graphData.legendFamilies} />
 

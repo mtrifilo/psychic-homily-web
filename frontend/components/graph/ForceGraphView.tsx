@@ -175,7 +175,7 @@ const CHARGE_STRENGTH = -120
 const NODE_RADIUS = 8
 const ISOLATE_RADIUS = 5
 
-// PSY-1379/PSY-1453: the playable-audio ring + upcoming-show dot are the shared
+// The playable-audio ring + upcoming-show dot are the shared
 // marker set — colors, geometry, and draw calls single-sourced in
 // ./graphMarkers so this surface and the ego graph cannot drift.
 
@@ -1048,7 +1048,7 @@ export function ForceGraphView({
       // PSY-1379: playable-audio marker — a ring hugging the node so playability
       // is scannable at a glance (selecting the node opens a MusicEmbed). Drawn
       // inside the globalAlpha block so it dims with hover-focus like the rest
-      // of the node. Geometry + color shared via graphMarkers (PSY-1453).
+      // of the node. Geometry + color shared via graphMarkers.
       if (node.has_playable_audio) {
         drawPlayableRing(ctx, x, y, radius)
       }

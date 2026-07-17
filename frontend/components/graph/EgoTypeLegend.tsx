@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * EgoTypeLegend (PSY-1453)
+ * EgoTypeLegend
  *
  * Canvas-foot legend for the ego graph's relationship-type NODE fills: one
  * round swatch + lowercase family name per fill family present (plus a
@@ -10,6 +10,8 @@
  * type); this one teaches what the node colors mean. Layout per the locked
  * Option B mock: a horizontal row at the foot of the canvas.
  */
+
+import { memo } from 'react'
 
 import { cn } from '@/lib/utils'
 import { egoLegendRows, type EgoFillFamily } from './egoPalette'
@@ -20,7 +22,13 @@ export interface EgoTypeLegendProps {
   className?: string
 }
 
-export function EgoTypeLegend({ families, className }: EgoTypeLegendProps) {
+// memo: the host re-renders per mousemove while hovering canvas nodes, but
+// `families` is referentially stable (derived in the graph-data memo), so
+// the legend only needs to re-render when the graph itself changes.
+export const EgoTypeLegend = memo(function EgoTypeLegend({
+  families,
+  className,
+}: EgoTypeLegendProps) {
   const rows = egoLegendRows(families)
   if (rows.length === 0) return null
 
@@ -44,4 +52,4 @@ export function EgoTypeLegend({ families, className }: EgoTypeLegendProps) {
       ))}
     </div>
   )
-}
+})

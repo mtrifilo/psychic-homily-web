@@ -733,8 +733,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_U
 	suite.Assert().Equal(1, graph.Nodes[0].UpcomingShowCount)
 }
 
-// PSY-1453: ego payloads carry has_playable_audio (mirrors the scene graph's
-// PSY-1379 flag) so the canvas can draw the shared violet playable-marker ring.
+// Ego payloads carry has_playable_audio (mirrors the scene graph's flag) so
+// the canvas can draw the shared violet playable-marker ring.
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_PlayableAudioFlags() {
 	a1 := suite.createArtist("Center")
 	a2 := suite.createArtist("Bandcamp Band")
@@ -765,7 +765,7 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_P
 	suite.Assert().False(byID[a3], "artist with no embeds must not be flagged")
 }
 
-// PSY-1453: the flag also survives the no-relationships early return.
+// The playable-audio flag also survives the no-relationships early return.
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_PlayableAudio_EmptyGraphCenter() {
 	a1 := suite.createArtist("Lonely Playable")
 	embed := "https://bandcamp.com/EmbeddedPlayer/album=456"

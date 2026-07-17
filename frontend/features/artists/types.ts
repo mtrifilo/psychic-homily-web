@@ -250,7 +250,7 @@ export interface ArtistGraphNode {
   image_url?: string
   upcoming_show_count: number
   /** Selecting this node opens a playable embed — drives the shared violet
-   * playable-marker ring (PSY-1379/PSY-1453). Mirrors the backend flag. */
+   * playable-marker ring. Mirrors the backend flag. */
   has_playable_audio?: boolean
 }
 
