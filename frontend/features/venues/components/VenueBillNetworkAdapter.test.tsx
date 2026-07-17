@@ -162,7 +162,8 @@ describe('VenueBillNetworkAdapter connection panel (PSY-1455)', () => {
     // row). Scoped to the panel — the adapter's EdgeLegend also says
     // "Shared Bills".
     expect(within(panel).getByText('Shared Bills')).toBeInTheDocument()
-    // Edge clicks inspect; only NODE clicks navigate (PSY-361 semantics).
+    // Edge clicks inspect; nothing on this surface navigates directly —
+    // node clicks select into the ArtistContextPanel (PSY-1451 grammar).
     expect(mockPush).not.toHaveBeenCalled()
   })
 
