@@ -323,7 +323,11 @@ export interface CollectionGraphNode {
   state?: string
   /** Meaningful only for artist nodes; 0 for non-artist nodes. */
   upcoming_show_count: number
-  /** True when the node has zero in-set edges (post type-filter). */
+  /**
+   * True when the node has zero in-set edges (post type-filter, and post
+   * node cap since PSY-1475 — a kept node whose only partners were
+   * truncated by the cap is re-marked as an isolate).
+   */
   is_isolate: boolean
 }
 

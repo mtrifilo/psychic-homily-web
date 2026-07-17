@@ -208,13 +208,13 @@ export const OTHER_CLUSTER_ID = 'other'
 // same quality the old animated path reached. The synchronous cost stays
 // inside the locked decision's ~100ms main-thread budget because the graph
 // queries are node-capped at the source: scene caps at 75, station at 75
-// (max 150), festival at 150, and venue_bill_network — previously
-// uncapped — got its own 150-node ceiling in PSY-1461 (see
-// venueBillMaxNodes in
-// backend/internal/services/catalog/venue_bill_network.go). Known
-// remaining exception: the collection graph (GetCollectionGraph) has no
-// node cap — its payload is every collection item, so a 300+-item
-// collection can still blow the budget on this warmup path. Link counts
+// (max 150), festival at 150, venue_bill_network got its 150-node ceiling
+// in PSY-1461 (venueBillMaxNodes in
+// backend/internal/services/catalog/venue_bill_network.go), and the
+// collection graph — the last uncapped surface — got its 150-node ceiling
+// in PSY-1475 (collectionGraphMaxNodes in
+// backend/internal/services/community/collection.go), so no graph payload
+// on this warmup path exceeds 150 nodes anymore. Link counts
 // are nowhere hard-capped (bounded only by each query's edge threshold
 // and the node cap's pair space), but that's fine: the digest cost is
 // dominated by NODE count, measured flat across a link-density sweep.
