@@ -849,7 +849,7 @@ export function ForceGraphView({
   // widens this poll to every reduced-motion surface, including venue-
   // bill-network payloads (node-capped since PSY-1461 — see the
   // WARMUP_TICKS comment above). The measured capped-worst-case warmup
-  // digest (~48-64ms at 150 nodes) leaves >15x headroom under this 1s
+  // digest (~48-98ms at 150 nodes) leaves >10x headroom under this 1s
   // budget, so the poll comfortably catches the bbox becoming readable at
   // that scale — not independently re-verified with a paused
   // (reduced-motion) engine specifically, only the default animated-loop

@@ -890,8 +890,8 @@ type VenueBillNetworkInfo struct {
 	// without another API change.
 	ArtistTotal     int  `json:"artist_total"`     // distinct in-window artists BEFORE the node cap
 	RosterTruncated bool `json:"roster_truncated"` // true when artist_total > the node cap
-	EdgeCount   int    `json:"edge_count"`   // co-bill pairs above the min-shared-shows threshold
-	ShowCount   int    `json:"show_count"`   // approved shows used to derive the network
+	EdgeCount       int  `json:"edge_count"`       // co-bill pairs above the min-shared-shows threshold
+	ShowCount       int  `json:"show_count"`       // approved shows used to derive the network
 	// WindowLabel describes the active time window in the response so the
 	// frontend can label the graph without reverse-engineering the filter.
 	// One of: "all_time", "last_12m", "year".
