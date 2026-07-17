@@ -12,6 +12,8 @@ const mockData: CollectionGraphResponse = {
     artist_count: 2,
     edge_count: 1,
     entity_counts: { artist: 2, venue: 1 },
+    node_total: 3,
+    nodes_truncated: false,
   },
   nodes: [
     {

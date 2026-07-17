@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -3036,6 +3037,80 @@ const (
 	CollectionEdgeShowVenue   = "show_venue"  // show ↔ venue (the show's location)
 )
 
+// collectionGraphMaxNodes is the hard ceiling on collection-graph nodes.
+// This was the last uncapped graph surface on the frontend's synchronous
+// warmup path — festivalGraphMaxNodes, stationGraphMaxNodeLimit, and
+// venueBillMaxNodes are all 150 — and an unbounded payload makes the
+// warmup pre-settle blow its ~100ms main-thread budget (measurements live
+// with the WARMUP_TICKS comment in
+// frontend/components/graph/ForceGraphView.tsx). When the cap bites,
+// in-set degree decides who stays: the collection graph is heterogeneous
+// (artist/venue/show/release/label/festival) with no cross-type metric
+// like at-venue show count, so the edge count already carried by the
+// payload is the ranking signal — the densely connected core the graph
+// exists to show survives, and isolates are cut first. Ties keep the
+// existing response order (entity-type order, then name), so the result
+// is deterministic. NodeTotal + NodesTruncated on the response disclose
+// the truncation ("not a silent cap" — scene-graph convention).
+const collectionGraphMaxNodes = 150
+
+// capCollectionGraphNodes trims the node list to collectionGraphMaxNodes,
+// keeping the highest-degree nodes (in-set link count, both endpoints).
+// Links are kept only when BOTH endpoints survive — a dangling link would
+// point at a node that isn't in the payload. A no-op at or under the cap.
+// Callers re-derive isolate flags and per-type counts from the returned
+// slices so a kept node whose only partner was dropped is correctly
+// re-marked as an isolate.
+func capCollectionGraphNodes(
+	nodes []contracts.CollectionGraphNode,
+	links []contracts.CollectionGraphLink,
+) ([]contracts.CollectionGraphNode, []contracts.CollectionGraphLink) {
+	if len(nodes) <= collectionGraphMaxNodes {
+		return nodes, links
+	}
+
+	degree := make(map[uint]int, len(nodes))
+	for _, l := range links {
+		degree[l.SourceID]++
+		degree[l.TargetID]++
+	}
+
+	// Stable sort of node indices by degree desc: ties preserve the
+	// deterministic type-then-name response ordering built upstream.
+	order := make([]int, len(nodes))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return degree[nodes[order[i]].ID] > degree[nodes[order[j]].ID]
+	})
+
+	kept := make(map[uint]struct{}, collectionGraphMaxNodes)
+	for _, idx := range order[:collectionGraphMaxNodes] {
+		kept[nodes[idx].ID] = struct{}{}
+	}
+
+	// Rebuild in original order so the capped response keeps the same
+	// type-then-name ordering contract as the uncapped one.
+	cappedNodes := make([]contracts.CollectionGraphNode, 0, collectionGraphMaxNodes)
+	for _, n := range nodes {
+		if _, ok := kept[n.ID]; ok {
+			cappedNodes = append(cappedNodes, n)
+		}
+	}
+	cappedLinks := make([]contracts.CollectionGraphLink, 0, len(links))
+	for _, l := range links {
+		if _, ok := kept[l.SourceID]; !ok {
+			continue
+		}
+		if _, ok := kept[l.TargetID]; !ok {
+			continue
+		}
+		cappedLinks = append(cappedLinks, l)
+	}
+	return cappedNodes, cappedLinks
+}
+
 // GetCollectionGraph returns the multi-type knowledge subgraph for the
 // collection's items. PSY-366 (artist-only origin), PSY-555 (Option B —
 // every collection item becomes a node).
@@ -3127,7 +3202,17 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		return nil, err
 	}
 
-	// Mark isolates (no in-set edges, post type-filter).
+	// Enforce the node ceiling so an oversized collection can't blow the
+	// frontend's synchronous warmup budget (see collectionGraphMaxNodes).
+	// NodeTotal is captured first so the truncation is disclosed, not
+	// silent. Isolate flags and per-type counts below are derived from the
+	// capped slices — a kept node whose only partner was dropped becomes
+	// an isolate again.
+	resp.Collection.NodeTotal = len(nodes)
+	nodes, links = capCollectionGraphNodes(nodes, links)
+	resp.Collection.NodesTruncated = resp.Collection.NodeTotal > len(nodes)
+
+	// Mark isolates (no in-set edges, post type-filter, post cap).
 	connected := make(map[uint]bool, len(nodes))
 	for _, l := range links {
 		connected[l.SourceID] = true

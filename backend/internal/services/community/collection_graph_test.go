@@ -94,6 +94,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Publi
 	suite.Equal(1, graph.Collection.EdgeCount)
 	suite.Len(graph.Links, 1)
 
+	// PSY-1475 disclosure fields: under the cap, total equals the graph
+	// count and no truncation is disclosed.
+	suite.Equal(3, graph.Collection.NodeTotal, "under the cap, node_total equals the node count")
+	suite.False(graph.Collection.NodesTruncated, "under the cap, no truncation is disclosed")
+
 	// Connected artists should NOT be isolates; the rest should be.
 	connected := 0
 	isolated := 0
@@ -459,6 +464,79 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Multi
 		_, tgtOK := nodeIDs[l.TargetID]
 		suite.True(srcOK, "link source_id %d must reference a node in the response", l.SourceID)
 		suite.True(tgtOK, "link target_id %d must reference a node in the response", l.TargetID)
+	}
+}
+
+// TestGetCollectionGraph_NodeCapKeepsConnectedCore (PSY-1475): a collection
+// over the 150-node ceiling is capped, keeping the highest-degree nodes (the
+// connected core) and dropping isolates first. NodeTotal discloses the
+// uncapped item count and NodesTruncated that the cap bit; ArtistCount /
+// EntityCounts / EdgeCount describe the capped response. The cap's ranking
+// semantics are unit-tested next to the service (capCollectionGraphNodes);
+// this pins the end-to-end wiring. The literal 150 mirrors
+// collectionGraphMaxNodes (not exported).
+func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_NodeCapKeepsConnectedCore() {
+	const maxNodes = 150
+
+	creator := suite.createTestUser("CapCreator")
+	priv := suite.createBasicCollection(creator, "Cap Test")
+
+	// maxNodes+2 artists. Names are zero-padded so the deterministic
+	// name-order node build matches ID order — the last two names are the
+	// tiebreak drops once the connected pair takes its slots.
+	artists := make([]catalogm.Artist, maxNodes+2)
+	for i := range artists {
+		artists[i] = catalogm.Artist{Name: fmt.Sprintf("Cap Artist %03d", i)}
+	}
+	suite.Require().NoError(suite.db.Create(&artists).Error)
+	items := make([]communitym.CollectionItem, len(artists))
+	for i, a := range artists {
+		items[i] = communitym.CollectionItem{
+			CollectionID:  priv.ID,
+			EntityType:    communitym.CollectionEntityArtist,
+			EntityID:      a.ID,
+			AddedByUserID: creator.ID,
+		}
+	}
+	suite.Require().NoError(suite.db.Create(&items).Error)
+
+	// One stored edge between the first two artists — degree 1 each, every
+	// other node is an isolate (degree 0), so the connected pair must
+	// survive and the trailing two isolates get dropped.
+	suite.seedArtistRelationship(&artists[0], &artists[1], catalogm.RelationshipTypeSharedBills, 5.0)
+
+	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(graph.Nodes, maxNodes)
+	suite.Equal(maxNodes+2, graph.Collection.NodeTotal, "node_total discloses the uncapped item count")
+	suite.True(graph.Collection.NodesTruncated, "nodes_truncated discloses that the cap bit")
+	suite.Equal(maxNodes, graph.Collection.ArtistCount, "ArtistCount reflects the capped graph")
+	suite.Equal(maxNodes, graph.Collection.EntityCounts[communitym.CollectionEntityArtist])
+	suite.Equal(1, graph.Collection.EdgeCount, "the connected pair's edge survives the cap")
+	suite.Require().Len(graph.Links, 1)
+
+	names := make(map[string]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		names[n.Name] = true
+	}
+	suite.True(names["Cap Artist 000"], "connected artist must survive the cap")
+	suite.True(names["Cap Artist 001"], "connected artist must survive the cap")
+	for _, dropped := range []string{
+		fmt.Sprintf("Cap Artist %03d", maxNodes),
+		fmt.Sprintf("Cap Artist %03d", maxNodes+1),
+	} {
+		suite.False(names[dropped], "trailing isolate %s should be dropped by the cap", dropped)
+	}
+
+	// Every surviving link references nodes present in the response.
+	nodeIDs := make(map[uint]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		nodeIDs[n.ID] = true
+	}
+	for _, l := range graph.Links {
+		suite.True(nodeIDs[l.SourceID], "link source must reference a kept node")
+		suite.True(nodeIDs[l.TargetID], "link target must reference a kept node")
 	}
 }
 
