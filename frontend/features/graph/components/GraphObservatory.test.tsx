@@ -270,6 +270,20 @@ describe('GraphObservatory', () => {
     expect(screen.getByRole('heading', { name: 'Pick a name. See what it touches.' })).toBeInTheDocument()
   })
 
+  it('does not substitute a fuzzy search hit for the promised example artist', async () => {
+    const user = userEvent.setup()
+    searchRequest.mockResolvedValue({
+      artists: [{ id: 9, name: 'Diner Dogs', slug: 'diner-dogs', city: null, state: null }],
+      count: 1,
+    })
+    renderWithProviders(<GraphObservatory />)
+
+    await user.click(screen.getByRole('button', { name: 'Search for Diners' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Couldn’t find Diners')
+    expect(screen.queryByLabelText('Graph centered on Diner Dogs')).not.toBeInTheDocument()
+  })
+
   it('middle-collapses long trails behind a disclosure that expands on demand', async () => {
     const user = userEvent.setup()
     renderWithProviders(<GraphObservatory />)
@@ -281,7 +295,6 @@ describe('GraphObservatory', () => {
       await user.click(screen.getByRole('button', { name: /Center here/i }))
     }
 
-    const nav = screen.getByRole('navigation', { name: 'Graph traversal history' })
     const disclosure = screen.getByRole('button', { name: 'Show 2 more trail entries' })
     expect(disclosure).toHaveTextContent('… 2 more')
     // Collapsed: only the first and last trail entries stay clickable.
@@ -298,10 +311,10 @@ describe('GraphObservatory', () => {
       expect(screen.getAllByRole('button', { name: 'Playboy Manbaby' })[0]).toHaveFocus(),
     )
 
-    // A jump re-collapses implicitly (length changes); trail still works.
+    // A jump remounts the trail (epoch key), which re-collapses it.
     await user.click(screen.getAllByRole('button', { name: 'Playboy Manbaby' })[0])
     expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
-    expect(nav).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Graph traversal history' })).toBeInTheDocument()
   })
 
   it('shows the shared skeleton while the graph loads', async () => {

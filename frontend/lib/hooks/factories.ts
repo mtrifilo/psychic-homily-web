@@ -80,6 +80,29 @@ export function createNamedDetailHook<
 }
 
 /**
+ * Create the query-options builder a search surface shares between its
+ * reactive hook and imperative `queryClient.fetchQuery` callers — the single
+ * owner of the search cache contract (key + URL + stale/gc tuning), so the
+ * two paths can't drift. `createSearchHook` builds on this; feature modules
+ * can export a specialization for imperative lookups (see
+ * features/artists/hooks/useArtistSearch.ts).
+ */
+export function createSearchQueryOptions<T>(
+  searchEndpoint: string,
+  queryKey: (query: string) => readonly unknown[],
+) {
+  return function searchQueryOptions(query: string) {
+    return {
+      queryKey: queryKey(query),
+      queryFn: () =>
+        apiRequest<T>(`${searchEndpoint}?q=${encodeURIComponent(query)}`),
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+    }
+  }
+}
+
+/**
  * Create a search hook with debounced input.
  *
  * Produced hook signature:
@@ -92,6 +115,7 @@ export function createSearchHook<T>(
   searchEndpoint: string,
   queryKey: (query: string) => readonly unknown[],
 ) {
+  const searchQueryOptions = createSearchQueryOptions<T>(searchEndpoint, queryKey)
   return function useSearch(options: {
     query: string
     debounceMs?: number
@@ -100,14 +124,8 @@ export function createSearchHook<T>(
     const [debouncedQuery] = useDebounce(query, debounceMs)
 
     return useQuery({
-      queryKey: queryKey(debouncedQuery),
-      queryFn: () =>
-        apiRequest<T>(
-          `${searchEndpoint}?q=${encodeURIComponent(debouncedQuery)}`
-        ),
+      ...searchQueryOptions(debouncedQuery),
       enabled: debouncedQuery.length > 0,
-      staleTime: 5 * 60 * 1000,
-      gcTime: 30 * 60 * 1000,
     })
   }
 }

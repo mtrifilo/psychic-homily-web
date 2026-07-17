@@ -15,7 +15,7 @@ import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import { GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import { GRAPH_BOX_HEIGHT_CLASS, GRAPH_BOX_MIN_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
 import {
   GRAPH_BREAKPOINT_PX,
   useContainerWidth,
@@ -101,32 +101,42 @@ function RotatingExample({
   return (
     <p className="text-sm text-muted-foreground">
       Try searching for{' '}
-      <button
-        type="button"
-        onClick={() => onPick(active)}
-        disabled={disabled}
-        aria-label={`Search for ${active}`}
+      {/* Mouse pause lives on the WRAPPER: disabled buttons don't dispatch
+          mouseleave, so tracking hover on the button itself would strand
+          isPaused=true after a failed lookup froze the rotation forever. */}
+      <span
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
-        onFocus={() => setIsPaused(true)}
-        onBlur={() => setIsPaused(false)}
-        className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none disabled:opacity-60"
       >
-        {/* All examples share one grid cell so the line crossfades in place
-            (and reserves the widest name's width — no layout jitter). Under
-            reduced motion the rotation is frozen AND the fade is disabled. */}
-        {CURATED_EXAMPLES.map((name, exampleIndex) => (
-          <span
-            key={name}
-            aria-hidden="true"
-            className={`col-start-1 row-start-1 ${
-              reducedMotion ? '' : 'transition-opacity duration-500 motion-reduce:transition-none'
-            } ${exampleIndex === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-          >
-            {name}
-          </span>
-        ))}
-      </button>
+        <button
+          type="button"
+          onClick={() => onPick(active)}
+          disabled={disabled}
+          aria-label={`Search for ${active}`}
+          aria-busy={disabled || undefined}
+          onFocus={() => setIsPaused(true)}
+          onBlur={() => setIsPaused(false)}
+          className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none disabled:opacity-60"
+        >
+          {/* All examples share one grid cell so the line crossfades in place
+              (and reserves the widest name's width — no layout jitter). Under
+              reduced motion the rotation is frozen AND the fade is disabled. */}
+          {CURATED_EXAMPLES.map((name, exampleIndex) => (
+            <span
+              key={name}
+              aria-hidden="true"
+              className={`col-start-1 row-start-1 ${
+                reducedMotion ? '' : 'transition-opacity duration-500 motion-reduce:transition-none'
+              } ${exampleIndex === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+            >
+              {name}
+            </span>
+          ))}
+        </button>
+        {disabled && (
+          <Loader2 className="ml-1.5 inline size-3.5 animate-spin align-[-2px] text-muted-foreground" aria-hidden="true" />
+        )}
+      </span>
     </p>
   )
 }
@@ -186,19 +196,18 @@ function Trail({
   onReset: () => void
   resetButtonRef?: Ref<HTMLButtonElement>
 }) {
-  // Expansion is remembered against the exact trail (id signature), so any
-  // hop, jump, or reset re-collapses the bar without an effect — and a later,
-  // different trail that happens to share a length can't alias into a stale
-  // expansion.
-  const [expandedFor, setExpandedFor] = useState<string | null>(null)
+  // Plain local state: the PARENT remounts this component (key = a counter
+  // bumped on every trail mutation), so any hop, jump, search, or reset
+  // resets the disclosure to collapsed. Deriving "should re-collapse" from
+  // trail contents was tried and rejected — id signatures alias when a
+  // truncate-then-rehop rebuilds an identical sequence.
+  const [isExpanded, setIsExpanded] = useState(false)
   const firstRevealedChipRef = useRef<HTMLButtonElement>(null)
-  const trailSignature = trail.map(entry => entry.id).join('>')
-  const isExpanded = expandedFor === trailSignature
   const segments = collapseTrail(trail)
   const isCollapsed = segments.hidden.length > 0 && !isExpanded
 
   const handleExpand = () => {
-    setExpandedFor(trailSignature)
+    setIsExpanded(true)
     // The disclosure button unmounts on expand; hand focus to the first
     // revealed chip so keyboard users keep their place in the nav.
     window.requestAnimationFrame(() => firstRevealedChipRef.current?.focus())
@@ -354,9 +363,12 @@ export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
   const [trail, setTrail] = useState<TraversalEntry[]>([])
+  // Bumped on every trail mutation; keys <Trail> so its local disclosure
+  // state resets (re-collapses) on any hop, jump, search, or reset.
+  const [trailEpoch, setTrailEpoch] = useState(0)
   const [selectedNode, setSelectedNode] = useState<ArtistGraphSelection | null>(null)
   const [selectionSource, setSelectionSource] = useState<'canvas' | 'list' | null>(null)
-  const [shuffleError, setShuffleError] = useState<string | null>(null)
+  const [lookupError, setLookupError] = useState<string | null>(null)
   // At most one async discovery lookup is in flight (guarded by the
   // generation counter); the tag says which button owns the busy treatment.
   const [pendingLookup, setPendingLookup] = useState<'shuffle' | 'example' | null>(null)
@@ -365,7 +377,7 @@ export function GraphObservatory() {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const listTriggerRef = useRef<HTMLButtonElement | null>(null)
   const resetButtonRef = useRef<HTMLButtonElement>(null)
-  const randomRequestGeneration = useRef(0)
+  const lookupGeneration = useRef(0)
 
   const graphQuery = useArtistGraph({
     artistId: center?.id ?? 0,
@@ -383,33 +395,35 @@ export function GraphObservatory() {
 
   // Cancels any in-flight async lookup (random rabbit hole OR example
   // search) — bumping the generation makes the pending promise a no-op.
-  const cancelRandomSearch = useCallback(() => {
-    randomRequestGeneration.current += 1
+  const cancelPendingLookup = useCallback(() => {
+    lookupGeneration.current += 1
     setPendingLookup(null)
   }, [])
 
   const startAt = useCallback((next: GraphAnchor) => {
     setCenter(next)
     setTrail(resetTrail())
+    setTrailEpoch(epoch => epoch + 1)
     setSelectedNode(null)
     setSelectionSource(null)
-    setShuffleError(null)
+    setLookupError(null)
     listTriggerRef.current = null
   }, [])
 
   const handleArtistSelect = useCallback(
     (artist: Artist) => {
-      cancelRandomSearch()
+      cancelPendingLookup()
       startAt(anchorFromArtist(artist))
     },
-    [cancelRandomSearch, startAt],
+    [cancelPendingLookup, startAt],
   )
 
   const handleCenterHere = useCallback(() => {
     if (!center || !selectedNode || selectedNode.id === center.id) return
-    cancelRandomSearch()
+    cancelPendingLookup()
     const shouldRestoreFocus = selectionSource === 'list'
     setTrail(previous => pushTrail(previous, center))
+    setTrailEpoch(epoch => epoch + 1)
     setCenter(anchorFromNode(selectedNode))
     setSelectedNode(null)
     setSelectionSource(null)
@@ -417,42 +431,44 @@ export function GraphObservatory() {
     if (shouldRestoreFocus) {
       window.requestAnimationFrame(() => resetButtonRef.current?.focus())
     }
-  }, [cancelRandomSearch, center, selectedNode, selectionSource])
+  }, [cancelPendingLookup, center, selectedNode, selectionSource])
 
   const handleTrailJump = useCallback((entry: TraversalEntry, index: number) => {
-    cancelRandomSearch()
+    cancelPendingLookup()
     setTrail(previous => truncateTrail(previous, index))
+    setTrailEpoch(epoch => epoch + 1)
     setCenter(entry)
     setSelectedNode(null)
     setSelectionSource(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => resetButtonRef.current?.focus())
-  }, [cancelRandomSearch])
+  }, [cancelPendingLookup])
 
   const handleReset = useCallback(() => {
-    cancelRandomSearch()
+    cancelPendingLookup()
     setCenter(null)
     setTrail(resetTrail())
+    setTrailEpoch(epoch => epoch + 1)
     setSelectedNode(null)
     setSelectionSource(null)
-    setShuffleError(null)
+    setLookupError(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => searchInputRef.current?.focus())
-  }, [cancelRandomSearch])
+  }, [cancelPendingLookup])
 
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
-    cancelRandomSearch()
+    cancelPendingLookup()
     listTriggerRef.current = null
     setSelectedNode(node)
     setSelectionSource('canvas')
-  }, [cancelRandomSearch])
+  }, [cancelPendingLookup])
 
   const handleListSelect = useCallback((node: ArtistGraphSelection, trigger: HTMLButtonElement) => {
-    cancelRandomSearch()
+    cancelPendingLookup()
     listTriggerRef.current = trigger
     setSelectedNode(node)
     setSelectionSource('list')
-  }, [cancelRandomSearch])
+  }, [cancelPendingLookup])
 
   const handlePanelClose = useCallback(() => {
     const trigger = selectionSource === 'list' ? listTriggerRef.current : null
@@ -474,19 +490,19 @@ export function GraphObservatory() {
   }, [selectedNode, selectionSource])
 
   const handleShuffle = useCallback(async () => {
-    const requestGeneration = randomRequestGeneration.current + 1
-    randomRequestGeneration.current = requestGeneration
-    setShuffleError(null)
+    const requestGeneration = lookupGeneration.current + 1
+    lookupGeneration.current = requestGeneration
+    setLookupError(null)
     setPendingLookup('shuffle')
     try {
       for (let attempt = 0; attempt < RANDOM_GRAPH_ATTEMPTS; attempt += 1) {
         const result = await refetchShuffle()
-        if (requestGeneration !== randomRequestGeneration.current) return
+        if (requestGeneration !== lookupGeneration.current) return
         const target = result.isError ? undefined : result.data
         if (!target?.artist_id || !target.artist_slug || !target.artist_name) break
 
         const candidateGraph = await fetchArtistGraph(target.artist_id)
-        if (requestGeneration !== randomRequestGeneration.current) return
+        if (requestGeneration !== lookupGeneration.current) return
         const hasCenterLink = candidateGraph.links.some(link =>
           link.source_id === target.artist_id || link.target_id === target.artist_id,
         )
@@ -503,12 +519,12 @@ export function GraphObservatory() {
       // The shared random-target and graph requests both cross the network;
       // collapse either failure into the same recoverable inline state.
     } finally {
-      if (requestGeneration === randomRequestGeneration.current) {
+      if (requestGeneration === lookupGeneration.current) {
         setPendingLookup(null)
       }
     }
-    if (requestGeneration === randomRequestGeneration.current) {
-      setShuffleError('No rabbit hole is available right now — try again in a moment.')
+    if (requestGeneration === lookupGeneration.current) {
+      setLookupError('No rabbit hole is available right now — try again in a moment.')
     }
   }, [fetchArtistGraph, refetchShuffle, startAt])
 
@@ -518,28 +534,36 @@ export function GraphObservatory() {
   // random-lookup generation counter so search/reset/shuffle clicks cancel a
   // pending example lookup too.
   const handleExampleSearch = useCallback(async (name: string) => {
-    const requestGeneration = randomRequestGeneration.current + 1
-    randomRequestGeneration.current = requestGeneration
-    setShuffleError(null)
+    const requestGeneration = lookupGeneration.current + 1
+    lookupGeneration.current = requestGeneration
+    setLookupError(null)
     setPendingLookup('example')
     try {
-      const result = await queryClient.fetchQuery(artistSearchQueryOptions(name))
-      if (requestGeneration !== randomRequestGeneration.current) return
+      const searchOptions = artistSearchQueryOptions(name)
+      const result = await queryClient.fetchQuery(searchOptions)
+      if (requestGeneration !== lookupGeneration.current) return
       const artists = result.artists ?? []
-      const match =
-        artists.find(artist => artist.name.toLowerCase() === name.toLowerCase()) ??
-        artists[0]
+      // Exact (case-insensitive) match only: the button's accessible name
+      // promises a specific artist — silently substituting a fuzzy hit would
+      // center a graph the user didn't ask for.
+      const match = artists.find(
+        artist => artist.name.toLowerCase() === name.toLowerCase(),
+      )
       if (match) {
         startAt(anchorFromArtist(match))
         return
       }
-      setShuffleError(`Couldn’t find ${name} right now — try the search box.`)
+      // Drop the cached miss so a retry (or the search box, which shares
+      // this key) actually re-queries instead of serving the fresh empty
+      // result for the next five minutes.
+      queryClient.removeQueries({ queryKey: searchOptions.queryKey, exact: true })
+      setLookupError(`Couldn’t find ${name} right now — try the search box.`)
     } catch {
-      if (requestGeneration === randomRequestGeneration.current) {
-        setShuffleError(`Couldn’t find ${name} right now — try the search box.`)
+      if (requestGeneration === lookupGeneration.current) {
+        setLookupError(`Couldn’t find ${name} right now — try the search box.`)
       }
     } finally {
-      if (requestGeneration === randomRequestGeneration.current) {
+      if (requestGeneration === lookupGeneration.current) {
         setPendingLookup(null)
       }
     }
@@ -587,6 +611,7 @@ export function GraphObservatory() {
 
         {center && (
           <Trail
+            key={trailEpoch}
             trail={trail}
             current={center}
             onJump={handleTrailJump}
@@ -624,10 +649,13 @@ export function GraphObservatory() {
             <div className="space-y-1">
               <h2 className="font-display text-2xl font-medium">Pick a name. See what it touches.</h2>
               <RotatingExample onPick={handleExampleSearch} disabled={pendingLookup === 'example'} />
+              {lookupError && (
+                <p role="status" className="text-xs text-destructive">{lookupError}</p>
+              )}
             </div>
           </div>
         ) : (
-          <div ref={refCallback} className="relative min-h-[240px] p-3 sm:min-h-[400px] md:min-h-[560px]">
+          <div ref={refCallback} className={`relative p-3 ${GRAPH_BOX_MIN_HEIGHT_CLASS}`}>
             {containerWidth === null || graphQuery.isPending ? (
               <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS}>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -647,13 +675,12 @@ export function GraphObservatory() {
                 </button>
               </div>
             ) : graph && !hasCenterConnections ? (
-              // overflow-y-auto + m-auto inner wrapper: the escape hatches can
-              // wrap to several rows on narrow phones while the contract height
-              // is fixed — scrolling beats bleeding into the trail bar and
-              // footer, and margin-auto centering (unlike justify-center on the
-              // scroll container) keeps the top reachable when content overflows.
-              <div role="status" className={`overflow-y-auto px-6 py-4 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}>
-                <div className="m-auto flex min-h-full flex-col items-center justify-center gap-3">
+              // min-height (not the fixed-height contract): this card is
+              // content-driven — the escape hatches wrap to several rows on
+              // narrow phones, and growing beats trapping the third hatch in
+              // an inner scroll region.
+              <div role="status" className={`flex flex-col items-center justify-center gap-3 px-6 py-4 text-center ${GRAPH_BOX_MIN_HEIGHT_CLASS}`}>
+                <div className="flex flex-col items-center gap-3">
                   <div>
                     <h2 className="font-display text-2xl font-medium">No mapped connections yet.</h2>
                     <p className="mt-1 max-w-md text-sm text-muted-foreground">
@@ -744,7 +771,12 @@ export function GraphObservatory() {
           Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
         <ShufflePill onClick={handleShuffle} busy={isShuffleBusy} />
-        {shuffleError && <p role="status" className="basis-full text-xs text-destructive">{shuffleError}</p>}
+        {/* On the zero state the error renders beside the affordance the user
+            clicked (in the hero); once a graph is centered, this footer slot
+            is the only shuffle entry point, so it renders here instead. */}
+        {lookupError && center && (
+          <p role="status" className="basis-full text-xs text-destructive">{lookupError}</p>
+        )}
       </div>
     </div>
   )
