@@ -29,13 +29,14 @@
  * never break on a graph problem.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { EdgeSwatch } from '@/components/graph/EdgeLegend'
 import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
 import { PLAYABLE_RING_COLOR, UPCOMING_SHOW_DOT_COLOR } from '@/components/graph/graphMarkers'
@@ -208,23 +209,6 @@ function HomeSceneGraphSection() {
   const scene =
     scenes.find(s => s.slug === (surpriseSlug ?? pinnedSlug)) ?? defaultScene
 
-  // Node selection → context panel (PSY-1345). Cleared whenever the scene
-  // identity changes (the selected artist belongs to the outgoing scene's
-  // graph — Surprise-me AND data-driven re-ranks both count) and on
-  // Esc/click-away/close. React 19.2: clear via the previous-value-guard
-  // idiom (adjust state during render) rather than a synchronous setState
-  // in an effect, which trips react-hooks/set-state-in-effect and adds a
-  // cascading render.
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
-  const canvasWrapRef = useRef<HTMLDivElement>(null)
-  const [prevSceneSlug, setPrevSceneSlug] = useState<string | undefined>(
-    scene?.slug
-  )
-  if (scene?.slug !== prevSceneSlug) {
-    setPrevSceneSlug(scene?.slug)
-    setSelectedNode(null)
-  }
-
   // Below the canvas gate the teaser never reads graphData — don't pay
   // the (dense, liveliest-scene) graph round-trip for a payload the
   // mobile render discards.
@@ -258,15 +242,38 @@ function HomeSceneGraphSection() {
   )
   const connectedNodes = graphMap.nodes
   const hasEnoughConnectedNodes = connectedNodes.length >= MIN_CONNECTED_NODES
-  const currentSelectedNode = selectedNode
-    ? connectedNodes.find(node => node.id === selectedNode.id) ?? null
-    : null
-  if (
-    selectedNode &&
-    settledGraphData &&
-    !currentSelectedNode
-  ) {
-    setSelectedNode(null)
+
+  // Node selection → context panel (PSY-1345), via the shared
+  // select/deselect/close/focus-return wiring (PSY-1451). The resolver only
+  // trusts settled data for the current scene: placeholder frames resolve to
+  // null (their connectedNodes belong to the outgoing scene), and the scene
+  // rotation that caused them clears the selection below anyway.
+  const {
+    selectedNode: currentSelectedNode,
+    canvasWrapRef,
+    panelRef,
+    handleNodeClick: selectNode,
+    handleBackgroundClick,
+    handlePanelClose,
+    clearSelection,
+  } = useArtistPanelSelection({
+    resolveNode: selected =>
+      settledGraphData
+        ? (connectedNodes.find(node => node.id === selected.id) ?? null)
+        : null,
+  })
+
+  // Clear the selection whenever the scene identity changes — the selected
+  // artist belongs to the outgoing scene's graph (Surprise-me AND data-driven
+  // re-ranks both count). React 19.2: the previous-value-guard idiom (adjust
+  // state during render) rather than a synchronous setState in an effect,
+  // which trips react-hooks/set-state-in-effect and adds a cascading render.
+  const [prevSceneSlug, setPrevSceneSlug] = useState<string | undefined>(
+    scene?.slug
+  )
+  if (scene?.slug !== prevSceneSlug) {
+    setPrevSceneSlug(scene?.slug)
+    clearSelection()
   }
   const showChipOverlays = useMemo(
     () =>
@@ -294,24 +301,16 @@ function HomeSceneGraphSection() {
     if (next) setSurpriseSlug(next.slug)
   }, [scenes, scene?.slug])
 
-  // Click selects (opens the context panel); navigation happens via the
-  // panel's "Open page →". Clicking the already-selected node deselects —
-  // a second click reads as "put it away". The first click also pins the
-  // current scene (see pinnedSlug) so a late geo resolution won't yank it.
+  // Click selects / second click deselects (shared hook); the first click
+  // also pins the current scene (see pinnedSlug) so a late geo resolution
+  // won't yank it.
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
       setPinnedSlug(prev => prev ?? scene?.slug ?? null)
-      setSelectedNode(prev => (prev?.id === node.id ? null : node))
+      selectNode(node)
     },
-    [scene?.slug]
+    [scene?.slug, selectNode]
   )
-
-  const handlePanelClose = useCallback(() => {
-    setSelectedNode(null)
-    // PSY-1313 lesson: return focus via an EXPLICIT ref — after the panel
-    // unmounts, focus would otherwise drop to document.body.
-    canvasWrapRef.current?.focus()
-  }, [])
 
   // Self-hide on scenes failure/emptiness: a broken graph source must not
   // dent the homepage. (scenes.length === 0 is only meaningful once the
@@ -426,7 +425,7 @@ function HomeSceneGraphSection() {
                   // this branch requires >= MIN_CONNECTED_NODES (3).
                   ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. ${graphSelectGestureHint}`}
                   onNodeClick={handleNodeClick}
-                  onBackgroundClick={handlePanelClose}
+                  onBackgroundClick={handleBackgroundClick}
                 />
                 {currentSelectedNode && (
                   <ArtistContextPanel
@@ -436,6 +435,7 @@ function HomeSceneGraphSection() {
                     card={cardQuery.data}
                     isError={cardQuery.isError}
                     onClose={handlePanelClose}
+                    panelRef={panelRef}
                   />
                 )}
               </div>

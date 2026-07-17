@@ -23,13 +23,12 @@
  *
  * Locked grammar (PSY-1451): on Section-class surfaces a node click SELECTS
  * into the shared ArtistContextPanel; navigation happens only via the
- * panel's "Open page →". Conventions match
- * HomeSceneGraph (PSY-1345): a second click on the selected node deselects,
- * background click and Esc close, and focus returns to the canvas wrap on
- * close. Esc layering with the fullscreen overlay is handled by the panel's
- * Radix DismissableLayer (PSY-1355): it preventDefaults in the capture
- * phase, so the overlay's own Esc listener (which skips defaultPrevented)
- * closes only on the NEXT press.
+ * panel's "Open page →". The select/deselect/close/focus-return conventions
+ * live in the shared `useArtistPanelSelection` hook (PSY-1451 — shared with
+ * HomeSceneGraph and StationGraphVisualization). Esc layering with the
+ * fullscreen overlay is handled by the panel's Radix DismissableLayer
+ * (PSY-1355): it preventDefaults in the capture phase, so the overlay's own
+ * Esc listener (which skips defaultPrevented) closes only on the NEXT press.
  *
  * Behaviour preserved (PSY-516, PSY-517, PSY-518, PSY-519 patches):
  *   - all props from the original component remain — the SceneGraph tests
@@ -40,16 +39,13 @@
  *   - hiddenClusterIDs filter behaviour preserved (Set passed through)
  */
 
-import { useCallback, useRef, useState } from 'react'
-import {
-  ForceGraphView,
-  OTHER_CLUSTER_ID,
-} from '@/components/graph/ForceGraphView'
-import type { GraphNode } from '@/components/graph/ForceGraphView'
+import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
+import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVisibleClusters'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
 // re-exports the artists component tree, which would drag unrelated module
 // code into the scene page's graph chunk (HomeSceneGraph precedent, PSY-868).
@@ -81,61 +77,28 @@ export function SceneGraphVisualization({
   hiddenClusterIDs,
   height,
 }: SceneGraphVisualizationProps) {
-  // Node selection → context panel (PSY-1451, HomeSceneGraph conventions).
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
-  const canvasWrapRef = useRef<HTMLDivElement>(null)
-
-  // Resolve the selection against the CURRENT payload and cluster filter —
-  // a legend hide or a cluster-mode refetch that drops the node must put the
-  // panel away rather than strand it naming an off-canvas artist. The filter
-  // mirrors ForceGraphView's own node cull (empty cluster_id falls back to
-  // OTHER_CLUSTER_ID). React 19.2: clear stale state via the
-  // previous-value-guard idiom (adjust state during render), not a
-  // setState-in-effect — HomeSceneGraph precedent.
-  const currentSelectedNode = selectedNode
-    ? (data.nodes.find(
-        node =>
-          node.id === selectedNode.id &&
-          !hiddenClusterIDs.has(node.cluster_id || OTHER_CLUSTER_ID)
-      ) ?? null)
-    : null
-  if (selectedNode && !currentSelectedNode) {
-    setSelectedNode(null)
-  }
+  // Node selection → context panel: shared select/deselect/close/focus-return
+  // wiring (PSY-1451). The shared resolver checks the CURRENT payload and
+  // cluster filter — a legend hide or a cluster-mode refetch that drops the
+  // node must put the panel away rather than strand it naming an off-canvas
+  // artist.
+  const {
+    selectedNode: currentSelectedNode,
+    canvasWrapRef,
+    panelRef,
+    handleNodeClick,
+    handleBackgroundClick,
+    handlePanelClose,
+    handleConnectionInspectOpen,
+  } = useArtistPanelSelection({
+    resolveNode: selected =>
+      resolveNodeInVisibleClusters(selected, data.nodes, hiddenClusterIDs),
+  })
 
   const cardQuery = useArtistGraphCard({
     artistId: currentSelectedNode?.id ?? null,
     enabled: currentSelectedNode !== null,
   })
-
-  // Click selects (opens the context panel); navigation happens via the
-  // panel's "Open page →". Clicking the already-selected node deselects —
-  // a second click reads as "put it away".
-  const handleNodeClick = useCallback((node: GraphNode) => {
-    setSelectedNode(prev => (prev?.id === node.id ? null : node))
-  }, [])
-
-  const handlePanelClose = useCallback(() => {
-    setSelectedNode(null)
-    // PSY-1313 lesson: return focus via an EXPLICIT ref — after the panel
-    // unmounts, focus would otherwise drop to document.body.
-    canvasWrapRef.current?.focus()
-  }, [])
-
-  // Background click only acts while a panel is open — otherwise a plain
-  // click on empty canvas would steal document focus (and can scroll a
-  // partially-visible canvas into view) as the side effect of a no-op.
-  const handleBackgroundClick = useCallback(() => {
-    if (selectedNode) handlePanelClose()
-  }, [selectedNode, handlePanelClose])
-
-  // Edge click opens ForceGraphView's ConnectionPanel (bottom-left) —
-  // deselect so the two panels never stack in the same column. No focus
-  // move: the user's attention just shifted to the connection inspector.
-  // Mirrors ForceGraphView's own symmetry (node click closes the inspector).
-  const handleConnectionInspectOpen = useCallback(() => {
-    setSelectedNode(null)
-  }, [])
 
   // PSY-1296: describe a capped graph honestly — assistive tech hears the
   // exact phrase the visual header shows (shared sceneGraphCopy source), so
@@ -179,6 +142,7 @@ export function SceneGraphVisualization({
           card={cardQuery.data}
           isError={cardQuery.isError}
           onClose={handlePanelClose}
+          panelRef={panelRef}
         />
       )}
     </div>
