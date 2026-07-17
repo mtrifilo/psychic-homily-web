@@ -101,11 +101,20 @@ export function useArtistPanelSelection<TNode extends GraphNode>({
     // Focus return, guarded (see the header comment): only when focus is
     // being orphaned by the panel unmount or was already lost to body.
     const active = document.activeElement
-    const orphaned =
-      !(active instanceof HTMLElement) ||
-      active === document.body ||
-      Boolean(panelRef.current?.contains(active))
-    if (orphaned) canvasWrapRef.current?.focus()
+    const inPanel = Boolean(
+      active instanceof HTMLElement && panelRef.current?.contains(active)
+    )
+    if (inPanel) {
+      // Focus was inside the unmounting panel (X button, a panel link) — the
+      // panel, and therefore the graph, is on screen; default scroll is a
+      // no-op here.
+      canvasWrapRef.current?.focus()
+    } else if (!(active instanceof HTMLElement) || active === document.body) {
+      // Focus already lost (e.g. Esc after clicking non-focusable page text).
+      // preventScroll: the graph may be scrolled out of view, and dismissing
+      // a panel must not scroll-jump the viewport back to it.
+      canvasWrapRef.current?.focus({ preventScroll: true })
+    }
   }, [])
 
   const handleBackgroundClick = useCallback(() => {
