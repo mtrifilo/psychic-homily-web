@@ -360,6 +360,13 @@ export interface ForceGraphViewProps {
    */
   showConnectionPanel?: boolean
   /**
+   * Notifies the consumer that an edge click just opened the connection
+   * inspector. Callers that float their own node panel over the canvas
+   * close it here — the mirror of the existing symmetry where a node click
+   * closes the connection inspector — so two panels never stack.
+   */
+  onConnectionInspectOpen?: () => void
+  /**
    * PSY-1344: embed mode for perf-budgeted landing surfaces (homepage
    * graph section). Disables wheel-zoom and drag-pan so the canvas never
    * captures page scroll or invites tool-level interaction; click/hover
@@ -422,6 +429,7 @@ export function ForceGraphView({
   onNodeClick,
   showEdgeLegend = false,
   showConnectionPanel = false,
+  onConnectionInspectOpen,
   staticViewport = false,
   nodeLabelStyles = EMPTY_NODE_LABEL_STYLES,
   forceNodeLabels = false,
@@ -900,8 +908,9 @@ export function ForceGraphView({
     (link: RenderLink) => {
       if (!showConnectionPanel || !link.type) return
       connectionInspect.open(endpointId(link.source), endpointId(link.target))
+      onConnectionInspectOpen?.()
     },
-    [showConnectionPanel, connectionInspect]
+    [showConnectionPanel, connectionInspect, onConnectionInspectOpen]
   )
 
   // PSY-1335: lazily fetch the entities behind each connection for the

@@ -31,6 +31,7 @@ interface CapturedProps {
   ariaLabel: string
   onNodeClick: (node: GraphNode) => void
   onBackgroundClick?: () => void
+  onConnectionInspectOpen?: () => void
   showAccessibleNodeControls?: boolean
 }
 let lastProps: CapturedProps | null = null
@@ -53,6 +54,9 @@ vi.mock('@/components/graph/ForceGraphView', () => ({
         <button type="button" onClick={() => props.onBackgroundClick?.()}>
           canvas-background
         </button>
+        <button type="button" onClick={() => props.onConnectionInspectOpen?.()}>
+          edge-inspect-open
+        </button>
       </div>
     )
   },
@@ -68,7 +72,7 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
 }))
 
 import { SceneGraphVisualization } from './SceneGraphVisualization'
-import { graphSelectGestureHint } from './sceneGraphCopy'
+import { graphSelectGestureHint } from '@/components/graph/ArtistContextPanel'
 
 const data: SceneGraphResponse = {
   scene: {
@@ -172,7 +176,7 @@ describe('SceneGraphVisualization', () => {
   })
 
   it('forwards graph payload, width, and hidden clusters to ForceGraphView', () => {
-    const hidden = new Set(['v_2'])
+    const hidden = new Set(['v_1'])
     render(
       <SceneGraphVisualization
         data={data}
@@ -293,6 +297,57 @@ describe('SceneGraphVisualization', () => {
     ).toBeNull()
     const canvasWrap = screen.getByTestId('force-graph-view').parentElement
     expect(document.activeElement).toBe(canvasWrap)
+    // With the panel closed, the NEXT Esc goes through un-prevented — this
+    // is the press the fullscreen overlay's listener acts on (panel closes
+    // first, overlay second).
+    expect(fireEvent.keyDown(document, { key: 'Escape' })).toBe(true)
+  })
+
+  it('deselects when an edge click opens the connection inspector (panels never stack)', () => {
+    render(
+      <SceneGraphVisualization
+        data={data}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'node-gatecreeper' }))
+    expect(
+      screen.getByRole('region', { name: 'About Gatecreeper' })
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'edge-inspect-open' }))
+    expect(
+      screen.queryByRole('region', { name: 'About Gatecreeper' })
+    ).toBeNull()
+  })
+
+  it('closes the panel when the selected node’s empty cluster_id falls into a hidden "other"', () => {
+    const otherData = {
+      ...data,
+      nodes: [{ ...data.nodes[0], cluster_id: '' }],
+    }
+    const { rerender } = render(
+      <SceneGraphVisualization
+        data={otherData}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'node-gatecreeper' }))
+    expect(
+      screen.getByRole('region', { name: 'About Gatecreeper' })
+    ).toBeInTheDocument()
+
+    rerender(
+      <SceneGraphVisualization
+        data={otherData}
+        containerWidth={1024}
+        hiddenClusterIDs={new Set(['other'])}
+      />
+    )
+    expect(
+      screen.queryByRole('region', { name: 'About Gatecreeper' })
+    ).toBeNull()
   })
 
   it('closes the panel when the selected node’s cluster is hidden via the legend', () => {

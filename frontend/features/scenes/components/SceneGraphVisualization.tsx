@@ -13,7 +13,11 @@
  *   2. Owns the scene surface's node-selection state, so the
  *      ArtistContextPanel mounts inside whichever container renders the
  *      canvas — the inline section or the fullscreen overlay's stacking
- *      context — with no per-container wiring in SceneGraph.tsx.
+ *      context — with no per-container wiring in SceneGraph.tsx. Selection
+ *      is instance-local, so toggling fullscreen (which swaps between two
+ *      separate instances) intentionally resets it — same accepted behavior
+ *      as the edge-inspect ConnectionPanel, whose state also lives
+ *      per-instance inside ForceGraphView.
  *   3. Owns the scene-specific aria-label + click semantics; equivalent
  *      pattern lives in `VenueBillNetwork.tsx` for venue scope.
  *
@@ -42,13 +46,16 @@ import {
   OTHER_CLUSTER_ID,
 } from '@/components/graph/ForceGraphView'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
-import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
+import {
+  ArtistContextPanel,
+  graphSelectGestureHint,
+} from '@/components/graph/ArtistContextPanel'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
 // re-exports the artists component tree, which would drag unrelated module
 // code into the scene page's graph chunk (HomeSceneGraph precedent, PSY-868).
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import type { SceneGraphResponse } from '../types'
-import { graphSelectGestureHint, sceneArtistCountPhrase } from './sceneGraphCopy'
+import { sceneArtistCountPhrase } from './sceneGraphCopy'
 
 interface SceneGraphVisualizationProps {
   data: SceneGraphResponse
@@ -122,6 +129,14 @@ export function SceneGraphVisualization({
     if (selectedNode) handlePanelClose()
   }, [selectedNode, handlePanelClose])
 
+  // Edge click opens ForceGraphView's ConnectionPanel (bottom-left) —
+  // deselect so the two panels never stack in the same column. No focus
+  // move: the user's attention just shifted to the connection inspector.
+  // Mirrors ForceGraphView's own symmetry (node click closes the inspector).
+  const handleConnectionInspectOpen = useCallback(() => {
+    setSelectedNode(null)
+  }, [])
+
   // PSY-1296: describe a capped graph honestly — assistive tech hears the
   // exact phrase the visual header shows (shared sceneGraphCopy source), so
   // the two surfaces can't state different numbers for the same graph. The
@@ -151,6 +166,7 @@ export function SceneGraphVisualization({
         showEdgeLegend
         // PSY-1334: click an edge to inspect why the pair is connected.
         showConnectionPanel
+        onConnectionInspectOpen={handleConnectionInspectOpen}
       />
       {currentSelectedNode && (
         <ArtistContextPanel

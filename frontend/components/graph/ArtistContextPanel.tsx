@@ -30,6 +30,15 @@ import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import { GraphPanelShell } from './GraphPanelShell'
 
+/**
+ * The select-gesture sentence appended to graph canvas aria-labels under the
+ * locked click-selects grammar: click no longer navigates, so the label must
+ * set that expectation. Lives with the panel it describes; one shared
+ * literal so assistive tech can't hear different gesture affordances for
+ * the same interaction across surfaces.
+ */
+export const graphSelectGestureHint = 'Click a node for that artist’s details.'
+
 export interface ArtistContextPanelProps {
   /** Name of the selected node — rendered immediately, before the card loads. */
   artistName: string
