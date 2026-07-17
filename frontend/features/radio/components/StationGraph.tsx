@@ -216,7 +216,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
               Artists most played on {stationName} over {windowLabel}, linked when they
               appear on the same episodes (strongest connections only). Clusters group
               artists by the show that plays them most. Click a cluster pill above to
-              hide it; click any artist to open their page.
+              hide it; click any artist for their details.
             </p>
           </div>
         )}

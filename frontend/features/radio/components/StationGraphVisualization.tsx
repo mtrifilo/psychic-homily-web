@@ -1,27 +1,47 @@
 'use client'
 
 /**
- * StationGraphVisualization (PSY-1299)
+ * StationGraphVisualization (PSY-1299, click-selects under PSY-1451)
  *
  * Thin shape adapter over the shared `ForceGraphView` for the station
  * co-occurrence graph — the station analog of `SceneGraphVisualization`.
- * It owns only the station-specific concerns (a11y label phrasing, click →
- * artist navigation) and delegates canvas, layout, hulls, isolate shelf,
- * and tooltips to the shared component. NOTE: the scene adapter has since
- * moved to the locked click-selects grammar (PSY-1451: click opens the
- * ArtistContextPanel; navigation only via "Open page →"); this surface is
- * scheduled to follow in its own PR, so the click semantics intentionally
- * differ for now.
+ * It owns only the station-specific concerns (a11y label phrasing,
+ * node-select → context-panel wiring) and delegates canvas, layout, hulls,
+ * isolate shelf, and tooltips to the shared component.
+ *
+ * Locked grammar (PSY-1451): a node click SELECTS into the shared
+ * ArtistContextPanel; navigation happens only via the panel's "Open page →".
+ * The select/deselect/close/focus-return conventions live in the shared
+ * `useArtistPanelSelection` hook. Selection is instance-local, so toggling
+ * fullscreen (which swaps between two separate instances of this component)
+ * intentionally resets it — same accepted behavior as the scene surface and
+ * the edge-inspect ConnectionPanel. Esc layering with the fullscreen overlay
+ * is handled by the panel's Radix DismissableLayer (PSY-1355): it
+ * preventDefaults in the capture phase, so the overlay's own Esc listener
+ * (which skips defaultPrevented) closes only on the NEXT press.
  *
  * The edge legend is intentionally OFF: every station edge is the single
  * `radio_cooccurrence` type, so a one-row legend adds noise. The cluster
- * pills (per-show colors, owned by StationGraph.tsx) carry the legend duty.
+ * pills (per-show colors, owned by StationGraph.tsx) carry the legend duty —
+ * which also leaves the top-right corner free for the context panel
+ * (HomeSceneGraph's placement; the scene surface uses top-left because its
+ * EdgeLegend floats top-right inside ForceGraphView).
  */
 
-import { useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import { ForceGraphView } from '@/components/graph/ForceGraphView'
-import type { GraphNode } from '@/components/graph/ForceGraphView'
+import {
+  ForceGraphView,
+  OTHER_CLUSTER_ID,
+} from '@/components/graph/ForceGraphView'
+import {
+  ArtistContextPanel,
+  graphSelectGestureHint,
+} from '@/components/graph/ArtistContextPanel'
+import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
+// Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
+// re-exports the artists component tree, which would drag unrelated module
+// code into the station page's graph chunk (SceneGraphVisualization
+// precedent, PSY-868).
+import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import type { RadioStationGraphResponse } from '../types'
 
 interface StationGraphVisualizationProps {
@@ -39,32 +59,73 @@ export function StationGraphVisualization({
   hiddenClusterIDs,
   height,
 }: StationGraphVisualizationProps) {
-  const router = useRouter()
+  // Node selection → context panel: shared select/deselect/close/focus-return
+  // wiring (PSY-1451). The resolver checks the CURRENT payload and cluster
+  // filter — hiding a cluster pill or a data refresh that drops the node must
+  // put the panel away rather than strand it naming an off-canvas artist. The
+  // filter mirrors ForceGraphView's own node cull (empty cluster_id falls
+  // back to OTHER_CLUSTER_ID).
+  const {
+    selectedNode,
+    canvasWrapRef,
+    panelRef,
+    handleNodeClick,
+    handleBackgroundClick,
+    handlePanelClose,
+    handleConnectionInspectOpen,
+  } = useArtistPanelSelection({
+    resolveNode: selected =>
+      data.nodes.find(
+        node =>
+          node.id === selected.id &&
+          !hiddenClusterIDs.has(node.cluster_id || OTHER_CLUSTER_ID),
+      ) ?? null,
+  })
 
-  // Same PSY-361 inheritance as the scene graph: clicking a node exits the
-  // station-scale view into that artist's page (where the ego graph lives).
-  const handleNodeClick = useCallback(
-    (node: GraphNode) => {
-      router.push(`/artists/${node.slug}`)
-    },
-    [router],
-  )
+  const cardQuery = useArtistGraphCard({
+    artistId: selectedNode?.id ?? null,
+    enabled: selectedNode !== null,
+  })
 
-  const ariaLabel = `Airplay graph for ${data.station.name}: ${data.station.artist_count} artists, ${data.station.edge_count} connections. Use the shows and playlists lists to browse without the canvas.`
+  // The trailing shared hint names the select gesture — click no longer
+  // navigates, so the label must set that expectation (scene convention).
+  const ariaLabel = `Airplay graph for ${data.station.name}: ${data.station.artist_count} artists, ${data.station.edge_count} connections. Use the shows and playlists lists to browse without the canvas. ${graphSelectGestureHint}`
 
   return (
-    <ForceGraphView
-      nodes={data.nodes}
-      links={data.links}
-      clusters={data.clusters}
-      containerWidth={containerWidth}
-      height={height}
-      hiddenClusterIDs={hiddenClusterIDs}
-      ariaLabel={ariaLabel}
-      onNodeClick={handleNodeClick}
-      // PSY-1334: click an edge to inspect why the pair is connected
-      // ("played together on N radio shows across M stations").
-      showConnectionPanel
-    />
+    <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
+      <ForceGraphView
+        nodes={data.nodes}
+        links={data.links}
+        clusters={data.clusters}
+        containerWidth={containerWidth}
+        height={height}
+        hiddenClusterIDs={hiddenClusterIDs}
+        ariaLabel={ariaLabel}
+        onNodeClick={handleNodeClick}
+        onBackgroundClick={handleBackgroundClick}
+        // The aria-label advertises the select gesture, so keyboard and
+        // screen-reader users need an equivalent: the focus-revealed node
+        // button list drives the same handleNodeClick path (scene surface
+        // convention).
+        showAccessibleNodeControls
+        // PSY-1334: click an edge to inspect why the pair is connected
+        // ("played together on N radio shows across M stations").
+        showConnectionPanel
+        // Edge click opens the ConnectionPanel — deselect so the two
+        // inspectors never stack.
+        onConnectionInspectOpen={handleConnectionInspectOpen}
+      />
+      {selectedNode && (
+        <ArtistContextPanel
+          className="absolute top-2 right-2 z-40"
+          artistName={selectedNode.name}
+          artistSlug={selectedNode.slug}
+          card={cardQuery.data}
+          isError={cardQuery.isError}
+          onClose={handlePanelClose}
+          panelRef={panelRef}
+        />
+      )}
+    </div>
   )
 }
