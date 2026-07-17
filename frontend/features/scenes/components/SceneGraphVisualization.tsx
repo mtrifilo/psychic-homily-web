@@ -39,15 +39,13 @@
  *   - hiddenClusterIDs filter behaviour preserved (Set passed through)
  */
 
-import {
-  ForceGraphView,
-  OTHER_CLUSTER_ID,
-} from '@/components/graph/ForceGraphView'
+import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
+import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVisibleClusters'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
 // re-exports the artists component tree, which would drag unrelated module
 // code into the scene page's graph chunk (HomeSceneGraph precedent, PSY-868).
@@ -80,11 +78,10 @@ export function SceneGraphVisualization({
   height,
 }: SceneGraphVisualizationProps) {
   // Node selection → context panel: shared select/deselect/close/focus-return
-  // wiring (PSY-1451). The resolver checks the CURRENT payload and cluster
-  // filter — a legend hide or a cluster-mode refetch that drops the node must
-  // put the panel away rather than strand it naming an off-canvas artist. The
-  // filter mirrors ForceGraphView's own node cull (empty cluster_id falls
-  // back to OTHER_CLUSTER_ID).
+  // wiring (PSY-1451). The shared resolver checks the CURRENT payload and
+  // cluster filter — a legend hide or a cluster-mode refetch that drops the
+  // node must put the panel away rather than strand it naming an off-canvas
+  // artist.
   const {
     selectedNode: currentSelectedNode,
     canvasWrapRef,
@@ -95,11 +92,7 @@ export function SceneGraphVisualization({
     handleConnectionInspectOpen,
   } = useArtistPanelSelection({
     resolveNode: selected =>
-      data.nodes.find(
-        node =>
-          node.id === selected.id &&
-          !hiddenClusterIDs.has(node.cluster_id || OTHER_CLUSTER_ID)
-      ) ?? null,
+      resolveNodeInVisibleClusters(selected, data.nodes, hiddenClusterIDs),
   })
 
   const cardQuery = useArtistGraphCard({

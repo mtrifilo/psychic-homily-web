@@ -44,6 +44,12 @@
 
 import { useCallback, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+// Type-only import, deliberately: HomeSceneGraph consumes this hook in its
+// statically-mounted section while loading ForceGraphView in its own
+// dynamic(ssr:false) chunk (PSY-868) — a VALUE import here would drag the
+// whole canvas module into the homepage's initial JS. The value-level
+// companion (resolveNodeInVisibleClusters) lives in its own module for the
+// same reason.
 import type { GraphNode } from './ForceGraphView'
 
 export interface UseArtistPanelSelectionOptions<TNode extends GraphNode> {
@@ -106,13 +112,13 @@ export function useArtistPanelSelection<TNode extends GraphNode>({
     if (selectedNode) handlePanelClose()
   }, [selectedNode, handlePanelClose])
 
-  const handleConnectionInspectOpen = useCallback(() => {
-    setSelectedNode(null)
-  }, [])
-
   const clearSelection = useCallback(() => {
     setSelectedNode(null)
   }, [])
+
+  // Same plain clear, exposed under its wiring-intent name — keep them one
+  // implementation so the two can't silently diverge.
+  const handleConnectionInspectOpen = clearSelection
 
   return {
     selectedNode: currentSelectedNode,
