@@ -24,6 +24,10 @@ const mockReleaseSaveCountBatch = vi.fn<(...args: unknown[]) => EmptyQuery>(
   () => query({})
 )
 let isAuthenticated = true
+let chartDefaults: {
+  window: 'month' | 'quarter' | 'all_time'
+  scene: string | null
+} | null = null
 let personalStatsLoading = false
 let personalStatsError = false
 let personalStats = {
@@ -42,7 +46,7 @@ let personalStats = {
   } | null,
   first_activity_at: '2026-03-12T00:00:00Z' as string | null,
 }
-let queryWindow: 'month' | 'quarter' | 'all_time' = 'quarter'
+let queryWindow: 'month' | 'quarter' | 'all_time' | null = null
 let queryScene: string | null = null
 let sceneListLoading = false
 let sceneListError = false
@@ -98,6 +102,7 @@ function query<T>(data: T) {
 vi.mock('nuqs', () => ({
   parseAsString: { withOptions: () => ({}) },
   parseAsStringLiteral: () => ({
+    withOptions: () => ({}),
     withDefault: () => ({ withOptions: () => ({}) }),
   }),
   useQueryState: (key: string) =>
@@ -110,6 +115,23 @@ vi.mock('@/lib/context/AuthContext', () => ({
     isAuthenticated,
     isLoading: false,
     user: isAuthenticated ? { id: '42' } : null,
+  }),
+}))
+vi.mock('@/features/auth', () => ({
+  useProfile: () => ({
+    data: isAuthenticated
+      ? {
+          user: {
+            preferences: {
+              chart_defaults: chartDefaults,
+            },
+          },
+        }
+      : undefined,
+  }),
+  useSetChartDefaults: () => ({
+    mutate: vi.fn(),
+    isPending: false,
   }),
 }))
 vi.mock('@/lib/hooks/common/useFollow', () => ({
@@ -190,7 +212,7 @@ vi.mock('../hooks', () => ({
       }
     }
     const response = {
-      ...query({ window: queryWindow, scenes: chartScenes }),
+      ...query({ window, scenes: chartScenes }),
       isFetching: sceneListFetching,
     }
     if (sceneListRefetchError) {
@@ -320,6 +342,7 @@ describe('ChartsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthenticated = true
+    chartDefaults = null
     personalStatsLoading = false
     personalStatsError = false
     personalStats = {
@@ -333,7 +356,7 @@ describe('ChartsPage', () => {
       },
       first_activity_at: '2026-03-12T00:00:00Z',
     }
-    queryWindow = 'quarter'
+    queryWindow = null
     queryScene = null
     sceneListLoading = false
     sceneListError = false
@@ -486,6 +509,81 @@ describe('ChartsPage', () => {
     expect(mockSetWindow).toHaveBeenLastCalledWith(null)
     await user.click(screen.getByRole('button', { name: 'All Time' }))
     expect(mockSetWindow).toHaveBeenLastCalledWith('all_time')
+  })
+
+  it('applies saved chart defaults when URL params are absent', () => {
+    chartDefaults = { window: 'month', scene: '38060' }
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'This Month' })
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: Phoenix' })
+    ).toBeInTheDocument()
+    expect(mockSetWindow).not.toHaveBeenCalled()
+    expect(mockSetScene).not.toHaveBeenCalled()
+
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
+    }
+  })
+
+  it('lets explicit URL params override saved chart defaults', () => {
+    chartDefaults = { window: 'month', scene: '38060' }
+    queryWindow = 'all_time'
+    queryScene = 'all'
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'All Time' })
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('button', { name: 'Chart scene: All scenes' })
+    ).toBeInTheDocument()
+    const moduleCalls = mockScopedHook.mock.calls.filter(
+      ([name]) => name !== 'scenes'
+    )
+    for (const call of moduleCalls) {
+      expect(call.at(-1)).toMatchObject({ scene: '', enabled: true })
+    }
+  })
+
+  it('writes an explicit all-scenes sentinel when clearing over a saved scene', async () => {
+    const user = userEvent.setup()
+    chartDefaults = { window: 'month', scene: '38060' }
+    queryScene = '38060'
+    render(<ChartsPage />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Chart scene: Phoenix' })
+    )
+    await user.click(screen.getByRole('menuitemradio', { name: 'All scenes' }))
+    expect(mockSetScene).toHaveBeenCalledWith('all')
+  })
+
+  it('shows Save as default when the selection differs from saved prefs', () => {
+    chartDefaults = { window: 'month', scene: '38060' }
+    queryWindow = 'all_time'
+    queryScene = 'all'
+    render(<ChartsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Save as default' })
+    ).toBeInTheDocument()
+  })
+
+  it('hides the save affordance for anonymous visitors', () => {
+    isAuthenticated = false
+    queryWindow = 'month'
+    render(<ChartsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Save as default' })
+    ).not.toBeInTheDocument()
   })
 
   it('lists floored scenes and writes the selected metro to the URL', async () => {

@@ -62,6 +62,11 @@ interface UserPreferencesData {
   timezone?: string
   language?: string
   favorite_cities?: FavoriteCity[]
+  // PSY-1423: saved /charts window + scene. Absent/null = no saved defaults.
+  chart_defaults?: {
+    window: 'month' | 'quarter' | 'all_time'
+    scene: string | null
+  } | null
   default_reply_permission?: string
   // PSY-350 / PSY-515: weekly digest of new items in collections the user
   // follows. Server default is FALSE (opt-IN); user toggles this from the

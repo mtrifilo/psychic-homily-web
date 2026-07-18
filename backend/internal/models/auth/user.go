@@ -11,6 +11,14 @@ type FavoriteCity struct {
 	State string `json:"state"`
 }
 
+// ChartDefaults is the saved /charts landing preference (PSY-1423).
+// Window must be month|quarter|all_time. Scene is a metro CBSA code, or nil/empty
+// for "all scenes".
+type ChartDefaults struct {
+	Window string  `json:"window"`
+	Scene  *string `json:"scene"`
+}
+
 // Nav-mode preference values (PSY-1115): the global navigation chrome a user
 // prefers. NavModeTop is the default top-bar nav; NavModeSide is the left
 // sidebar nav. Kept in sync with the users.nav_mode CHECK constraint and the
@@ -96,8 +104,10 @@ type UserPreferences struct {
 	Language          string           `json:"language" gorm:"default:en"`
 	ShowReminders     bool             `json:"show_reminders" gorm:"default:false"`
 	FavoriteCities    *json.RawMessage `json:"favorite_cities" gorm:"type:jsonb;default:'[]'"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+	// PSY-1423: saved /charts window + scene. NULL = no saved defaults.
+	ChartDefaults *json.RawMessage `json:"chart_defaults" gorm:"type:jsonb"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
 
 	// Relationships
 	User User `json:"-" gorm:"foreignKey:UserID"`

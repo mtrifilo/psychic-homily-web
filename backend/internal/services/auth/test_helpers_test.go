@@ -143,6 +143,10 @@ func (n *nilDBUserService) SetFavoriteCities(userID uint, cities []authm.Favorit
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetChartDefaults(userID uint, defaults *authm.ChartDefaults) error {
+	return fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) SetShowReminders(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }

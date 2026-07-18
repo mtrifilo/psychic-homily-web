@@ -341,6 +341,8 @@ type UserServiceInterface interface {
 	UnlinkOAuthAccount(userID uint, provider string) error
 	GetFavoriteCities(userID uint) ([]authm.FavoriteCity, error)
 	SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error
+	// PSY-1423: persist /charts window + scene defaults (nil clears).
+	SetChartDefaults(userID uint, defaults *authm.ChartDefaults) error
 	SetShowReminders(userID uint, enabled bool) error
 	// PSY-296: default reply permission applied to new top-level comments.
 	SetDefaultReplyPermission(userID uint, permission string) error

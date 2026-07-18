@@ -3880,6 +3880,7 @@ type MockUserService struct {
 	UnlinkOAuthAccountFn              func(uint, string) error
 	GetFavoriteCitiesFn               func(uint) ([]authm.FavoriteCity, error)
 	SetFavoriteCitiesFn               func(uint, []authm.FavoriteCity) error
+	SetChartDefaultsFn                func(uint, *authm.ChartDefaults) error
 	SetShowRemindersFn                func(uint, bool) error
 	SetDefaultReplyPermissionFn       func(uint, string) error
 	SetNotifyOnCommentSubscriptionFn  func(uint, bool) error
@@ -4091,6 +4092,12 @@ func (m *MockUserService) GetFavoriteCities(userID uint) ([]authm.FavoriteCity, 
 func (m *MockUserService) SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error {
 	if m.SetFavoriteCitiesFn != nil {
 		return m.SetFavoriteCitiesFn(userID, cities)
+	}
+	return nil
+}
+func (m *MockUserService) SetChartDefaults(userID uint, defaults *authm.ChartDefaults) error {
+	if m.SetChartDefaultsFn != nil {
+		return m.SetChartDefaultsFn(userID, defaults)
 	}
 	return nil
 }

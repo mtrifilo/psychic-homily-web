@@ -66,6 +66,8 @@ export const API_ENDPOINTS = {
     CLI_TOKEN: `${API_BASE_URL}/auth/cli-token`,
     // User preferences
     FAVORITE_CITIES: `${API_BASE_URL}/auth/preferences/favorite-cities`,
+    // PSY-1423: /charts window + scene landing defaults.
+    CHART_DEFAULTS: `${API_BASE_URL}/auth/preferences/chart-defaults`,
     SHOW_REMINDERS: `${API_BASE_URL}/auth/preferences/show-reminders`,
     UNSUBSCRIBE_SHOW_REMINDERS: `${API_BASE_URL}/auth/unsubscribe/show-reminders`,
     // PSY-350 / PSY-515: weekly digest of new items in collections you follow.

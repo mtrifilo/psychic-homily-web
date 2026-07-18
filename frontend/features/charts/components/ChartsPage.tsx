@@ -18,6 +18,7 @@ import {
   SaveButton,
 } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useProfile, type ChartDefaults } from '@/features/auth'
 import { useBatchFollowStatus } from '@/lib/hooks/common/useFollow'
 import { useShowSaveCountBatch } from '@/features/shows'
 import {
@@ -46,9 +47,12 @@ import {
 } from '../types'
 import { ChartModule, ChartRow } from './ChartModule'
 import { PersonalStatsStrip } from './PersonalStatsStrip'
+import { SaveChartDefaultsButton } from './SaveChartDefaultsButton'
 
-const chartWindowParser =
-  parseAsStringLiteral(CHART_WINDOWS).withDefault('quarter')
+/** Explicit "all scenes" URL sentinel — mirrors `?cities=all` on /shows. */
+const SCENE_ALL = 'all'
+
+const chartWindowParser = parseAsStringLiteral(CHART_WINDOWS)
 const WINDOW_LABELS: Record<ChartWindow, string> = {
   month: 'This Month',
   quarter: 'Quarter',
@@ -63,6 +67,16 @@ const WINDOW_SUMMARY: Record<ChartWindow, string> = {
   month: 'THIS MONTH',
   quarter: 'THIS QUARTER',
   all_time: 'ALL TIME',
+}
+
+function parseSavedChartDefaults(
+  raw: ChartDefaults | null | undefined
+): ChartDefaults | null {
+  if (!raw?.window) return null
+  if (!(CHART_WINDOWS as readonly string[]).includes(raw.window)) return null
+  const scene =
+    raw.scene && /^[0-9]{1,10}$/.test(raw.scene) ? raw.scene : null
+  return { window: raw.window, scene }
 }
 
 function metroDisplayName(name: string): string {
@@ -294,28 +308,73 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
 
 export function ChartsPage() {
   const [isPending, startTransition] = useTransition()
-  const [window, setWindow] = useQueryState(
+  // No withDefault — null means "param absent" so saved prefs can fill in
+  // (same derivation pattern as /shows favorite cities; PSY-1423).
+  const [windowParam, setWindow] = useQueryState(
     'window',
     chartWindowParser.withOptions({ history: 'push', startTransition })
   )
-  const [scene, setScene] = useQueryState(
+  const [sceneParam, setScene] = useQueryState(
     'scene',
     parseAsString.withOptions({ history: 'push', startTransition })
   )
   const { isAuthenticated, user } = useAuthContext()
+  const { data: profileData } = useProfile()
+
+  const savedDefaults = useMemo(
+    () =>
+      isAuthenticated
+        ? parseSavedChartDefaults(
+            profileData?.user?.preferences?.chart_defaults
+          )
+        : null,
+    [isAuthenticated, profileData?.user?.preferences?.chart_defaults]
+  )
+
+  // Derive effective window/scene during render — never seed into the URL via
+  // effect. Explicit URL params always win; bare /charts applies saved defaults
+  // (or anonymous quarter / no-scene).
+  const window: ChartWindow =
+    windowParam ?? savedDefaults?.window ?? 'quarter'
+
+  // undefined = param absent (may apply saved); null = explicit all-scenes;
+  // string = explicit or candidate metro.
+  const sceneFromUrl: string | null | undefined =
+    sceneParam === SCENE_ALL
+      ? null
+      : sceneParam !== null
+        ? sceneParam
+        : undefined
+  const preferredScene =
+    sceneFromUrl !== undefined
+      ? sceneFromUrl
+      : (savedDefaults?.scene ?? null)
 
   const sceneList = useChartScenes(window)
   const sceneListMatchesWindow = sceneList.data?.window === window
   const selectedScene = sceneListMatchesWindow
-    ? sceneList.data?.scenes.find(option => option.metro === scene)
+    ? sceneList.data?.scenes.find(option => option.metro === preferredScene)
     : undefined
-  const sceneHasValidShape = !scene || /^[0-9]{1,10}$/.test(scene)
+  const sceneHasValidShape =
+    !preferredScene || /^[0-9]{1,10}$/.test(preferredScene)
   const sceneValidationComplete =
     sceneList.isSuccess && sceneListMatchesWindow && !sceneList.isFetching
+  // Invalid *saved* (URL-absent) scenes fall through to all-scenes without
+  // rewriting the URL. Invalid *URL* scenes are cleared in the effect below.
+  const scene =
+    preferredScene &&
+    !selectedScene &&
+    sceneValidationComplete &&
+    sceneFromUrl === undefined
+      ? null
+      : preferredScene
   const sceneResolved =
     !scene || Boolean(selectedScene) || sceneValidationComplete
   const sceneValidationFailed =
-    Boolean(scene) && sceneHasValidShape && sceneList.isError && !selectedScene
+    Boolean(sceneFromUrl) &&
+    sceneHasValidShape &&
+    sceneList.isError &&
+    !selectedScene
   const effectiveScene = selectedScene?.metro ?? ''
   const chartQueryOptions = {
     scene: effectiveScene,
@@ -323,19 +382,16 @@ export function ChartsPage() {
   }
 
   useEffect(() => {
+    // Only clear *explicit* invalid URL scenes — never a derived saved default.
     if (
-      scene &&
-      (!sceneHasValidShape || (sceneValidationComplete && !selectedScene))
+      sceneParam &&
+      sceneParam !== SCENE_ALL &&
+      (!/^[0-9]{1,10}$/.test(sceneParam) ||
+        (sceneValidationComplete && !selectedScene))
     ) {
       void setScene(null)
     }
-  }, [
-    scene,
-    sceneHasValidShape,
-    sceneValidationComplete,
-    selectedScene,
-    setScene,
-  ])
+  }, [sceneParam, sceneValidationComplete, selectedScene, setScene])
 
   const active = useMostActiveArtists(window, 7, chartQueryOptions)
   const radio = useOnTheRadio(window, 7, chartQueryOptions)
@@ -400,8 +456,26 @@ export function ChartsPage() {
   const followFallback = { follower_count: 0, is_following: false }
   const saveFallback = { save_count: 0, is_saved: false }
 
+  // Keep URL clean when writing the value that bare /charts would derive.
+  // If selecting the anonymous default while a saved default would otherwise
+  // apply, write an explicit sentinel so URL params still win on refresh.
+  const derivedWindow = savedDefaults?.window ?? 'quarter'
+  const derivedScene = savedDefaults?.scene ?? null
+
   const changeWindow = (next: ChartWindow) => {
-    void setWindow(next === 'quarter' ? null : next)
+    void setWindow(next === derivedWindow ? null : next)
+  }
+
+  const changeScene = (next: string | null) => {
+    if (next === derivedScene) {
+      void setScene(null)
+      return
+    }
+    if (next === null && derivedScene !== null) {
+      void setScene(SCENE_ALL)
+      return
+    }
+    void setScene(next)
   }
 
   return (
@@ -417,7 +491,7 @@ export function ChartsPage() {
                 selectedScene={selectedScene}
                 isLoading={sceneList.isLoading}
                 isError={sceneList.isError && !selectedScene}
-                onChange={nextScene => void setScene(nextScene)}
+                onChange={changeScene}
                 onRetry={() => void sceneList.refetch()}
                 treatment="masthead"
               />
@@ -467,8 +541,15 @@ export function ChartsPage() {
               selectedScene={selectedScene}
               isLoading={sceneList.isLoading}
               isError={sceneList.isError && !selectedScene}
-              onChange={nextScene => void setScene(nextScene)}
+              onChange={changeScene}
               onRetry={() => void sceneList.refetch()}
+            />
+          ) : null}
+          {isAuthenticated ? (
+            <SaveChartDefaultsButton
+              window={window}
+              scene={effectiveScene || null}
+              savedDefaults={savedDefaults}
             />
           ) : null}
         </div>

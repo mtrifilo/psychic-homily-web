@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/markbates/goth"
@@ -1186,6 +1188,62 @@ func (s *UserService) SetFavoriteCities(userID uint, cities []authm.FavoriteCity
 
 	return nil
 }
+
+// SetChartDefaults replaces a user's /charts landing defaults (PSY-1423).
+// Pass nil to clear. Window must be month|quarter|all_time; scene is an optional
+// metro code (nil/empty = all scenes).
+func (s *UserService) SetChartDefaults(userID uint, defaults *authm.ChartDefaults) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	var raw *json.RawMessage
+	if defaults != nil {
+		switch defaults.Window {
+		case "month", "quarter", "all_time":
+		default:
+			return fmt.Errorf("invalid chart window: %s", defaults.Window)
+		}
+		if defaults.Scene != nil {
+			scene := strings.TrimSpace(*defaults.Scene)
+			if scene == "" {
+				defaults.Scene = nil
+			} else if !chartSceneMetroRe.MatchString(scene) {
+				return fmt.Errorf("invalid chart scene metro: %s", scene)
+			} else {
+				defaults.Scene = &scene
+			}
+		}
+		data, err := json.Marshal(defaults)
+		if err != nil {
+			return fmt.Errorf("failed to marshal chart defaults: %w", err)
+		}
+		msg := json.RawMessage(data)
+		raw = &msg
+	}
+
+	result := s.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("chart_defaults", raw)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update chart defaults: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		prefs := &authm.UserPreferences{
+			UserID:        userID,
+			ChartDefaults: raw,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+
+	return nil
+}
+
+var chartSceneMetroRe = regexp.MustCompile(`^[0-9]{1,10}$`)
 
 // SetShowReminders enables or disables show reminders for a user
 func (s *UserService) SetShowReminders(userID uint, enabled bool) error {
