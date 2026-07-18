@@ -9,8 +9,28 @@ export const CHART_MODULE_SLUGS = [
 
 export type ChartModuleSlug = (typeof CHART_MODULE_SLUGS)[number]
 
+export type ChartColumnKey =
+  | 'artist'
+  | 'shows'
+  | 'headline'
+  | 'last-show'
+  | 'plays'
+  | 'stations'
+  | 'rotation'
+  | 'show'
+  | 'date'
+  | 'venue'
+  | 'saves'
+  | 'location'
+  | 'release'
+  | 'artists'
+  | 'labels'
+  | 'released'
+  | 'added'
+  | 'slots'
+
 export interface ChartColumnConfig {
-  key: string
+  key: ChartColumnKey
   label: string
   className?: string
 }

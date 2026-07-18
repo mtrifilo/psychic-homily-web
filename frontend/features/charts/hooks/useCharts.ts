@@ -77,14 +77,16 @@ export function useOnTheRadio(
 }
 
 export function useMostAnticipated(
+  window: ChartWindow,
   limit = 6,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.mostAnticipated(scene, limit, offset),
+    queryKey: chartQueryKeys.mostAnticipated(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<MostAnticipatedResponse>(
         withParams(chartEndpoints.MOST_ANTICIPATED, {
+          window,
           limit,
           offset: offset || undefined,
           scene,

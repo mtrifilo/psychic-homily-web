@@ -339,7 +339,7 @@ export function ChartsPage() {
 
   const active = useMostActiveArtists(window, 7, chartQueryOptions)
   const radio = useOnTheRadio(window, 7, chartQueryOptions)
-  const anticipated = useMostAnticipated(6, chartQueryOptions)
+  const anticipated = useMostAnticipated(window, 6, chartQueryOptions)
   const venues = useBusiestVenues(window, 7, chartQueryOptions)
   const releases = useNewReleases(window, 6, chartQueryOptions)
   const openers = useOpenersToWatch(window, 6, chartQueryOptions)

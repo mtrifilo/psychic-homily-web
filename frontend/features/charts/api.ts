@@ -24,8 +24,12 @@ export const chartQueryKeys = {
   ) => ['charts', 'most-active-artists', window, scene, limit, offset] as const,
   onTheRadio: (window: ChartWindow, scene: string, limit: number, offset = 0) =>
     ['charts', 'on-the-radio', window, scene, limit, offset] as const,
-  mostAnticipated: (scene: string, limit: number, offset = 0) =>
-    ['charts', 'most-anticipated', scene, limit, offset] as const,
+  mostAnticipated: (
+    window: ChartWindow,
+    scene: string,
+    limit: number,
+    offset = 0
+  ) => ['charts', 'most-anticipated', window, scene, limit, offset] as const,
   busiestVenues: (
     window: ChartWindow,
     scene: string,

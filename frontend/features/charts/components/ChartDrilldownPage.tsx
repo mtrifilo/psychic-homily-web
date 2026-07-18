@@ -32,7 +32,11 @@ import {
   useOnTheRadio,
   useOpenersToWatch,
 } from '../hooks'
-import { CHART_MODULE_CONFIG, type ChartModuleSlug } from '../moduleConfig'
+import {
+  CHART_MODULE_CONFIG,
+  type ChartColumnKey,
+  type ChartModuleSlug,
+} from '../moduleConfig'
 import {
   CHART_WINDOWS,
   type ChartEntityReference,
@@ -55,7 +59,7 @@ const linkClass =
 interface DrilldownRow {
   key: string
   rank: number | null
-  cells: ReactNode[]
+  cells: Partial<Record<ChartColumnKey, ReactNode>>
   action: ReactNode
 }
 
@@ -145,6 +149,8 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     sceneList.isSuccess && sceneListMatchesWindow && !sceneList.isFetching
   const sceneResolved =
     !scene || Boolean(selectedScene) || sceneValidationComplete
+  const sceneValidationFailed =
+    Boolean(scene) && sceneHasValidShape && sceneList.isError && !selectedScene
   const effectiveScene = selectedScene?.metro ?? ''
   const queryOptions = (selectedModule: ChartModuleSlug) => ({
     scene: effectiveScene,
@@ -180,6 +186,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   )
   const radio = useOnTheRadio(window, PAGE_SIZE, queryOptions('on-the-radio'))
   const anticipated = useMostAnticipated(
+    window,
     PAGE_SIZE,
     queryOptions('most-anticipated')
   )
@@ -253,19 +260,19 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
 
   let rows: DrilldownRow[] = []
   let total = 0
-  let isLoading = !sceneResolved
+  let isLoading = !sceneResolved && !sceneValidationFailed
   let isError = false
 
   switch (module) {
     case 'most-active-artists':
       total = active.data?.total ?? 0
       isLoading ||= active.isLoading
-      isError = active.isError
+      isError = active.isError && active.data === undefined
       rows = (active.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
         rank: artist.rank,
-        cells: [
-          <span key="artist">
+        cells: {
+          artist: <span>
             <Link
               href={entityHref('artists', artist.slug, artist.artist_id)}
               className={linkClass}
@@ -276,11 +283,10 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
               {location(artist.city, artist.state)}
             </span>
           </span>,
-          artist.show_count,
-          `${artist.headline_pct}%`,
-          artist.last_show_slug ? (
+          shows: artist.show_count,
+          headline: `${artist.headline_pct}%`,
+          'last-show': artist.last_show_slug ? (
             <Link
-              key="last-show"
               href={`/shows/${artist.last_show_slug}`}
               className={linkClass}
             >
@@ -292,7 +298,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
           ) : (
             '—'
           ),
-        ],
+        },
         action: (
           <FollowButton
             entityType="artists"
@@ -313,12 +319,12 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'on-the-radio':
       total = radio.data?.total ?? 0
       isLoading ||= radio.isLoading
-      isError = radio.isError
+      isError = radio.isError && radio.data === undefined
       rows = (radio.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
         rank: artist.rank,
-        cells: [
-          <span key="artist">
+        cells: {
+          artist: <span>
             <Link
               href={entityHref('artists', artist.slug, artist.artist_id)}
               className={linkClass}
@@ -329,10 +335,10 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
               {location(artist.city, artist.state)}
             </span>
           </span>,
-          artist.play_count,
-          artist.station_count,
-          artist.is_new ? <Badge key="new">New</Badge> : 'Current',
-        ],
+          plays: artist.play_count,
+          stations: artist.station_count,
+          rotation: artist.is_new ? <Badge>New</Badge> : 'Current',
+        },
         action: (
           <FollowButton
             entityType="artists"
@@ -353,12 +359,12 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'most-anticipated':
       total = anticipated.data?.total ?? 0
       isLoading ||= anticipated.isLoading
-      isError = anticipated.isError
+      isError = anticipated.isError && anticipated.data === undefined
       rows = (anticipated.data?.shows ?? []).map(show => ({
         key: String(show.show_id),
         rank: show.rank ?? null,
-        cells: [
-          <span key="show">
+        cells: {
+          show: <span>
             <Link
               href={entityHref('shows', show.slug, show.show_id)}
               className={linkClass}
@@ -371,10 +377,9 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
               </span>
             ) : null}
           </span>,
-          formatDate(show.date, true),
-          show.venue_slug ? (
+          date: formatDate(show.date, true),
+          venue: show.venue_slug ? (
             <Link
-              key="venue"
               href={`/venues/${show.venue_slug}`}
               className={linkClass}
             >
@@ -388,8 +393,8 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
           ) : (
             show.venue_name || '—'
           ),
-          show.save_count ?? '—',
-        ],
+          saves: show.save_count ?? '—',
+        },
         action: (
           <SaveButton
             showId={show.show_id}
@@ -410,21 +415,22 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'busiest-venues':
       total = venues.data?.total ?? 0
       isLoading ||= venues.isLoading
-      isError = venues.isError
+      isError = venues.isError && venues.data === undefined
       rows = (venues.data?.venues ?? []).map(venue => ({
         key: String(venue.venue_id),
         rank: venue.rank,
-        cells: [
-          <Link
-            key="venue"
-            href={entityHref('venues', venue.slug, venue.venue_id)}
-            className={linkClass}
-          >
-            {venue.name}
-          </Link>,
-          location(venue.city, venue.state),
-          venue.show_count,
-        ],
+        cells: {
+          venue: (
+            <Link
+              href={entityHref('venues', venue.slug, venue.venue_id)}
+              className={linkClass}
+            >
+              {venue.name}
+            </Link>
+          ),
+          location: location(venue.city, venue.state),
+          shows: venue.show_count,
+        },
         action: (
           <FollowButton
             entityType="venues"
@@ -445,12 +451,12 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'new-releases':
       total = releases.data?.total ?? 0
       isLoading ||= releases.isLoading
-      isError = releases.isError
+      isError = releases.isError && releases.data === undefined
       rows = (releases.data?.releases ?? []).map(release => ({
         key: String(release.release_id),
         rank: release.rank,
-        cells: [
-          <span key="release">
+        cells: {
+          release: <span>
             <Link
               href={entityHref('releases', release.slug, release.release_id)}
               className={linkClass}
@@ -461,19 +467,17 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
               {getReleaseTypeLabel(release.release_type)}
             </span>
           </span>,
-          <ReferenceList
-            key="artists"
+          artists: <ReferenceList
             references={release.artists}
             route="artists"
           />,
-          <ReferenceList
-            key="labels"
+          labels: <ReferenceList
             references={release.labels}
             route="labels"
           />,
-          formatDate(release.release_date, true),
-          formatDate(release.added_at, true),
-        ],
+          released: formatDate(release.release_date, true),
+          added: formatDate(release.added_at, true),
+        },
         action: (
           <ReleaseSaveButton
             releaseId={release.release_id}
@@ -492,21 +496,22 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'openers-to-watch':
       total = openers.data?.total ?? 0
       isLoading ||= openers.isLoading
-      isError = openers.isError
+      isError = openers.isError && openers.data === undefined
       rows = (openers.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
         rank: artist.rank,
-        cells: [
-          <Link
-            key="artist"
-            href={entityHref('artists', artist.slug, artist.artist_id)}
-            className={linkClass}
-          >
-            {artist.name}
-          </Link>,
-          location(artist.city, artist.state),
-          artist.support_slot_count,
-        ],
+        cells: {
+          artist: (
+            <Link
+              href={entityHref('artists', artist.slug, artist.artist_id)}
+              className={linkClass}
+            >
+              {artist.name}
+            </Link>
+          ),
+          location: location(artist.city, artist.state),
+          slots: artist.support_slot_count,
+        },
         action: (
           <FollowButton
             entityType="artists"
@@ -526,7 +531,8 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
       break
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const reachableTotal = Math.min(total, MAX_PAGE * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(reachableTotal / PAGE_SIZE))
   useEffect(() => {
     if (!isLoading && total > 0 && page > totalPages) void setPage(totalPages)
   }, [isLoading, page, setPage, total, totalPages])
@@ -628,7 +634,25 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             </tr>
           </thead>
           <tbody>
-            {isLoading ? (
+            {sceneValidationFailed ? (
+              <tr>
+                <td
+                  colSpan={config.columns.length + 2}
+                  className="px-2 py-8 text-center text-destructive"
+                >
+                  <p>
+                    Unable to verify this scene. Your selection is preserved.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void sceneList.refetch()}
+                    className="mt-2 font-mono text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Try again
+                  </button>
+                </td>
+              </tr>
+            ) : isLoading ? (
               Array.from({ length: 8 }, (_, index) => (
                 <tr key={index} className="border-b border-border">
                   <td colSpan={config.columns.length + 2} className="px-2 py-3">
@@ -660,16 +684,16 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   <td className="px-2 py-3 font-mono tabular-nums text-muted-foreground">
                     {row.rank ?? '—'}
                   </td>
-                  {row.cells.map((cell, index) => (
+                  {config.columns.map((column, index) => (
                     <td
-                      key={config.columns[index].key}
+                      key={column.key}
                       className={cn(
                         'px-2 py-3 leading-4',
-                        config.columns[index].className,
+                        column.className,
                         index > 0 && 'font-mono tabular-nums'
                       )}
                     >
-                      {cell}
+                      {row.cells[column.key]}
                     </td>
                   ))}
                   <td className="w-[70px] min-w-[70px] max-w-[70px] px-2 py-3 text-right leading-none">
@@ -682,13 +706,16 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
         </table>
       </div>
 
-      {!isLoading && !isError ? (
+      {!sceneValidationFailed && !isLoading && !isError ? (
         <nav
           aria-label="Chart pagination"
           className="flex flex-col gap-3 border-t border-border pt-4 font-mono text-xs sm:flex-row sm:items-center sm:justify-between"
         >
           <p className="text-muted-foreground">
             Showing {showingStart}–{showingEnd} of {total.toLocaleString()}
+            {total > reachableTotal
+              ? ` · first ${reachableTotal.toLocaleString()} accessible`
+              : ''}
           </p>
           <div className="flex flex-wrap items-center gap-1">
             <button

@@ -24,7 +24,7 @@ describe('charts/[module] route', () => {
     expect(mockNotFound).not.toHaveBeenCalled()
   })
 
-  it('uses the app hard-404 convention for an unknown slug', async () => {
+  it('calls notFound for an unknown slug (proxy allowlist produces the real HTTP 404)', async () => {
     await expect(
       ChartModuleRoute({ params: Promise.resolve({ module: 'unknown' }) })
     ).rejects.toThrow('not found')

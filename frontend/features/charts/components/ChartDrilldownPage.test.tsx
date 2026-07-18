@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChartDrilldownPage } from './ChartDrilldownPage'
 import type { ChartModuleSlug } from '../moduleConfig'
@@ -8,9 +8,13 @@ const mockSetWindow = vi.fn()
 const mockSetScene = vi.fn()
 const mockSetPage = vi.fn()
 const mockChartHook = vi.fn()
+const mockRefetchScenes = vi.fn()
 let queryWindow: 'month' | 'quarter' | 'all_time' = 'quarter'
 let queryScene: string | null = '38060'
 let queryPage = 1
+let sceneQueryError = false
+let sceneQueryDataAvailable = true
+let moduleQueryError = false
 
 function query<T>(data: T, enabled = true) {
   return {
@@ -19,6 +23,7 @@ function query<T>(data: T, enabled = true) {
     isError: false,
     isSuccess: enabled,
     isFetching: false,
+    refetch: vi.fn(),
   }
 }
 
@@ -179,12 +184,15 @@ const payloads = {
 
 function moduleQuery(slug: ChartModuleSlug, options: { enabled?: boolean }) {
   mockChartHook(slug, options)
-  return query(payloads[slug], options.enabled)
+  return {
+    ...query(payloads[slug], options.enabled),
+    isError: moduleQueryError,
+  }
 }
 
 vi.mock('../hooks', () => ({
-  useChartScenes: () =>
-    query({
+  useChartScenes: () => {
+    const data = {
       window: queryWindow,
       scenes: [
         {
@@ -197,7 +205,15 @@ vi.mock('../hooks', () => ({
           venue_count: 12,
         },
       ],
-    }),
+    }
+    return {
+      ...query(data),
+      data: sceneQueryDataAvailable ? data : undefined,
+      isError: sceneQueryError,
+      isSuccess: !sceneQueryError,
+      refetch: mockRefetchScenes,
+    }
+  },
   useMostActiveArtists: (
     _window: string,
     _limit: number,
@@ -208,7 +224,11 @@ vi.mock('../hooks', () => ({
     _limit: number,
     options: { enabled?: boolean }
   ) => moduleQuery('on-the-radio', options),
-  useMostAnticipated: (_limit: number, options: { enabled?: boolean }) =>
+  useMostAnticipated: (
+    _window: string,
+    _limit: number,
+    options: { enabled?: boolean }
+  ) =>
     moduleQuery('most-anticipated', options),
   useBusiestVenues: (
     _window: string,
@@ -233,6 +253,10 @@ describe('ChartDrilldownPage', () => {
     queryWindow = 'quarter'
     queryScene = '38060'
     queryPage = 1
+    sceneQueryError = false
+    sceneQueryDataAvailable = true
+    moduleQueryError = false
+    payloads['most-active-artists'].total = 120
   })
 
   it('derives page offset, renders stable server ranks, and updates URL pagination', async () => {
@@ -265,6 +289,22 @@ describe('ChartDrilldownPage', () => {
     expect(mockSetWindow).toHaveBeenCalledWith('all_time')
   })
 
+  it('renders keyed row values beneath their configured headers', () => {
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    const table = screen.getByRole('table')
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map(header => header.textContent)
+    const row = screen.getByRole('link', { name: 'Glass Harbor' }).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row!).getAllByRole('cell')
+
+    expect(cells[headers.indexOf('Shows')]).toHaveTextContent('9')
+    expect(cells[headers.indexOf('Headline %')]).toHaveTextContent('80%')
+    expect(cells[headers.indexOf('Last show')]).toHaveTextContent('Valley Bar')
+  })
+
   it('clamps URL pages to the backend offset boundary before querying', () => {
     queryPage = 999
     render(<ChartDrilldownPage module="most-active-artists" />)
@@ -274,6 +314,68 @@ describe('ChartDrilldownPage', () => {
       'most-active-artists',
       expect.objectContaining({ offset: 10_000, enabled: true })
     )
+  })
+
+  it('caps navigation at the backend offset boundary for larger totals', () => {
+    queryPage = 201
+    payloads['most-active-artists'].total = 20_000
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(screen.getByRole('button', { name: '201' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+    expect(screen.queryByRole('button', { name: '400' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(
+      screen.getByText(/first 10,050 accessible/)
+    ).toBeInTheDocument()
+  })
+
+  it('paginates the unranked most-anticipated fallback without repeating page one', () => {
+    queryPage = 2
+    payloads['most-anticipated'].mode = 'soonest_upcoming'
+    payloads['most-anticipated'].total = 75
+    render(<ChartDrilldownPage module="most-anticipated" />)
+
+    expect(mockChartHook).toHaveBeenCalledWith(
+      'most-anticipated',
+      expect.objectContaining({ offset: 50, enabled: true, scene: '38060' })
+    )
+    expect(screen.getByText('Showing 51–51 of 75')).toBeInTheDocument()
+  })
+
+  it('preserves an unverified scene and offers retry when discovery fails', async () => {
+    const user = userEvent.setup()
+    sceneQueryError = true
+    sceneQueryDataAvailable = false
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(
+      screen.getByText(
+        'Unable to verify this scene. Your selection is preserved.'
+      )
+    ).toBeInTheDocument()
+    expect(mockSetScene).not.toHaveBeenCalled()
+    expect(mockChartHook).toHaveBeenCalledWith(
+      'most-active-artists',
+      expect.objectContaining({ enabled: false })
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(mockRefetchScenes).toHaveBeenCalledOnce()
+  })
+
+  it('keeps cached rows visible when a background module refetch fails', () => {
+    moduleQueryError = true
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(
+      screen.getByRole('link', { name: 'Glass Harbor' })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Unable to load this chart.')
+    ).not.toBeInTheDocument()
   })
 
   it.each([
