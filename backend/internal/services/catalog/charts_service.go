@@ -316,6 +316,35 @@ func primaryVenueLateralSQL(cols, showIDExpr string) string {
 		)`
 }
 
+// mostAnticipatedHorizon returns the shared upcoming-horizon bounds for the
+// most-anticipated module and its rank lookup. pastCalendar is true when the
+// calendar window has already ended (no upcoming shows remain in-scope) —
+// both surfaces must agree so a badge never claims a rank the module page
+// cannot show.
+func mostAnticipatedHorizon(window contracts.ChartWindow) (startOfToday time.Time, windowEnd *time.Time, pastCalendar bool) {
+	startOfToday = time.Now().UTC().Truncate(24 * time.Hour)
+	calendarStart, calendarEnd, isCalendar := window.CalendarBounds()
+	if isCalendar && !calendarEnd.After(startOfToday) {
+		return startOfToday, nil, true
+	}
+	if isCalendar && calendarStart.After(startOfToday) {
+		startOfToday = calendarStart
+	}
+	switch window {
+	case contracts.ChartWindowMonth:
+		end := startOfToday.AddDate(0, 0, 30)
+		windowEnd = &end
+	case contracts.ChartWindowQuarter:
+		end := startOfToday.AddDate(0, 0, 90)
+		windowEnd = &end
+	default:
+		if isCalendar {
+			windowEnd = &calendarEnd
+		}
+	}
+	return startOfToday, windowEnd, false
+}
+
 // GetMostAnticipatedShows returns the mode-discriminated most-anticipated
 // module: upcoming approved shows with saves >= the floor, ranked by save
 // count (ties by soonest date, then id). Rolling month/quarter values bound
@@ -352,29 +381,12 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(window contracts.ChartWi
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	startOfToday := time.Now().UTC().Truncate(24 * time.Hour)
-	calendarStart, calendarEnd, isCalendar := window.OrDefault().CalendarBounds()
-	if isCalendar && !calendarEnd.After(startOfToday) {
+	startOfToday, windowEnd, pastCalendar := mostAnticipatedHorizon(window.OrDefault())
+	if pastCalendar {
 		return &contracts.MostAnticipatedShows{
 			Mode:  contracts.MostAnticipatedModeSoonestUpcoming,
 			Shows: []contracts.MostAnticipatedShow{},
 		}, nil
-	}
-	if isCalendar && calendarStart.After(startOfToday) {
-		startOfToday = calendarStart
-	}
-	var windowEnd *time.Time
-	switch window.OrDefault() {
-	case contracts.ChartWindowMonth:
-		end := startOfToday.AddDate(0, 0, 30)
-		windowEnd = &end
-	case contracts.ChartWindowQuarter:
-		end := startOfToday.AddDate(0, 0, 90)
-		windowEnd = &end
-	default:
-		if isCalendar {
-			windowEnd = &calendarEnd
-		}
 	}
 
 	type showRow struct {

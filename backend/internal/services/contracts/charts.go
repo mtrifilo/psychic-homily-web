@@ -341,6 +341,42 @@ type ChartsOverview struct {
 	HotReleases    []HotRelease    `json:"hot_releases"`
 }
 
+// ChartRankEntityType is the entity_type query value for GET /charts/rank.
+// Each value maps to exactly one global chart module (v1 has no scene scope).
+type ChartRankEntityType string
+
+const (
+	ChartRankEntityShow    ChartRankEntityType = "show"
+	ChartRankEntityArtist  ChartRankEntityType = "artist"
+	ChartRankEntityVenue   ChartRankEntityType = "venue"
+	ChartRankEntityRelease ChartRankEntityType = "release"
+)
+
+// ChartRankModule is the module identity echoed on a rank lookup so the
+// badge can deep-link without re-deriving the entity→module map.
+type ChartRankModule string
+
+const (
+	ChartRankModuleMostAnticipated  ChartRankModule = "most-anticipated"
+	ChartRankModuleMostActiveArtists ChartRankModule = "most-active-artists"
+	ChartRankModuleBusiestVenues     ChartRankModule = "busiest-venues"
+	ChartRankModuleNewReleases       ChartRankModule = "new-releases"
+)
+
+// ChartEntityRank is the per-entity chart placement for a window. Rank is
+// nil when the entity is below the module floor, outside the window, or
+// (most-anticipated only) when the module is in soonest_upcoming fallback —
+// never 0. When present, Rank matches the module page's offset-stable
+// rank (1 + count of entities that sort strictly ahead, including
+// tie-breakers).
+type ChartEntityRank struct {
+	EntityType ChartRankEntityType `json:"entity_type"`
+	EntityID   uint                `json:"entity_id"`
+	Window     ChartWindow         `json:"window"`
+	Module     ChartRankModule     `json:"module"`
+	Rank       *int                `json:"rank"`
+}
+
 // ChartScene is one option in the charts scene switcher: a US Census CBSA
 // metro with at least the coverage floor of in-window shows. Metro is the
 // value the module endpoints accept as `scene`; Name is the official CBSA
@@ -378,6 +414,11 @@ type ChartsServiceInterface interface {
 	GetOpenersToWatch(window ChartWindow, scene string, limit, offset int) ([]OpenerToWatch, int, error)
 	GetOnTheRadioArtists(window ChartWindow, scene string, limit, offset int) ([]OnTheRadioArtist, int, error)
 	GetNewReleases(window ChartWindow, scene string, limit, offset int) ([]NewRelease, int, error)
+	// GetChartEntityRank looks up one entity's global-scope rank in its
+	// mapped chart module for window. Unknown entity_type is the caller's
+	// responsibility to reject (HTTP pattern tag); a known type with no
+	// placement returns Rank=nil, never an error.
+	GetChartEntityRank(entityType ChartRankEntityType, entityID uint, window ChartWindow) (*ChartEntityRank, error)
 	GetChartsSummary(window ChartWindow, scene string) (*ChartsSummary, error)
 	GetFreshlyAdded(scene string, limit int) ([]FreshlyAddedItem, error)
 	GetChartScenes(window ChartWindow) ([]ChartScene, error)

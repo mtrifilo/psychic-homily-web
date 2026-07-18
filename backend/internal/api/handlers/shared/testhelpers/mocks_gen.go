@@ -639,6 +639,7 @@ type MockChartsService struct {
 	GetOpenersToWatchFn       func(contracts.ChartWindow, string, int, int) ([]contracts.OpenerToWatch, int, error)
 	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.OnTheRadioArtist, int, error)
 	GetNewReleasesFn          func(contracts.ChartWindow, string, int, int) ([]contracts.NewRelease, int, error)
+	GetChartEntityRankFn      func(contracts.ChartRankEntityType, uint, contracts.ChartWindow) (*contracts.ChartEntityRank, error)
 	GetChartsSummaryFn        func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
 	GetFreshlyAddedFn         func(string, int) ([]contracts.FreshlyAddedItem, error)
 	GetChartScenesFn          func(contracts.ChartWindow) ([]contracts.ChartScene, error)
@@ -693,6 +694,18 @@ func (m *MockChartsService) GetNewReleases(window contracts.ChartWindow, scene s
 		return m.GetNewReleasesFn(window, scene, limit, offset)
 	}
 	return nil, 0, nil
+}
+func (m *MockChartsService) GetChartEntityRank(entityType contracts.ChartRankEntityType, entityID uint, window contracts.ChartWindow) (*contracts.ChartEntityRank, error) {
+	if m.GetChartEntityRankFn != nil {
+		return m.GetChartEntityRankFn(entityType, entityID, window)
+	}
+	return &contracts.ChartEntityRank{
+		EntityType: entityType,
+		EntityID:   entityID,
+		Window:     window.OrDefault(),
+		Module:     contracts.ChartRankModuleMostAnticipated,
+		Rank:       nil,
+	}, nil
 }
 func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
 	if m.GetChartsSummaryFn != nil {

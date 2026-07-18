@@ -152,6 +152,15 @@ var customDefaults = map[string]methodDefault{
 		Shows: []contracts.MostAnticipatedShow{},
 	}, nil`,
 	},
+	"MockChartsService.GetChartEntityRank": {
+		body: `	return &contracts.ChartEntityRank{
+		EntityType: entityType,
+		EntityID:   entityID,
+		Window:     window.OrDefault(),
+		Module:     contracts.ChartRankModuleMostAnticipated,
+		Rank:       nil,
+	}, nil`,
+	},
 	"MockChartsService.GetChartsSummary": {
 		body: `	return &contracts.ChartsSummary{}, nil`,
 	},

@@ -906,6 +906,55 @@ func (h *ChartsHandler) GetPersonalChartsStatsHandler(ctx context.Context, _ *Ge
 	return resp, nil
 }
 
+// --- GetChartEntityRank ---
+
+// GetChartEntityRankRequest is the Huma request for GET /charts/rank —
+// global-scope only (no scene). entity_type maps to one module:
+// show→most-anticipated, artist→most-active-artists, venue→busiest-venues,
+// release→new-releases.
+type GetChartEntityRankRequest struct {
+	EntityType string `query:"entity_type" required:"true" pattern:"^(show|artist|venue|release)$" doc:"Entity type: show, artist, venue, or release"`
+	EntityID   uint   `query:"entity_id" required:"true" minimum:"1" doc:"Entity id"`
+	Window     string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
+}
+
+// GetChartEntityRankResponse is the Huma response for GET /charts/rank.
+// Rank is null (JSON null) when the entity has no placement — below floor,
+// out of window, or most-anticipated fallback mode — never 0.
+type GetChartEntityRankResponse struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		EntityType string `json:"entity_type" enum:"show,artist,venue,release"`
+		EntityID   uint   `json:"entity_id"`
+		Window     string `json:"window"`
+		Module     string `json:"module" enum:"most-anticipated,most-active-artists,busiest-venues,new-releases"`
+		Rank       *int   `json:"rank"`
+	}
+}
+
+// GetChartEntityRankHandler handles GET /charts/rank.
+func (h *ChartsHandler) GetChartEntityRankHandler(ctx context.Context, req *GetChartEntityRankRequest) (*GetChartEntityRankResponse, error) {
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
+
+	data, err := h.chartsService.GetChartEntityRank(
+		contracts.ChartRankEntityType(req.EntityType), req.EntityID, window)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_entity_rank_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get chart entity rank")
+	}
+
+	resp := &GetChartEntityRankResponse{CacheControl: chartsModuleCacheControl}
+	resp.Body.EntityType = string(data.EntityType)
+	resp.Body.EntityID = data.EntityID
+	resp.Body.Window = string(data.Window)
+	resp.Body.Module = string(data.Module)
+	resp.Body.Rank = data.Rank
+	return resp, nil
+}
+
 // --- GetChartsOverview ---
 
 // GetChartsOverviewRequest is the Huma request for GET /charts/overview

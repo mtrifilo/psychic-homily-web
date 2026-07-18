@@ -3005,3 +3005,171 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_SceneScope
 	suite.Equal("Phx Opener", phx[0].Name)
 	suite.Equal(1, total)
 }
+
+// =============================================================================
+// GetChartEntityRank Tests (PSY-1419)
+// =============================================================================
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_ShowMatchesModule() {
+	user := suite.createUser("rank-show-owner@test.com")
+	venue := suite.createVenue("Rank Show Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Rank Show Artist")
+	savers := []*authm.User{
+		suite.createUser("rank-show-s1@test.com"),
+		suite.createUser("rank-show-s2@test.com"),
+		suite.createUser("rank-show-s3@test.com"),
+		suite.createUser("rank-show-s4@test.com"),
+	}
+
+	now := time.Now().UTC()
+	big := suite.createApprovedShow("Rank Big Draw", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 10))
+	suite.createSaves(big.ID, savers, 4)
+	floorShows := make([]*catalogm.Show, 4)
+	for i := range floorShows {
+		show := suite.createApprovedShow(fmt.Sprintf("Rank Floor %d", i), venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 20+i))
+		suite.createSaves(show.ID, savers, 3)
+		floorShows[i] = show
+	}
+	subFloor := suite.createApprovedShow("Rank Sub Floor", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 5))
+	suite.createSaves(subFloor.ID, savers, 2)
+
+	module, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeRanked, module.Mode)
+	suite.Require().Len(module.Shows, 5)
+
+	for _, row := range module.Shows {
+		got, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityShow, row.ShowID, contracts.ChartWindowQuarter)
+		suite.Require().NoError(err)
+		suite.Equal(contracts.ChartRankModuleMostAnticipated, got.Module)
+		suite.Require().NotNil(got.Rank, "module-listed show must have a rank")
+		suite.Equal(*row.Rank, *got.Rank, "rank lookup must match module page rank for show %d", row.ShowID)
+	}
+
+	sub, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityShow, subFloor.ID, contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Nil(sub.Rank, "below-floor show must return null rank")
+
+	missing, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityShow, 999999, contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Nil(missing.Rank)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_ShowFallbackNull() {
+	user := suite.createUser("rank-fb-owner@test.com")
+	venue := suite.createVenue("Rank FB Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Rank FB Artist")
+	savers := []*authm.User{
+		suite.createUser("rank-fb-s1@test.com"),
+		suite.createUser("rank-fb-s2@test.com"),
+		suite.createUser("rank-fb-s3@test.com"),
+	}
+
+	now := time.Now().UTC()
+	var qualifying uint
+	for i := 0; i < 4; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("Rank FB Qual %d", i), venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 30+i))
+		suite.createSaves(show.ID, savers, 3)
+		qualifying = show.ID
+	}
+
+	module, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, module.Mode)
+
+	got, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityShow, qualifying, contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Nil(got.Rank, "fallback mode has no ranks on the module page")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_ArtistMatchesModuleTies() {
+	user := suite.createUser("rank-artist-owner@test.com")
+	venue := suite.createVenue("Rank Artist Venue", "Phoenix", "AZ")
+	now := time.Now().UTC().AddDate(0, 0, -5)
+
+	// Same show_count, names force A before B in ASC tie-break.
+	artistB := suite.createArtist("Zed Band")
+	artistA := suite.createArtist("Alpha Band")
+	for i := 0; i < 3; i++ {
+		suite.createApprovedShow(fmt.Sprintf("A show %d", i), venue.ID, artistA.ID, user.ID, now.AddDate(0, 0, -i))
+		suite.createApprovedShow(fmt.Sprintf("B show %d", i), venue.ID, artistB.ID, user.ID, now.AddDate(0, 0, -i))
+	}
+	top := suite.createArtist("Top Touring")
+	for i := 0; i < 5; i++ {
+		suite.createApprovedShow(fmt.Sprintf("Top show %d", i), venue.ID, top.ID, user.ID, now.AddDate(0, 0, -i))
+	}
+	idle := suite.createArtist("Idle Band")
+
+	artists, total, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(3, total)
+	suite.Require().Len(artists, 3)
+	suite.Equal(top.ID, artists[0].ArtistID)
+	suite.Equal(1, artists[0].Rank)
+	suite.Equal(artistA.ID, artists[1].ArtistID, "name ASC breaks show_count tie")
+	suite.Equal(2, artists[1].Rank)
+	suite.Equal(artistB.ID, artists[2].ArtistID)
+	suite.Equal(3, artists[2].Rank)
+
+	for _, row := range artists {
+		got, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityArtist, row.ArtistID, contracts.ChartWindowQuarter)
+		suite.Require().NoError(err)
+		suite.Equal(contracts.ChartRankModuleMostActiveArtists, got.Module)
+		suite.Require().NotNil(got.Rank)
+		suite.Equal(row.Rank, *got.Rank)
+	}
+
+	idleRank, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityArtist, idle.ID, contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Nil(idleRank.Rank, "out-of-window / zero-show artist has no rank")
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_VenueAndReleaseMatchModule() {
+	user := suite.createUser("rank-vr-owner@test.com")
+	artist := suite.createArtist("Rank VR Artist")
+	now := time.Now().UTC().AddDate(0, 0, -3)
+
+	venueBusy := suite.createVenue("Busy Hall", "Phoenix", "AZ")
+	venueQuiet := suite.createVenue("Quiet Room", "Phoenix", "AZ")
+	venueEmpty := suite.createVenue("Empty Spot", "Phoenix", "AZ")
+	for i := 0; i < 4; i++ {
+		suite.createApprovedShow(fmt.Sprintf("Busy %d", i), venueBusy.ID, artist.ID, user.ID, now.AddDate(0, 0, -i))
+	}
+	suite.createApprovedShow("Quiet 1", venueQuiet.ID, artist.ID, user.ID, now)
+
+	venues, _, err := suite.chartsService.GetBusiestVenues(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().GreaterOrEqual(len(venues), 2)
+	for _, row := range venues {
+		got, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityVenue, row.VenueID, contracts.ChartWindowQuarter)
+		suite.Require().NoError(err)
+		suite.Equal(contracts.ChartRankModuleBusiestVenues, got.Module)
+		suite.Require().NotNil(got.Rank)
+		suite.Equal(row.Rank, *got.Rank)
+	}
+	emptyRank, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityVenue, venueEmpty.ID, contracts.ChartWindowQuarter)
+	suite.Require().NoError(err)
+	suite.Nil(emptyRank.Rank)
+
+	day := now.Truncate(24 * time.Hour)
+	newer := suite.createDatedRelease("Rank Newer", dateStr(day), day)
+	suite.addArtistToRelease(artist.ID, newer.ID)
+	older := suite.createDatedRelease("Rank Older", dateStr(day.AddDate(0, 0, -10)), day)
+	suite.addArtistToRelease(artist.ID, older.ID)
+
+	releases, _, err := suite.chartsService.GetNewReleases(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().GreaterOrEqual(len(releases), 2)
+	for _, row := range releases {
+		got, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityRelease, row.ReleaseID, contracts.ChartWindowQuarter)
+		suite.Require().NoError(err)
+		suite.Equal(contracts.ChartRankModuleNewReleases, got.Module)
+		suite.Require().NotNil(got.Rank)
+		suite.Equal(row.Rank, *got.Rank)
+	}
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_UnsupportedType() {
+	_, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityType("festival"), 1, contracts.ChartWindowQuarter)
+	suite.Require().Error(err)
+}
