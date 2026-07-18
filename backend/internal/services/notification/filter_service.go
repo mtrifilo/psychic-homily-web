@@ -58,18 +58,28 @@ const maxFilterEmailsPerDay = 10
 
 // CreateFilter creates a new notification filter for a user.
 func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
-	if s.db == nil {
+	return s.createFilter(s.db, userID, input, notificationm.FilterSourceUser)
+}
+
+// createFilter inserts a filter with the given ownership source. Shared by
+// settings CreateFilter (source=user) and QuickCreateFilter (source=managed)
+// so ownership is stamped in the same write as the row (PSY-1467).
+func (s *NotificationFilterService) createFilter(
+	tx *gorm.DB,
+	userID uint,
+	input contracts.CreateFilterInput,
+	source string,
+) (*notificationm.NotificationFilter, error) {
+	if tx == nil {
 		return nil, apperrors.ErrFilterInternal(fmt.Errorf("database not initialized"))
 	}
 
-	// Validate at least one criteria is set
 	if !hasAnyCriteria(input) {
 		return nil, apperrors.ErrFilterValidation("at least one filter criteria is required")
 	}
 
-	// Check filter count limit
 	var count int64
-	if err := s.db.Model(&notificationm.NotificationFilter{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
+	if err := tx.Model(&notificationm.NotificationFilter{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to count filters: %w", err))
 	}
 	if count >= maxFiltersPerUser {
@@ -80,7 +90,7 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 	filter := notificationm.NotificationFilter{
 		UserID:        userID,
 		Name:          input.Name,
-		Source:        notificationm.FilterSourceUser,
+		Source:        source,
 		IsActive:      true,
 		ArtistIDs:     toInt64Array(input.ArtistIDs),
 		VenueIDs:      toInt64Array(input.VenueIDs),
@@ -99,7 +109,7 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 		filter.Cities = &raw
 	}
 
-	if err := s.db.Create(&filter).Error; err != nil {
+	if err := tx.Create(&filter).Error; err != nil {
 		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to create filter: %w", err))
 	}
 
@@ -234,16 +244,12 @@ func (s *NotificationFilterService) GetFilter(userID uint, filterID uint) (*noti
 // QuickCreateFilter creates a managed filter from a single entity shortcut.
 // E.g., "Notify me about Deafheaven shows" creates a filter with artist_ids=[42]
 // and source=managed. Idempotent: returns the existing managed row if one already
-// covers this entity. PSY-1467.
+// covers this entity. Inserts source=managed in a single write inside a
+// transaction so a failed follow-up update cannot leave a ghost user-owned row
+// (PSY-1467 adversarial review).
 func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType string, entityID uint) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
-	}
-
-	if existing, err := s.findManagedQuickFilter(userID, entityType, entityID); err != nil {
-		return nil, err
-	} else if existing != nil {
-		return existing, nil
 	}
 
 	input := contracts.CreateFilterInput{
@@ -255,7 +261,6 @@ func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType st
 
 	switch entityType {
 	case "artist":
-		// Look up artist name for filter name
 		var name string
 		if err := s.db.Table("artists").Where("id = ?", entityID).Pluck("name", &name).Error; err != nil {
 			return nil, fmt.Errorf("artist not found")
@@ -287,25 +292,41 @@ func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType st
 		return nil, fmt.Errorf("invalid entity type: %s (must be artist, venue, label, or tag)", entityType)
 	}
 
-	// CreateFilter always stamps source=user; override after create so settings
-	// create and quick-create share validation/limit logic but differ in ownership.
-	filter, err := s.CreateFilter(userID, input)
+	var created *notificationm.NotificationFilter
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		existing, err := s.findManagedQuickFilterTx(tx, userID, entityType, entityID)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			created = existing
+			return nil
+		}
+		filter, err := s.createFilter(tx, userID, input, notificationm.FilterSourceManaged)
+		if err != nil {
+			return err
+		}
+		created = filter
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(filter).Update("source", notificationm.FilterSourceManaged).Error; err != nil {
-		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to mark filter managed: %w", err))
-	}
-	filter.Source = notificationm.FilterSourceManaged
-	return filter, nil
+	return created, nil
 }
 
-// findManagedQuickFilter returns the user's active managed quick subscription for
-// the given entity, or nil if none. Matches only single-entity managed rows so a
-// settings-promoted compound filter is never treated as the quick toggle's own.
-func (s *NotificationFilterService) findManagedQuickFilter(userID uint, entityType string, entityID uint) (*notificationm.NotificationFilter, error) {
+// findManagedQuickFilterTx returns the user's active managed quick subscription
+// for the given entity, or nil if none. Matches only single-entity managed rows
+// so a settings-promoted compound filter is never treated as the quick toggle's
+// own.
+func (s *NotificationFilterService) findManagedQuickFilterTx(
+	tx *gorm.DB,
+	userID uint,
+	entityType string,
+	entityID uint,
+) (*notificationm.NotificationFilter, error) {
 	var filters []notificationm.NotificationFilter
-	q := s.db.Where("user_id = ? AND source = ? AND is_active = TRUE", userID, notificationm.FilterSourceManaged)
+	q := tx.Where("user_id = ? AND source = ? AND is_active = TRUE", userID, notificationm.FilterSourceManaged)
 	entityIDInt64 := int64(entityID)
 	switch entityType {
 	case "artist":
@@ -547,6 +568,7 @@ func (s *NotificationFilterService) findMatchingFilters(
 		        AND nl.entity_id = ?
 		        AND nl.channel = 'email'
 		  )
+		ORDER BY nf.id ASC
 	`
 
 	// Handle nil arrays — PostgreSQL needs empty arrays, not NULL
@@ -639,11 +661,21 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 }
 
 // pickDeliveryMatch chooses which matched filter owns the single user-visible
-// notification. Prefer managed (quick) subscriptions when both managed and
-// user filters match the same show.
+// notification. Prefer managed+email, then any managed, then any email-enabled
+// user filter, then the lowest-id match (query is ORDER BY nf.id).
 func pickDeliveryMatch(matches []filterMatch) filterMatch {
 	for _, m := range matches {
+		if m.Source == notificationm.FilterSourceManaged && m.NotifyEmail {
+			return m
+		}
+	}
+	for _, m := range matches {
 		if m.Source == notificationm.FilterSourceManaged {
+			return m
+		}
+	}
+	for _, m := range matches {
+		if m.NotifyEmail {
 			return m
 		}
 	}
