@@ -186,12 +186,17 @@ export const LABEL_TOP_K_FLOOR = 5
 // The "too close" distance widens with altitude: a fixed km spans fewer screen
 // pixels the further out the camera, so labels collide at larger real distances
 // when zoomed out. Keyed on the same discrete minCount the label gate uses.
-// CALIBRATION: anchored on the one demonstrated pair (Minneapolis/St. Paul
-// ~15 km must declutter at the band-40 view); the exact values want a visual pass
-// on stage where dense adjacent-metro data exists (local dev is too sparse to
-// reproduce the overlap). Choose each value with MARGIN below the nearest real
-// non-colliding metro pair, not just above the closest colliding one — the
-// distance check is inclusive (<=), so a pair exactly at the value is suppressed.
+// CALIBRATION (PSY-1330 derived → PSY-1369 stage confirm, 2026-07-18):
+// Anchored on Minneapolis/St. Paul ~15 km decluttering at the band-40 view.
+// Stage visual pass at camera altitudes ~0.6 / 1.0 / 1.5 (bypass-gated
+// stage.psychichomily.com/atlas): labels at every gated band were readable with
+// no garbled overlaps. Closest multi-region pair on today's stage catalog is
+// Chicago↔Milwaukee (~134 km) — correctly kept (outside the 30 km reach). St.
+// Paul is not currently in the stage scenes registry, so the original MSP pair
+// could not be re-measured; derived values remain adequate until a co-dense
+// adjacent pair returns. Choose each value with MARGIN below the nearest real
+// non-colliding metro pair — the distance check is inclusive (<=), so a pair
+// exactly at the value is suppressed.
 //
 // Tunable here — this map is the single knob. Bands not listed get no declutter;
 // note minCount <= 0 (the zoomed-in "label everything" view) is short-circuited in
