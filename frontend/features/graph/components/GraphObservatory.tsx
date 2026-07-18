@@ -468,9 +468,14 @@ export function GraphObservatory() {
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
     cancelPendingLookup()
     listTriggerRef.current = null
-    setSelectedNode(node)
-    setSelectionSource('canvas')
-  }, [cancelPendingLookup])
+    // Second click on the selected node deselects — "put it away", the same
+    // toggle grammar useArtistPanelSelection locks on the Section-class
+    // surfaces (PSY-1478 review finding: this surface was the one place the
+    // gesture didn't release the pin).
+    const toggleOff = selectedNode?.id === node.id
+    setSelectedNode(toggleOff ? null : node)
+    setSelectionSource(toggleOff ? null : 'canvas')
+  }, [cancelPendingLookup, selectedNode])
 
   const handleListSelect = useCallback((node: ArtistGraphSelection, trigger: HTMLButtonElement) => {
     cancelPendingLookup()
@@ -760,10 +765,8 @@ export function GraphObservatory() {
                       onSelect={handleCanvasSelect}
                       onBackgroundClick={handlePanelClose}
                       onConnectionInspectOpen={handleConnectionInspectOpen}
-                      // Selection pins the neighborhood focus-dim until
-                      // deselection (PSY-1478) — the panel's connection
-                      // counts keep their visual counterpart on canvas
-                      // after mouse-out.
+                      // Pin the focus-dim to the selection (PSY-1478) —
+                      // grammar in graphFocus.resolveFocusForeground.
                       focusNodeId={selectedNode?.id ?? null}
                       showLegend={false}
                       canvasDescribedById="observatory-graph-guidance"

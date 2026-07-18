@@ -1109,24 +1109,28 @@ export function ForceGraphView({
   // focus and hover-out reverts to the selected node, never to undimmed while
   // a selection exists. Also the force-labeled node in the label passes below.
   const focusAnchorId = hoveredNode?.id ?? focusNodeId ?? null
-  // The anchor-vs-edge-pair precedence and the stale-anchor guard live in the
-  // shared resolveFocusForeground (graphFocus.ts) so the pin grammar can't
-  // drift between this surface and ArtistGraph. The hasNode guard matters
-  // here for the interim render where renderData changed but the
-  // reset-on-renderData effect above hasn't cleared hoveredNode yet
-  // (ArtistGraph resets hover DURING render, so it has no such gap); a pinned
-  // focusNodeId is resolved against the current payload by the surfaces
-  // every render, so the guard covers it only defensively.
+  // The hover-over-pin precedence, the stale-anchor fallbacks, and the
+  // edge-pair pin all live in the shared resolveFocusForeground
+  // (graphFocus.ts) so the pin grammar can't drift between this surface and
+  // ArtistGraph. Passing BOTH candidates (not the pre-collapsed
+  // focusAnchorId) matters for the interim render where renderData changed
+  // but the reset-on-renderData effect above hasn't cleared hoveredNode yet
+  // (ArtistGraph resets hover DURING render, so it has no such gap): a stale
+  // hover falls back to the pinned selection instead of flashing the graph
+  // undimmed.
   // (Reduced-motion note: like hover-focus, a pin change repaints via the
   // continuously-running rAF loop, so under the PSY-1226 pause the pinned
   // dim — like the hover dim and tooltip — stays inert; those users' path is
   // the accessible node list + the panel itself.)
   const focusedIds = useMemo(
     () =>
-      resolveFocusForeground(adjacency, focusAnchorId, connectionInspect.pair, id =>
-        renderData.nodes.some(n => n.id === id)
+      resolveFocusForeground(
+        adjacency,
+        [hoveredNode?.id, focusNodeId],
+        connectionInspect.pair,
+        id => renderData.nodes.some(n => n.id === id)
       ),
-    [adjacency, focusAnchorId, connectionInspect.pair, renderData]
+    [adjacency, hoveredNode, focusNodeId, connectionInspect.pair, renderData]
   )
 
   // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
@@ -1214,7 +1218,10 @@ export function ForceGraphView({
           : labelFontSize(globalScale),
         fontWeight: labelStyle?.fontWeight,
         // The focus anchor (hovered node, or the pinned selection on hover-out —
-        // PSY-1478) always keeps its label, same treatment either way.
+        // PSY-1478) keeps its label within the zoom-gated label pass, same
+        // treatment either way. (Below the zoom gate a HOVERED node is still
+        // named by the DOM tooltip; a pinned one is named by its context
+        // panel instead.)
         force: forceNodeLabels || node.id === focusAnchorId,
         priority: degreeById.get(node.id) ?? 0,
       }

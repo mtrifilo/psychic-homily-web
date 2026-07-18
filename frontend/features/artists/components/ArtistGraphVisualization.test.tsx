@@ -42,6 +42,19 @@ vi.mock('@/components/graph/nodeTooltip', async (importOriginal) => {
   }
 })
 
+// PSY-1478 review: an edge click opens the ConnectionPanel, whose provenance
+// query would otherwise hit MSW's unhandled-request error strategy and log a
+// noisy 500. Reject it deterministically (panel rows stay text-only), the
+// same posture as ForceGraphView.connectionPanel.test.tsx's api mock.
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    apiRequest: () =>
+      Promise.reject(Object.assign(new Error('Not Found'), { status: 404 })),
+  }
+})
+
 // Next.js Link renders as a plain <a> in jsdom (same shim as ArtistNodeTooltip.test).
 vi.mock('next/link', () => ({
   default: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (

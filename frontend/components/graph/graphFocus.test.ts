@@ -96,35 +96,50 @@ describe('resolveFocusForeground', () => {
   ])
   const hasNode = (id: number) => [1, 2, 3, 4].includes(id)
 
-  it('anchor wins: returns the anchor neighborhood, ignoring the pair', () => {
-    const fg = resolveFocusForeground(adj, 1, { sourceId: 3, targetId: 4 }, hasNode)
+  it('first present anchor wins: returns its neighborhood, ignoring the pair', () => {
+    const fg = resolveFocusForeground(adj, [1], { sourceId: 3, targetId: 4 }, hasNode)
     expect([...(fg ?? [])].sort()).toEqual([1, 2])
   })
 
-  it('drops a stale anchor that fails hasNode (no whole-graph dim)', () => {
-    expect(resolveFocusForeground(adj, 99, { sourceId: 3, targetId: 4 }, hasNode)).toBeNull()
+  it('hover previews over the pin: the hovered candidate outranks the pinned one', () => {
+    const fg = resolveFocusForeground(adj, [3, 1], null, hasNode)
+    expect([...(fg ?? [])].sort()).toEqual([3, 4])
+  })
+
+  it('a stale hovered candidate falls back to the pinned selection, never to undimmed', () => {
+    // The interim render where a refetch dropped the hovered node but the
+    // surface's hover reset hasn't run yet — the pin must hold the dim.
+    const fg = resolveFocusForeground(adj, [99, 1], null, hasNode)
+    expect([...(fg ?? [])].sort()).toEqual([1, 2])
+  })
+
+  it('drops a fully stale anchor list, then falls through to the pair pin', () => {
+    expect([
+      ...(resolveFocusForeground(adj, [99, null], { sourceId: 3, targetId: 4 }, hasNode) ?? []),
+    ].sort()).toEqual([3, 4])
+    expect(resolveFocusForeground(adj, [99], null, hasNode)).toBeNull()
   })
 
   it('no anchor: pins the inspected pair endpoints (plus alwaysInclude)', () => {
     expect([
-      ...(resolveFocusForeground(adj, null, { sourceId: 3, targetId: 4 }, hasNode) ?? []),
+      ...(resolveFocusForeground(adj, [null], { sourceId: 3, targetId: 4 }, hasNode) ?? []),
     ].sort()).toEqual([3, 4])
     expect([
-      ...(resolveFocusForeground(adj, null, { sourceId: 3, targetId: 4 }, hasNode, 1) ?? []),
+      ...(resolveFocusForeground(adj, [], { sourceId: 3, targetId: 4 }, hasNode, 1) ?? []),
     ].sort()).toEqual([1, 3, 4])
   })
 
   it('drops the pair pin when either endpoint left the rendered set', () => {
-    expect(resolveFocusForeground(adj, null, { sourceId: 3, targetId: 99 }, hasNode)).toBeNull()
+    expect(resolveFocusForeground(adj, [null], { sourceId: 3, targetId: 99 }, hasNode)).toBeNull()
   })
 
   it('returns null at rest (no anchor, no pair)', () => {
-    expect(resolveFocusForeground(adj, null, null, hasNode)).toBeNull()
+    expect(resolveFocusForeground(adj, [null, undefined], null, hasNode)).toBeNull()
   })
 
   it('passes the anchor through the alwaysInclude rule (ego center)', () => {
     expect([
-      ...(resolveFocusForeground(adj, 3, null, hasNode, 1) ?? []),
+      ...(resolveFocusForeground(adj, [3], null, hasNode, 1) ?? []),
     ].sort()).toEqual([1, 3, 4])
   })
 })

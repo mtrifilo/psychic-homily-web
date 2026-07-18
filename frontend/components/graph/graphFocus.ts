@@ -85,16 +85,21 @@ export interface FocusPair {
 /**
  * The full focus-resolution rule shared by both canvas surfaces (PSY-1478):
  *
- *   1. `anchorId` (the hovered node, or the pinned selection on hover-out —
- *      the caller derives `hoveredId ?? pinnedId`) wins: its 1-hop
- *      neighborhood via `focusForeground`. A stale anchor that fails
- *      `hasNode` (filtered out / refetched away) yields null rather than
- *      dimming the whole graph to the background alpha.
+ *   1. The first anchor candidate in `anchorIds` that is present on canvas
+ *      wins: its 1-hop neighborhood via `focusForeground`. Callers pass
+ *      `[hoveredId, pinnedSelectionId]` — hover previews over the pin, and
+ *      a STALE hovered id (filtered out / refetched away, in the interim
+ *      render before the surface's hover reset runs) falls back to the
+ *      pinned selection rather than releasing the dim: while a selection
+ *      exists the graph must never flash undimmed. A candidate that fails
+ *      `hasNode` never dims the whole graph to the background alpha.
  *   2. Otherwise an inspected edge `pair` pins its two endpoints (plus the
  *      surface's `alwaysInclude` anchor, e.g. the ego center) so the
  *      ConnectionPanel's "why connected" card keeps its visual counterpart.
  *      Same both-endpoints-present gate; the connecting link stays
- *      foreground because both endpoints are in the set.
+ *      foreground because both endpoints are in the set. (Deliberate
+ *      asymmetry: pair endpoints are NOT force-labeled the way an anchor
+ *      is — the panel itself names the pair.)
  *   3. Neither → null (resting view, everything foreground).
  *
  * Owned here — next to the neighborhood math — so the pin grammar can't
@@ -102,14 +107,15 @@ export interface FocusPair {
  */
 export function resolveFocusForeground(
   adjacency: Map<number, Set<number>>,
-  anchorId: number | null,
+  anchorIds: ReadonlyArray<number | null | undefined>,
   pair: FocusPair | null,
   hasNode: (id: number) => boolean,
   alwaysInclude?: number | null,
 ): Set<number> | null {
-  if (anchorId != null) {
-    if (!hasNode(anchorId)) return null
-    return focusForeground(adjacency, anchorId, alwaysInclude)
+  for (const anchorId of anchorIds) {
+    if (anchorId != null && hasNode(anchorId)) {
+      return focusForeground(adjacency, anchorId, alwaysInclude)
+    }
   }
   if (pair != null && hasNode(pair.sourceId) && hasNode(pair.targetId)) {
     const foreground = new Set([pair.sourceId, pair.targetId])

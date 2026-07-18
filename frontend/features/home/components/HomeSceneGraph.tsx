@@ -426,9 +426,8 @@ function HomeSceneGraphSection() {
                   ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. ${graphSelectGestureHint}`}
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handleBackgroundClick}
-                  // Selection pins the neighborhood focus-dim until
-                  // deselection (PSY-1478) — the panel's connection counts
-                  // keep their visual counterpart on canvas after mouse-out.
+                  // Pin the focus-dim to the selection (PSY-1478) —
+                  // grammar in graphFocus.resolveFocusForeground.
                   focusNodeId={currentSelectedNode?.id ?? null}
                 />
                 {currentSelectedNode && (

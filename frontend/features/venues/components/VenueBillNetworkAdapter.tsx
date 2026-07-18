@@ -111,9 +111,8 @@ export function SceneGraphVisualizationStyleAdapter({
         ariaLabel={ariaLabel}
         onNodeClick={handleNodeClick}
         onBackgroundClick={handleBackgroundClick}
-        // Selection pins the neighborhood focus-dim until deselection
-        // (PSY-1478) — the panel's connection counts keep their visual
-        // counterpart on canvas after mouse-out.
+        // Pin the focus-dim to the selection (PSY-1478) — grammar in
+        // graphFocus.resolveFocusForeground.
         focusNodeId={selectedNode?.id ?? null}
         // The aria-label advertises the select gesture, so keyboard and
         // screen-reader users need an equivalent: the focus-revealed node

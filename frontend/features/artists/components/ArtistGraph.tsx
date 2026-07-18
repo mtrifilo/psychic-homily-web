@@ -863,12 +863,12 @@ export function ArtistGraphVisualization({
     () =>
       resolveFocusForeground(
         adjacency,
-        focusAnchorId,
+        [hoveredNode?.id, focusNodeId],
         connectionInspect.pair,
         id => graphData.nodes.some(n => n.id === id),
         data.center.id
       ),
-    [adjacency, focusAnchorId, connectionInspect.pair, graphData, data.center.id]
+    [adjacency, hoveredNode, focusNodeId, connectionInspect.pair, graphData, data.center.id]
   )
 
   // Center-node fill, hoisted out of the paint callback: ~60% alpha
