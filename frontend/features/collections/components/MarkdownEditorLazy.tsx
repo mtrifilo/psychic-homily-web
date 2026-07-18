@@ -7,7 +7,7 @@
  * Why this module exists: `MarkdownEditor` statically imports `marked` +
  * `dompurify` (~80 KB raw). Because the editor is imported by several
  * components living on distinct route trees (CollectionDetail, CollectionList,
- * FeaturedAdmin, and the per-item notes editor), a STATIC import keeps it —
+ * collections description editor, and the per-item notes editor), a STATIC import keeps it —
  * and those libs — multi-route-reachable, so Turbopack hoists them into the
  * global shared client chunk loaded on every route (incl. /explore, which uses
  * none of it). See the PSY-944 spike: splitting the read-only renderer out is

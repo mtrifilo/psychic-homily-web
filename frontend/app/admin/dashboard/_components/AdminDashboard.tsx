@@ -26,7 +26,6 @@ import {
   Tag,
   Link2,
   Radio,
-  Sparkles,
   Activity,
   type LucideIcon,
 } from 'lucide-react'
@@ -348,8 +347,9 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
       </section>
 
       {/* Tools — dashboard quick-links. Discovery and the Streaming-discovery
-       worklist are now sidebar tabs (linked via ?tab=); Featured curation still
-       lives at its own route. Kept here for at-a-glance discoverability. */}
+       worklist are sidebar tabs (linked via ?tab=). Kept here for at-a-glance
+       discoverability. Featured Bill/Collection editorial slots were retired
+       in PSY-1480. */}
       <section>
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
           Tools
@@ -386,23 +386,6 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                 <p className="text-xs text-muted-foreground">
                   Review bulk-backfill Bandcamp/Spotify link candidates for
                   link-less artists.
-                </p>
-              </div>
-            </div>
-          </Link>
-          <Link
-            href="/admin/featured"
-            className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            data-testid="admin-dashboard-link-featured"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Sparkles className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">Featured curation</p>
-                <p className="text-xs text-muted-foreground">
-                  Manage legacy featured slots retained after the /graph cutover.
                 </p>
               </div>
             </div>

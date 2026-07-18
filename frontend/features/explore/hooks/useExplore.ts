@@ -3,25 +3,16 @@
 /**
  * Explore feature hooks (PSY-837)
  *
- * TanStack Query hooks for the three /explore read endpoints. Two are
- * page-load reads (upcoming shows, featured slots) — the route's server
- * component prefetches and seeds the cache via `prefetchEntity` so
- * these hooks resolve from the seeded cache and the client never
- * refetches on first paint.
- *
- * The shuffle-target endpoint is interaction-driven (button click);
- * it's wrapped in `useShuffleTarget` (manually triggered via the
- * returned `refetch`) rather than running on mount.
+ * TanStack Query hooks for /explore read endpoints. Upcoming shows is a
+ * page-load read; shuffle-target is interaction-driven via useShuffleTarget.
+ * Featured Bill/Collection editorial slots were retired in PSY-1480.
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { buildCitiesParam, type CityState } from '@/components/filters'
-import type {
-  ExploreFeaturedResponse,
-  ExploreUpcomingShowsResponse,
-} from '../types'
+import type { ExploreUpcomingShowsResponse } from '../types'
 
 export { useRandomArtistTarget as useShuffleTarget } from '@/features/discovery/useRandomArtistTarget'
 
@@ -68,20 +59,5 @@ export function useExploreUpcomingShows(
     // new city filter fetches, instead of flashing the full-area spinner —
     // matches ShowList's dim-in-place behavior.
     placeholderData: keepPreviousData,
-  })
-}
-
-/**
- * Admin-curated Featured Bill + Featured Collection. Both fields can
- * independently be null — the consumer collapses the matching section.
- */
-export function useExploreFeatured() {
-  return useQuery({
-    queryKey: queryKeys.explore.featured,
-    queryFn: () =>
-      apiRequest<ExploreFeaturedResponse>(API_ENDPOINTS.EXPLORE.FEATURED, {
-        method: 'GET',
-      }),
-    staleTime: 60 * 1000,
   })
 }

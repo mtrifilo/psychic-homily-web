@@ -6,24 +6,16 @@ import "time"
 // /explore landing — read-side DTOs + interface
 // ──────────────────────────────────────────────
 //
-// The /explore page surfaces three slices of content:
+// The /explore page (now a permanent redirect to /graph; PSY-1457) still
+// exposes two public read slices used by leftover explore UI / discovery:
 //
 //  1. Upcoming Shows — chronological list (event_date ASC). No trending,
 //     no ranking; just "what's next" with deterministic pagination.
-//  2. Featured — the admin-curated bill + collection from
-//     featured_slots (admin sets via the surface introduced by PSY-835).
-//     Both fields are nullable: the frontend collapses the section when
-//     a curator hasn't picked one.
-//  3. Shuffle Target — a random pick from the "currently relevant"
+//  2. Shuffle Target — a random pick from the "currently relevant"
 //     pool (artists with a show in a ±90-day window). Backs the
-//     "Surprise me" affordance.
+//     "Surprise me" affordance (also via DISCOVERY.RANDOM_ARTIST_TARGET).
 //
-// The shapes here are intentionally minimal — only the fields a tile or
-// hero card needs. We do NOT echo the full ShowResponse / Collection
-// detail because they're heavier (artists slice with social links,
-// preloaded items, etc.) and the /explore surface doesn't render them.
-// A dedicated DTO keeps the endpoint payload small and the JSON shape
-// explicit.
+// Featured Bill/Collection editorial slots were retired in PSY-1480.
 
 // ExploreUpcomingShowItem is the wire shape for one row on the
 // Upcoming Shows list. Headliner is a denormalized convenience —
@@ -62,49 +54,6 @@ type ExploreUpcomingShowsResponse struct {
 	Offset int                       `json:"offset"`
 }
 
-// ExploreFeaturedBill is the bill referent for the Featured slot.
-// CuratorNote / CuratorNoteHTML mirror the admin-side wire shape — raw
-// markdown source + sanitized HTML render (rendered fresh on each read,
-// per the same boundary policy collections + comments use).
-type ExploreFeaturedBill struct {
-	ID              uint      `json:"id"`
-	Slug            string    `json:"slug"`
-	Title           string    `json:"title"`
-	EventDate       time.Time `json:"event_date"`
-	HeadlinerName   string    `json:"headliner_name"`
-	VenueName       string    `json:"venue_name"`
-	VenueCity       string    `json:"venue_city"`
-	VenueState      string    `json:"venue_state"`
-	ImageURL        *string   `json:"image_url,omitempty"`
-	CuratorNote     *string   `json:"curator_note,omitempty"`
-	CuratorNoteHTML string    `json:"curator_note_html,omitempty"`
-}
-
-// ExploreFeaturedCollection is the collection referent for the
-// Featured slot. Only fields the /explore hero card renders are
-// surfaced — the full CollectionDetailResponse with items + tags
-// stays gated behind the dedicated collection-detail endpoint.
-type ExploreFeaturedCollection struct {
-	ID              uint    `json:"id"`
-	Slug            string  `json:"slug"`
-	Title           string  `json:"title"`
-	Description     string  `json:"description,omitempty"`
-	DescriptionHTML string  `json:"description_html,omitempty"`
-	CoverImageURL   *string `json:"cover_image_url,omitempty"`
-	CuratorNote     *string `json:"curator_note,omitempty"`
-	CuratorNoteHTML string  `json:"curator_note_html,omitempty"`
-}
-
-// ExploreFeaturedResponse is the wire shape for GET /explore/featured.
-// Both fields are nullable — when the admin hasn't curated a slot, the
-// referent has been deleted, or the referent is no longer publicly
-// visible (private collection), the corresponding field is nil. The
-// frontend collapses the section when both are nil.
-type ExploreFeaturedResponse struct {
-	Bill       *ExploreFeaturedBill       `json:"bill"`
-	Collection *ExploreFeaturedCollection `json:"collection"`
-}
-
 // ExploreShuffleTargetResponse is the wire shape for GET
 // /explore/shuffle-target — a single random artist drawn from the
 // "currently relevant" pool (any artist with a show in the ±90-day
@@ -131,15 +80,6 @@ type ExploreServiceInterface interface {
 	// results are restricted to shows whose (city, state) matches any
 	// pair — the same shows.city/state predicate /shows uses (PSY-840).
 	GetUpcomingShows(limit, offset int, cities []CityStateFilter) (*ExploreUpcomingShowsResponse, error)
-
-	// GetFeatured returns the currently-active bill + collection from
-	// featured_slots. Returns nil for either field when:
-	//   - the admin hasn't set that slot yet, OR
-	//   - the referent has been deleted, OR
-	//   - the referent is no longer publicly visible (private collection).
-	// Never returns an error solely because a slot is empty; only
-	// genuine I/O failures bubble up.
-	GetFeatured() (*ExploreFeaturedResponse, error)
 
 	// GetShuffleTarget returns one random artist from the pool of
 	// artists with a show within the past 90 days OR the next 90

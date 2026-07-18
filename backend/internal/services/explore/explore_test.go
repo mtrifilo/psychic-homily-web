@@ -8,32 +8,27 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	communitym "psychic-homily-backend/internal/models/community"
-	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
 // ExploreServiceIntegrationSuite drives the /explore reads against a
 // real Postgres testcontainer. The shape under test — chronological
-// ordering, polymorphic-referent defensive reads, ±90d shuffle pool
-// membership — only exercises end-to-end against actual rows + joins.
-// Pure-unit mocking the GORM layer would assert syntax, not behaviour.
+// ordering and ±90d shuffle pool membership — only exercises end-to-end
+// against actual rows + joins. Pure-unit mocking the GORM layer would
+// assert syntax, not behaviour.
 type ExploreServiceIntegrationSuite struct {
 	suite.Suite
-	testDB              *testutil.TestDatabase
-	db                  *gorm.DB
-	featuredSlotService *adminsvc.FeaturedSlotService
-	exploreService      *ExploreService
+	testDB         *testutil.TestDatabase
+	db             *gorm.DB
+	exploreService *ExploreService
 }
 
 func (s *ExploreServiceIntegrationSuite) SetupSuite() {
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
-	s.featuredSlotService = adminsvc.NewFeaturedSlotService(s.db)
-	s.exploreService = NewExploreService(s.db, s.featuredSlotService)
+	s.exploreService = NewExploreService(s.db)
 }
 
 func (s *ExploreServiceIntegrationSuite) TearDownSuite() {
@@ -43,15 +38,8 @@ func (s *ExploreServiceIntegrationSuite) TearDownSuite() {
 func (s *ExploreServiceIntegrationSuite) TearDownTest() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
-	// Order respects FKs — children before parents. featured_slots
-	// references users; collections/shows are independent leaves but
-	// they're referenced by show_artists/show_venues children.
+	// Order respects FKs — children before parents.
 	for _, stmt := range []string{
-		"DELETE FROM featured_slots",
-		// The predicate-parity rejection tests write a rejected-attempt
-		// audit row via SetActiveSlot; clean it so any audit-counting test
-		// added to this suite later stays order-independent. actor_id is
-		// ON DELETE SET NULL so ordering vs. users below doesn't matter.
 		"DELETE FROM audit_logs",
 		"DELETE FROM show_artists",
 		"DELETE FROM show_venues",
@@ -77,22 +65,6 @@ func TestExploreServiceIntegrationSuite(t *testing.T) {
 // Helpers
 // ──────────────────────────────────────────────
 
-func (s *ExploreServiceIntegrationSuite) createAdmin(label string) *authm.User {
-	email := fmt.Sprintf("%s-%d@test.com", label, time.Now().UnixNano())
-	user := &authm.User{
-		Email:         &email,
-		FirstName:     &label,
-		IsActive:      true,
-		IsAdmin:       true,
-		EmailVerified: true,
-	}
-	s.Require().NoError(s.db.Create(user).Error)
-	return user
-}
-
-// createShow inserts an approved show with one venue + one headliner
-// artist, dated relative to NOW(). Returns the show ID + artist ID for
-// downstream assertions.
 func (s *ExploreServiceIntegrationSuite) createShow(title string, daysFromNow int) (*catalogm.Show, *catalogm.Artist, *catalogm.Venue) {
 	city := "Phoenix"
 	state := "AZ"
@@ -145,25 +117,6 @@ func (s *ExploreServiceIntegrationSuite) createShowInCity(title string, daysFrom
 	}
 	s.Require().NoError(s.db.Create(show).Error)
 	return show
-}
-
-// createCollection seeds a collection with the given visibility.
-// GORM-bool gotcha (per CLAUDE.md): IsPublic = false is the zero-value
-// so Create silently ignores it and the column default (true) wins.
-// Insert as public, then Update to flip private when needed.
-func (s *ExploreServiceIntegrationSuite) createCollection(creatorID uint, title string, isPublic bool) *communitym.Collection {
-	coll := &communitym.Collection{
-		Title:     title,
-		Slug:      fmt.Sprintf("%s-%d", title, time.Now().UnixNano()),
-		CreatorID: creatorID,
-		IsPublic:  true,
-	}
-	s.Require().NoError(s.db.Create(coll).Error)
-	if !isPublic {
-		s.Require().NoError(s.db.Model(coll).Update("is_public", false).Error)
-		coll.IsPublic = false
-	}
-	return coll
 }
 
 // ──────────────────────────────────────────────
@@ -360,107 +313,6 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_CityFilterNoMatchR
 	s.Require().NoError(err)
 	s.Empty(resp.Shows)
 	s.Equal(int64(0), resp.Total)
-}
-
-// ──────────────────────────────────────────────
-// GetFeatured
-// ──────────────────────────────────────────────
-
-func (s *ExploreServiceIntegrationSuite) TestGetFeatured_EmptyReturnsNullSlots() {
-	resp, err := s.exploreService.GetFeatured()
-	s.Require().NoError(err)
-	s.Require().NotNil(resp)
-	s.Nil(resp.Bill)
-	s.Nil(resp.Collection)
-}
-
-func (s *ExploreServiceIntegrationSuite) TestGetFeatured_PopulatedBillAndCollection() {
-	admin := s.createAdmin("admin1")
-	show, artist, _ := s.createShow("bill-show", 14)
-	coll := s.createCollection(admin.ID, "featured-coll", true)
-
-	note := "Best bill of the month"
-	_, err := s.featuredSlotService.SetActiveSlot("bill", show.ID, &note, admin.ID)
-	s.Require().NoError(err)
-
-	collNote := "Editor's pick"
-	_, err = s.featuredSlotService.SetActiveSlot("collection", coll.ID, &collNote, admin.ID)
-	s.Require().NoError(err)
-
-	resp, err := s.exploreService.GetFeatured()
-	s.Require().NoError(err)
-	s.Require().NotNil(resp.Bill)
-	s.Equal(show.ID, resp.Bill.ID)
-	s.Equal(show.Title, resp.Bill.Title)
-	s.Equal(artist.Name, resp.Bill.HeadlinerName)
-	s.Equal("Best bill of the month", *resp.Bill.CuratorNote)
-	s.NotEmpty(resp.Bill.CuratorNoteHTML)
-
-	s.Require().NotNil(resp.Collection)
-	s.Equal(coll.ID, resp.Collection.ID)
-	s.Equal(coll.Title, resp.Collection.Title)
-	s.Equal("Editor's pick", *resp.Collection.CuratorNote)
-}
-
-// TestGetFeatured_DeletedReferentCollapsesGracefully is the canonical
-// defensive-read test the ticket calls out: a slot pointing at a row
-// that no longer exists must return nil rather than 500.
-func (s *ExploreServiceIntegrationSuite) TestGetFeatured_DeletedReferentCollapsesGracefully() {
-	admin := s.createAdmin("admin2")
-	show, _, _ := s.createShow("doomed", 14)
-
-	note := "Will be deleted"
-	_, err := s.featuredSlotService.SetActiveSlot("bill", show.ID, &note, admin.ID)
-	s.Require().NoError(err)
-
-	// Drop the show + its associations (FK cascade handles the
-	// show_artists / show_venues rows).
-	s.Require().NoError(s.db.Exec("DELETE FROM show_artists WHERE show_id = ?", show.ID).Error)
-	s.Require().NoError(s.db.Exec("DELETE FROM show_venues WHERE show_id = ?", show.ID).Error)
-	s.Require().NoError(s.db.Exec("DELETE FROM shows WHERE id = ?", show.ID).Error)
-
-	resp, err := s.exploreService.GetFeatured()
-	s.Require().NoError(err, "stale slot must NOT 500")
-	s.Nil(resp.Bill, "deleted referent collapses to nil")
-}
-
-func (s *ExploreServiceIntegrationSuite) TestGetFeatured_PrivateCollectionExcluded() {
-	admin := s.createAdmin("admin3")
-	// Feature a public collection, then flip it private — the slot row
-	// exists but /explore's consumer-side defensive read must hide it.
-	// Write-side validation (PSY-850) rejects featuring an already-
-	// private collection, so we set first then flip; the post-insert
-	// status-cascade case is intentionally out of scope of write-side
-	// validation per PSY-850 (status-change cascade follow-up deferred).
-	coll := s.createCollection(admin.ID, "secret", true)
-
-	_, err := s.featuredSlotService.SetActiveSlot("collection", coll.ID, nil, admin.ID)
-	s.Require().NoError(err)
-
-	s.Require().NoError(s.db.Model(coll).Update("is_public", false).Error)
-
-	resp, err := s.exploreService.GetFeatured()
-	s.Require().NoError(err)
-	s.Nil(resp.Collection, "private collection must not surface on /explore")
-}
-
-func (s *ExploreServiceIntegrationSuite) TestGetFeatured_NonApprovedBillExcluded() {
-	admin := s.createAdmin("admin4")
-	// Feature an approved show, then flip status to pending — the slot
-	// row exists but /explore's consumer-side defensive read collapses
-	// the bill to nil. Mirrors the private-collection case: write-side
-	// validation now blocks featuring a non-approved show up front, but
-	// post-insert status flips still need consumer-side defense.
-	show, _, _ := s.createShow("pending-shift", 14)
-
-	_, err := s.featuredSlotService.SetActiveSlot("bill", show.ID, nil, admin.ID)
-	s.Require().NoError(err)
-
-	s.Require().NoError(s.db.Model(show).Update("status", catalogm.ShowStatusPending).Error)
-
-	resp, err := s.exploreService.GetFeatured()
-	s.Require().NoError(err)
-	s.Nil(resp.Bill, "non-approved referent collapses to nil")
 }
 
 // ──────────────────────────────────────────────

@@ -6,7 +6,7 @@
  * non-terminal AND who have at least one upcoming show, ordered by
  * soonest show date.
  *
- * Page shape mirrors `/admin/featured` (PSY-838) — same inline-banner
+ * Page shape mirrors other focused admin tools — same inline-banner
  * mutation feedback (`pattern_mutation_feedback.md`), same TanStack
  * Query layout, same admin-only gating via the parent admin layout.
  *

@@ -1,8 +1,7 @@
-// Package explore exposes the public read endpoints that back the
-// /explore landing page. The three endpoints — upcoming-shows,
-// featured, and shuffle-target — register on the public API group;
-// anonymous and authenticated callers see identical content (locked
-// product decision).
+// Package explore exposes the public read endpoints that back leftover
+// /explore surfaces and discovery shuffle. Featured Bill/Collection was
+// retired in PSY-1480. Anonymous and authenticated callers see identical
+// content (locked product decision).
 //
 // Handler logic stays thin: validate the query envelope, delegate to
 // the service, surface 500s with a request-id breadcrumb on failure.
@@ -30,9 +29,7 @@ type ExploreHandler struct {
 	exploreService contracts.ExploreServiceInterface
 }
 
-// NewExploreHandler wires the explore service. The featured-slot
-// service is reached transitively through the explore service — the
-// handler does not call it directly.
+// NewExploreHandler wires the explore service.
 func NewExploreHandler(exploreService contracts.ExploreServiceInterface) *ExploreHandler {
 	return &ExploreHandler{exploreService: exploreService}
 }
@@ -106,42 +103,6 @@ func (h *ExploreHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUp
 	}
 
 	return &GetUpcomingShowsResponse{Body: *result}, nil
-}
-
-// ──────────────────────────────────────────────
-// GET /explore/featured
-// ──────────────────────────────────────────────
-
-// GetFeaturedRequest has no inputs — the endpoint is a pure read.
-// Huma requires the request struct to exist; an empty struct works.
-type GetFeaturedRequest struct{}
-
-// GetFeaturedResponse wraps the explore-shaped featured response.
-type GetFeaturedResponse struct {
-	Body contracts.ExploreFeaturedResponse
-}
-
-// GetFeaturedHandler handles GET /explore/featured. Returns the
-// currently-active bill + collection from the admin-curated
-// featured_slots table (PSY-835). Both fields are nullable: the
-// frontend collapses the section when both are nil. A stale referent
-// (deleted / privacy-flipped / status-flipped) resolves to nil for
-// that field — never a 500.
-func (h *ExploreHandler) GetFeaturedHandler(ctx context.Context, _ *GetFeaturedRequest) (*GetFeaturedResponse, error) {
-	requestID := logger.GetRequestID(ctx)
-
-	result, err := h.exploreService.GetFeatured()
-	if err != nil {
-		logger.FromContext(ctx).Error("explore_featured_failed",
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to load featured picks (request_id: %s)", requestID),
-		)
-	}
-
-	return &GetFeaturedResponse{Body: *result}, nil
 }
 
 // ──────────────────────────────────────────────
