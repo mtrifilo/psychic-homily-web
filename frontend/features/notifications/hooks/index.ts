@@ -18,6 +18,7 @@ import type {
   NotificationListResponse,
   MarkReadResponse,
 } from '../types'
+import { FILTER_SOURCE_MANAGED } from '../types'
 
 // ──────────────────────────────────────────────
 // API endpoints (not in central API_ENDPOINTS yet)
@@ -59,9 +60,10 @@ export function useNotificationFilters() {
 }
 
 /**
- * Check if the current user has an active notification filter
- * matching a specific entity (artist/venue/label/tag).
- * Returns the matching filter, or undefined if none.
+ * Check if the current user has an active *managed* notification filter
+ * for a specific entity (artist/venue/label/tag). Settings-authored /
+ * compound filters are ignored so NotifyMeButton never deletes them
+ * (PSY-1467).
  */
 export function useNotificationFilterCheck(
   entityType: NotifyEntityType,
@@ -69,28 +71,65 @@ export function useNotificationFilterCheck(
 ) {
   const { data, ...rest } = useNotificationFilters()
 
-  // Find a filter that includes this entity in its criteria
   const matchingFilter = data?.filters?.find(filter => {
     if (!filter.is_active) return false
-
-    switch (entityType) {
-      case 'artist':
-        return filter.artist_ids?.includes(entityId) ?? false
-      case 'venue':
-        return filter.venue_ids?.includes(entityId) ?? false
-      case 'label':
-        return filter.label_ids?.includes(entityId) ?? false
-      case 'tag':
-        return filter.tag_ids?.includes(entityId) ?? false
-      default:
-        return false
-    }
+    if (filter.source !== FILTER_SOURCE_MANAGED) return false
+    if (!isManagedQuickShape(filter, entityType, entityId)) return false
+    return true
   })
 
   return {
     ...rest,
     data: matchingFilter,
     hasFilter: !!matchingFilter,
+  }
+}
+
+/** True when filter is a single-entity managed quick subscription for entityId. */
+function isManagedQuickShape(
+  filter: NotificationFilter,
+  entityType: NotifyEntityType,
+  entityId: number
+): boolean {
+  const empty = (ids?: number[] | null) => !ids || ids.length === 0
+  const only = (ids?: number[] | null) =>
+    !!ids && ids.length === 1 && ids[0] === entityId
+
+  if (filter.exclude_tag_ids?.length) return false
+  if (filter.cities?.length) return false
+  if (filter.price_max_cents != null) return false
+
+  switch (entityType) {
+    case 'artist':
+      return (
+        only(filter.artist_ids) &&
+        empty(filter.venue_ids) &&
+        empty(filter.label_ids) &&
+        empty(filter.tag_ids)
+      )
+    case 'venue':
+      return (
+        only(filter.venue_ids) &&
+        empty(filter.artist_ids) &&
+        empty(filter.label_ids) &&
+        empty(filter.tag_ids)
+      )
+    case 'label':
+      return (
+        only(filter.label_ids) &&
+        empty(filter.artist_ids) &&
+        empty(filter.venue_ids) &&
+        empty(filter.tag_ids)
+      )
+    case 'tag':
+      return (
+        only(filter.tag_ids) &&
+        empty(filter.artist_ids) &&
+        empty(filter.venue_ids) &&
+        empty(filter.label_ids)
+      )
+    default:
+      return false
   }
 }
 

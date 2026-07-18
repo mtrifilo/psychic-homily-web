@@ -480,6 +480,7 @@ func TestFilterToResponse(t *testing.T) {
 	f := &notificationm.NotificationFilter{
 		ID:        1,
 		Name:      "Test",
+		Source:    notificationm.FilterSourceManaged,
 		IsActive:  true,
 		ArtistIDs: pq.Int64Array{1, 2},
 	}
@@ -490,8 +491,22 @@ func TestFilterToResponse(t *testing.T) {
 	if resp.Name != "Test" {
 		t.Errorf("expected name=Test, got %s", resp.Name)
 	}
+	if resp.Source != notificationm.FilterSourceManaged {
+		t.Errorf("expected source=managed, got %s", resp.Source)
+	}
 	if len(resp.ArtistIDs) != 2 {
 		t.Errorf("expected 2 artist IDs, got %d", len(resp.ArtistIDs))
+	}
+}
+
+func TestFilterToResponse_EmptySourceDefaultsToUser(t *testing.T) {
+	f := &notificationm.NotificationFilter{
+		ID:   1,
+		Name: "Legacy",
+	}
+	resp := filterToResponse(f)
+	if resp.Source != notificationm.FilterSourceUser {
+		t.Errorf("expected source=user for empty, got %s", resp.Source)
 	}
 }
 

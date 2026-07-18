@@ -65,6 +65,7 @@ function makeFilter(overrides: Partial<NotificationFilter> = {}): NotificationFi
   return {
     id: 1,
     name: 'Test Filter',
+    source: 'user',
     is_active: true,
     artist_ids: [1],
     venue_ids: null,

@@ -7,12 +7,24 @@ import (
 	"github.com/lib/pq"
 )
 
+// Filter ownership sources (PSY-1467). Quick entity toggles only create/delete
+// "managed" rows; settings-authored filters are "user" and must never be
+// mutated by the NotifyMeButton lifecycle.
+const (
+	FilterSourceUser    = "user"
+	FilterSourceManaged = "managed"
+)
+
 // NotificationFilter represents a user-created filter for automatic show notifications.
 // When a show is approved, all active filters are evaluated against it.
 type NotificationFilter struct {
 	ID     uint   `gorm:"primaryKey" json:"id"`
 	UserID uint   `gorm:"not null" json:"user_id"`
 	Name   string `gorm:"size:128;not null" json:"name"`
+
+	// Source is "user" (settings-authored) or "managed" (entity-page quick toggle).
+	// Default "user". PSY-1467.
+	Source string `gorm:"size:16;not null;default:user" json:"source"`
 
 	// IsActive allows pausing without deleting. Default true.
 	IsActive bool `gorm:"not null;default:true" json:"is_active"`

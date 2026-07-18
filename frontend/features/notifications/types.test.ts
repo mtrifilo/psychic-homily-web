@@ -27,6 +27,7 @@ function filter(overrides: Partial<NotificationFilter> = {}): NotificationFilter
   return {
     id: 1,
     name: 'My filter',
+    source: 'user',
     is_active: true,
     notify_email: true,
     notify_in_app: false,
