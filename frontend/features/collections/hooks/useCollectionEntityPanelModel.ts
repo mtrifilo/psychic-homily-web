@@ -37,6 +37,7 @@ import type {
   EntityPanelEntityType,
   EntityPanelPrimary,
 } from '@/components/graph/EntityContextPanel'
+import { isEntityPanelType } from '@/components/graph/EntityContextPanel'
 import {
   FESTIVAL_ARTIST_EDGE_TYPES,
   LABEL_ARTIST_EDGE_TYPES,
@@ -82,16 +83,6 @@ export interface CollectionEntityPanelModel {
   facts: string[]
   isLoading: boolean
   isError: boolean
-}
-
-function isEntityPanelType(value: string): value is EntityPanelEntityType {
-  return (
-    value === 'venue' ||
-    value === 'label' ||
-    value === 'release' ||
-    value === 'show' ||
-    value === 'festival'
-  )
 }
 
 export function useCollectionEntityPanelModel(opts: {

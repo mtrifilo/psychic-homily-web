@@ -17,13 +17,14 @@
  * instance-local selection that resets on fullscreen toggle.
  */
 
+import { useMemo } from 'react'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 import {
   EntityContextPanel,
   graphEntitySelectGestureHint,
-  type EntityPanelEntityType,
+  isEntityPanelType,
 } from '@/components/graph/EntityContextPanel'
 import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
@@ -47,16 +48,6 @@ interface CollectionGraphVisualizationProps {
   edgeCount: number
 }
 
-function isEntityPanelType(value: string): value is EntityPanelEntityType {
-  return (
-    value === 'venue' ||
-    value === 'label' ||
-    value === 'release' ||
-    value === 'show' ||
-    value === 'festival'
-  )
-}
-
 export function CollectionGraphVisualization({
   nodes,
   sourceNodes,
@@ -68,7 +59,10 @@ export function CollectionGraphVisualization({
   nodeCount,
   edgeCount,
 }: CollectionGraphVisualizationProps) {
-  const sourceById = new Map(sourceNodes.map(n => [n.id, n]))
+  const sourceById = useMemo(
+    () => new Map(sourceNodes.map(n => [n.id, n])),
+    [sourceNodes],
+  )
 
   const {
     selectedNode,

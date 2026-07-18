@@ -36,6 +36,18 @@ export type EntityPanelEntityType =
   | 'show'
   | 'festival'
 
+export function isEntityPanelType(
+  value: string,
+): value is EntityPanelEntityType {
+  return (
+    value === 'venue' ||
+    value === 'label' ||
+    value === 'release' ||
+    value === 'show' ||
+    value === 'festival'
+  )
+}
+
 const ENTITY_TYPE_LABEL: Record<EntityPanelEntityType, string> = {
   venue: 'Venue',
   label: 'Label',
@@ -143,9 +155,6 @@ export function EntityContextPanel({
   const typeLabel = ENTITY_TYPE_LABEL[entityType].toUpperCase()
   const pageHref = `/${ENTITY_TYPE_PATH[entityType]}/${encodeURIComponent(slug)}`
   const hasContent = primary != null || facts.length > 0
-  // Failed enrichment still shows cached/primary content when present; only
-  // apologize when there's nothing better (ArtistContextPanel precedent).
-  const showBody = !isLoading && (hasContent || !isError)
 
   return (
     <GraphPanelShell
@@ -164,7 +173,9 @@ export function EntityContextPanel({
         </div>
       }
     >
-      {isLoading && (
+      {/* Graph-derived facts/primary can land before enrichment finishes —
+          keep showing them; only skeleton when there's nothing yet. */}
+      {isLoading && !hasContent && (
         <div className="space-y-2" aria-label="Loading details">
           <SkeletonRow />
           <SkeletonRow />
@@ -178,7 +189,7 @@ export function EntityContextPanel({
         </p>
       )}
 
-      {showBody && (
+      {hasContent && (
         <div className="space-y-2.5">
           {primary?.kind === 'labeled' && primary.text && (
             <div className="space-y-0.5">
@@ -201,8 +212,8 @@ export function EntityContextPanel({
               />
             )}
 
-          {facts.map(fact => (
-            <p key={fact} className="text-muted-foreground">
+          {facts.map((fact, i) => (
+            <p key={`${i}-${fact}`} className="text-muted-foreground">
               {fact}
             </p>
           ))}
