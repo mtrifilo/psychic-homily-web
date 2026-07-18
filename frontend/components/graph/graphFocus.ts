@@ -76,6 +76,49 @@ export function focusForeground(
   return foreground
 }
 
+/** The artist pair a ConnectionPanel is inspecting (useConnectionInspect shape). */
+export interface FocusPair {
+  sourceId: number
+  targetId: number
+}
+
+/**
+ * The full focus-resolution rule shared by both canvas surfaces (PSY-1478):
+ *
+ *   1. `anchorId` (the hovered node, or the pinned selection on hover-out —
+ *      the caller derives `hoveredId ?? pinnedId`) wins: its 1-hop
+ *      neighborhood via `focusForeground`. A stale anchor that fails
+ *      `hasNode` (filtered out / refetched away) yields null rather than
+ *      dimming the whole graph to the background alpha.
+ *   2. Otherwise an inspected edge `pair` pins its two endpoints (plus the
+ *      surface's `alwaysInclude` anchor, e.g. the ego center) so the
+ *      ConnectionPanel's "why connected" card keeps its visual counterpart.
+ *      Same both-endpoints-present gate; the connecting link stays
+ *      foreground because both endpoints are in the set.
+ *   3. Neither → null (resting view, everything foreground).
+ *
+ * Owned here — next to the neighborhood math — so the pin grammar can't
+ * drift between ForceGraphView and ArtistGraph.
+ */
+export function resolveFocusForeground(
+  adjacency: Map<number, Set<number>>,
+  anchorId: number | null,
+  pair: FocusPair | null,
+  hasNode: (id: number) => boolean,
+  alwaysInclude?: number | null,
+): Set<number> | null {
+  if (anchorId != null) {
+    if (!hasNode(anchorId)) return null
+    return focusForeground(adjacency, anchorId, alwaysInclude)
+  }
+  if (pair != null && hasNode(pair.sourceId) && hasNode(pair.targetId)) {
+    const foreground = new Set([pair.sourceId, pair.targetId])
+    if (alwaysInclude != null) foreground.add(alwaysInclude)
+    return foreground
+  }
+  return null
+}
+
 // Background fade alpha for hover-focus, shared by both canvas surfaces (ArtistGraph +
 // ForceGraphView) so they dim by the SAME amount — a design token, not a per-surface
 // tuning, kept here (next to the neighborhood math) so the two can't drift. BACKGROUND_ALPHA

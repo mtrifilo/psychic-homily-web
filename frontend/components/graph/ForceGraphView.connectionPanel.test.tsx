@@ -55,6 +55,7 @@ vi.mock('@/lib/api-base', () => ({
 
 import { ForceGraphView, type GraphNode } from './ForceGraphView'
 import { BACKGROUND_ALPHA } from './graphFocus'
+import { makeFakeCtx } from '@/test/canvasCtx'
 
 const nodes: GraphNode[] = [
   { id: 1, name: 'Dehd', slug: 'dehd', upcoming_show_count: 0 },
@@ -296,18 +297,11 @@ describe('ForceGraphView connection panel', () => {
       cluster_id: 'other', is_isolate: false, x: 0, y: 0,
     })
     const paintAlphas = (id: number) => {
-      const alphas: number[] = []
-      let alpha = 1
-      const ctx = {
-        get globalAlpha() { return alpha },
-        set globalAlpha(v: number) { alpha = v; alphas.push(v) },
-        beginPath() {}, arc() {}, fill() {}, stroke() {},
-        fillStyle: '', strokeStyle: '', lineWidth: 0,
-      }
+      const ctx = makeFakeCtx()
       ;(h.lastProps.value!.nodeCanvasObject as (n: unknown, c: unknown) => void)(
         renderNode(id), ctx,
       )
-      return alphas
+      return ctx.alphas
     }
 
     clickLink(1, 2)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildAdjacency, endpointId, focusForeground } from './graphFocus'
+import { buildAdjacency, endpointId, focusForeground, resolveFocusForeground } from './graphFocus'
 
 // PSY-1210 — the hover-focus neighborhood math (canvas rendering applies the alpha;
 // this is the pure set computation, tested in isolation like graphLabels/edgeGrammar).
@@ -84,5 +84,47 @@ describe('focusForeground', () => {
 
   it('includes the hovered id even when its neighbor set is absent', () => {
     expect(focusForeground(new Map(), 7)?.has(7)).toBe(true)
+  })
+})
+
+// PSY-1478: the shared anchor-vs-edge-pair focus resolution both canvas
+// surfaces delegate to (pin grammar owned in one tested place).
+describe('resolveFocusForeground', () => {
+  const adj = buildAdjacency([
+    { source: 1, target: 2 },
+    { source: 3, target: 4 },
+  ])
+  const hasNode = (id: number) => [1, 2, 3, 4].includes(id)
+
+  it('anchor wins: returns the anchor neighborhood, ignoring the pair', () => {
+    const fg = resolveFocusForeground(adj, 1, { sourceId: 3, targetId: 4 }, hasNode)
+    expect([...(fg ?? [])].sort()).toEqual([1, 2])
+  })
+
+  it('drops a stale anchor that fails hasNode (no whole-graph dim)', () => {
+    expect(resolveFocusForeground(adj, 99, { sourceId: 3, targetId: 4 }, hasNode)).toBeNull()
+  })
+
+  it('no anchor: pins the inspected pair endpoints (plus alwaysInclude)', () => {
+    expect([
+      ...(resolveFocusForeground(adj, null, { sourceId: 3, targetId: 4 }, hasNode) ?? []),
+    ].sort()).toEqual([3, 4])
+    expect([
+      ...(resolveFocusForeground(adj, null, { sourceId: 3, targetId: 4 }, hasNode, 1) ?? []),
+    ].sort()).toEqual([1, 3, 4])
+  })
+
+  it('drops the pair pin when either endpoint left the rendered set', () => {
+    expect(resolveFocusForeground(adj, null, { sourceId: 3, targetId: 99 }, hasNode)).toBeNull()
+  })
+
+  it('returns null at rest (no anchor, no pair)', () => {
+    expect(resolveFocusForeground(adj, null, null, hasNode)).toBeNull()
+  })
+
+  it('passes the anchor through the alwaysInclude rule (ego center)', () => {
+    expect([
+      ...(resolveFocusForeground(adj, 3, null, hasNode, 1) ?? []),
+    ].sort()).toEqual([1, 3, 4])
   })
 })

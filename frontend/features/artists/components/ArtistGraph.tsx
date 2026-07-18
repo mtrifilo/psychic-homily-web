@@ -20,7 +20,7 @@ import {
   type GraphLabelSpec,
   type GraphLabelTierStyle,
 } from '@/components/graph/graphLabels'
-import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
+import { buildAdjacency, endpointId, resolveFocusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
@@ -119,6 +119,14 @@ interface ArtistGraphBaseProps {
   onRecenter?: (node: { id: number; slug: string; name: string }) => void
   /** Called after the graph dismisses its own connection inspector. */
   onBackgroundClick?: () => void
+  /**
+   * Notifies the consumer that an edge click just opened the connection
+   * inspector, so a caller-owned node panel can deselect and the two
+   * inspectors never stack — and the edge-endpoint pin (PSY-1478) isn't
+   * suppressed by a lingering node selection. Mirrors ForceGraphView's
+   * prop of the same name.
+   */
+  onConnectionInspectOpen?: () => void
   /** Hide the static edge legend when a tool surface owns that corner. */
   showLegend?: boolean
   /**
@@ -177,7 +185,7 @@ interface ArtistGraphBaseProps {
    * pinned node — never to undimmed while a selection exists. The expand-mode
    * artist dialog has no selection, so it never passes this.
    */
-  selectedNodeId?: number | null
+  focusNodeId?: number | null
 }
 
 type ArtistGraphInteraction =
@@ -346,6 +354,7 @@ export function ArtistGraphVisualization({
   onExpand,
   onSelect,
   onBackgroundClick,
+  onConnectionInspectOpen,
   showLegend = true,
   hopByNodeId,
   expandedIds,
@@ -356,7 +365,7 @@ export function ArtistGraphVisualization({
   canvasDescribedById,
   canvasAriaLabel,
   isRecentering = false,
-  selectedNodeId = null,
+  focusNodeId = null,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const containerRef = useRef<HTMLDivElement>(null)
@@ -653,7 +662,7 @@ export function ArtistGraphVisualization({
   // trade-offs for them (theme toggle won't recolor; hover won't fire) — and the PSY-1260
   // discovery-bias slider is HIDDEN for them in RecenteringGraph precisely because this repaint
   // is gated off, so it can't present a control that does nothing (tracked: a11y follow-up).
-  //   (5) pinned focus (PSY-1478): selectedNodeId (panel select/deselect) and
+  //   (5) pinned focus (PSY-1478): focusNodeId (panel select/deselect) and
   //       connectionInspect.pair (edge-endpoint pin) move focusedIds WITHOUT a
   //       hover change, so both need the same repaint kick as (2).
   useEffect(() => {
@@ -665,7 +674,7 @@ export function ArtistGraphVisualization({
     expandingIds,
     suggestedIds,
     doiByNodeId,
-    selectedNodeId,
+    focusNodeId,
     connectionInspect.pair,
   ])
 
@@ -726,8 +735,11 @@ export function ArtistGraphVisualization({
   const handleLinkClick = useCallback(
     (link: GraphLink) => {
       connectionInspect.open(endpointId(link.source), endpointId(link.target))
+      // Let the caller deselect its node panel so the two inspectors never
+      // stack and the pair pin isn't suppressed by a lingering selection.
+      onConnectionInspectOpen?.()
     },
-    [connectionInspect]
+    [connectionInspect, onConnectionInspectOpen]
   )
 
   // PSY-1335: lazily fetch the entities behind each connection for the
@@ -839,35 +851,25 @@ export function ArtistGraphVisualization({
   // in place (buildAdjacency would accept either shape, but only bare ids occur here).
   const adjacency = useMemo(() => buildAdjacency(graphData.links), [graphData])
   // PSY-1478: the effective focus anchor — hover PREVIEWS over the pinned
-  // selection (selectedNodeId), so hovering another node temporarily shifts
+  // selection (focusNodeId), so hovering another node temporarily shifts
   // the focus and hover-out reverts to the selected node, never to undimmed
   // while a selection exists. Also the force-labeled node in nodeLabelsFrame.
-  const focusAnchorId = hoveredNode?.id ?? selectedNodeId ?? null
-  const focusedIds = useMemo(() => {
-    if (focusAnchorId != null) {
-      // Drop focus if the anchor node was filtered out / refetched away (no longer in
-      // graphData): a stale anchor would otherwise leave focusedIds matching nothing
-      // visible and dim the WHOLE graph to the background alpha (PSY-1210 review).
-      if (!graphData.nodes.some(n => n.id === focusAnchorId)) return null
-      // Keep the center (the page subject) foreground always — passed as the helper's
-      // alwaysInclude anchor so the rule lives in one tested place (PSY-1210 review).
-      return focusForeground(adjacency, focusAnchorId, data.center.id)
-    }
-    // Edge-endpoint pin (PSY-1478 optional extension): while the ConnectionPanel
-    // inspects a pair and nothing is hovered or selected (node click closes the
-    // panel, so the two pins never compete), keep the pair's two endpoints —
-    // plus the center, this surface's standing anchor — foreground so the
-    // panel's "why connected" card keeps its visual counterpart on canvas.
-    const pair = connectionInspect.pair
-    if (
-      pair != null &&
-      graphData.nodes.some(n => n.id === pair.sourceId) &&
-      graphData.nodes.some(n => n.id === pair.targetId)
-    ) {
-      return new Set([pair.sourceId, pair.targetId, data.center.id])
-    }
-    return null
-  }, [adjacency, focusAnchorId, connectionInspect.pair, graphData, data.center.id])
+  const focusAnchorId = hoveredNode?.id ?? focusNodeId ?? null
+  // Anchor-vs-edge-pair precedence, the stale-anchor guard, and the center's
+  // alwaysInclude rule all live in the shared resolveFocusForeground
+  // (graphFocus.ts) so the pin grammar can't drift between this surface and
+  // ForceGraphView (PSY-1210 review + PSY-1478).
+  const focusedIds = useMemo(
+    () =>
+      resolveFocusForeground(
+        adjacency,
+        focusAnchorId,
+        connectionInspect.pair,
+        id => graphData.nodes.some(n => n.id === id),
+        data.center.id
+      ),
+    [adjacency, focusAnchorId, connectionInspect.pair, graphData, data.center.id]
+  )
 
   // Center-node fill, hoisted out of the paint callback: ~60% alpha
   // muted-foreground matches the locked Option B mock's center swatch on

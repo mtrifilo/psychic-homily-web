@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { makeFakeCtx } from '@/test/canvasCtx'
 import type { ArtistGraph } from '../types'
 
 // PSY-1218: cover the PARENT's hover-grace dismiss orchestration — the 300ms
@@ -342,30 +343,21 @@ describe('ArtistGraphVisualization — pinned selection focus (PSY-1478)', () =>
   }
   const satellite3 = { ...satellite, id: 3, name: 'Undeath', slug: 'undeath', upcoming_show_count: 0 }
 
-  // Minimal canvas ctx recording every globalAlpha assignment (nodeCanvasObject
-  // resets it to 1 at the end, so the live value can't be read afterwards).
+  // Shared alpha-recording canvas ctx stub (see test/canvasCtx.ts).
   const paintAlphas = (node: Record<string, unknown>) => {
-    const alphas: number[] = []
-    let alpha = 1
-    const ctx = {
-      get globalAlpha() { return alpha },
-      set globalAlpha(v: number) { alpha = v; alphas.push(v) },
-      beginPath() {}, arc() {}, fill() {}, stroke() {},
-      setLineDash() {}, save() {}, restore() {}, moveTo() {}, lineTo() {},
-      fillStyle: '', strokeStyle: '', lineWidth: 0, shadowColor: '', shadowBlur: 0,
-    }
+    const ctx = makeFakeCtx()
     forceGraphProps.nodeCanvasObject(node, ctx, 2)
-    return alphas
+    return ctx.alphas
   }
 
-  const renderPinned = (selectedNodeId: number | null) =>
+  const renderPinned = (focusNodeId: number | null) =>
     renderWithProviders(
       <ArtistGraphVisualization
         data={graphData3}
         activeTypes={new Set(['similar'])}
         containerWidth={1024}
         onSelect={() => {}}
-        selectedNodeId={selectedNodeId}
+        focusNodeId={focusNodeId}
       />,
     )
 
@@ -398,7 +390,7 @@ describe('ArtistGraphVisualization — pinned selection focus (PSY-1478)', () =>
     }
   })
 
-  it('clears the pin on deselection (selectedNodeId back to null)', () => {
+  it('clears the pin on deselection (focusNodeId back to null)', () => {
     const { rerender } = renderPinned(2)
     expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
     rerender(
@@ -407,9 +399,32 @@ describe('ArtistGraphVisualization — pinned selection focus (PSY-1478)', () =>
         activeTypes={new Set(['similar'])}
         containerWidth={1024}
         onSelect={() => {}}
-        selectedNodeId={null}
+        focusNodeId={null}
       />,
     )
     expect(paintAlphas(satellite3).every(a => a === 1)).toBe(true)
+  })
+})
+
+// PSY-1478 review finding: an edge click must let the caller deselect its
+// node panel (mirrors ForceGraphView's onConnectionInspectOpen) so the two
+// inspectors never stack and the edge-endpoint pin isn't suppressed by a
+// lingering selection.
+describe('ArtistGraphVisualization — edge click notifies onConnectionInspectOpen', () => {
+  afterEach(() => { forceGraphProps = null })
+
+  it('fires the callback when a typed edge is clicked', () => {
+    const onConnectionInspectOpen = vi.fn()
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={() => {}}
+        onConnectionInspectOpen={onConnectionInspectOpen}
+      />,
+    )
+    act(() => forceGraphProps.onLinkClick({ source: 1, target: 2, type: 'similar' }))
+    expect(onConnectionInspectOpen).toHaveBeenCalledTimes(1)
   })
 })

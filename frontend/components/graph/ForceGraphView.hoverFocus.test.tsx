@@ -66,19 +66,8 @@ const link = (source: number, target: number, is_cross_cluster = false) => ({
   source, target, type: '', is_cross_cluster,
 })
 
-// Minimal canvas ctx that records every globalAlpha assignment so the dim can be asserted
-// (nodeCanvasObject resets globalAlpha to 1 at the end, so the live value can't be read after).
-function makeFakeCtx() {
-  const alphas: number[] = []
-  let alpha = 1
-  return {
-    get globalAlpha() { return alpha },
-    set globalAlpha(v: number) { alpha = v; alphas.push(v) },
-    beginPath() {}, arc() {}, fill() {}, stroke() {},
-    fillStyle: '', strokeStyle: '', lineWidth: 0,
-    alphas,
-  }
-}
+// Shared alpha-recording canvas ctx stub (see test/canvasCtx.ts).
+import { makeFakeCtx } from '@/test/canvasCtx'
 
 const renderGraph = (
   props: Partial<React.ComponentProps<typeof ForceGraphView>> = {},

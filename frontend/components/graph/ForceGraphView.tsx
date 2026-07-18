@@ -81,7 +81,7 @@ import {
 import {
   buildAdjacency,
   endpointId,
-  focusForeground,
+  resolveFocusForeground,
   BACKGROUND_ALPHA,
   BACKGROUND_ALPHA_HEX,
 } from './graphFocus'
@@ -1109,36 +1109,25 @@ export function ForceGraphView({
   // focus and hover-out reverts to the selected node, never to undimmed while
   // a selection exists. Also the force-labeled node in the label passes below.
   const focusAnchorId = hoveredNode?.id ?? focusNodeId ?? null
-  const focusedIds = useMemo(() => {
-    if (focusAnchorId != null) {
-      // Drop focus if the anchor node was filtered out (a hidden cluster / edge-type toggle):
-      // a stale anchor would otherwise match nothing visible and dim the WHOLE graph to the
-      // background alpha. The reset-on-renderData effect above also clears hoveredNode, but
-      // only AFTER render — this guards the interim render where renderData changed and that
-      // effect hasn't run yet (ArtistGraph resets hover DURING render, so it has no such gap).
-      // (A pinned focusNodeId can't go stale the same way: the surfaces resolve their
-      // selection against the current payload every render and clear it when it drops off
-      // canvas, but the same guard covers it defensively.)
-      if (!renderData.nodes.some(n => n.id === focusAnchorId)) return null
-      return focusForeground(adjacency, focusAnchorId)
-    }
-    // Edge-endpoint pin (PSY-1478 optional extension): while the ConnectionPanel
-    // inspects a pair and nothing is hovered or selected (the surfaces deselect
-    // the node panel on edge-click, so the two pins never compete), keep the
-    // pair's two endpoints foreground so the panel's "why connected" card keeps
-    // its visual counterpart on canvas. Both-endpoints-present gate mirrors the
-    // anchor guard above; the connecting link stays foreground because both its
-    // endpoints are in the set.
-    const pair = connectionInspect.pair
-    if (
-      pair != null &&
-      renderData.nodes.some(n => n.id === pair.sourceId) &&
-      renderData.nodes.some(n => n.id === pair.targetId)
-    ) {
-      return new Set([pair.sourceId, pair.targetId])
-    }
-    return null
-  }, [adjacency, focusAnchorId, connectionInspect.pair, renderData])
+  // The anchor-vs-edge-pair precedence and the stale-anchor guard live in the
+  // shared resolveFocusForeground (graphFocus.ts) so the pin grammar can't
+  // drift between this surface and ArtistGraph. The hasNode guard matters
+  // here for the interim render where renderData changed but the
+  // reset-on-renderData effect above hasn't cleared hoveredNode yet
+  // (ArtistGraph resets hover DURING render, so it has no such gap); a pinned
+  // focusNodeId is resolved against the current payload by the surfaces
+  // every render, so the guard covers it only defensively.
+  // (Reduced-motion note: like hover-focus, a pin change repaints via the
+  // continuously-running rAF loop, so under the PSY-1226 pause the pinned
+  // dim — like the hover dim and tooltip — stays inert; those users' path is
+  // the accessible node list + the panel itself.)
+  const focusedIds = useMemo(
+    () =>
+      resolveFocusForeground(adjacency, focusAnchorId, connectionInspect.pair, id =>
+        renderData.nodes.some(n => n.id === id)
+      ),
+    [adjacency, focusAnchorId, connectionInspect.pair, renderData]
+  )
 
   // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
   // cross-cluster edges drawn on top remain visible.
