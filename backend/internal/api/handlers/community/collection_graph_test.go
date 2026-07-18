@@ -2,6 +2,7 @@ package community
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -107,6 +108,14 @@ func (s *CollectionGraphHandlerSuite) TestHandler_OwnerOnPrivateCollection_200()
 	s.Require().NoError(err)
 	s.Require().NotNil(resp)
 	s.Equal(priv.Slug, resp.Body.Collection.Slug)
+
+	// PSY-1475 disclosure fields serialize under their contract JSON names
+	// (no omitempty — always present, even for an empty collection). This
+	// pins the wire format the frontend types mirror.
+	raw, marshalErr := json.Marshal(resp.Body.Collection)
+	s.Require().NoError(marshalErr)
+	s.Contains(string(raw), `"node_total":0`)
+	s.Contains(string(raw), `"nodes_truncated":false`)
 }
 
 // TestHandler_MissingSlug_404: hitting the endpoint with a slug that doesn't

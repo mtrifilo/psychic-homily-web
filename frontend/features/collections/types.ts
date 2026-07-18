@@ -295,8 +295,11 @@ export interface CollectionGraphInfo {
   node_total?: number
   /**
    * PSY-1475: true when `node_total` exceeded the node cap and the
-   * response node list was truncated. Display is design-gated (PSY-1476);
-   * the field is carried but not yet rendered.
+   * response node list was truncated. The field is carried but not yet
+   * rendered — until then a capped graph's subtitle counts describe the
+   * truncated response with no visible cue. Display treatment is tracked
+   * in PSY-1476 (design-gated; that ticket decides whether all capped
+   * surfaces, this one included, adopt it in the first pass).
    */
   nodes_truncated?: boolean
 }

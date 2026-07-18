@@ -26,11 +26,13 @@ func TestCapCollectionGraphNodesUnderCapIsNoop(t *testing.T) {
 
 	gotNodes, gotLinks := capCollectionGraphNodes(nodes, links)
 
-	if len(gotNodes) != 2 {
-		t.Fatalf("expected 2 nodes untouched, got %d", len(gotNodes))
+	if len(gotNodes) != 2 || len(gotLinks) != 1 {
+		t.Fatalf("expected 2 nodes / 1 link untouched, got %d / %d", len(gotNodes), len(gotLinks))
 	}
-	if len(gotLinks) != 1 {
-		t.Fatalf("expected 1 link untouched, got %d", len(gotLinks))
+	// Same slices, not rebuilt copies — the under-cap path must be a true
+	// pass-through.
+	if &gotNodes[0] != &nodes[0] || &gotLinks[0] != &links[0] {
+		t.Fatal("under-cap input slices must pass through unchanged, not be rebuilt")
 	}
 }
 

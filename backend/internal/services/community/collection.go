@@ -3052,6 +3052,19 @@ const (
 // existing response order (entity-type order, then name), so the result
 // is deterministic. NodeTotal + NodesTruncated on the response disclose
 // the truncation ("not a silent cap" — scene-graph convention).
+//
+// Two deliberate limits of this design:
+//   - Parallel edges inflate degree: a pair linked by several relationship
+//     types counts once per link, so edge-type multiplicity (not distinct
+//     neighbors) is part of the survival signal. That follows from
+//     "payload edge count" as the ranking metric, but it is a bias, not
+//     an accident.
+//   - Unlike capVenueBillArtists — which trims BEFORE its pairwise edge
+//     build — this cap must run AFTER node+link building, because the
+//     degree signal doesn't exist until the links do. It therefore bounds
+//     only the response payload; per-request DB/CPU cost stays O(items)
+//     (collections have no item ceiling). Server-side bounding is
+//     follow-up PSY-1477.
 const collectionGraphMaxNodes = 150
 
 // capCollectionGraphNodes trims the node list to collectionGraphMaxNodes,
