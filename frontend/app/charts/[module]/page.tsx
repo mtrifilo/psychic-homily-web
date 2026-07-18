@@ -11,11 +11,11 @@ import { isChartModuleSlug } from '@/features/charts/moduleConfig'
 import { ChartDrilldownPage } from '@/features/charts/components/ChartDrilldownPage'
 
 /**
- * Closed calendar archives are immutable — cache the route shell for a day.
- * Open (in-progress) periods still use this; client fetches stay fresh via
- * react-query against the API's shorter open-window TTLs.
+ * Aggressive closed-window caching lives on the charts API (24h TTL for
+ * ended calendar periods — PSY-1421). Route-segment `revalidate` is
+ * incompatible with `cacheComponents` (Next 16); the Broadsheet client
+ * still pins via `pinnedWindow` and hits that API cache.
  */
-export const revalidate = 86400
 
 export async function generateMetadata({
   params,

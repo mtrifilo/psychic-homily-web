@@ -84,6 +84,13 @@ function moduleContext(window: ChartWindow): string {
   return formatWindowContext(window)
 }
 
+function newReleasesContext(window: ChartWindow): string {
+  if (window === 'all_time') return 'all time'
+  if (window === 'month') return 'this month'
+  if (window === 'quarter') return 'this quarter'
+  return formatWindowContext(window)
+}
+
 function summaryLabel(window: ChartWindow): string {
   if ((CHART_WINDOWS as readonly string[]).includes(window)) {
     return WINDOW_SUMMARY[window as RollingChartWindow]
@@ -870,13 +877,7 @@ export function ChartsPage({
 
         <ChartModule
           title="New Releases"
-          context={
-            window === 'all_time'
-              ? 'all time'
-              : window === 'month'
-                ? 'this month'
-                : 'this quarter'
-          }
+          context={newReleasesContext(window)}
           rowCount={releases.data?.releases.length ?? 0}
           isLoading={releases.isLoading || !sceneResolved}
           isError={releases.isError}

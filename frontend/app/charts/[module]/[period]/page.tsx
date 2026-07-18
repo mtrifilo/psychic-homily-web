@@ -8,8 +8,11 @@ import {
   formatArchiveTitle,
 } from '@/features/charts/calendarWindows'
 
-/** Closed calendar archives are immutable — aggressive ISR (PSY-1422). */
-export const revalidate = 86400
+/**
+ * Closed-window immutability is enforced by the charts API's 24h TTL
+ * (PSY-1421). Route-segment `revalidate` is incompatible with
+ * `cacheComponents` — do not reintroduce it here.
+ */
 
 export async function generateMetadata({
   params,
