@@ -845,4 +845,46 @@ describe('ChartsPage', () => {
     expect(mockShowSaveCountBatch).toHaveBeenCalledWith([], false)
     expect(mockReleaseSaveCountBatch).toHaveBeenCalledWith([], false)
   })
+
+  it('pins a calendar archive window and hides the live ticker', () => {
+    render(<ChartsPage pinnedWindow="2026-q1" />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Charts — Q1 2026' })
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('chart-archive-masthead')).toBeInTheDocument()
+    expect(screen.queryByText('Freshly Added')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('group', { name: 'Chart window' })
+    ).not.toBeInTheDocument()
+
+    expect(mockScopedHook).toHaveBeenCalledWith(
+      'active',
+      '2026-q1',
+      7,
+      expect.anything()
+    )
+    const fullListLinks = screen.getAllByRole('link', { name: 'full list →' })
+    for (const link of fullListLinks) {
+      expect(link.getAttribute('href')).toContain('window=2026-q1')
+    }
+  })
+
+  it('exposes front-page archive entry links on the live Broadsheet', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-18T12:00:00Z'))
+    render(<ChartsPage />)
+
+    const entries = screen.getByTestId('chart-archive-entry-links')
+    expect(entries).toHaveTextContent('Archives:')
+    expect(screen.getByRole('link', { name: '2026' })).toHaveAttribute(
+      'href',
+      '/charts/2026'
+    )
+    expect(screen.getByRole('link', { name: 'Q2 2026' })).toHaveAttribute(
+      'href',
+      '/charts/2026/q2'
+    )
+    vi.useRealTimers()
+  })
 })

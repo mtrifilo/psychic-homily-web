@@ -2,17 +2,16 @@
 
 import { Loader2 } from 'lucide-react'
 import { useSetChartDefaults } from '@/features/auth'
-import type { ChartWindow } from '@/features/charts/types'
-import type { ChartDefaults } from '@/features/auth/hooks/useChartDefaults'
+import type { ChartDefaults, ChartDefaultWindow } from '@/features/auth/hooks/useChartDefaults'
 
 interface SaveChartDefaultsButtonProps {
-  window: ChartWindow
+  window: ChartDefaultWindow
   scene: string | null
   savedDefaults: ChartDefaults | null
 }
 
 function defaultsEqual(
-  window: ChartWindow,
+  window: ChartDefaultWindow,
   scene: string | null,
   saved: ChartDefaults | null
 ): boolean {

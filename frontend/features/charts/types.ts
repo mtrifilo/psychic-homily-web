@@ -1,5 +1,12 @@
+/** Rolling windows shown as masthead tabs on the live Broadsheet. */
 export const CHART_WINDOWS = ['month', 'quarter', 'all_time'] as const
-export type ChartWindow = (typeof CHART_WINDOWS)[number]
+export type RollingChartWindow = (typeof CHART_WINDOWS)[number]
+
+/**
+ * Chart window query value: rolling tabs plus calendar archives
+ * (`YYYY` / `YYYY-q1..q4`, PSY-1421 grammar).
+ */
+export type ChartWindow = RollingChartWindow | string
 
 export interface ChartScene {
   metro: string

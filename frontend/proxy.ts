@@ -112,12 +112,13 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 }
 
 /**
- * Fixed allowlist for `/charts/[module]` drill-downs. Unlike entity slug
- * pages there is no backend existence probe — unknown modules are rewritten
- * here so `notFound()` in the page does not soft-404 under cacheComponents.
- * Keep in lockstep with `CHART_MODULE_SLUGS` in features/charts/moduleConfig
- * (asserted by proxy.charts.test.ts). Inlined here so proxy stays free of
- * features/ imports.
+ * Fixed allowlist for `/charts/[module]` drill-downs plus numeric-year
+ * archive first segments (PSY-1422). Unlike entity slug pages there is no
+ * backend existence probe — unknown modules are rewritten here so
+ * `notFound()` in the page does not soft-404 under cacheComponents.
+ * Keep module slugs in lockstep with `CHART_MODULE_SLUGS` in
+ * features/charts/moduleConfig (asserted by proxy.charts.test.ts). Inlined
+ * here so proxy stays free of features/ imports.
  */
 const CHART_MODULE_SEGMENTS = new Set([
   'most-active-artists',
@@ -127,6 +128,14 @@ const CHART_MODULE_SEGMENTS = new Set([
   'new-releases',
   'openers-to-watch',
 ])
+
+function isChartArchiveYearSegment(segment: string): boolean {
+  return /^[0-9]{4}$/.test(segment)
+}
+
+function isChartArchiveQuarterSegment(segment: string): boolean {
+  return /^q[1-4]$/.test(segment)
+}
 
 /**
  * Returns the global 404 rewrite response (status 404 + render
@@ -148,16 +157,30 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const entityType = segments[1]
   const slug = segments[2]
 
-  // Charts module drill-downs: allowlist check (no backend probe). Bare
-  // `/charts` and deeper paths pass through; unknown modules get a real 404.
+  // Charts: module drill-downs + calendar archives (`/charts/2026`,
+  // `/charts/2026/q2`). Bare `/charts` passes through; unknown shapes get a
+  // real 404 (page `notFound()` alone soft-404s under cacheComponents).
   if (entityType === 'charts') {
-    if (!slug || segments.length !== 3) {
+    if (!slug) {
       return NextResponse.next()
     }
-    if (!CHART_MODULE_SEGMENTS.has(slug)) {
+    if (segments.length === 3) {
+      if (
+        CHART_MODULE_SEGMENTS.has(slug) ||
+        isChartArchiveYearSegment(slug)
+      ) {
+        return NextResponse.next()
+      }
       return notFoundResponse(request)
     }
-    return NextResponse.next()
+    if (
+      segments.length === 4 &&
+      isChartArchiveYearSegment(slug) &&
+      isChartArchiveQuarterSegment(segments[3])
+    ) {
+      return NextResponse.next()
+    }
+    return notFoundResponse(request)
   }
 
   const buildCheckUrl = ENTITY_CHECKS[entityType]
