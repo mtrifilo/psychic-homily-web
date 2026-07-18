@@ -14,9 +14,11 @@ import {
   LABEL_MIN_SCALE,
   degreeMap,
   labelFontSize,
+  labelTierStyles,
   renderGraphLabels,
   truncateLabel,
   type GraphLabelSpec,
+  type GraphLabelTierStyle,
 } from '@/components/graph/graphLabels'
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
@@ -136,6 +138,15 @@ interface ArtistGraphBaseProps {
    * graph which wires no DOI).
    */
   doiByNodeId?: Map<number, number>
+  /**
+   * Tiered label typography (locked design spec): pass a ladder (e.g.
+   * `TOOL_LABEL_TIERS`) to size labels by DOI/degree tier over the rendered
+   * set, with the center pinned largest. Only the Tool-class surfaces the
+   * spec names (/graph Observatory, artist ego dialog) opt in; the
+   * bill-composition graph deliberately keeps the flat clamp (and the
+   * bold-700 center) until the spec classifies it.
+   */
+  labelTiers?: readonly GraphLabelTierStyle[]
   /**
    * PSY-1273: the ≤5 unexpanded node ids flagged as suggested expansion directions — drawn with
    * a subtle glow + "+" so the click-to-expand gesture is discoverable and guided. Absent → no
@@ -331,6 +342,7 @@ export function ArtistGraphVisualization({
   expandedIds,
   expandingIds,
   doiByNodeId,
+  labelTiers,
   suggestedIds,
   canvasDescribedById,
   canvasAriaLabel,
@@ -970,6 +982,36 @@ export function ArtistGraphVisualization({
     [graphData, doiByNodeId]
   )
 
+  // Tiered typography (Tool-class hosts pass the locked 15/12/10 ladder;
+  // null when the host keeps the legacy flat clamp): tiers over the
+  // rendered node set. DOI replaces raw degree as the tier
+  // rank when the host supplies it — same substitution the collision priority
+  // makes — so the most-INTERESTING names read largest, not merely the
+  // most-connected. The center scores +Infinity so it always ranks into the
+  // top tier — its label must stay largest, and encoding that in the
+  // derivation (not as a draw-time special case) keeps the rule in one place.
+  const labelTierById = useMemo(() => {
+    if (!labelTiers) return null
+    const centerIds = new Set(
+      graphData.nodes.filter(node => node.isCenter).map(node => node.id)
+    )
+    return labelTierStyles(
+      graphData.nodes.map(node => node.id),
+      id =>
+        centerIds.has(id)
+          ? Infinity
+          : doiByNodeId
+            ? (doiByNodeId.get(id) ?? 0)
+            : (degreeById?.get(id) ?? 0),
+      labelTiers,
+      // The zero-score → bottom-tier floor encodes DEGREE semantics ("no
+      // connections"). DOI can legitimately be 0 or negative for a
+      // connected node, so the DOI path opts out — rank order alone
+      // decides its tiers.
+      { floorZeroScores: !doiByNodeId }
+    )
+  }, [graphData, doiByNodeId, degreeById, labelTiers])
+
   // PSY-1258: legend disclosure. Each row shows its DISPLAYED (post-cap) edge count, and
   // when a dense type was actually trimmed we add a footnote naming the cap ("Radio
   // Co-occurrence: each artist's 5 strongest (47 of 312)") so the cap is never silent.
@@ -997,13 +1039,14 @@ export function ArtistGraphVisualization({
   // higher-priority one. A culled neighbor's name is reachable via the hover tooltip;
   // on hover-focus the background nodes drop their labels and only the foreground set is
   // a label candidate (still collision-culled among themselves — center + hovered are
-  // forced) (PSY-1210, below). Gate, font clamp, and truncation are the shared
-  // label constants (graphLabels, PSY-1445), same as ForceGraphView; the
-  // theme-aware halo+fill lives in renderGraphLabels too.
+  // forced) (PSY-1210, below). Gate and truncation are the shared label
+  // constants (graphLabels, PSY-1445), same as ForceGraphView; typography is
+  // the Tool-class tier ladder (labelTierById above) instead of the flat
+  // labelFontSize clamp; the theme-aware halo+fill lives in
+  // renderGraphLabels too.
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (globalScale <= LABEL_MIN_SCALE) return
-      const fontSize = labelFontSize(globalScale)
       // PSY-1273: collision priority is the Degree-of-Interest score when the host supplies it
       // (so the most-interesting names — not merely the most-connected — survive the cull), and
       // falls back to raw degree otherwise (bill-composition graph, which wires no DOI). Decide
@@ -1016,12 +1059,21 @@ export function ArtistGraphVisualization({
         .filter(node => focusedIds == null || focusedIds.has(node.id))
         .map(node => {
           const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
+          // Tiered hosts wear their ladder style (labelTierById; the center
+          // ranks into the top tier there — the ladder's 600 replaces the
+          // bold-700 center treatment on those surfaces). Tier sizes are a
+          // screen-px contract, so counter-scale by zoom (collision boxes
+          // stay in graph space; the shared cull is unchanged). Non-tiered
+          // hosts (bill composition) keep the legacy flat clamp + bold
+          // center.
+          const tier = labelTierById?.get(node.id)
           return {
             x: node.x ?? 0,
             y: (node.y ?? 0) + radius + 4,
             text: truncateLabel(node.name),
-            fontSize,
-            bold: node.isCenter,
+            ...(tier
+              ? { fontSize: tier.fontSize / globalScale, fontWeight: tier.fontWeight }
+              : { fontSize: labelFontSize(globalScale), bold: node.isCenter }),
             // Always label the center and the hovered node. This only applies to the
             // foreground — the .filter above already drops background nodes — so the
             // `isCenter` here stays consistent with the center being in focusForeground's
@@ -1033,7 +1085,7 @@ export function ArtistGraphVisualization({
         })
       renderGraphLabels(ctx, palette, specs)
     },
-    [graphData, palette, degreeById, doiByNodeId, focusedIds, hoveredNode]
+    [graphData, palette, degreeById, doiByNodeId, labelTierById, focusedIds, hoveredNode]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,

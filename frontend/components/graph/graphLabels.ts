@@ -68,6 +68,107 @@ export function labelFontSize(globalScale: number): number {
   return Math.max(9, Math.min(13, 11 / globalScale))
 }
 
+// ──────────────────────────────────────────────
+// Tiered label ladders (locked design spec — "Grammar build-out mocks" board)
+//
+// Labels tier by connectivity so hubs read before leaves. Sizes are SCREEN px
+// at fitted zoom — labels draw in GRAPH space, so the consumer divides by the
+// zoom factor at draw time (reason about the ladders in screen px, never in
+// graph-space clamp values). Weights are canvas numeric
+// font weights. The homepage teaser's EMBED ladder (17/13/11) predates this
+// module and stays in homeSceneGraphMap.ts — it tiers by a curated activity
+// blend, not raw degree, so it is deliberately NOT unified here.
+// ──────────────────────────────────────────────
+
+export interface GraphLabelTierStyle {
+  fontSize: number
+  fontWeight: 400 | 500 | 600
+}
+
+/** Section-class surfaces (scene · station · venue): 14/11/9 @ 600/500/400. */
+export const SECTION_LABEL_TIERS: readonly GraphLabelTierStyle[] = [
+  { fontSize: 14, fontWeight: 600 },
+  { fontSize: 11, fontWeight: 500 },
+  { fontSize: 9, fontWeight: 400 },
+]
+
+/** Tool-class surfaces (/graph Observatory · artist ego dialog): 15/12/10
+ * @ 600/500/400. DOI score replaces raw degree as the tier rank when the
+ * host supplies it; the ego center is always assigned the top tier. */
+export const TOOL_LABEL_TIERS: readonly GraphLabelTierStyle[] = [
+  { fontSize: 15, fontWeight: 600 },
+  { fontSize: 12, fontWeight: 500 },
+  { fontSize: 10, fontWeight: 400 },
+]
+
+/**
+ * Assign each rendered node a tier style. Base rule: rank by `scoreOf`
+ * (degree, or DOI on Tool surfaces) descending and split the ranking into
+ * equal-size buckets, top-down (`ceil(n / tiers)` per bucket, so small sets
+ * skew toward the UPPER tiers and the bottom tier takes what remains — for
+ * n=4 that means 2/2/0). Two refinements keep the hierarchy honest:
+ *
+ *   - EQUAL SCORES SHARE ONE TIER — the tier at the tie group's median rank.
+ *     Rank-splitting a tie band would dress identically-connected artists in
+ *     visibly different sizes, decided by nothing but payload order, and the
+ *     assignment would reshuffle whenever the backend reordered its response.
+ *   - SCORE 0 IS ALWAYS THE BOTTOM TIER (degree scoring only — see
+ *     `floorZeroScores`) — a node with no connections (an isolate) must
+ *     never wear hub typography, even when a large shelf population would
+ *     otherwise push the tie group's median into an upper bucket. Callers
+ *     whose score domain is NOT degree (DOI can legitimately be 0 or
+ *     negative for a connected node) pass `floorZeroScores: false` so the
+ *     floor can't invert their hierarchy.
+ *
+ * Ranking ties break by id, so the result is a pure function of the
+ * (id, score) set — independent of the caller's array order. `nodeIds` must
+ * be the RENDERED set (post cluster/edge-type filtering), so hiding a
+ * cluster re-tiers what's actually on screen. Pure; memoize in the caller
+ * (never per frame).
+ */
+export function labelTierStyles<Id extends string | number>(
+  nodeIds: readonly Id[],
+  scoreOf: (id: Id) => number,
+  tiers: readonly GraphLabelTierStyle[],
+  { floorZeroScores = true }: { floorZeroScores?: boolean } = {},
+): Map<Id, GraphLabelTierStyle> {
+  const styles = new Map<Id, GraphLabelTierStyle>()
+  if (tiers.length === 0 || nodeIds.length === 0) return styles
+  const bottomTier = tiers[tiers.length - 1]
+  // Equal scores short-circuit to the id tie-break BEFORE subtracting —
+  // subtraction would yield NaN for an Infinity-vs-Infinity pair (e.g. a
+  // future multi-center graph), scattering the tie group and defeating the
+  // adjacent-equals grouping below.
+  const ranked = [...nodeIds].sort((a, b) => {
+    const scoreA = scoreOf(a)
+    const scoreB = scoreOf(b)
+    if (scoreA === scoreB) return a < b ? -1 : a > b ? 1 : 0
+    return scoreB - scoreA
+  })
+  const tierSize = Math.max(1, Math.ceil(ranked.length / tiers.length))
+  let groupStart = 0
+  while (groupStart < ranked.length) {
+    const score = scoreOf(ranked[groupStart])
+    let groupEnd = groupStart
+    while (
+      groupEnd + 1 < ranked.length &&
+      scoreOf(ranked[groupEnd + 1]) === score
+    ) {
+      groupEnd += 1
+    }
+    const medianRank = Math.floor((groupStart + groupEnd) / 2)
+    const tier =
+      floorZeroScores && score === 0
+        ? bottomTier
+        : tiers[Math.min(tiers.length - 1, Math.floor(medianRank / tierSize))]
+    for (let i = groupStart; i <= groupEnd; i += 1) {
+      styles.set(ranked[i], tier)
+    }
+    groupStart = groupEnd + 1
+  }
+  return styles
+}
+
 // Budget carried over from ForceGraphView's pre-PSY-1445 threshold: long enough
 // that most artist/venue names fit on one line at the shared font size without
 // the canvas label overrunning a typical node's collision box, short enough

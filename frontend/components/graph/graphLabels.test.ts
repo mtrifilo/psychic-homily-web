@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   LABEL_MIN_SCALE,
+  SECTION_LABEL_TIERS,
+  TOOL_LABEL_TIERS,
   TRUNCATE_KEEP_LENGTH,
   TRUNCATE_MAX_LENGTH,
   degreeMap,
   labelFontSize,
+  labelTierStyles,
   paintGraphLabelPointerArea,
   renderGraphLabels,
   truncateLabel,
@@ -191,6 +194,139 @@ describe('shared label constants (PSY-1445)', () => {
     expect(truncateLabel(exactly22)).toBe(exactly22)
     expect(truncateLabel('B'.repeat(23))).toBe('B'.repeat(TRUNCATE_KEEP_LENGTH) + '…')
     expect(truncateLabel('They Are Gutting a Body of Water')).toBe('They Are Gutting a B…')
+  })
+})
+
+// Tiered label ladders are a LOCKED design decision (spec cards on
+// the "Grammar build-out mocks" Figma board). These tests pin both the ladder
+// values and the tercile derivation so a ranking change can't silently
+// reshuffle which names read largest.
+describe('tiered label ladders (PSY-1456)', () => {
+  it('pins the Section ladder at 14/11/9 @ 600/500/400', () => {
+    expect(SECTION_LABEL_TIERS).toEqual([
+      { fontSize: 14, fontWeight: 600 },
+      { fontSize: 11, fontWeight: 500 },
+      { fontSize: 9, fontWeight: 400 },
+    ])
+  })
+
+  it('pins the Tool ladder at 15/12/10 @ 600/500/400', () => {
+    expect(TOOL_LABEL_TIERS).toEqual([
+      { fontSize: 15, fontWeight: 600 },
+      { fontSize: 12, fontWeight: 500 },
+      { fontSize: 10, fontWeight: 400 },
+    ])
+  })
+})
+
+describe('labelTierStyles', () => {
+  const score = (byId: Record<number, number>) => (id: number) => byId[id] ?? 0
+
+  it('splits a set into equal terciles by descending score', () => {
+    const styles = labelTierStyles<number>(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      score({ 1: 90, 2: 80, 3: 70, 4: 60, 5: 50, 6: 40, 7: 30, 8: 20, 9: 10 }),
+      SECTION_LABEL_TIERS,
+    )
+    expect([1, 2, 3].map(id => styles.get(id))).toEqual(
+      Array(3).fill(SECTION_LABEL_TIERS[0]),
+    )
+    expect([4, 5, 6].map(id => styles.get(id))).toEqual(
+      Array(3).fill(SECTION_LABEL_TIERS[1]),
+    )
+    expect([7, 8, 9].map(id => styles.get(id))).toEqual(
+      Array(3).fill(SECTION_LABEL_TIERS[2]),
+    )
+  })
+
+  it('ranks by score, not input order', () => {
+    const styles = labelTierStyles(
+      [7, 1, 4],
+      score({ 1: 100, 4: 50, 7: 5 }),
+      TOOL_LABEL_TIERS,
+    )
+    expect(styles.get(1)).toEqual(TOOL_LABEL_TIERS[0])
+    expect(styles.get(4)).toEqual(TOOL_LABEL_TIERS[1])
+    expect(styles.get(7)).toEqual(TOOL_LABEL_TIERS[2])
+  })
+
+  it('gives equal scores ONE shared tier (the tie group\u2019s median rank), regardless of input order', () => {
+    // Three nodes all tied at score 3: rank-splitting the tie would dress
+    // identical connectivity in different sizes by payload order alone.
+    // The whole group wears the tier at its median rank (rank 1 → mid).
+    const styles = labelTierStyles<number>([5, 6, 7], () => 3, SECTION_LABEL_TIERS)
+    for (const id of [5, 6, 7]) {
+      expect(styles.get(id)).toEqual(SECTION_LABEL_TIERS[1])
+    }
+    // Order-independent: the reversed input produces the identical map.
+    const reversed = labelTierStyles([7, 6, 5], () => 3, SECTION_LABEL_TIERS)
+    expect(reversed).toEqual(styles)
+  })
+
+  it('always dresses score-0 nodes (isolates) in the bottom tier, even in a large tie group', () => {
+    // 1 connected hub + 5 isolates: the isolate tie group's median rank
+    // falls in an upper bucket, but no-connection nodes must never wear
+    // hub typography.
+    const styles = labelTierStyles<number>(
+      [1, 2, 3, 4, 5, 6],
+      score({ 1: 4 }),
+      SECTION_LABEL_TIERS,
+    )
+    expect(styles.get(1)).toEqual(SECTION_LABEL_TIERS[0])
+    for (const id of [2, 3, 4, 5, 6]) {
+      expect(styles.get(id)).toEqual(SECTION_LABEL_TIERS[2])
+    }
+  })
+
+  it('gives a single connected node the top tier; a single isolate the bottom tier', () => {
+    expect(labelTierStyles([42], () => 1, SECTION_LABEL_TIERS).get(42)).toEqual(
+      SECTION_LABEL_TIERS[0],
+    )
+    expect(labelTierStyles([42], () => 0, SECTION_LABEL_TIERS).get(42)).toEqual(
+      SECTION_LABEL_TIERS[2],
+    )
+  })
+
+  it('fills tiers top-down for sets smaller than the ladder', () => {
+    const styles = labelTierStyles([1, 2], score({ 1: 2, 2: 1 }), TOOL_LABEL_TIERS)
+    expect(styles.get(1)).toEqual(TOOL_LABEL_TIERS[0])
+    expect(styles.get(2)).toEqual(TOOL_LABEL_TIERS[1])
+  })
+
+  it('splits rank buckets top-down (ceil), so small distinct-score sets skew toward the upper tiers', () => {
+    // n=4 distinct scores → bucket size ceil(4/3)=2 → tiers 0,0,1,1: the
+    // bottom tier can be EMPTY on small sets. Deliberate: matches the
+    // homepage teaser's derivation, and no node ever falls off the ladder.
+    const styles = labelTierStyles(
+      [1, 2, 3, 4],
+      score({ 1: 9, 2: 8, 3: 7, 4: 6 }),
+      SECTION_LABEL_TIERS,
+    )
+    expect(styles.get(1)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(2)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(3)).toEqual(SECTION_LABEL_TIERS[1])
+    expect(styles.get(4)).toEqual(SECTION_LABEL_TIERS[1])
+  })
+
+  it('skips the zero-score floor when floorZeroScores is false (non-degree domains like DOI)', () => {
+    // DOI can be 0 or negative for a CONNECTED node. With the floor active,
+    // the zero-scored node would be force-bottomed below the negative tie
+    // group — inverting the hierarchy. Opting out keeps pure rank order.
+    const styles = labelTierStyles<number>(
+      [1, 2, 3],
+      score({ 1: 1, 2: 0, 3: -1 }),
+      SECTION_LABEL_TIERS,
+      { floorZeroScores: false },
+    )
+    expect(styles.get(1)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(2)).toEqual(SECTION_LABEL_TIERS[1])
+    expect(styles.get(3)).toEqual(SECTION_LABEL_TIERS[2])
+  })
+
+  it('returns an empty map for an empty rendered set or an empty ladder', () => {
+    expect(labelTierStyles([], () => 0, SECTION_LABEL_TIERS).size).toBe(0)
+    // An empty ladder must not poison the map with undefined values.
+    expect(labelTierStyles([1, 2], () => 1, []).size).toBe(0)
   })
 })
 

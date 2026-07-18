@@ -42,6 +42,7 @@ import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVi
 // code into the venue page's graph chunk (SceneGraphVisualization
 // precedent, PSY-868).
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
+import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
 import type { VenueBillNetworkResponse } from '../types'
 
 // The venue surface has no cluster legend pills, so nothing is ever hidden —
@@ -128,6 +129,9 @@ export function SceneGraphVisualizationStyleAdapter({
         // connected artists" caption) — same opt-in as the scene and
         // station adapters.
         showIsolateShelfLabel
+        // Section-class tier ladder: labels size by degree tercile over the
+        // rendered set, so hubs read before leaves at rest (locked spec).
+        labelTiers={SECTION_LABEL_TIERS}
       />
       {selectedNode && (
         <ArtistContextPanel

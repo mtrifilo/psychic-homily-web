@@ -48,6 +48,7 @@ vi.mock('@/components/graph/ForceGraphView', () => ({
     onNodeClick: (node: { id: number; name: string; slug: string }) => void
     onBackgroundClick?: () => void
     showIsolateShelfLabel?: boolean
+    labelTiers?: readonly { fontSize: number }[]
   }) => (
     <div
       data-testid="force-graph-view"
@@ -57,6 +58,7 @@ vi.mock('@/components/graph/ForceGraphView', () => ({
         props.showAccessibleNodeControls ?? false
       )}
       data-isolate-shelf-label={String(props.showIsolateShelfLabel ?? false)}
+      data-has-label-tiers={String(props.labelTiers !== undefined)}
       data-label-sizes={JSON.stringify(
         [...(props.nodeLabelStyles?.values() ?? [])].map(
           style => style.fontSize
@@ -305,6 +307,13 @@ describe('HomeSceneGraph', () => {
     // labeled isolate shelf (its payload excludes isolates entirely).
     expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
       'data-isolate-shelf-label',
+      'false'
+    )
+    // Tiered-labels negative pin: the homepage teaser keeps its curated EMBED
+    // ladder (17/13/11 via nodeLabelStyles) and must NOT opt into the
+    // degree-tiered `labelTiers` prop.
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'data-has-label-tiers',
       'false'
     )
   })

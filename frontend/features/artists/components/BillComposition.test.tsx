@@ -66,7 +66,14 @@ vi.mock('../hooks/useArtistBillComposition', () => ({
 
 // Canvas-based ArtistGraph can't render in jsdom — replace with a stub.
 vi.mock('./ArtistGraph', () => ({
-  ArtistGraphVisualization: () => <div data-testid="bill-graph">Bill Graph</div>,
+  ArtistGraphVisualization: (props: { labelTiers?: unknown }) => (
+    <div
+      data-testid="bill-graph"
+      data-has-label-tiers={String(props.labelTiers !== undefined)}
+    >
+      Bill Graph
+    </div>
+  ),
 }))
 
 import { BillComposition } from './BillComposition'
@@ -125,7 +132,11 @@ describe('BillComposition', () => {
     renderWithProviders(<BillComposition artistId={1} />)
     expect(screen.queryByTestId('bill-graph')).not.toBeInTheDocument()
     await user.click(screen.getByText('Explore graph'))
-    expect(screen.getByTestId('bill-graph')).toBeInTheDocument()
+    const graph = screen.getByTestId('bill-graph')
+    expect(graph).toBeInTheDocument()
+    // Negative pin: bill composition is NOT a spec-classified tier surface —
+    // it must keep the legacy flat label clamp, so no ladder is passed.
+    expect(graph).toHaveAttribute('data-has-label-tiers', 'false')
   })
 
   it('switches the time filter and re-calls the hook with months=12', async () => {

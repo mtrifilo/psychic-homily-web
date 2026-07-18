@@ -88,6 +88,9 @@ describe('RecenteringGraph — expand-on-demand orchestration (PSY-1259)', () =>
     renderDialog()
     expect(nodeIds()).toEqual([2, 3])
     expect(expandedIds()).toEqual([])
+    // Tool-surface pin: the ego dialog passes the tier ladder to the canvas
+    // (locked spec) — a dropped prop would silently flatten labels.
+    expect(vizProps.labelTiers).toBeDefined()
   })
 
   it('expand fetches, marks the node loading, then merges its neighbors on resolve', async () => {

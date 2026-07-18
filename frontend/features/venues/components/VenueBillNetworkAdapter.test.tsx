@@ -206,6 +206,39 @@ describe('VenueBillNetworkAdapter connection panel (PSY-1455)', () => {
     ).toHaveAttribute('href', '/shows/gatecreeper-valley-bar')
   })
 
+  it('tiers labels with the Section ladder — the hub draws at 14px @ 600 (PSY-1456)', () => {
+    renderAdapter()
+    const frame = h.lastProps.value!.onRenderFramePost as (
+      ctx: CanvasRenderingContext2D,
+      globalScale: number,
+    ) => void
+    const drawn: Array<{ text: string; font: string }> = []
+    const ctx = {
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      lineJoin: '',
+      lineWidth: 0,
+      strokeStyle: '',
+      fillStyle: '',
+      save() {},
+      restore() {},
+      measureText(text: string) {
+        const px = Number(/(\d+(?:\.\d+)?)px/.exec(this.font)?.[1] ?? 10)
+        return { width: text.length * px * 0.6 }
+      },
+      strokeText() {},
+      fillText(text: string) {
+        drawn.push({ text, font: this.font })
+      },
+    }
+    frame(ctx as unknown as CanvasRenderingContext2D, 1)
+    // All nodes sit at (0,0) in jsdom, so the collision cull keeps only the
+    // highest-degree label — Sundressed (degree 2), wearing the top Section
+    // tier from the real ForceGraphView pipeline.
+    expect(drawn).toEqual([{ text: 'Sundressed', font: '600 14px sans-serif' }])
+  })
+
   it('claims Escape from the fullscreen overlay layer (panel closes first)', () => {
     renderAdapter()
     clickLink(2, 3)
