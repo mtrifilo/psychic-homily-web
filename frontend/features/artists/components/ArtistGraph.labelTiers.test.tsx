@@ -134,13 +134,20 @@ describe('ArtistGraph Tool-class tiered labels (PSY-1456)', () => {
   })
 
   it('ranks tiers by DOI instead of degree when the host supplies it', () => {
-    // DOI demotes Second to the bottom of the ranking: Third(0.9) → tier 0,
-    // center(0.5) → tier 1 (moot — it is pinned to tier 0), Second(0.1) → tier 2.
+    // Ranking: center (Infinity, pinned) rank 0 → tier 0; Third (0.9)
+    // rank 1 → tier 1; Second (0.1) rank 2 → tier 2 — DOI order, not the
+    // equal-degree order the fallback would produce. Third is asserted via
+    // a second hover so the comment can't drift from the derivation.
     renderViz(new Map([[1, 0.5], [2, 0.1], [3, 0.9]]))
     act(() => forceGraphProps.onNodeHover(satellite2))
     const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
     expect(byText['Second']).toBe('400 10px sans-serif')
     expect(byText['Center']).toBe('600 15px sans-serif')
+    act(() =>
+      forceGraphProps.onNodeHover({ ...satellite2, id: 3, name: 'Third', slug: 'third' })
+    )
+    const byText2 = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
+    expect(byText2['Third']).toBe('500 12px sans-serif')
   })
 
   it('keeps the legacy flat clamp + bold center when no ladder is passed (bill composition)', () => {

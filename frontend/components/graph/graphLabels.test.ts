@@ -308,6 +308,21 @@ describe('labelTierStyles', () => {
     expect(styles.get(4)).toEqual(SECTION_LABEL_TIERS[1])
   })
 
+  it('skips the zero-score floor when floorZeroScores is false (non-degree domains like DOI)', () => {
+    // DOI can be 0 or negative for a CONNECTED node. With the floor active,
+    // the zero-scored node would be force-bottomed below the negative tie
+    // group — inverting the hierarchy. Opting out keeps pure rank order.
+    const styles = labelTierStyles<number>(
+      [1, 2, 3],
+      score({ 1: 1, 2: 0, 3: -1 }),
+      SECTION_LABEL_TIERS,
+      { floorZeroScores: false },
+    )
+    expect(styles.get(1)).toEqual(SECTION_LABEL_TIERS[0])
+    expect(styles.get(2)).toEqual(SECTION_LABEL_TIERS[1])
+    expect(styles.get(3)).toEqual(SECTION_LABEL_TIERS[2])
+  })
+
   it('returns an empty map for an empty rendered set or an empty ladder', () => {
     expect(labelTierStyles([], () => 0, SECTION_LABEL_TIERS).size).toBe(0)
     // An empty ladder must not poison the map with undefined values.

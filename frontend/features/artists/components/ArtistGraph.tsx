@@ -1003,7 +1003,12 @@ export function ArtistGraphVisualization({
           : doiByNodeId
             ? (doiByNodeId.get(id) ?? 0)
             : (degreeById?.get(id) ?? 0),
-      labelTiers
+      labelTiers,
+      // The zero-score → bottom-tier floor encodes DEGREE semantics ("no
+      // connections"). DOI can legitimately be 0 or negative for a
+      // connected node, so the DOI path opts out — rank order alone
+      // decides its tiers.
+      { floorZeroScores: !doiByNodeId }
     )
   }, [graphData, doiByNodeId, degreeById, labelTiers])
 

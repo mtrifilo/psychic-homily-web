@@ -112,10 +112,13 @@ export const TOOL_LABEL_TIERS: readonly GraphLabelTierStyle[] = [
  *     Rank-splitting a tie band would dress identically-connected artists in
  *     visibly different sizes, decided by nothing but payload order, and the
  *     assignment would reshuffle whenever the backend reordered its response.
- *   - SCORE 0 IS ALWAYS THE BOTTOM TIER — a node with no connections (an
- *     isolate) must never wear hub typography, even when a large shelf
- *     population would otherwise push the tie group's median into an upper
- *     bucket.
+ *   - SCORE 0 IS ALWAYS THE BOTTOM TIER (degree scoring only — see
+ *     `floorZeroScores`) — a node with no connections (an isolate) must
+ *     never wear hub typography, even when a large shelf population would
+ *     otherwise push the tie group's median into an upper bucket. Callers
+ *     whose score domain is NOT degree (DOI can legitimately be 0 or
+ *     negative for a connected node) pass `floorZeroScores: false` so the
+ *     floor can't invert their hierarchy.
  *
  * Ranking ties break by id, so the result is a pure function of the
  * (id, score) set — independent of the caller's array order. `nodeIds` must
@@ -127,13 +130,21 @@ export function labelTierStyles<Id extends string | number>(
   nodeIds: readonly Id[],
   scoreOf: (id: Id) => number,
   tiers: readonly GraphLabelTierStyle[],
+  { floorZeroScores = true }: { floorZeroScores?: boolean } = {},
 ): Map<Id, GraphLabelTierStyle> {
   const styles = new Map<Id, GraphLabelTierStyle>()
   if (tiers.length === 0 || nodeIds.length === 0) return styles
   const bottomTier = tiers[tiers.length - 1]
-  const ranked = [...nodeIds].sort(
-    (a, b) => scoreOf(b) - scoreOf(a) || (a < b ? -1 : a > b ? 1 : 0),
-  )
+  // Equal scores short-circuit to the id tie-break BEFORE subtracting —
+  // subtraction would yield NaN for an Infinity-vs-Infinity pair (e.g. a
+  // future multi-center graph), scattering the tie group and defeating the
+  // adjacent-equals grouping below.
+  const ranked = [...nodeIds].sort((a, b) => {
+    const scoreA = scoreOf(a)
+    const scoreB = scoreOf(b)
+    if (scoreA === scoreB) return a < b ? -1 : a > b ? 1 : 0
+    return scoreB - scoreA
+  })
   const tierSize = Math.max(1, Math.ceil(ranked.length / tiers.length))
   let groupStart = 0
   while (groupStart < ranked.length) {
@@ -147,7 +158,7 @@ export function labelTierStyles<Id extends string | number>(
     }
     const medianRank = Math.floor((groupStart + groupEnd) / 2)
     const tier =
-      score === 0
+      floorZeroScores && score === 0
         ? bottomTier
         : tiers[Math.min(tiers.length - 1, Math.floor(medianRank / tierSize))]
     for (let i = groupStart; i <= groupEnd; i += 1) {

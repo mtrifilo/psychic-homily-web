@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 // Degree-tiered label typography on Section-class surfaces. The
@@ -140,6 +141,20 @@ describe('ForceGraphView degree-tiered labels (PSY-1456)', () => {
     const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
     expect(byText['Leaf']).toBe('600 17px sans-serif') // curated override
     expect(byText['Hub']).toBe('600 14px sans-serif') // tier ladder elsewhere
+  })
+
+  it('re-tiers over the RENDERED set when an edge type is hidden via the legend', () => {
+    renderGraph({ labelTiers: SECTION_LABEL_TIERS, showEdgeLegend: true })
+    // Hide the second Hub–Mid link (type shared_bills): Hub drops to degree
+    // 2 and Mid ties with Leaf at 1 — the tie shares the mid tier instead of
+    // Mid keeping its old solo rank.
+    fireEvent.click(screen.getByTitle('Hide Shared Bills connections'))
+    const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
+    expect(byText).toEqual({
+      Hub: '600 14px sans-serif',
+      Mid: '500 11px sans-serif',
+      Leaf: '500 11px sans-serif',
+    })
   })
 
   it('re-tiers over the RENDERED set when a cluster filter hides nodes (zero-degree floor)', () => {

@@ -127,13 +127,18 @@ vi.mock('@/features/artists/components/ArtistGraph', () => ({
   ArtistGraphVisualization: ({
     data,
     onSelect,
+    labelTiers,
   }: {
     data: ArtistGraph
     onSelect: (node: ArtistGraph['center']) => void
+    labelTiers?: readonly { fontSize: number }[]
   }) => {
     if (reviewState.throwGraph) throw new Error('graph chunk failed')
     return (
-      <div aria-label={`Graph centered on ${data.center.name}`}>
+      <div
+        aria-label={`Graph centered on ${data.center.name}`}
+        data-has-label-tiers={String(labelTiers !== undefined)}
+      >
         <button type="button" onClick={() => onSelect(data.nodes[0])}>
           Select {data.nodes[0].name}
         </button>
@@ -211,7 +216,11 @@ describe('GraphObservatory', () => {
     expect(screen.getByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Search Diners' }))
-    expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
+    const canvas = screen.getByLabelText('Graph centered on Diners')
+    expect(canvas).toBeInTheDocument()
+    // Tool-surface pin: the Observatory passes the tier ladder to the ego
+    // canvas (locked spec) — a dropped prop would silently flatten labels.
+    expect(canvas).toHaveAttribute('data-has-label-tiers', 'true')
 
     await user.click(screen.getByRole('button', { name: 'Select Playboy Manbaby' }))
     expect(screen.getByRole('region', { name: 'About Playboy Manbaby' })).toBeInTheDocument()
