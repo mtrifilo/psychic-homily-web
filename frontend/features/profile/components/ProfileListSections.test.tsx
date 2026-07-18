@@ -146,7 +146,7 @@ describe('ProfileFollowing', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('renders nothing when the user follows nothing', () => {
+  it('renders nothing when a visitor follows nothing', () => {
     mockUseUserFollowing.mockReturnValue({
       data: { following: [], total: 0, limit: 100, offset: 0 },
       error: null,
@@ -155,6 +155,26 @@ describe('ProfileFollowing', () => {
       <ProfileFollowing username="alice" />
     )
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('shows the owner a browse prompt when empty', () => {
+    mockUseUserFollowing.mockReturnValue({
+      data: { following: [], total: 0, limit: 100, offset: 0 },
+      error: null,
+    })
+
+    renderWithProviders(<ProfileFollowing username="alice" isOwner />)
+    expect(screen.getByText('Following')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Shape your taste graph and get show alerts/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^browse$/i })).toHaveAttribute(
+      'href',
+      '/artists'
+    )
+    expect(
+      screen.queryByRole('link', { name: /manage who you follow/i })
+    ).not.toBeInTheDocument()
   })
 })
 
