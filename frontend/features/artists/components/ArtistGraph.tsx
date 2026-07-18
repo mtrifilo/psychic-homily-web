@@ -20,7 +20,7 @@ import {
   type GraphLabelSpec,
   type GraphLabelTierStyle,
 } from '@/components/graph/graphLabels'
-import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
+import { buildAdjacency, endpointId, resolveFocusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
 import { nodeTooltipPlacement, tooltipPlacementStyle, type TooltipAnchor, type TooltipPlacement } from '@/components/graph/nodeTooltip'
 import { EdgeLegend } from '@/components/graph/EdgeLegend'
@@ -119,6 +119,14 @@ interface ArtistGraphBaseProps {
   onRecenter?: (node: { id: number; slug: string; name: string }) => void
   /** Called after the graph dismisses its own connection inspector. */
   onBackgroundClick?: () => void
+  /**
+   * Notifies the consumer that an edge click just opened the connection
+   * inspector, so a caller-owned node panel can deselect and the two
+   * inspectors never stack — and the edge-endpoint pin (PSY-1478) isn't
+   * suppressed by a lingering node selection. Mirrors ForceGraphView's
+   * prop of the same name.
+   */
+  onConnectionInspectOpen?: () => void
   /** Hide the static edge legend when a tool surface owns that corner. */
   showLegend?: boolean
   /**
@@ -169,6 +177,15 @@ interface ArtistGraphBaseProps {
    * frame visible behind the overlay so the transition feels continuous.
    */
   isRecentering?: boolean
+  /**
+   * PSY-1478 (locked grammar amendment): pin the neighborhood focus-dim to
+   * the selected node while its context panel is open (Tool select-mode
+   * surfaces — the /graph Observatory). Hover PREVIEWS over the pin: hovering
+   * another node temporarily shifts the focus, and hover-out reverts to the
+   * pinned node — never to undimmed while a selection exists. The expand-mode
+   * artist dialog has no selection, so it never passes this.
+   */
+  focusNodeId?: number | null
 }
 
 type ArtistGraphInteraction =
@@ -337,6 +354,7 @@ export function ArtistGraphVisualization({
   onExpand,
   onSelect,
   onBackgroundClick,
+  onConnectionInspectOpen,
   showLegend = true,
   hopByNodeId,
   expandedIds,
@@ -347,6 +365,7 @@ export function ArtistGraphVisualization({
   canvasDescribedById,
   canvasAriaLabel,
   isRecentering = false,
+  focusNodeId = null,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const containerRef = useRef<HTMLDivElement>(null)
@@ -643,9 +662,21 @@ export function ArtistGraphVisualization({
   // trade-offs for them (theme toggle won't recolor; hover won't fire) — and the PSY-1260
   // discovery-bias slider is HIDDEN for them in RecenteringGraph precisely because this repaint
   // is gated off, so it can't present a control that does nothing (tracked: a11y follow-up).
+  //   (5) pinned focus (PSY-1478): focusNodeId (panel select/deselect) and
+  //       connectionInspect.pair (edge-endpoint pin) move focusedIds WITHOUT a
+  //       hover change, so both need the same repaint kick as (2).
   useEffect(() => {
     if (!reducedMotion) graphRef.current?.resumeAnimation()
-  }, [palette, hoveredNode, reducedMotion, expandingIds, suggestedIds, doiByNodeId])
+  }, [
+    palette,
+    hoveredNode,
+    reducedMotion,
+    expandingIds,
+    suggestedIds,
+    doiByNodeId,
+    focusNodeId,
+    connectionInspect.pair,
+  ])
 
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is smooth without being
@@ -704,8 +735,11 @@ export function ArtistGraphVisualization({
   const handleLinkClick = useCallback(
     (link: GraphLink) => {
       connectionInspect.open(endpointId(link.source), endpointId(link.target))
+      // Let the caller deselect its node panel so the two inspectors never
+      // stack and the pair pin isn't suppressed by a lingering selection.
+      onConnectionInspectOpen?.()
     },
-    [connectionInspect]
+    [connectionInspect, onConnectionInspectOpen]
   )
 
   // PSY-1335: lazily fetch the entities behind each connection for the
@@ -816,16 +850,26 @@ export function ArtistGraphVisualization({
   // rebuilt BARE-id links, before d3-force mutates source/target into resolved objects
   // in place (buildAdjacency would accept either shape, but only bare ids occur here).
   const adjacency = useMemo(() => buildAdjacency(graphData.links), [graphData])
-  const focusedIds = useMemo(() => {
-    if (hoveredNode == null) return null
-    // Drop focus if the hovered node was filtered out / refetched away (no longer in
-    // graphData): a stale hover would otherwise leave focusedIds matching nothing
-    // visible and dim the WHOLE graph to the background alpha (PSY-1210 review).
-    if (!graphData.nodes.some(n => n.id === hoveredNode.id)) return null
-    // Keep the center (the page subject) foreground always — passed as the helper's
-    // alwaysInclude anchor so the rule lives in one tested place (PSY-1210 review).
-    return focusForeground(adjacency, hoveredNode.id, data.center.id)
-  }, [adjacency, hoveredNode, graphData, data.center.id])
+  // PSY-1478: the effective focus anchor — hover PREVIEWS over the pinned
+  // selection (focusNodeId), so hovering another node temporarily shifts
+  // the focus and hover-out reverts to the selected node, never to undimmed
+  // while a selection exists. Also the force-labeled node in nodeLabelsFrame.
+  const focusAnchorId = hoveredNode?.id ?? focusNodeId ?? null
+  // Anchor-vs-edge-pair precedence, the stale-anchor guard, and the center's
+  // alwaysInclude rule all live in the shared resolveFocusForeground
+  // (graphFocus.ts) so the pin grammar can't drift between this surface and
+  // ForceGraphView (PSY-1210 review + PSY-1478).
+  const focusedIds = useMemo(
+    () =>
+      resolveFocusForeground(
+        adjacency,
+        [hoveredNode?.id, focusNodeId],
+        connectionInspect.pair,
+        id => graphData.nodes.some(n => n.id === id),
+        data.center.id
+      ),
+    [adjacency, hoveredNode, focusNodeId, connectionInspect.pair, graphData, data.center.id]
+  )
 
   // Center-node fill, hoisted out of the paint callback: ~60% alpha
   // muted-foreground matches the locked Option B mock's center swatch on
@@ -1074,18 +1118,19 @@ export function ArtistGraphVisualization({
             ...(tier
               ? { fontSize: tier.fontSize / globalScale, fontWeight: tier.fontWeight }
               : { fontSize: labelFontSize(globalScale), bold: node.isCenter }),
-            // Always label the center and the hovered node. This only applies to the
+            // Always label the center and the focus anchor (hovered node, or the
+            // pinned selection on hover-out — PSY-1478). This only applies to the
             // foreground — the .filter above already drops background nodes — so the
             // `isCenter` here stays consistent with the center being in focusForeground's
             // alwaysInclude (a node not in focusedIds is filtered out, never force-labeled
             // over a dimmed circle). PSY-1210.
-            force: node.isCenter || node.id === hoveredNode?.id,
+            force: node.isCenter || node.id === focusAnchorId,
             priority: priorityFor(node.id),
           }
         })
       renderGraphLabels(ctx, palette, specs)
     },
-    [graphData, palette, degreeById, doiByNodeId, labelTierById, focusedIds, hoveredNode]
+    [graphData, palette, degreeById, doiByNodeId, labelTierById, focusedIds, focusAnchorId]
   )
 
   // Shared edge grammar (PSY-1083): color from the theme-resolved palette,

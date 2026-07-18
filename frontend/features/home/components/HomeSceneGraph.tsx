@@ -426,6 +426,9 @@ function HomeSceneGraphSection() {
                   ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. ${graphSelectGestureHint}`}
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handleBackgroundClick}
+                  // Pin the focus-dim to the selection (PSY-1478) —
+                  // grammar in graphFocus.resolveFocusForeground.
+                  focusNodeId={currentSelectedNode?.id ?? null}
                 />
                 {currentSelectedNode && (
                   <ArtistContextPanel

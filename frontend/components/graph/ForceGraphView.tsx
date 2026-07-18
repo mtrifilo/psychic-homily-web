@@ -81,7 +81,7 @@ import {
 import {
   buildAdjacency,
   endpointId,
-  focusForeground,
+  resolveFocusForeground,
   BACKGROUND_ALPHA,
   BACKGROUND_ALPHA_HEX,
 } from './graphFocus'
@@ -430,6 +430,17 @@ export interface ForceGraphViewProps {
    */
   onBackgroundClick?: () => void
   /**
+   * PSY-1478 (locked grammar amendment): pin the neighborhood focus-dim to
+   * this node while its panel is open. While set, the node + its 1-hop
+   * neighborhood hold the same focus treatment hover applies, kept after
+   * mouse-out until the caller clears it on deselection. Hover PREVIEWS over
+   * the pin: hovering another node temporarily shifts the focus, and on
+   * hover-out it reverts to the pinned node — never to undimmed while a
+   * selection exists. Panel-bearing callers pass their
+   * `useArtistPanelSelection` selection id (`selectedNode?.id ?? null`).
+   */
+  focusNodeId?: number | null
+  /**
    * Label the isolate shelf as a group (locked grammar decision 4): faint
    * containment band + hairline behind the pinned shelf row, plus a
    * "+{N} not yet connected artists" caption drawn in the label pass. N is
@@ -478,6 +489,7 @@ export function ForceGraphView({
   nodeOverlayOutwardClearance = 0,
   showAccessibleNodeControls = false,
   onBackgroundClick,
+  focusNodeId = null,
   showIsolateShelfLabel = false,
 }: ForceGraphViewProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1078,8 +1090,10 @@ export function ForceGraphView({
   // links between two foreground nodes) stay foreground; every other node/link/label fades
   // to the background. Ported from ArtistGraph (PSY-1210) via the shared graphFocus helper
   // so the neighborhood math + fade alpha can't drift between the two canvas surfaces.
-  // Unlike the artist graph there is NO single center node, so this is purely hover-driven
-  // (no alwaysInclude anchor) — the PSY-1225 "no center" open question, resolved per lean.
+  // Unlike the artist graph there is NO single center node (no alwaysInclude anchor) —
+  // the PSY-1225 "no center" open question, resolved per lean. Since PSY-1478 the focus
+  // is hover-OR-selection driven: a pinned selection (focusNodeId) holds the same
+  // treatment after mouse-out, and an inspected edge pins its two endpoints.
   //
   // The [renderData] dep on adjacency is load-bearing: the memo captures the freshly-built
   // BARE-id links (renderData maps source/target to numeric ids) before d3-force mutates
@@ -1090,16 +1104,34 @@ export function ForceGraphView({
     () => buildAdjacency(renderData.links),
     [renderData]
   )
-  const focusedIds = useMemo(() => {
-    if (hoveredNode == null) return null
-    // Drop focus if the hovered node was filtered out (a hidden cluster / edge-type toggle):
-    // a stale hover would otherwise match nothing visible and dim the WHOLE graph to the
-    // background alpha. The reset-on-renderData effect above also clears hoveredNode, but
-    // only AFTER render — this guards the interim render where renderData changed and that
-    // effect hasn't run yet (ArtistGraph resets hover DURING render, so it has no such gap).
-    if (!renderData.nodes.some(n => n.id === hoveredNode.id)) return null
-    return focusForeground(adjacency, hoveredNode.id)
-  }, [adjacency, hoveredNode, renderData])
+  // PSY-1478: the effective focus anchor — hover PREVIEWS over the pinned
+  // selection (focusNodeId), so hovering another node temporarily shifts the
+  // focus and hover-out reverts to the selected node, never to undimmed while
+  // a selection exists. Also the force-labeled node in the label passes below.
+  const focusAnchorId = hoveredNode?.id ?? focusNodeId ?? null
+  // The hover-over-pin precedence, the stale-anchor fallbacks, and the
+  // edge-pair pin all live in the shared resolveFocusForeground
+  // (graphFocus.ts) so the pin grammar can't drift between this surface and
+  // ArtistGraph. Passing BOTH candidates (not the pre-collapsed
+  // focusAnchorId) matters for the interim render where renderData changed
+  // but the reset-on-renderData effect above hasn't cleared hoveredNode yet
+  // (ArtistGraph resets hover DURING render, so it has no such gap): a stale
+  // hover falls back to the pinned selection instead of flashing the graph
+  // undimmed.
+  // (Reduced-motion note: like hover-focus, a pin change repaints via the
+  // continuously-running rAF loop, so under the PSY-1226 pause the pinned
+  // dim — like the hover dim and tooltip — stays inert; those users' path is
+  // the accessible node list + the panel itself.)
+  const focusedIds = useMemo(
+    () =>
+      resolveFocusForeground(
+        adjacency,
+        [hoveredNode?.id, focusNodeId],
+        connectionInspect.pair,
+        id => renderData.nodes.some(n => n.id === id)
+      ),
+    [adjacency, hoveredNode, focusNodeId, connectionInspect.pair, renderData]
+  )
 
   // Per-cluster fill from the theme `--chart` tokens with 70% alpha so
   // cross-cluster edges drawn on top remain visible.
@@ -1185,11 +1217,16 @@ export function ForceGraphView({
           ? labelStyle.fontSize / globalScale
           : labelFontSize(globalScale),
         fontWeight: labelStyle?.fontWeight,
-        force: forceNodeLabels || node.id === hoveredNode?.id,
+        // The focus anchor (hovered node, or the pinned selection on hover-out —
+        // PSY-1478) keeps its label within the zoom-gated label pass, same
+        // treatment either way. (Below the zoom gate a HOVERED node is still
+        // named by the DOM tooltip; a pinned one is named by its context
+        // panel instead.)
+        force: forceNodeLabels || node.id === focusAnchorId,
         priority: degreeById.get(node.id) ?? 0,
       }
     },
-    [degreeById, forceNodeLabels, hoveredNode, nodeLabelStyles, tierStylesById],
+    [degreeById, forceNodeLabels, focusAnchorId, nodeLabelStyles, tierStylesById],
   )
 
   const syncNodeOverlayPositions = useCallback(() => {
@@ -1263,7 +1300,7 @@ export function ForceGraphView({
               : (focusedIds == null || focusedIds.has(node.id)) &&
                 (!showIsolateShelfLabel ||
                   !node.is_isolate ||
-                  node.id === hoveredNode?.id),
+                  node.id === focusAnchorId),
           )
           .map(node => labelSpecForNode(node, globalScale))
         renderGraphLabels(ctx, palette, specs)
@@ -1297,7 +1334,7 @@ export function ForceGraphView({
       showIsolateShelfLabel,
       renderedIsolateCount,
       shelfGeometry,
-      hoveredNode,
+      focusAnchorId,
     ]
   )
 

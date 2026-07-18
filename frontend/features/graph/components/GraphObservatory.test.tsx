@@ -127,10 +127,14 @@ vi.mock('@/features/artists/components/ArtistGraph', () => ({
   ArtistGraphVisualization: ({
     data,
     onSelect,
+    onConnectionInspectOpen,
+    focusNodeId,
     labelTiers,
   }: {
     data: ArtistGraph
     onSelect: (node: ArtistGraph['center']) => void
+    onConnectionInspectOpen?: () => void
+    focusNodeId?: number | null
     labelTiers?: readonly { fontSize: number }[]
   }) => {
     if (reviewState.throwGraph) throw new Error('graph chunk failed')
@@ -138,9 +142,13 @@ vi.mock('@/features/artists/components/ArtistGraph', () => ({
       <div
         aria-label={`Graph centered on ${data.center.name}`}
         data-has-label-tiers={String(labelTiers !== undefined)}
+        data-focus-node-id={String(focusNodeId ?? '')}
       >
         <button type="button" onClick={() => onSelect(data.nodes[0])}>
           Select {data.nodes[0].name}
+        </button>
+        <button type="button" onClick={() => onConnectionInspectOpen?.()}>
+          Inspect edge
         </button>
       </div>
     )
@@ -236,6 +244,35 @@ describe('GraphObservatory', () => {
     expect(screen.queryByLabelText('Graph centered on Diners')).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Graph traversal history' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Mock artist search' })).toHaveFocus())
+  })
+
+  // PSY-1478: the pinned focus follows the selection, a second click on the
+  // selected node puts it away (shared toggle grammar), and an edge click
+  // opening the ConnectionPanel deselects so the two inspectors never stack
+  // (and the lingering selection can't suppress the edge-endpoint pin).
+  it('pins focusNodeId to the selection, releases it on second click, and deselects on edge inspect', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<GraphObservatory />)
+    await user.click(screen.getByRole('button', { name: 'Search Diners' }))
+    const canvas = screen.getByLabelText('Graph centered on Diners')
+    expect(canvas).toHaveAttribute('data-focus-node-id', '')
+
+    // Select → panel opens and the pin prop carries the selected id.
+    await user.click(screen.getByRole('button', { name: 'Select Playboy Manbaby' }))
+    expect(screen.getByRole('region', { name: 'About Playboy Manbaby' })).toBeInTheDocument()
+    expect(canvas).not.toHaveAttribute('data-focus-node-id', '')
+
+    // Second click on the same node → deselect ("put it away").
+    await user.click(screen.getByRole('button', { name: 'Select Playboy Manbaby' }))
+    expect(screen.queryByRole('region', { name: 'About Playboy Manbaby' })).not.toBeInTheDocument()
+    expect(canvas).toHaveAttribute('data-focus-node-id', '')
+
+    // Re-select, then an edge click (ConnectionPanel opening) deselects too.
+    await user.click(screen.getByRole('button', { name: 'Select Playboy Manbaby' }))
+    expect(screen.getByRole('region', { name: 'About Playboy Manbaby' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Inspect edge' }))
+    expect(screen.queryByRole('region', { name: 'About Playboy Manbaby' })).not.toBeInTheDocument()
+    expect(canvas).toHaveAttribute('data-focus-node-id', '')
   })
 
   it('uses the existing shuffle target as the random rabbit-hole root', async () => {

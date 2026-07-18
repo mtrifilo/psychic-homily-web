@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { makeFakeCtx } from '@/test/canvasCtx'
 import type { ArtistGraph } from '../types'
 
 // PSY-1218: cover the PARENT's hover-grace dismiss orchestration — the 300ms
@@ -38,6 +39,19 @@ vi.mock('@/components/graph/nodeTooltip', async (importOriginal) => {
     ...actual,
     nodeTooltipPlacement: (_graph: unknown, _container: unknown, node: unknown) =>
       node ? { x: 12, y: 12, flipX: false, flipY: false } : null,
+  }
+})
+
+// PSY-1478 review: an edge click opens the ConnectionPanel, whose provenance
+// query would otherwise hit MSW's unhandled-request error strategy and log a
+// noisy 500. Reject it deterministically (panel rows stay text-only), the
+// same posture as ForceGraphView.connectionPanel.test.tsx's api mock.
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    apiRequest: () =>
+      Promise.reject(Object.assign(new Error('Not Found'), { status: 404 })),
   }
 })
 
@@ -318,5 +332,112 @@ describe('ArtistGraphVisualization — expand gesture (PSY-1259)', () => {
     )
     act(() => forceGraphProps.onNodeClick(centerNode))
     expect(onExpand).not.toHaveBeenCalled()
+  })
+})
+
+// PSY-1478: on Tool select-mode surfaces (the /graph Observatory) the selected
+// node pins the neighborhood focus-dim until deselection; hover previews over
+// the pin and hover-out reverts to the pinned focus, never to undimmed.
+describe('ArtistGraphVisualization — pinned selection focus (PSY-1478)', () => {
+  afterEach(() => { forceGraphProps = null })
+
+  // Center 1 with two satellites 2 and 3 (both hop-1). Pinning/hovering one
+  // satellite leaves the OTHER satellite outside the focus set — the dim probe.
+  const graphData3: ArtistGraph = {
+    ...graphData,
+    nodes: [
+      ...graphData.nodes,
+      { id: 3, name: 'Undeath', slug: 'undeath', city: 'Rochester', state: 'NY', upcoming_show_count: 0 },
+    ],
+    links: [
+      ...graphData.links,
+      { source_id: 1, target_id: 3, type: 'similar', score: 0.5, votes_up: 1, votes_down: 0 },
+    ],
+  }
+  const satellite3 = { ...satellite, id: 3, name: 'Undeath', slug: 'undeath', upcoming_show_count: 0 }
+
+  // Shared alpha-recording canvas ctx stub (see test/canvasCtx.ts).
+  const paintAlphas = (node: Record<string, unknown>) => {
+    const ctx = makeFakeCtx()
+    forceGraphProps.nodeCanvasObject(node, ctx, 2)
+    return ctx.alphas
+  }
+
+  const renderPinned = (focusNodeId: number | null) =>
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData3}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={() => {}}
+        focusNodeId={focusNodeId}
+      />,
+    )
+
+  it('pins the focus-dim to the selected node with no hover at all', () => {
+    renderPinned(2)
+    // Foreground = selected 2 + its neighbor/center 1; satellite 3 dims.
+    expect(paintAlphas(satellite).every(a => a === 1)).toBe(true)
+    expect(paintAlphas(centerNode).every(a => a === 1)).toBe(true)
+    expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
+  })
+
+  it('hover previews over the pin, and hover-out reverts to the pinned focus', () => {
+    // Fake timers: hover-out clears hoveredNode via the PSY-1218 dismiss-grace
+    // timer (300ms), so the focus revert lands when that timer fires.
+    vi.useFakeTimers()
+    try {
+      renderPinned(2)
+      // Hover satellite 3 → preview wins: 3 foreground, pinned 2 dims.
+      act(() => forceGraphProps.onNodeHover(satellite3))
+      expect(paintAlphas(satellite3).every(a => a === 1)).toBe(true)
+      expect(paintAlphas(satellite)[0]).toBeLessThan(1)
+      // Hover-out (after the grace window) → back to the SELECTED node's
+      // focus, never to undimmed.
+      act(() => forceGraphProps.onNodeHover(null))
+      act(() => { vi.runAllTimers() })
+      expect(paintAlphas(satellite).every(a => a === 1)).toBe(true)
+      expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the pin on deselection (focusNodeId back to null)', () => {
+    const { rerender } = renderPinned(2)
+    expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
+    rerender(
+      <ArtistGraphVisualization
+        data={graphData3}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={() => {}}
+        focusNodeId={null}
+      />,
+    )
+    expect(paintAlphas(satellite3).every(a => a === 1)).toBe(true)
+  })
+})
+
+// PSY-1478 review finding: an edge click must let the caller deselect its
+// node panel (mirrors ForceGraphView's onConnectionInspectOpen) so the two
+// inspectors never stack and the edge-endpoint pin isn't suppressed by a
+// lingering selection.
+describe('ArtistGraphVisualization — edge click notifies onConnectionInspectOpen', () => {
+  afterEach(() => { forceGraphProps = null })
+
+  it('fires the callback when a typed edge is clicked', () => {
+    const onConnectionInspectOpen = vi.fn()
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={() => {}}
+        onConnectionInspectOpen={onConnectionInspectOpen}
+      />,
+    )
+    act(() => forceGraphProps.onLinkClick({ source: 1, target: 2, type: 'similar' }))
+    expect(onConnectionInspectOpen).toHaveBeenCalledTimes(1)
   })
 })

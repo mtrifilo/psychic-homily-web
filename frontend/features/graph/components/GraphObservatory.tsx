@@ -468,9 +468,14 @@ export function GraphObservatory() {
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
     cancelPendingLookup()
     listTriggerRef.current = null
-    setSelectedNode(node)
-    setSelectionSource('canvas')
-  }, [cancelPendingLookup])
+    // Second click on the selected node deselects — "put it away", the same
+    // toggle grammar useArtistPanelSelection locks on the Section-class
+    // surfaces (PSY-1478 review finding: this surface was the one place the
+    // gesture didn't release the pin).
+    const toggleOff = selectedNode?.id === node.id
+    setSelectedNode(toggleOff ? null : node)
+    setSelectionSource(toggleOff ? null : 'canvas')
+  }, [cancelPendingLookup, selectedNode])
 
   const handleListSelect = useCallback((node: ArtistGraphSelection, trigger: HTMLButtonElement) => {
     cancelPendingLookup()
@@ -488,6 +493,17 @@ export function GraphObservatory() {
       window.requestAnimationFrame(() => trigger.focus())
     }
   }, [selectionSource])
+
+  // Edge click opened the ConnectionPanel — deselect the node panel so the
+  // two inspectors never stack (and the edge-endpoint focus pin isn't
+  // suppressed by a lingering selection — PSY-1478). No focus move: the
+  // user's attention just shifted to the connection inspector
+  // (useArtistPanelSelection convention on the Section-class surfaces).
+  const handleConnectionInspectOpen = useCallback(() => {
+    setSelectedNode(null)
+    setSelectionSource(null)
+    listTriggerRef.current = null
+  }, [])
 
   useEffect(() => {
     if (!selectedNode || selectionSource !== 'list') return
@@ -748,6 +764,10 @@ export function GraphObservatory() {
                       containerWidth={containerWidth}
                       onSelect={handleCanvasSelect}
                       onBackgroundClick={handlePanelClose}
+                      onConnectionInspectOpen={handleConnectionInspectOpen}
+                      // Pin the focus-dim to the selection (PSY-1478) —
+                      // grammar in graphFocus.resolveFocusForeground.
+                      focusNodeId={selectedNode?.id ?? null}
                       showLegend={false}
                       canvasDescribedById="observatory-graph-guidance"
                       canvasAriaLabel={`Artist relationship graph for ${graph.center.name}. Use the Browse connections list below to select an artist.`}

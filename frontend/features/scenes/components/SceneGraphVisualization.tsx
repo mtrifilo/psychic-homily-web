@@ -120,6 +120,9 @@ export function SceneGraphVisualization({
         ariaLabel={ariaLabel}
         onNodeClick={handleNodeClick}
         onBackgroundClick={handleBackgroundClick}
+        // Pin the focus-dim to the selection (PSY-1478) — grammar in
+        // graphFocus.resolveFocusForeground.
+        focusNodeId={currentSelectedNode?.id ?? null}
         // The aria-label advertises the select gesture, so keyboard and
         // screen-reader users need an equivalent: the focus-revealed node
         // button list drives the same handleNodeClick path (HomeSceneGraph

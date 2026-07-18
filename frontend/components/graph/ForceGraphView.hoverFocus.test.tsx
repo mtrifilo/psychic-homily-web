@@ -66,21 +66,12 @@ const link = (source: number, target: number, is_cross_cluster = false) => ({
   source, target, type: '', is_cross_cluster,
 })
 
-// Minimal canvas ctx that records every globalAlpha assignment so the dim can be asserted
-// (nodeCanvasObject resets globalAlpha to 1 at the end, so the live value can't be read after).
-function makeFakeCtx() {
-  const alphas: number[] = []
-  let alpha = 1
-  return {
-    get globalAlpha() { return alpha },
-    set globalAlpha(v: number) { alpha = v; alphas.push(v) },
-    beginPath() {}, arc() {}, fill() {}, stroke() {},
-    fillStyle: '', strokeStyle: '', lineWidth: 0,
-    alphas,
-  }
-}
+// Shared alpha-recording canvas ctx stub (see test/canvasCtx.ts).
+import { makeFakeCtx } from '@/test/canvasCtx'
 
-const renderGraph = () =>
+const renderGraph = (
+  props: Partial<React.ComponentProps<typeof ForceGraphView>> = {},
+) =>
   renderWithProviders(
     <ForceGraphView
       nodes={nodes}
@@ -88,6 +79,7 @@ const renderGraph = () =>
       containerWidth={1024}
       ariaLabel="test graph"
       onNodeClick={() => {}}
+      {...props}
     />,
   )
 
@@ -135,6 +127,80 @@ describe('ForceGraphView — hover-focus port (PSY-1225)', () => {
     expect(forceGraphProps.linkColor(link(3, 4))).toBe(`rgba(148, 163, 184, ${BACKGROUND_ALPHA})`)
     // Hover-out → focusedIds null → 3—4 back to its resting intra grey.
     act(() => forceGraphProps.onNodeHover(null))
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe('rgba(148, 163, 184, 0.6)')
+  })
+})
+
+// PSY-1478: selection pins the neighborhood focus-dim until deselection —
+// same glue-level coverage as the hover suite above (the surfaces' own
+// select/deselect wiring is tested in useArtistPanelSelection.test.tsx; this
+// suite guards that focusNodeId actually drives the dim and that hover
+// previews over it).
+describe('ForceGraphView — pinned selection focus (PSY-1478)', () => {
+  beforeEach(() => { forceGraphProps = null })
+  afterEach(() => { vi.clearAllMocks() })
+
+  it('pins the focus-dim to the selected node with no hover at all', () => {
+    renderGraph({ focusNodeId: 1 })
+    // Foreground {1, 2} without any onNodeHover call: 1—2 full, 3—4 faded.
+    expect(forceGraphProps.linkColor(link(1, 2))).toBe('rgba(148, 163, 184, 0.6)')
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe(`rgba(148, 163, 184, ${BACKGROUND_ALPHA})`)
+
+    const bgCtx = makeFakeCtx()
+    forceGraphProps.nodeCanvasObject(renderNode(3), bgCtx as unknown as CanvasRenderingContext2D)
+    expect(bgCtx.alphas[0]).toBe(BACKGROUND_ALPHA)
+    const fgCtx = makeFakeCtx()
+    forceGraphProps.nodeCanvasObject(renderNode(1), fgCtx as unknown as CanvasRenderingContext2D)
+    expect(fgCtx.alphas.every(a => a === 1)).toBe(true)
+  })
+
+  it('hover previews over the pin, and hover-out reverts to the pinned focus (never undimmed)', () => {
+    renderGraph({ focusNodeId: 1 })
+    // Hover node 3 → the preview wins: foreground {3, 4}, the pinned pair fades.
+    act(() => forceGraphProps.onNodeHover(renderNode(3)))
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe('rgba(148, 163, 184, 0.6)')
+    expect(forceGraphProps.linkColor(link(1, 2))).toBe(`rgba(148, 163, 184, ${BACKGROUND_ALPHA})`)
+    // Hover-out → back to the SELECTED node's focus, not to resting/undimmed.
+    act(() => forceGraphProps.onNodeHover(null))
+    expect(forceGraphProps.linkColor(link(1, 2))).toBe('rgba(148, 163, 184, 0.6)')
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe(`rgba(148, 163, 184, ${BACKGROUND_ALPHA})`)
+  })
+
+  it('clears the pin on deselection (focusNodeId back to null)', () => {
+    const { rerender } = renderGraph({ focusNodeId: 1 })
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe(`rgba(148, 163, 184, ${BACKGROUND_ALPHA})`)
+    // Every deselection path (second click, background click, Esc, panel
+    // close, edge-click mutual exclusion) lands here as a null focusNodeId —
+    // the paths themselves are covered in useArtistPanelSelection.test.tsx.
+    rerender(
+      <ForceGraphView
+        nodes={nodes}
+        links={links}
+        containerWidth={1024}
+        ariaLabel="test graph"
+        onNodeClick={() => {}}
+        focusNodeId={null}
+      />,
+    )
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe('rgba(148, 163, 184, 0.6)')
+  })
+
+  it('drops the pin (no whole-graph dim) when the pinned node leaves the rendered set', () => {
+    const { rerender } = renderGraph({ focusNodeId: 1 })
+    expect(forceGraphProps.linkColor(link(3, 4))).toBe(`rgba(148, 163, 184, ${BACKGROUND_ALPHA})`)
+    // The pinned node drops out of the payload while the prop is still set
+    // (the surfaces clear their selection on the SAME render via resolveNode,
+    // but the guard must hold on its own).
+    rerender(
+      <ForceGraphView
+        nodes={nodes.filter(n => n.id !== 1)}
+        links={links.filter(l => l.source_id !== 1)}
+        containerWidth={1024}
+        ariaLabel="test graph"
+        onNodeClick={() => {}}
+        focusNodeId={1}
+      />,
+    )
     expect(forceGraphProps.linkColor(link(3, 4))).toBe('rgba(148, 163, 184, 0.6)')
   })
 })
