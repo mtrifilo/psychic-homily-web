@@ -638,12 +638,9 @@ describe('collection rules', () => {
     expect(revalidated()).toEqual(['/collections/desert-punk-essentials'])
   })
 
-  it('feature revalidates the collection + /explore', async () => {
+  it('feature revalidates the collection page', async () => {
     await run({ method: 'PUT', path: '/collections/desert-punk-essentials/feature' })
-    expect(revalidated()).toEqual([
-      '/collections/desert-punk-essentials',
-      '/explore',
-    ])
+    expect(revalidated()).toEqual(['/collections/desert-punk-essentials'])
   })
 
   it('engagement ops (items/like/subscribe/tags) revalidate the collection page', async () => {
@@ -806,17 +803,6 @@ describe('collection tagging via the generic entities path (PSY-940)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     expect(fetchSpy).toHaveBeenCalledWith(`${BACKEND}/tags/3`, expect.anything())
     expect(revalidated()).toEqual(['/tags/post-punk'])
-  })
-})
-
-describe('explore curation rules', () => {
-  it('featured slot set/delete revalidates /explore', async () => {
-    await run({ method: 'POST', path: '/admin/featured-slots' })
-    expect(revalidated()).toEqual(['/explore'])
-
-    mockRevalidatePath.mockClear()
-    await run({ method: 'DELETE', path: '/admin/featured-slots/collection' })
-    expect(revalidated()).toEqual(['/explore'])
   })
 })
 

@@ -1748,19 +1748,12 @@ func (m *MockEntityRequestService) VoidApprovedUnfulfilled(requestID uint, admin
 
 type MockExploreService struct {
 	GetUpcomingShowsFn func(int, int, []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error)
-	GetFeaturedFn      func() (*contracts.ExploreFeaturedResponse, error)
 	GetShuffleTargetFn func() (*contracts.ExploreShuffleTargetResponse, error)
 }
 
 func (m *MockExploreService) GetUpcomingShows(limit int, offset int, cities []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
 	if m.GetUpcomingShowsFn != nil {
 		return m.GetUpcomingShowsFn(limit, offset, cities)
-	}
-	return nil, nil
-}
-func (m *MockExploreService) GetFeatured() (*contracts.ExploreFeaturedResponse, error) {
-	if m.GetFeaturedFn != nil {
-		return m.GetFeaturedFn()
 	}
 	return nil, nil
 }
@@ -1784,49 +1777,6 @@ func (m *MockExtractionService) ExtractShow(req *contracts.ExtractShowRequest) (
 		return m.ExtractShowFn(req)
 	}
 	return nil, nil
-}
-
-// ============================================================================
-// Mock: FeaturedSlotServiceInterface
-// ============================================================================
-
-type MockFeaturedSlotService struct {
-	GetActiveSlotFn     func(string) (*adminm.FeaturedSlot, error)
-	ListRecentFn        func(string, int) ([]adminm.FeaturedSlot, error)
-	SetActiveSlotFn     func(string, uint, *string, uint) (*adminm.FeaturedSlot, error)
-	RetireActiveSlotFn  func(string, uint) error
-	RenderCuratorNoteFn func(*string) string
-}
-
-func (m *MockFeaturedSlotService) GetActiveSlot(slotType string) (*adminm.FeaturedSlot, error) {
-	if m.GetActiveSlotFn != nil {
-		return m.GetActiveSlotFn(slotType)
-	}
-	return nil, nil
-}
-func (m *MockFeaturedSlotService) ListRecent(slotType string, limit int) ([]adminm.FeaturedSlot, error) {
-	if m.ListRecentFn != nil {
-		return m.ListRecentFn(slotType, limit)
-	}
-	return nil, nil
-}
-func (m *MockFeaturedSlotService) SetActiveSlot(slotType string, entityID uint, curatorNote *string, userID uint) (*adminm.FeaturedSlot, error) {
-	if m.SetActiveSlotFn != nil {
-		return m.SetActiveSlotFn(slotType, entityID, curatorNote, userID)
-	}
-	return nil, nil
-}
-func (m *MockFeaturedSlotService) RetireActiveSlot(slotType string, userID uint) error {
-	if m.RetireActiveSlotFn != nil {
-		return m.RetireActiveSlotFn(slotType, userID)
-	}
-	return nil
-}
-func (m *MockFeaturedSlotService) RenderCuratorNote(note *string) string {
-	if m.RenderCuratorNoteFn != nil {
-		return m.RenderCuratorNoteFn(note)
-	}
-	return ""
 }
 
 // ============================================================================
@@ -4475,7 +4425,6 @@ var _ contracts.EntityRequestFulfillerInterface = (*MockEntityRequestFulfiller)(
 var _ contracts.EntityRequestServiceInterface = (*MockEntityRequestService)(nil)
 var _ contracts.ExploreServiceInterface = (*MockExploreService)(nil)
 var _ contracts.ExtractionServiceInterface = (*MockExtractionService)(nil)
-var _ contracts.FeaturedSlotServiceInterface = (*MockFeaturedSlotService)(nil)
 var _ contracts.FestivalIntelligenceServiceInterface = (*MockFestivalIntelligenceService)(nil)
 var _ contracts.FestivalServiceInterface = (*MockFestivalService)(nil)
 var _ contracts.FieldNoteServiceInterface = (*MockFieldNoteService)(nil)

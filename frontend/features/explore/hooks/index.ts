@@ -1,5 +1,1 @@
-export {
-  useExploreUpcomingShows,
-  useExploreFeatured,
-  useShuffleTarget,
-} from './useExplore'
+export { useExploreUpcomingShows, useShuffleTarget } from './useExplore'

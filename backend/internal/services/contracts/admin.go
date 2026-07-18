@@ -484,19 +484,3 @@ type AnalyticsServiceInterface interface {
 	GetCommunityHealth() (*CommunityHealthResponse, error)
 	GetDataQualityTrends(months int) (*DataQualityTrendsResponse, error)
 }
-
-// ──────────────────────────────────────────────
-// Featured Slot Service Interface
-// ──────────────────────────────────────────────
-
-// FeaturedSlotServiceInterface defines the contract for the admin-curated
-// /explore editorial slots (Featured Bill + Featured Collection). One row
-// per slot_type is active at a time; activation atomically retires the
-// previous active row inside a transaction.
-type FeaturedSlotServiceInterface interface {
-	GetActiveSlot(slotType string) (*adminm.FeaturedSlot, error)
-	ListRecent(slotType string, limit int) ([]adminm.FeaturedSlot, error)
-	SetActiveSlot(slotType string, entityID uint, curatorNote *string, userID uint) (*adminm.FeaturedSlot, error)
-	RetireActiveSlot(slotType string, userID uint) error
-	RenderCuratorNote(note *string) string
-}

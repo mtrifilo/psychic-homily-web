@@ -41,7 +41,6 @@ type ServiceContainer struct {
 	ContributorProfile     *usersvc.ContributorProfileService
 	ArtistReport           *adminsvc.ArtistReportService
 	AuditLog               *adminsvc.AuditLogService
-	FeaturedSlot           *adminsvc.FeaturedSlotService
 	Explore                *exploresvc.ExploreService
 	EntityExistence        *catalog.EntityExistenceService
 	Bookmark               *engagement.BookmarkService
@@ -246,12 +245,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	sceneSvc := catalog.NewSceneService(database)
 	collectionSvc.SetTagService(tagSvc)
 
-	// /explore landing reads reuse the FeaturedSlot service to look up
-	// the admin-curated bill + collection. Construct FeaturedSlot up
-	// front so the explore service can take it as a dependency rather
-	// than reaching back through the container.
-	featuredSlotSvc := adminsvc.NewFeaturedSlotService(database)
-	exploreService := exploresvc.NewExploreService(database, featuredSlotSvc)
+	exploreService := exploresvc.NewExploreService(database)
 
 	// PSY-1190: a trusted/community pending edit that sets an artist's
 	// social.bandcamp applies via a direct UPDATE in ApprovePendingEdit, bypassing
@@ -274,7 +268,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
 		ArtistReport:           adminsvc.NewArtistReportService(database),
 		AuditLog:               adminsvc.NewAuditLogService(database),
-		FeaturedSlot:           featuredSlotSvc,
 		Explore:                exploreService,
 		EntityExistence:        catalog.NewEntityExistenceService(database),
 		Bookmark:               engagement.NewBookmarkService(database),

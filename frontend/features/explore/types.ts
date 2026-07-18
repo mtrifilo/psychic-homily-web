@@ -39,51 +39,6 @@ export interface ExploreUpcomingShowsResponse {
 }
 
 // ──────────────────────────────────────────────
-// GET /explore/featured
-// ──────────────────────────────────────────────
-
-/**
- * Featured Bill referent. `curator_note_html` is the pre-rendered HTML
- * (goldmark + bluemonday sanitized) — render with
- * `dangerouslySetInnerHTML` directly; the renderer is the canonical
- * sanitizer shared with comments + collections.
- */
-export interface ExploreFeaturedBill {
-  id: number
-  slug: string
-  title: string
-  event_date: string
-  headliner_name: string
-  venue_name: string
-  venue_city: string
-  venue_state: string
-  image_url?: string | null
-  curator_note?: string | null
-  curator_note_html?: string
-}
-
-export interface ExploreFeaturedCollection {
-  id: number
-  slug: string
-  title: string
-  description?: string
-  description_html?: string
-  cover_image_url?: string | null
-  curator_note?: string | null
-  curator_note_html?: string
-}
-
-/**
- * Both fields are nullable. When both are null the entire Featured
- * section collapses; each can be null independently (admin can curate
- * just one slot type).
- */
-export interface ExploreFeaturedResponse {
-  bill: ExploreFeaturedBill | null
-  collection: ExploreFeaturedCollection | null
-}
-
-// ──────────────────────────────────────────────
 // GET /explore/shuffle-target
 // ──────────────────────────────────────────────
 

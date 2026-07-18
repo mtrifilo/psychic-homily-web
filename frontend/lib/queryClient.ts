@@ -210,11 +210,6 @@ export const queryKeys = {
     // PSY-871: queued entity-creation requests (the moderation queue's 4th type).
     entityRequests: (params?: Record<string, unknown>) =>
       ['admin', 'entityRequests', params] as const,
-    // Featured slots (admin-curated /explore picks). One list query
-    // covers both slot types — list invalidations refresh both
-    // panels after Set / Retire.
-    featuredSlots: (params?: Record<string, unknown>) =>
-      ['admin', 'featuredSlots', params] as const,
     // Streaming-discovery triage worklist. Status filter + limit /
     // offset are part of the key so the status filter and pagination
     // produce independent cache entries; status mutations invalidate
@@ -509,7 +504,6 @@ export const queryKeys = {
 
   // /explore landing read endpoints (PSY-835/836/837)
   explore: {
-    featured: ['explore', 'featured'] as const,
     upcomingShows: (params?: {
       limit?: number
       offset?: number

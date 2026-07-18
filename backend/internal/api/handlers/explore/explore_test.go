@@ -89,65 +89,6 @@ func TestExploreHandler_GetUpcomingShows_ParsesCitiesParam(t *testing.T) {
 }
 
 // =============================================================================
-// Featured
-// =============================================================================
-
-func TestExploreHandler_GetFeatured_NullableFieldsPassThrough(t *testing.T) {
-	mock := &testhelpers.MockExploreService{
-		GetFeaturedFn: func() (*contracts.ExploreFeaturedResponse, error) {
-			return &contracts.ExploreFeaturedResponse{
-				Bill:       nil,
-				Collection: nil,
-			}, nil
-		},
-	}
-	handler := NewExploreHandler(mock)
-
-	resp, err := handler.GetFeaturedHandler(context.Background(), &GetFeaturedRequest{})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Nil(t, resp.Body.Bill)
-	assert.Nil(t, resp.Body.Collection)
-}
-
-func TestExploreHandler_GetFeatured_PopulatedSlotsPassThrough(t *testing.T) {
-	curatorNote := "smoke"
-	mock := &testhelpers.MockExploreService{
-		GetFeaturedFn: func() (*contracts.ExploreFeaturedResponse, error) {
-			return &contracts.ExploreFeaturedResponse{
-				Bill: &contracts.ExploreFeaturedBill{
-					ID: 42, Title: "Bill", HeadlinerName: "HL", CuratorNote: &curatorNote,
-				},
-				Collection: &contracts.ExploreFeaturedCollection{
-					ID: 100, Title: "Crate", Slug: "crate-slug",
-				},
-			}, nil
-		},
-	}
-	handler := NewExploreHandler(mock)
-
-	resp, err := handler.GetFeaturedHandler(context.Background(), &GetFeaturedRequest{})
-	require.NoError(t, err)
-	require.NotNil(t, resp.Body.Bill)
-	assert.Equal(t, uint(42), resp.Body.Bill.ID)
-	require.NotNil(t, resp.Body.Collection)
-	assert.Equal(t, "crate-slug", resp.Body.Collection.Slug)
-}
-
-func TestExploreHandler_GetFeatured_ServiceErrorBecomes500(t *testing.T) {
-	mock := &testhelpers.MockExploreService{
-		GetFeaturedFn: func() (*contracts.ExploreFeaturedResponse, error) {
-			return nil, errors.New("fail")
-		},
-	}
-	handler := NewExploreHandler(mock)
-
-	resp, err := handler.GetFeaturedHandler(context.Background(), &GetFeaturedRequest{})
-	require.Error(t, err)
-	assert.Nil(t, resp)
-}
-
-// =============================================================================
 // Shuffle Target
 // =============================================================================
 

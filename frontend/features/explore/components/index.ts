@@ -1,6 +1,4 @@
 export { ExplorePage } from './ExplorePage'
 export { UpcomingShowsList } from './UpcomingShowsList'
-export { FeaturedBillCard } from './FeaturedBillCard'
-export { FeaturedCollectionCard } from './FeaturedCollectionCard'
 export { InlineGraph } from './InlineGraph'
 export { ShuffleCta } from './ShuffleCta'

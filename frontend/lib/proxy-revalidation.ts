@@ -542,8 +542,8 @@ const RULES: readonly RevalidationRule[] = [
     name: 'collection-feature',
     methods: ['PUT'],
     pattern: /^\/collections\/([^/]+)\/feature$/,
-    // Featured collections also surface on /explore.
-    paths: ({ match }) => [`/collections/${match[1]}`, '/explore'],
+    // Featured flag lives on the collection detail/list surfaces.
+    paths: ({ match }) => [`/collections/${match[1]}`],
   },
   {
     name: 'collection-engagement',
@@ -618,14 +618,6 @@ const RULES: readonly RevalidationRule[] = [
       ])
       return [tagSlug ? `/tags/${tagSlug}` : undefined, ...entityOwnPages]
     },
-  },
-
-  // --- explore curation ----------------------------------------------------
-  {
-    name: 'featured-slots',
-    methods: ['POST', 'DELETE'],
-    pattern: /^\/admin\/featured-slots(\/.+)?$/,
-    paths: () => ['/explore'],
   },
 ]
 

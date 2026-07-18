@@ -35,7 +35,6 @@ type IntegrationDeps struct {
 	ShowReportService         *adminsvc.ShowReportService
 	UserService               *usersvc.UserService
 	AuditLogService           *adminsvc.AuditLogService
-	FeaturedSlotService       *adminsvc.FeaturedSlotService
 	ExploreService            *exploresvc.ExploreService
 	DiscordService            *notification.DiscordService
 	ExtractionService         *pipeline.ExtractionService
@@ -66,7 +65,6 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 
 	emptyCfg := &config.Config{}
 
-	featuredSlotSvc := adminsvc.NewFeaturedSlotService(db)
 	deps := &IntegrationDeps{
 		DB:                        db,
 		TestDB:                    testDB,
@@ -77,8 +75,7 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 		ShowReportService:         adminsvc.NewShowReportService(db),
 		UserService:               usersvc.NewUserService(db),
 		AuditLogService:           adminsvc.NewAuditLogService(db),
-		FeaturedSlotService:       featuredSlotSvc,
-		ExploreService:            exploresvc.NewExploreService(db, featuredSlotSvc),
+		ExploreService:            exploresvc.NewExploreService(db),
 		DiscordService:            notification.NewDiscordService(emptyCfg),
 		ExtractionService:         pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
 		APITokenService:           adminsvc.NewAPITokenService(db),
@@ -155,8 +152,6 @@ func CleanupTables(db *gorm.DB) {
 	// drop tags before users so tag cleanup doesn't see orphaned rows.
 	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
 	_, _ = sqlDB.Exec("DELETE FROM tags")
-	// featured_slots.created_by FK → users; clear before users.
-	_, _ = sqlDB.Exec("DELETE FROM featured_slots")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 

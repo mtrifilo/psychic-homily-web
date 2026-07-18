@@ -68,16 +68,16 @@ describe('safeRevalidatePath', () => {
       throw new Error('static generation store missing')
     })
 
-    expect(() => safeRevalidatePath('/explore', 'featured-slots')).not.toThrow()
+    expect(() => safeRevalidatePath('/shows', 'show-create')).not.toThrow()
     expect(mockCaptureException).toHaveBeenCalledTimes(1)
     expect(mockCaptureException).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
         tags: expect.objectContaining({
           service: 'isr-revalidation',
-          source: 'featured-slots',
+          source: 'show-create',
         }),
-        extra: expect.objectContaining({ path: '/explore' }),
+        extra: expect.objectContaining({ path: '/shows' }),
       })
     )
   })
