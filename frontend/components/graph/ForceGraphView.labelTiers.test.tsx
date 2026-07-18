@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderWithProviders } from '@/test/utils'
 
-// PSY-1456: degree-tiered label typography on Section-class surfaces. The
+// Degree-tiered label typography on Section-class surfaces. The
 // `labelTiers` prop terciles the RENDERED node set by degree and dresses each
 // tercile in the locked ladder (screen px, counter-scaled by zoom). These
 // tests drive the captured `onRenderFramePost` with a mock 2D context (same

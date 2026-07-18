@@ -3,7 +3,7 @@ import { act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { ArtistGraph } from '../types'
 
-// PSY-1456: Tool-class tiered labels on the ego graph (artist page dialog +
+// Tool-class tiered labels on the ego graph (artist page dialog +
 // /graph Observatory both render ArtistGraphVisualization). The label pass
 // dresses DOI/degree terciles in the locked 15/12/10 @ 600/500/400 ladder,
 // counter-scaled by zoom; the CENTER is pinned to the top tier so its label

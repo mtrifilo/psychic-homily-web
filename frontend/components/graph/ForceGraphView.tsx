@@ -394,13 +394,16 @@ export interface ForceGraphViewProps {
    * `labelTiers` per node — a curated map's editorial ranking is the point. */
   nodeLabelStyles?: ReadonlyMap<number, GraphNodeLabelStyle>
   /**
-   * Degree-tiered label typography (PSY-1456, locked spec): pass a ladder
+   * Degree-tiered label typography (locked design spec): pass a ladder
    * (e.g. `SECTION_LABEL_TIERS` from graphLabels) to size labels by tercile
    * of degree over the RENDERED node set (post cluster/edge-type filtering),
    * so hubs read before leaves at rest. Ladder sizes are screen px — the
    * label pass counter-scales them by zoom. Omit for the legacy flat
    * `labelFontSize` clamp. Collision priority, hover force-label, and the
-   * zoom gate are unaffected.
+   * zoom gate are unaffected. Only the Section-class surfaces the spec names
+   * (scene, station, venue bill network) opt in; other consumers (explore
+   * inline graph, collection graph) deliberately keep the flat clamp until
+   * the spec classifies them.
    */
   labelTiers?: readonly GraphLabelTierStyle[]
   /** Always draw every node label, even when labels overlap (curated ≤20-node maps). */
@@ -1152,7 +1155,7 @@ export function ForceGraphView({
   // surfaces can't drift.
   const degreeById = useMemo(() => degreeMap(renderData.links), [renderData])
 
-  // Degree-tiered typography (PSY-1456): terciles over the RENDERED node set,
+  // Degree-tiered typography: terciles over the RENDERED node set,
   // so toggling a cluster or edge type re-terciles what's actually on screen.
   // Null when the surface didn't opt in (legacy flat clamp).
   const tierStylesById = useMemo(

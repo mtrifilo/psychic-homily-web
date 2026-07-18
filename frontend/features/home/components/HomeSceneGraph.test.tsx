@@ -309,7 +309,7 @@ describe('HomeSceneGraph', () => {
       'data-isolate-shelf-label',
       'false'
     )
-    // PSY-1456 negative pin: the homepage teaser keeps its curated EMBED
+    // Tiered-labels negative pin: the homepage teaser keeps its curated EMBED
     // ladder (17/13/11 via nodeLabelStyles) and must NOT opt into the
     // degree-tiered `labelTiers` prop.
     expect(screen.getByTestId('force-graph-view')).toHaveAttribute(

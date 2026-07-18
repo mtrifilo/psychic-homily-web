@@ -112,8 +112,8 @@ export function StationGraphVisualization({
         // shelf reads as a labeled group (containment band + "+{N} not yet
         // connected artists" caption).
         showIsolateShelfLabel
-        // PSY-1456 (locked): Section-class labels tier 14/11/9 by degree
-        // tercile over the rendered set, so hubs read before leaves at rest.
+        // Section-class tier ladder: labels size by degree tercile over the
+        // rendered set, so hubs read before leaves at rest (locked spec).
         labelTiers={SECTION_LABEL_TIERS}
       />
       {selectedNode && (

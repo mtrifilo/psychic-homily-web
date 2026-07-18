@@ -123,6 +123,25 @@ export function drawIsolateShelfBand(
   ctx.restore()
 }
 
+// One-slot cache for the caption's measured width: the draw runs every
+// animation frame but its font/text only change on zoom, resize, or count
+// changes, so re-measuring per frame is pure waste. Keyed on font+text —
+// both inputs that affect the metric.
+let cachedCaptionKey = ''
+let cachedCaptionWidth = 0
+
+function measureCaptionWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string
+): number {
+  const key = `${ctx.font}|${text}`
+  if (key !== cachedCaptionKey) {
+    cachedCaptionKey = key
+    cachedCaptionWidth = ctx.measureText(text).width
+  }
+  return cachedCaptionWidth
+}
+
 /**
  * Group caption, drawn in the post-frame label pass AFTER the collision-culled
  * node labels (the group label always wins). Anchored to the band's top-left
@@ -147,15 +166,15 @@ export function drawIsolateShelfCaption(
   const y = geometry.y - CAPTION_TOP_OFFSET
   ctx.save()
   ctx.font = `${CAPTION_FONT_WEIGHT} ${fontSize}px sans-serif`
-  // Measured width clamp (PSY-1456, deferred from the PSY-1454 review): on a
-  // very narrow container at min zoom the counter-scaled caption can grow
-  // wider than the band itself in world units. Shrink the font just enough
-  // that the measured text fits inside the band (mirrored inset on the
-  // right), rather than letting the group label spill past its own boundary.
-  // No lower floor: a smaller-but-contained caption beats an overflowing one,
-  // and the clamp only engages on the smallest screens at the deepest zoom.
+  // Measured width clamp: on a very narrow container at min zoom the
+  // counter-scaled caption can grow wider than the band itself in world
+  // units. Shrink the font just enough that the measured text fits inside
+  // the band (mirrored inset on the right), rather than letting the group
+  // label spill past its own boundary. No lower floor: a smaller-but-
+  // contained caption beats an overflowing one, and the clamp only engages
+  // on the smallest screens at the deepest zoom.
   const maxWidth = geometry.endX + BAND_PAD_X - CAPTION_INSET_X - x
-  const measuredWidth = ctx.measureText(text).width
+  const measuredWidth = measureCaptionWidth(ctx, text)
   if (measuredWidth > maxWidth && maxWidth > 0) {
     fontSize = fontSize * (maxWidth / measuredWidth)
     ctx.font = `${CAPTION_FONT_WEIGHT} ${fontSize}px sans-serif`

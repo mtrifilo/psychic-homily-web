@@ -157,10 +157,10 @@ describe('drawIsolateShelfCaption', () => {
     expect(ctx.font).toContain(`${12 / 2}px`)
   })
 
-  // PSY-1456 (deferred LOW from the PSY-1454 adversarial review): on a very
-  // narrow container at min zoom the counter-scaled caption grew wider than
-  // the band in world units and spilled past its right edge. The draw now
-  // measures the text and shrinks the font just enough to fit the band.
+  // On a very narrow container at min zoom the counter-scaled caption grew
+  // wider than the band in world units and spilled past its right edge. The
+  // draw now measures the text and shrinks the font just enough to fit the
+  // band.
   it('shrinks the caption to fit the band on a narrow container at min zoom', () => {
     const ctx = makeCtx()
     const geometry = isolateShelfGeometry(400, 500)

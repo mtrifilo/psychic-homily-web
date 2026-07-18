@@ -971,22 +971,28 @@ export function ArtistGraphVisualization({
     [graphData, doiByNodeId]
   )
 
-  // Tool-class tiered typography (PSY-1456, locked): 15/12/10 @ 600/500/400,
+  // Tool-class tiered typography (locked ladder 15/12/10 @ 600/500/400):
   // terciles over the rendered node set. DOI replaces raw degree as the tier
   // rank when the host supplies it — same substitution the collision priority
   // makes — so the most-INTERESTING names read largest, not merely the
-  // most-connected. The center is forced to the top tier in nodeLabelsFrame
-  // (its label must stay largest), so its ranking here is moot.
-  const labelTierById = useMemo(
-    () =>
-      labelTierStyles(
-        graphData.nodes.map(node => node.id),
-        id =>
-          doiByNodeId ? (doiByNodeId.get(id) ?? 0) : (degreeById?.get(id) ?? 0),
-        TOOL_LABEL_TIERS
-      ),
-    [graphData, doiByNodeId, degreeById]
-  )
+  // most-connected. The center scores +Infinity so it always ranks into the
+  // top tier — its label must stay largest, and encoding that in the
+  // derivation (not as a draw-time special case) keeps the rule in one place.
+  const labelTierById = useMemo(() => {
+    const centerIds = new Set(
+      graphData.nodes.filter(node => node.isCenter).map(node => node.id)
+    )
+    return labelTierStyles(
+      graphData.nodes.map(node => node.id),
+      id =>
+        centerIds.has(id)
+          ? Infinity
+          : doiByNodeId
+            ? (doiByNodeId.get(id) ?? 0)
+            : (degreeById?.get(id) ?? 0),
+      TOOL_LABEL_TIERS
+    )
+  }, [graphData, doiByNodeId, degreeById])
 
   // PSY-1258: legend disclosure. Each row shows its DISPLAYED (post-cap) edge count, and
   // when a dense type was actually trimmed we add a footnote naming the cap ("Radio
@@ -1017,8 +1023,8 @@ export function ArtistGraphVisualization({
   // a label candidate (still collision-culled among themselves — center + hovered are
   // forced) (PSY-1210, below). Gate and truncation are the shared label
   // constants (graphLabels, PSY-1445), same as ForceGraphView; typography is
-  // the Tool-class tier ladder (PSY-1456, labelTierById above) instead of the
-  // flat labelFontSize clamp; the theme-aware halo+fill lives in
+  // the Tool-class tier ladder (labelTierById above) instead of the flat
+  // labelFontSize clamp; the theme-aware halo+fill lives in
   // renderGraphLabels too.
   const nodeLabelsFrame = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -1035,16 +1041,15 @@ export function ArtistGraphVisualization({
         .filter(node => focusedIds == null || focusedIds.has(node.id))
         .map(node => {
           const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
-          // PSY-1456 (locked): Tool-class tier ladder. The center is pinned to
-          // the top tier so its label stays largest (it also keeps the top
-          // weight — the ladder's 600 replaces the old bold-700 treatment);
-          // everyone else wears their DOI/degree tercile. Tier sizes are a
-          // screen-px contract, so counter-scale by zoom (collision boxes stay
-          // in graph space; the shared cull is unchanged).
-          const tier = node.isCenter
-            ? TOOL_LABEL_TIERS[0]
-            : (labelTierById.get(node.id) ??
-              TOOL_LABEL_TIERS[TOOL_LABEL_TIERS.length - 1])
+          // Tool-class tier ladder (labelTierById above; the center ranks
+          // into the top tier there — the ladder's 600 replaces the old
+          // bold-700 center treatment). Tier sizes are a screen-px contract,
+          // so counter-scale by zoom (collision boxes stay in graph space;
+          // the shared cull is unchanged). The bottom-tier fallback is a
+          // can't-happen guard: the map is built from this same node set.
+          const tier =
+            labelTierById.get(node.id) ??
+            TOOL_LABEL_TIERS[TOOL_LABEL_TIERS.length - 1]
           return {
             x: node.x ?? 0,
             y: (node.y ?? 0) + radius + 4,

@@ -197,7 +197,7 @@ describe('shared label constants (PSY-1445)', () => {
   })
 })
 
-// PSY-1456: tiered label ladders are a LOCKED design decision (spec cards on
+// Tiered label ladders are a LOCKED design decision (spec cards on
 // the "Grammar build-out mocks" Figma board). These tests pin both the ladder
 // values and the tercile derivation so a ranking change can't silently
 // reshuffle which names read largest.

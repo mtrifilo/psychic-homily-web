@@ -69,12 +69,12 @@ export function labelFontSize(globalScale: number): number {
 }
 
 // ──────────────────────────────────────────────
-// Tiered label ladders (PSY-1456, locked spec)
+// Tiered label ladders (locked design spec — "Grammar build-out mocks" board)
 //
 // Labels tier by connectivity so hubs read before leaves. Sizes are SCREEN px
 // at fitted zoom — labels draw in GRAPH space, so the consumer divides by the
-// zoom factor at draw time (the PSY-1443 gotcha; reason about the ladders in
-// screen px, never in graph-space clamp values). Weights are canvas numeric
+// zoom factor at draw time (reason about the ladders in screen px, never in
+// graph-space clamp values). Weights are canvas numeric
 // font weights. The homepage teaser's EMBED ladder (17/13/11) predates this
 // module and stays in homeSceneGraphMap.ts — it tiers by a curated activity
 // blend, not raw degree, so it is deliberately NOT unified here.
