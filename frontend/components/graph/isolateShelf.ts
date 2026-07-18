@@ -123,25 +123,6 @@ export function drawIsolateShelfBand(
   ctx.restore()
 }
 
-// One-slot cache for the caption's measured width: the draw runs every
-// animation frame but its font/text only change on zoom, resize, or count
-// changes, so re-measuring per frame is pure waste. Keyed on font+text —
-// both inputs that affect the metric.
-let cachedCaptionKey = ''
-let cachedCaptionWidth = 0
-
-function measureCaptionWidth(
-  ctx: CanvasRenderingContext2D,
-  text: string
-): number {
-  const key = `${ctx.font}|${text}`
-  if (key !== cachedCaptionKey) {
-    cachedCaptionKey = key
-    cachedCaptionWidth = ctx.measureText(text).width
-  }
-  return cachedCaptionWidth
-}
-
 /**
  * Group caption, drawn in the post-frame label pass AFTER the collision-culled
  * node labels (the group label always wins). Anchored to the band's top-left
@@ -170,11 +151,16 @@ export function drawIsolateShelfCaption(
   // counter-scaled caption can grow wider than the band itself in world
   // units. Shrink the font just enough that the measured text fits inside
   // the band (mirrored inset on the right), rather than letting the group
-  // label spill past its own boundary. No lower floor: a smaller-but-
-  // contained caption beats an overflowing one, and the clamp only engages
-  // on the smallest screens at the deepest zoom.
-  const maxWidth = geometry.endX + BAND_PAD_X - CAPTION_INSET_X - x
-  const measuredWidth = measureCaptionWidth(ctx, text)
+  // label spill past its own boundary. The halo stroke (lineWidth =
+  // fontSize/4) straddles the glyph outline, so half of it protrudes past
+  // the measured advance on each side — budget the full lineWidth out of
+  // the bound. No lower floor: a smaller-but-contained caption beats an
+  // overflowing one, and the clamp only engages on the smallest screens at
+  // the deepest zoom. (measureText per frame matches what the node-label
+  // pass already does per label; a cache here isn't worth mutable state.)
+  const maxWidth =
+    geometry.endX + BAND_PAD_X - CAPTION_INSET_X - x - fontSize / 4
+  const measuredWidth = ctx.measureText(text).width
   if (measuredWidth > maxWidth && maxWidth > 0) {
     fontSize = fontSize * (maxWidth / measuredWidth)
     ctx.font = `${CAPTION_FONT_WEIGHT} ${fontSize}px sans-serif`

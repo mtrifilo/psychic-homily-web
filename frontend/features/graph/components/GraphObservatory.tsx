@@ -42,6 +42,7 @@ import {
 } from '@/components/graph/graphTraversalHistory'
 import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
 import { useScenes } from '@/features/scenes/hooks/useScenes'
+import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 
 interface GraphAnchor {
@@ -741,6 +742,9 @@ export function GraphObservatory() {
                     <ArtistGraphVisualization
                       data={graph}
                       activeTypes={activeTypes}
+                      // Tool-class tier ladder: labels size by DOI/degree
+                      // tier, center largest (locked spec).
+                      labelTiers={TOOL_LABEL_TIERS}
                       containerWidth={containerWidth}
                       onSelect={handleCanvasSelect}
                       onBackgroundClick={handlePanelClose}

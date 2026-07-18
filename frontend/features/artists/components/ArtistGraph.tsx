@@ -12,12 +12,13 @@ import { egoFamilyByNodeId, egoFamilyFill, type EgoFillFamily } from '@/componen
 import { EgoTypeLegend } from '@/components/graph/EgoTypeLegend'
 import {
   LABEL_MIN_SCALE,
-  TOOL_LABEL_TIERS,
   degreeMap,
+  labelFontSize,
   labelTierStyles,
   renderGraphLabels,
   truncateLabel,
   type GraphLabelSpec,
+  type GraphLabelTierStyle,
 } from '@/components/graph/graphLabels'
 import { buildAdjacency, endpointId, focusForeground, BACKGROUND_ALPHA, BACKGROUND_ALPHA_HEX } from '@/components/graph/graphFocus'
 import { capEdgesPerNode, EDGE_CAP_BY_TYPE } from '@/components/graph/edgeCap'
@@ -137,6 +138,15 @@ interface ArtistGraphBaseProps {
    * graph which wires no DOI).
    */
   doiByNodeId?: Map<number, number>
+  /**
+   * Tiered label typography (locked design spec): pass a ladder (e.g.
+   * `TOOL_LABEL_TIERS`) to size labels by DOI/degree tier over the rendered
+   * set, with the center pinned largest. Only the Tool-class surfaces the
+   * spec names (/graph Observatory, artist ego dialog) opt in; the
+   * bill-composition graph deliberately keeps the flat clamp (and the
+   * bold-700 center) until the spec classifies it.
+   */
+  labelTiers?: readonly GraphLabelTierStyle[]
   /**
    * PSY-1273: the ≤5 unexpanded node ids flagged as suggested expansion directions — drawn with
    * a subtle glow + "+" so the click-to-expand gesture is discoverable and guided. Absent → no
@@ -332,6 +342,7 @@ export function ArtistGraphVisualization({
   expandedIds,
   expandingIds,
   doiByNodeId,
+  labelTiers,
   suggestedIds,
   canvasDescribedById,
   canvasAriaLabel,
@@ -971,14 +982,16 @@ export function ArtistGraphVisualization({
     [graphData, doiByNodeId]
   )
 
-  // Tool-class tiered typography (locked ladder 15/12/10 @ 600/500/400):
-  // terciles over the rendered node set. DOI replaces raw degree as the tier
+  // Tiered typography (Tool-class hosts pass the locked 15/12/10 ladder;
+  // null when the host keeps the legacy flat clamp): tiers over the
+  // rendered node set. DOI replaces raw degree as the tier
   // rank when the host supplies it — same substitution the collision priority
   // makes — so the most-INTERESTING names read largest, not merely the
   // most-connected. The center scores +Infinity so it always ranks into the
   // top tier — its label must stay largest, and encoding that in the
   // derivation (not as a draw-time special case) keeps the rule in one place.
   const labelTierById = useMemo(() => {
+    if (!labelTiers) return null
     const centerIds = new Set(
       graphData.nodes.filter(node => node.isCenter).map(node => node.id)
     )
@@ -990,9 +1003,9 @@ export function ArtistGraphVisualization({
           : doiByNodeId
             ? (doiByNodeId.get(id) ?? 0)
             : (degreeById?.get(id) ?? 0),
-      TOOL_LABEL_TIERS
+      labelTiers
     )
-  }, [graphData, doiByNodeId, degreeById])
+  }, [graphData, doiByNodeId, degreeById, labelTiers])
 
   // PSY-1258: legend disclosure. Each row shows its DISPLAYED (post-cap) edge count, and
   // when a dense type was actually trimmed we add a footnote naming the cap ("Radio
@@ -1041,21 +1054,21 @@ export function ArtistGraphVisualization({
         .filter(node => focusedIds == null || focusedIds.has(node.id))
         .map(node => {
           const radius = node.isCenter ? CENTER_NODE_RADIUS : SATELLITE_NODE_RADIUS
-          // Tool-class tier ladder (labelTierById above; the center ranks
-          // into the top tier there — the ladder's 600 replaces the old
-          // bold-700 center treatment). Tier sizes are a screen-px contract,
-          // so counter-scale by zoom (collision boxes stay in graph space;
-          // the shared cull is unchanged). The bottom-tier fallback is a
-          // can't-happen guard: the map is built from this same node set.
-          const tier =
-            labelTierById.get(node.id) ??
-            TOOL_LABEL_TIERS[TOOL_LABEL_TIERS.length - 1]
+          // Tiered hosts wear their ladder style (labelTierById; the center
+          // ranks into the top tier there — the ladder's 600 replaces the
+          // bold-700 center treatment on those surfaces). Tier sizes are a
+          // screen-px contract, so counter-scale by zoom (collision boxes
+          // stay in graph space; the shared cull is unchanged). Non-tiered
+          // hosts (bill composition) keep the legacy flat clamp + bold
+          // center.
+          const tier = labelTierById?.get(node.id)
           return {
             x: node.x ?? 0,
             y: (node.y ?? 0) + radius + 4,
             text: truncateLabel(node.name),
-            fontSize: tier.fontSize / globalScale,
-            fontWeight: tier.fontWeight,
+            ...(tier
+              ? { fontSize: tier.fontSize / globalScale, fontWeight: tier.fontWeight }
+              : { fontSize: labelFontSize(globalScale), bold: node.isCenter }),
             // Always label the center and the hovered node. This only applies to the
             // foreground — the .filter above already drops background nodes — so the
             // `isCenter` here stays consistent with the center being in focusForeground's

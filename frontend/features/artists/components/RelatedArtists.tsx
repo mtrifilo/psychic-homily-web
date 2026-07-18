@@ -26,6 +26,7 @@ import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { ArtistGraphVisualization } from './ArtistGraph'
+import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import { GraphAccessibleTree } from '@/components/graph/GraphAccessibleTree'
@@ -1179,6 +1180,9 @@ function RecenteringGraph({
         hopByNodeId={merged.hopByNodeId}
         expandedIds={expandedIds}
         expandingIds={expandingIds}
+        // Tool-class tier ladder: labels size by DOI tier, center
+        // largest (locked spec).
+        labelTiers={TOOL_LABEL_TIERS}
         doiByNodeId={doi?.doiByNodeId}
         suggestedIds={suggestedIds}
         canvasDescribedById="ego-graph-a11y-note"

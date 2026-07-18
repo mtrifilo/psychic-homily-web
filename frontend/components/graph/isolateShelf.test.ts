@@ -168,11 +168,15 @@ describe('drawIsolateShelfCaption', () => {
     const fontPx = Number(/(\d+(?:\.\d+)?)px/.exec((ctx as unknown as { font: string }).font)?.[1])
     // Unclamped it would be the 26 world-px cap; the measured clamp shrinks it…
     expect(fontPx).toBeLessThan(26)
-    // …so the measured text exactly fits the band's inner width (band spans
-    // ±0.4*400 plus 32px padding each side, minus the mirrored 16px inset).
-    const maxWidth = 400 * 0.8 + 2 * 32 - 2 * 16
+    // …so the measured text (plus the halo stroke's overhang) stays inside
+    // the band's inner width (band spans ±0.4*400 plus 32px padding each
+    // side, minus the mirrored 16px inset). Behavior bound, not exact-fit:
+    // retuning band metrics shouldn't need float surgery here.
+    const bandInnerWidth = 400 * 0.8 + 2 * 32 - 2 * 16
     const text = '+5 not yet connected artists'
-    expect(text.length * fontPx * 0.6).toBeCloseTo(maxWidth, 5)
+    expect(text.length * fontPx * 0.6 + fontPx / 4).toBeLessThanOrEqual(
+      bandInnerWidth
+    )
   })
 
   it('leaves the caption font at the world-px cap when the band is wide enough', () => {

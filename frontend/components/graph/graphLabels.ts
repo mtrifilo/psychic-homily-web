@@ -102,27 +102,59 @@ export const TOOL_LABEL_TIERS: readonly GraphLabelTierStyle[] = [
 ]
 
 /**
- * Assign each rendered node a tier style: rank by `scoreOf` (degree, or DOI on
- * Tool surfaces) descending and split into equal terciles — same derivation as
- * the homepage teaser's curated map, so the grammar reads identically across
- * surfaces. `nodeIds` must be the RENDERED set (post cluster/edge-type
- * filtering), so hiding a cluster re-terciles what's actually on screen.
- * JS sort is stable, so equal scores keep the caller's input order — pass a
- * deterministic node order for deterministic tiers. Pure; memoize in the
- * caller (never per frame).
+ * Assign each rendered node a tier style. Base rule: rank by `scoreOf`
+ * (degree, or DOI on Tool surfaces) descending and split the ranking into
+ * equal-size buckets, top-down (`ceil(n / tiers)` per bucket, so small sets
+ * skew toward the UPPER tiers and the bottom tier takes what remains — for
+ * n=4 that means 2/2/0). Two refinements keep the hierarchy honest:
+ *
+ *   - EQUAL SCORES SHARE ONE TIER — the tier at the tie group's median rank.
+ *     Rank-splitting a tie band would dress identically-connected artists in
+ *     visibly different sizes, decided by nothing but payload order, and the
+ *     assignment would reshuffle whenever the backend reordered its response.
+ *   - SCORE 0 IS ALWAYS THE BOTTOM TIER — a node with no connections (an
+ *     isolate) must never wear hub typography, even when a large shelf
+ *     population would otherwise push the tie group's median into an upper
+ *     bucket.
+ *
+ * Ranking ties break by id, so the result is a pure function of the
+ * (id, score) set — independent of the caller's array order. `nodeIds` must
+ * be the RENDERED set (post cluster/edge-type filtering), so hiding a
+ * cluster re-tiers what's actually on screen. Pure; memoize in the caller
+ * (never per frame).
  */
 export function labelTierStyles<Id extends string | number>(
   nodeIds: readonly Id[],
   scoreOf: (id: Id) => number,
   tiers: readonly GraphLabelTierStyle[],
 ): Map<Id, GraphLabelTierStyle> {
-  const ranked = [...nodeIds].sort((a, b) => scoreOf(b) - scoreOf(a))
-  const tierSize = Math.max(1, Math.ceil(ranked.length / tiers.length))
   const styles = new Map<Id, GraphLabelTierStyle>()
-  ranked.forEach((id, index) => {
-    const tierIndex = Math.min(tiers.length - 1, Math.floor(index / tierSize))
-    styles.set(id, tiers[tierIndex])
-  })
+  if (tiers.length === 0 || nodeIds.length === 0) return styles
+  const bottomTier = tiers[tiers.length - 1]
+  const ranked = [...nodeIds].sort(
+    (a, b) => scoreOf(b) - scoreOf(a) || (a < b ? -1 : a > b ? 1 : 0),
+  )
+  const tierSize = Math.max(1, Math.ceil(ranked.length / tiers.length))
+  let groupStart = 0
+  while (groupStart < ranked.length) {
+    const score = scoreOf(ranked[groupStart])
+    let groupEnd = groupStart
+    while (
+      groupEnd + 1 < ranked.length &&
+      scoreOf(ranked[groupEnd + 1]) === score
+    ) {
+      groupEnd += 1
+    }
+    const medianRank = Math.floor((groupStart + groupEnd) / 2)
+    const tier =
+      score === 0
+        ? bottomTier
+        : tiers[Math.min(tiers.length - 1, Math.floor(medianRank / tierSize))]
+    for (let i = groupStart; i <= groupEnd; i += 1) {
+      styles.set(ranked[i], tier)
+    }
+    groupStart = groupEnd + 1
+  }
   return styles
 }
 

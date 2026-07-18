@@ -51,9 +51,11 @@ const nodes = [
   { id: 3, name: 'Leaf', slug: 'leaf', upcoming_show_count: 0, x: 0, y: 800 },
 ] as unknown as GraphNode[]
 
-// Hub has degree 2; Mid and Beta tie at 1 and keep payload order.
+// Distinct degrees so each node wears a different tier: Hub 3 (the 1-2 pair
+// carries two typed links, both counted by degreeMap), Mid 2, Leaf 1.
 const links = [
   { source_id: 1, target_id: 2, type: 'similar' },
+  { source_id: 1, target_id: 2, type: 'shared_bills' },
   { source_id: 1, target_id: 3, type: 'similar' },
 ]
 
@@ -140,7 +142,7 @@ describe('ForceGraphView degree-tiered labels (PSY-1456)', () => {
     expect(byText['Hub']).toBe('600 14px sans-serif') // tier ladder elsewhere
   })
 
-  it('re-terciles over the RENDERED set when a cluster filter hides nodes', () => {
+  it('re-tiers over the RENDERED set when a cluster filter hides nodes (zero-degree floor)', () => {
     renderGraph({
       labelTiers: SECTION_LABEL_TIERS,
       nodes: nodes.map(node =>
@@ -153,11 +155,12 @@ describe('ForceGraphView degree-tiered labels (PSY-1456)', () => {
       hiddenClusterIDs: new Set(['hidden-cluster']),
     })
     const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
-    // Hub (and its links) are filtered out; Mid + Leaf tie at degree 0 and
-    // tier over the two-node rendered set instead of keeping their old ranks.
+    // Hub (and every link — all touch it) is filtered out; Mid + Leaf drop
+    // to degree 0 over the rendered set, and zero-degree nodes always wear
+    // the bottom tier — never a rank-inflated hub dress.
     expect(byText).toEqual({
-      Mid: '600 14px sans-serif',
-      Leaf: '500 11px sans-serif',
+      Mid: '400 9px sans-serif',
+      Leaf: '400 9px sans-serif',
     })
   })
 })

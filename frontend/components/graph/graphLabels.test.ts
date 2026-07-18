@@ -250,17 +250,41 @@ describe('labelTierStyles', () => {
     expect(styles.get(7)).toEqual(TOOL_LABEL_TIERS[2])
   })
 
-  it('keeps input order among equal scores (stable sort → deterministic tiers)', () => {
-    const styles = labelTierStyles([5, 6, 7], () => 3, SECTION_LABEL_TIERS)
-    expect(styles.get(5)).toEqual(SECTION_LABEL_TIERS[0])
-    expect(styles.get(6)).toEqual(SECTION_LABEL_TIERS[1])
-    expect(styles.get(7)).toEqual(SECTION_LABEL_TIERS[2])
+  it('gives equal scores ONE shared tier (the tie group\u2019s median rank), regardless of input order', () => {
+    // Three nodes all tied at score 3: rank-splitting the tie would dress
+    // identical connectivity in different sizes by payload order alone.
+    // The whole group wears the tier at its median rank (rank 1 → mid).
+    const styles = labelTierStyles<number>([5, 6, 7], () => 3, SECTION_LABEL_TIERS)
+    for (const id of [5, 6, 7]) {
+      expect(styles.get(id)).toEqual(SECTION_LABEL_TIERS[1])
+    }
+    // Order-independent: the reversed input produces the identical map.
+    const reversed = labelTierStyles([7, 6, 5], () => 3, SECTION_LABEL_TIERS)
+    expect(reversed).toEqual(styles)
   })
 
-  it('gives every node the top tier when the set is a single node', () => {
-    const styles = labelTierStyles([42], () => 0, SECTION_LABEL_TIERS)
-    expect(styles.get(42)).toEqual(SECTION_LABEL_TIERS[0])
-    expect(styles.size).toBe(1)
+  it('always dresses score-0 nodes (isolates) in the bottom tier, even in a large tie group', () => {
+    // 1 connected hub + 5 isolates: the isolate tie group's median rank
+    // falls in an upper bucket, but no-connection nodes must never wear
+    // hub typography.
+    const styles = labelTierStyles<number>(
+      [1, 2, 3, 4, 5, 6],
+      score({ 1: 4 }),
+      SECTION_LABEL_TIERS,
+    )
+    expect(styles.get(1)).toEqual(SECTION_LABEL_TIERS[0])
+    for (const id of [2, 3, 4, 5, 6]) {
+      expect(styles.get(id)).toEqual(SECTION_LABEL_TIERS[2])
+    }
+  })
+
+  it('gives a single connected node the top tier; a single isolate the bottom tier', () => {
+    expect(labelTierStyles([42], () => 1, SECTION_LABEL_TIERS).get(42)).toEqual(
+      SECTION_LABEL_TIERS[0],
+    )
+    expect(labelTierStyles([42], () => 0, SECTION_LABEL_TIERS).get(42)).toEqual(
+      SECTION_LABEL_TIERS[2],
+    )
   })
 
   it('fills tiers top-down for sets smaller than the ladder', () => {
@@ -269,8 +293,10 @@ describe('labelTierStyles', () => {
     expect(styles.get(2)).toEqual(TOOL_LABEL_TIERS[1])
   })
 
-  it('rounds tier size up so the bottom tier absorbs the remainder', () => {
-    // n=4 → tierSize ceil(4/3)=2 → tiers 0,0,1,1 (no node falls off the ladder).
+  it('splits rank buckets top-down (ceil), so small distinct-score sets skew toward the upper tiers', () => {
+    // n=4 distinct scores → bucket size ceil(4/3)=2 → tiers 0,0,1,1: the
+    // bottom tier can be EMPTY on small sets. Deliberate: matches the
+    // homepage teaser's derivation, and no node ever falls off the ladder.
     const styles = labelTierStyles(
       [1, 2, 3, 4],
       score({ 1: 9, 2: 8, 3: 7, 4: 6 }),
@@ -282,8 +308,10 @@ describe('labelTierStyles', () => {
     expect(styles.get(4)).toEqual(SECTION_LABEL_TIERS[1])
   })
 
-  it('returns an empty map for an empty rendered set', () => {
+  it('returns an empty map for an empty rendered set or an empty ladder', () => {
     expect(labelTierStyles([], () => 0, SECTION_LABEL_TIERS).size).toBe(0)
+    // An empty ladder must not poison the map with undefined values.
+    expect(labelTierStyles([1, 2], () => 1, []).size).toBe(0)
   })
 })
 

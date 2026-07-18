@@ -38,6 +38,7 @@ vi.mock('next/link', () => ({
 }))
 
 import { ArtistGraphVisualization } from './ArtistGraph'
+import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 
 const graphData: ArtistGraph = {
   center: { id: 1, name: 'Center', slug: 'center', upcoming_show_count: 0 },
@@ -93,13 +94,14 @@ function paintLabels(globalScale: number) {
   return drawn
 }
 
-const renderViz = (doiByNodeId?: Map<number, number>) =>
+const renderViz = (doiByNodeId?: Map<number, number>, tiered = true) =>
   renderWithProviders(
     <ArtistGraphVisualization
       data={graphData}
       activeTypes={new Set(['similar'])}
       containerWidth={1024}
       doiByNodeId={doiByNodeId}
+      labelTiers={tiered ? TOOL_LABEL_TIERS : undefined}
     />
   )
 
@@ -124,7 +126,8 @@ describe('ArtistGraph Tool-class tiered labels (PSY-1456)', () => {
     renderViz()
     // Force the satellite's label via hover (all nodes overlap at (0,0) in
     // jsdom, so only forced labels survive the cull). Degree rank over the
-    // rendered set: center(2) → tier 0, Second → tier 1, Third → tier 2.
+    // rendered set: center (Infinity) → tier 0; Second + Third tie at
+    // degree 1 and share the tier at their median rank → tier 1.
     act(() => forceGraphProps.onNodeHover(satellite2))
     const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
     expect(byText['Second']).toBe('500 12px sans-serif')
@@ -138,6 +141,14 @@ describe('ArtistGraph Tool-class tiered labels (PSY-1456)', () => {
     const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
     expect(byText['Second']).toBe('400 10px sans-serif')
     expect(byText['Center']).toBe('600 15px sans-serif')
+  })
+
+  it('keeps the legacy flat clamp + bold center when no ladder is passed (bill composition)', () => {
+    renderViz(undefined, false)
+    act(() => forceGraphProps.onNodeHover(satellite2))
+    const byText = Object.fromEntries(paintLabels(1).map(d => [d.text, d.font]))
+    expect(byText['Center']).toBe('700 11px sans-serif')
+    expect(byText['Second']).toBe('400 11px sans-serif')
   })
 
   it('keeps the shared zoom gate: no labels at or below 0.7', () => {
