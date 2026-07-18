@@ -112,6 +112,23 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 }
 
 /**
+ * Fixed allowlist for `/charts/[module]` drill-downs. Unlike entity slug
+ * pages there is no backend existence probe — unknown modules are rewritten
+ * here so `notFound()` in the page does not soft-404 under cacheComponents.
+ * Keep in lockstep with `CHART_MODULE_SLUGS` in features/charts/moduleConfig
+ * (asserted by proxy.charts.test.ts). Inlined here so proxy stays free of
+ * features/ imports.
+ */
+const CHART_MODULE_SEGMENTS = new Set([
+  'most-active-artists',
+  'on-the-radio',
+  'most-anticipated',
+  'busiest-venues',
+  'new-releases',
+  'openers-to-watch',
+])
+
+/**
  * Returns the global 404 rewrite response (status 404 + render
  * `app/not-found.tsx` via the unmatched synthetic path).
  */
@@ -130,6 +147,18 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const segments = pathname.split('/')
   const entityType = segments[1]
   const slug = segments[2]
+
+  // Charts module drill-downs: allowlist check (no backend probe). Bare
+  // `/charts` and deeper paths pass through; unknown modules get a real 404.
+  if (entityType === 'charts') {
+    if (!slug || segments.length !== 3) {
+      return NextResponse.next()
+    }
+    if (!CHART_MODULE_SEGMENTS.has(slug)) {
+      return notFoundResponse(request)
+    }
+    return NextResponse.next()
+  }
 
   const buildCheckUrl = ENTITY_CHECKS[entityType]
 
@@ -184,7 +213,7 @@ export const config = {
   /**
    * Intercept ONLY the enumerated entity prefixes (`/shows/...`, `/venues/...`,
    * `/artists/...`, `/releases/...`, `/labels/...`, `/festivals/...`,
-   * `/tags/...`, `/scenes/...`). Each prefix scopes its match away from
+   * `/tags/...`, `/scenes/...`, `/charts/...`). Each prefix scopes its match away from
    * everything else — the homepage, out-of-scope routes (`/collections/...`,
    * `/blog/...`, `/dj-sets/...`), `api`, `_next/static`, `_next/image`,
    * metadata files, and the `/_psy-not-found` rewrite target — so none of those
@@ -192,16 +221,17 @@ export const config = {
    * negative-lookahead to exclude `api`/`_next`/metadata; enumerating exact
    * prefixes makes that unnecessary.) The `proxy()` body further narrows each
    * to the exact `/<entity>/<slug>` detail shape — bare `/<entity>` list pages
-   * and `/<entity>/<slug>/<sub>` routes pass through untouched.
+   * and `/<entity>/<slug>/<sub>` routes pass through untouched. Charts is an
+   * allowlist check (no backend probe), not an `ENTITY_CHECKS` entry.
    *
    * Each entry's `missing` excludes RSC prefetch requests (`next-router-
    * prefetch` / `purpose: prefetch` headers) so client-side route prefetches
    * don't fire a backend existence lookup on every hovered link.
    *
-   * Keep this list in lockstep with `ENTITY_CHECKS` above: a source here with
+   * Keep entity sources in lockstep with `ENTITY_CHECKS` above: a source here with
    * no matching `ENTITY_CHECKS` entry would intercept the route only to fall
    * through `NextResponse.next()` (wasted match), and an `ENTITY_CHECKS` entry
-   * with no source here would never run.
+   * with no source here would never run. Charts is the intentional exception.
    */
   matcher: [
     {
@@ -255,6 +285,13 @@ export const config = {
     },
     {
       source: '/scenes/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/charts/:path*',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

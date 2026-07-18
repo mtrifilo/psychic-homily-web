@@ -125,7 +125,7 @@ type GetMostAnticipatedShowsResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Window string                        `json:"window"`
-		Mode   string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks (paginated); soonest_upcoming = date-ordered fallback, counts/ranks omitted, offset ignored"`
+		Mode   string                        `json:"mode" enum:"ranked,soonest_upcoming" doc:"ranked = save-floor chart with counts and ranks; soonest_upcoming = date-ordered fallback with counts/ranks omitted; both modes are paginated"`
 		Scene  string                        `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
 		Total  int                           `json:"total" doc:"Full-set size for the active mode: qualifying shows (ranked) or all upcoming shows (fallback)"`
 		Shows  []MostAnticipatedShowResponse `json:"shows"`

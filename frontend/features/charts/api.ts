@@ -16,18 +16,38 @@ export const chartEndpoints = {
 
 export const chartQueryKeys = {
   all: ['charts'] as const,
-  mostActiveArtists: (window: ChartWindow, scene: string, limit: number) =>
-    ['charts', 'most-active-artists', window, scene, limit] as const,
-  onTheRadio: (window: ChartWindow, scene: string, limit: number) =>
-    ['charts', 'on-the-radio', window, scene, limit] as const,
-  mostAnticipated: (scene: string, limit: number) =>
-    ['charts', 'most-anticipated', scene, limit] as const,
-  busiestVenues: (window: ChartWindow, scene: string, limit: number) =>
-    ['charts', 'busiest-venues', window, scene, limit] as const,
-  newReleases: (window: ChartWindow, scene: string, limit: number) =>
-    ['charts', 'new-releases', window, scene, limit] as const,
-  openersToWatch: (window: ChartWindow, scene: string, limit: number) =>
-    ['charts', 'openers-to-watch', window, scene, limit] as const,
+  mostActiveArtists: (
+    window: ChartWindow,
+    scene: string,
+    limit: number,
+    offset = 0
+  ) => ['charts', 'most-active-artists', window, scene, limit, offset] as const,
+  onTheRadio: (window: ChartWindow, scene: string, limit: number, offset = 0) =>
+    ['charts', 'on-the-radio', window, scene, limit, offset] as const,
+  mostAnticipated: (
+    window: ChartWindow,
+    scene: string,
+    limit: number,
+    offset = 0
+  ) => ['charts', 'most-anticipated', window, scene, limit, offset] as const,
+  busiestVenues: (
+    window: ChartWindow,
+    scene: string,
+    limit: number,
+    offset = 0
+  ) => ['charts', 'busiest-venues', window, scene, limit, offset] as const,
+  newReleases: (
+    window: ChartWindow,
+    scene: string,
+    limit: number,
+    offset = 0
+  ) => ['charts', 'new-releases', window, scene, limit, offset] as const,
+  openersToWatch: (
+    window: ChartWindow,
+    scene: string,
+    limit: number,
+    offset = 0
+  ) => ['charts', 'openers-to-watch', window, scene, limit, offset] as const,
   summary: (window: ChartWindow, scene: string) =>
     ['charts', 'summary', window, scene] as const,
   freshlyAdded: (scene: string, limit: number) =>

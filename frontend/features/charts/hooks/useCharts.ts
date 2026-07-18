@@ -31,20 +31,22 @@ function withParams(
 export interface ChartQueryOptions {
   scene?: string
   enabled?: boolean
+  offset?: number
 }
 
 export function useMostActiveArtists(
   window: ChartWindow,
   limit = 7,
-  { scene = '', enabled = true }: ChartQueryOptions = {}
+  { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.mostActiveArtists(window, scene, limit),
+    queryKey: chartQueryKeys.mostActiveArtists(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<MostActiveArtistsResponse>(
         withParams(chartEndpoints.MOST_ACTIVE_ARTISTS, {
           window,
           limit,
+          offset: offset || undefined,
           scene,
         }),
         { method: 'GET' }
@@ -56,13 +58,18 @@ export function useMostActiveArtists(
 export function useOnTheRadio(
   window: ChartWindow,
   limit = 7,
-  { scene = '', enabled = true }: ChartQueryOptions = {}
+  { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.onTheRadio(window, scene, limit),
+    queryKey: chartQueryKeys.onTheRadio(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<OnTheRadioResponse>(
-        withParams(chartEndpoints.ON_THE_RADIO, { window, limit, scene }),
+        withParams(chartEndpoints.ON_THE_RADIO, {
+          window,
+          limit,
+          offset: offset || undefined,
+          scene,
+        }),
         { method: 'GET' }
       ),
     enabled,
@@ -70,14 +77,20 @@ export function useOnTheRadio(
 }
 
 export function useMostAnticipated(
+  window: ChartWindow,
   limit = 6,
-  { scene = '', enabled = true }: ChartQueryOptions = {}
+  { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.mostAnticipated(scene, limit),
+    queryKey: chartQueryKeys.mostAnticipated(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<MostAnticipatedResponse>(
-        withParams(chartEndpoints.MOST_ANTICIPATED, { limit, scene }),
+        withParams(chartEndpoints.MOST_ANTICIPATED, {
+          window,
+          limit,
+          offset: offset || undefined,
+          scene,
+        }),
         { method: 'GET' }
       ),
     enabled,
@@ -87,13 +100,18 @@ export function useMostAnticipated(
 export function useBusiestVenues(
   window: ChartWindow,
   limit = 7,
-  { scene = '', enabled = true }: ChartQueryOptions = {}
+  { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.busiestVenues(window, scene, limit),
+    queryKey: chartQueryKeys.busiestVenues(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<BusiestVenuesResponse>(
-        withParams(chartEndpoints.BUSIEST_VENUES, { window, limit, scene }),
+        withParams(chartEndpoints.BUSIEST_VENUES, {
+          window,
+          limit,
+          offset: offset || undefined,
+          scene,
+        }),
         { method: 'GET' }
       ),
     enabled,
@@ -103,13 +121,18 @@ export function useBusiestVenues(
 export function useNewReleases(
   window: ChartWindow,
   limit = 6,
-  { scene = '', enabled = true }: ChartQueryOptions = {}
+  { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.newReleases(window, scene, limit),
+    queryKey: chartQueryKeys.newReleases(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<NewReleasesResponse>(
-        withParams(chartEndpoints.NEW_RELEASES, { window, limit, scene }),
+        withParams(chartEndpoints.NEW_RELEASES, {
+          window,
+          limit,
+          offset: offset || undefined,
+          scene,
+        }),
         { method: 'GET' }
       ),
     enabled,
@@ -119,13 +142,18 @@ export function useNewReleases(
 export function useOpenersToWatch(
   window: ChartWindow,
   limit = 6,
-  { scene = '', enabled = true }: ChartQueryOptions = {}
+  { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
   return useQuery({
-    queryKey: chartQueryKeys.openersToWatch(window, scene, limit),
+    queryKey: chartQueryKeys.openersToWatch(window, scene, limit, offset),
     queryFn: () =>
       apiRequest<OpenersToWatchResponse>(
-        withParams(chartEndpoints.OPENERS_TO_WATCH, { window, limit, scene }),
+        withParams(chartEndpoints.OPENERS_TO_WATCH, {
+          window,
+          limit,
+          offset: offset || undefined,
+          scene,
+        }),
         { method: 'GET' }
       ),
     enabled,

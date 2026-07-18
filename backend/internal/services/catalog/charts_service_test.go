@@ -2416,28 +2416,33 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_Rank
 	suite.Empty(deep.Shows)
 }
 
-// TestGetMostAnticipatedShows_FallbackIgnoresOffset: with too few qualifying
-// shows the module is the unpaginated floor — offset is ignored, ranks and
-// counts stay nil, and Total reports the fallback's own universe.
-func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_FallbackIgnoresOffset() {
+// TestGetMostAnticipatedShows_FallbackPaginates: with too few qualifying
+// shows the module is an unranked floor — offset is honored, ranks and counts
+// stay nil, and Total reports the fallback's own universe.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostAnticipatedShows_FallbackPaginates() {
 	user := suite.createUser("anticipated-fb@test.com")
 	venue := suite.createVenue("Fallback Hall", "Phoenix", "AZ")
 	artist := suite.createArtist("Fallback Band")
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
-	first := suite.createApprovedShow("Soonest", venue.ID, artist.ID, user.ID, future)
+	suite.createApprovedShow("Soonest", venue.ID, artist.ID, user.ID, future)
 	suite.createApprovedShow("Later", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 1))
-	suite.createApprovedShow("Latest", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 2))
+	latest := suite.createApprovedShow("Latest", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 2))
 
 	result, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 2, 2)
 	suite.Require().NoError(err)
 	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, result.Mode)
 	suite.Equal(3, result.Total, "fallback total is its own universe (all upcoming shows)")
-	suite.Require().Len(result.Shows, 2)
-	// Offset ignored: the fallback starts from the soonest show regardless.
-	suite.Equal(first.ID, result.Shows[0].ShowID)
+	suite.Require().Len(result.Shows, 1)
+	suite.Equal(latest.ID, result.Shows[0].ShowID)
 	suite.Nil(result.Shows[0].Rank)
 	suite.Nil(result.Shows[0].SaveCount)
+
+	deep, err := suite.chartsService.GetMostAnticipatedShows(contracts.ChartWindowQuarter, "", 2, 3)
+	suite.Require().NoError(err)
+	suite.Equal(contracts.MostAnticipatedModeSoonestUpcoming, deep.Mode)
+	suite.Equal(3, deep.Total)
+	suite.Empty(deep.Shows)
 }
 
 // =============================================================================

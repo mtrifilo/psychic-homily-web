@@ -41,18 +41,34 @@ describe('chart hooks', () => {
     )
   })
 
-  it('keeps most anticipated independent of the historical window', async () => {
+  it('includes the drill-down offset in the request and cache key', async () => {
+    mockApiRequest.mockResolvedValueOnce({ artists: [] })
+    const { result } = renderHook(
+      () => useMostActiveArtists('quarter', 50, { offset: 100 }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /\/charts\/most-active-artists\?window=quarter&limit=50&offset=100$/
+      ),
+      { method: 'GET' }
+    )
+  })
+
+  it('requests most anticipated for the selected chart window', async () => {
     mockApiRequest.mockResolvedValueOnce({
       mode: 'soonest_upcoming',
       shows: [],
     })
-    const { result } = renderHook(() => useMostAnticipated(), {
+    const { result } = renderHook(() => useMostAnticipated('month'), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith(
-      expect.stringMatching(/\/charts\/most-anticipated\?limit=6$/),
+      expect.stringMatching(/\/charts\/most-anticipated\?window=month&limit=6$/),
       { method: 'GET' }
     )
   })
@@ -91,7 +107,7 @@ describe('chart hooks', () => {
         return [
           useMostActiveArtists('quarter', 7, options),
           useOnTheRadio('quarter', 7, options),
-          useMostAnticipated(6, options),
+          useMostAnticipated('quarter', 6, options),
           useBusiestVenues('quarter', 7, options),
           useNewReleases('quarter', 6, options),
           useOpenersToWatch('quarter', 6, options),

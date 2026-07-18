@@ -355,11 +355,11 @@ func mostAnticipatedHorizon(window contracts.ChartWindow) (startOfToday time.Tim
 // date-ordered with SaveCount and Rank nil on every row (fail-closed:
 // sub-floor counts never leak into a rendered payload).
 //
-// Pagination applies to ranked mode only: the mode is decided by the TOTAL
+// Pagination applies to both modes: the mode is decided by the TOTAL
 // qualifying count (the page's COUNT(*) OVER(), so a small page size or deep
 // offset can't force fallback), ranks are offset-stable (offset+i+1), and
-// Total counts all qualifying shows. Fallback is the module's floor, not a
-// ranked list — it ignores offset and reports the upcoming-show universe as
+// Total counts all qualifying shows. Fallback is the module's unranked floor;
+// it honors limit/offset while reporting the full upcoming-show universe as
 // its Total.
 func (s *ChartsService) GetMostAnticipatedShows(window contracts.ChartWindow, scene string, limit, offset int) (*contracts.MostAnticipatedShows, error) {
 	if !chartSceneExists(scene) {
@@ -464,23 +464,31 @@ func (s *ChartsService) getMostAnticipatedShowsUncached(window contracts.ChartWi
 	if total < mostAnticipatedMinQualifying {
 		mode = contracts.MostAnticipatedModeSoonestUpcoming
 		rows = nil
+		fallbackCoreSQL := `
+			SELECT s.id
+			` + mostAnticipatedFromSQL + `
+			` + eligibilitySQL
 		err := s.db.Raw(`
 			SELECT`+mostAnticipatedColumnsSQL+`,
 				COUNT(*) OVER() AS total
 			`+mostAnticipatedFromSQL+`
 			`+eligibilitySQL+`
 			ORDER BY s.event_date ASC, s.id ASC
-			LIMIT ?
-		`, append(append([]any{}, eligibilityArgs...), limit)...).Scan(&rows).Error
+			LIMIT ? OFFSET ?
+		`, appendPageArgs(eligibilityArgs, limit, offset)...).Scan(&rows).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to get soonest-upcoming fallback shows: %w", err)
 		}
-		// Fallback Total = its own universe (all upcoming approved shows),
-		// from the same statement. An empty fallback means zero upcoming
-		// shows, so the zero total is genuine.
-		total = 0
+		pageTotal = 0
 		if len(rows) > 0 {
-			total = rows[0].Total
+			pageTotal = rows[0].Total
+		}
+		total, err = s.resolveChartPageTotal(window, pageTotal, len(rows), offset,
+			fallbackCoreSQL, eligibilityArgs,
+			chartCountKey("most-anticipated-fallback", string(window.OrDefault()), scene),
+			"soonest-upcoming fallback shows")
+		if err != nil {
+			return nil, err
 		}
 	}
 
