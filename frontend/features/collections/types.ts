@@ -286,6 +286,22 @@ export interface CollectionGraphInfo {
    * server; the type allows undefined for older fixtures.
    */
   entity_counts?: Record<string, number>
+  /**
+   * PSY-1475: graph-able collection items BEFORE the server's node cap
+   * (across all entity types). Mirrors the venue graph's `artist_total`
+   * "not a silent cap" disclosure. Optional for older fixtures; always
+   * populated by the server.
+   */
+  node_total?: number
+  /**
+   * PSY-1475: true when `node_total` exceeded the node cap and the
+   * response node list was truncated. The field is carried but not yet
+   * rendered — until then a capped graph's subtitle counts describe the
+   * truncated response with no visible cue. Display treatment is tracked
+   * in PSY-1476 (design-gated; that ticket decides whether all capped
+   * surfaces, this one included, adopt it in the first pass).
+   */
+  nodes_truncated?: boolean
 }
 
 export interface CollectionGraphNode {
@@ -310,7 +326,11 @@ export interface CollectionGraphNode {
   state?: string
   /** Meaningful only for artist nodes; 0 for non-artist nodes. */
   upcoming_show_count: number
-  /** True when the node has zero in-set edges (post type-filter). */
+  /**
+   * True when the node has zero in-set edges (post type-filter, and post
+   * node cap since PSY-1475 — a kept node whose only partners were
+   * truncated by the cap is re-marked as an isolate).
+   */
   is_isolate: boolean
 }
 

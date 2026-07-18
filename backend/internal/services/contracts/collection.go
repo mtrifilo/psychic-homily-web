@@ -408,12 +408,23 @@ type CollectionGraphResponse struct {
 //
 // ArtistCount is preserved for backward compatibility with PSY-366-era
 // callers and equals EntityCounts["artist"].
+//
+// NodeTotal + NodesTruncated mirror the venue bill network's ArtistTotal +
+// RosterTruncated (the scene graph's "not a silent cap" convention): the
+// response node list is capped, and these fields disclose the truncation to
+// the client. NodeTotal counts graph-able collection items BEFORE the cap.
+// It spans all entity types — collections are heterogeneous, so the
+// disclosure is per-node, not per-artist. ArtistCount, EdgeCount, and
+// EntityCounts all describe the capped response (the rendered graph), same
+// contract as the venue surface.
 type CollectionGraphInfo struct {
-	Slug         string         `json:"slug"`
-	Name         string         `json:"name"`
-	ArtistCount  int            `json:"artist_count"` // distinct artists in the collection (includes isolates)
-	EdgeCount    int            `json:"edge_count"`   // total edges in the response (post type-filter)
-	EntityCounts map[string]int `json:"entity_counts"`
+	Slug           string         `json:"slug"`
+	Name           string         `json:"name"`
+	ArtistCount    int            `json:"artist_count"` // distinct artist nodes in the response (includes isolates)
+	EdgeCount      int            `json:"edge_count"`   // total edges in the response (post type-filter, post cap)
+	EntityCounts   map[string]int `json:"entity_counts"`
+	NodeTotal      int            `json:"node_total"`      // graph-able items BEFORE the node cap
+	NodesTruncated bool           `json:"nodes_truncated"` // true when node_total > the node cap
 }
 
 // CollectionGraphNode represents a single collection item in the graph.

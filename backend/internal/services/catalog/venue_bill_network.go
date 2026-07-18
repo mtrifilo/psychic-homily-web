@@ -46,8 +46,9 @@ const (
 	// venueBillMaxNodes is the hard ceiling on graph nodes. This was the
 	// only uncapped catalog graph surface — festivalGraphMaxNodes and
 	// stationGraphMaxNodeLimit are both 150 (the community collection graph
-	// remains uncapped; see the WARMUP_TICKS comment in
-	// frontend/components/graph/ForceGraphView.tsx) — and an unbounded
+	// got its matching 150-node ceiling in PSY-1475; see
+	// collectionGraphMaxNodes in internal/services/community/collection.go)
+	// — and an unbounded
 	// payload made the frontend's synchronous warmup pre-settle blow its
 	// ~100ms main-thread budget on large venues (measurements live with
 	// that WARMUP_TICKS comment; this cap is what keeps the budget honest;

@@ -94,6 +94,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Publi
 	suite.Equal(1, graph.Collection.EdgeCount)
 	suite.Len(graph.Links, 1)
 
+	// PSY-1475 disclosure fields: under the cap, total equals the graph
+	// count and no truncation is disclosed.
+	suite.Equal(3, graph.Collection.NodeTotal, "under the cap, node_total equals the node count")
+	suite.False(graph.Collection.NodesTruncated, "under the cap, no truncation is disclosed")
+
 	// Connected artists should NOT be isolates; the rest should be.
 	connected := 0
 	isolated := 0
@@ -460,6 +465,158 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Multi
 		suite.True(srcOK, "link source_id %d must reference a node in the response", l.SourceID)
 		suite.True(tgtOK, "link target_id %d must reference a node in the response", l.TargetID)
 	}
+}
+
+// TestGetCollectionGraph_NodeCapKeepsConnectedCore (PSY-1475): a collection
+// over the 150-node ceiling is capped, keeping the highest-degree nodes (the
+// connected core) and dropping isolates first. NodeTotal discloses the
+// uncapped item count and NodesTruncated that the cap bit; ArtistCount /
+// EntityCounts / EdgeCount describe the capped response. The cap's ranking
+// semantics are unit-tested next to the service (capCollectionGraphNodes);
+// this pins the end-to-end wiring. The literal 150 mirrors
+// collectionGraphMaxNodes (not exported).
+func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_NodeCapKeepsConnectedCore() {
+	const maxNodes = 150
+
+	creator := suite.createTestUser("CapCreator")
+	priv := suite.createBasicCollection(creator, "Cap Test")
+
+	// maxNodes+2 artists. Names are zero-padded so the deterministic
+	// name-order node build matches ID order — the last two names are the
+	// tiebreak drops once the connected pair takes its slots.
+	artists := make([]catalogm.Artist, maxNodes+2)
+	for i := range artists {
+		artists[i] = catalogm.Artist{Name: fmt.Sprintf("Cap Artist %03d", i)}
+	}
+	suite.Require().NoError(suite.db.Create(&artists).Error)
+	items := make([]communitym.CollectionItem, len(artists))
+	for i, a := range artists {
+		items[i] = communitym.CollectionItem{
+			CollectionID:  priv.ID,
+			EntityType:    communitym.CollectionEntityArtist,
+			EntityID:      a.ID,
+			AddedByUserID: creator.ID,
+		}
+	}
+	suite.Require().NoError(suite.db.Create(&items).Error)
+
+	// One stored edge between the first two artists — degree 1 each. Plus a
+	// VENUE with a derived played_at edge to the first artist, exercising
+	// the heterogeneous path end-to-end: cross-type derived links must feed
+	// degree ranking via node IDs (collection_item.id), and the venue must
+	// survive the cap on its degree. Every other node is an isolate
+	// (degree 0), so the three trailing isolates get dropped.
+	suite.seedArtistRelationship(&artists[0], &artists[1], catalogm.RelationshipTypeSharedBills, 5.0)
+	venue := suite.createTestVenueForCollection("Cap Venue")
+	show := &catalogm.Show{
+		Title:     "Cap Show",
+		EventDate: time.Now().Add(-24 * time.Hour),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artists[0].ID}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+	suite.addNonArtistItemToCollection(priv.ID, venue.ID, creator.ID, communitym.CollectionEntityVenue)
+
+	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(graph.Nodes, maxNodes)
+	suite.Equal(maxNodes+3, graph.Collection.NodeTotal, "node_total discloses the uncapped item count")
+	suite.True(graph.Collection.NodesTruncated, "nodes_truncated discloses that the cap bit")
+	suite.Equal(maxNodes-1, graph.Collection.ArtistCount, "ArtistCount reflects the capped graph")
+	suite.Equal(maxNodes-1, graph.Collection.EntityCounts[communitym.CollectionEntityArtist])
+	suite.Equal(1, graph.Collection.EntityCounts[communitym.CollectionEntityVenue],
+		"the edged venue survives the cap in the mixed EntityCounts")
+	suite.Equal(2, graph.Collection.EdgeCount, "shared_bills + played_at edges survive the cap")
+	suite.Require().Len(graph.Links, 2)
+
+	names := make(map[string]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		names[n.Name] = true
+	}
+	suite.True(names["Cap Artist 000"], "connected artist must survive the cap")
+	suite.True(names["Cap Artist 001"], "connected artist must survive the cap")
+	suite.True(names["Cap Venue"], "cross-type-edged venue must survive the cap")
+	for _, dropped := range []string{
+		fmt.Sprintf("Cap Artist %03d", maxNodes-1),
+		fmt.Sprintf("Cap Artist %03d", maxNodes),
+		fmt.Sprintf("Cap Artist %03d", maxNodes+1),
+	} {
+		suite.False(names[dropped], "trailing isolate %s should be dropped by the cap", dropped)
+	}
+
+	// Every surviving link references nodes present in the response.
+	nodeIDs := make(map[uint]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		nodeIDs[n.ID] = true
+	}
+	for _, l := range graph.Links {
+		suite.True(nodeIDs[l.SourceID], "link source must reference a kept node")
+		suite.True(nodeIDs[l.TargetID], "link target must reference a kept node")
+	}
+}
+
+// TestGetCollectionGraph_NodeCapReMarksTruncatedPartnersAsIsolates pins the
+// post-cap isolate semantics the contract promises (PSY-1475): when the cap
+// drops a node, a kept partner whose ONLY edge pointed at it ships with
+// is_isolate=true and without the dangling link. Shape: 152 artists in
+// degree-1 pairs (i ↔ i+76), so every node ties on degree and the
+// name-order tiebreak drops the last two — whose partners (074, 075) stay
+// but must be re-marked as isolates.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_NodeCapReMarksTruncatedPartnersAsIsolates() {
+	const maxNodes = 150
+
+	creator := suite.createTestUser("IsoCapCreator")
+	priv := suite.createBasicCollection(creator, "Iso Cap Test")
+
+	artists := make([]catalogm.Artist, maxNodes+2)
+	for i := range artists {
+		artists[i] = catalogm.Artist{Name: fmt.Sprintf("Iso Artist %03d", i)}
+	}
+	suite.Require().NoError(suite.db.Create(&artists).Error)
+	items := make([]communitym.CollectionItem, len(artists))
+	for i, a := range artists {
+		items[i] = communitym.CollectionItem{
+			CollectionID:  priv.ID,
+			EntityType:    communitym.CollectionEntityArtist,
+			EntityID:      a.ID,
+			AddedByUserID: creator.ID,
+		}
+	}
+	suite.Require().NoError(suite.db.Create(&items).Error)
+
+	half := len(artists) / 2 // 76 pairs: i ↔ i+76
+	for i := 0; i < half; i++ {
+		suite.seedArtistRelationship(&artists[i], &artists[i+half], catalogm.RelationshipTypeSharedBills, 1.0)
+	}
+
+	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(graph.Nodes, maxNodes)
+	suite.True(graph.Collection.NodesTruncated)
+	// Dropped: the last two names (150, 151). Their partners (074, 075)
+	// survive but lose their only edge → 74 links remain.
+	suite.Equal(half-2, graph.Collection.EdgeCount)
+	suite.Require().Len(graph.Links, half-2)
+
+	byName := make(map[string]contracts.CollectionGraphNode, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		byName[n.Name] = n
+	}
+	for _, dropped := range []string{"Iso Artist 150", "Iso Artist 151"} {
+		_, present := byName[dropped]
+		suite.False(present, "%s should be dropped by the tiebreak", dropped)
+	}
+	for _, orphaned := range []string{"Iso Artist 074", "Iso Artist 075"} {
+		n, present := byName[orphaned]
+		suite.Require().True(present, "%s must survive the cap", orphaned)
+		suite.True(n.IsIsolate, "%s lost its only partner to the cap and must be re-marked isolate", orphaned)
+	}
+	kept, present := byName["Iso Artist 000"]
+	suite.Require().True(present)
+	suite.False(kept.IsIsolate, "a pair fully inside the cap stays connected")
 }
 
 // Verify the contract type signature aligns with the interface — this is a
