@@ -129,7 +129,7 @@ describe('BrowseMenu', () => {
       expect(menuOpen()).toBe(true)
     })
 
-    it('closes after the close delay when leaving trigger and panel', () => {
+    it('closes after the close delay when leaving the trigger without entering the panel', () => {
       render(<BrowseMenu />)
       fireEvent.pointerEnter(browseTrigger())
       act(() => {
@@ -170,8 +170,7 @@ describe('BrowseMenu', () => {
       const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
       const { unmount } = render(<BrowseMenu />)
       fireEvent.pointerEnter(browseTrigger())
-      // Arming scheduleOpen called clearTimer once already; unmount cleanup
-      // must clearTimeout again so the pending open never fires.
+      // Unmount effect must clearTimeout the pending open so setOpen never fires.
       const clearsBeforeUnmount = clearTimeoutSpy.mock.calls.length
       unmount()
       expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThan(clearsBeforeUnmount)
