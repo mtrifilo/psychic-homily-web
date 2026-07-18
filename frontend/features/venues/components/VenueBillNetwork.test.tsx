@@ -13,8 +13,9 @@ const mockData: VenueBillNetworkResponse = {
     name: 'Valley Bar',
     city: 'Phoenix',
     state: 'AZ',
-    artist_count: 8,
-    artist_total: 8,
+    // Backend invariant: artist_count === len(nodes) (4 below).
+    artist_count: 4,
+    artist_total: 4,
     roster_truncated: false,
     edge_count: 5,
     show_count: 25,
@@ -79,14 +80,17 @@ vi.mock('../hooks/useVenues', () => ({
 vi.mock('./VenueBillNetworkAdapter', () => ({
   SceneGraphVisualizationStyleAdapter: ({
     venueName,
+    countPhrase,
     height,
   }: {
     venueName: string
+    countPhrase: string
     height?: number
   }) => (
     <div
       data-testid="venue-bill-network-canvas"
       data-venue-name={venueName}
+      data-count-phrase={countPhrase}
       data-height={height ?? ''}
     >
       Venue Bill Network Canvas
@@ -124,6 +128,47 @@ describe('VenueBillNetwork', () => {
     expect(screen.getByText(/4 artists/)).toBeInTheDocument()
     expect(screen.getByText(/5 co-bills/)).toBeInTheDocument()
     expect(screen.getByText(/1 unconnected/)).toBeInTheDocument()
+  })
+
+  it('discloses the top-N-of-M cap when the roster is truncated (PSY-1476)', async () => {
+    const hooks = await import('../hooks/useVenues')
+    vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+      data: {
+        ...mockData,
+        // 4 nodes shown, but 312 distinct in-window artists before the cap.
+        venue: { ...mockData.venue, artist_total: 312, roster_truncated: true },
+      },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />)
+    expect(screen.getByText(/Top 4 of 312 artists/)).toBeInTheDocument()
+    // The tail (co-bills / unconnected) is unchanged.
+    expect(screen.getByText(/5 co-bills/)).toBeInTheDocument()
+    // The same phrase (lowercase, mid-sentence) is threaded to the canvas
+    // aria-label so header and assistive tech can't diverge.
+    expect(screen.getByTestId('venue-bill-network-canvas')).toHaveAttribute(
+      'data-count-phrase',
+      'top 4 of 312 artists',
+    )
+  })
+
+  it('degrades to the plain count when truncated but the total is not larger (PSY-1476)', async () => {
+    const hooks = await import('../hooks/useVenues')
+    vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+      data: {
+        ...mockData,
+        // Stale/skewed payload: flag set but total ≤ shown — no "top 4 of 4".
+        venue: { ...mockData.venue, artist_total: 4, roster_truncated: true },
+      },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />)
+    expect(screen.getByText(/4 artists/)).toBeInTheDocument()
+    expect(screen.queryByText(/Top 4 of/)).not.toBeInTheDocument()
   })
 
   it('hides the canvas below the 640px breakpoint', () => {

@@ -40,6 +40,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
+import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
@@ -151,11 +152,38 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
+  // PSY-1476: a capped graph must say so. One `truncatedCountPhrase` call gives
+  // both the shared "top N of M items" / "N items" phrase AND whether the cue
+  // applies — so the header, canvas aria-label, and caption all read one source
+  // and can't state different numbers (and there's no second copy of the guard
+  // to drift). "items" is the generic noun for the mixed entity types; the
+  // helper's `shown > 0` guard makes an all-dropped payload (0 nodes, positive
+  // total — a case collection.go still flags) read "No items", not "Top 0 of N".
+  // When truncated the cue REPLACES the per-type breakdown (a per-type count of
+  // a capped subset would contradict the cap); otherwise the breakdown stands.
+  //
+  // NOTE: nodes_truncated conflates the 150-node payload cap, the 600-item build
+  // ceiling, and unbuildable (deleted-entity) items — so "top" slightly
+  // overstates ranking for the latter two. The counts stay truthful and the
+  // dominant >150-item case is a genuine degree-ranked cap.
+  const { phrase: itemsCountPhrase, truncated: nodesTruncated } = truncatedCountPhrase({
+    shown: nodeCount,
+    total: data?.collection.node_total,
+    truncated: data?.collection.nodes_truncated,
+    singular: 'item',
+    plural: 'items',
+  })
+  const leadSegment = nodesTruncated
+    ? sentenceCase(itemsCountPhrase)
+    : subtitleParts.length > 0
+      ? subtitleParts.join(' · ')
+      : 'No items'
+
   const sectionHeader = (
     <div>
       <h2 className="text-lg font-semibold">Collection graph</h2>
       <p className="text-sm text-muted-foreground">
-        {subtitleParts.length > 0 ? subtitleParts.join(' · ') : 'No items'}
+        {leadSegment}
         {edgeCount > 0 && (
           <>
             {' · '}
@@ -244,14 +272,16 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
               clusters={clusters}
               containerWidth={containerWidth!}
               collectionTitle={collectionTitle}
-              nodeCount={nodeCount}
+              countPhrase={itemsCountPhrase}
               edgeCount={edgeCount}
             />
             <p className="text-xs text-muted-foreground">
-              Showing every item in this collection and the relationships
-              between them — artists, venues they’ve played, releases
-              they’ve made, labels they’re on, festivals they’ve
-              played, and shows. Click any node for its details.
+              {nodesTruncated
+                ? `Showing the ${itemsCountPhrase} in this collection`
+                : 'Showing every item in this collection'}{' '}
+              and the relationships between them — artists, venues they’ve
+              played, releases they’ve made, labels they’re on, festivals
+              they’ve played, and shows. Click any node for its details.
             </p>
           </div>
         )}
@@ -290,7 +320,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
                 containerWidth={overlayWidth}
                 height={overlayHeight}
                 collectionTitle={collectionTitle}
-                nodeCount={nodeCount}
+                countPhrase={itemsCountPhrase}
                 edgeCount={edgeCount}
               />
             )}

@@ -44,7 +44,12 @@ interface CollectionGraphVisualizationProps {
   containerWidth: number
   height?: number
   collectionTitle: string
-  nodeCount: number
+  /**
+   * The item-count phrase for the canvas aria-label — "N items" or, when the
+   * graph is capped, "top N of M items" (PSY-1476). Built by the parent so the
+   * aria-label and the visible header can't state different numbers.
+   */
+  countPhrase: string
   edgeCount: number
 }
 
@@ -56,7 +61,7 @@ export function CollectionGraphVisualization({
   containerWidth,
   height,
   collectionTitle,
-  nodeCount,
+  countPhrase,
   edgeCount,
 }: CollectionGraphVisualizationProps) {
   const sourceById = useMemo(
@@ -95,7 +100,7 @@ export function CollectionGraphVisualization({
     links,
   })
 
-  const ariaLabel = `Knowledge graph for collection ${collectionTitle}: ${nodeCount} items, ${edgeCount} connections. ${graphEntitySelectGestureHint}`
+  const ariaLabel = `Knowledge graph for collection ${collectionTitle}: ${countPhrase}, ${edgeCount} connections. ${graphEntitySelectGestureHint}`
 
   const panel =
     selectedNode && selectedSource && isArtist ? (

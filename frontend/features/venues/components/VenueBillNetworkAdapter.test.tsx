@@ -141,6 +141,9 @@ const renderAdapter = () =>
     <SceneGraphVisualizationStyleAdapter
       data={data}
       venueName="Valley Bar"
+      // Matches the local `data` fixture (3 nodes); unused by this file's
+      // assertions, which don't check the aria-label count.
+      countPhrase="3 artists"
       containerWidth={800}
     />,
   )

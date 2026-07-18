@@ -126,11 +126,27 @@ describe('CollectionGraphVisualization', () => {
         clusters={[]}
         containerWidth={1024}
         collectionTitle="Desert Doom"
-        nodeCount={2}
+        countPhrase="2 items"
         edgeCount={0}
       />,
     )
     expect(lastProps?.ariaLabel).toContain(graphEntitySelectGestureHint)
+  })
+
+  it('carries the truncation cue from countPhrase into the aria-label (PSY-1476)', () => {
+    render(
+      <CollectionGraphVisualization
+        nodes={renderNodes}
+        sourceNodes={sourceNodes}
+        links={links}
+        clusters={[]}
+        containerWidth={1024}
+        collectionTitle="Desert Doom"
+        countPhrase="top 150 of 312 items"
+        edgeCount={0}
+      />,
+    )
+    expect(lastProps?.ariaLabel).toContain('top 150 of 312 items')
   })
 
   it('selects an artist into ArtistContextPanel and fetches by slug', () => {
@@ -165,7 +181,7 @@ describe('CollectionGraphVisualization', () => {
         clusters={[]}
         containerWidth={1024}
         collectionTitle="Desert Doom"
-        nodeCount={2}
+        countPhrase="2 items"
         edgeCount={0}
       />,
     )
@@ -205,7 +221,7 @@ describe('CollectionGraphVisualization', () => {
         clusters={[]}
         containerWidth={1024}
         collectionTitle="Desert Doom"
-        nodeCount={2}
+        countPhrase="2 items"
         edgeCount={0}
       />,
     )
@@ -243,7 +259,7 @@ describe('CollectionGraphVisualization', () => {
         clusters={[]}
         containerWidth={1024}
         collectionTitle="Desert Doom"
-        nodeCount={2}
+        countPhrase="2 items"
         edgeCount={0}
       />,
     )
