@@ -748,6 +748,11 @@ export function GraphObservatory() {
                       containerWidth={containerWidth}
                       onSelect={handleCanvasSelect}
                       onBackgroundClick={handlePanelClose}
+                      // Selection pins the neighborhood focus-dim until
+                      // deselection (PSY-1478) — the panel's connection
+                      // counts keep their visual counterpart on canvas
+                      // after mouse-out.
+                      selectedNodeId={selectedNode?.id ?? null}
                       showLegend={false}
                       canvasDescribedById="observatory-graph-guidance"
                       canvasAriaLabel={`Artist relationship graph for ${graph.center.name}. Use the Browse connections list below to select an artist.`}

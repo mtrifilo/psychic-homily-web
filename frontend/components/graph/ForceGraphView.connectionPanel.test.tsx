@@ -54,6 +54,7 @@ vi.mock('@/lib/api-base', () => ({
 }))
 
 import { ForceGraphView, type GraphNode } from './ForceGraphView'
+import { BACKGROUND_ALPHA } from './graphFocus'
 
 const nodes: GraphNode[] = [
   { id: 1, name: 'Dehd', slug: 'dehd', upcoming_show_count: 0 },
@@ -286,6 +287,41 @@ describe('ForceGraphView connection panel', () => {
     expect(screen.queryByText(/Showing only/)).not.toBeInTheDocument()
     const simLinks = (h.lastProps.value!.graphData as { links: Array<{ type: string }> }).links
     expect(simLinks.length).toBeGreaterThan(0) // graph not stuck empty
+  })
+
+  it('pins the focus-dim to the inspected pair’s endpoints while the panel is open (PSY-1478)', () => {
+    renderGraph()
+    const renderNode = (id: number) => ({
+      id, name: `n${id}`, slug: `n${id}`, upcoming_show_count: 0,
+      cluster_id: 'other', is_isolate: false, x: 0, y: 0,
+    })
+    const paintAlphas = (id: number) => {
+      const alphas: number[] = []
+      let alpha = 1
+      const ctx = {
+        get globalAlpha() { return alpha },
+        set globalAlpha(v: number) { alpha = v; alphas.push(v) },
+        beginPath() {}, arc() {}, fill() {}, stroke() {},
+        fillStyle: '', strokeStyle: '', lineWidth: 0,
+      }
+      ;(h.lastProps.value!.nodeCanvasObject as (n: unknown, c: unknown) => void)(
+        renderNode(id), ctx,
+      )
+      return alphas
+    }
+
+    clickLink(1, 2)
+    // Endpoints 1 and 2 stay foreground; node 3 dims to the background alpha —
+    // the panel's "why connected" card keeps its counterpart on canvas.
+    expect(paintAlphas(1).every(a => a === 1)).toBe(true)
+    expect(paintAlphas(2).every(a => a === 1)).toBe(true)
+    expect(paintAlphas(3)[0]).toBe(BACKGROUND_ALPHA)
+
+    // Closing the panel releases the pin.
+    act(() => {
+      ;(h.lastProps.value!.onBackgroundClick as () => void)()
+    })
+    expect(paintAlphas(3).every(a => a === 1)).toBe(true)
   })
 
   it('auto-closes when the pair leaves the payload (data refresh)', () => {

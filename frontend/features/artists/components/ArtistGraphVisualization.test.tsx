@@ -320,3 +320,96 @@ describe('ArtistGraphVisualization — expand gesture (PSY-1259)', () => {
     expect(onExpand).not.toHaveBeenCalled()
   })
 })
+
+// PSY-1478: on Tool select-mode surfaces (the /graph Observatory) the selected
+// node pins the neighborhood focus-dim until deselection; hover previews over
+// the pin and hover-out reverts to the pinned focus, never to undimmed.
+describe('ArtistGraphVisualization — pinned selection focus (PSY-1478)', () => {
+  afterEach(() => { forceGraphProps = null })
+
+  // Center 1 with two satellites 2 and 3 (both hop-1). Pinning/hovering one
+  // satellite leaves the OTHER satellite outside the focus set — the dim probe.
+  const graphData3: ArtistGraph = {
+    ...graphData,
+    nodes: [
+      ...graphData.nodes,
+      { id: 3, name: 'Undeath', slug: 'undeath', city: 'Rochester', state: 'NY', upcoming_show_count: 0 },
+    ],
+    links: [
+      ...graphData.links,
+      { source_id: 1, target_id: 3, type: 'similar', score: 0.5, votes_up: 1, votes_down: 0 },
+    ],
+  }
+  const satellite3 = { ...satellite, id: 3, name: 'Undeath', slug: 'undeath', upcoming_show_count: 0 }
+
+  // Minimal canvas ctx recording every globalAlpha assignment (nodeCanvasObject
+  // resets it to 1 at the end, so the live value can't be read afterwards).
+  const paintAlphas = (node: Record<string, unknown>) => {
+    const alphas: number[] = []
+    let alpha = 1
+    const ctx = {
+      get globalAlpha() { return alpha },
+      set globalAlpha(v: number) { alpha = v; alphas.push(v) },
+      beginPath() {}, arc() {}, fill() {}, stroke() {},
+      setLineDash() {}, save() {}, restore() {}, moveTo() {}, lineTo() {},
+      fillStyle: '', strokeStyle: '', lineWidth: 0, shadowColor: '', shadowBlur: 0,
+    }
+    forceGraphProps.nodeCanvasObject(node, ctx, 2)
+    return alphas
+  }
+
+  const renderPinned = (selectedNodeId: number | null) =>
+    renderWithProviders(
+      <ArtistGraphVisualization
+        data={graphData3}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={() => {}}
+        selectedNodeId={selectedNodeId}
+      />,
+    )
+
+  it('pins the focus-dim to the selected node with no hover at all', () => {
+    renderPinned(2)
+    // Foreground = selected 2 + its neighbor/center 1; satellite 3 dims.
+    expect(paintAlphas(satellite).every(a => a === 1)).toBe(true)
+    expect(paintAlphas(centerNode).every(a => a === 1)).toBe(true)
+    expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
+  })
+
+  it('hover previews over the pin, and hover-out reverts to the pinned focus', () => {
+    // Fake timers: hover-out clears hoveredNode via the PSY-1218 dismiss-grace
+    // timer (300ms), so the focus revert lands when that timer fires.
+    vi.useFakeTimers()
+    try {
+      renderPinned(2)
+      // Hover satellite 3 → preview wins: 3 foreground, pinned 2 dims.
+      act(() => forceGraphProps.onNodeHover(satellite3))
+      expect(paintAlphas(satellite3).every(a => a === 1)).toBe(true)
+      expect(paintAlphas(satellite)[0]).toBeLessThan(1)
+      // Hover-out (after the grace window) → back to the SELECTED node's
+      // focus, never to undimmed.
+      act(() => forceGraphProps.onNodeHover(null))
+      act(() => { vi.runAllTimers() })
+      expect(paintAlphas(satellite).every(a => a === 1)).toBe(true)
+      expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the pin on deselection (selectedNodeId back to null)', () => {
+    const { rerender } = renderPinned(2)
+    expect(paintAlphas(satellite3)[0]).toBeLessThan(1)
+    rerender(
+      <ArtistGraphVisualization
+        data={graphData3}
+        activeTypes={new Set(['similar'])}
+        containerWidth={1024}
+        onSelect={() => {}}
+        selectedNodeId={null}
+      />,
+    )
+    expect(paintAlphas(satellite3).every(a => a === 1)).toBe(true)
+  })
+})
