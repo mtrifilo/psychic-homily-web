@@ -158,7 +158,7 @@ describe('ProfileStatsSidebar', () => {
       expect(screen.getAllByText('0')).toHaveLength(2)
       expect(
         screen.getByText(
-          'Log a show or follow an artist and your profile starts filling in.'
+          'Save a show or follow an artist and your profile starts filling in.'
         )
       ).toBeInTheDocument()
       expect(
@@ -181,7 +181,7 @@ describe('ProfileStatsSidebar', () => {
         screen.getByRole('button', { name: /show all statistics/i })
       ).toBeInTheDocument()
       expect(
-        screen.queryByText(/Log a show or follow an artist/)
+        screen.queryByText(/Save a show or follow an artist/)
       ).not.toBeInTheDocument()
     })
 
@@ -194,7 +194,7 @@ describe('ProfileStatsSidebar', () => {
         />
       )
       expect(
-        screen.queryByText(/Log a show or follow an artist/)
+        screen.queryByText(/Save a show or follow an artist/)
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole('button', { name: /show all statistics/i })

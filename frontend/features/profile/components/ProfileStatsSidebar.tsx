@@ -16,7 +16,7 @@ interface ProfileStatsSidebarProps {
   collectionsTotal?: number
   /**
    * Viewer owns this profile. Gates the zero-state onboarding hint, whose copy
-   * addresses the profile owner ("Log a show…"), not a visitor.
+   * addresses the profile owner ("Save a show…"), not a visitor.
    */
   isOwner?: boolean
   /**
@@ -241,7 +241,7 @@ export function ProfileStatsSidebar({
 
       {isAllZero && isOwner && (
         <p className="mt-4 border-t border-border/50 pt-3 text-sm leading-relaxed text-muted-foreground">
-          Log a show or follow an artist and your profile starts filling in.
+          Save a show or follow an artist and your profile starts filling in.
         </p>
       )}
 
