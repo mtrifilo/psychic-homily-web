@@ -216,10 +216,13 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // venue reads as the whole history. Mirrors the scene graph's shipped
   // treatment (sceneArtistCountPhrase → truncatedCountPhrase): the leading
   // count becomes "top N of M artists" when roster_truncated, sentence-cased
-  // here (a digit-leading plain count is a toUpperCase no-op). artist_total /
-  // roster_truncated shipped in #1563.
+  // here (a digit-leading plain count is a toUpperCase no-op). Reads the
+  // contract field `artist_count` (which the backend guarantees equals
+  // len(nodes)) — the same field `artist_total`/`roster_truncated` are defined
+  // against, and the one the canvas aria-label uses, so the two can't diverge.
+  // Shipped in #1563.
   const rawArtistPhrase = truncatedCountPhrase({
-    shown: nodeCount,
+    shown: data?.venue.artist_count ?? 0,
     total: data?.venue.artist_total,
     truncated: data?.venue.roster_truncated,
     singular: 'artist',

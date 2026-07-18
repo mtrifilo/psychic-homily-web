@@ -152,26 +152,37 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-  // PSY-1476: a capped graph must say so. When nodes_truncated, the per-type
-  // breakdown describes only the returned slice (and would contradict the cap),
-  // so it's REPLACED by a "top N of M items" cue — "items" is the generic noun
-  // for the mixed entity types. A non-truncated graph keeps the per-type
-  // breakdown unchanged. Mirrors the scene/venue treatment; truncatedCountPhrase
-  // owns the same stale-payload guard, re-checked here to pick the branch
-  // (node_total / nodes_truncated shipped in #1569). Sentence-cased to lead.
+  // PSY-1476: a capped graph must say so. `itemsCountPhrase` is the shared
+  // "top N of M items" / "N items" phrase (truncatedCountPhrase owns the
+  // stale-payload guard); it drives the header, the canvas aria-label, and the
+  // caption below so all three can never state different numbers. "items" is
+  // the generic noun for the mixed entity types.
+  //
+  // `nodesTruncated` gates the disclosure on a REAL, non-empty cap: nodeCount
+  // > 0 excludes the all-dropped payload the backend still flags (0 nodes,
+  // positive total — collection.go), which must read "No items", not
+  // "Top 0 of N". When truncated the cue REPLACES the per-type breakdown (a
+  // per-type count of a capped subset would contradict the cap); otherwise the
+  // breakdown stands. NOTE: nodes_truncated conflates the 150-node payload cap,
+  // the 600-item build ceiling, and unbuildable (deleted-entity) items — so
+  // "top" slightly overstates ranking for the latter two; the counts stay
+  // truthful and the dominant >150-item case is a genuine degree-ranked cap.
   const nodeTotal = data?.collection.node_total
-  const rawItemsPhrase =
-    data?.collection.nodes_truncated && nodeTotal !== undefined && nodeTotal > nodeCount
-      ? truncatedCountPhrase({
-          shown: nodeCount,
-          total: nodeTotal,
-          truncated: true,
-          singular: 'item',
-          plural: 'items',
-        })
-      : null
-  const leadSegment = rawItemsPhrase
-    ? rawItemsPhrase.charAt(0).toUpperCase() + rawItemsPhrase.slice(1)
+  const itemsCountPhrase = truncatedCountPhrase({
+    shown: nodeCount,
+    total: nodeTotal,
+    truncated: data?.collection.nodes_truncated,
+    singular: 'item',
+    plural: 'items',
+  })
+  const nodesTruncated = Boolean(
+    data?.collection.nodes_truncated &&
+      nodeTotal !== undefined &&
+      nodeCount > 0 &&
+      nodeTotal > nodeCount,
+  )
+  const leadSegment = nodesTruncated
+    ? itemsCountPhrase.charAt(0).toUpperCase() + itemsCountPhrase.slice(1)
     : subtitleParts.length > 0
       ? subtitleParts.join(' · ')
       : 'No items'
@@ -269,14 +280,16 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
               clusters={clusters}
               containerWidth={containerWidth!}
               collectionTitle={collectionTitle}
-              nodeCount={nodeCount}
+              countPhrase={itemsCountPhrase}
               edgeCount={edgeCount}
             />
             <p className="text-xs text-muted-foreground">
-              Showing every item in this collection and the relationships
-              between them — artists, venues they’ve played, releases
-              they’ve made, labels they’re on, festivals they’ve
-              played, and shows. Click any node for its details.
+              {nodesTruncated
+                ? `Showing the ${itemsCountPhrase} in this collection`
+                : 'Showing every item in this collection'}{' '}
+              and the relationships between them — artists, venues they’ve
+              played, releases they’ve made, labels they’re on, festivals
+              they’ve played, and shows. Click any node for its details.
             </p>
           </div>
         )}
@@ -315,7 +328,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
                 containerWidth={overlayWidth}
                 height={overlayHeight}
                 collectionTitle={collectionTitle}
-                nodeCount={nodeCount}
+                countPhrase={itemsCountPhrase}
                 edgeCount={edgeCount}
               />
             )}

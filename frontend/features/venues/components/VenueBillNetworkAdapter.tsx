@@ -44,6 +44,7 @@ import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVi
 // precedent, PSY-868).
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
+import { truncatedCountPhrase } from '@/components/graph/truncatedCountPhrase'
 import type { VenueBillNetworkResponse } from '../types'
 
 // The venue surface has no cluster legend pills, so nothing is ever hidden —
@@ -99,7 +100,18 @@ export function SceneGraphVisualizationStyleAdapter({
       : data.venue.window === 'year' && data.venue.year
         ? `year ${data.venue.year}`
         : 'all time'
-  const ariaLabel = `Co-bill network for ${venueName} (${windowPhrase}): ${data.venue.artist_count} artists, ${data.venue.edge_count} co-bills. ${graphSelectGestureHint}`
+  // PSY-1476: the aria-label must carry the SAME truncation disclosure the
+  // visible header shows (VenueBillNetwork.tsx) — the scene surface's invariant
+  // that sighted users and assistive tech never hear different numbers. Read
+  // mid-sentence, so lowercase "top N of M artists" (no sentence-casing here).
+  const artistPhrase = truncatedCountPhrase({
+    shown: data.venue.artist_count,
+    total: data.venue.artist_total,
+    truncated: data.venue.roster_truncated,
+    singular: 'artist',
+    plural: 'artists',
+  })
+  const ariaLabel = `Co-bill network for ${venueName} (${windowPhrase}): ${artistPhrase}, ${data.venue.edge_count} co-bills. ${graphSelectGestureHint}`
 
   return (
     <GraphPanelHost

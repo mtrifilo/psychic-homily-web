@@ -122,6 +122,17 @@ describe('VenueBillNetworkAdapter selection (PSY-1451)', () => {
     )
   })
 
+  it('carries the top-N-of-M truncation cue in the aria-label when the roster is capped (PSY-1476)', () => {
+    // Parity with the visible header — assistive tech must hear the same cap.
+    renderAdapter({
+      venue: { ...data.venue, artist_total: 312, roster_truncated: true },
+    })
+    expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
+      'aria-label',
+      `Co-bill network for Valley Bar (last 12 months): top 8 of 312 artists, 5 co-bills. ${graphSelectGestureHint}`,
+    )
+  })
+
   it('forwards graph payload, width, height, and the shared-grammar opt-ins', () => {
     render(
       <SceneGraphVisualizationStyleAdapter

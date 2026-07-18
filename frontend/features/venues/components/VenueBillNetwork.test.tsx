@@ -13,8 +13,9 @@ const mockData: VenueBillNetworkResponse = {
     name: 'Valley Bar',
     city: 'Phoenix',
     state: 'AZ',
-    artist_count: 8,
-    artist_total: 8,
+    // Backend invariant: artist_count === len(nodes) (4 below).
+    artist_count: 4,
+    artist_total: 4,
     roster_truncated: false,
     edge_count: 5,
     show_count: 25,

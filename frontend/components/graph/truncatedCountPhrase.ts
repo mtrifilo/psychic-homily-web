@@ -7,9 +7,12 @@
  * scene, venue bill network, and collection graphs.
  *
  * Trust the truncated flag only when the numbers back it up — a skewed or
- * stale payload (total missing, zero, or ≤ the shown count) degrades to the
- * plain count rather than rendering "top 12 of 0 items". This mirrors the
- * scene graph's original guard exactly.
+ * stale payload (total missing, zero, or ≤ the shown count, or nothing shown
+ * at all) degrades to the plain count rather than rendering "top 12 of 0" or
+ * "top 0 of 5". The `shown > 0` guard matters for the collection graph, whose
+ * backend sets `nodes_truncated` even when every node was dropped (a
+ * deleted-entity payload: 0 nodes, positive total) — that must read as "0
+ * items", not "top 0 of N".
  *
  * Returns lowercase ("top 12 of 90 artists" / "12 artists"). A caller that
  * leads a sentence with the phrase sentence-cases the first character (a no-op
@@ -33,7 +36,7 @@ export function truncatedCountPhrase({
   singular: string
   plural: string
 }): string {
-  if (truncated && total !== undefined && total > shown) {
+  if (truncated && total !== undefined && shown > 0 && total > shown) {
     return `top ${shown} of ${total} ${plural}`
   }
   return `${shown} ${shown === 1 ? singular : plural}`

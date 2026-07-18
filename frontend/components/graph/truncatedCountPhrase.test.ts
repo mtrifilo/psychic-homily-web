@@ -46,6 +46,14 @@ describe('truncatedCountPhrase (PSY-1476)', () => {
     ).toBe('12 items')
   })
 
+  it('never renders "top 0 of N" when nothing is shown', () => {
+    // The collection backend sets nodes_truncated even when every node was
+    // dropped (deleted-entity payload: 0 nodes, positive total).
+    expect(
+      truncatedCountPhrase({ shown: 0, total: 5, truncated: true, ...items }),
+    ).toBe('0 items')
+  })
+
   it('renders the plain count when the total is present but the flag is off', () => {
     expect(
       truncatedCountPhrase({ shown: 12, total: 312, truncated: false, ...items }),
