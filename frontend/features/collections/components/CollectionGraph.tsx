@@ -40,6 +40,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
+import { truncatedCountPhrase } from '@/components/graph/truncatedCountPhrase'
 import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
@@ -151,11 +152,35 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
+  // PSY-1476: a capped graph must say so. When nodes_truncated, the per-type
+  // breakdown describes only the returned slice (and would contradict the cap),
+  // so it's REPLACED by a "top N of M items" cue — "items" is the generic noun
+  // for the mixed entity types. A non-truncated graph keeps the per-type
+  // breakdown unchanged. Mirrors the scene/venue treatment; truncatedCountPhrase
+  // owns the same stale-payload guard, re-checked here to pick the branch
+  // (node_total / nodes_truncated shipped in #1569). Sentence-cased to lead.
+  const nodeTotal = data?.collection.node_total
+  const rawItemsPhrase =
+    data?.collection.nodes_truncated && nodeTotal !== undefined && nodeTotal > nodeCount
+      ? truncatedCountPhrase({
+          shown: nodeCount,
+          total: nodeTotal,
+          truncated: true,
+          singular: 'item',
+          plural: 'items',
+        })
+      : null
+  const leadSegment = rawItemsPhrase
+    ? rawItemsPhrase.charAt(0).toUpperCase() + rawItemsPhrase.slice(1)
+    : subtitleParts.length > 0
+      ? subtitleParts.join(' · ')
+      : 'No items'
+
   const sectionHeader = (
     <div>
       <h2 className="text-lg font-semibold">Collection graph</h2>
       <p className="text-sm text-muted-foreground">
-        {subtitleParts.length > 0 ? subtitleParts.join(' · ') : 'No items'}
+        {leadSegment}
         {edgeCount > 0 && (
           <>
             {' · '}

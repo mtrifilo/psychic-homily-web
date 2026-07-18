@@ -36,6 +36,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
+import { truncatedCountPhrase } from '@/components/graph/truncatedCountPhrase'
 import { useVenueBillNetwork } from '../hooks/useVenues'
 import type { VenueBillNetworkWindow } from '../types'
 import { SceneGraphVisualizationStyleAdapter } from './VenueBillNetworkAdapter'
@@ -211,11 +212,27 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   const hideSection =
     containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
 
+  // PSY-1476: a capped roster must say so — "150 artists" on a 312-artist
+  // venue reads as the whole history. Mirrors the scene graph's shipped
+  // treatment (sceneArtistCountPhrase → truncatedCountPhrase): the leading
+  // count becomes "top N of M artists" when roster_truncated, sentence-cased
+  // here (a digit-leading plain count is a toUpperCase no-op). artist_total /
+  // roster_truncated shipped in #1563.
+  const rawArtistPhrase = truncatedCountPhrase({
+    shown: nodeCount,
+    total: data?.venue.artist_total,
+    truncated: data?.venue.roster_truncated,
+    singular: 'artist',
+    plural: 'artists',
+  })
+  const artistPhrase =
+    rawArtistPhrase.charAt(0).toUpperCase() + rawArtistPhrase.slice(1)
+
   const sectionHeader = (
     <div>
       <h2 className="text-lg font-semibold">Who plays together here</h2>
       <p className="text-sm text-muted-foreground">
-        {nodeCount} {nodeCount === 1 ? 'artist' : 'artists'}
+        {artistPhrase}
         {edgeCount > 0 && (
           <>
             {' · '}

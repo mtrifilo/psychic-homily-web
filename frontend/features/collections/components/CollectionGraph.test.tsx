@@ -86,6 +86,30 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     expect(screen.getByTestId('collection-graph-canvas')).toBeInTheDocument()
   })
 
+  it('keeps the per-type breakdown when not truncated (PSY-1476)', () => {
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    expect(screen.getByText(/2 artists · 1 venue/)).toBeInTheDocument()
+    expect(screen.queryByText(/Top 3 of/)).not.toBeInTheDocument()
+  })
+
+  it('replaces the per-type breakdown with a top-N-of-M cue when truncated (PSY-1476)', async () => {
+    const hooks = await import('../hooks')
+    vi.mocked(hooks.useCollectionGraph).mockReturnValue({
+      data: {
+        ...mockData,
+        // 3 nodes shown, but 312 items in the collection before the cap.
+        collection: { ...mockData.collection, node_total: 312, nodes_truncated: true },
+      },
+      isLoading: false,
+      isError: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    expect(screen.getByText(/Top 3 of 312 items/)).toBeInTheDocument()
+    // The per-type breakdown is dropped — it would contradict the cap.
+    expect(screen.queryByText(/2 artists/)).not.toBeInTheDocument()
+  })
+
   it('renders a height-reserving skeleton (not bare text) while loading', async () => {
     const hooks = await import('../hooks')
     vi.mocked(hooks.useCollectionGraph).mockReturnValue({
