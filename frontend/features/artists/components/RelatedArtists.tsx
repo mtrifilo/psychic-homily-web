@@ -602,7 +602,7 @@ function RecenteringGraph({
   // edges. Reset on either via the render-phase "adjust state during render" pattern
   // (ArtistGraph's hover-reset idiom), avoiding a setState-in-effect. Other type toggles are
   // client-side filters over the already-fetched payload, so they do NOT reset.
-  const explorationKey = `${centerSlug} ${wantFestival}`
+  const explorationKey = `${centerSlug}|${wantFestival}`
   const [expansionKey, setExpansionKey] = useState(explorationKey)
   if (explorationKey !== expansionKey) {
     setExpansionKey(explorationKey)
