@@ -1,11 +1,16 @@
 'use client'
 
 /**
- * CollectionGraph (PSY-366, PSY-555)
+ * CollectionGraph (PSY-366, PSY-555, PSY-1473)
  *
  * Section wrapper for the collection's knowledge subgraph: header, canvas,
  * fullscreen overlay. PSY-555 broadened the graph from artist-only to a
  * full multi-type graph (Option B) — every collection item is now a node.
+ *
+ * PSY-1473: click SELECTS into a context panel (ArtistContextPanel for
+ * artists, EntityContextPanel for the other five types) via
+ * CollectionGraphVisualization — the last PSY-1451 surface. Navigation
+ * only via the panel's "Open page →".
  *
  * Mirrors the SceneGraph (PSY-367, PSY-516, PSY-517) layout pattern — same
  * callback-ref width measurement, same mobile gate, same body-scroll-lock +
@@ -23,11 +28,9 @@
  * so the graph slot collapses to a teaser message.
  */
 
-import { useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useMemo } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { useCollectionGraph } from '../hooks'
-import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import {
@@ -40,8 +43,8 @@ import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraph
 import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
-  getEntityUrl,
 } from '../types'
+import { CollectionGraphVisualization } from './CollectionGraphVisualization'
 
 /**
  * PSY-555: stable color-index per entity type, indexing into the cluster
@@ -69,7 +72,6 @@ interface CollectionGraphProps {
 }
 
 export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps) {
-  const router = useRouter()
   const { data, isLoading, isError } = useCollectionGraph({ slug, enabled: Boolean(slug) })
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
@@ -112,19 +114,6 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     return { renderNodes: enriched, clusters: clusterDefs }
   }, [data])
 
-  // PSY-555: route to the right entity detail page based on the node's
-  // entity_type. The render-node's `cluster_id` carries the entity type
-  // (set above when enriching). Falls back to /artists/ for legacy nodes
-  // that don't carry it — shouldn't happen in production, matches the
-  // PSY-366 baseline.
-  const navigateToNode = useCallback(
-    (node: GraphNode) => {
-      const entityType = node.cluster_id ?? 'artist'
-      router.push(getEntityUrl(entityType, node.slug))
-    },
-    [router],
-  )
-
   // PSY-555: subtitle reflects the multi-type breakdown. Uses
   // entity_counts when present, falling back to artist_count for
   // PSY-366-era response shapes.
@@ -162,14 +151,6 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-  const handleNodeClickOverlay = useCallback(
-    (node: GraphNode) => {
-      closeFullscreen()
-      navigateToNode(node)
-    },
-    [closeFullscreen, navigateToNode],
-  )
-
   const sectionHeader = (
     <div>
       <h2 className="text-lg font-semibold">Collection graph</h2>
@@ -202,8 +183,6 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
       <span>Expand</span>
     </button>
   )
-
-  const ariaLabel = `Knowledge graph for collection ${collectionTitle}: ${nodeCount} items, ${edgeCount} connections.`
 
   return (
     <>
@@ -258,30 +237,21 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
 
         {!isLoading && data && nodeCount > 0 && graphAvailable && !isFullscreen && (
           <div className="space-y-3">
-            <ForceGraphView
+            <CollectionGraphVisualization
               nodes={renderNodes}
+              sourceNodes={data.nodes}
               links={data.links}
               clusters={clusters}
               containerWidth={containerWidth!}
-              ariaLabel={ariaLabel}
-              onNodeClick={navigateToNode}
-              // PSY-1083: collection edges are typed (the PSY-555 derived
-              // set — played_at, discography, signed_to, lineup, …) — opt
-              // into the shared edge legend. Out-of-grammar types render
-              // with the neutral fallback style.
-              // PSY-1334: showConnectionPanel is deliberately NOT set on this
-              // surface — its nodes are heterogeneous entities (venues,
-              // releases, labels, …), so the panel's artist-page endpoint
-              // links would be wrong, and the derived edge types carry no
-              // provenance copy. Wiring it needs a per-kind route map (a
-              // PSY-1335 candidate).
-              showEdgeLegend
+              collectionTitle={collectionTitle}
+              nodeCount={nodeCount}
+              edgeCount={edgeCount}
             />
             <p className="text-xs text-muted-foreground">
               Showing every item in this collection and the relationships
               between them — artists, venues they’ve played, releases
               they’ve made, labels they’re on, festivals they’ve
-              played, and shows. Click any node to open its page.
+              played, and shows. Click any node for its details.
             </p>
           </div>
         )}
@@ -312,15 +282,16 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
 
           <div className="flex-1 min-h-0 px-4 py-2">
             {overlayHeight !== null && overlayWidth !== null && (
-              <ForceGraphView
+              <CollectionGraphVisualization
                 nodes={renderNodes}
+                sourceNodes={data.nodes}
                 links={data.links}
                 clusters={clusters}
                 containerWidth={overlayWidth}
                 height={overlayHeight}
-                ariaLabel={ariaLabel}
-                onNodeClick={handleNodeClickOverlay}
-                showEdgeLegend
+                collectionTitle={collectionTitle}
+                nodeCount={nodeCount}
+                edgeCount={edgeCount}
               />
             )}
           </div>

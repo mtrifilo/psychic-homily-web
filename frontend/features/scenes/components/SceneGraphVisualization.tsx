@@ -45,6 +45,7 @@ import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVisibleClusters'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
@@ -109,7 +110,25 @@ export function SceneGraphVisualization({
   const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. ${graphSelectGestureHint}`
 
   return (
-    <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
+    <GraphPanelHost
+      canvasWrapRef={canvasWrapRef}
+      panel={
+        currentSelectedNode ? (
+          <ArtistContextPanel
+            // Top-LEFT, not HomeSceneGraph's top-right: this surface floats the
+            // EdgeLegend at top-2 right-2 (inside ForceGraphView) and the
+            // ConnectionPanel at bottom-2 left-2 — top-left is the free corner.
+            className="absolute top-2 left-2 z-40"
+            artistName={currentSelectedNode.name}
+            artistSlug={currentSelectedNode.slug}
+            card={cardQuery.data}
+            isError={cardQuery.isError}
+            onClose={handlePanelClose}
+            panelRef={panelRef}
+          />
+        ) : null
+      }
+    >
       <ForceGraphView
         nodes={data.nodes}
         links={data.links}
@@ -142,20 +161,6 @@ export function SceneGraphVisualization({
         // rendered set, so hubs read before leaves at rest (locked spec).
         labelTiers={SECTION_LABEL_TIERS}
       />
-      {currentSelectedNode && (
-        <ArtistContextPanel
-          // Top-LEFT, not HomeSceneGraph's top-right: this surface floats the
-          // EdgeLegend at top-2 right-2 (inside ForceGraphView) and the
-          // ConnectionPanel at bottom-2 left-2 — top-left is the free corner.
-          className="absolute top-2 left-2 z-40"
-          artistName={currentSelectedNode.name}
-          artistSlug={currentSelectedNode.slug}
-          card={cardQuery.data}
-          isError={cardQuery.isError}
-          onClose={handlePanelClose}
-          panelRef={panelRef}
-        />
-      )}
-    </div>
+    </GraphPanelHost>
   )
 }
