@@ -34,6 +34,7 @@ import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVisibleClusters'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
@@ -86,7 +87,22 @@ export function StationGraphVisualization({
   const ariaLabel = `Airplay graph for ${data.station.name}: ${data.station.artist_count} artists, ${data.station.edge_count} connections. Use the shows and playlists lists to browse without the canvas. ${graphSelectGestureHint}`
 
   return (
-    <div ref={canvasWrapRef} tabIndex={-1} className="relative outline-none">
+    <GraphPanelHost
+      canvasWrapRef={canvasWrapRef}
+      panel={
+        selectedNode ? (
+          <ArtistContextPanel
+            className="absolute top-2 right-2 z-40"
+            artistName={selectedNode.name}
+            artistSlug={selectedNode.slug}
+            card={cardQuery.data}
+            isError={cardQuery.isError}
+            onClose={handlePanelClose}
+            panelRef={panelRef}
+          />
+        ) : null
+      }
+    >
       <ForceGraphView
         nodes={data.nodes}
         links={data.links}
@@ -119,17 +135,6 @@ export function StationGraphVisualization({
         // rendered set, so hubs read before leaves at rest (locked spec).
         labelTiers={SECTION_LABEL_TIERS}
       />
-      {selectedNode && (
-        <ArtistContextPanel
-          className="absolute top-2 right-2 z-40"
-          artistName={selectedNode.name}
-          artistSlug={selectedNode.slug}
-          card={cardQuery.data}
-          isError={cardQuery.isError}
-          onClose={handlePanelClose}
-          panelRef={panelRef}
-        />
-      )}
-    </div>
+    </GraphPanelHost>
   )
 }

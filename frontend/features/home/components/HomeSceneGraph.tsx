@@ -36,6 +36,7 @@ import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { EdgeSwatch } from '@/components/graph/EdgeLegend'
 import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
@@ -393,10 +394,21 @@ function HomeSceneGraphSection() {
           // skeleton. The branches are mutually exclusive by construction.
           (settledGraphData ? (
             hasEnoughConnectedNodes ? (
-              <div
-                ref={canvasWrapRef}
-                tabIndex={-1}
-                className="relative outline-none"
+              <GraphPanelHost
+                canvasWrapRef={canvasWrapRef}
+                panel={
+                  currentSelectedNode ? (
+                    <ArtistContextPanel
+                      className="absolute top-2 right-2 z-40"
+                      artistName={currentSelectedNode.name}
+                      artistSlug={currentSelectedNode.slug}
+                      card={cardQuery.data}
+                      isError={cardQuery.isError}
+                      onClose={handlePanelClose}
+                      panelRef={panelRef}
+                    />
+                  ) : null
+                }
               >
                 <ForceGraphView
                   // Remount per scene: a rotation BACK to a cached scene
@@ -430,18 +442,7 @@ function HomeSceneGraphSection() {
                   // grammar in graphFocus.resolveFocusForeground.
                   focusNodeId={currentSelectedNode?.id ?? null}
                 />
-                {currentSelectedNode && (
-                  <ArtistContextPanel
-                    className="absolute top-2 right-2 z-40"
-                    artistName={currentSelectedNode.name}
-                    artistSlug={currentSelectedNode.slug}
-                    card={cardQuery.data}
-                    isError={cardQuery.isError}
-                    onClose={handlePanelClose}
-                    panelRef={panelRef}
-                  />
-                )}
-              </div>
+              </GraphPanelHost>
             ) : (
               <div
                 className={`w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground ${PLACEHOLDER_HEIGHT_CLASS}`}
