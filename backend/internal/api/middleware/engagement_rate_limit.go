@@ -83,14 +83,14 @@ func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
 // burstLimiter (minute) OUTER and sustainedLimiter (hour) INNER — a request
 // must clear both.
 //
-// BYPASS: admin JWTs and trusted phk_ API tokens skip the limiter entirely,
-// matching SkipRateLimitForAdmin — bulk import / dogfood sessions must not fight
-// the ceiling. Reuses the same isTrustedAPIToken / isAdminTokenRequest helpers.
-//
 // UNAUTHENTICATED requests PASS THROUGH untouched: these endpoints sit behind a
 // JWT middleware that 401s anonymous callers anyway, and the policy meters per
 // authenticated user only (no anonymous/IP budget in v1). Passing through
 // avoids keying a "user:0" bucket for requests that can never mutate.
+//
+// This is the per-user CORE only. Admin / trusted-phk_ BYPASS is layered by
+// wrapping this in SkipRateLimitForAdmin (see routes.EngagementMutationRateLimiter),
+// reusing that audited helper rather than re-deriving the bypass condition here.
 //
 // ORDER — burst OUTER, sustained INNER: httprate increments a limiter's counter
 // only when the request clears that limiter's own limit. With burst OUTER, a
@@ -103,10 +103,6 @@ func RateLimitEngagementMutationsByUser(jwtService *auth.JWTService, burstLimite
 	return func(next http.Handler) http.Handler {
 		limited := burstLimiter(sustainedLimiter(next))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isTrustedAPIToken(r) || isAdminTokenRequest(jwtService, r) {
-				next.ServeHTTP(w, r)
-				return
-			}
 			if uid, ok := sessionUserID(jwtService, r); ok {
 				ctx := context.WithValue(r.Context(), engagementUserIDKey{}, uid)
 				limited.ServeHTTP(w, r.WithContext(ctx))

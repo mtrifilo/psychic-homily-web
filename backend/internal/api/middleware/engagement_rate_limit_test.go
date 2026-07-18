@@ -75,6 +75,26 @@ func TestRateLimitEngagementMutationsByUser_AuthenticatedIsPerUserLimited(t *tes
 	}
 }
 
+// BOTH windows are enforced: with a generous burst but a tiny sustained cap, the
+// second mutation trips the SUSTAINED (hour) limiter — proving it is actually
+// chained, not just the burst window (policy: stricter of the two wins).
+func TestRateLimitEngagementMutationsByUser_SustainedWindowEnforced(t *testing.T) {
+	jwtService := newTestJWTService()
+	token := mkEngagementToken(t, jwtService, 42)
+	burst := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(engagementUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	sustained := httprate.Limit(1, time.Hour, httprate.WithKeyFuncs(engagementUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	handler := RateLimitEngagementMutationsByUser(jwtService, burst, sustained)(okHandler())
+
+	if rr := serve(handler, mutationReq("9.9.9.9:1000", token)); rr.Code != http.StatusOK {
+		t.Fatalf("first mutation: status = %d, want 200", rr.Code)
+	}
+	if rr := serve(handler, mutationReq("9.9.9.9:1001", token)); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("second mutation: status = %d, want 429 (sustained hour window must be enforced)", rr.Code)
+	}
+}
+
 // Save and follow share ONE counter: after a user exhausts the shared budget on
 // a save path, a follow on a DIFFERENT path from the same user is still 429'd.
 // (Routing to distinct handlers is proven at the routes level; here the wrapper
@@ -113,22 +133,6 @@ func TestRateLimitEngagementMutationsByUser_UsersDoNotCollide(t *testing.T) {
 	}
 }
 
-// A trusted phk_ API token BYPASSES the limiter past the cap — bulk imports must
-// not fight the ceiling (mirrors SkipRateLimitForAdmin). Works even with a nil
-// JWTService because isTrustedAPIToken only inspects the prefix.
-func TestRateLimitEngagementMutationsByUser_APITokenBypasses(t *testing.T) {
-	handler := engagementMW(nil)(okHandler())
-
-	for i := 0; i < 5; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/saved-shows/1", nil)
-		req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"deadbeef")
-		req.RemoteAddr = "9.9.9.9:1000"
-		if rr := serve(handler, req); rr.Code != http.StatusOK {
-			t.Fatalf("phk_ request %d: status = %d, want 200 (API token must bypass)", i+1, rr.Code)
-		}
-	}
-}
-
 // Unauthenticated requests pass through untouched (no user id to key on; the
 // downstream JWT middleware 401s them). They are NOT collapsed into a shared
 // bucket, so an anonymous flood can't 429 a legitimate authenticated user.
@@ -142,14 +146,11 @@ func TestRateLimitEngagementMutationsByUser_UnauthenticatedPassesThrough(t *test
 	}
 }
 
-// A forged phk_ prefix does NOT get a per-user bucket AND is not admin: it has
-// no session JWT, so it falls to the unauthenticated pass-through path (the JWT
-// middleware downstream rejects it). It must never be treated as bypass-worthy
-// beyond what isTrustedAPIToken already grants — documented here so a future
-// change that stops trusting the prefix has a canary.
+// Mounting a bare per-user limiter (no wrapper to stash the user id) FAILS LOUD
+// — httprate turns the key-func error into a 428 — rather than silently keying
+// every request into one shared bucket. A detectable misuse, not a site-wide
+// budget.
 func TestRateLimitEngagementMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
-	// Mounting a bare burst limiter (no wrapper to stash the user id) must FAIL
-	// LOUD (428), not silently key one shared bucket.
 	handler := RateLimitEngagementMutationBurst()(okHandler())
 	rr := serve(handler, mutationReq("9.9.9.9:1000", ""))
 	if rr.Code != http.StatusPreconditionRequired {

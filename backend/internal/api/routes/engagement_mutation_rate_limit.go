@@ -77,10 +77,16 @@ func EngagementMutationRateLimiter(jwtService *auth.JWTService, getenv func(stri
 	if !IsEngagementMutationRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
-	limiter := middleware.RateLimitEngagementMutationsByUser(
+	// Admin JWTs and trusted phk_ tokens bypass via SkipRateLimitForAdmin (the
+	// same helper the tag limiters use); everyone else flows through the shared
+	// per-user burst+sustained budget.
+	limiter := middleware.SkipRateLimitForAdmin(
 		jwtService,
-		middleware.RateLimitEngagementMutationBurst(),
-		middleware.RateLimitEngagementMutationSustained(),
+		middleware.RateLimitEngagementMutationsByUser(
+			jwtService,
+			middleware.RateLimitEngagementMutationBurst(),
+			middleware.RateLimitEngagementMutationSustained(),
+		),
 	)
 	return limitEngagementMutationsOnly(limiter)
 }
