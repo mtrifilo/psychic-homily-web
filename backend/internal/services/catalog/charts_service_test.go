@@ -48,6 +48,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
 	_, _ = sqlDB.Exec("DELETE FROM radio_networks")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -57,6 +58,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -3177,4 +3179,159 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_VenueAndR
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartEntityRank_UnsupportedType() {
 	_, err := suite.chartsService.GetChartEntityRank(contracts.ChartRankEntityType("festival"), 1, contracts.ChartWindowQuarter)
 	suite.Require().Error(err)
+}
+
+// =============================================================================
+// Top Tags (PSY-1424): activity-weighted saves on played shows
+// =============================================================================
+
+func (suite *ChartsServiceIntegrationTestSuite) createTag(name, slug, category string) *catalogm.Tag {
+	tag := &catalogm.Tag{Name: name, Slug: slug, Category: category}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+	return tag
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) applyArtistTag(tagID, artistID, userID uint) {
+	suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+		TagID:         tagID,
+		EntityType:    catalogm.TagEntityArtist,
+		EntityID:      artistID,
+		AddedByUserID: userID,
+	}).Error)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTopTags_Empty() {
+	tags, total, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, "", 10, 0)
+	suite.Require().NoError(err)
+	suite.Empty(tags)
+	suite.Equal(0, total)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTopTags_ActivityWeightedRankingAndFloor() {
+	user := suite.createUser("top-tags@test.com")
+	savers := make([]*authm.User, 5)
+	for i := range savers {
+		savers[i] = suite.createUser(fmt.Sprintf("tag-saver-%d@test.com", i))
+	}
+	venue := suite.createVenue("Tag Hall", "Phoenix", "AZ")
+	past := time.Now().UTC().AddDate(0, 0, -10)
+
+	shoegaze := suite.createTag("Shoegaze", "shoegaze", catalogm.TagCategoryGenre)
+	postPunk := suite.createTag("Post Punk", "post-punk", catalogm.TagCategoryGenre)
+	noise := suite.createTag("Noise", "noise", catalogm.TagCategoryGenre)
+
+	a1 := suite.createArtist("Tag Artist One")
+	a1b := suite.createArtist("Tag Artist One B")
+	a2 := suite.createArtist("Tag Artist Two")
+	a3 := suite.createArtist("Tag Artist Three")
+	suite.applyArtistTag(shoegaze.ID, a1.ID, user.ID)
+	suite.applyArtistTag(shoegaze.ID, a1b.ID, user.ID) // same tag on two artists of one show — count once
+	suite.applyArtistTag(postPunk.ID, a2.ID, user.ID)
+	suite.applyArtistTag(noise.ID, a3.ID, user.ID)
+
+	showHeavy := suite.createApprovedShow("Heavy bill", venue.ID, a1.ID, user.ID, past)
+	suite.addArtistToShow(showHeavy.ID, a1b.ID, 1, "support")
+	suite.addArtistToShow(showHeavy.ID, a2.ID, 2, "support")
+	suite.createSaves(showHeavy.ID, savers, 5) // shoegaze + post-punk each get 5
+
+	showLight := suite.createApprovedShow("Light bill", venue.ID, a2.ID, user.ID, past.AddDate(0, 0, -1))
+	suite.createSaves(showLight.ID, savers, 3) // post-punk gets +3 → 8 total
+
+	showSubFloor := suite.createApprovedShow("Sub-floor bill", venue.ID, a3.ID, user.ID, past.AddDate(0, 0, -2))
+	suite.createSaves(showSubFloor.ID, savers, 2) // noise at 2 — below floor
+
+	// Outside window — must not contribute.
+	old := suite.createApprovedShow("Old bill", venue.ID, a1.ID, user.ID, past.AddDate(0, 0, -100))
+	suite.createSaves(old.ID, savers, 5)
+
+	tags, total, err := suite.chartsService.GetTopTags(contracts.ChartWindowMonth, "", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(2, total, "noise stays under the ≥3 weighted-saves floor")
+	suite.Require().Len(tags, 2)
+	suite.Equal("Post Punk", tags[0].Name)
+	suite.Equal(8, tags[0].WeightedSaves)
+	suite.Equal(2, tags[0].ShowCount)
+	suite.Equal(1, tags[0].Rank)
+	suite.Equal("Shoegaze", tags[1].Name)
+	suite.Equal(5, tags[1].WeightedSaves, "two artists with the same tag on one show still contribute once")
+	suite.Equal(1, tags[1].ShowCount)
+	suite.Equal(2, tags[1].Rank)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTopTags_SceneScopesVenueMetro() {
+	user := suite.createUser("top-tags-scene@test.com")
+	savers := make([]*authm.User, 4)
+	for i := range savers {
+		savers[i] = suite.createUser(fmt.Sprintf("tag-scene-saver-%d@test.com", i))
+	}
+	phxVenue := suite.createVenue("Phx Tag Venue", "Phoenix", "AZ")
+	chiVenue := suite.createVenue("Chi Tag Venue", "Chicago", "IL")
+	suite.setVenueMetro(phxVenue, phoenixCBSA, true)
+	suite.setVenueMetro(chiVenue, chicagoCBSA, true)
+
+	tag := suite.createTag("Dream Pop", "dream-pop", catalogm.TagCategoryGenre)
+	phxArtist := suite.createArtist("Phx Tag Band")
+	chiArtist := suite.createArtist("Chi Tag Band")
+	suite.applyArtistTag(tag.ID, phxArtist.ID, user.ID)
+	suite.applyArtistTag(tag.ID, chiArtist.ID, user.ID)
+
+	past := time.Now().UTC().AddDate(0, 0, -5)
+	phxShow := suite.createApprovedShow("Phx tagged", phxVenue.ID, phxArtist.ID, user.ID, past)
+	chiShow := suite.createApprovedShow("Chi tagged", chiVenue.ID, chiArtist.ID, user.ID, past)
+	suite.createSaves(phxShow.ID, savers, 4)
+	suite.createSaves(chiShow.ID, savers, 4)
+
+	global, total, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, "", 10, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(global, 1)
+	suite.Equal(8, global[0].WeightedSaves)
+	suite.Equal(1, total)
+
+	phx, total, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, phoenixCBSA, 10, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(phx, 1)
+	suite.Equal(4, phx[0].WeightedSaves, "scene scopes by venue metro of played shows")
+	suite.Equal(1, phx[0].ShowCount)
+	suite.Equal(1, total)
+
+	unknown, total, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, "999999999", 10, 0)
+	suite.Require().NoError(err)
+	suite.Empty(unknown)
+	suite.Equal(0, total)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTopTags_PaginationRanks() {
+	user := suite.createUser("top-tags-page@test.com")
+	savers := make([]*authm.User, 6)
+	for i := range savers {
+		savers[i] = suite.createUser(fmt.Sprintf("tag-page-saver-%d@test.com", i))
+	}
+	venue := suite.createVenue("Page Tag Hall", "Phoenix", "AZ")
+	past := time.Now().UTC().AddDate(0, 0, -8)
+
+	names := []string{"Alpha Tag", "Bravo Tag", "Charlie Tag"}
+	slugs := []string{"alpha-tag", "bravo-tag", "charlie-tag"}
+	weights := []int{6, 4, 3}
+	for i := range names {
+		tag := suite.createTag(names[i], slugs[i], catalogm.TagCategoryGenre)
+		artist := suite.createArtist("Page Artist " + names[i])
+		suite.applyArtistTag(tag.ID, artist.ID, user.ID)
+		show := suite.createApprovedShow("Page show "+names[i], venue.ID, artist.ID, user.ID, past.AddDate(0, 0, -i))
+		suite.createSaves(show.ID, savers, weights[i])
+	}
+
+	page1, total1, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, "", 2, 0)
+	suite.Require().NoError(err)
+	page2, total2, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, "", 2, 2)
+	suite.Require().NoError(err)
+
+	suite.Equal(3, total1)
+	suite.Equal(3, total2)
+	suite.Require().Len(page1, 2)
+	suite.Require().Len(page2, 1)
+	suite.Equal(1, page1[0].Rank)
+	suite.Equal(2, page1[1].Rank)
+	suite.Equal(3, page2[0].Rank)
+	suite.Equal([]string{"Alpha Tag", "Bravo Tag"}, []string{page1[0].Name, page1[1].Name})
+	suite.Equal("Charlie Tag", page2[0].Name)
 }

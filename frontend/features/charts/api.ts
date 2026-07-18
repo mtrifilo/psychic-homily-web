@@ -8,6 +8,7 @@ export const chartEndpoints = {
   BUSIEST_VENUES: `${API_BASE_URL}/charts/busiest-venues`,
   NEW_RELEASES: `${API_BASE_URL}/charts/new-releases`,
   OPENERS_TO_WATCH: `${API_BASE_URL}/charts/openers-to-watch`,
+  TOP_TAGS: `${API_BASE_URL}/charts/top-tags`,
   SUMMARY: `${API_BASE_URL}/charts/summary`,
   FRESHLY_ADDED: `${API_BASE_URL}/charts/freshly-added`,
   SCENES: `${API_BASE_URL}/charts/scenes`,
@@ -49,6 +50,8 @@ export const chartQueryKeys = {
     limit: number,
     offset = 0
   ) => ['charts', 'openers-to-watch', window, scene, limit, offset] as const,
+  topTags: (window: ChartWindow, scene: string, limit: number) =>
+    ['charts', 'top-tags', window, scene, limit] as const,
   summary: (window: ChartWindow, scene: string) =>
     ['charts', 'summary', window, scene] as const,
   freshlyAdded: (scene: string, limit: number) =>

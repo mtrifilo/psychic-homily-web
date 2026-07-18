@@ -261,6 +261,10 @@ func (s *ChartsService) showArtistNames(showIDs []uint) (map[uint][]string, erro
 const (
 	mostAnticipatedSaveFloor     = 3
 	mostAnticipatedMinQualifying = 5
+	// tagChartActivityFloor is the minimum activity-weighted save sum a tag
+	// needs to rank — parallel to mostAnticipatedSaveFloor. Tags whose
+	// in-window shows accumulate fewer saves are noise on a sparse graph.
+	tagChartActivityFloor = 3
 )
 
 // The ranked and fallback most-anticipated queries share these fragments so
@@ -613,7 +617,8 @@ func appendChartShowWindow(query string, args []any, bounds chartBounds) (string
 //     new-releases via the release's credited artists.
 //   - SHOW/VENUE modules scope on the venue's metro (where it happened):
 //     busiest-venues (direct equality), most-anticipated + the summary's
-//     show count (any-venue EXISTS), the summary's active-scenes count, the
+//     show count (any-venue EXISTS), top-tags (any-venue EXISTS — tags of
+//     shows played in the scene), the summary's active-scenes count, the
 //     ticker's venue branch.
 //
 // Two deliberate boundaries, both disclosed on the ticket:
@@ -1153,6 +1158,116 @@ func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindo
 			StationCount: r.StationCount,
 			IsNew:        r.IsNew,
 			Rank:         offset + i + 1,
+		}
+	}
+	return results, total, nil
+}
+
+// GetTopTags returns tags ranked by activity-weighted saves on approved,
+// non-cancelled shows played within the window. A show contributes its save
+// count once per distinct tag carried by any billed artist — the same
+// transitive artist-tag model /shows?tags= browse uses (direct show tags are
+// ignored). Tags whose in-window shows sum to fewer than tagChartActivityFloor
+// saves are excluded. scene scopes to shows played IN the metro (venue-metro
+// EXISTS, matching most-anticipated / busiest-venues). Paginated with
+// offset-stable ranks and the window total.
+func (s *ChartsService) GetTopTags(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.TopTag, int, error) {
+	if !chartSceneExists(scene) {
+		return []contracts.TopTag{}, 0, nil
+	}
+	return cachedChartPage(s.cache, "top-tags", window, scene, limit, offset, func() ([]contracts.TopTag, int, error) {
+		return s.getTopTagsUncached(window, scene, limit, offset)
+	})
+}
+
+func (s *ChartsService) getTopTagsUncached(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.TopTag, int, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	bounds := chartWindowBounds(window, now)
+
+	type tagRow struct {
+		TagID         uint   `gorm:"column:tag_id"`
+		Name          string `gorm:"column:name"`
+		Slug          string `gorm:"column:slug"`
+		Category      string `gorm:"column:category"`
+		WeightedSaves int    `gorm:"column:weighted_saves"`
+		ShowCount     int    `gorm:"column:show_count"`
+		Total         int    `gorm:"column:total"`
+	}
+
+	showSavesSQL := `
+		SELECT
+			s.id AS show_id,
+			COUNT(ub.id) AS save_count
+		FROM shows s
+		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
+			AND ub.entity_type = ?
+			AND ub.action = ?
+		WHERE s.status = ?`
+	showSavesArgs := []any{
+		engagementm.BookmarkEntityShow,
+		engagementm.BookmarkActionSave,
+		catalogm.ShowStatusApproved,
+	}
+	showSavesSQL, showSavesArgs = appendChartShowWindow(showSavesSQL, showSavesArgs, bounds)
+	showSavesSQL, showSavesArgs = appendShowSceneScope(showSavesSQL, showSavesArgs, scene)
+	showSavesSQL += `
+		GROUP BY s.id`
+
+	coreSQL := `
+		SELECT
+			t.id AS tag_id,
+			t.name,
+			COALESCE(t.slug, '') AS slug,
+			t.category,
+			SUM(show_saves.save_count) AS weighted_saves,
+			COUNT(*) AS show_count,
+			COUNT(*) OVER() AS total
+		FROM (` + showSavesSQL + `) show_saves
+		JOIN (
+			SELECT DISTINCT sa.show_id, et.tag_id
+			FROM show_artists sa
+			JOIN entity_tags et ON et.entity_type = ?
+				AND et.entity_id = sa.artist_id
+		) show_tags ON show_tags.show_id = show_saves.show_id
+		JOIN tags t ON t.id = show_tags.tag_id
+		GROUP BY t.id, t.name, t.slug, t.category
+		HAVING SUM(show_saves.save_count) >= ?`
+	coreArgs := append(append([]any{}, showSavesArgs...), catalogm.TagEntityArtist, tagChartActivityFloor)
+
+	query := coreSQL + `
+		ORDER BY weighted_saves DESC, t.name ASC, t.id ASC
+		LIMIT ? OFFSET ?`
+	args := appendPageArgs(coreArgs, limit, offset)
+
+	var rows []tagRow
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get top tags: %w", err)
+	}
+
+	pageTotal := 0
+	if len(rows) > 0 {
+		pageTotal = rows[0].Total
+	}
+	total, err := s.resolveChartPageTotal(window, pageTotal, len(rows), offset, coreSQL, coreArgs,
+		chartCountKey("top-tags", string(window.OrDefault()), scene), "top tags")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	results := make([]contracts.TopTag, len(rows))
+	for i, r := range rows {
+		results[i] = contracts.TopTag{
+			TagID:         r.TagID,
+			Name:          r.Name,
+			Slug:          r.Slug,
+			Category:      r.Category,
+			WeightedSaves: r.WeightedSaves,
+			ShowCount:     r.ShowCount,
+			Rank:          offset + i + 1,
 		}
 	}
 	return results, total, nil

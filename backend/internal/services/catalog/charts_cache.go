@@ -36,7 +36,7 @@ const (
 	// expired entries are swept; if the map is still full of FRESH entries,
 	// the NEW key is simply not cached (the request runs uncached) —
 	// overflow traffic never evicts a fresh entry, but an EXPIRED organic
-	// entry's slot is claimable by any traffic. Sizing: 6 modules x accepted
+	// entry's slot is claimable by any traffic. Sizing: 7 modules x accepted
 	// rolling/calendar windows x page shapes x [global + every switcher metro] plus
 	// per-(module,window,scene) count keys and the scoped summary/ticker
 	// keys chartsCacheFor routes here — calendar values are grammar-, launch-,

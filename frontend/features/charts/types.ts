@@ -138,6 +138,20 @@ export interface OpenersToWatchResponse extends WindowedChartResponse {
   artists: OpenerToWatch[]
 }
 
+export interface TopTag {
+  tag_id: number
+  name: string
+  slug: string
+  category: string
+  weighted_saves: number
+  show_count: number
+  rank: number
+}
+
+export interface TopTagsResponse extends WindowedChartResponse {
+  tags: TopTag[]
+}
+
 export interface ChartsSummaryResponse {
   window: ChartWindow
   scene: string
