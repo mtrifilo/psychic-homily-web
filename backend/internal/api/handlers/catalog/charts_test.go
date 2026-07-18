@@ -1392,3 +1392,104 @@ func TestChartsHandler_ChartScenes_InvalidWindow422(t *testing.T) {
 		t.Errorf("expected 200 for absent window, got %d", resp.Code)
 	}
 }
+
+// ============================================================================
+// Tests: GetChartEntityRankHandler
+// ============================================================================
+
+func TestChartsHandler_ChartEntityRank_OK(t *testing.T) {
+	rank := 7
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartEntityRankFn: func(entityType contracts.ChartRankEntityType, entityID uint, window contracts.ChartWindow) (*contracts.ChartEntityRank, error) {
+			if entityType != contracts.ChartRankEntityArtist || entityID != 42 || window != contracts.ChartWindowQuarter {
+				t.Fatalf("unexpected args: %s %d %s", entityType, entityID, window)
+			}
+			return &contracts.ChartEntityRank{
+				EntityType: entityType,
+				EntityID:   entityID,
+				Window:     window,
+				Module:     contracts.ChartRankModuleMostActiveArtists,
+				Rank:       &rank,
+			}, nil
+		},
+	})
+
+	resp, err := h.GetChartEntityRankHandler(context.Background(), &GetChartEntityRankRequest{
+		EntityType: "artist",
+		EntityID:   42,
+		Window:     "quarter",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Body.EntityType != "artist" || resp.Body.EntityID != 42 || resp.Body.Window != "quarter" {
+		t.Errorf("unexpected echo: %+v", resp.Body)
+	}
+	if resp.Body.Module != "most-active-artists" {
+		t.Errorf("expected module most-active-artists, got %q", resp.Body.Module)
+	}
+	if resp.Body.Rank == nil || *resp.Body.Rank != 7 {
+		t.Errorf("expected rank 7, got %v", resp.Body.Rank)
+	}
+	if resp.CacheControl != chartsModuleCacheControl {
+		t.Errorf("expected module Cache-Control, got %q", resp.CacheControl)
+	}
+}
+
+func TestChartsHandler_ChartEntityRank_NullRank(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartEntityRankFn: func(entityType contracts.ChartRankEntityType, entityID uint, window contracts.ChartWindow) (*contracts.ChartEntityRank, error) {
+			return &contracts.ChartEntityRank{
+				EntityType: entityType,
+				EntityID:   entityID,
+				Window:     window.OrDefault(),
+				Module:     contracts.ChartRankModuleMostAnticipated,
+				Rank:       nil,
+			}, nil
+		},
+	})
+
+	resp, err := h.GetChartEntityRankHandler(context.Background(), &GetChartEntityRankRequest{
+		EntityType: "show",
+		EntityID:   9,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("absent window should default to quarter, got %q", resp.Body.Window)
+	}
+	if resp.Body.Rank != nil {
+		t.Errorf("expected null rank, got %v", *resp.Body.Rank)
+	}
+}
+
+func TestChartsHandler_ChartEntityRank_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartEntityRankFn: func(contracts.ChartRankEntityType, uint, contracts.ChartWindow) (*contracts.ChartEntityRank, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+
+	_, err := h.GetChartEntityRankHandler(context.Background(), &GetChartEntityRankRequest{
+		EntityType: "venue",
+		EntityID:   1,
+	})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+func TestChartsHandler_ChartEntityRank_InvalidParams422(t *testing.T) {
+	_, api := humatest.New(t)
+	h := testChartsHandler()
+	huma.Get(api, "/charts/rank", h.GetChartEntityRankHandler)
+
+	if resp := api.Get("/charts/rank?entity_type=festival&entity_id=1"); resp.Code != 422 {
+		t.Errorf("expected 422 for entity_type=festival, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/rank?entity_type=artist&entity_id=0"); resp.Code != 422 {
+		t.Errorf("expected 422 for entity_id=0, got %d", resp.Code)
+	}
+	if resp := api.Get("/charts/rank?entity_type=artist&entity_id=1&window=bogus"); resp.Code != 422 {
+		t.Errorf("expected 422 for window=bogus, got %d", resp.Code)
+	}
+}
