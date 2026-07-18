@@ -203,7 +203,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
           </p>
           {isOwner && (
             <Button asChild variant="outline" size="sm" className="mt-6">
-              <Link href="/profile">
+              <Link href="/profile?tab=privacy">
                 <Pencil className="mr-1.5 size-3.5" />
                 Edit profile
               </Link>
