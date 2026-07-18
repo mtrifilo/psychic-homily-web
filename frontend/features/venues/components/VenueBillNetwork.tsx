@@ -19,10 +19,11 @@
  *   - Last 12 months (rolling)
  *   - By year (with a year picker)
  *
- * Click semantics (PSY-361 inheritance): clicking a node navigates to that
- * artist's page, which is itself the entry point to their global graph
- * with the recentering breadcrumb. The "exit to broader exploration" wiring
- * is therefore on the artist page, not duplicated here.
+ * Click semantics (locked grammar, PSY-1451): clicking a node SELECTS into
+ * the shared ArtistContextPanel; navigation happens only via the panel's
+ * "Open page →". The selection wiring lives in the adapter
+ * (`VenueBillNetworkAdapter.tsx`), so the panel mounts inside whichever
+ * container renders the canvas — inline section or fullscreen overlay.
  */
 
 import { useState, useMemo } from 'react'
@@ -314,8 +315,8 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
 
                 <p className="text-xs text-muted-foreground">
                   Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
-                  shared shows AT THIS VENUE in the active window. Click any artist to open their
-                  page.
+                  shared shows AT THIS VENUE in the active window. Click any artist for their
+                  details.
                 </p>
               </div>
             )}
