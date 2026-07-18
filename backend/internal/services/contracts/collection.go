@@ -412,19 +412,20 @@ type CollectionGraphResponse struct {
 // NodeTotal + NodesTruncated mirror the venue bill network's ArtistTotal +
 // RosterTruncated (the scene graph's "not a silent cap" convention): the
 // response node list is capped, and these fields disclose the truncation to
-// the client. NodeTotal counts graph-able collection items BEFORE the cap.
-// It spans all entity types — collections are heterogeneous, so the
-// disclosure is per-node, not per-artist. ArtistCount, EdgeCount, and
-// EntityCounts all describe the capped response (the rendered graph), same
-// contract as the venue surface.
+// the client. NodeTotal is the full collection item count (all entity types),
+// not the post-build or post-payload-cap node count — so a pre-build ceiling
+// (PSY-1477) or the 150-node payload cap both surface as nodes_truncated when
+// the collection is larger than the returned graph. ArtistCount, EdgeCount,
+// and EntityCounts all describe the capped response (the rendered graph),
+// same contract as the venue surface.
 type CollectionGraphInfo struct {
 	Slug           string         `json:"slug"`
 	Name           string         `json:"name"`
 	ArtistCount    int            `json:"artist_count"` // distinct artist nodes in the response (includes isolates)
 	EdgeCount      int            `json:"edge_count"`   // total edges in the response (post type-filter, post cap)
 	EntityCounts   map[string]int `json:"entity_counts"`
-	NodeTotal      int            `json:"node_total"`      // graph-able items BEFORE the node cap
-	NodesTruncated bool           `json:"nodes_truncated"` // true when node_total > the node cap
+	NodeTotal      int            `json:"node_total"`      // full collection item count (pre any graph ceiling)
+	NodesTruncated bool           `json:"nodes_truncated"` // true when node_total > returned node count
 }
 
 // CollectionGraphNode represents a single collection item in the graph.

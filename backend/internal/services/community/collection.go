@@ -3037,12 +3037,27 @@ const (
 	CollectionEdgeShowVenue   = "show_venue"  // show ↔ venue (the show's location)
 )
 
-// collectionGraphMaxNodes is the hard ceiling on collection-graph nodes.
-// This was the last uncapped graph surface on the frontend's synchronous
-// warmup path — festivalGraphMaxNodes, stationGraphMaxNodeLimit, and
-// venueBillMaxNodes are all 150 — and an unbounded payload makes the
-// warmup pre-settle blow its ~100ms main-thread budget (measurements live
-// with the WARMUP_TICKS comment in
+// collectionGraphBuildMaxItems is the coarse pre-build ceiling on how many
+// collection items feed node+link construction (PSY-1477). The post-build
+// degree-ranked payload cap (collectionGraphMaxNodes) still needs the full
+// link set of its input — degree ranking cannot run before links exist —
+// so we cannot trim to 150 before building. Feeding unbounded items made
+// queryCollectionRelationships (N-element INs, worst O(N²) rows) and the
+// six derived-edge pair queries scale with collection size on a public
+// optional-auth endpoint. 600 is large enough that a typical curated
+// collection's connected core still fits before the 150 payload ranker
+// runs, while bounding per-request DB/CPU cost independent of size.
+// Items beyond the ceiling are omitted from the build in collection
+// position order (same Order as the collection item list). NodeTotal
+// still reports the full item count so NodesTruncated stays truthful.
+const collectionGraphBuildMaxItems = 600
+
+// collectionGraphMaxNodes is the hard ceiling on collection-graph nodes
+// returned in the payload. This was the last uncapped graph surface on
+// the frontend's synchronous warmup path — festivalGraphMaxNodes,
+// stationGraphMaxNodeLimit, and venueBillMaxNodes are all 150 — and an
+// unbounded payload makes the warmup pre-settle blow its ~100ms
+// main-thread budget (measurements live with the WARMUP_TICKS comment in
 // frontend/components/graph/ForceGraphView.tsx). When the cap bites,
 // in-set degree decides who stays: the collection graph is heterogeneous
 // (artist/venue/show/release/label/festival) with no cross-type metric
@@ -3053,18 +3068,17 @@ const (
 // is deterministic. NodeTotal + NodesTruncated on the response disclose
 // the truncation ("not a silent cap" — scene-graph convention).
 //
-// Two deliberate limits of this design:
-//   - Parallel edges inflate degree: a pair linked by several relationship
-//     types counts once per link, so edge-type multiplicity (not distinct
-//     neighbors) is part of the survival signal. That follows from
-//     "payload edge count" as the ranking metric, but it is a bias, not
-//     an accident.
-//   - Unlike capVenueBillArtists — which trims BEFORE its pairwise edge
-//     build — this cap must run AFTER node+link building, because the
-//     degree signal doesn't exist until the links do. It therefore bounds
-//     only the response payload; per-request DB/CPU cost stays O(items)
-//     (collections have no item ceiling). Server-side bounding is
-//     follow-up PSY-1477.
+// Unlike capVenueBillArtists — which trims BEFORE its pairwise edge
+// build — this payload cap must run AFTER node+link building, because
+// the degree signal doesn't exist until the links do. Per-request
+// DB/CPU cost is bounded separately by collectionGraphBuildMaxItems
+// (PSY-1477), which feeds only the first N items into the build.
+//
+// Parallel edges inflate degree: a pair linked by several relationship
+// types counts once per link, so edge-type multiplicity (not distinct
+// neighbors) is part of the survival signal. That follows from
+// "payload edge count" as the ranking metric, but it is a bias, not
+// an accident.
 const collectionGraphMaxNodes = 150
 
 // capCollectionGraphNodes trims the node list to collectionGraphMaxNodes,
@@ -3180,16 +3194,27 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		Links: []contracts.CollectionGraphLink{},
 	}
 
-	// Load all collection items, regardless of entity type.
+	// Full item count for disclosure (NodeTotal). The build below only
+	// loads the first collectionGraphBuildMaxItems by position so
+	// detail/relationship work stays bounded (PSY-1477).
+	var itemTotal int64
+	if err := s.db.Model(&communitym.CollectionItem{}).
+		Where("collection_id = ?", collection.ID).
+		Count(&itemTotal).Error; err != nil {
+		return nil, fmt.Errorf("failed to count collection items: %w", err)
+	}
+	if itemTotal == 0 {
+		return resp, nil
+	}
+	resp.Collection.NodeTotal = int(itemTotal)
+
 	var items []communitym.CollectionItem
 	if err := s.db.
 		Where("collection_id = ?", collection.ID).
 		Order("position ASC, created_at ASC").
+		Limit(collectionGraphBuildMaxItems).
 		Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to load collection items: %w", err)
-	}
-	if len(items) == 0 {
-		return resp, nil
 	}
 
 	// Bucket entity IDs by type so each detail-load query stays narrow.
@@ -3204,6 +3229,7 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 	}
 	if len(nodes) == 0 {
 		// Items existed but every detail row was missing (deleted entity).
+		resp.Collection.NodesTruncated = resp.Collection.NodeTotal > 0
 		return resp, nil
 	}
 
@@ -3215,13 +3241,13 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		return nil, err
 	}
 
-	// Enforce the node ceiling so an oversized collection can't blow the
-	// frontend's synchronous warmup budget (see collectionGraphMaxNodes).
-	// NodeTotal is captured first so the truncation is disclosed, not
-	// silent. Isolate flags and per-type counts below are derived from the
-	// capped slices — a kept node whose only partner was dropped becomes
-	// an isolate again.
-	resp.Collection.NodeTotal = len(nodes)
+	// Enforce the payload node ceiling so an oversized collection can't
+	// blow the frontend's synchronous warmup budget (see
+	// collectionGraphMaxNodes). Isolate flags and per-type counts below
+	// are derived from the capped slices — a kept node whose only partner
+	// was dropped becomes an isolate again. NodeTotal was set from the
+	// full item count above so pre-build + payload truncation both stay
+	// disclosed.
 	nodes, links = capCollectionGraphNodes(nodes, links)
 	resp.Collection.NodesTruncated = resp.Collection.NodeTotal > len(nodes)
 

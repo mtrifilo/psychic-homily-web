@@ -287,19 +287,21 @@ export interface CollectionGraphInfo {
    */
   entity_counts?: Record<string, number>
   /**
-   * PSY-1475: graph-able collection items BEFORE the server's node cap
-   * (across all entity types). Mirrors the venue graph's `artist_total`
-   * "not a silent cap" disclosure. Optional for older fixtures; always
-   * populated by the server.
+   * PSY-1475 / PSY-1477: full collection item count (all entity types),
+   * not the post-build or post-payload-cap node count. Mirrors the venue
+   * graph's `artist_total` "not a silent cap" disclosure — a pre-build
+   * ceiling or the 150-node payload cap both surface via
+   * `nodes_truncated` when the collection is larger than the returned
+   * graph. Optional for older fixtures; always populated by the server.
    */
   node_total?: number
   /**
-   * PSY-1475: true when `node_total` exceeded the node cap and the
-   * response node list was truncated. The field is carried but not yet
-   * rendered — until then a capped graph's subtitle counts describe the
-   * truncated response with no visible cue. Display treatment is tracked
-   * in PSY-1476 (design-gated; that ticket decides whether all capped
-   * surfaces, this one included, adopt it in the first pass).
+   * PSY-1475: true when `node_total` exceeds the returned node count
+   * (pre-build ceiling and/or payload cap). The field is carried but not
+   * yet rendered — until then a capped graph's subtitle counts describe
+   * the truncated response with no visible cue. Display treatment is
+   * tracked in PSY-1476 (design-gated; that ticket decides whether all
+   * capped surfaces, this one included, adopt it in the first pass).
    */
   nodes_truncated?: boolean
 }

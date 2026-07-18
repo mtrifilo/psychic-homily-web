@@ -619,6 +619,73 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_NodeC
 	suite.False(kept.IsIsolate, "a pair fully inside the cap stays connected")
 }
 
+// TestGetCollectionGraph_PreBuildCeilingBoundsCost (PSY-1477): a collection
+// larger than collectionGraphBuildMaxItems only feeds the first N items
+// (by position) into node+link construction. Items past the ceiling — and
+// edges that only involve them — must not appear, while NodeTotal still
+// reports the full item count and the 150-node payload cap still applies.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PreBuildCeilingBoundsCost() {
+	const beyond = 5
+	totalItems := collectionGraphBuildMaxItems + beyond
+
+	creator := suite.createTestUser("PreBuildCreator")
+	priv := suite.createBasicCollection(creator, "PreBuild Ceiling")
+
+	artists := make([]catalogm.Artist, totalItems)
+	for i := range artists {
+		artists[i] = catalogm.Artist{Name: fmt.Sprintf("PreBuild Artist %04d", i)}
+	}
+	suite.Require().NoError(suite.db.Create(&artists).Error)
+
+	items := make([]communitym.CollectionItem, totalItems)
+	for i, a := range artists {
+		items[i] = communitym.CollectionItem{
+			CollectionID:  priv.ID,
+			EntityType:    communitym.CollectionEntityArtist,
+			EntityID:      a.ID,
+			AddedByUserID: creator.ID,
+			Position:      i,
+		}
+	}
+	suite.Require().NoError(suite.db.Create(&items).Error)
+
+	// Edge only among items past the pre-build ceiling: if the build saw
+	// them, this shared_bills link (and those node names) would appear.
+	suite.seedArtistRelationship(
+		&artists[collectionGraphBuildMaxItems],
+		&artists[collectionGraphBuildMaxItems+1],
+		catalogm.RelationshipTypeSharedBills,
+		5.0,
+	)
+	// Connected core inside the ceiling so the 150 payload ranker has
+	// something to keep — proves both ceilings still compose.
+	suite.seedArtistRelationship(&artists[0], &artists[1], catalogm.RelationshipTypeSharedBills, 5.0)
+
+	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
+	suite.Require().NoError(err)
+
+	suite.Equal(totalItems, graph.Collection.NodeTotal,
+		"node_total must reflect the full collection item count, not the pre-build subset")
+	suite.True(graph.Collection.NodesTruncated)
+	suite.LessOrEqual(len(graph.Nodes), collectionGraphMaxNodes,
+		"150 payload cap must still apply on the pre-ceiling subset")
+	suite.Require().Len(graph.Nodes, collectionGraphMaxNodes)
+
+	names := make(map[string]bool, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		names[n.Name] = true
+	}
+	suite.True(names["PreBuild Artist 0000"], "in-ceiling connected artist must survive")
+	suite.True(names["PreBuild Artist 0001"], "in-ceiling connected artist must survive")
+	for i := 0; i < beyond; i++ {
+		name := fmt.Sprintf("PreBuild Artist %04d", collectionGraphBuildMaxItems+i)
+		suite.False(names[name],
+			"%s is past the pre-build ceiling and must not enter the graph build", name)
+	}
+	suite.Equal(1, graph.Collection.EdgeCount,
+		"only the in-ceiling edge should survive; beyond-ceiling edge must be invisible")
+}
+
 // Verify the contract type signature aligns with the interface — this is a
 // compile-time check; if GetCollectionGraph were missing or the signature
 // drifted, the package would not build.
