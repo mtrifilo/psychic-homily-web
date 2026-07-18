@@ -1,6 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Clock, TrendingUp, Award } from 'lucide-react'
 import { UserTierBadge } from './UserTierBadge'
@@ -152,7 +154,8 @@ export function ContributorProfilePreview() {
         </Card>
       )}
 
-      {/* Empty state */}
+      {/* Empty state — CTAs reuse GetStartedChecklist destinations (PSY-1490).
+          Preview chrome redesign stays with PSY-1061. */}
       {(!profile.stats || profile.stats.total_contributions === 0) && (
         <Card className="bg-muted/30 border-border/50 border-dashed">
           <CardContent className="p-8 text-center space-y-3">
@@ -163,6 +166,14 @@ export function ContributorProfilePreview() {
                 Submit shows, edit venues, and help build the music knowledge graph.
                 Your contributions will appear here.
               </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/shows">Find shows</Link>
+              </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/artists">Browse</Link>
+              </Button>
             </div>
           </CardContent>
         </Card>

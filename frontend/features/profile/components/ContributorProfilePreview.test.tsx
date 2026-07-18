@@ -377,6 +377,23 @@ describe('ContributorProfilePreview', () => {
     expect(screen.getByText('Start Contributing')).toBeInTheDocument()
   })
 
+  it('links empty-state CTAs to Find shows and Browse artists', () => {
+    mockUseOwnContributorProfile.mockReturnValue({
+      data: makeProfile(),
+      isLoading: false,
+    })
+
+    renderWithProviders(<ContributorProfilePreview />)
+    expect(screen.getByRole('link', { name: 'Find shows' })).toHaveAttribute(
+      'href',
+      '/shows'
+    )
+    expect(screen.getByRole('link', { name: 'Browse' })).toHaveAttribute(
+      'href',
+      '/artists'
+    )
+  })
+
   it('shows "Recent Activity" when there are contributions', () => {
     mockUseOwnContributorProfile.mockReturnValue({
       data: makeProfile(),
