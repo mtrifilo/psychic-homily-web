@@ -20,6 +20,7 @@ import {
   useOnTheRadio,
   useOpenersToWatch,
   usePersonalChartsStats,
+  useTopTags,
 } from './useCharts'
 
 describe('chart hooks', () => {
@@ -112,6 +113,7 @@ describe('chart hooks', () => {
           useBusiestVenues('quarter', 7, options),
           useNewReleases('quarter', 6, options),
           useOpenersToWatch('quarter', 6, options),
+          useTopTags('quarter', 7, options),
           useChartsSummary('quarter', options),
           useFreshlyAdded(6, options),
         ]
@@ -125,17 +127,30 @@ describe('chart hooks', () => {
     await waitFor(() =>
       expect(result.current.every(request => request.isSuccess)).toBe(true)
     )
-    expect(mockApiRequest).toHaveBeenCalledTimes(8)
+    expect(mockApiRequest).toHaveBeenCalledTimes(9)
     for (const [url] of mockApiRequest.mock.calls) {
       expect(String(url)).not.toContain('scene=')
     }
 
     mockApiRequest.mockClear()
     rerender({ scene: '38060' })
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(8))
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(9))
     for (const [url] of mockApiRequest.mock.calls) {
       expect(String(url)).toContain('scene=38060')
     }
+  })
+
+  it('requests activity-weighted top tags with window and limit', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [] })
+    const { result } = renderHook(() => useTopTags('month', 7), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringMatching(/\/charts\/top-tags\?window=month&limit=7$/),
+      { method: 'GET' }
+    )
   })
 
   it('refetches the coverage-floored scene list for each window', async () => {

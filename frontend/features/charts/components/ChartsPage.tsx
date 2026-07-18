@@ -37,6 +37,7 @@ import {
   useNewReleases,
   useOnTheRadio,
   useOpenersToWatch,
+  useTopTags,
 } from '../hooks'
 import {
   formatWindowContext,
@@ -150,6 +151,20 @@ function fullListHref(module: string, window: ChartWindow, scene: string) {
   if (scene) search.set('scene', scene)
   const query = search.toString()
   return `/charts/${module}${query ? `?${query}` : ''}`
+}
+
+/** Tag-filtered /shows browse URL, preserving the active chart scene as cities. */
+function tagBrowseHref(slug: string, scene: ChartScene | undefined): string {
+  const params = new URLSearchParams()
+  params.set('tags', slug)
+  // Wire format matches buildCitiesParam / ALL_CITIES in cityParams.ts —
+  // inlined so ChartsPage tests keep their narrow nuqs mock.
+  if (scene?.city && scene?.state) {
+    params.set('cities', `${scene.city},${scene.state}`)
+  } else {
+    params.set('cities', 'all')
+  }
+  return `/shows?${params.toString()}`
 }
 
 function EntityReferenceList({
@@ -440,6 +455,7 @@ export function ChartsPage({
   const venues = useBusiestVenues(window, 7, chartQueryOptions)
   const releases = useNewReleases(window, 6, chartQueryOptions)
   const openers = useOpenersToWatch(window, 6, chartQueryOptions)
+  const tags = useTopTags(window, 7, chartQueryOptions)
   const summary = useChartsSummary(window, chartQueryOptions)
   const freshlyAdded = useFreshlyAdded(6, chartQueryOptions)
 
@@ -990,6 +1006,31 @@ export function ChartsPage({
                   className="font-mono text-[11px]"
                 />
               }
+            />
+          ))}
+        </ChartModule>
+
+        <ChartModule
+          title="Top Tags"
+          context={moduleContext(window)}
+          rowCount={tags.data?.tags.length ?? 0}
+          isLoading={tags.isLoading || !sceneResolved}
+          isError={tags.isError}
+          hasData={tags.data !== undefined}
+          testId="chart-top-tags"
+        >
+          {(tags.data?.tags ?? []).map(tag => (
+            <ChartRow
+              key={tag.tag_id}
+              rank={tag.rank}
+              primary={
+                <Link href={tagBrowseHref(tag.slug, selectedScene)} className={linkClass}>
+                  {tag.name}
+                </Link>
+              }
+              meta={`${tag.show_count}${tag.show_count === 1 ? ' show' : ' shows'}${tag.category ? ` · ${tag.category}` : ''}`}
+              stat={`${tag.weighted_saves}${tag.rank === 1 ? ' saves' : ''}`}
+              action={null}
             />
           ))}
         </ChartModule>

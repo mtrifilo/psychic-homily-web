@@ -5,6 +5,7 @@ export {
   useBusiestVenues,
   useNewReleases,
   useOpenersToWatch,
+  useTopTags,
   useChartsSummary,
   useFreshlyAdded,
   useChartScenes,

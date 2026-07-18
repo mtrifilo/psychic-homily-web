@@ -280,6 +280,20 @@ type OnTheRadioArtist struct {
 	Rank         int    `json:"rank"`
 }
 
+// TopTag represents a tag ranked by activity-weighted saves on shows played
+// in a window. Tags come from billed artists (the same transitive model
+// /shows?tags= browse uses); WeightedSaves is the sum of save counts on
+// distinct in-window shows carrying the tag.
+type TopTag struct {
+	TagID         uint   `json:"tag_id"`
+	Name          string `json:"name"`
+	Slug          string `json:"slug"`
+	Category      string `json:"category"`
+	WeightedSaves int    `json:"weighted_saves"`
+	ShowCount     int    `json:"show_count"`
+	Rank          int    `json:"rank"`
+}
+
 // ChartsSummary is the masthead proof-of-life stat strip: window-scoped
 // counts of graph activity. ShowsAdded/NewArtists/NewReleases count entities
 // ADDED to the graph in the window (created_at, the honest claim);
@@ -419,6 +433,7 @@ type ChartsServiceInterface interface {
 	// responsibility to reject (HTTP pattern tag); a known type with no
 	// placement returns Rank=nil, never an error.
 	GetChartEntityRank(entityType ChartRankEntityType, entityID uint, window ChartWindow) (*ChartEntityRank, error)
+	GetTopTags(window ChartWindow, scene string, limit, offset int) ([]TopTag, int, error)
 	GetChartsSummary(window ChartWindow, scene string) (*ChartsSummary, error)
 	GetFreshlyAdded(scene string, limit int) ([]FreshlyAddedItem, error)
 	GetChartScenes(window ChartWindow) ([]ChartScene, error)

@@ -312,6 +312,22 @@ vi.mock('../hooks', () => ({
       ],
     })
   },
+  useTopTags: (...args: unknown[]) => {
+    mockScopedHook('tags', ...args)
+    return query({
+      tags: [
+        {
+          tag_id: 8,
+          name: 'Shoegaze',
+          slug: 'shoegaze',
+          category: 'genre',
+          weighted_saves: 14,
+          show_count: 4,
+          rank: 1,
+        },
+      ],
+    })
+  },
   useChartsSummary: (...args: unknown[]) => {
     mockScopedHook('summary', ...args)
     return query({
@@ -400,12 +416,17 @@ describe('ChartsPage', () => {
     ]
   })
 
-  it('renders the six-module Broadsheet with inline actions and linked release metadata', () => {
+  it('renders the seven-module Broadsheet with inline actions and linked release metadata', () => {
     render(<ChartsPage />)
 
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(7)
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8)
     expect(screen.getByText('Hardest-Working Artists')).toBeInTheDocument()
     expect(screen.getByText('Openers to Watch')).toBeInTheDocument()
+    expect(screen.getByText('Top Tags')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Shoegaze' })).toHaveAttribute(
+      'href',
+      '/shows?tags=shoegaze&cities=all'
+    )
     expect(
       screen
         .getAllByRole('link', { name: 'Night Ledger' })
@@ -635,7 +656,7 @@ describe('ChartsPage', () => {
     const moduleCalls = mockScopedHook.mock.calls.filter(
       ([name]) => name !== 'scenes'
     )
-    expect(moduleCalls).toHaveLength(8)
+    expect(moduleCalls).toHaveLength(9)
     for (const call of moduleCalls) {
       expect(call.at(-1)).toMatchObject({ scene: '38060', enabled: true })
     }
@@ -644,6 +665,10 @@ describe('ChartsPage', () => {
     for (const link of fullListLinks) {
       expect(link.getAttribute('href')).toContain('scene=38060')
     }
+    expect(screen.getByRole('link', { name: 'Shoegaze' })).toHaveAttribute(
+      'href',
+      '/shows?tags=shoegaze&cities=Phoenix%2CAZ'
+    )
   })
 
   it('carries a non-default window into every full-list link', () => {

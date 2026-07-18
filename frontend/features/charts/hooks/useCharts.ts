@@ -17,6 +17,7 @@ import type {
   OnTheRadioResponse,
   OpenersToWatchResponse,
   PersonalChartsStats,
+  TopTagsResponse,
 } from '../types'
 
 function withParams(
@@ -156,6 +157,22 @@ export function useOpenersToWatch(
           offset: offset || undefined,
           scene,
         }),
+        { method: 'GET' }
+      ),
+    enabled,
+  })
+}
+
+export function useTopTags(
+  window: ChartWindow,
+  limit = 7,
+  { scene = '', enabled = true }: ChartQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: chartQueryKeys.topTags(window, scene, limit),
+    queryFn: () =>
+      apiRequest<TopTagsResponse>(
+        withParams(chartEndpoints.TOP_TAGS, { window, limit, scene }),
         { method: 'GET' }
       ),
     enabled,

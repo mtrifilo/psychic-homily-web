@@ -640,6 +640,7 @@ type MockChartsService struct {
 	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.OnTheRadioArtist, int, error)
 	GetNewReleasesFn          func(contracts.ChartWindow, string, int, int) ([]contracts.NewRelease, int, error)
 	GetChartEntityRankFn      func(contracts.ChartRankEntityType, uint, contracts.ChartWindow) (*contracts.ChartEntityRank, error)
+	GetTopTagsFn              func(contracts.ChartWindow, string, int, int) ([]contracts.TopTag, int, error)
 	GetChartsSummaryFn        func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
 	GetFreshlyAddedFn         func(string, int) ([]contracts.FreshlyAddedItem, error)
 	GetChartScenesFn          func(contracts.ChartWindow) ([]contracts.ChartScene, error)
@@ -706,6 +707,12 @@ func (m *MockChartsService) GetChartEntityRank(entityType contracts.ChartRankEnt
 		Module:     contracts.ChartRankModuleMostAnticipated,
 		Rank:       nil,
 	}, nil
+}
+func (m *MockChartsService) GetTopTags(window contracts.ChartWindow, scene string, limit int, offset int) ([]contracts.TopTag, int, error) {
+	if m.GetTopTagsFn != nil {
+		return m.GetTopTagsFn(window, scene, limit, offset)
+	}
+	return nil, 0, nil
 }
 func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow, scene string) (*contracts.ChartsSummary, error) {
 	if m.GetChartsSummaryFn != nil {

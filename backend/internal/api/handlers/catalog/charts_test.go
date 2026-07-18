@@ -455,6 +455,7 @@ func TestChartsHandlers_CalendarWindowContract(t *testing.T) {
 	huma.Get(api, "/charts/openers-to-watch", h.GetOpenersToWatchHandler)
 	huma.Get(api, "/charts/on-the-radio", h.GetOnTheRadioArtistsHandler)
 	huma.Get(api, "/charts/new-releases", h.GetNewReleasesHandler)
+	huma.Get(api, "/charts/top-tags", h.GetTopTagsHandler)
 	huma.Get(api, "/charts/summary", h.GetChartsSummaryHandler)
 
 	paths := []string{
@@ -464,6 +465,7 @@ func TestChartsHandlers_CalendarWindowContract(t *testing.T) {
 		"/charts/openers-to-watch",
 		"/charts/on-the-radio",
 		"/charts/new-releases",
+		"/charts/top-tags",
 		"/charts/summary",
 	}
 	for _, path := range paths {
@@ -558,6 +560,46 @@ func TestChartsHandler_OpenersToWatch_ServiceError(t *testing.T) {
 		},
 	})
 	_, err := h.GetOpenersToWatchHandler(context.Background(), &GetOpenersToWatchRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+func TestChartsHandler_TopTags_Success(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetTopTagsFn: func(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.TopTag, int, error) {
+			if window != contracts.ChartWindowQuarter {
+				t.Errorf("expected default window=quarter, got %q", window)
+			}
+			if limit != 10 {
+				t.Errorf("expected limit=10 forwarded, got %d", limit)
+			}
+			return []contracts.TopTag{
+				{TagID: 1, Name: "Shoegaze", Slug: "shoegaze", Category: "genre", WeightedSaves: 12, ShowCount: 3, Rank: 1},
+			}, 4, nil
+		},
+	})
+
+	resp, err := h.GetTopTagsHandler(context.Background(), &GetTopTagsRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Window != "quarter" {
+		t.Errorf("expected echoed window=quarter, got %q", resp.Body.Window)
+	}
+	if len(resp.Body.Tags) != 1 || resp.Body.Tags[0].Slug != "shoegaze" || resp.Body.Tags[0].WeightedSaves != 12 {
+		t.Errorf("unexpected mapping: %+v", resp.Body.Tags)
+	}
+	if resp.Body.Total != 4 {
+		t.Errorf("expected total=4 echoed, got %d", resp.Body.Total)
+	}
+}
+
+func TestChartsHandler_TopTags_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetTopTagsFn: func(contracts.ChartWindow, string, int, int) ([]contracts.TopTag, int, error) {
+			return nil, 0, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetTopTagsHandler(context.Background(), &GetTopTagsRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
 }
 

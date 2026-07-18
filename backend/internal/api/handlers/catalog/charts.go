@@ -379,6 +379,73 @@ func (h *ChartsHandler) GetOpenersToWatchHandler(ctx context.Context, req *GetOp
 	return resp, nil
 }
 
+// --- GetTopTags ---
+
+// GetTopTagsRequest is the Huma request for GET /charts/top-tags
+type GetTopTagsRequest struct {
+	Window string `query:"window" required:"false" pattern:"^(month|quarter|all_time|[0-9]{4}(-q[1-4])?)$" doc:"Chart window: rolling month/quarter, all_time, UTC calendar YYYY, or YYYY-q1..q4 (default quarter)"`
+	Scene  string `query:"scene" required:"false" pattern:"^[0-9]{1,10}$" doc:"Scene scope - a CBSA metro code from /charts/scenes; shows played IN the metro (omitted = all scenes; unknown = empty results)"`
+	Limit  int    `query:"limit" required:"false" default:"10" minimum:"1" maximum:"100" doc:"Page size (default 10 - the front-page teaser; drill-downs pass 50; max 100)"`
+	Offset int    `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full ranked list (default 0)"`
+}
+
+// TopTagResponse is a single ranked tag in the response.
+type TopTagResponse struct {
+	TagID         uint   `json:"tag_id"`
+	Name          string `json:"name"`
+	Slug          string `json:"slug"`
+	Category      string `json:"category"`
+	WeightedSaves int    `json:"weighted_saves"`
+	ShowCount     int    `json:"show_count"`
+	Rank          int    `json:"rank"`
+}
+
+// GetTopTagsResponse is the Huma response for GET /charts/top-tags
+type GetTopTagsResponse struct {
+	// CacheControl: public, viewer-independent, stale-tolerant payload — see
+	// the charts*CacheControl consts for the staleness math.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Window string           `json:"window"`
+		Scene  string           `json:"scene" doc:"Echo of the scene scope ('' = all scenes)"`
+		Total  int              `json:"total" doc:"Count of qualifying rows in the window (full list size)"`
+		Tags   []TopTagResponse `json:"tags"`
+	}
+}
+
+// GetTopTagsHandler handles GET /charts/top-tags — tags of shows played in
+// the window, ranked by the sum of saves on those shows (activity-weighted).
+func (h *ChartsHandler) GetTopTagsHandler(ctx context.Context, req *GetTopTagsRequest) (*GetTopTagsResponse, error) {
+	window, windowErr := normalizeChartWindow(req.Window)
+	if windowErr != nil {
+		return nil, windowErr
+	}
+
+	data, total, err := h.chartsService.GetTopTags(window, req.Scene, req.Limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_top_tags_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get top tags")
+	}
+
+	resp := &GetTopTagsResponse{CacheControl: chartsModuleCacheControl}
+	resp.Body.Window = string(window)
+	resp.Body.Scene = req.Scene
+	resp.Body.Total = total
+	resp.Body.Tags = make([]TopTagResponse, len(data))
+	for i, tag := range data {
+		resp.Body.Tags[i] = TopTagResponse{
+			TagID:         tag.TagID,
+			Name:          tag.Name,
+			Slug:          tag.Slug,
+			Category:      tag.Category,
+			WeightedSaves: tag.WeightedSaves,
+			ShowCount:     tag.ShowCount,
+			Rank:          tag.Rank,
+		}
+	}
+	return resp, nil
+}
+
 // --- GetOnTheRadioArtists ---
 
 // GetOnTheRadioArtistsRequest is the Huma request for GET /charts/on-the-radio
