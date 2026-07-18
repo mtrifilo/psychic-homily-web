@@ -625,10 +625,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_NodeC
 // edges that only involve them — must not appear, while NodeTotal still
 // reports the full item count and the 150-node payload cap still applies.
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PreBuildCeilingBoundsCost() {
-	const buildMax = 600 // mirrors collectionGraphBuildMaxItems
-	const payloadMax = 150
 	const beyond = 5
-	totalItems := buildMax + beyond
+	totalItems := collectionGraphBuildMaxItems + beyond
 
 	creator := suite.createTestUser("PreBuildCreator")
 	priv := suite.createBasicCollection(creator, "PreBuild Ceiling")
@@ -654,8 +652,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PreBu
 	// Edge only among items past the pre-build ceiling: if the build saw
 	// them, this shared_bills link (and those node names) would appear.
 	suite.seedArtistRelationship(
-		&artists[buildMax],
-		&artists[buildMax+1],
+		&artists[collectionGraphBuildMaxItems],
+		&artists[collectionGraphBuildMaxItems+1],
 		catalogm.RelationshipTypeSharedBills,
 		5.0,
 	)
@@ -669,9 +667,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PreBu
 	suite.Equal(totalItems, graph.Collection.NodeTotal,
 		"node_total must reflect the full collection item count, not the pre-build subset")
 	suite.True(graph.Collection.NodesTruncated)
-	suite.LessOrEqual(len(graph.Nodes), payloadMax,
+	suite.LessOrEqual(len(graph.Nodes), collectionGraphMaxNodes,
 		"150 payload cap must still apply on the pre-ceiling subset")
-	suite.Require().Len(graph.Nodes, payloadMax)
+	suite.Require().Len(graph.Nodes, collectionGraphMaxNodes)
 
 	names := make(map[string]bool, len(graph.Nodes))
 	for _, n := range graph.Nodes {
@@ -680,7 +678,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PreBu
 	suite.True(names["PreBuild Artist 0000"], "in-ceiling connected artist must survive")
 	suite.True(names["PreBuild Artist 0001"], "in-ceiling connected artist must survive")
 	for i := 0; i < beyond; i++ {
-		name := fmt.Sprintf("PreBuild Artist %04d", buildMax+i)
+		name := fmt.Sprintf("PreBuild Artist %04d", collectionGraphBuildMaxItems+i)
 		suite.False(names[name],
 			"%s is past the pre-build ceiling and must not enter the graph build", name)
 	}
