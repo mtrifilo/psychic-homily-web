@@ -48,6 +48,7 @@ import {
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
+import { EntityChartRankBadge } from '@/features/charts'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
@@ -334,6 +335,9 @@ function ArtistSidebar({
           <StatsList items={statsItems} />
         </section>
       )}
+
+      {/* Chart rank — self-hides when unranked (PSY-1420 / Figma 996:16) */}
+      <EntityChartRankBadge entityType="artist" entityId={artist.id} />
 
       {/* Similar artists — dense list + [Explore graph] affordance (opens
           the page-level Dialog). Self-hides when there are no relationships

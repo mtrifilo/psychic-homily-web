@@ -7,6 +7,9 @@ export type {
   ChartScene,
   ChartScenesResponse,
   ChartEntityReference,
+  ChartRankEntityType,
+  ChartRankModule,
+  ChartEntityRank,
   MostActiveArtist,
   MostActiveArtistsResponse,
   OnTheRadioArtist,
@@ -38,10 +41,15 @@ export {
   useChartsSummary,
   useFreshlyAdded,
   useChartScenes,
+  useChartEntityRank,
 } from './hooks'
 
 // Components
-export { ChartsPage, ChartDrilldownPage } from './components'
+export {
+  ChartsPage,
+  ChartDrilldownPage,
+  EntityChartRankBadge,
+} from './components'
 export {
   CHART_MODULE_CONFIG,
   CHART_MODULE_SLUGS,

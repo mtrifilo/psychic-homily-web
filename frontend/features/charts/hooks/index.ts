@@ -9,4 +9,5 @@ export {
   useFreshlyAdded,
   useChartScenes,
   usePersonalChartsStats,
+  useChartEntityRank,
 } from './useCharts'

@@ -136,6 +136,11 @@ vi.mock('@/features/collections', () => ({
   EntityCollections: (): null => null,
 }))
 
+vi.mock('@/features/charts', () => ({
+  EntityChartRankBadge: (): null => null,
+  useChartEntityRank: () => ({ data: undefined, isSuccess: false }),
+}))
+
 // PSY-664: the graph dialog mock surfaces `open` + a close affordance wired
 // to `onOpenChange(false)` so the close-path hash cleanup is testable without
 // rendering the real ForceGraph2D-backed dialog. The real Dialog routes every
