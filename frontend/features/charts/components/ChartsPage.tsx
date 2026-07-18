@@ -39,12 +39,20 @@ import {
   useOpenersToWatch,
 } from '../hooks'
 import {
+  formatWindowContext,
+  formatWindowSummary,
+  frontPageArchiveLinks,
+  isCalendarChartWindow,
+} from '../calendarWindows'
+import {
   CHART_WINDOWS,
   type ChartEntityReference,
   type ChartScene,
   type ChartWindow,
   type FreshlyAddedItem,
+  type RollingChartWindow,
 } from '../types'
+import { ArchiveMasthead } from './ArchiveMasthead'
 import { ChartModule, ChartRow } from './ChartModule'
 import { PersonalStatsStrip } from './PersonalStatsStrip'
 import { SaveChartDefaultsButton } from './SaveChartDefaultsButton'
@@ -53,20 +61,34 @@ import { SaveChartDefaultsButton } from './SaveChartDefaultsButton'
 const SCENE_ALL = 'all'
 
 const chartWindowParser = parseAsStringLiteral(CHART_WINDOWS)
-const WINDOW_LABELS: Record<ChartWindow, string> = {
+const WINDOW_LABELS: Record<RollingChartWindow, string> = {
   month: 'This Month',
   quarter: 'Quarter',
   all_time: 'All Time',
 }
-const WINDOW_CONTEXT: Record<ChartWindow, string> = {
+const WINDOW_CONTEXT: Record<RollingChartWindow, string> = {
   month: 'last 30 days',
   quarter: 'last 90 days',
   all_time: 'all time',
 }
-const WINDOW_SUMMARY: Record<ChartWindow, string> = {
+const WINDOW_SUMMARY: Record<RollingChartWindow, string> = {
   month: 'THIS MONTH',
   quarter: 'THIS QUARTER',
   all_time: 'ALL TIME',
+}
+
+function moduleContext(window: ChartWindow): string {
+  if ((CHART_WINDOWS as readonly string[]).includes(window)) {
+    return WINDOW_CONTEXT[window as RollingChartWindow]
+  }
+  return formatWindowContext(window)
+}
+
+function summaryLabel(window: ChartWindow): string {
+  if ((CHART_WINDOWS as readonly string[]).includes(window)) {
+    return WINDOW_SUMMARY[window as RollingChartWindow]
+  }
+  return formatWindowSummary(window)
 }
 
 function parseSavedChartDefaults(
@@ -247,7 +269,7 @@ function StatStrip({
         <span className="h-3 w-3/4 animate-pulse rounded-sm bg-muted" />
       ) : summary ? (
         <p className="min-w-0 flex-1 text-[11px] leading-4 sm:text-xs">
-          <span>{WINDOW_SUMMARY[window]}:</span>{' '}
+          <span>{summaryLabel(window)}:</span>{' '}
           <span>{summary.shows_added} shows added</span>
           <span className="text-muted-foreground"> · </span>
           <span>{summary.new_artists} new artists</span>
@@ -306,7 +328,13 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
   )
 }
 
-export function ChartsPage() {
+export function ChartsPage({
+  pinnedWindow,
+}: {
+  /** Calendar archive pin (`YYYY` / `YYYY-qN`). Omit on the live Broadsheet. */
+  pinnedWindow?: string
+} = {}) {
+  const isArchive = Boolean(pinnedWindow && isCalendarChartWindow(pinnedWindow))
   const [isPending, startTransition] = useTransition()
   // No withDefault — null means "param absent" so saved prefs can fill in
   // (same derivation pattern as /shows favorite cities; PSY-1423).
@@ -333,9 +361,15 @@ export function ChartsPage() {
 
   // Derive effective window/scene during render — never seed into the URL via
   // effect. Explicit URL params always win; bare /charts applies saved defaults
-  // (or anonymous quarter / no-scene).
-  const window: ChartWindow =
-    windowParam ?? savedDefaults?.window ?? 'quarter'
+  // (or anonymous quarter / no-scene). Archive routes pin the calendar window.
+  const window: ChartWindow = isArchive
+    ? pinnedWindow!
+    : (windowParam ?? savedDefaults?.window ?? 'quarter')
+
+  const archiveEntries = useMemo(
+    () => (isArchive ? null : frontPageArchiveLinks()),
+    [isArchive]
+  )
 
   // undefined = param absent (may apply saved); null = explicit all-scenes;
   // string = explicit or candidate metro.
@@ -462,7 +496,7 @@ export function ChartsPage() {
   const derivedWindow = savedDefaults?.window ?? 'quarter'
   const derivedScene = savedDefaults?.scene ?? null
 
-  const changeWindow = (next: ChartWindow) => {
+  const changeWindow = (next: RollingChartWindow) => {
     void setWindow(next === derivedWindow ? null : next)
   }
 
@@ -482,10 +516,87 @@ export function ChartsPage() {
     <div
       className={cn('space-y-6', isPending && 'opacity-75 transition-opacity')}
     >
-      <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0">
-          <h1 className="font-display text-3xl font-bold leading-none">
-            {selectedScene ? (
+      {isArchive ? (
+        <ArchiveMasthead window={pinnedWindow!} />
+      ) : (
+        <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="min-w-0">
+            <h1 className="font-display text-3xl font-bold leading-none">
+              {selectedScene ? (
+                <SceneSwitcher
+                  scenes={sceneList.data?.scenes ?? []}
+                  selectedScene={selectedScene}
+                  isLoading={sceneList.isLoading}
+                  isError={sceneList.isError && !selectedScene}
+                  onChange={changeScene}
+                  onRetry={() => void sceneList.refetch()}
+                  treatment="masthead"
+                />
+              ) : (
+                'Charts'
+              )}
+            </h1>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              {selectedScene ? (
+                <>
+                  Scene charts · {metroDisplayName(selectedScene.name)} metro ·{' '}
+                  {countLabel(selectedScene.artist_count, 'artist')} based here ·{' '}
+                  {countLabel(selectedScene.venue_count, 'venue')} tracked
+                </>
+              ) : (
+                <>
+                  The ledger of what’s moving — artists, shows, venues, releases,
+                  airwaves.
+                </>
+              )}
+            </p>
+            {archiveEntries?.year || archiveEntries?.previousQuarter ? (
+              <p
+                className="mt-2 font-mono text-[11px] text-muted-foreground"
+                data-testid="chart-archive-entry-links"
+              >
+                Archives:{' '}
+                {archiveEntries.year ? (
+                  <Link href={archiveEntries.year.href} className={linkClass}>
+                    {archiveEntries.year.label}
+                  </Link>
+                ) : null}
+                {archiveEntries.year && archiveEntries.previousQuarter
+                  ? ' · '
+                  : null}
+                {archiveEntries.previousQuarter ? (
+                  <Link
+                    href={archiveEntries.previousQuarter.href}
+                    className={linkClass}
+                  >
+                    {archiveEntries.previousQuarter.label}
+                  </Link>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div
+              role="group"
+              aria-label="Chart window"
+              className="flex items-stretch gap-0.5"
+            >
+              {CHART_WINDOWS.map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={window === value}
+                  onClick={() => changeWindow(value)}
+                  className={cn(
+                    'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    window === value && 'border-primary text-foreground'
+                  )}
+                >
+                  {WINDOW_LABELS[value]}
+                </button>
+              ))}
+            </div>
+            {!selectedScene ? (
               <SceneSwitcher
                 scenes={sceneList.data?.scenes ?? []}
                 selectedScene={selectedScene}
@@ -493,67 +604,32 @@ export function ChartsPage() {
                 isError={sceneList.isError && !selectedScene}
                 onChange={changeScene}
                 onRetry={() => void sceneList.refetch()}
-                treatment="masthead"
               />
-            ) : (
-              'Charts'
-            )}
-          </h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            {selectedScene ? (
-              <>
-                Scene charts · {metroDisplayName(selectedScene.name)} metro ·{' '}
-                {countLabel(selectedScene.artist_count, 'artist')} based here ·{' '}
-                {countLabel(selectedScene.venue_count, 'venue')} tracked
-              </>
-            ) : (
-              <>
-                The ledger of what’s moving — artists, shows, venues, releases,
-                airwaves.
-              </>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div
-            role="group"
-            aria-label="Chart window"
-            className="flex items-stretch gap-0.5"
-          >
-            {CHART_WINDOWS.map(value => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={window === value}
-                onClick={() => changeWindow(value)}
-                className={cn(
-                  'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  window === value && 'border-primary text-foreground'
-                )}
-              >
-                {WINDOW_LABELS[value]}
-              </button>
-            ))}
+            ) : null}
+            {isAuthenticated &&
+            (CHART_WINDOWS as readonly string[]).includes(window) ? (
+              <SaveChartDefaultsButton
+                window={window as RollingChartWindow}
+                scene={effectiveScene || null}
+                savedDefaults={savedDefaults}
+              />
+            ) : null}
           </div>
-          {!selectedScene ? (
-            <SceneSwitcher
-              scenes={sceneList.data?.scenes ?? []}
-              selectedScene={selectedScene}
-              isLoading={sceneList.isLoading}
-              isError={sceneList.isError && !selectedScene}
-              onChange={changeScene}
-              onRetry={() => void sceneList.refetch()}
-            />
-          ) : null}
-          {isAuthenticated ? (
-            <SaveChartDefaultsButton
-              window={window}
-              scene={effectiveScene || null}
-              savedDefaults={savedDefaults}
-            />
-          ) : null}
+        </header>
+      )}
+
+      {isArchive ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <SceneSwitcher
+            scenes={sceneList.data?.scenes ?? []}
+            selectedScene={selectedScene}
+            isLoading={sceneList.isLoading}
+            isError={sceneList.isError && !selectedScene}
+            onChange={changeScene}
+            onRetry={() => void sceneList.refetch()}
+          />
         </div>
-      </header>
+      ) : null}
 
       {sceneValidationFailed ? (
         <div
@@ -585,7 +661,7 @@ export function ChartsPage() {
       >
         <ChartModule
           title="Hardest-Working Artists"
-          context={WINDOW_CONTEXT[window]}
+          context={moduleContext(window)}
           rowCount={active.data?.artists.length ?? 0}
           isLoading={active.isLoading || !sceneResolved}
           isError={active.isError}
@@ -632,7 +708,7 @@ export function ChartsPage() {
 
         <ChartModule
           title="On the Radio"
-          context={WINDOW_CONTEXT[window]}
+          context={moduleContext(window)}
           rowCount={radio.data?.artists.length ?? 0}
           isLoading={radio.isLoading || !sceneResolved}
           isError={radio.isError}
@@ -751,7 +827,7 @@ export function ChartsPage() {
 
         <ChartModule
           title="Busiest Venues"
-          context={WINDOW_CONTEXT[window]}
+          context={moduleContext(window)}
           rowCount={venues.data?.venues.length ?? 0}
           isLoading={venues.isLoading || !sceneResolved}
           isError={venues.isError}
@@ -872,7 +948,7 @@ export function ChartsPage() {
 
         <ChartModule
           title="Openers to Watch"
-          context={WINDOW_CONTEXT[window]}
+          context={moduleContext(window)}
           rowCount={openers.data?.artists.length ?? 0}
           isLoading={openers.isLoading || !sceneResolved}
           isError={openers.isError}
@@ -918,7 +994,7 @@ export function ChartsPage() {
         </ChartModule>
       </div>
 
-      {!sceneValidationFailed && sceneResolved ? (
+      {!isArchive && !sceneValidationFailed && sceneResolved ? (
         <FreshlyAddedTicker items={freshlyAdded.data?.items ?? []} />
       ) : null}
     </div>

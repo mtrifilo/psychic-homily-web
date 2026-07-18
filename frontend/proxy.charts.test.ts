@@ -39,4 +39,26 @@ describe('proxy charts module allowlist', () => {
     const response = await proxy(chartsRequest('/charts'))
     expect(response.status).toBe(200)
   })
+
+  it('allows numeric-year archive segments', async () => {
+    const response = await proxy(chartsRequest('/charts/2026'))
+    expect(response.status).toBe(200)
+  })
+
+  it('allows year/quarter archive paths', async () => {
+    const response = await proxy(chartsRequest('/charts/2026/q2'))
+    expect(response.status).toBe(200)
+  })
+
+  it('rewrites invalid quarter archive shapes to 404', async () => {
+    const response = await proxy(chartsRequest('/charts/2026/q9'))
+    expect(response.status).toBe(404)
+  })
+
+  it('rewrites module + trailing segment to 404', async () => {
+    const response = await proxy(
+      chartsRequest('/charts/most-active-artists/q1')
+    )
+    expect(response.status).toBe(404)
+  })
 })

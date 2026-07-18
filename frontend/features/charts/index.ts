@@ -28,6 +28,7 @@ export type {
 } from './types'
 
 export { CHART_WINDOWS } from './types'
+export type { RollingChartWindow } from './types'
 export { chartEndpoints, chartQueryKeys } from './api'
 
 // Hooks
@@ -49,6 +50,7 @@ export {
   ChartsPage,
   ChartDrilldownPage,
   EntityChartRankBadge,
+  ArchiveMasthead,
 } from './components'
 export {
   CHART_MODULE_CONFIG,

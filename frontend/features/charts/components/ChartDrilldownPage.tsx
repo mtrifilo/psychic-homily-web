@@ -5,7 +5,6 @@ import Link from 'next/link'
 import {
   parseAsInteger,
   parseAsString,
-  parseAsStringLiteral,
   useQueryState,
 } from 'nuqs'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +32,12 @@ import {
   useOpenersToWatch,
 } from '../hooks'
 import {
+  archiveHref,
+  formatWindowContext,
+  isCalendarChartWindow,
+  parseCalendarChartWindow,
+} from '../calendarWindows'
+import {
   CHART_MODULE_CONFIG,
   type ChartColumnKey,
   type ChartModuleSlug,
@@ -41,14 +46,13 @@ import {
   CHART_WINDOWS,
   type ChartEntityReference,
   type ChartWindow,
+  type RollingChartWindow,
 } from '../types'
 
 const PAGE_SIZE = 50
 const MAX_PAGE = 201 // Backend offsets are capped at 10,000.
-const chartWindowParser =
-  parseAsStringLiteral(CHART_WINDOWS).withDefault('quarter')
 const pageParser = parseAsInteger.withDefault(1)
-const WINDOW_LABELS: Record<ChartWindow, string> = {
+const WINDOW_LABELS: Record<RollingChartWindow, string> = {
   month: 'This Month',
   quarter: 'Quarter',
   all_time: 'All Time',
@@ -120,13 +124,23 @@ function paginationItems(currentPage: number, totalPages: number) {
   return items
 }
 
+function resolveDrilldownWindow(raw: string | null): ChartWindow {
+  if (!raw) return 'quarter'
+  if ((CHART_WINDOWS as readonly string[]).includes(raw)) {
+    return raw as RollingChartWindow
+  }
+  return parseCalendarChartWindow(raw) ?? 'quarter'
+}
+
 export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   const config = CHART_MODULE_CONFIG[module]
   const [isPending, startTransition] = useTransition()
-  const [window, setWindow] = useQueryState(
+  const [windowParam, setWindow] = useQueryState(
     'window',
-    chartWindowParser.withOptions({ history: 'push', startTransition })
+    parseAsString.withOptions({ history: 'push', startTransition })
   )
+  const window = resolveDrilldownWindow(windowParam)
+  const isArchiveWindow = isCalendarChartWindow(window)
   const [scene, setScene] = useQueryState(
     'scene',
     parseAsString.withOptions({ history: 'push', startTransition })
@@ -540,7 +554,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
 
   const goToPage = (nextPage: number) =>
     void setPage(nextPage === 1 ? null : nextPage)
-  const changeWindow = (nextWindow: ChartWindow) => {
+  const changeWindow = (nextWindow: RollingChartWindow) => {
     void setPage(null)
     void setWindow(nextWindow === 'quarter' ? null : nextWindow)
   }
@@ -553,15 +567,19 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     total === 0 || rows.length === 0 ? 0 : Math.min(offset + rows.length, total)
   const showPagination =
     !sceneValidationFailed && !isLoading && !isError && !pageOutOfRange
+  const chartsBackHref = isArchiveWindow ? archiveHref(window) : '/charts'
+  const chartsBackLabel = isArchiveWindow
+    ? `← ${formatWindowContext(window)} charts / ${config.title}`
+    : `← Charts / ${config.title}`
 
   return (
     <div className={cn('space-y-6', isPending && 'opacity-75')}>
       <header className="space-y-4">
         <Link
-          href="/charts"
+          href={chartsBackHref}
           className="font-mono text-xs text-primary hover:underline"
         >
-          ← Charts / {config.title}
+          {chartsBackLabel}
         </Link>
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -573,29 +591,38 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                 ? 'Counting qualifying rows…'
                 : `${total.toLocaleString()} qualifying ${config.qualifyingNoun}`}
               {selectedScene ? ` · ${selectedScene.city} scene` : ''}
+              {isArchiveWindow
+                ? ` · ${formatWindowContext(window)} archive`
+                : ''}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div
-              role="group"
-              aria-label="Chart window"
-              className="flex gap-0.5"
-            >
-              {CHART_WINDOWS.map(value => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={window === value}
-                  onClick={() => changeWindow(value)}
-                  className={cn(
-                    'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    window === value && 'border-primary text-foreground'
-                  )}
-                >
-                  {WINDOW_LABELS[value]}
-                </button>
-              ))}
-            </div>
+            {isArchiveWindow ? (
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
+                ARCHIVE
+              </span>
+            ) : (
+              <div
+                role="group"
+                aria-label="Chart window"
+                className="flex gap-0.5"
+              >
+                {CHART_WINDOWS.map(value => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={window === value}
+                    onClick={() => changeWindow(value)}
+                    className={cn(
+                      'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      window === value && 'border-primary text-foreground'
+                    )}
+                  >
+                    {WINDOW_LABELS[value]}
+                  </button>
+                ))}
+              </div>
+            )}
             <label className="rounded-sm border border-border px-2 py-1 font-mono text-[11px]">
               <span className="sr-only">Chart scene</span>
               <select
