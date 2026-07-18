@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -55,8 +57,10 @@ func (suite *DataQualityServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
 func TestDataQualityServiceIntegrationTestSuite(t *testing.T) {
@@ -510,4 +514,203 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestMaxLimit() {
 	items, _, err := suite.service.GetCategoryItems("artists_missing_links", 500, 0)
 	suite.Require().NoError(err)
 	suite.Len(items, 3) // only 3 exist
+}
+
+// =============================================================================
+// HELPERS: Loose Ends (PSY-1483)
+// =============================================================================
+
+func strPtr(s string) *string { return &s }
+
+func (suite *DataQualityServiceIntegrationTestSuite) createUser(email string) *authm.User {
+	user := &authm.User{
+		Email:         strPtr(email),
+		FirstName:     strPtr("Test"),
+		LastName:      strPtr("User"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(user).Error)
+	return user
+}
+
+func (suite *DataQualityServiceIntegrationTestSuite) followArtist(userID, artistID uint) {
+	bookmark := &engagementm.UserBookmark{
+		UserID:     userID,
+		EntityType: engagementm.BookmarkEntityArtist,
+		EntityID:   artistID,
+		Action:     engagementm.BookmarkActionFollow,
+		CreatedAt:  time.Now(),
+	}
+	suite.Require().NoError(suite.db.Create(bookmark).Error)
+}
+
+// chartingShow links an artist to a distinct approved, non-cancelled show
+// dated `daysAgo` in the past so it counts toward the charting window.
+func (suite *DataQualityServiceIntegrationTestSuite) chartingShow(title string, artistID uint, daysAgo int) *catalogm.Show {
+	show := suite.createShowWithDate(title, catalogm.ShowStatusApproved, time.Now().AddDate(0, 0, -daysAgo))
+	suite.linkShowArtist(show.ID, artistID, 0)
+	return show
+}
+
+// =============================================================================
+// TESTS: Loose Ends — followed_artists_missing_links
+// =============================================================================
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestFollowedArtistsMissingLinks() {
+	user := suite.createUser("follower@test.com")
+	other := suite.createUser("other@test.com")
+
+	// Followed, missing bandcamp + spotify (only Instagram set) → INCLUDED.
+	// This proves the NARROW definition: an artist with a non-bandcamp,
+	// non-spotify link still counts as a loose end here.
+	ig := "insta"
+	followedGap := suite.createArtist("Followed Gap Band", &catalogm.Social{Instagram: &ig})
+	suite.followArtist(user.ID, followedGap.ID)
+
+	// Followed, but HAS a bandcamp link → EXCLUDED.
+	bc := "https://band.bandcamp.com"
+	followedComplete := suite.createArtist("Followed Complete Band", &catalogm.Social{Bandcamp: &bc})
+	suite.followArtist(user.ID, followedComplete.ID)
+
+	// Missing links, but NOT followed by this user → EXCLUDED.
+	suite.createArtist("Unfollowed Gap Band", nil)
+
+	// Missing links, followed by a DIFFERENT user → EXCLUDED for this viewer.
+	otherGap := suite.createArtist("Other User Gap Band", nil)
+	suite.followArtist(other.ID, otherGap.ID)
+
+	viewerID := user.ID
+	items, total, err := suite.service.GetContributeCategoryItems(categoryFollowedArtistsMissingLinks, &viewerID, 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Len(items, 1)
+	suite.Equal("Followed Gap Band", items[0].Name)
+	suite.Equal("artist", items[0].EntityType)
+}
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestFollowedArtistsMissingLinks_AnonReturnsEmpty() {
+	user := suite.createUser("follower@test.com")
+	gap := suite.createArtist("Followed Gap Band", nil)
+	suite.followArtist(user.ID, gap.ID)
+
+	items, total, err := suite.service.GetContributeCategoryItems(categoryFollowedArtistsMissingLinks, nil, 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(items)
+}
+
+// =============================================================================
+// TESTS: Loose Ends — charting_artists_missing_links
+// =============================================================================
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestChartingArtistsMissingLinks() {
+	// Charting (2 in-window shows), missing links → INCLUDED.
+	charting := suite.createArtist("Charting Band", nil)
+	suite.chartingShow("Charting Show 1", charting.ID, 5)
+	suite.chartingShow("Charting Show 2", charting.ID, 10)
+
+	// Only 1 in-window show → below threshold → EXCLUDED.
+	oneShow := suite.createArtist("One Show Band", nil)
+	suite.chartingShow("One Show", oneShow.ID, 5)
+
+	// 2 in-window shows but HAS a spotify link → EXCLUDED.
+	sp := "https://open.spotify.com/artist/x"
+	complete := suite.createArtist("Complete Charting Band", &catalogm.Social{Spotify: &sp})
+	suite.chartingShow("Complete Show 1", complete.ID, 5)
+	suite.chartingShow("Complete Show 2", complete.ID, 10)
+
+	// 2 shows but OUTSIDE the window (older than 90d) → EXCLUDED.
+	stale := suite.createArtist("Stale Band", nil)
+	suite.chartingShow("Stale Show 1", stale.ID, 120)
+	suite.chartingShow("Stale Show 2", stale.ID, 150)
+
+	// 2 shows in window but CANCELLED → EXCLUDED.
+	cancelled := suite.createArtist("Cancelled Band", nil)
+	c1 := suite.chartingShow("Cancelled Show 1", cancelled.ID, 5)
+	c2 := suite.chartingShow("Cancelled Show 2", cancelled.ID, 10)
+	suite.db.Exec("UPDATE shows SET is_cancelled = true WHERE id IN (?, ?)", c1.ID, c2.ID)
+
+	// Charting works anonymously (nil viewer).
+	items, total, err := suite.service.GetContributeCategoryItems(categoryChartingArtistsMissingLinks, nil, 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Len(items, 1)
+	suite.Equal("Charting Band", items[0].Name)
+	suite.Equal(2, items[0].ShowCount)
+}
+
+// =============================================================================
+// TESTS: Loose Ends — contribute summary
+// =============================================================================
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestContributeSummary_AuthedIncludesBothCategories() {
+	user := suite.createUser("viewer@test.com")
+
+	followed := suite.createArtist("My Band", nil)
+	suite.followArtist(user.ID, followed.ID)
+
+	charting := suite.createArtist("Charting Band", nil)
+	suite.chartingShow("Show 1", charting.ID, 5)
+	suite.chartingShow("Show 2", charting.ID, 10)
+
+	viewerID := user.ID
+	summary, err := suite.service.GetContributeSummary(&viewerID)
+	suite.Require().NoError(err)
+
+	counts := map[string]int{}
+	for _, cat := range summary.Categories {
+		counts[cat.Key] = cat.Count
+	}
+	// 8 global categories + 2 loose-ends.
+	suite.Len(summary.Categories, 10)
+	suite.Equal(1, counts[categoryFollowedArtistsMissingLinks])
+	suite.Equal(1, counts[categoryChartingArtistsMissingLinks])
+}
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestContributeSummary_AnonOmitsFollowedIncludesCharting() {
+	charting := suite.createArtist("Charting Band", nil)
+	suite.chartingShow("Show 1", charting.ID, 5)
+	suite.chartingShow("Show 2", charting.ID, 10)
+
+	summary, err := suite.service.GetContributeSummary(nil)
+	suite.Require().NoError(err)
+
+	keys := map[string]bool{}
+	for _, cat := range summary.Categories {
+		keys[cat.Key] = true
+	}
+	// Followed is authed-only → omitted; charting present.
+	suite.False(keys[categoryFollowedArtistsMissingLinks], "followed category must be omitted for anon")
+	suite.True(keys[categoryChartingArtistsMissingLinks], "charting category must be present for anon")
+	suite.Len(summary.Categories, 9)
+}
+
+// =============================================================================
+// TESTS: Loose Ends — cap + stable daily rotation
+// =============================================================================
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestChartingArtistsMissingLinks_CapAndStableRotation() {
+	// 30 charting artists → list must cap at looseEndsMaxItems (25) while the
+	// true total stays accurate.
+	for i := 0; i < 30; i++ {
+		a := suite.createArtist(fmt.Sprintf("Charting Band %02d", i), nil)
+		suite.chartingShow(fmt.Sprintf("Show A %02d", i), a.ID, 5)
+		suite.chartingShow(fmt.Sprintf("Show B %02d", i), a.ID, 10)
+	}
+
+	// Requesting more than the cap is clamped to looseEndsMaxItems.
+	items, total, err := suite.service.GetContributeCategoryItems(categoryChartingArtistsMissingLinks, nil, 100, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(30), total, "count is the true total, uncapped")
+	suite.Len(items, looseEndsMaxItems)
+
+	// Rotation is stable within a UTC day for a given viewer: two calls return
+	// the same slice in the same order.
+	again, _, err := suite.service.GetContributeCategoryItems(categoryChartingArtistsMissingLinks, nil, 100, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(again, looseEndsMaxItems)
+	for i := range items {
+		suite.Equal(items[i].EntityID, again[i].EntityID, "rotation order changed across calls at index %d", i)
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/admin"
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -25,6 +26,18 @@ func NewContributeHandler(
 	}
 }
 
+// viewerIDFromContext returns the authenticated user id from the request
+// context, or nil for anonymous callers. The contribute routes run under
+// optional auth, so both authed and anonymous requests reach these handlers;
+// the viewer id gates the personal "Loose Ends" categories (PSY-1483).
+func viewerIDFromContext(ctx context.Context) *uint {
+	if user := middleware.GetUserFromContext(ctx); user != nil {
+		id := user.ID
+		return &id
+	}
+	return nil
+}
+
 // --- GetOpportunities ---
 
 // GetOpportunitiesRequest is the Huma request for GET /contribute/opportunities
@@ -40,7 +53,7 @@ type GetOpportunitiesResponse struct {
 
 // GetOpportunitiesHandler handles GET /contribute/opportunities
 func (h *ContributeHandler) GetOpportunitiesHandler(ctx context.Context, _ *GetOpportunitiesRequest) (*GetOpportunitiesResponse, error) {
-	summary, err := h.dataQualityService.GetSummary()
+	summary, err := h.dataQualityService.GetContributeSummary(viewerIDFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("contribute_opportunities_failed",
 			"error", err.Error(),
@@ -88,7 +101,7 @@ func (h *ContributeHandler) GetOpportunityCategoryHandler(ctx context.Context, r
 		limit = 20
 	}
 
-	items, total, err := h.dataQualityService.GetCategoryItems(req.Category, limit, req.Offset)
+	items, total, err := h.dataQualityService.GetContributeCategoryItems(req.Category, viewerIDFromContext(ctx), limit, req.Offset)
 	if err != nil {
 		if mapped := shared.MapDataQualityError(err); mapped != nil {
 			return nil, mapped

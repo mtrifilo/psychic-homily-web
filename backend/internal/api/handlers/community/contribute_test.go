@@ -7,6 +7,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -24,7 +25,7 @@ func testContributeHandler() *ContributeHandler {
 
 func TestContributeHandler_Opportunities_Success(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
+		GetContributeSummaryFn: func(viewerID *uint) (*contracts.DataQualitySummary, error) {
 			return &contracts.DataQualitySummary{
 				Categories: []contracts.DataQualityCategory{
 					{
@@ -80,7 +81,7 @@ func TestContributeHandler_Opportunities_NoAuthRequired(t *testing.T) {
 
 func TestContributeHandler_Opportunities_ServiceError(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
+		GetContributeSummaryFn: func(viewerID *uint) (*contracts.DataQualitySummary, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
@@ -91,7 +92,7 @@ func TestContributeHandler_Opportunities_ServiceError(t *testing.T) {
 
 func TestContributeHandler_Opportunities_Empty(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
+		GetContributeSummaryFn: func(viewerID *uint) (*contracts.DataQualitySummary, error) {
 			return &contracts.DataQualitySummary{
 				Categories: []contracts.DataQualityCategory{},
 				TotalItems: 0,
@@ -117,7 +118,7 @@ func TestContributeHandler_Opportunities_Empty(t *testing.T) {
 
 func TestContributeHandler_Category_Success(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			if category != "artists_missing_links" {
 				t.Errorf("expected category=artists_missing_links, got %s", category)
 			}
@@ -179,7 +180,7 @@ func TestContributeHandler_Category_NoAuthRequired(t *testing.T) {
 
 func TestContributeHandler_Category_InvalidCategory(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
 		},
 	})
@@ -192,7 +193,7 @@ func TestContributeHandler_Category_InvalidCategory(t *testing.T) {
 
 func TestContributeHandler_Category_ServiceError(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return nil, 0, fmt.Errorf("database error")
 		},
 	})
@@ -206,7 +207,7 @@ func TestContributeHandler_Category_ServiceError(t *testing.T) {
 func TestContributeHandler_Category_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			receivedLimit = limit
 			return nil, 0, nil
 		},
@@ -226,7 +227,7 @@ func TestContributeHandler_Category_DefaultLimit(t *testing.T) {
 func TestContributeHandler_Category_CustomLimit(t *testing.T) {
 	var receivedLimit, receivedOffset int
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			receivedLimit = limit
 			receivedOffset = offset
 			return nil, 0, nil
@@ -251,7 +252,7 @@ func TestContributeHandler_Category_CustomLimit(t *testing.T) {
 
 func TestContributeHandler_Category_Empty(t *testing.T) {
 	h := NewContributeHandler(&testhelpers.MockDataQualityService{
-		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return []*contracts.DataQualityItem{}, 0, nil
 		},
 	})
@@ -267,5 +268,61 @@ func TestContributeHandler_Category_Empty(t *testing.T) {
 	}
 	if len(resp.Body.Items) != 0 {
 		t.Fatalf("expected 0 items, got %d", len(resp.Body.Items))
+	}
+}
+
+// ============================================================================
+// Tests: viewer-id threading (Loose Ends categories, PSY-1483)
+// ============================================================================
+
+func TestContributeHandler_Opportunities_ViewerIDFromContext(t *testing.T) {
+	var seen *uint
+	mock := &testhelpers.MockDataQualityService{
+		GetContributeSummaryFn: func(viewerID *uint) (*contracts.DataQualitySummary, error) {
+			seen = viewerID
+			return &contracts.DataQualitySummary{}, nil
+		},
+	}
+	h := NewContributeHandler(mock)
+
+	// Anonymous: nil viewer id passed through.
+	if _, err := h.GetOpportunitiesHandler(context.Background(), &GetOpportunitiesRequest{}); err != nil {
+		t.Fatalf("unexpected error (anon): %v", err)
+	}
+	if seen != nil {
+		t.Errorf("expected nil viewer id for anonymous request, got %d", *seen)
+	}
+
+	// Authenticated: user id threaded through from context.
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 42})
+	if _, err := h.GetOpportunitiesHandler(ctx, &GetOpportunitiesRequest{}); err != nil {
+		t.Fatalf("unexpected error (authed): %v", err)
+	}
+	if seen == nil {
+		t.Fatal("expected non-nil viewer id for authenticated request")
+	}
+	if *seen != 42 {
+		t.Errorf("expected viewer id 42, got %d", *seen)
+	}
+}
+
+func TestContributeHandler_Category_ViewerIDFromContext(t *testing.T) {
+	var seen *uint
+	mock := &testhelpers.MockDataQualityService{
+		GetContributeCategoryItemsFn: func(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+			seen = viewerID
+			return []*contracts.DataQualityItem{}, 0, nil
+		},
+	}
+	h := NewContributeHandler(mock)
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7})
+	if _, err := h.GetOpportunityCategoryHandler(ctx, &GetOpportunityCategoryRequest{
+		Category: "followed_artists_missing_links",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if seen == nil || *seen != 7 {
+		t.Fatalf("expected viewer id 7 threaded to service, got %v", seen)
 	}
 }
