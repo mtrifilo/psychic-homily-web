@@ -80,7 +80,6 @@ export function CollectionGraphVisualization({
     : null
   const entityType = selectedSource?.entity_type ?? 'artist'
   const isArtist = entityType === 'artist'
-  const isEntityPanel = isEntityPanelType(entityType)
 
   // Collection node IDs are collection_item IDs — fetch the artist card by
   // slug so we don't hit the wrong artist (or 404).
@@ -90,7 +89,8 @@ export function CollectionGraphVisualization({
   })
 
   const entityModel = useCollectionEntityPanelModel({
-    selected: isEntityPanel ? selectedSource : null,
+    selected:
+      selectedSource && isEntityPanelType(entityType) ? selectedSource : null,
     nodes: sourceNodes,
     links,
   })
@@ -119,15 +119,6 @@ export function CollectionGraphVisualization({
         facts={entityModel.facts}
         isLoading={entityModel.isLoading}
         isError={entityModel.isError}
-        onClose={handlePanelClose}
-        panelRef={panelRef}
-      />
-    ) : selectedNode && selectedSource && isEntityPanel ? (
-      <EntityContextPanel
-        className="absolute top-2 left-2 z-40"
-        entityType={entityType}
-        name={selectedSource.name}
-        slug={selectedSource.slug}
         onClose={handlePanelClose}
         panelRef={panelRef}
       />
