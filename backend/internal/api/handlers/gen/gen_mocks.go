@@ -134,6 +134,9 @@ var customDefaults = map[string]methodDefault{
 	"MockDataQualityService.GetSummary": {
 		body: `	return &contracts.DataQualitySummary{Categories: []contracts.DataQualityCategory{}}, nil`,
 	},
+	"MockDataQualityService.GetContributeSummary": {
+		body: `	return &contracts.DataQualitySummary{Categories: []contracts.DataQualityCategory{}}, nil`,
+	},
 	"MockChartsService.GetTrendingShows": {
 		body: `	return []contracts.TrendingShow{}, nil`,
 	},

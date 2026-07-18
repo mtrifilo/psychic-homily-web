@@ -1276,8 +1276,10 @@ func (m *MockContributorProfileService) GetPercentileRankings(userID uint) (*con
 // ============================================================================
 
 type MockDataQualityService struct {
-	GetSummaryFn       func() (*contracts.DataQualitySummary, error)
-	GetCategoryItemsFn func(string, int, int) ([]*contracts.DataQualityItem, int64, error)
+	GetSummaryFn                 func() (*contracts.DataQualitySummary, error)
+	GetCategoryItemsFn           func(string, int, int) ([]*contracts.DataQualityItem, int64, error)
+	GetContributeSummaryFn       func(*uint) (*contracts.DataQualitySummary, error)
+	GetContributeCategoryItemsFn func(string, *uint, int, int) ([]*contracts.DataQualityItem, int64, error)
 }
 
 func (m *MockDataQualityService) GetSummary() (*contracts.DataQualitySummary, error) {
@@ -1289,6 +1291,18 @@ func (m *MockDataQualityService) GetSummary() (*contracts.DataQualitySummary, er
 func (m *MockDataQualityService) GetCategoryItems(category string, limit int, offset int) ([]*contracts.DataQualityItem, int64, error) {
 	if m.GetCategoryItemsFn != nil {
 		return m.GetCategoryItemsFn(category, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockDataQualityService) GetContributeSummary(viewerID *uint) (*contracts.DataQualitySummary, error) {
+	if m.GetContributeSummaryFn != nil {
+		return m.GetContributeSummaryFn(viewerID)
+	}
+	return &contracts.DataQualitySummary{Categories: []contracts.DataQualityCategory{}}, nil
+}
+func (m *MockDataQualityService) GetContributeCategoryItems(category string, viewerID *uint, limit int, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	if m.GetContributeCategoryItemsFn != nil {
+		return m.GetContributeCategoryItemsFn(category, viewerID, limit, offset)
 	}
 	return nil, 0, nil
 }

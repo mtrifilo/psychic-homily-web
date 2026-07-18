@@ -471,6 +471,16 @@ type BandcampProfileFillerInterface interface {
 type DataQualityServiceInterface interface {
 	GetSummary() (*DataQualitySummary, error)
 	GetCategoryItems(category string, limit, offset int) ([]*DataQualityItem, int64, error)
+	// GetContributeSummary returns the standard data-quality categories plus
+	// the viewer-aware "Loose Ends" contribution categories (PSY-1483):
+	// followed-artist and charting-artist gap lists. viewerID is the
+	// authenticated user id, or nil for anonymous callers (the followed list
+	// is authed-only and omitted when nil).
+	GetContributeSummary(viewerID *uint) (*DataQualitySummary, error)
+	// GetContributeCategoryItems returns paginated items for a contribution
+	// category, including the viewer-aware Loose Ends categories. viewerID is
+	// the authenticated user id, or nil for anonymous callers.
+	GetContributeCategoryItems(category string, viewerID *uint, limit, offset int) ([]*DataQualityItem, int64, error)
 }
 
 // ──────────────────────────────────────────────

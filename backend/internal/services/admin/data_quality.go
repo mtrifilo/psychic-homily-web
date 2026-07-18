@@ -2,6 +2,8 @@ package admin
 
 import (
 	"fmt"
+	"strconv"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -83,6 +85,76 @@ var categoryOrder = []string{
 	"releases_missing_year",
 }
 
+// --- Loose Ends contribution categories (PSY-1483) ---
+//
+// These two categories are viewer-aware, high-signal gap lists surfaced only
+// on /contribute (never the admin dashboard, which keeps categoryOrder). Per
+// the PSY-1426 spike, "missing links" here is the NARROW definition — no
+// Bandcamp AND no Spotify — distinct from the catalog-wide
+// artists_missing_links category, which requires every social/website field
+// to be empty. The frontend labels the band "Loose Ends" (PSY-1484); the
+// backend just exposes the category keys/labels below.
+const (
+	categoryFollowedArtistsMissingLinks = "followed_artists_missing_links"
+	categoryChartingArtistsMissingLinks = "charting_artists_missing_links"
+
+	// looseEndsMaxItems caps each Loose Ends list per response (PSY-1426
+	// decision): the entity-edit UX degrades past a couple dozen rows, and a
+	// hard cap keeps the rotated slice small and cache-friendly.
+	looseEndsMaxItems = 25
+
+	// chartingWindowDays mirrors the charts default window (quarter = rolling
+	// 90 days; see catalog.chartWindowBounds and ChartWindow.OrDefault). A
+	// "charting" artist appears on >= chartingMinAppearances approved,
+	// non-cancelled shows inside this window. Keep in sync with the charts
+	// quarter default.
+	chartingWindowDays = 90
+
+	// chartingMinAppearances is the in-window show-appearance threshold for an
+	// artist to count as "currently charting" (PSY-1426).
+	chartingMinAppearances = 2
+)
+
+// looseEndsMissingLinksSQL is the narrow "missing links" predicate for the
+// Loose Ends categories: no Bandcamp AND no Spotify (PSY-1426). Applies to the
+// artists table aliased `a`.
+const looseEndsMissingLinksSQL = `a.bandcamp IS NULL AND a.spotify IS NULL`
+
+// looseEndsRotationSQL produces the stable daily rotation ordering key
+// (PSY-1426): md5 over the artist id, a viewer key, and the UTC date. This
+// replaces raw RANDOM() (which is cache-hostile and reshuffles every request)
+// with a slice that is stable within a UTC day for a given viewer. The two
+// placeholders bind the viewer key and the UTC date (computed in Go so the
+// day boundary can't drift with the DB session timezone).
+const looseEndsRotationSQL = `md5(a.id::text || ':' || ? || ':' || ?)`
+
+// looseEndsDefinitions holds the display metadata for the Loose Ends
+// categories, mirroring categoryDefinitions but kept separate so the admin
+// dashboard's category set (categoryOrder/categoryDefinitions) stays untouched.
+var looseEndsDefinitions = map[string]struct {
+	Label       string
+	EntityType  string
+	Description string
+}{
+	categoryFollowedArtistsMissingLinks: {
+		Label:       "Followed Artists Missing Links",
+		EntityType:  "artist",
+		Description: "Artists you follow that have no Bandcamp or Spotify link",
+	},
+	categoryChartingArtistsMissingLinks: {
+		Label:       "Charting Artists Missing Links",
+		EntityType:  "artist",
+		Description: "Artists active on recent shows that have no Bandcamp or Spotify link",
+	},
+}
+
+// looseEndsCategoryOrder defines the display order for the Loose Ends
+// categories on /contribute.
+var looseEndsCategoryOrder = []string{
+	categoryFollowedArtistsMissingLinks,
+	categoryChartingArtistsMissingLinks,
+}
+
 // GetSummary returns counts per data quality category.
 func (s *DataQualityService) GetSummary() (*contracts.DataQualitySummary, error) {
 	summary := &contracts.DataQualitySummary{}
@@ -141,6 +213,264 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 	default:
 		return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
 	}
+}
+
+// --- Contribute surface (Loose Ends categories, PSY-1483) ---
+
+// GetContributeSummary returns the standard data-quality categories plus the
+// viewer-aware Loose Ends categories. The followed list requires an
+// authenticated viewer and is omitted for anonymous callers; the charting
+// list is public. Category counts are the true totals; the item lists are
+// capped and rotated (see GetContributeCategoryItems).
+func (s *DataQualityService) GetContributeSummary(viewerID *uint) (*contracts.DataQualitySummary, error) {
+	summary, err := s.GetSummary()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, key := range looseEndsCategoryOrder {
+		if key == categoryFollowedArtistsMissingLinks && viewerID == nil {
+			// The followed list is personal; there is nothing to show an
+			// anonymous caller, so omit the category entirely rather than
+			// surface a permanent zero.
+			continue
+		}
+		count, err := s.getLooseEndsCount(key, viewerID)
+		if err != nil {
+			return nil, fmt.Errorf("counting category %s: %w", key, err)
+		}
+		def := looseEndsDefinitions[key]
+		summary.Categories = append(summary.Categories, contracts.DataQualityCategory{
+			Key:         key,
+			Label:       def.Label,
+			EntityType:  def.EntityType,
+			Count:       count,
+			Description: def.Description,
+		})
+		summary.TotalItems += count
+	}
+
+	return summary, nil
+}
+
+// GetContributeCategoryItems returns paginated items for a contribution
+// category. Global categories delegate to GetCategoryItems; the Loose Ends
+// categories are capped at looseEndsMaxItems and rotated stably per viewer per
+// UTC day. An anonymous request for the followed list returns an empty list
+// (the category is authed-only) rather than an error, matching the summary's
+// omit-for-anon behaviour.
+func (s *DataQualityService) GetContributeCategoryItems(category string, viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	switch category {
+	case categoryFollowedArtistsMissingLinks:
+		if viewerID == nil {
+			return []*contracts.DataQualityItem{}, 0, nil
+		}
+		return s.getFollowedArtistsMissingLinks(*viewerID, looseEndsLimit(limit), offset)
+	case categoryChartingArtistsMissingLinks:
+		return s.getChartingArtistsMissingLinks(viewerID, looseEndsLimit(limit), offset)
+	default:
+		return s.GetCategoryItems(category, limit, offset)
+	}
+}
+
+// looseEndsLimit clamps a requested page size to [1, looseEndsMaxItems],
+// defaulting to the cap when unset.
+func looseEndsLimit(limit int) int {
+	if limit <= 0 || limit > looseEndsMaxItems {
+		return looseEndsMaxItems
+	}
+	return limit
+}
+
+// viewerRotationKey is the per-viewer rotation seed: the user id when authed,
+// or a fixed "global" slice for anonymous callers (keeps the anon charting
+// list cache-friendly, per PSY-1426).
+func viewerRotationKey(viewerID *uint) string {
+	if viewerID == nil {
+		return "global"
+	}
+	return strconv.FormatUint(uint64(*viewerID), 10)
+}
+
+// rotationDay is the UTC calendar day used in the rotation key. Computed in Go
+// so the day boundary is pinned to UTC regardless of the DB session timezone.
+func rotationDay() string {
+	return time.Now().UTC().Format("2006-01-02")
+}
+
+// chartingWindowBounds returns the [start, end] event-date bounds for the
+// charting window: the rolling chartingWindowDays ending now, with the lower
+// bound truncated to midnight UTC (event dates are midnight timestamps, so a
+// time-of-day lower bound would exclude a show exactly N days ago) — the same
+// convention as catalog.chartWindowBounds.
+func chartingWindowBounds() (start, end time.Time) {
+	end = time.Now().UTC()
+	start = end.AddDate(0, 0, -chartingWindowDays).Truncate(24 * time.Hour)
+	return start, end
+}
+
+func (s *DataQualityService) getLooseEndsCount(category string, viewerID *uint) (int, error) {
+	switch category {
+	case categoryFollowedArtistsMissingLinks:
+		if viewerID == nil {
+			return 0, nil
+		}
+		return s.countFollowedArtistsMissingLinks(*viewerID)
+	case categoryChartingArtistsMissingLinks:
+		return s.countChartingArtistsMissingLinks()
+	default:
+		return 0, apperrors.ErrDataQualityUnknownCategory(category)
+	}
+}
+
+func (s *DataQualityService) countFollowedArtistsMissingLinks(viewerID uint) (int, error) {
+	var count int64
+	err := s.db.Raw(`
+		SELECT COUNT(*) FROM artists a
+		WHERE `+looseEndsMissingLinksSQL+`
+		  AND EXISTS (
+		    SELECT 1 FROM user_bookmarks ub
+		    WHERE ub.entity_id = a.id
+		      AND ub.entity_type = 'artist'
+		      AND ub.action = 'follow'
+		      AND ub.user_id = ?
+		  )
+	`, viewerID).Scan(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func (s *DataQualityService) countChartingArtistsMissingLinks() (int, error) {
+	windowStart, windowEnd := chartingWindowBounds()
+	var count int64
+	err := s.db.Raw(`
+		SELECT COUNT(*) FROM (
+			SELECT a.id
+			FROM artists a
+			JOIN show_artists sa ON sa.artist_id = a.id
+			JOIN shows s ON s.id = sa.show_id
+			  AND s.status = 'approved'
+			  AND s.is_cancelled = FALSE
+			  AND s.event_date >= ? AND s.event_date <= ?
+			WHERE `+looseEndsMissingLinksSQL+`
+			GROUP BY a.id
+			HAVING COUNT(DISTINCT sa.show_id) >= ?
+		) charting
+	`, windowStart, windowEnd, chartingMinAppearances).Scan(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func (s *DataQualityService) getFollowedArtistsMissingLinks(viewerID uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	total, err := s.countFollowedArtistsMissingLinks(viewerID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	type row struct {
+		ID        uint
+		Name      string
+		Slug      *string
+		ShowCount int
+	}
+	var rows []row
+	// show_count mirrors getArtistsMissingLinks (all linked show_artists rows)
+	// so the item shape is consistent across artist gap categories. The md5
+	// rotation is tiebroken by a.id so pagination is duplicate-free within a
+	// day even in the (astronomically unlikely) event of a digest collision.
+	err = s.db.Raw(`
+		SELECT a.id, a.name, a.slug, COUNT(sa.show_id) as show_count
+		FROM artists a
+		LEFT JOIN show_artists sa ON sa.artist_id = a.id
+		LEFT JOIN shows s ON s.id = sa.show_id AND s.status = 'approved'
+		WHERE `+looseEndsMissingLinksSQL+`
+		  AND EXISTS (
+		    SELECT 1 FROM user_bookmarks ub
+		    WHERE ub.entity_id = a.id
+		      AND ub.entity_type = 'artist'
+		      AND ub.action = 'follow'
+		      AND ub.user_id = ?
+		  )
+		GROUP BY a.id
+		ORDER BY `+looseEndsRotationSQL+`, a.id
+		LIMIT ? OFFSET ?
+	`, viewerID, viewerRotationKey(&viewerID), rotationDay(), limit, offset).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]*contracts.DataQualityItem, 0, len(rows))
+	for _, r := range rows {
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		items = append(items, &contracts.DataQualityItem{
+			EntityType: "artist",
+			EntityID:   r.ID,
+			Name:       r.Name,
+			Slug:       slug,
+			Reason:     "Followed artist with no Bandcamp or Spotify link",
+			ShowCount:  r.ShowCount,
+		})
+	}
+	return items, int64(total), nil
+}
+
+func (s *DataQualityService) getChartingArtistsMissingLinks(viewerID *uint, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	total, err := s.countChartingArtistsMissingLinks()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	windowStart, windowEnd := chartingWindowBounds()
+	type row struct {
+		ID        uint
+		Name      string
+		Slug      *string
+		ShowCount int
+	}
+	var rows []row
+	// show_count is in-window appearances (the same set the >= threshold
+	// counts), so it explains WHY the artist qualifies.
+	err = s.db.Raw(`
+		SELECT a.id, a.name, a.slug, COUNT(DISTINCT sa.show_id) as show_count
+		FROM artists a
+		JOIN show_artists sa ON sa.artist_id = a.id
+		JOIN shows s ON s.id = sa.show_id
+		  AND s.status = 'approved'
+		  AND s.is_cancelled = FALSE
+		  AND s.event_date >= ? AND s.event_date <= ?
+		WHERE `+looseEndsMissingLinksSQL+`
+		GROUP BY a.id
+		HAVING COUNT(DISTINCT sa.show_id) >= ?
+		ORDER BY `+looseEndsRotationSQL+`, a.id
+		LIMIT ? OFFSET ?
+	`, windowStart, windowEnd, chartingMinAppearances, viewerRotationKey(viewerID), rotationDay(), limit, offset).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]*contracts.DataQualityItem, 0, len(rows))
+	for _, r := range rows {
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		items = append(items, &contracts.DataQualityItem{
+			EntityType: "artist",
+			EntityID:   r.ID,
+			Name:       r.Name,
+			Slug:       slug,
+			Reason:     fmt.Sprintf("%d recent show appearances, no Bandcamp or Spotify link", r.ShowCount),
+			ShowCount:  r.ShowCount,
+		})
+	}
+	return items, int64(total), nil
 }
 
 // --- Count helpers ---
