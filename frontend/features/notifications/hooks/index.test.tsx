@@ -91,11 +91,29 @@ describe('useNotificationFilterCheck', () => {
     mockApiRequest.mockReset()
   })
 
-  it('finds matching filter for artist entity', async () => {
+  it('finds matching managed filter for artist entity', async () => {
     mockApiRequest.mockResolvedValueOnce({
       filters: [
-        { id: 1, name: 'Artists', is_active: true, artist_ids: [10, 20], venue_ids: null, label_ids: null, tag_ids: null },
-        { id: 2, name: 'Venues', is_active: true, artist_ids: null, venue_ids: [30], label_ids: null, tag_ids: null },
+        {
+          id: 1,
+          name: 'Artists',
+          source: 'managed',
+          is_active: true,
+          artist_ids: [10],
+          venue_ids: null,
+          label_ids: null,
+          tag_ids: null,
+        },
+        {
+          id: 2,
+          name: 'Venues',
+          source: 'managed',
+          is_active: true,
+          artist_ids: null,
+          venue_ids: [30],
+          label_ids: null,
+          tag_ids: null,
+        },
       ],
     })
 
@@ -108,10 +126,19 @@ describe('useNotificationFilterCheck', () => {
     expect(result.current.data?.id).toBe(1)
   })
 
-  it('finds matching filter for venue entity', async () => {
+  it('finds matching managed filter for venue entity', async () => {
     mockApiRequest.mockResolvedValueOnce({
       filters: [
-        { id: 1, name: 'Venues', is_active: true, artist_ids: null, venue_ids: [30, 40], label_ids: null, tag_ids: null },
+        {
+          id: 1,
+          name: 'Venues',
+          source: 'managed',
+          is_active: true,
+          artist_ids: null,
+          venue_ids: [30],
+          label_ids: null,
+          tag_ids: null,
+        },
       ],
     })
 
@@ -123,10 +150,19 @@ describe('useNotificationFilterCheck', () => {
     await waitFor(() => expect(result.current.hasFilter).toBe(true))
   })
 
-  it('finds matching filter for label entity', async () => {
+  it('finds matching managed filter for label entity', async () => {
     mockApiRequest.mockResolvedValueOnce({
       filters: [
-        { id: 1, name: 'Labels', is_active: true, artist_ids: null, venue_ids: null, label_ids: [50], tag_ids: null },
+        {
+          id: 1,
+          name: 'Labels',
+          source: 'managed',
+          is_active: true,
+          artist_ids: null,
+          venue_ids: null,
+          label_ids: [50],
+          tag_ids: null,
+        },
       ],
     })
 
@@ -138,10 +174,19 @@ describe('useNotificationFilterCheck', () => {
     await waitFor(() => expect(result.current.hasFilter).toBe(true))
   })
 
-  it('finds matching filter for tag entity', async () => {
+  it('finds matching managed filter for tag entity', async () => {
     mockApiRequest.mockResolvedValueOnce({
       filters: [
-        { id: 1, name: 'Tags', is_active: true, artist_ids: null, venue_ids: null, label_ids: null, tag_ids: [60] },
+        {
+          id: 1,
+          name: 'Tags',
+          source: 'managed',
+          is_active: true,
+          artist_ids: null,
+          venue_ids: null,
+          label_ids: null,
+          tag_ids: [60],
+        },
       ],
     })
 
@@ -153,10 +198,70 @@ describe('useNotificationFilterCheck', () => {
     await waitFor(() => expect(result.current.hasFilter).toBe(true))
   })
 
+  it('ignores user-authored filters that contain the entity (PSY-1467)', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      filters: [
+        {
+          id: 1,
+          name: 'Compound',
+          source: 'user',
+          is_active: true,
+          artist_ids: [10, 20],
+          venue_ids: [30],
+          label_ids: null,
+          tag_ids: null,
+        },
+      ],
+    })
+
+    const { result } = renderHook(
+      () => useNotificationFilterCheck('artist', 10),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.hasFilter).toBe(false)
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('ignores managed filters that are compound (not quick-shaped)', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      filters: [
+        {
+          id: 1,
+          name: 'Edited managed',
+          source: 'managed',
+          is_active: true,
+          artist_ids: [10],
+          venue_ids: [99],
+          label_ids: null,
+          tag_ids: null,
+        },
+      ],
+    })
+
+    const { result } = renderHook(
+      () => useNotificationFilterCheck('artist', 10),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.hasFilter).toBe(false)
+  })
+
   it('returns hasFilter false when no matching filter exists', async () => {
     mockApiRequest.mockResolvedValueOnce({
       filters: [
-        { id: 1, name: 'Filter', is_active: true, artist_ids: [1, 2], venue_ids: null, label_ids: null, tag_ids: null },
+        {
+          id: 1,
+          name: 'Filter',
+          source: 'managed',
+          is_active: true,
+          artist_ids: [1, 2],
+          venue_ids: null,
+          label_ids: null,
+          tag_ids: null,
+        },
       ],
     })
 
@@ -173,7 +278,16 @@ describe('useNotificationFilterCheck', () => {
   it('ignores inactive filters', async () => {
     mockApiRequest.mockResolvedValueOnce({
       filters: [
-        { id: 1, name: 'Inactive', is_active: false, artist_ids: [10], venue_ids: null, label_ids: null, tag_ids: null },
+        {
+          id: 1,
+          name: 'Inactive',
+          source: 'managed',
+          is_active: false,
+          artist_ids: [10],
+          venue_ids: null,
+          label_ids: null,
+          tag_ids: null,
+        },
       ],
     })
 

@@ -84,10 +84,20 @@ export function isRequestNotification(entry: NotificationLogEntry): boolean {
   return entry.entity_type === NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED
 }
 
+/** Notification filter ownership (PSY-1467). Must stay in sync with
+ * models/notification.FilterSource* on the Go side. */
+export const FILTER_SOURCE_USER = 'user' as const
+export const FILTER_SOURCE_MANAGED = 'managed' as const
+export type FilterSource =
+  | typeof FILTER_SOURCE_USER
+  | typeof FILTER_SOURCE_MANAGED
+
 /** Notification filter response from the API */
 export interface NotificationFilter {
   id: number
   name: string
+  /** 'user' = settings-authored; 'managed' = entity-page quick toggle (PSY-1467) */
+  source: FilterSource
   is_active: boolean
   artist_ids?: number[] | null
   venue_ids?: number[] | null

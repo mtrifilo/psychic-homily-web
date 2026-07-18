@@ -44,6 +44,7 @@ type UpdateFilterInput struct {
 type NotificationFilterResponse struct {
 	ID            uint             `json:"id"`
 	Name          string           `json:"name"`
+	Source        string           `json:"source"` // "user" | "managed" (PSY-1467)
 	IsActive      bool             `json:"is_active"`
 	ArtistIDs     []int64          `json:"artist_ids,omitempty"`
 	VenueIDs      []int64          `json:"venue_ids,omitempty"`

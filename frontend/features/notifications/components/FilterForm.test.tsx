@@ -77,6 +77,7 @@ function makeFilter(overrides: Partial<NotificationFilter> = {}): NotificationFi
   return {
     id: 1,
     name: 'PHX punk shows',
+    source: 'user',
     is_active: true,
     artist_ids: [1, 2],
     venue_ids: null,

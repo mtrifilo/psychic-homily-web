@@ -503,9 +503,14 @@ func (h *NotificationFilterHandler) UnsubscribeFilterHandler(ctx context.Context
 
 // filterToResponse converts a model to API response.
 func filterToResponse(f *notificationm.NotificationFilter) contracts.NotificationFilterResponse {
+	source := f.Source
+	if source == "" {
+		source = notificationm.FilterSourceUser
+	}
 	resp := contracts.NotificationFilterResponse{
 		ID:            f.ID,
 		Name:          f.Name,
+		Source:        source,
 		IsActive:      f.IsActive,
 		ArtistIDs:     int64ArrayToSlice(f.ArtistIDs),
 		VenueIDs:      int64ArrayToSlice(f.VenueIDs),

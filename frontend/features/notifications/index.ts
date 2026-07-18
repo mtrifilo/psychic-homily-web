@@ -7,6 +7,7 @@ export type {
   UpdateFilterInput,
   NotifyEntityType,
   FilterCity,
+  FilterSource,
   NotificationLogEntry,
   NotificationListResponse,
   MarkReadResponse,
@@ -14,6 +15,8 @@ export type {
 
 export {
   NOTIFY_ENTITY_TYPES,
+  FILTER_SOURCE_USER,
+  FILTER_SOURCE_MANAGED,
   NOTIFICATION_ENTITY_COMMENT_REPLY,
   NOTIFICATION_ENTITY_COMMENT_MENTION,
   formatTimeAgo,

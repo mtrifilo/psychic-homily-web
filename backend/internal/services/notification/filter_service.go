@@ -80,6 +80,7 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 	filter := notificationm.NotificationFilter{
 		UserID:        userID,
 		Name:          input.Name,
+		Source:        notificationm.FilterSourceUser,
 		IsActive:      true,
 		ArtistIDs:     toInt64Array(input.ArtistIDs),
 		VenueIDs:      toInt64Array(input.VenueIDs),
@@ -157,6 +158,18 @@ func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, inp
 		updates["notify_in_app"] = *input.NotifyInApp
 	}
 
+	// Any settings edit of a managed quick subscription promotes it to a
+	// user-owned advanced filter so NotifyMeButton no longer owns its lifecycle
+	// (PSY-1467). Pause-only (is_active) via email unsubscribe uses PauseFilter,
+	// not this path.
+	criteriaEdited := input.Name != nil || input.ArtistIDs != nil || input.VenueIDs != nil ||
+		input.LabelIDs != nil || input.TagIDs != nil || input.ExcludeTagIDs != nil ||
+		input.Cities != nil || input.PriceMaxCents != nil ||
+		input.NotifyEmail != nil || input.NotifyInApp != nil
+	if criteriaEdited && filter.Source == notificationm.FilterSourceManaged {
+		updates["source"] = notificationm.FilterSourceUser
+	}
+
 	if err := s.db.Model(&filter).Updates(updates).Error; err != nil {
 		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to update filter: %w", err))
 	}
@@ -218,11 +231,19 @@ func (s *NotificationFilterService) GetFilter(userID uint, filterID uint) (*noti
 // Quick create
 // ──────────────────────────────────────────────
 
-// QuickCreateFilter creates a filter from a single entity shortcut.
-// E.g., "Notify me about Deafheaven shows" creates a filter with artist_ids=[42].
+// QuickCreateFilter creates a managed filter from a single entity shortcut.
+// E.g., "Notify me about Deafheaven shows" creates a filter with artist_ids=[42]
+// and source=managed. Idempotent: returns the existing managed row if one already
+// covers this entity. PSY-1467.
 func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType string, entityID uint) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if existing, err := s.findManagedQuickFilter(userID, entityType, entityID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return existing, nil
 	}
 
 	input := contracts.CreateFilterInput{
@@ -266,7 +287,75 @@ func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType st
 		return nil, fmt.Errorf("invalid entity type: %s (must be artist, venue, label, or tag)", entityType)
 	}
 
-	return s.CreateFilter(userID, input)
+	// CreateFilter always stamps source=user; override after create so settings
+	// create and quick-create share validation/limit logic but differ in ownership.
+	filter, err := s.CreateFilter(userID, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.Model(filter).Update("source", notificationm.FilterSourceManaged).Error; err != nil {
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to mark filter managed: %w", err))
+	}
+	filter.Source = notificationm.FilterSourceManaged
+	return filter, nil
+}
+
+// findManagedQuickFilter returns the user's active managed quick subscription for
+// the given entity, or nil if none. Matches only single-entity managed rows so a
+// settings-promoted compound filter is never treated as the quick toggle's own.
+func (s *NotificationFilterService) findManagedQuickFilter(userID uint, entityType string, entityID uint) (*notificationm.NotificationFilter, error) {
+	var filters []notificationm.NotificationFilter
+	q := s.db.Where("user_id = ? AND source = ? AND is_active = TRUE", userID, notificationm.FilterSourceManaged)
+	entityIDInt64 := int64(entityID)
+	switch entityType {
+	case "artist":
+		q = q.Where("artist_ids @> ARRAY[?]::bigint[]", entityIDInt64)
+	case "venue":
+		q = q.Where("venue_ids @> ARRAY[?]::bigint[]", entityIDInt64)
+	case "label":
+		q = q.Where("label_ids @> ARRAY[?]::bigint[]", entityIDInt64)
+	case "tag":
+		q = q.Where("tag_ids @> ARRAY[?]::bigint[]", entityIDInt64)
+	default:
+		return nil, nil
+	}
+	if err := q.Order("created_at ASC").Find(&filters).Error; err != nil {
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to look up managed filter: %w", err))
+	}
+	for i := range filters {
+		if isSingleEntityManagedFilter(&filters[i], entityType, entityID) {
+			return &filters[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// isSingleEntityManagedFilter reports whether f is a quick-toggle-shaped managed
+// subscription for exactly one entity of the given type (no other criteria).
+func isSingleEntityManagedFilter(f *notificationm.NotificationFilter, entityType string, entityID uint) bool {
+	if f == nil || f.Source != notificationm.FilterSourceManaged {
+		return false
+	}
+	id := int64(entityID)
+	hasOnly := func(arr pq.Int64Array) bool {
+		return len(arr) == 1 && arr[0] == id
+	}
+	switch entityType {
+	case "artist":
+		return hasOnly(f.ArtistIDs) && len(f.VenueIDs) == 0 && len(f.LabelIDs) == 0 &&
+			len(f.TagIDs) == 0 && len(f.ExcludeTagIDs) == 0 && f.Cities == nil && f.PriceMaxCents == nil
+	case "venue":
+		return hasOnly(f.VenueIDs) && len(f.ArtistIDs) == 0 && len(f.LabelIDs) == 0 &&
+			len(f.TagIDs) == 0 && len(f.ExcludeTagIDs) == 0 && f.Cities == nil && f.PriceMaxCents == nil
+	case "label":
+		return hasOnly(f.LabelIDs) && len(f.ArtistIDs) == 0 && len(f.VenueIDs) == 0 &&
+			len(f.TagIDs) == 0 && len(f.ExcludeTagIDs) == 0 && f.Cities == nil && f.PriceMaxCents == nil
+	case "tag":
+		return hasOnly(f.TagIDs) && len(f.ArtistIDs) == 0 && len(f.VenueIDs) == 0 &&
+			len(f.LabelIDs) == 0 && len(f.ExcludeTagIDs) == 0 && f.Cities == nil && f.PriceMaxCents == nil
+	default:
+		return false
+	}
 }
 
 // ──────────────────────────────────────────────
@@ -278,6 +367,7 @@ type filterMatch struct {
 	FilterID    uint   `gorm:"column:filter_id"`
 	UserID      uint   `gorm:"column:user_id"`
 	FilterName  string `gorm:"column:name"`
+	Source      string `gorm:"column:source"`
 	NotifyEmail bool   `gorm:"column:notify_email"`
 	NotifyInApp bool   `gorm:"column:notify_in_app"`
 }
@@ -440,7 +530,7 @@ func (s *NotificationFilterService) findMatchingFilters(
 	// Build the matching query using PostgreSQL array overlap operator (&&).
 	// GORM uses ? for parameter binding.
 	query := `
-		SELECT nf.id as filter_id, nf.user_id, nf.name, nf.notify_email, nf.notify_in_app
+		SELECT nf.id as filter_id, nf.user_id, nf.name, nf.source, nf.notify_email, nf.notify_in_app
 		FROM notification_filters nf
 		WHERE nf.is_active = TRUE
 		  AND (nf.artist_ids IS NULL OR nf.artist_ids && ?::bigint[])
@@ -452,7 +542,10 @@ func (s *NotificationFilterService) findMatchingFilters(
 		  AND (nf.price_max_cents IS NULL OR ?::int IS NULL OR ? <= nf.price_max_cents)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM notification_log nl
-		      WHERE nl.filter_id = nf.id AND nl.entity_type = 'show' AND nl.entity_id = ?
+		      WHERE nl.user_id = nf.user_id
+		        AND nl.entity_type = 'show'
+		        AND nl.entity_id = ?
+		        AND nl.channel = 'email'
 		  )
 	`
 
@@ -492,40 +585,69 @@ func (s *NotificationFilterService) findMatchingFilters(
 	return matches, nil
 }
 
-// processUserMatches handles matched filters for a single user: inserts notification log
-// entries and sends emails.
+// processUserMatches handles matched filters for a single user: bumps match
+// metadata on every matching filter, then delivers at most one user-visible
+// notification for the show (PSY-1467 — managed + advanced overlap must not
+// spam). Delivery prefers a managed match when present so the log attributes
+// to the quick subscription; otherwise the first match wins.
 func (s *NotificationFilterService) processUserMatches(userID uint, show *catalogm.Show, matches []filterMatch) {
+	if len(matches) == 0 {
+		return
+	}
 	now := time.Now().UTC()
 
 	for _, match := range matches {
-		// Insert notification_log entry for each match
-		logEntry := notificationm.NotificationLog{
-			UserID:     userID,
-			FilterID:   &match.FilterID,
-			EntityType: "show",
-			EntityID:   show.ID,
-			Channel:    "email",
-			SentAt:     now,
-		}
-		if err := s.db.Create(&logEntry).Error; err != nil {
-			log.Printf("failed to insert notification log for user %d, filter %d, show %d: %v",
-				userID, match.FilterID, show.ID, err)
-			continue
-		}
-
-		// Update the filter's last_matched_at and match_count
 		s.db.Model(&notificationm.NotificationFilter{}).
 			Where("id = ?", match.FilterID).
 			Updates(map[string]interface{}{
 				"last_matched_at": now,
 				"match_count":     gorm.Expr("match_count + 1"),
 			})
+	}
 
-		// Send email if configured
-		if match.NotifyEmail && s.emailService != nil && s.emailService.IsConfigured() {
-			s.sendFilterEmail(userID, match.FilterID, match.FilterName, show)
+	// Cross-filter + cross-system dedup: one email-channel row per (user, show).
+	var existing int64
+	if err := s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
+			userID, "show", show.ID, "email").
+		Count(&existing).Error; err != nil {
+		log.Printf("failed to dedup notification for user %d, show %d: %v", userID, show.ID, err)
+		return
+	}
+	if existing > 0 {
+		return
+	}
+
+	delivery := pickDeliveryMatch(matches)
+	logEntry := notificationm.NotificationLog{
+		UserID:     userID,
+		FilterID:   &delivery.FilterID,
+		EntityType: "show",
+		EntityID:   show.ID,
+		Channel:    "email",
+		SentAt:     now,
+	}
+	if err := s.db.Create(&logEntry).Error; err != nil {
+		log.Printf("failed to insert notification log for user %d, filter %d, show %d: %v",
+			userID, delivery.FilterID, show.ID, err)
+		return
+	}
+
+	if delivery.NotifyEmail && s.emailService != nil && s.emailService.IsConfigured() {
+		s.sendFilterEmail(userID, delivery.FilterID, delivery.FilterName, show)
+	}
+}
+
+// pickDeliveryMatch chooses which matched filter owns the single user-visible
+// notification. Prefer managed (quick) subscriptions when both managed and
+// user filters match the same show.
+func pickDeliveryMatch(matches []filterMatch) filterMatch {
+	for _, m := range matches {
+		if m.Source == notificationm.FilterSourceManaged {
+			return m
 		}
 	}
+	return matches[0]
 }
 
 // sendFilterEmail sends a notification email for a matched filter.

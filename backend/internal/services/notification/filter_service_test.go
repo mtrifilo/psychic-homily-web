@@ -454,6 +454,7 @@ func (s *NotificationFilterSuite) TestQuickCreateFilter_Artist() {
 	s.Require().NoError(err)
 	s.Assert().Equal("Deafheaven shows", filter.Name)
 	s.Assert().Equal(pq.Int64Array{int64(artistID)}, filter.ArtistIDs)
+	s.Assert().Equal(notificationm.FilterSourceManaged, filter.Source)
 }
 
 func (s *NotificationFilterSuite) TestQuickCreateFilter_Venue() {
@@ -464,6 +465,88 @@ func (s *NotificationFilterSuite) TestQuickCreateFilter_Venue() {
 	s.Require().NoError(err)
 	s.Assert().Contains(filter.Name, "Shows at")
 	s.Assert().Equal(pq.Int64Array{int64(venueID)}, filter.VenueIDs)
+	s.Assert().Equal(notificationm.FilterSourceManaged, filter.Source)
+}
+
+func (s *NotificationFilterSuite) TestQuickCreateFilter_Idempotent() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Idempotent Band")
+
+	first, err := s.svc.QuickCreateFilter(userID, "artist", artistID)
+	s.Require().NoError(err)
+	second, err := s.svc.QuickCreateFilter(userID, "artist", artistID)
+	s.Require().NoError(err)
+	s.Assert().Equal(first.ID, second.ID)
+
+	var count int64
+	s.db.Model(&notificationm.NotificationFilter{}).Where("user_id = ?", userID).Count(&count)
+	s.Assert().Equal(int64(1), count)
+}
+
+func (s *NotificationFilterSuite) TestQuickCreateFilter_DoesNotCollideWithUserFilter() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Shared Band")
+
+	userFilter, err := s.svc.CreateFilter(userID, contracts.CreateFilterInput{
+		Name:      "Advanced with artist",
+		ArtistIDs: []int64{int64(artistID)},
+		VenueIDs:  []int64{99},
+	})
+	s.Require().NoError(err)
+	s.Assert().Equal(notificationm.FilterSourceUser, userFilter.Source)
+
+	managed, err := s.svc.QuickCreateFilter(userID, "artist", artistID)
+	s.Require().NoError(err)
+	s.Assert().Equal(notificationm.FilterSourceManaged, managed.Source)
+	s.Assert().NotEqual(userFilter.ID, managed.ID)
+
+	var count int64
+	s.db.Model(&notificationm.NotificationFilter{}).Where("user_id = ?", userID).Count(&count)
+	s.Assert().Equal(int64(2), count)
+}
+
+func (s *NotificationFilterSuite) TestUpdateFilter_PromotesManagedToUser() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Promote Me")
+
+	managed, err := s.svc.QuickCreateFilter(userID, "artist", artistID)
+	s.Require().NoError(err)
+	s.Assert().Equal(notificationm.FilterSourceManaged, managed.Source)
+
+	name := "Edited in settings"
+	updated, err := s.svc.UpdateFilter(userID, managed.ID, contracts.UpdateFilterInput{
+		Name: &name,
+	})
+	s.Require().NoError(err)
+	s.Assert().Equal(notificationm.FilterSourceUser, updated.Source)
+}
+
+func (s *NotificationFilterSuite) TestMatchAndNotify_ManagedAndUserOverlapOneNotification() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Overlap Band")
+	venueID := s.createTestVenue("overlap-venue")
+
+	_, err := s.svc.CreateFilter(userID, contracts.CreateFilterInput{
+		Name:      "User advanced",
+		ArtistIDs: []int64{int64(artistID)},
+	})
+	s.Require().NoError(err)
+
+	managed, err := s.svc.QuickCreateFilter(userID, "artist", artistID)
+	s.Require().NoError(err)
+
+	showID := s.createTestShow("Overlap show", []uint{artistID}, []uint{venueID})
+	var show catalogm.Show
+	s.Require().NoError(s.db.First(&show, showID).Error)
+
+	err = s.svc.MatchAndNotify(&show)
+	s.Require().NoError(err)
+
+	var logs []notificationm.NotificationLog
+	s.Require().NoError(s.db.Where("user_id = ? AND entity_id = ?", userID, showID).Find(&logs).Error)
+	s.Require().Len(logs, 1)
+	s.Require().NotNil(logs[0].FilterID)
+	s.Assert().Equal(managed.ID, *logs[0].FilterID)
 }
 
 func (s *NotificationFilterSuite) TestQuickCreateFilter_InvalidType() {
@@ -641,10 +724,19 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_MultipleFiltersOneShow() {
 	err = s.svc.MatchAndNotify(&show)
 	s.Require().NoError(err)
 
-	// Both filters should have matched
+	// Both filters match, but the user gets one notification (PSY-1467)
 	var count int64
 	s.db.Model(&notificationm.NotificationLog{}).Where("user_id = ? AND entity_id = ?", userID, showID).Count(&count)
-	s.Assert().Equal(int64(2), count)
+	s.Assert().Equal(int64(1), count)
+
+	// Both filters still get their match metadata bumped
+	var filters []notificationm.NotificationFilter
+	s.Require().NoError(s.db.Where("user_id = ?", userID).Find(&filters).Error)
+	s.Require().Len(filters, 2)
+	for _, f := range filters {
+		s.Assert().Equal(1, f.MatchCount)
+		s.Assert().NotNil(f.LastMatchedAt)
+	}
 }
 
 func (s *NotificationFilterSuite) TestMatchAndNotify_UpdatesMatchCount() {
