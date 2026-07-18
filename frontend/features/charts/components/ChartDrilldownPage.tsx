@@ -533,9 +533,10 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
 
   const reachableTotal = Math.min(total, MAX_PAGE * PAGE_SIZE)
   const totalPages = Math.max(1, Math.ceil(reachableTotal / PAGE_SIZE))
+  const pageOutOfRange = !isLoading && total > 0 && page > totalPages
   useEffect(() => {
-    if (!isLoading && total > 0 && page > totalPages) void setPage(totalPages)
-  }, [isLoading, page, setPage, total, totalPages])
+    if (pageOutOfRange) void setPage(totalPages)
+  }, [pageOutOfRange, setPage, totalPages])
 
   const goToPage = (nextPage: number) =>
     void setPage(nextPage === 1 ? null : nextPage)
@@ -547,8 +548,11 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     void setPage(null)
     void setScene(nextScene || null)
   }
-  const showingStart = total === 0 ? 0 : offset + 1
-  const showingEnd = Math.min(offset + rows.length, total)
+  const showingStart = total === 0 || rows.length === 0 ? 0 : offset + 1
+  const showingEnd =
+    total === 0 || rows.length === 0 ? 0 : Math.min(offset + rows.length, total)
+  const showPagination =
+    !sceneValidationFailed && !isLoading && !isError && !pageOutOfRange
 
   return (
     <div className={cn('space-y-6', isPending && 'opacity-75')}>
@@ -652,7 +656,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   </button>
                 </td>
               </tr>
-            ) : isLoading ? (
+            ) : isLoading || pageOutOfRange ? (
               Array.from({ length: 8 }, (_, index) => (
                 <tr key={index} className="border-b border-border">
                   <td colSpan={config.columns.length + 2} className="px-2 py-3">
@@ -706,7 +710,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
         </table>
       </div>
 
-      {!sceneValidationFailed && !isLoading && !isError ? (
+      {showPagination ? (
         <nav
           aria-label="Chart pagination"
           className="flex flex-col gap-3 border-t border-border pt-4 font-mono text-xs sm:flex-row sm:items-center sm:justify-between"

@@ -332,6 +332,18 @@ describe('ChartDrilldownPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('holds the table in loading while clamping a beyond-end page', () => {
+    queryPage = 4
+    payloads['most-active-artists'].total = 120
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(screen.queryByText('Showing 151–0 of 120')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('No qualifying rows in this window and scene.')
+    ).not.toBeInTheDocument()
+    expect(mockSetPage).toHaveBeenCalledWith(3)
+  })
+
   it('paginates the unranked most-anticipated fallback without repeating page one', () => {
     queryPage = 2
     payloads['most-anticipated'].mode = 'soonest_upcoming'

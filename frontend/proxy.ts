@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { API_BASE_URL } from '@/lib/api-base'
-import { CHART_MODULE_SLUGS } from '@/features/charts/moduleConfig'
 
 /**
  * Slug-existence proxy — real HTTP 404 for unknown entity slug pages (PSY-897).
@@ -116,8 +115,18 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
  * Fixed allowlist for `/charts/[module]` drill-downs. Unlike entity slug
  * pages there is no backend existence probe — unknown modules are rewritten
  * here so `notFound()` in the page does not soft-404 under cacheComponents.
+ * Keep in lockstep with `CHART_MODULE_SLUGS` in features/charts/moduleConfig
+ * (asserted by proxy.charts.test.ts). Inlined here so proxy stays free of
+ * features/ imports.
  */
-const CHART_MODULE_SEGMENTS = new Set<string>(CHART_MODULE_SLUGS)
+const CHART_MODULE_SEGMENTS = new Set([
+  'most-active-artists',
+  'on-the-radio',
+  'most-anticipated',
+  'busiest-venues',
+  'new-releases',
+  'openers-to-watch',
+])
 
 /**
  * Returns the global 404 rewrite response (status 404 + render

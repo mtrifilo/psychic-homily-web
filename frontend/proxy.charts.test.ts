@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { CHART_MODULE_SLUGS } from '@/features/charts/moduleConfig'
 
 vi.mock('@/lib/api-base', () => ({
   API_BASE_URL: 'http://backend.test',
@@ -16,13 +17,12 @@ describe('proxy charts module allowlist', () => {
     vi.restoreAllMocks()
   })
 
-  it('lets known chart modules through without a backend probe', async () => {
+  it('stays in lockstep with CHART_MODULE_SLUGS', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
-    const response = await proxy(
-      chartsRequest('/charts/most-active-artists')
-    )
-
-    expect(response.status).toBe(200)
+    for (const slug of CHART_MODULE_SLUGS) {
+      const response = await proxy(chartsRequest(`/charts/${slug}`))
+      expect(response.status).toBe(200)
+    }
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
