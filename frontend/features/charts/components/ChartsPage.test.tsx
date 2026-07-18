@@ -117,6 +117,14 @@ vi.mock('@/lib/context/AuthContext', () => ({
     user: isAuthenticated ? { id: '42' } : null,
   }),
 }))
+vi.mock('@/features/contributions', () => ({
+  useContributeOpportunities: () => ({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+  }),
+  FOLLOWED_LOOSE_ENDS_KEY: 'followed_artists_missing_links',
+}))
 vi.mock('@/features/auth', () => ({
   useProfile: () => ({
     data: isAuthenticated

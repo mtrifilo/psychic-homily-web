@@ -1,6 +1,11 @@
 'use client'
 
+import Link from 'next/link'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import {
+  useContributeOpportunities,
+  FOLLOWED_LOOSE_ENDS_KEY,
+} from '@/features/contributions'
 import { usePersonalChartsStats } from '../hooks'
 import type { PersonalChartsStats } from '../types'
 
@@ -52,6 +57,17 @@ export function PersonalStatsStrip() {
     user?.id,
     isAuthenticated && !isAuthLoading
   )
+  // PSY-1484: deep link from the Broadsheet into the /contribute "Loose Ends"
+  // band when the viewer follows artists that are missing streaming links.
+  // Gated on auth so anonymous chart viewers don't fire the request; the
+  // followed loose-ends category is itself authed-only server-side.
+  const opportunities = useContributeOpportunities({
+    enabled: isAuthenticated && !isAuthLoading,
+  })
+  const followedLooseEndsCount =
+    opportunities.data?.categories?.find(
+      (category) => category.key === FOLLOWED_LOOSE_ENDS_KEY
+    )?.count ?? 0
 
   if (!isAuthenticated || stats.isError) return null
   if (!isAuthLoading && !stats.isLoading && !stats.data) return null
@@ -59,7 +75,7 @@ export function PersonalStatsStrip() {
   return (
     <section
       aria-label="Your chart stats"
-      className="flex min-h-[38px] items-center gap-4 border border-primary bg-primary/10 px-3.5 py-2.5 font-mono text-xs leading-normal"
+      className="flex min-h-[38px] flex-wrap items-center gap-x-4 gap-y-1 border border-primary bg-primary/10 px-3.5 py-2.5 font-mono text-xs leading-normal"
     >
       <span className="shrink-0 text-[11px] font-bold tracking-[0.06em] text-primary">
         YOU
@@ -74,6 +90,15 @@ export function PersonalStatsStrip() {
           <PersonalStats stats={stats.data} />
         ) : null}
       </div>
+      {followedLooseEndsCount > 0 ? (
+        <Link
+          href="/contribute"
+          className="shrink-0 font-bold text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+        >
+          {followedLooseEndsCount} loose{' '}
+          {followedLooseEndsCount === 1 ? 'end' : 'ends'} in your follows →
+        </Link>
+      ) : null}
     </section>
   )
 }
