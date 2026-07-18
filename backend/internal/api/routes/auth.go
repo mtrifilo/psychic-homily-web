@@ -114,6 +114,8 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// User preferences endpoints
 	userPrefsHandler := authh.NewUserPreferencesHandler(rc.SC.User, rc.Cfg.JWT.SecretKey)
 	huma.Put(rc.Protected, "/auth/preferences/favorite-cities", userPrefsHandler.SetFavoriteCitiesHandler)
+	// PSY-1423: /charts window + scene landing defaults.
+	huma.Put(rc.Protected, "/auth/preferences/chart-defaults", userPrefsHandler.SetChartDefaultsHandler)
 	huma.Patch(rc.Protected, "/auth/preferences/show-reminders", userPrefsHandler.SetShowRemindersHandler)
 	// PSY-296: default reply permission applied to new top-level comments.
 	huma.Patch(rc.Protected, "/auth/preferences/default-reply-permission", userPrefsHandler.SetDefaultReplyPermissionHandler)

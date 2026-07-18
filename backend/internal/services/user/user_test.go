@@ -1842,3 +1842,41 @@ func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_Upda
 	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&reload).Error)
 	suite.Equal("author_only", reload.DefaultReplyPermission)
 }
+
+func (suite *UserServiceIntegrationTestSuite) TestSetChartDefaults_SaveAndClear() {
+	user, err := suite.userService.CreateUserWithPassword(
+		"chart-defaults@example.com", "Pass123!", "Chart", "Defaults",
+	)
+	suite.Require().NoError(err)
+
+	scene := "38060"
+	suite.Require().NoError(suite.userService.SetChartDefaults(user.ID, &authm.ChartDefaults{
+		Window: "month",
+		Scene:  &scene,
+	}))
+
+	var prefs authm.UserPreferences
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&prefs).Error)
+	suite.Require().NotNil(prefs.ChartDefaults)
+
+	var saved authm.ChartDefaults
+	suite.Require().NoError(json.Unmarshal(*prefs.ChartDefaults, &saved))
+	suite.Equal("month", saved.Window)
+	suite.Require().NotNil(saved.Scene)
+	suite.Equal("38060", *saved.Scene)
+
+	suite.Require().NoError(suite.userService.SetChartDefaults(user.ID, nil))
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&prefs).Error)
+	suite.Nil(prefs.ChartDefaults)
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestSetChartDefaults_RejectsInvalidWindow() {
+	user, err := suite.userService.CreateUserWithPassword(
+		"chart-defaults-bad@example.com", "Pass123!", "Chart", "Bad",
+	)
+	suite.Require().NoError(err)
+
+	err = suite.userService.SetChartDefaults(user.ID, &authm.ChartDefaults{Window: "year"})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "invalid chart window")
+}

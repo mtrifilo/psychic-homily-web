@@ -86,6 +86,83 @@ func TestSetFavoriteCitiesHandler_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// --- SetChartDefaultsHandler ---
+
+func TestSetChartDefaultsHandler_NoAuth(t *testing.T) {
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+	req := &SetChartDefaultsRequest{}
+
+	_, err := h.SetChartDefaultsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestSetChartDefaultsHandler_Success(t *testing.T) {
+	scene := "38060"
+	var calledWith *authm.ChartDefaults
+	mock := &testhelpers.MockUserService{
+		SetChartDefaultsFn: func(userID uint, defaults *authm.ChartDefaults) error {
+			calledWith = defaults
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	req := &SetChartDefaultsRequest{}
+	req.Body.Defaults = &authm.ChartDefaults{Window: "month", Scene: &scene}
+
+	resp, err := h.SetChartDefaultsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatal("expected success=true")
+	}
+	if calledWith == nil || calledWith.Window != "month" || calledWith.Scene == nil || *calledWith.Scene != "38060" {
+		t.Fatalf("unexpected defaults: %+v", calledWith)
+	}
+}
+
+func TestSetChartDefaultsHandler_Clear(t *testing.T) {
+	var calledWith *authm.ChartDefaults
+	called := false
+	mock := &testhelpers.MockUserService{
+		SetChartDefaultsFn: func(userID uint, defaults *authm.ChartDefaults) error {
+			called = true
+			calledWith = defaults
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	req := &SetChartDefaultsRequest{}
+	// Body.Defaults is nil — clear
+
+	resp, err := h.SetChartDefaultsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || !called || calledWith != nil {
+		t.Fatalf("expected clear: success=%v called=%v defaults=%+v", resp.Body.Success, called, calledWith)
+	}
+}
+
+func TestSetChartDefaultsHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetChartDefaultsFn: func(userID uint, defaults *authm.ChartDefaults) error {
+			return errors.New("db error")
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetChartDefaultsRequest{}
+	req.Body.Defaults = &authm.ChartDefaults{Window: "quarter"}
+
+	_, err := h.SetChartDefaultsHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // --- SetShowRemindersHandler ---
 
 func TestSetShowRemindersHandler_NoAuth(t *testing.T) {

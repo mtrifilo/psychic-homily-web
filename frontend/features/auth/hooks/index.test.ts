@@ -42,6 +42,10 @@ describe('auth hooks barrel', () => {
     expect(typeof hooks.useSetFavoriteCities).toBe('function')
   })
 
+  it('re-exports the chart-defaults hook', () => {
+    expect(typeof hooks.useSetChartDefaults).toBe('function')
+  })
+
   it('re-exports the contributor-profile hooks', () => {
     expect(typeof hooks.usePublicProfile).toBe('function')
     expect(typeof hooks.usePublicContributions).toBe('function')

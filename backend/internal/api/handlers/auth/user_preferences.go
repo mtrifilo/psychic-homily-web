@@ -91,6 +91,66 @@ func (h *UserPreferencesHandler) SetFavoriteCitiesHandler(ctx context.Context, r
 	}, nil
 }
 
+// ===========================================================================
+// PSY-1423: chart window + scene defaults
+// ===========================================================================
+
+// SetChartDefaultsRequest updates the user's /charts landing defaults.
+// Pass defaults:null (or omit window) to clear.
+type SetChartDefaultsRequest struct {
+	Body struct {
+		Defaults *authm.ChartDefaults `json:"defaults" required:"false" doc:"Chart defaults to save; null clears saved defaults"`
+	}
+}
+
+// SetChartDefaultsResponse reports the resulting preference state.
+type SetChartDefaultsResponse struct {
+	Body struct {
+		Success  bool                 `json:"success"`
+		Message  string               `json:"message"`
+		Defaults *authm.ChartDefaults `json:"defaults"`
+	}
+}
+
+// SetChartDefaultsHandler handles PUT /auth/preferences/chart-defaults.
+func (h *UserPreferencesHandler) SetChartDefaultsHandler(ctx context.Context, req *SetChartDefaultsRequest) (*SetChartDefaultsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	defaults := req.Body.Defaults
+	if err := h.userService.SetChartDefaults(user.ID, defaults); err != nil {
+		logger.FromContext(ctx).Error("set_chart_defaults_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to save chart defaults: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_chart_defaults_success",
+		"user_id", user.ID,
+		"cleared", defaults == nil,
+	)
+
+	return &SetChartDefaultsResponse{
+		Body: struct {
+			Success  bool                 `json:"success"`
+			Message  string               `json:"message"`
+			Defaults *authm.ChartDefaults `json:"defaults"`
+		}{
+			Success:  true,
+			Message:  "Chart defaults updated",
+			Defaults: defaults,
+		},
+	}, nil
+}
+
 // SetShowRemindersRequest represents the request to toggle show reminders
 type SetShowRemindersRequest struct {
 	Body struct {

@@ -33,6 +33,8 @@ export {
 } from './useCalendarFeed'
 
 export { useSetFavoriteCities } from './useFavoriteCities'
+export { useSetChartDefaults } from './useChartDefaults'
+export type { ChartDefaults } from './useChartDefaults'
 
 export { useSetTierEditNotificationPreference } from './useTierEditNotificationPreference'
 export type { TierEditNotificationUpdate } from './useTierEditNotificationPreference'

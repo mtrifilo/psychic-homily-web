@@ -65,6 +65,10 @@ export {
 // Hooks — Favorite Cities
 export { useSetFavoriteCities } from './hooks'
 
+// Hooks — Chart defaults (PSY-1423)
+export { useSetChartDefaults } from './hooks'
+export type { ChartDefaults } from './hooks'
+
 // Hooks — Tier-change / edit-review email preferences (PSY-756 / PSY-807)
 export { useSetTierEditNotificationPreference } from './hooks'
 export type { TierEditNotificationUpdate } from './hooks'
