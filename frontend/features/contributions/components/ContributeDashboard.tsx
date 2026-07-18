@@ -12,14 +12,17 @@ import {
   ListTodo,
   Trophy,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared'
+import { cn } from '@/lib/utils'
 import { useContributeOpportunities, useContributeCategory } from '../hooks'
 import type { DataQualityCategory, DataQualityItem } from '../types'
+import { isLooseEndsCategory } from '../types'
 
 /** Map entity types to their URL prefix */
 function getEntityUrl(entityType: string, slug: string): string {
@@ -120,6 +123,88 @@ function CategoryCard({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * A single highlighted Loose Ends entry. Reuses the shared `selectedCategory`
+ * drill-in state (the category also lives in the opportunities summary), so
+ * clicking one renders its items via the same {@link CategoryItems} path used
+ * by the global grid below.
+ */
+function LooseEndsCard({
+  category,
+  isSelected,
+  onClick,
+}: {
+  category: DataQualityCategory
+  isSelected: boolean
+  onClick: () => void
+}) {
+  const icon = getEntityIcon(category.entity_type)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={isSelected}
+      className={cn(
+        'flex w-full items-start justify-between gap-3 rounded-md border bg-background p-3 text-left transition-colors hover:border-primary',
+        isSelected ? 'border-primary ring-1 ring-primary/20' : 'border-primary/30'
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        {createElement(icon, { className: 'h-4 w-4 text-primary shrink-0 mt-0.5' })}
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{category.label}</div>
+          <div className="text-xs text-muted-foreground">{category.description}</div>
+        </div>
+      </div>
+      <Badge className="shrink-0">{category.count}</Badge>
+    </button>
+  )
+}
+
+/**
+ * PSY-1484: the "Loose Ends" band — a highlighted strip above the global data-
+ * quality grid for the two high-signal, chart-seeded categories (spike
+ * PSY-1426). Rendered only when at least one non-empty loose-ends category is
+ * present in the summary.
+ */
+function LooseEndsBand({
+  categories,
+  selectedCategory,
+  onSelect,
+}: {
+  categories: DataQualityCategory[]
+  selectedCategory: string | null
+  onSelect: (key: string) => void
+}) {
+  return (
+    <section
+      aria-label="Loose Ends"
+      className="rounded-lg border border-primary/40 bg-primary/5 p-4 sm:p-5"
+    >
+      <div className="mb-3 flex items-start gap-2">
+        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
+        <div>
+          <h2 className="text-lg font-semibold leading-tight">Loose Ends</h2>
+          <p className="text-sm text-muted-foreground">
+            High-signal gaps worth closing — artists you follow and artists
+            moving on the charts that are still missing streaming links.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {categories.map((category) => (
+          <LooseEndsCard
+            key={category.key}
+            category={category}
+            isSelected={selectedCategory === category.key}
+            onClick={() => onSelect(category.key)}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -257,6 +342,15 @@ export function ContributeDashboard() {
   const totalItems = data?.total_items ?? 0
   const selectedCategoryData = categories.find((c) => c.key === selectedCategory)
 
+  // PSY-1484: pull the high-signal loose-ends categories into a highlighted
+  // band above the global grid. Only surface non-empty ones — the backend
+  // (PSY-1483) gates the followed list to authed viewers, so the frontend
+  // just renders whatever categories come back with count > 0.
+  const looseEndsCategories = categories.filter(
+    (c) => isLooseEndsCategory(c.key) && c.count > 0
+  )
+  const globalCategories = categories.filter((c) => !isLooseEndsCategory(c.key))
+
   return (
     <div className="space-y-8">
       {/* Quick actions */}
@@ -292,9 +386,20 @@ export function ContributeDashboard() {
         </p>
       </div>
 
+      {/* Loose Ends band (PSY-1484) — highlighted above the global grid */}
+      {looseEndsCategories.length > 0 && (
+        <LooseEndsBand
+          categories={looseEndsCategories}
+          selectedCategory={selectedCategory}
+          onSelect={(key) =>
+            setSelectedCategory(selectedCategory === key ? null : key)
+          }
+        />
+      )}
+
       {/* Category grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {categories.map((category) => (
+        {globalCategories.map((category) => (
           <CategoryCard
             key={category.key}
             category={category}

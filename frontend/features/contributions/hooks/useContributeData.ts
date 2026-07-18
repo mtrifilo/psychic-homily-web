@@ -2,11 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
 import type { DataQualitySummary, DataQualityItem } from '../types'
 
-export const useContributeOpportunities = () => {
+export const useContributeOpportunities = (options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['contribute', 'opportunities'],
     queryFn: () =>
       apiRequest<DataQualitySummary>(`${API_BASE_URL}/contribute/opportunities`),
+    enabled: options?.enabled ?? true,
   })
 }
 

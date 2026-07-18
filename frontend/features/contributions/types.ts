@@ -10,6 +10,38 @@ export interface DataQualityCategory {
   description: string
 }
 
+/**
+ * PSY-1484 "Loose Ends" — the two high-signal, chart-seeded opportunity
+ * categories surfaced in a highlighted band atop `/contribute` (spike
+ * PSY-1426). Both flow through the existing `DataQualityCategory` /
+ * opportunities-summary shape; these keys just tag which categories get
+ * pulled out of the global grid and rendered in the band.
+ *
+ * - `followed_artists_missing_links` — authed-only; artists the viewer
+ *   follows that are missing Bandcamp + Spotify links. Backend (PSY-1483)
+ *   only includes it in the summary when authed and non-empty.
+ * - `charting_artists_missing_links` — everyone; artists moving on the
+ *   Broadsheet charts missing Bandcamp + Spotify. Included when non-empty.
+ *
+ * Defined here (not derived from generated backend types) so the frontend
+ * is self-sufficient even before the companion backend ticket merges.
+ */
+export const LOOSE_ENDS_CATEGORY_KEYS = [
+  'followed_artists_missing_links',
+  'charting_artists_missing_links',
+] as const
+
+export type LooseEndsCategoryKey = (typeof LOOSE_ENDS_CATEGORY_KEYS)[number]
+
+/** The authed-only "artists you follow" loose-ends category key. */
+export const FOLLOWED_LOOSE_ENDS_KEY: LooseEndsCategoryKey =
+  'followed_artists_missing_links'
+
+/** True when a category key belongs to the Loose Ends band. */
+export function isLooseEndsCategory(key: string): key is LooseEndsCategoryKey {
+  return (LOOSE_ENDS_CATEGORY_KEYS as readonly string[]).includes(key)
+}
+
 export interface DataQualitySummary {
   categories: DataQualityCategory[]
   total_items: number

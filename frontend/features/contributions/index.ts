@@ -13,8 +13,15 @@ export type {
   DataQualityCategory,
   DataQualitySummary,
   DataQualityItem,
+  LooseEndsCategoryKey,
 } from './types'
-export { EDITABLE_FIELDS, REPORT_TYPES } from './types'
+export {
+  EDITABLE_FIELDS,
+  REPORT_TYPES,
+  LOOSE_ENDS_CATEGORY_KEYS,
+  FOLLOWED_LOOSE_ENDS_KEY,
+  isLooseEndsCategory,
+} from './types'
 
 // Hooks
 export {
