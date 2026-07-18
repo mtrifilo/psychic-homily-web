@@ -36,7 +36,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
-import { truncatedCountPhrase } from '@/components/graph/truncatedCountPhrase'
+import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import { useVenueBillNetwork } from '../hooks/useVenues'
 import type { VenueBillNetworkWindow } from '../types'
 import { SceneGraphVisualizationStyleAdapter } from './VenueBillNetworkAdapter'
@@ -216,20 +216,19 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // venue reads as the whole history. Mirrors the scene graph's shipped
   // treatment (sceneArtistCountPhrase → truncatedCountPhrase): the leading
   // count becomes "top N of M artists" when roster_truncated, sentence-cased
-  // here (a digit-leading plain count is a toUpperCase no-op). Reads the
-  // contract field `artist_count` (which the backend guarantees equals
-  // len(nodes)) — the same field `artist_total`/`roster_truncated` are defined
-  // against, and the one the canvas aria-label uses, so the two can't diverge.
-  // Shipped in #1563.
-  const rawArtistPhrase = truncatedCountPhrase({
+  // here (a digit-leading plain count is a no-op). Reads the contract field
+  // `artist_count` (which the backend guarantees equals len(nodes)) — the
+  // field `artist_total`/`roster_truncated` are defined against (both added by
+  // #1563). Computed ONCE here and threaded to the adapter as `countPhrase`,
+  // so the header and the canvas aria-label read one value and can't diverge.
+  const { phrase: artistCountPhrase } = truncatedCountPhrase({
     shown: data?.venue.artist_count ?? 0,
     total: data?.venue.artist_total,
     truncated: data?.venue.roster_truncated,
     singular: 'artist',
     plural: 'artists',
   })
-  const artistPhrase =
-    rawArtistPhrase.charAt(0).toUpperCase() + rawArtistPhrase.slice(1)
+  const artistPhrase = sentenceCase(artistCountPhrase)
 
   const sectionHeader = (
     <div>
@@ -330,6 +329,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
                 <SceneGraphVisualizationStyleAdapter
                   data={data}
                   venueName={venueName}
+                  countPhrase={artistCountPhrase}
                   containerWidth={containerWidth!}
                 />
 
@@ -372,6 +372,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
               <SceneGraphVisualizationStyleAdapter
                 data={data}
                 venueName={venueName}
+                countPhrase={artistCountPhrase}
                 containerWidth={overlayWidth}
                 height={overlayHeight}
               />

@@ -114,6 +114,25 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     expect(screen.queryByText(/Showing every item/)).not.toBeInTheDocument()
   })
 
+  it('keeps the per-type breakdown when nodes_truncated but the total is not larger (PSY-1476)', async () => {
+    const hooks = await import('../hooks')
+    vi.mocked(hooks.useCollectionGraph).mockReturnValue({
+      data: {
+        ...mockData,
+        // Stale/skewed payload: flag set but node_total ≤ shown (3 nodes) — the
+        // shared guard degrades, so the header keeps the breakdown + caption.
+        collection: { ...mockData.collection, node_total: 3, nodes_truncated: true },
+      },
+      isLoading: false,
+      isError: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    expect(screen.getByText(/2 artists · 1 venue/)).toBeInTheDocument()
+    expect(screen.queryByText(/Top 3 of/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Showing every item in this collection/)).toBeInTheDocument()
+  })
+
   it('reads "No items", never "Top 0 of N", when every node was dropped (PSY-1476)', async () => {
     const hooks = await import('../hooks')
     vi.mocked(hooks.useCollectionGraph).mockReturnValue({

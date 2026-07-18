@@ -125,5 +125,8 @@ frontend/blob-report/
 # Dogfood QA output
 dogfood-output*/
 
+# Per-worktree dispatch dev-stack runtime artifacts (logs, pids, .env)
+dispatch-stack/
+
 # Linear CLI config
 .linear.toml

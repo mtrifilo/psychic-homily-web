@@ -98,11 +98,15 @@ const data: VenueBillNetworkResponse = {
   links: [],
 }
 
-const renderAdapter = (override?: Partial<VenueBillNetworkResponse>) =>
+const renderAdapter = (
+  override?: Partial<VenueBillNetworkResponse>,
+  countPhrase = '8 artists',
+) =>
   render(
     <SceneGraphVisualizationStyleAdapter
       data={{ ...data, ...override }}
       venueName="Valley Bar"
+      countPhrase={countPhrase}
       containerWidth={1024}
     />,
   )
@@ -122,14 +126,13 @@ describe('VenueBillNetworkAdapter selection (PSY-1451)', () => {
     )
   })
 
-  it('carries the top-N-of-M truncation cue in the aria-label when the roster is capped (PSY-1476)', () => {
-    // Parity with the visible header — assistive tech must hear the same cap.
-    renderAdapter({
-      venue: { ...data.venue, artist_total: 312, roster_truncated: true },
-    })
+  it('interpolates the countPhrase prop into the aria-label so it matches the header (PSY-1476)', () => {
+    // The parent (VenueBillNetwork) computes the phrase and threads it here, so
+    // assistive tech hears exactly what the visible header shows.
+    renderAdapter(undefined, 'top 150 of 312 artists')
     expect(screen.getByTestId('force-graph-view')).toHaveAttribute(
       'aria-label',
-      `Co-bill network for Valley Bar (last 12 months): top 8 of 312 artists, 5 co-bills. ${graphSelectGestureHint}`,
+      `Co-bill network for Valley Bar (last 12 months): top 150 of 312 artists, 5 co-bills. ${graphSelectGestureHint}`,
     )
   })
 
@@ -138,6 +141,7 @@ describe('VenueBillNetworkAdapter selection (PSY-1451)', () => {
       <SceneGraphVisualizationStyleAdapter
         data={data}
         venueName="Valley Bar"
+        countPhrase="8 artists"
         containerWidth={777}
         height={500}
       />,
@@ -238,6 +242,7 @@ describe('VenueBillNetworkAdapter selection (PSY-1451)', () => {
       <SceneGraphVisualizationStyleAdapter
         data={{ ...data, nodes: [] }}
         venueName="Valley Bar"
+        countPhrase="8 artists"
         containerWidth={1024}
       />,
     )

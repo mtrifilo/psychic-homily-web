@@ -8,7 +8,14 @@
  * the shared `ForceGraphView`'s generic node/cluster/link shape. Keeps the
  * venue-specific aria-label phrasing and panel wiring out of the canvas
  * primitive, mirroring the pattern in
- * `features/scenes/components/SceneGraphVisualization.tsx`.
+ * `features/scenes/components/SceneGraphVisualization.tsx` — with one
+ * deliberate difference (PSY-1476): the truncation count phrase is computed
+ * ONCE in the parent (VenueBillNetwork) and passed in as `countPhrase`, rather
+ * than recomputed here the way scene's canvas recomputes `sceneArtistCountPhrase`.
+ * This matches CollectionGraphVisualization (whose canvas isn't handed the
+ * truncation fields to recompute from) and keeps this aria-label and the
+ * visible header reading one value. Unifying scene onto the same prop later is
+ * a possible follow-up.
  *
  * Locked grammar (PSY-1451): on Section-class surfaces a node click SELECTS
  * into the shared ArtistContextPanel; navigation happens only via the
@@ -44,7 +51,6 @@ import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVi
 // precedent, PSY-868).
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
-import { truncatedCountPhrase } from '@/components/graph/truncatedCountPhrase'
 import type { VenueBillNetworkResponse } from '../types'
 
 // The venue surface has no cluster legend pills, so nothing is ever hidden —
@@ -55,6 +61,13 @@ const NO_HIDDEN_CLUSTERS: ReadonlySet<string> = new Set()
 interface SceneGraphVisualizationStyleAdapterProps {
   data: VenueBillNetworkResponse
   venueName: string
+  /**
+   * The artist-count phrase for the canvas aria-label — "N artists" or, when
+   * the roster is capped, "top N of M artists" (PSY-1476). Computed once by the
+   * parent (VenueBillNetwork) so the aria-label and the visible header read one
+   * value and can't state different numbers.
+   */
+  countPhrase: string
   containerWidth: number
   height?: number
 }
@@ -62,6 +75,7 @@ interface SceneGraphVisualizationStyleAdapterProps {
 export function SceneGraphVisualizationStyleAdapter({
   data,
   venueName,
+  countPhrase,
   containerWidth,
   height,
 }: SceneGraphVisualizationStyleAdapterProps) {
@@ -100,18 +114,12 @@ export function SceneGraphVisualizationStyleAdapter({
       : data.venue.window === 'year' && data.venue.year
         ? `year ${data.venue.year}`
         : 'all time'
-  // PSY-1476: the aria-label must carry the SAME truncation disclosure the
-  // visible header shows (VenueBillNetwork.tsx) — the scene surface's invariant
-  // that sighted users and assistive tech never hear different numbers. Read
-  // mid-sentence, so lowercase "top N of M artists" (no sentence-casing here).
-  const artistPhrase = truncatedCountPhrase({
-    shown: data.venue.artist_count,
-    total: data.venue.artist_total,
-    truncated: data.venue.roster_truncated,
-    singular: 'artist',
-    plural: 'artists',
-  })
-  const ariaLabel = `Co-bill network for ${venueName} (${windowPhrase}): ${artistPhrase}, ${data.venue.edge_count} co-bills. ${graphSelectGestureHint}`
+  // PSY-1476: the aria-label carries the SAME truncation disclosure the visible
+  // header shows (the `countPhrase` prop, computed once in VenueBillNetwork) —
+  // the scene surface's invariant that sighted users and assistive tech never
+  // hear different numbers. Read mid-sentence, so lowercase "top N of M
+  // artists".
+  const ariaLabel = `Co-bill network for ${venueName} (${windowPhrase}): ${countPhrase}, ${data.venue.edge_count} co-bills. ${graphSelectGestureHint}`
 
   return (
     <GraphPanelHost

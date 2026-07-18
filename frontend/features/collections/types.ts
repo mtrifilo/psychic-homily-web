@@ -297,11 +297,10 @@ export interface CollectionGraphInfo {
   node_total?: number
   /**
    * PSY-1475: true when `node_total` exceeds the returned node count
-   * (pre-build ceiling and/or payload cap). The field is carried but not
-   * yet rendered — until then a capped graph's subtitle counts describe
-   * the truncated response with no visible cue. Display treatment is
-   * tracked in PSY-1476 (design-gated; that ticket decides whether all
-   * capped surfaces, this one included, adopt it in the first pass).
+   * (pre-build ceiling and/or payload cap). PSY-1476 renders this as the
+   * collection graph header's "top N of M items" cue (and matching canvas
+   * aria-label / caption) via the shared `truncatedCountPhrase` — see
+   * features/collections/components/CollectionGraph.tsx.
    */
   nodes_truncated?: boolean
 }

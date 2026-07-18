@@ -80,14 +80,17 @@ vi.mock('../hooks/useVenues', () => ({
 vi.mock('./VenueBillNetworkAdapter', () => ({
   SceneGraphVisualizationStyleAdapter: ({
     venueName,
+    countPhrase,
     height,
   }: {
     venueName: string
+    countPhrase: string
     height?: number
   }) => (
     <div
       data-testid="venue-bill-network-canvas"
       data-venue-name={venueName}
+      data-count-phrase={countPhrase}
       data-height={height ?? ''}
     >
       Venue Bill Network Canvas
@@ -143,6 +146,12 @@ describe('VenueBillNetwork', () => {
     expect(screen.getByText(/Top 4 of 312 artists/)).toBeInTheDocument()
     // The tail (co-bills / unconnected) is unchanged.
     expect(screen.getByText(/5 co-bills/)).toBeInTheDocument()
+    // The same phrase (lowercase, mid-sentence) is threaded to the canvas
+    // aria-label so header and assistive tech can't diverge.
+    expect(screen.getByTestId('venue-bill-network-canvas')).toHaveAttribute(
+      'data-count-phrase',
+      'top 4 of 312 artists',
+    )
   })
 
   it('degrades to the plain count when truncated but the total is not larger (PSY-1476)', async () => {

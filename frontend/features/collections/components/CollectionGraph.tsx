@@ -40,7 +40,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
-import { truncatedCountPhrase } from '@/components/graph/truncatedCountPhrase'
+import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
@@ -152,37 +152,29 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-  // PSY-1476: a capped graph must say so. `itemsCountPhrase` is the shared
-  // "top N of M items" / "N items" phrase (truncatedCountPhrase owns the
-  // stale-payload guard); it drives the header, the canvas aria-label, and the
-  // caption below so all three can never state different numbers. "items" is
-  // the generic noun for the mixed entity types.
+  // PSY-1476: a capped graph must say so. One `truncatedCountPhrase` call gives
+  // both the shared "top N of M items" / "N items" phrase AND whether the cue
+  // applies — so the header, canvas aria-label, and caption all read one source
+  // and can't state different numbers (and there's no second copy of the guard
+  // to drift). "items" is the generic noun for the mixed entity types; the
+  // helper's `shown > 0` guard makes an all-dropped payload (0 nodes, positive
+  // total — a case collection.go still flags) read "No items", not "Top 0 of N".
+  // When truncated the cue REPLACES the per-type breakdown (a per-type count of
+  // a capped subset would contradict the cap); otherwise the breakdown stands.
   //
-  // `nodesTruncated` gates the disclosure on a REAL, non-empty cap: nodeCount
-  // > 0 excludes the all-dropped payload the backend still flags (0 nodes,
-  // positive total — collection.go), which must read "No items", not
-  // "Top 0 of N". When truncated the cue REPLACES the per-type breakdown (a
-  // per-type count of a capped subset would contradict the cap); otherwise the
-  // breakdown stands. NOTE: nodes_truncated conflates the 150-node payload cap,
-  // the 600-item build ceiling, and unbuildable (deleted-entity) items — so
-  // "top" slightly overstates ranking for the latter two; the counts stay
-  // truthful and the dominant >150-item case is a genuine degree-ranked cap.
-  const nodeTotal = data?.collection.node_total
-  const itemsCountPhrase = truncatedCountPhrase({
+  // NOTE: nodes_truncated conflates the 150-node payload cap, the 600-item build
+  // ceiling, and unbuildable (deleted-entity) items — so "top" slightly
+  // overstates ranking for the latter two. The counts stay truthful and the
+  // dominant >150-item case is a genuine degree-ranked cap.
+  const { phrase: itemsCountPhrase, truncated: nodesTruncated } = truncatedCountPhrase({
     shown: nodeCount,
-    total: nodeTotal,
+    total: data?.collection.node_total,
     truncated: data?.collection.nodes_truncated,
     singular: 'item',
     plural: 'items',
   })
-  const nodesTruncated = Boolean(
-    data?.collection.nodes_truncated &&
-      nodeTotal !== undefined &&
-      nodeCount > 0 &&
-      nodeTotal > nodeCount,
-  )
   const leadSegment = nodesTruncated
-    ? itemsCountPhrase.charAt(0).toUpperCase() + itemsCountPhrase.slice(1)
+    ? sentenceCase(itemsCountPhrase)
     : subtitleParts.length > 0
       ? subtitleParts.join(' · ')
       : 'No items'

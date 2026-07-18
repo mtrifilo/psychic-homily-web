@@ -59,4 +59,14 @@ describe('sceneArtistCountPhrase (PSY-1296)', () => {
       ),
     ).toBe('12 artists')
   })
+
+  it('degrades to "0 artists" for an empty capped roster, never "top 0 of N" (PSY-1476)', () => {
+    // The shared helper's `shown > 0` guard covers scene too: an empty roster
+    // flagged as truncated must not render "top 0 of 5 artists".
+    expect(
+      sceneArtistCountPhrase(
+        scene({ artist_count: 0, metro_roster_total: 5, roster_truncated: true }),
+      ),
+    ).toBe('0 artists')
+  })
 })

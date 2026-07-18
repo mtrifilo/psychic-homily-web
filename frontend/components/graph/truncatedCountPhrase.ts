@@ -11,15 +11,24 @@
  * at all) degrades to the plain count rather than rendering "top 12 of 0" or
  * "top 0 of 5". The `shown > 0` guard matters for the collection graph, whose
  * backend sets `nodes_truncated` even when every node was dropped (a
- * deleted-entity payload: 0 nodes, positive total) — that must read as "0
- * items", not "top 0 of N".
+ * deleted-entity payload: 0 nodes, positive total).
  *
- * Returns lowercase ("top 12 of 90 artists" / "12 artists"). A caller that
- * leads a sentence with the phrase sentence-cases the first character (a no-op
- * for the digit-leading plain count), the same treatment the scene header
- * applies; the scene canvas aria-label reads it mid-sentence and leaves it
- * lowercase.
+ * Returns BOTH the phrase and whether the truncation cue was shown, so a caller
+ * that also needs to branch on truncation (e.g. the collection graph swaps its
+ * per-type breakdown for the cue) reads one source of truth instead of
+ * re-deriving the guard — the divergence risk this feature exists to avoid.
+ *
+ * `phrase` is lowercase ("top 12 of 90 artists" / "12 artists"). A caller that
+ * leads a sentence with it wraps it in `sentenceCase` (a no-op for the
+ * digit-leading plain count); the canvas aria-label reads it mid-sentence and
+ * leaves it lowercase.
  */
+export interface CountPhrase {
+  phrase: string
+  /** True when the "top N of M" cue is shown (i.e. the cap was disclosed). */
+  truncated: boolean
+}
+
 export function truncatedCountPhrase({
   shown,
   total,
@@ -35,9 +44,17 @@ export function truncatedCountPhrase({
   truncated: boolean | undefined
   singular: string
   plural: string
-}): string {
+}): CountPhrase {
   if (truncated && total !== undefined && shown > 0 && total > shown) {
-    return `top ${shown} of ${total} ${plural}`
+    return { phrase: `top ${shown} of ${total} ${plural}`, truncated: true }
   }
-  return `${shown} ${shown === 1 ? singular : plural}`
+  return { phrase: `${shown} ${shown === 1 ? singular : plural}`, truncated: false }
+}
+
+/**
+ * Sentence-case a phrase to lead a subtitle line (PSY-1476). Matches the scene
+ * header's treatment; a digit-leading plain count ("12 artists") is a no-op.
+ */
+export function sentenceCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }

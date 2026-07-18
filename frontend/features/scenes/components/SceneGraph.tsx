@@ -53,6 +53,7 @@ import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraph
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 import { sceneArtistCountPhrase } from './sceneGraphCopy'
+import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
 
 const MIN_GRAPH_NODES = 3
 
@@ -235,9 +236,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // and the canvas aria-label can't state different numbers; only the leading
   // cap differs (sentence-cased here, mid-sentence in the aria-label). A
   // digit-leading plain count is a toUpperCase no-op.
-  const rawArtistPhrase = sceneArtistCountPhrase(data.scene)
-  const artistPhrase =
-    rawArtistPhrase.charAt(0).toUpperCase() + rawArtistPhrase.slice(1)
+  const artistPhrase = sentenceCase(sceneArtistCountPhrase(data.scene))
 
   const sceneHeader = (
     <div>
