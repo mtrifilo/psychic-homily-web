@@ -13,6 +13,7 @@ import type { ArtistResponse } from '../types'
 import { Button } from '@/components/ui/button'
 import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
+import { EntityChartRankBadge, useChartEntityRank } from '@/features/charts'
 import { EntityTagList } from '@/features/tags'
 import { CommentThread, FieldNotesSection } from '@/features/comments'
 import {
@@ -48,6 +49,15 @@ export function ShowDetail({ showId }: ShowDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
+  // PSY-1420: only mount a sidebar column when the show actually ranks —
+  // EntityDetailLayout treats any sidebar ReactNode as present, so we must
+  // not pass the self-hiding badge alone (that would leave an empty aside).
+  const chartRank = useChartEntityRank(
+    'show',
+    show?.id ?? 0,
+    'quarter',
+    { enabled: !!show?.id }
+  )
 
   // Admin mutations for status flags
   const setSoldOutMutation = useSetShowSoldOut()
@@ -155,6 +165,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
       <EntityDetailLayout
         fallback={{ href: '/shows', label: 'Shows' }}
         entityName={showTitle}
+        sidebar={
+          chartRank.data?.rank != null ? (
+            <EntityChartRankBadge entityType="show" entityId={show.id} />
+          ) : undefined
+        }
         header={
           <>
             <ShowHeader

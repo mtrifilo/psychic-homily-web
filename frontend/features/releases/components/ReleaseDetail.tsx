@@ -36,6 +36,7 @@ import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { AddReleaseLinkDialog } from './AddReleaseLinkDialog'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
+import { EntityChartRankBadge } from '@/features/charts'
 import { CommentThread } from '@/features/comments'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -305,6 +306,9 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
 
       {/* As Heard On (radio) */}
       <AsHeardOn entityType="release" entitySlug={release.slug} />
+
+      {/* Chart rank — self-hides when unranked (PSY-1420) */}
+      <EntityChartRankBadge entityType="release" entityId={release.id} />
 
       {/* In Collections */}
       <EntityCollections entityType="release" entityId={release.id} />

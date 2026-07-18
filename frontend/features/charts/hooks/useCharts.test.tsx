@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({
 
 import {
   useBusiestVenues,
+  useChartEntityRank,
   useChartScenes,
   useChartsSummary,
   useFreshlyAdded,
@@ -188,5 +189,27 @@ describe('chart hooks', () => {
 
     expect(result.current.fetchStatus).toBe('idle')
     expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('requests entity rank with default quarter window', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      entity_type: 'show',
+      entity_id: 12,
+      window: 'quarter',
+      module: 'most-anticipated',
+      rank: 3,
+    })
+    const { result } = renderHook(() => useChartEntityRank('show', 12), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /\/charts\/rank\?entity_type=show&entity_id=12&window=quarter$/
+      ),
+      { method: 'GET' }
+    )
+    expect(result.current.data?.rank).toBe(3)
   })
 })

@@ -5,6 +5,8 @@ import { apiRequest } from '@/lib/api'
 import { chartEndpoints, chartQueryKeys } from '../api'
 import type {
   BusiestVenuesResponse,
+  ChartEntityRank,
+  ChartRankEntityType,
   ChartScenesResponse,
   ChartsSummaryResponse,
   ChartWindow,
@@ -212,5 +214,30 @@ export function usePersonalChartsStats(
         method: 'GET',
       }),
     enabled: enabled && userId != null,
+  })
+}
+
+/**
+ * Non-blocking per-entity chart rank lookup (PSY-1420). Defaults to the
+ * v1 window (`quarter`). Global-scope only — no scene param.
+ */
+export function useChartEntityRank(
+  entityType: ChartRankEntityType,
+  entityId: number,
+  window: ChartWindow = 'quarter',
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: chartQueryKeys.rank(entityType, entityId, window),
+    queryFn: () =>
+      apiRequest<ChartEntityRank>(
+        withParams(chartEndpoints.RANK, {
+          entity_type: entityType,
+          entity_id: entityId,
+          window,
+        }),
+        { method: 'GET' }
+      ),
+    enabled: enabled && entityId > 0,
   })
 }

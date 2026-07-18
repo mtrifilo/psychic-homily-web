@@ -12,6 +12,7 @@ export const chartEndpoints = {
   FRESHLY_ADDED: `${API_BASE_URL}/charts/freshly-added`,
   SCENES: `${API_BASE_URL}/charts/scenes`,
   PERSONAL: `${API_BASE_URL}/charts/me`,
+  RANK: `${API_BASE_URL}/charts/rank`,
 } as const
 
 export const chartQueryKeys = {
@@ -59,4 +60,9 @@ export const chartQueryKeys = {
       ...chartQueryKeys.personalRoot,
       userId == null ? null : String(userId),
     ] as const,
+  rank: (
+    entityType: string,
+    entityId: number,
+    window: ChartWindow
+  ) => ['charts', 'rank', entityType, entityId, window] as const,
 } as const

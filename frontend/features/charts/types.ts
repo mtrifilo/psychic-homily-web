@@ -155,3 +155,29 @@ export interface FreshlyAddedResponse {
   scene: string
   items: FreshlyAddedItem[]
 }
+
+/** Entity types accepted by GET /charts/rank (PSY-1419). */
+export type ChartRankEntityType = 'show' | 'artist' | 'venue' | 'release'
+
+/**
+ * Module identity echoed on a rank lookup so the badge can deep-link
+ * without re-deriving the entity→module map.
+ */
+export type ChartRankModule =
+  | 'most-anticipated'
+  | 'most-active-artists'
+  | 'busiest-venues'
+  | 'new-releases'
+
+/**
+ * Per-entity chart placement for a window. Rank is null when the entity
+ * has no placement — below floor, out of window, or most-anticipated
+ * fallback mode — never 0.
+ */
+export interface ChartEntityRank {
+  entity_type: ChartRankEntityType
+  entity_id: number
+  window: string
+  module: ChartRankModule
+  rank: number | null
+}

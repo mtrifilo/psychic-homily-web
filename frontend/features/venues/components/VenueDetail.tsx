@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton, EntityHeader } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
+import { EntityChartRankBadge } from '@/features/charts'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
@@ -351,6 +352,11 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             state={venue.state}
             zipcode={venue.zipcode}
             verified={venue.verified}
+          />
+          <EntityChartRankBadge
+            entityType="venue"
+            entityId={venue.id}
+            className="mt-6"
           />
           <VenueGenreProfile venueId={venue.id} />
           <div className="mt-6">

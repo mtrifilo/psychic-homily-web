@@ -186,6 +186,10 @@ vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
 }))
 
+vi.mock('@/features/charts', () => ({
+  EntityChartRankBadge: () => null,
+}))
+
 vi.mock('@/features/comments', () => ({
   CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>

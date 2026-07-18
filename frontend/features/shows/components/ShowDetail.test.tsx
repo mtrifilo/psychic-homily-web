@@ -72,11 +72,13 @@ vi.mock('@/components/shared', () => ({
   EntityDetailLayout: ({
     header,
     children,
+    sidebar,
     fallback,
     entityName,
   }: {
     header: React.ReactNode
     children: React.ReactNode
+    sidebar?: React.ReactNode
     fallback: { href: string; label: string }
     entityName: string
   }) => (
@@ -86,6 +88,7 @@ vi.mock('@/components/shared', () => ({
         <span>{entityName}</span>
       </nav>
       <div data-testid="header-slot">{header}</div>
+      {sidebar ? <div data-testid="sidebar-slot">{sidebar}</div> : null}
       <div data-testid="content-slot">{children}</div>
     </div>
   ),
@@ -136,6 +139,11 @@ vi.mock('./ReportShowButton', () => ({
 
 vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
+}))
+
+vi.mock('@/features/charts', () => ({
+  EntityChartRankBadge: () => null,
+  useChartEntityRank: () => ({ data: undefined, isSuccess: false }),
 }))
 
 vi.mock('@/features/tags', () => ({
