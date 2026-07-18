@@ -1012,7 +1012,7 @@ export function ChartsPage({
 
         <ChartModule
           title="Top Tags"
-          context={WINDOW_CONTEXT[window]}
+          context={moduleContext(window)}
           rowCount={tags.data?.tags.length ?? 0}
           isLoading={tags.isLoading || !sceneResolved}
           isError={tags.isError}
