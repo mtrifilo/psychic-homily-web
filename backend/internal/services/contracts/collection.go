@@ -489,6 +489,11 @@ type CollectionServiceInterface interface {
 	// accept ID-or-slug like the other entity GET endpoints (PSY-940 —
 	// enables ID→slug lookups for ISR revalidation).
 	GetByID(id uint, viewerID uint) (*CollectionDetailResponse, error)
+	// ResolveIDBySlug returns a collection's numeric ID from its slug with no
+	// access-control gate and no heavy relation loading. Handlers use it to
+	// stamp audit-log rows with the real entity_id when the mutation service
+	// method only exposes the slug (PSY-1502).
+	ResolveIDBySlug(slug string) (uint, error)
 	ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error)
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)
 	DeleteCollection(slug string, userID uint, isAdmin bool) error

@@ -455,6 +455,27 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 	return s.GetBySlug(collection.Slug, viewerID)
 }
 
+// ResolveIDBySlug returns a collection's numeric ID from its slug. It performs
+// a single indexed lookup with no access-control gate and no relation loading,
+// so handlers can stamp audit-log rows with the real entity_id when the
+// mutation service method only exposes the slug (PSY-1502).
+func (s *CollectionService) ResolveIDBySlug(slug string) (uint, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+
+	var collection communitym.Collection
+	err := s.db.Select("id").Where("slug = ?", slug).First(&collection).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, apperrors.ErrCollectionNotFound(slug)
+		}
+		return 0, fmt.Errorf("failed to resolve collection id: %w", err)
+	}
+
+	return collection.ID, nil
+}
+
 // GetBySlug retrieves a collection by slug with full detail
 func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {

@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -1083,6 +1084,35 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NotFound() {
 
 	_, err := s.handler.SetFeaturedHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
+// TestSetFeatured_AuditEntityID guards PSY-1502: the set_collection_featured
+// audit row must carry the real collection ID as entity_id, not the previously
+// hard-coded 0. Identity should survive in the durable column, not just the
+// mutable metadata->>'slug'.
+func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AuditEntityID() {
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Audit Entity ID", true)
+
+	ctx := testhelpers.CtxWithUser(admin)
+	req := &SetFeaturedHandlerRequest{Slug: coll.Slug}
+	req.Body.Featured = true
+
+	_, err := s.handler.SetFeaturedHandler(ctx, req)
+	s.Require().NoError(err)
+
+	// The audit write is fire-and-forget (GoSafe), so poll for the row.
+	var log adminm.AuditLog
+	s.Require().Eventually(func() bool {
+		return s.deps.DB.Where("action = ?", "set_collection_featured").
+			Order("id DESC").First(&log).Error == nil
+	}, 2*time.Second, 20*time.Millisecond)
+
+	s.Equal("collection", log.EntityType)
+	s.Equal(coll.ID, log.EntityID)
+	s.Require().NotNil(log.ActorID)
+	s.Equal(admin.ID, *log.ActorID)
 }
 
 // ============================================================================
