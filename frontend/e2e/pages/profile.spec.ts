@@ -86,4 +86,30 @@ test.describe('Profile page', () => {
     // CLI Authentication section (admin-only)
     await expect(adminPage.getByText('CLI Authentication')).toBeVisible()
   })
+
+  test('hash deep-link focuses the Username field', async ({
+    authenticatedPage,
+  }) => {
+    await authenticatedPage.goto('/profile#username')
+
+    await expect(
+      authenticatedPage.getByRole('heading', { name: /edit profile & settings/i })
+    ).toBeVisible({ timeout: 10_000 })
+
+    const username = authenticatedPage.getByLabel(/^username$/i)
+    await expect(username).toBeFocused({ timeout: 5_000 })
+  })
+
+  test('hash deep-link focuses the Bio field', async ({
+    authenticatedPage,
+  }) => {
+    await authenticatedPage.goto('/profile#bio')
+
+    await expect(
+      authenticatedPage.getByRole('heading', { name: /edit profile & settings/i })
+    ).toBeVisible({ timeout: 10_000 })
+
+    const bio = authenticatedPage.getByLabel(/^bio$/i)
+    await expect(bio).toBeFocused({ timeout: 5_000 })
+  })
 })

@@ -3,6 +3,7 @@ import { renderWithProviders, screen, waitFor, within } from '@/test/utils'
 import userEvent from '@testing-library/user-event'
 
 const mockReplace = vi.fn()
+const mockPush = vi.fn()
 const mockRedirect = vi.fn()
 const mockUseAuthContext = vi.fn()
 const mockUseUpdateProfile = vi.fn()
@@ -13,7 +14,7 @@ const mockMutateAsync = vi.fn()
 let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
   useSearchParams: () => mockSearchParams,
   // `redirect()` halts rendering in production by throwing; in tests we mock it
   // to a no-op spy so the unauthenticated path can be asserted without throwing.
@@ -74,6 +75,7 @@ describe('ProfilePage (PSY-683)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams = new URLSearchParams()
+    window.location.hash = ''
     mockMutateAsync.mockResolvedValue({ success: true, message: 'ok' })
     setAuthenticated()
     setUpdateProfile()
@@ -230,6 +232,57 @@ describe('ProfilePage (PSY-683)', () => {
         expect(mockMutateAsync).toHaveBeenCalledWith(
           expect.objectContaining({ username: undefined })
         )
+      })
+    })
+
+    it('redirects to /users/{username} after a first-time username claim', async () => {
+      setAuthenticated({
+        user: { ...AUTHED_USER, username: null, display_name: '', bio: '' },
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<ProfilePage />)
+
+      await user.type(screen.getByLabelText(/username/i), 'newhandle')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalled()
+      })
+      expect(mockPush).toHaveBeenCalledWith('/users/newhandle')
+      expect(screen.queryByText(/profile updated/i)).toBeNull()
+    })
+
+    it('does not redirect when editing an already-set username', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<ProfilePage />)
+
+      const usernameInput = screen.getByLabelText(/username/i)
+      await user.clear(usernameInput)
+      await user.type(usernameInput, 'alice2')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalled()
+      })
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(await screen.findByText(/profile updated/i)).toBeTruthy()
+    })
+
+    it('focuses the Username field when the URL hash is #username', async () => {
+      window.location.hash = '#username'
+      renderWithProviders(<ProfilePage />)
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(screen.getByLabelText(/username/i))
+      })
+    })
+
+    it('focuses the Bio field when the URL hash is #bio', async () => {
+      window.location.hash = '#bio'
+      renderWithProviders(<ProfilePage />)
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(screen.getByLabelText(/^bio$/i))
       })
     })
   })

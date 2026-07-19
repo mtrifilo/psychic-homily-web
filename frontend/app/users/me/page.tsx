@@ -120,7 +120,7 @@ export default function SelfProfilePage() {
               </p>
             </div>
             <Button asChild size="sm" className="shrink-0">
-              <Link href="/profile">Set username</Link>
+              <Link href="/profile#username">Set username</Link>
             </Button>
           </div>
 
@@ -132,7 +132,7 @@ export default function SelfProfilePage() {
                 haunt, what you&apos;re into.
               </p>
               <Button asChild variant="outline" size="sm" className="shrink-0">
-                <Link href="/profile">Add bio</Link>
+                <Link href="/profile#bio">Add bio</Link>
               </Button>
             </div>
           </section>
