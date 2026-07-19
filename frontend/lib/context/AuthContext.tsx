@@ -20,6 +20,8 @@ interface User {
   first_name?: string
   last_name?: string
   bio?: string
+  // Free-text "City, state" (PSY-1416). Optional on the public profile meta line.
+  location?: string
   // OAuth / profile avatar URL (PSY-1488). Passed through from /auth/profile.
   avatar_url?: string
   email_verified: boolean
@@ -88,6 +90,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         first_name: profileData.user.first_name,
         last_name: profileData.user.last_name,
         bio: profileData.user.bio,
+        location: profileData.user.location,
         avatar_url: profileData.user.avatar_url,
         email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,

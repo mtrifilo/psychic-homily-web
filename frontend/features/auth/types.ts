@@ -70,6 +70,8 @@ export interface PublicProfileResponse {
   avatar_url?: string
   display_name?: string
   first_name?: string
+  /** Free-text "City, state" (PSY-1416). Omit/empty → no meta-line segment. */
+  location?: string
   profile_visibility: ProfileVisibility
   user_tier: UserTier
   privacy_settings?: PrivacySettings

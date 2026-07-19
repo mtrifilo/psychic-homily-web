@@ -224,6 +224,7 @@ type PublicProfileResponse struct {
 	AvatarURL         *string                   `json:"avatar_url,omitempty"`
 	DisplayName       *string                   `json:"display_name,omitempty"`
 	FirstName         *string                   `json:"first_name,omitempty"`
+	Location          *string                   `json:"location,omitempty"` // Free-text "City, state" (PSY-1416)
 	ProfileVisibility string                    `json:"profile_visibility"`
 	UserTier          string                    `json:"user_tier"`
 	PrivacySettings   *PrivacySettings          `json:"privacy_settings,omitempty"`

@@ -94,6 +94,9 @@ interface UserProfile {
     first_name?: string
     last_name?: string
     bio?: string
+    // Free-text "City, state" (PSY-1416). Optional; empty omits the public
+    // profile meta-line segment.
+    location?: string
     // OAuth / profile avatar (PSY-1488 claim-state header). Backend User
     // always includes the field; optional here for legacy cached payloads.
     avatar_url?: string
@@ -307,12 +310,14 @@ export const useProfile = () => {
   })
 }
 
-// Update profile identity fields (username, display name, bio; first/last accepted for legacy callers)
+// Update profile identity fields (username, display name, location, bio;
+// first/last accepted for legacy callers)
 interface UpdateProfileInput {
   username?: string
   display_name?: string
   first_name?: string
   last_name?: string
+  location?: string
   bio?: string
   // Nav chrome preference (PSY-1117). Sent on its own from the appearance
   // settings toggle; the backend PATCH validates it against 'top' | 'side'.

@@ -37,6 +37,7 @@ function ProfileTab() {
 
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [location, setLocation] = useState('')
   const [bio, setBio] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +54,7 @@ function ProfileTab() {
     setPrevUser(user)
     setUsername(user.username || '')
     setDisplayName(user.display_name || '')
+    setLocation(user.location || '')
     setBio(user.bio || '')
   }
 
@@ -80,6 +82,7 @@ function ProfileTab() {
       const result = await updateProfile.mutateAsync({
         username: claimedUsername || undefined,
         display_name: displayName.trim(),
+        location: location.trim(),
         bio: bio.trim(),
       })
 
@@ -108,6 +111,7 @@ function ProfileTab() {
   const hasChanges =
     (username.trim() !== (user?.username || '')) ||
     (displayName.trim() !== (user?.display_name || '')) ||
+    (location.trim() !== (user?.location || '')) ||
     (bio.trim() !== (user?.bio || ''))
 
   return (
@@ -120,8 +124,8 @@ function ProfileTab() {
         <CardHeader>
           <CardTitle className="text-lg">Edit Profile</CardTitle>
           <CardDescription>
-            Set your username, display name, and bio. Your username appears in
-            attributions and on your public profile.
+            Set your username, display name, location, and bio. Your username
+            appears in attributions and on your public profile.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -152,6 +156,20 @@ function ProfileTab() {
               <p className="text-xs text-muted-foreground">
                 Shown on your public profile and attributions. Leave blank to
                 fall back to your username.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="location">Location</Label>
+              <Input
+                id="location"
+                placeholder="City, state"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                maxLength={100}
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown on your public profile. Leave blank to hide it.
               </p>
             </div>
 

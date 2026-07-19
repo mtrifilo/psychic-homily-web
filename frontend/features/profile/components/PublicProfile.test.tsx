@@ -363,6 +363,38 @@ describe('PublicProfile', () => {
     expect(screen.getByText(/joined June 2025/)).toBeInTheDocument()
   })
 
+  it('renders location before joined when set (PSY-1416)', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        location: 'Phoenix, AZ',
+        joined_at: '2025-06-15T12:00:00Z',
+        last_active: '2026-03-19T10:00:00Z',
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.getByText(/Phoenix, AZ · joined June 2025 · active today/)
+    ).toBeInTheDocument()
+  })
+
+  it('omits location segment when empty (PSY-1416)', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        location: '   ',
+        joined_at: '2025-06-15T12:00:00Z',
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    const meta = screen.getByText(/joined June 2025/)
+    expect(meta.textContent).toBe('joined June 2025')
+  })
+
   it('shows last active "today"', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({ last_active: '2026-03-19T10:00:00Z' }),

@@ -38,6 +38,7 @@ type User struct {
 	FirstName           *string          `json:"first_name" gorm:"column:first_name"`
 	LastName            *string          `json:"last_name" gorm:"column:last_name"`
 	AvatarURL           *string          `json:"avatar_url" gorm:"column:avatar_url"`
+	Location            *string          `json:"location" gorm:"column:location"` // Free-text "City, state" (PSY-1416); not in attribution chain
 	Bio                 *string          `json:"bio"`
 	ProfileVisibility   string           `json:"profile_visibility" gorm:"column:profile_visibility;not null;default:'public'"`
 	PrivacySettings     *json.RawMessage `json:"privacy_settings" gorm:"column:privacy_settings;type:jsonb;not null;default:'{\"contributions\":\"visible\",\"saved_shows\":\"hidden\",\"following\":\"visible\",\"collections\":\"visible\",\"last_active\":\"visible\",\"profile_sections\":\"visible\"}'"`

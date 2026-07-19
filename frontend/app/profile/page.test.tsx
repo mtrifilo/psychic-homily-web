@@ -50,6 +50,7 @@ const AUTHED_USER = {
   username: 'alice',
   display_name: 'Alice Anderson',
   bio: 'I like loud guitars.',
+  location: 'Phoenix, AZ',
   email_verified: true,
   user_tier: 'trusted',
 }
@@ -153,6 +154,9 @@ describe('ProfilePage (PSY-683)', () => {
       expect(
         (screen.getByLabelText(/display name/i) as HTMLInputElement).value
       ).toBe('Alice Anderson')
+      expect((screen.getByLabelText(/^location$/i) as HTMLInputElement).value).toBe(
+        'Phoenix, AZ'
+      )
       expect((screen.getByLabelText(/^bio$/i) as HTMLTextAreaElement).value).toBe(
         'I like loud guitars.'
       )
@@ -196,6 +200,7 @@ describe('ProfilePage (PSY-683)', () => {
         expect(mockMutateAsync).toHaveBeenCalledWith({
           username: 'alice',
           display_name: 'Alice Anderson',
+          location: 'Phoenix, AZ',
           bio: 'new bio',
         })
       })

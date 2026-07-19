@@ -2098,6 +2098,7 @@ type UpdateProfileRequest struct {
 		DisplayName *string `json:"display_name,omitempty" required:"false" doc:"Display name shown on the public profile and attributions (max 100 chars)"`
 		FirstName   *string `json:"first_name,omitempty" required:"false" doc:"First name"`
 		LastName    *string `json:"last_name,omitempty" required:"false" doc:"Last name"`
+		Location    *string `json:"location,omitempty" required:"false" doc:"Free-text location shown on the public profile (e.g. City, state; max 100 chars)"`
 		Bio         *string `json:"bio,omitempty" required:"false" doc:"Short bio (max 500 chars)"`
 		NavMode     *string `json:"nav_mode,omitempty" required:"false" enum:"top,side" doc:"Global nav chrome preference: 'top' (top bar) or 'side' (left sidebar)"`
 	}
@@ -2115,9 +2116,9 @@ type UpdateProfileResponse struct {
 }
 
 // UpdateProfileHandler handles PATCH /auth/profile — updates identity fields
-// (username, display name, bio; first/last name remain accepted for legacy
-// callers — registration still sets them and the resolver falls back to them,
-// but the profile form edits display_name only as of PSY-1063).
+// (username, display name, location, bio; first/last name remain accepted for
+// legacy callers — registration still sets them and the resolver falls back to
+// them, but the profile form edits display_name only as of PSY-1063).
 func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfileRequest) (*UpdateProfileResponse, error) {
 	resp := &UpdateProfileResponse{}
 	requestID := logger.GetRequestID(ctx)
@@ -2181,6 +2182,21 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 
 	if req.Body.LastName != nil {
 		updates["last_name"] = strings.TrimSpace(*req.Body.LastName)
+	}
+
+	if req.Body.Location != nil {
+		location := strings.TrimSpace(*req.Body.Location)
+		// 100 CHARACTERS (not bytes) — must stay in sync with the users
+		// migration's VARCHAR(100) and the /profile form's maxLength=100.
+		// No further validation (PSY-1416): free-text "City, state", not
+		// geocoded, and not interpolated into the attribution/email chain.
+		if utf8.RuneCountInString(location) > 100 {
+			resp.Body.Success = false
+			resp.Body.Message = "Location must be 100 characters or fewer"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		updates["location"] = location
 	}
 
 	if req.Body.Bio != nil {
