@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
@@ -194,10 +196,10 @@ func (h *CalendarHandler) DeleteCalendarTokenHandler(ctx context.Context, req *D
 	}, nil
 }
 
-// getAPIBaseURL derives the API's public base URL from config
+// getAPIBaseURL derives the API's public base URL from config.
+// Prod/stage map from the frontend origin; local/dev prefers API_ADDR when set
+// (dispatch isolated stacks bind a free port) and otherwise falls back to :8080.
 func getAPIBaseURL(cfg *config.Config) string {
-	// In production, the API is at api.psychichomily.com
-	// In development, it's localhost:8080
 	frontendURL := cfg.Email.FrontendURL
 	switch frontendURL {
 	case "https://psychichomily.com":
@@ -205,6 +207,12 @@ func getAPIBaseURL(cfg *config.Config) string {
 	case "https://stage.psychichomily.com":
 		return "https://api-stage.psychichomily.com"
 	default:
+		if addr := strings.TrimSpace(os.Getenv("API_ADDR")); addr != "" {
+			if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+				return strings.TrimRight(addr, "/")
+			}
+			return "http://" + strings.TrimRight(addr, "/")
+		}
 		return "http://localhost:8080"
 	}
 }

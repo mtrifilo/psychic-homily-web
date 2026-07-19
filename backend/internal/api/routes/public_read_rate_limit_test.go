@@ -221,6 +221,25 @@ func TestPublicReadRateLimiter_PersonalFeedPathsExempt(t *testing.T) {
 		}
 	}
 
+	// /calendar/token must NOT inherit the feed exemption (CRUD is JWT-gated;
+	// unauthenticated probes still consume the anonymous public-read budget).
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/calendar/token", nil)
+		req.RemoteAddr = "7.7.7.31:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("calendar/token probe %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+	reqToken := httptest.NewRequest(http.MethodGet, "/calendar/token", nil)
+	reqToken.RemoteAddr = "7.7.7.31:100"
+	rrToken := httptest.NewRecorder()
+	handler.ServeHTTP(rrToken, reqToken)
+	if rrToken.Code != http.StatusTooManyRequests {
+		t.Errorf("calendar/token past limit: status = %d, want 429 (must not share feed exemption)", rrToken.Code)
+	}
+
 	// Adjacent catalog reads on the same IP still hit the anonymous bucket.
 	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)

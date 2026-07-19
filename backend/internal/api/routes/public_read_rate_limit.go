@@ -57,11 +57,13 @@ var infraPathsExemptFromRateLimit = []string{"/health"}
 // putting them on the anonymous per-IP public-read bucket (PSY-1418 / PSY-1362)
 // would unfairly 429 calendar fetchers that share an egress IP with scrapers.
 // Auth is the URL token itself (hashed lookup), not session JWT — so they never
-// land in the authenticated per-user bucket either. Exempt the feed prefixes
-// entirely; short-TTL response cache + token secrecy are the abuse controls.
+// land in the authenticated per-user bucket either. Exempt only the feed URL
+// shapes (canonical /feeds/… and legacy /calendar/phcal_… alias) — NOT
+// /calendar/token CRUD, which remains on the normal public-read budget when
+// unauthenticated probes hit it.
 var personalFeedPathPrefixesExemptFromRateLimit = []string{
 	"/feeds/",
-	"/calendar/",
+	"/calendar/phcal_",
 }
 
 // PublicReadRateLimiter returns the chi middleware that throttles public-READ
