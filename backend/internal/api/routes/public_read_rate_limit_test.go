@@ -196,6 +196,50 @@ func TestPublicReadRateLimiter_HealthPathExempt(t *testing.T) {
 	}
 }
 
+// PSY-1430: personal iCal feeds are token-auth'd URL polls from Google/Apple
+// Calendar cloud IPs. They must not share the anonymous public-read per-IP
+// bucket (PSY-1418) or calendar fetchers get unfairly 429'd.
+func TestPublicReadRateLimiter_PersonalFeedPathsExempt(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	paths := []string{
+		"/feeds/phcal_abc123/saved-shows.ics",
+		"/calendar/phcal_abc123",
+	}
+	for _, path := range paths {
+		for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.RemoteAddr = "7.7.7.30:100"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("%s request %d: status = %d, want 200 (personal feeds exempt)", path, i, rr.Code)
+			}
+		}
+	}
+
+	// Adjacent catalog reads on the same IP still hit the anonymous bucket.
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)
+		req.RemoteAddr = "7.7.7.30:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("catalog read %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/artists/1/graph-card", nil)
+	req.RemoteAddr = "7.7.7.30:100"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("catalog read past limit: status = %d, want 429 (feeds exemption must not leak)", rr.Code)
+	}
+}
+
 // PSY-1373: an authenticated user is routed to the per-USER cap
 // (PublicReadUserRequestsPerMinute), which is higher than the anonymous per-IP
 // cap — so it passes well past the anonymous limit instead of 429-ing at it.

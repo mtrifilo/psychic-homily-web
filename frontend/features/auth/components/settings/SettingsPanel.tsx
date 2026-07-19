@@ -19,6 +19,7 @@ import {
   Terminal,
   Copy,
   Check,
+  CalendarDays,
 } from 'lucide-react'
 import { ChangePassword } from './change-password'
 import { DeleteAccountDialog } from './delete-account-dialog'
@@ -27,6 +28,7 @@ import { APITokenManagement } from './api-token-management'
 import { FavoriteCitiesSettings } from './favorite-cities'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
+import { CalendarFeedSection } from '@/features/collections'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -111,6 +113,22 @@ export function SettingsPanel() {
 
       {/* Default Reply Permission (PSY-296) */}
       <ReplyPermissionSettings />
+
+      {/* Saved-shows iCal feed (PSY-1430) — Settings owns regenerate */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-lg">Calendar Feed</CardTitle>
+          </div>
+          <CardDescription>
+            Subscribe your saved shows in Google Calendar or Apple Calendar
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CalendarFeedSection variant="settings" />
+        </CardContent>
+      </Card>
 
       {/* Email Verification Section */}
       <Card>

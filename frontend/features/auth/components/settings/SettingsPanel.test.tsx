@@ -96,6 +96,14 @@ vi.mock('./reply-permission-settings', () => ({
   ),
 }))
 
+vi.mock('@/features/collections', () => ({
+  CalendarFeedSection: ({ variant }: { variant?: string }) => (
+    <div data-testid="calendar-feed-section" data-variant={variant}>
+      CalendarFeedSection
+    </div>
+  ),
+}))
+
 // --- Tests ---
 
 describe('SettingsPanel', () => {
@@ -142,6 +150,13 @@ describe('SettingsPanel', () => {
   it('renders ReplyPermissionSettings component', () => {
     renderWithProviders(<SettingsPanel />)
     expect(screen.getByTestId('reply-permission-settings')).toBeInTheDocument()
+  })
+
+  it('renders CalendarFeedSection with settings variant', () => {
+    renderWithProviders(<SettingsPanel />)
+    const feed = screen.getByTestId('calendar-feed-section')
+    expect(feed).toBeInTheDocument()
+    expect(feed).toHaveAttribute('data-variant', 'settings')
   })
 
   it('renders OAuthAccounts component', () => {

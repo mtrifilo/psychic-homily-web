@@ -2,6 +2,7 @@ package routes
 
 import (
 	"net/http"
+	"strings"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/auth"
@@ -51,6 +52,18 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 // should do.
 var infraPathsExemptFromRateLimit = []string{"/health"}
 
+// personalFeedPathPrefixesExemptFromRateLimit are token-authenticated personal
+// feeds (PSY-1430). Google Calendar / Apple Calendar poll from shared cloud IPs;
+// putting them on the anonymous per-IP public-read bucket (PSY-1418 / PSY-1362)
+// would unfairly 429 calendar fetchers that share an egress IP with scrapers.
+// Auth is the URL token itself (hashed lookup), not session JWT — so they never
+// land in the authenticated per-user bucket either. Exempt the feed prefixes
+// entirely; short-TTL response cache + token secrecy are the abuse controls.
+var personalFeedPathPrefixesExemptFromRateLimit = []string{
+	"/feeds/",
+	"/calendar/",
+}
+
 // PublicReadRateLimiter returns the chi middleware that throttles public-READ
 // traffic (GET/HEAD): anonymous requests to middleware.APIRequestsPerMinute (100)
 // per IP, and authenticated requests to middleware.PublicReadUserRequestsPerMinute
@@ -59,8 +72,9 @@ var infraPathsExemptFromRateLimit = []string{"/health"}
 // un-collided), further backstopped by a coarse per-IP ceiling on authenticated
 // traffic (middleware.PublicReadAuthenticatedIPCeilingPerMinute, 1000/min, PSY-1378)
 // so one IP running many scripted accounts is bounded in aggregate. Infra paths
-// above are exempt. Returns a pass-through noop unless the opt-in flag is set.
-// Mounted once, globally, before route registration.
+// and personal calendar feed prefixes above are exempt. Returns a pass-through
+// noop unless the opt-in flag is set. Mounted once, globally, before route
+// registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
@@ -72,6 +86,7 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) stri
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)
 	)
 	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
+	limiter = skipRateLimitForPathPrefixes(limiter, personalFeedPathPrefixesExemptFromRateLimit...)
 	return limitReadMethodsOnly(limiter)
 }
 
@@ -131,6 +146,25 @@ func skipRateLimitForPaths(limiter func(http.Handler) http.Handler, paths ...str
 			if exempt[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
+			}
+			limited.ServeHTTP(w, r)
+		})
+	}
+}
+
+// skipRateLimitForPathPrefixes wraps a limiter so any path under the given
+// prefixes bypasses it. Used for token-in-URL personal feeds whose pollers
+// (Google/Apple Calendar) share cloud egress IPs with unrelated anonymous traffic.
+func skipRateLimitForPathPrefixes(limiter func(http.Handler) http.Handler, prefixes ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(path, prefix) {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 			limited.ServeHTTP(w, r)
 		})

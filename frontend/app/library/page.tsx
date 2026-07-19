@@ -336,7 +336,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: number }) {
 
   return (
     <div className="space-y-7">
-      <CalendarFeedSection />
+      <CalendarFeedSection variant="library" />
 
       {isInitialLoading ? (
         <div className="flex justify-center py-12">

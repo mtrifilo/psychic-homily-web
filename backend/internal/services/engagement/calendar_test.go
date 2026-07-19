@@ -10,6 +10,7 @@ import (
 	// Test-only — not linked into the server.
 	_ "time/tzdata"
 
+	ics "github.com/arran4/golang-ical"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
@@ -52,7 +53,13 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 				State:     ptrString("AZ"),
 				Status:    "approved",
 				Venues: []contracts.VenueResponse{
-					{ID: 1, Name: "The Venue", City: "Phoenix", State: "AZ"},
+					{
+						ID:      1,
+						Name:    "The Venue",
+						Address: ptrString("123 Main St"),
+						City:    "Phoenix",
+						State:   "AZ",
+					},
 				},
 				Artists: []contracts.ArtistResponse{
 					{ID: 1, Name: "Artist One"},
@@ -69,6 +76,7 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
 	assert.NoError(t, err)
 	assert.NotNil(t, data)
+	assert.Equal(t, "upcoming", mockSvc.lastTimeFilter)
 
 	icsStr := string(data)
 	assert.Contains(t, icsStr, "BEGIN:VCALENDAR")
@@ -78,13 +86,18 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 	assert.Contains(t, icsStr, "SUMMARY:Test Show")
 	assert.Contains(t, icsStr, "show-1@psychichomily.com")
 	// ICS escapes commas per RFC 5545
-	assert.Contains(t, icsStr, "The Venue\\, Phoenix\\, AZ")
-	assert.Contains(t, icsStr, "Artist One")
-	// ICS uses line folding (CRLF + space) for long lines, so unfold before checking
-	unfolded := strings.ReplaceAll(icsStr, "\n ", "")
+	assert.Contains(t, icsStr, "The Venue\\, 123 Main St\\, Phoenix\\, AZ")
+	// ICS uses line folding (CRLF + space) for long DESCRIPTION lines
+	unfolded := strings.ReplaceAll(strings.ReplaceAll(icsStr, "\r\n ", ""), "\n ", "")
+	assert.Contains(t, unfolded, "Artist One")
 	assert.Contains(t, unfolded, "Artist Two")
 	assert.Contains(t, icsStr, "https://psychichomily.com/shows/test-show")
 	assert.Contains(t, icsStr, "METHOD:PUBLISH")
+
+	parsed, err := ics.ParseCalendar(strings.NewReader(icsStr))
+	assert.NoError(t, err)
+	assert.Len(t, parsed.Events(), 1)
+	assert.Equal(t, "Test Show", parsed.Events()[0].GetProperty(ics.ComponentPropertySummary).Value)
 }
 
 func TestGenerateICSFeed_VenueLocalTime(t *testing.T) {
@@ -197,25 +210,14 @@ func TestGenerateICSFeed_FiltersNonApproved(t *testing.T) {
 	assert.NotContains(t, string(data), "Pending Show")
 }
 
-func TestGenerateICSFeed_FiltersOldShows(t *testing.T) {
-	mockShows := []*contracts.SavedShowResponse{
-		{
-			ShowResponse: contracts.ShowResponse{
-				ID:        5,
-				Title:     "Old Show",
-				EventDate: time.Now().AddDate(0, 0, -60), // 60 days ago
-				Status:    "approved",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			},
-		},
-	}
-	mockSvc := &mockSavedShowSvc{shows: mockShows, total: 1}
-
+func TestGenerateICSFeed_RequestsUpcomingFilter(t *testing.T) {
+	// Past shows are filtered by GetUserSavedShows(time_filter=upcoming);
+	// GenerateICSFeed must request that filter rather than applying a local cutoff.
+	mockSvc := &mockSavedShowSvc{shows: []*contracts.SavedShowResponse{}, total: 0}
 	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: mockSvc}
-	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	_, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
 	assert.NoError(t, err)
-	assert.NotContains(t, string(data), "Old Show")
+	assert.Equal(t, "upcoming", mockSvc.lastTimeFilter)
 }
 
 func TestGenerateICSFeed_EmptyList(t *testing.T) {
@@ -254,14 +256,16 @@ func TestGenerateICSFeed_FallbackToID(t *testing.T) {
 // =============================================================================
 
 type mockSavedShowSvc struct {
-	shows []*contracts.SavedShowResponse
-	total int64
-	err   error
+	shows          []*contracts.SavedShowResponse
+	total          int64
+	err            error
+	lastTimeFilter string
 }
 
 func (m *mockSavedShowSvc) SaveShow(_, _ uint) error   { return nil }
 func (m *mockSavedShowSvc) UnsaveShow(_, _ uint) error { return nil }
-func (m *mockSavedShowSvc) GetUserSavedShows(_ uint, _, _ int, _ string) ([]*contracts.SavedShowResponse, int64, error) {
+func (m *mockSavedShowSvc) GetUserSavedShows(_ uint, _, _ int, timeFilter string) ([]*contracts.SavedShowResponse, int64, error) {
+	m.lastTimeFilter = timeFilter
 	return m.shows, m.total, m.err
 }
 func (m *mockSavedShowSvc) IsShowSaved(_, _ uint) (bool, error) { return false, nil }
@@ -341,7 +345,8 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_Success() {
 	suite.Require().NotNil(resp)
 
 	suite.True(strings.HasPrefix(resp.Token, CalendarTokenPrefix))
-	suite.Contains(resp.FeedURL, "http://localhost:8080/calendar/phcal_")
+	suite.Contains(resp.FeedURL, "http://localhost:8080/feeds/phcal_")
+	suite.True(strings.HasSuffix(resp.FeedURL, "/saved-shows.ics"))
 	suite.NotZero(resp.CreatedAt)
 }
 

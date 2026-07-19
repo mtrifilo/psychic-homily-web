@@ -64,8 +64,10 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily.ics\"")
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily-saved-shows.ics\"")
+	// Short private cache: calendar clients poll coarsely; regenerate clears
+	// the server-side cache immediately, and private avoids shared-proxy reuse.
+	w.Header().Set("Cache-Control", "private, max-age=120")
 	w.WriteHeader(http.StatusOK)
 	respond.SafeWrite(r.Context(), w, icsData)
 }
