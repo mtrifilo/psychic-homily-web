@@ -318,7 +318,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 	s.createCollectionViaService(user, "Not Featured", true)
 
 	// Set one as featured
-	err := s.deps.CollectionService.SetFeatured(coll.Slug, true)
+	err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
 	s.Require().NoError(err)
 
 	req := &ListCollectionsHandlerRequest{Featured: 1}
@@ -1058,7 +1058,7 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_Unfeature() {
 	coll := s.createCollectionViaService(user, "Unfeature Me", true)
 
 	// Feature first
-	err := s.deps.CollectionService.SetFeatured(coll.Slug, true)
+	err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
 	s.Require().NoError(err)
 
 	ctx := testhelpers.CtxWithUser(admin)

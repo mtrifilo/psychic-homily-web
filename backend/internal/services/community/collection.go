@@ -767,12 +767,26 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
 
+	// PSY-1500: batch-load the open feature run per collection so the admin
+	// CollectionManagement list can render "featured since {date}" (PSY-1504)
+	// from this single payload rather than a per-row second fetch. Only
+	// currently-featured rows have an open run; the map is absent otherwise.
+	openRuns := s.batchOpenFeatureRuns(collectionIDs)
+
 	// Build responses
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
 		tags := tagsByCollection[c.ID]
 		if tags == nil {
 			tags = []contracts.TagSummary{}
+		}
+		var featuredAt *time.Time
+		var featuredAtEstimated *bool
+		if run, ok := openRuns[c.ID]; ok {
+			at := run.FeaturedAt
+			est := run.FeaturedAtEstimated
+			featuredAt = &at
+			featuredAtEstimated = &est
 		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
@@ -797,12 +811,38 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			LikeCount:              likeCounts[c.ID],
 			UserLikesThis:          userLikes[c.ID],
 			Tags:                   tags,
+			FeaturedAt:             featuredAt,
+			FeaturedAtEstimated:    featuredAtEstimated,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
 	}
 
 	return responses, total, nil
+}
+
+// batchOpenFeatureRuns returns the currently-open feature run for each of the
+// given collections, keyed by collection ID (PSY-1500). Collections with no
+// open run are simply absent from the map. The partial unique index
+// (collection_feature_runs_one_open) guarantees at most one open run per
+// collection, so a plain map keyed by collection ID is unambiguous. Returns a
+// non-nil map on error so callers can index without a nil-check guard — a DB
+// error degrades to "no featured_at surfaced," never a crash.
+func (s *CollectionService) batchOpenFeatureRuns(collectionIDs []uint) map[uint]communitym.CollectionFeatureRun {
+	result := make(map[uint]communitym.CollectionFeatureRun)
+	if len(collectionIDs) == 0 {
+		return result
+	}
+	var runs []communitym.CollectionFeatureRun
+	if err := s.db.
+		Where("collection_id IN ? AND unfeatured_at IS NULL", collectionIDs).
+		Find(&runs).Error; err != nil {
+		return result
+	}
+	for i := range runs {
+		result[runs[i].CollectionID] = runs[i]
+	}
+	return result
 }
 
 // applyCollectionSort applies the requested ordering to the list query.
@@ -2239,8 +2279,20 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 	return s.GetUserPublicCollections(user.ID, limit, offset)
 }
 
-// SetFeatured sets or unsets the featured flag on a collection
-func (s *CollectionService) SetFeatured(slug string, featured bool) error {
+// SetFeatured sets or unsets the featured flag on a collection (PSY-1500).
+//
+// The write is transactional so the denormalised collections.is_featured
+// boolean and the collection_feature_runs journal can never drift: featuring
+// flips the boolean true AND opens a run; unfeaturing flips it false AND closes
+// the open run. Both directions are idempotent — featuring an
+// already-featured collection is a no-op (the partial unique index forbids a
+// second open run), and unfeaturing an unfeatured one closes nothing.
+// Re-featuring a previously-featured collection opens a NEW run, so each stint
+// is retained as its own row and the archive keeps full history.
+//
+// actorID is the admin performing the action, recorded as featured_by /
+// unfeatured_by; pass 0 for an unknown/system actor (stored as NULL).
+func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -2254,11 +2306,52 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 		return fmt.Errorf("failed to get collection: %w", err)
 	}
 
-	if err := s.db.Model(&collection).Update("is_featured", featured).Error; err != nil {
-		return fmt.Errorf("failed to update featured status: %w", err)
+	var actor *uint
+	if actorID != 0 {
+		actor = &actorID
 	}
 
-	return nil
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Explicit single-column update — GORM's skip-zero-value-on-Create
+		// bool gotcha does not apply to a named Update, so `false` persists.
+		if err := tx.Model(&collection).Update("is_featured", featured).Error; err != nil {
+			return fmt.Errorf("failed to update featured status: %w", err)
+		}
+
+		if featured {
+			// Idempotent: only open a run when there is no open one already.
+			var openCount int64
+			if err := tx.Model(&communitym.CollectionFeatureRun{}).
+				Where("collection_id = ? AND unfeatured_at IS NULL", collection.ID).
+				Count(&openCount).Error; err != nil {
+				return fmt.Errorf("failed to count open feature runs: %w", err)
+			}
+			if openCount > 0 {
+				return nil
+			}
+			run := &communitym.CollectionFeatureRun{
+				CollectionID: collection.ID,
+				FeaturedAt:   time.Now().UTC(),
+				FeaturedBy:   actor,
+			}
+			if err := tx.Create(run).Error; err != nil {
+				return fmt.Errorf("failed to open feature run: %w", err)
+			}
+			return nil
+		}
+
+		// Unfeature: close the open run (if any). Named-column Updates avoid
+		// the bool/zero-value gotcha and touch only the open row.
+		if err := tx.Model(&communitym.CollectionFeatureRun{}).
+			Where("collection_id = ? AND unfeatured_at IS NULL", collection.ID).
+			Updates(map[string]interface{}{
+				"unfeatured_at": time.Now().UTC(),
+				"unfeatured_by": actor,
+			}).Error; err != nil {
+			return fmt.Errorf("failed to close feature run: %w", err)
+		}
+		return nil
+	})
 }
 
 // ============================================================================

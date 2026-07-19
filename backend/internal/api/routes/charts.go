@@ -28,6 +28,11 @@ func setupChartsRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/charts/scenes", chartsHandler.GetChartScenesHandler)
 	huma.Get(rc.API, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 
+	// PSY-1500: featured-collection picks. Live pick folds into the masthead
+	// cache tier; history is the paginated public archive.
+	huma.Get(rc.API, "/charts/featured-collection", chartsHandler.GetFeaturedCollectionHandler)
+	huma.Get(rc.API, "/charts/featured-collection/history", chartsHandler.GetFeaturedCollectionHistoryHandler)
+
 	// Personal stats strip: the user's own aggregates, so it requires auth
 	// (anonymous → 401; the frontend simply doesn't render the strip).
 	huma.Get(rc.Protected, "/charts/me", chartsHandler.GetPersonalChartsStatsHandler)

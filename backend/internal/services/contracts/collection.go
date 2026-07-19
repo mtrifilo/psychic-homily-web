@@ -274,9 +274,19 @@ type CollectionListResponse struct {
 	// Tags applied to this collection (PSY-354). Reuses TagSummary so list
 	// rows stay lightweight (no vote counts on cards). Always non-nil; empty
 	// array when the collection has no tags.
-	Tags      []TagSummary `json:"tags"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	Tags []TagSummary `json:"tags"`
+	// FeaturedAt is the open feature run's start (PSY-1500), folded into the
+	// admin/browse list so CollectionManagement can render "featured since
+	// {date}" (PSY-1504) without a per-row second fetch. Nil for rows with no
+	// open run (i.e. not currently featured). Only populated by ListCollections.
+	FeaturedAt *time.Time `json:"featured_at,omitempty"`
+	// FeaturedAtEstimated is true when FeaturedAt was reconstructed at backfill
+	// (from collections.created_at) rather than observed from an audit event —
+	// the UI must not present an estimated date as precise. Nil when FeaturedAt
+	// is nil. PSY-1500.
+	FeaturedAtEstimated *bool     `json:"featured_at_estimated,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // CollectionItemResponse represents an item in a collection.
@@ -540,7 +550,11 @@ type CollectionServiceInterface interface {
 	GetEntityCollections(entityType string, entityID uint, viewerID uint, limit int) ([]*CollectionListResponse, error)
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
-	SetFeatured(slug string, featured bool) error
+	// SetFeatured flips collections.is_featured AND opens/closes a
+	// collection_feature_runs journal row in one transaction (PSY-1500).
+	// actorID is the acting admin (featured_by / unfeatured_by); pass 0 for an
+	// unknown/system actor.
+	SetFeatured(slug string, featured bool, actorID uint) error
 	// AddTagToCollection applies a tag to a collection (PSY-354). Caller must
 	// have edit access (creator OR collaborative-and-authenticated, mirroring
 	// AddItem). Enforces MaxCollectionTags. Returns the post-mutation tag
