@@ -68,7 +68,7 @@ export default function TiersHelpPage() {
           <p>
             Questions?{' '}
             <Link
-              href="/profile"
+              href="/users/me"
               className="underline hover:text-foreground"
             >
               View your profile

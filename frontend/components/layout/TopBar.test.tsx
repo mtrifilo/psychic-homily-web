@@ -245,6 +245,21 @@ describe('TopBar', () => {
       const profileItem = await screen.findByRole('menuitem', { name: 'Profile' })
       expect(profileItem).toHaveAttribute('href', '/users/me')
     })
+
+    // PSY-1486: desktop UserMenu Settings → /profile (parity with MobileNav).
+    it('points "Settings" at the /profile editor', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', username: 'reggie', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'User menu' }))
+      const settingsItem = await screen.findByRole('menuitem', { name: 'Settings' })
+      expect(settingsItem).toHaveAttribute('href', '/profile')
+    })
   })
 
   describe('mobile sheet', () => {

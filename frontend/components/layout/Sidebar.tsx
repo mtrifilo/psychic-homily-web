@@ -125,7 +125,13 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                 {renderItem({ href: '/contribute/submissions', label: 'Show Submissions', icon: ClipboardList })}
                 {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
                 {renderItem({ href: '/settings/appearance', label: 'Appearance', icon: Palette })}
-                {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
+                {/* PSY-1486 / PSY-1025: Profile → public identity view, not the
+                    /profile editor. Same profileHref pattern as UserMenu. */}
+                {renderItem({
+                  href: user?.username ? `/users/${user.username}` : '/users/me',
+                  label: 'Profile',
+                  icon: UserCircle,
+                })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
               </div>
             </div>

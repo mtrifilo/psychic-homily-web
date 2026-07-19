@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
 // Return type widened so individual tests can override `user`/`isAuthenticated`
 // without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
-  user: { email: string; is_admin: boolean } | null
+  user: { email: string; username?: string; is_admin: boolean } | null
   isAuthenticated: boolean
   isLoading: boolean
   logout: () => void
@@ -145,6 +145,35 @@ describe('Sidebar', () => {
       '/contribute/submissions'
     )
     expect(screen.getByText('Profile')).toBeInTheDocument()
+  })
+
+  // PSY-1486 / PSY-1025: Sidebar Profile → public identity view, not /profile.
+  it('points Profile at the user public identity page when they have a username', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'test@test.com', username: 'reggie', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute(
+      'href',
+      '/users/reggie'
+    )
+  })
+
+  it('falls back Profile to /users/me when the user has no username', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'test@test.com', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute(
+      'href',
+      '/users/me'
+    )
   })
 
   it('does not show a standalone Collection entry in auth section', () => {
