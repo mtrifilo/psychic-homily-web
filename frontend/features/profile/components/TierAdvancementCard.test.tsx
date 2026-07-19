@@ -1,8 +1,11 @@
 import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TierAdvancementCard } from './TierAdvancementCard'
 import type { UserTier } from '@/features/auth'
+import type { AdvancementProgress } from '@/features/auth'
+
+const mockUseAdvancementProgress = vi.fn()
 
 vi.mock('next/link', () => ({
   default: ({
@@ -19,12 +22,68 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+vi.mock('@/features/auth', async () => {
+  const actual = await vi.importActual<typeof import('@/features/auth')>(
+    '@/features/auth'
+  )
+  return {
+    ...actual,
+    useAdvancementProgress: (...args: unknown[]) =>
+      mockUseAdvancementProgress(...args),
+  }
+})
+
+function advancementFor(
+  tier: UserTier,
+  overrides: Partial<AdvancementProgress> = {}
+): AdvancementProgress {
+  const byTier: Record<Exclude<UserTier, 'local_ambassador'>, AdvancementProgress> = {
+    new_user: {
+      current_tier: 'new_user',
+      next_tier: 'contributor',
+      requirements: [
+        { requirement: 'approved_edits', current: 2, threshold: 5, met: false },
+        { requirement: 'account_age_days', current: 10, threshold: 14, met: false },
+        { requirement: 'email_verified', met: true },
+      ],
+    },
+    contributor: {
+      current_tier: 'contributor',
+      next_tier: 'trusted_contributor',
+      requirements: [
+        { requirement: 'approved_edits', current: 20, threshold: 25, met: false },
+        { requirement: 'approval_rate', current: 97, threshold: 95, met: true },
+        { requirement: 'account_age_days', current: 45, threshold: 60, met: false },
+      ],
+    },
+    trusted_contributor: {
+      current_tier: 'trusted_contributor',
+      next_tier: 'local_ambassador',
+      requirements: [
+        { requirement: 'approved_edits', current: 32, threshold: 50, met: false },
+        { requirement: 'city_edits', current: 8, threshold: 10, met: false },
+        { requirement: 'account_age_days', current: 200, threshold: 180, met: true },
+      ],
+    },
+  }
+  if (tier === 'local_ambassador') {
+    return { current_tier: 'local_ambassador', requirements: [], ...overrides }
+  }
+  return { ...byTier[tier], ...overrides }
+}
+
 describe('TierAdvancementCard', () => {
+  beforeEach(() => {
+    mockUseAdvancementProgress.mockReset()
+    mockUseAdvancementProgress.mockImplementation(() => ({
+      data: advancementFor('new_user'),
+      isLoading: false,
+    }))
+  })
+
   it('renders the board-H header: sentence-case title + tier badge', () => {
     render(<TierAdvancementCard tier="new_user" />)
     expect(screen.getByText('Contributor tier')).toBeInTheDocument()
-    // The current-tier badge sits in the header row (the old "Your tier:"
-    // label was dropped per board H).
     expect(screen.getByText('New User')).toBeInTheDocument()
     expect(screen.queryByText('Your tier:')).not.toBeInTheDocument()
   })
@@ -35,13 +94,90 @@ describe('TierAdvancementCard', () => {
     expect(screen.getByText('New User')).toBeInTheDocument()
     expect(screen.getByText('Contributor')).toBeInTheDocument()
     expect(screen.getByText('Requirements')).toBeInTheDocument()
-    // Criteria sourced from backend auto_promotion.go
     expect(screen.getByText(/5 approved edits/i)).toBeInTheDocument()
     expect(screen.getByText(/14 days/i)).toBeInTheDocument()
     expect(screen.getByText(/Verified email/i)).toBeInTheDocument()
   })
 
+  it('renders board-H progress bar + mono counter from advancement data', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('trusted_contributor'),
+      isLoading: false,
+    })
+    render(<TierAdvancementCard tier="trusted_contributor" />)
+
+    expect(screen.getByText(/32 \/ 50 qualifying edits/i)).toBeInTheDocument()
+    const bar = screen.getByRole('progressbar', {
+      name: /Approved edits toward next tier/i,
+    })
+    expect(bar).toHaveAttribute('aria-valuenow', '32')
+    expect(bar).toHaveAttribute('aria-valuemax', '50')
+  })
+
+  it('marks met requirements with a check and leaves unmet as bullets', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('new_user'),
+      isLoading: false,
+    })
+    render(<TierAdvancementCard tier="new_user" />)
+
+    expect(screen.getByLabelText('Met')).toBeInTheDocument()
+  })
+
+  it('prefers advancement.current_tier over a stale prop (desync after promotion)', () => {
+    // Auth context still says contributor; live advancement says trusted.
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('trusted_contributor'),
+      isLoading: false,
+    })
+    render(<TierAdvancementCard tier="contributor" />)
+
+    // Badge + next + bar must follow the API tier, not the stale prop.
+    expect(screen.getByText('Trusted Contributor')).toBeInTheDocument()
+    expect(screen.getByText('Local Ambassador')).toBeInTheDocument()
+    expect(screen.getByText(/32 \/ 50 qualifying edits/i)).toBeInTheDocument()
+    // Must NOT show the contributor→trusted requirement copy.
+    expect(screen.queryByText(/25 approved edits/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/50 approved edits/i)).toBeInTheDocument()
+  })
+
+  it('clamps aria-valuenow when current exceeds threshold', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: {
+        current_tier: 'trusted_contributor',
+        next_tier: 'local_ambassador',
+        requirements: [
+          { requirement: 'approved_edits', current: 60, threshold: 50, met: true },
+          { requirement: 'city_edits', current: 10, threshold: 10, met: true },
+          { requirement: 'account_age_days', current: 200, threshold: 180, met: true },
+        ],
+      },
+      isLoading: false,
+    })
+    render(<TierAdvancementCard tier="trusted_contributor" />)
+
+    const bar = screen.getByRole('progressbar')
+    expect(bar).toHaveAttribute('aria-valuenow', '50')
+    expect(bar).toHaveAttribute('aria-valuemax', '50')
+    // Counter still shows the real current.
+    expect(screen.getByText(/60 \/ 50 qualifying edits/i)).toBeInTheDocument()
+  })
+
+  it('still fetches advancement for local_ambassador (authoritative current_tier)', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('local_ambassador'),
+      isLoading: false,
+    })
+    render(<TierAdvancementCard tier="local_ambassador" />)
+    expect(mockUseAdvancementProgress).toHaveBeenCalled()
+    expect(screen.getByText(/highest contributor tier/i)).toBeInTheDocument()
+  })
+
   it('renders requirements for contributor advancing to trusted_contributor', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('contributor'),
+      isLoading: false,
+    })
     render(<TierAdvancementCard tier="contributor" />)
 
     expect(screen.getByText('Contributor')).toBeInTheDocument()
@@ -52,6 +188,10 @@ describe('TierAdvancementCard', () => {
   })
 
   it('renders requirements for trusted_contributor advancing to local_ambassador', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('trusted_contributor'),
+      isLoading: false,
+    })
     render(<TierAdvancementCard tier="trusted_contributor" />)
 
     expect(screen.getByText('Trusted Contributor')).toBeInTheDocument()
@@ -62,11 +202,16 @@ describe('TierAdvancementCard', () => {
   })
 
   it('renders a "highest tier" message for local_ambassador and no requirements list', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('local_ambassador'),
+      isLoading: false,
+    })
     render(<TierAdvancementCard tier="local_ambassador" />)
 
     expect(screen.getByText('Local Ambassador')).toBeInTheDocument()
     expect(screen.getByText(/highest contributor tier/i)).toBeInTheDocument()
     expect(screen.queryByText('Requirements')).not.toBeInTheDocument()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
   it('links "Learn more about tiers" to /help/tiers', () => {
@@ -78,13 +223,6 @@ describe('TierAdvancementCard', () => {
     expect(learnMore).toHaveAttribute('href', '/help/tiers')
   })
 
-  // Table-driven check: for every advancing tier, the card MUST render
-  //   - the current-tier badge label
-  //   - the next-tier badge label
-  //   - the "Requirements" header
-  //   - a non-empty requirements list (one <li> per requirement)
-  // and for the terminal tier, the card MUST render the "highest tier" copy
-  // INSTEAD OF a Requirements section.
   it.each([
     { tier: 'new_user', currentLabel: 'New User', nextLabel: 'Contributor', requirementCount: 3 },
     { tier: 'contributor', currentLabel: 'Contributor', nextLabel: 'Trusted Contributor', requirementCount: 3 },
@@ -92,38 +230,51 @@ describe('TierAdvancementCard', () => {
   ] satisfies Array<{ tier: UserTier; currentLabel: string; nextLabel: string; requirementCount: number }>)(
     'renders current + next tier badges and $requirementCount requirements for $tier',
     ({ tier, currentLabel, nextLabel, requirementCount }) => {
+      mockUseAdvancementProgress.mockReturnValue({
+        data: advancementFor(tier),
+        isLoading: false,
+      })
       const { container } = render(<TierAdvancementCard tier={tier} />)
 
-      // Current tier badge renders in the header row (board H)
       expect(screen.getByText(currentLabel)).toBeInTheDocument()
-      // Next tier label appears in the "Next:" block
       expect(screen.getByText(nextLabel)).toBeInTheDocument()
-      // Requirements header present
       expect(screen.getByText('Requirements')).toBeInTheDocument()
-      // Requirements list rendered as <li> items inside a <ul>
       const reqs = container.querySelectorAll('ul li')
       expect(reqs.length).toBe(requirementCount)
-      // Each requirement has non-empty text
       reqs.forEach((li) => {
         expect(li.textContent?.trim().length).toBeGreaterThan(0)
       })
     }
   )
 
-  // For local_ambassador, no "Next" block should render and no <ul> should exist
   it('does NOT render a Next badge or requirements list for local_ambassador', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: advancementFor('local_ambassador'),
+      isLoading: false,
+    })
     const { container } = render(<TierAdvancementCard tier="local_ambassador" />)
 
     expect(screen.queryByText('Next:')).not.toBeInTheDocument()
     expect(container.querySelector('ul')).toBeNull()
   })
 
-  // The current tier badge and the Next-tier badge MUST be visually distinct
-  // (different className strings on the UserTierBadge).
   it('renders current and next tier badges with distinct tier styles for new_user', () => {
     render(<TierAdvancementCard tier="new_user" />)
     const newUserBadge = screen.getByText('New User')
     const contributorBadge = screen.getByText('Contributor')
     expect(newUserBadge.className).not.toBe(contributorBadge.className)
+  })
+
+  it('hides the progress bar until advancement data arrives (new-user unaffected shape)', () => {
+    mockUseAdvancementProgress.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    })
+    render(<TierAdvancementCard tier="new_user" />)
+
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.queryByText(/qualifying edits/i)).not.toBeInTheDocument()
+    // Static requirements list still renders from tiers.ts
+    expect(screen.getByText(/5 approved edits/i)).toBeInTheDocument()
   })
 })

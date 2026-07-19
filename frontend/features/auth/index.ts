@@ -25,6 +25,9 @@ export type {
   UserFollowingResponse,
   AuthoredFieldNote,
   UserFieldNotesResponse,
+  AdvancementRequirementId,
+  AdvancementRequirement,
+  AdvancementProgress,
 } from './types'
 
 // Hooks — Auth
@@ -84,6 +87,7 @@ export {
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,
+  useAdvancementProgress,
   useUpdateVisibility,
   useUpdatePrivacy,
   useCreateSection,

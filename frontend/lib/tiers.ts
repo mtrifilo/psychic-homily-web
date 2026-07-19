@@ -1,6 +1,8 @@
 import type { UserTier } from '@/features/auth'
 
 export interface TierRequirement {
+  /** Stable id matching backend AdvancementRequirement.requirement */
+  id: string
   text: string
 }
 
@@ -44,9 +46,9 @@ export const TIERS: TierInfo[] = [
     ],
     advancementFrom: 'new_user',
     advancementRequirements: [
-      { text: '5 approved edits' },
-      { text: 'Account age at least 14 days' },
-      { text: 'Verified email address' },
+      { id: 'approved_edits', text: '5 approved edits' },
+      { id: 'account_age_days', text: 'Account age at least 14 days' },
+      { id: 'email_verified', text: 'Verified email address' },
     ],
   },
   {
@@ -61,9 +63,9 @@ export const TIERS: TierInfo[] = [
     ],
     advancementFrom: 'contributor',
     advancementRequirements: [
-      { text: '25 approved edits' },
-      { text: 'At least 95% approval rate' },
-      { text: 'Account age at least 60 days' },
+      { id: 'approved_edits', text: '25 approved edits' },
+      { id: 'approval_rate', text: 'At least 95% approval rate' },
+      { id: 'account_age_days', text: 'Account age at least 60 days' },
     ],
   },
   {
@@ -77,9 +79,9 @@ export const TIERS: TierInfo[] = [
     ],
     advancementFrom: 'trusted_contributor',
     advancementRequirements: [
-      { text: '50 approved edits' },
-      { text: '10 approved edits on venues or artists' },
-      { text: 'Account age at least 180 days' },
+      { id: 'approved_edits', text: '50 approved edits' },
+      { id: 'city_edits', text: '10 approved edits on venues or artists' },
+      { id: 'account_age_days', text: 'Account age at least 180 days' },
     ],
   },
 ]

@@ -87,6 +87,10 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 
 	huma.Get(rc.Protected, "/auth/profile", authHandler.GetProfileHandler)
 	huma.Patch(rc.Protected, "/auth/profile", authHandler.UpdateProfileHandler)
+
+	// PSY-1087: self-scoped next-tier progress (approved-edits bar + met/unmet list).
+	advancementHandler := authh.NewAdvancementHandler(rc.SC.AutoPromotion)
+	huma.Get(rc.Protected, "/auth/profile/advancement", advancementHandler.GetAdvancementHandler)
 	huma.Post(rc.Protected, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 	huma.Post(rc.Protected, "/auth/change-password", authHandler.ChangePasswordHandler)
 

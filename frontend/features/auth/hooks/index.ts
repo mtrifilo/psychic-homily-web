@@ -49,6 +49,7 @@ export {
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,
+  useAdvancementProgress,
   useUpdateVisibility,
   useUpdatePrivacy,
   useCreateSection,

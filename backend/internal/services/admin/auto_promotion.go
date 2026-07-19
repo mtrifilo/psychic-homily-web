@@ -187,7 +187,7 @@ func (s *AutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResul
 	}
 
 	for _, user := range users {
-		evalResult, err := s.evaluateUserInternal(&user)
+		evalResult, err := s.evaluateUserInternal(&user, true /* includeDemotion */)
 		if err != nil {
 			s.logger.Error("failed to evaluate user",
 				"user_id", user.ID,
@@ -351,11 +351,97 @@ func (s *AutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluat
 		return nil, apperrors.ErrAutoPromotionInternal(fmt.Errorf("failed to get user: %w", err))
 	}
 
-	return s.evaluateUserInternal(&user)
+	return s.evaluateUserInternal(&user, true /* includeDemotion */)
+}
+
+// GetAdvancementProgress returns user-facing next-tier progress for userID.
+// Gathers the same promotion metrics as EvaluateUser but skips demotion-watch
+// (rolling 30d) queries — those stay admin-only and are never returned here.
+func (s *AutoPromotionService) GetAdvancementProgress(userID uint) (*contracts.AdvancementProgress, error) {
+	if s.db == nil {
+		return nil, apperrors.ErrAutoPromotionInternal(fmt.Errorf("database not initialized"))
+	}
+
+	var user authm.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrAutoPromotionUserNotFound()
+		}
+		return nil, apperrors.ErrAutoPromotionInternal(fmt.Errorf("failed to get user: %w", err))
+	}
+
+	eval, err := s.evaluateUserInternal(&user, false /* includeDemotion */)
+	if err != nil {
+		return nil, err
+	}
+	return buildAdvancementProgress(eval), nil
+}
+
+// buildAdvancementProgress maps an evaluation result into the self-scoped DTO.
+// Exported-via-package for unit tests without a DB.
+func buildAdvancementProgress(eval *contracts.UserEvaluationResult) *contracts.AdvancementProgress {
+	progress := &contracts.AdvancementProgress{
+		CurrentTier:  eval.CurrentTier,
+		Requirements: []contracts.AdvancementRequirement{},
+	}
+
+	accountAgeDays := float64(int(eval.AccountAge.Hours() / 24))
+	approved := float64(eval.ApprovedEdits)
+	cityEdits := float64(eval.CityEditCount)
+	// Present approval rate as a 0–100 percentage so FE can render "95%" directly.
+	approvalPct := eval.ApprovalRate * 100
+
+	switch eval.CurrentTier {
+	case TierNewUser:
+		progress.NextTier = TierContributor
+		progress.Requirements = []contracts.AdvancementRequirement{
+			numericReq(contracts.AdvancementReqApprovedEdits, approved, float64(ContributorMinEdits)),
+			numericReq(contracts.AdvancementReqAccountAgeDays, accountAgeDays, ContributorMinAccountAge.Hours()/24),
+			boolReq(contracts.AdvancementReqEmailVerified, eval.EmailVerified),
+		}
+	case TierContributor:
+		progress.NextTier = TierTrustedContributor
+		progress.Requirements = []contracts.AdvancementRequirement{
+			numericReq(contracts.AdvancementReqApprovedEdits, approved, float64(TrustedMinEdits)),
+			numericReq(contracts.AdvancementReqApprovalRate, approvalPct, TrustedMinApprovalRate*100),
+			numericReq(contracts.AdvancementReqAccountAgeDays, accountAgeDays, TrustedMinAccountAge.Hours()/24),
+		}
+	case TierTrustedContributor:
+		progress.NextTier = TierLocalAmbassador
+		progress.Requirements = []contracts.AdvancementRequirement{
+			numericReq(contracts.AdvancementReqApprovedEdits, approved, float64(AmbassadorMinEdits)),
+			numericReq(contracts.AdvancementReqCityEdits, cityEdits, float64(AmbassadorMinCityEdits)),
+			numericReq(contracts.AdvancementReqAccountAgeDays, accountAgeDays, AmbassadorMinAccountAge.Hours()/24),
+		}
+	case TierLocalAmbassador:
+		// Highest tier — empty next + requirements.
+	}
+
+	return progress
+}
+
+func numericReq(id string, current, threshold float64) contracts.AdvancementRequirement {
+	c, t := current, threshold
+	return contracts.AdvancementRequirement{
+		Requirement: id,
+		Current:     &c,
+		Threshold:   &t,
+		Met:         current >= threshold,
+	}
+}
+
+func boolReq(id string, met bool) contracts.AdvancementRequirement {
+	return contracts.AdvancementRequirement{
+		Requirement: id,
+		Met:         met,
+	}
 }
 
 // evaluateUserInternal computes promotion/demotion for a single user.
-func (s *AutoPromotionService) evaluateUserInternal(user *authm.User) (*contracts.UserEvaluationResult, error) {
+// When includeDemotion is false (user-facing advancement path), rolling-30d
+// demotion queries and promote/demote mutation checks are skipped — only the
+// metrics needed for AdvancementProgress are gathered.
+func (s *AutoPromotionService) evaluateUserInternal(user *authm.User, includeDemotion bool) (*contracts.UserEvaluationResult, error) {
 	now := time.Now()
 	accountAge := now.Sub(user.CreatedAt)
 
@@ -392,7 +478,25 @@ func (s *AutoPromotionService) evaluateUserInternal(user *authm.User) (*contract
 		approvalRate = float64(totalApproved) / float64(totalEdits)
 	}
 
-	// Rolling 30-day stats for demotion check
+	// Count city edits for local ambassador check
+	cityEditCount := s.countCityEdits(user.ID)
+
+	eval := &contracts.UserEvaluationResult{
+		UserID:        user.ID,
+		CurrentTier:   user.UserTier,
+		ApprovedEdits: totalApproved,
+		TotalEdits:    totalEdits,
+		ApprovalRate:  approvalRate,
+		AccountAge:    accountAge,
+		EmailVerified: user.EmailVerified,
+		CityEditCount: cityEditCount,
+	}
+
+	if !includeDemotion {
+		return eval, nil
+	}
+
+	// Rolling 30-day stats for demotion check (admin / scheduler only)
 	thirtyDaysAgo := now.Add(-30 * 24 * time.Hour)
 
 	var rolling30dApproved int64
@@ -424,21 +528,8 @@ func (s *AutoPromotionService) evaluateUserInternal(user *authm.User) (*contract
 		rolling30dRate = float64(rolling30dApprovedTotal) / float64(rolling30dEditTotal)
 	}
 
-	// Count city edits for local ambassador check
-	cityEditCount := s.countCityEdits(user.ID)
-
-	eval := &contracts.UserEvaluationResult{
-		UserID:          user.ID,
-		CurrentTier:     user.UserTier,
-		ApprovedEdits:   totalApproved,
-		TotalEdits:      totalEdits,
-		ApprovalRate:    approvalRate,
-		AccountAge:      accountAge,
-		EmailVerified:   user.EmailVerified,
-		CityEditCount:   cityEditCount,
-		Rolling30dRate:  rolling30dRate,
-		Rolling30dTotal: rolling30dEditTotal,
-	}
+	eval.Rolling30dRate = rolling30dRate
+	eval.Rolling30dTotal = rolling30dEditTotal
 
 	// Check demotion first (rolling 30-day window)
 	if s.shouldDemote(user, rolling30dRate, rolling30dEditTotal) {

@@ -24,6 +24,7 @@ import type {
   PercentileRankings,
   UserFollowingResponse,
   UserFieldNotesResponse,
+  AdvancementProgress,
 } from '../types'
 
 // ============================================================================
@@ -256,6 +257,24 @@ export function useOwnSections() {
         { method: 'GET' }
       )
     },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch the authenticated user's next-tier advancement progress
+ * (PSY-1087). Drives the board-H progress bar on TierAdvancementCard.
+ */
+export function useAdvancementProgress(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.contributor.advancement,
+    queryFn: async (): Promise<AdvancementProgress> => {
+      return apiRequest<AdvancementProgress>(
+        API_ENDPOINTS.CONTRIBUTOR.ADVANCEMENT,
+        { method: 'GET' }
+      )
+    },
+    enabled,
     staleTime: 5 * 60 * 1000,
   })
 }

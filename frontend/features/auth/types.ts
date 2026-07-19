@@ -230,3 +230,25 @@ export interface UserFieldNotesResponse {
   limit: number
   offset: number
 }
+
+// PSY-1087: self-scoped next-tier progress (GET /auth/profile/advancement).
+// Numeric requirements include current + threshold; booleans omit both.
+export type AdvancementRequirementId =
+  | 'approved_edits'
+  | 'account_age_days'
+  | 'email_verified'
+  | 'approval_rate'
+  | 'city_edits'
+
+export interface AdvancementRequirement {
+  requirement: AdvancementRequirementId | string
+  current?: number
+  threshold?: number
+  met: boolean
+}
+
+export interface AdvancementProgress {
+  current_tier: UserTier | string
+  next_tier?: UserTier | string
+  requirements: AdvancementRequirement[]
+}

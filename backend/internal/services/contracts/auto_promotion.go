@@ -13,6 +13,36 @@ type AutoPromotionServiceInterface interface {
 
 	// EvaluateUser checks a single user for promotion/demotion eligibility.
 	EvaluateUser(userID uint) (*UserEvaluationResult, error)
+
+	// GetAdvancementProgress returns the authenticated user's progress toward
+	// the next tier. Self-scoped, read-only; omits demotion-watch metrics.
+	GetAdvancementProgress(userID uint) (*AdvancementProgress, error)
+}
+
+// Advancement requirement ids (stable; mirrored by frontend/lib/tiers.ts).
+const (
+	AdvancementReqApprovedEdits  = "approved_edits"
+	AdvancementReqAccountAgeDays = "account_age_days"
+	AdvancementReqEmailVerified  = "email_verified"
+	AdvancementReqApprovalRate   = "approval_rate"
+	AdvancementReqCityEdits      = "city_edits"
+)
+
+// AdvancementProgress is the user-facing, self-scoped view of next-tier progress.
+// Deliberately excludes demotion-watch fields (rolling 30d rate/total).
+type AdvancementProgress struct {
+	CurrentTier  string                   `json:"current_tier"`
+	NextTier     string                   `json:"next_tier,omitempty"`
+	Requirements []AdvancementRequirement `json:"requirements"`
+}
+
+// AdvancementRequirement is one gate on the path to the next tier.
+// Numeric requirements include current + threshold; booleans omit both.
+type AdvancementRequirement struct {
+	Requirement string   `json:"requirement" doc:"Stable requirement id"`
+	Current     *float64 `json:"current,omitempty" doc:"Current value (numeric requirements only)"`
+	Threshold   *float64 `json:"threshold,omitempty" doc:"Required threshold (numeric requirements only)"`
+	Met         bool     `json:"met" doc:"Whether this requirement is currently satisfied"`
 }
 
 // ──────────────────────────────────────────────

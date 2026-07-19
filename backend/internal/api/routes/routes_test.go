@@ -68,6 +68,29 @@ func TestSetupRoutes(t *testing.T) {
 	}
 }
 
+// TestAdvancementRouteOpenAPI locks GET /auth/profile/advancement into the
+// protected OpenAPI surface (PSY-1087).
+func TestAdvancementRouteOpenAPI(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	api := humachi.New(router, huma.DefaultConfig("Advancement route", "1.0.0"))
+	protected := huma.NewGroup(api, "")
+
+	setupProtectedAuthRoutes(RouteContext{
+		Router: router, API: api, Protected: protected, SC: sc, Cfg: cfg,
+	})
+
+	item, exists := api.OpenAPI().Paths["/auth/profile/advancement"]
+	if !exists || item.Get == nil {
+		t.Fatal("Expected OpenAPI GET operation for /auth/profile/advancement")
+	}
+	response := item.Get.Responses["200"]
+	if response == nil || response.Content["application/json"] == nil {
+		t.Fatal("Expected documented JSON 200 response for /auth/profile/advancement")
+	}
+}
+
 func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	cfg := testConfig()
 	sc := testContainer(cfg)
