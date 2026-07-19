@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { SectionHeader } from '@/components/shared/SectionHeader'
+import { ProfileEmptyPrompt } from './ProfileEmptyPrompt'
 import { ProfileSectionAction } from './ProfileSectionAction'
 import { useUserFollowing } from '@/features/auth'
 import type { FollowingEntity } from '@/features/auth'
@@ -47,8 +48,10 @@ export function ProfileFollowing({
 
   // hidden (404) or any error → omit; loading → omit (section pops in).
   if (error || !data) return null
-  if (data.total === 0) return null
+  // Visitors with zero follows: omit. Owners get an empty CTA (PSY-1489).
+  if (data.total === 0 && !isOwner) return null
 
+  const isEmpty = data.total === 0
   const isCountOnly = data.total > 0 && data.following.length === 0
 
   return (
@@ -59,7 +62,7 @@ export function ProfileFollowing({
         size="md"
         variant="title"
         action={
-          isOwner ? (
+          isOwner && !isEmpty ? (
             <ProfileSectionAction
               label="Manage"
               href="/library?tab=artists"
@@ -68,7 +71,13 @@ export function ProfileFollowing({
           ) : undefined
         }
       />
-      {isCountOnly ? (
+      {isEmpty ? (
+        <ProfileEmptyPrompt
+          message="Shape your taste graph and get show alerts — follow artists, venues & labels."
+          ctaLabel="Browse"
+          ctaHref="/artists"
+        />
+      ) : isCountOnly ? (
         <p className="text-sm text-muted-foreground mt-2">
           Follows{' '}
           <span className="text-foreground font-medium tabular-nums">
