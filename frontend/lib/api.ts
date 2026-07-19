@@ -249,6 +249,12 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/users/${username}/following`,
     FIELD_NOTES: (username: string) =>
       `${API_BASE_URL}/users/${username}/field-notes`,
+    // Username-addressed user→user follow (board C). Distinct from
+    // /{entity_type}/{id}/follow — the FE never holds a numeric user id here.
+    FOLLOW: (username: string) =>
+      `${API_BASE_URL}/users/${username}/follow`,
+    FOLLOWERS: (username: string) =>
+      `${API_BASE_URL}/users/${username}/followers`,
   },
 
   // Contributor profile endpoints (authenticated)

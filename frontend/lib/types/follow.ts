@@ -15,6 +15,13 @@ export interface FollowStatus {
   notify_mode?: string
 }
 
+/** GET /users/{username}/followers — count + viewer follow state (no list). */
+export interface UserFollowStatus {
+  username: string
+  follower_count: number
+  is_following: boolean
+}
+
 export interface BatchFollowEntry {
   follower_count: number
   is_following: boolean
