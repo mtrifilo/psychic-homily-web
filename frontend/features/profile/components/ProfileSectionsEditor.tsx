@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
@@ -15,14 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  Loader2,
-  AlertCircle,
-  GripVertical,
-} from 'lucide-react'
+import { Loader2, AlertCircle, GripVertical } from 'lucide-react'
 import {
   useOwnSections,
   useCreateSection,
@@ -32,6 +25,16 @@ import {
 } from '@/features/auth'
 
 const MAX_SECTIONS = 3
+
+function emptySlotHint(remaining: number): string {
+  if (remaining === 1) {
+    return 'One more slot — add a section to personalize your profile.'
+  }
+  if (remaining === MAX_SECTIONS) {
+    return 'Add a section to personalize your profile.'
+  }
+  return `${remaining} more slots — add a section to personalize your profile.`
+}
 
 export function ProfileSectionsEditor() {
   const { data: sectionsData, isLoading } = useOwnSections()
@@ -55,7 +58,16 @@ export function ProfileSectionsEditor() {
   const [editError, setEditError] = useState<string | null>(null)
 
   const sections = sectionsData?.sections || []
+  const sortedSections = [...sections].sort((a, b) => a.position - b.position)
   const canAddMore = sections.length < MAX_SECTIONS
+  const remainingSlots = MAX_SECTIONS - sections.length
+
+  const openCreateDialog = () => {
+    setNewTitle('')
+    setNewContent('')
+    setFormError(null)
+    setCreateDialogOpen(true)
+  }
 
   const handleCreate = () => {
     setFormError(null)
@@ -133,7 +145,7 @@ export function ProfileSectionsEditor() {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="p-6 flex justify-center">
+        <CardContent className="flex justify-center p-6">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </CardContent>
       </Card>
@@ -141,88 +153,96 @@ export function ProfileSectionsEditor() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium">Custom Sections</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Add up to {MAX_SECTIONS} custom sections to your profile ({sections.length}/{MAX_SECTIONS})
-          </p>
-        </div>
-        {canAddMore && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setNewTitle('')
-              setNewContent('')
-              setFormError(null)
-              setCreateDialogOpen(true)
-            }}
-            className="gap-1.5"
-          >
-            <Plus className="h-4 w-4" />
-            Add Section
-          </Button>
-        )}
-      </div>
+    <div>
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold">Custom sections</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Prose blocks rendered after your bio on the public profile.
+                Markdown supported.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <p className="font-mono text-[11px] text-muted-foreground">
+                {sections.length} / {MAX_SECTIONS} used
+              </p>
+              {canAddMore && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openCreateDialog}
+                  className="h-auto px-1 py-1 text-[11px] font-semibold"
+                >
+                  + Add section
+                </Button>
+              )}
+            </div>
+          </div>
 
-      {sections.length === 0 ? (
-        <Card className="bg-muted/30 border-border/50 border-dashed">
-          <CardContent className="p-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              No custom sections yet. Add sections to personalize your profile.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {sections
-            .sort((a, b) => a.position - b.position)
-            .map(section => (
-              <Card key={section.id} className="bg-muted/30 border-border/50">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <GripVertical className="h-5 w-5 text-muted-foreground/40 mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="text-sm font-medium">{section.title}</h4>
-                        {!section.is_visible && (
-                          <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            Hidden
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {section.content}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => openEditDialog(section)}
-                        aria-label="Edit section"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeletingSection(section)}
-                        aria-label="Delete section"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+          <div className="mt-5">
+            <div className="divide-y divide-border">
+            {sortedSections.map((section) => (
+              <div
+                key={section.id}
+                className="flex items-start gap-3 py-4 first:pt-0"
+              >
+                {/* Presentational grip — reorder DnD is not wired on this surface. */}
+                <span
+                  className="mt-0.5 shrink-0 text-muted-foreground"
+                  aria-hidden
+                >
+                  <GripVertical className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-[13px] font-medium leading-none">
+                      {section.title}
+                    </h4>
+                    {!section.is_visible && (
+                      <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        Hidden
+                      </span>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
+                  {/* ~1.5-line preview: clamp to 2 lines with a tight max-height. */}
+                  <p className="mt-1.5 max-h-[1.875rem] overflow-hidden text-xs leading-snug text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                    {section.content}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => openEditDialog(section)}
+                    aria-label="Edit section"
+                    className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingSection(section)}
+                    aria-label="Delete section"
+                    className="text-xs font-medium text-muted-foreground hover:underline focus-visible:outline-none focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
             ))}
-        </div>
-      )}
+            </div>
+
+            {canAddMore && (
+              <div className="mt-4 rounded-md border border-dashed border-border px-3.5 py-4">
+                <p className="text-xs text-muted-foreground">
+                  {emptySlotHint(remainingSlots)}
+                </p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Create Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
@@ -260,7 +280,7 @@ export function ProfileSectionsEditor() {
                 rows={5}
                 maxLength={2000}
               />
-              <p className="text-xs text-muted-foreground text-right">
+              <p className="text-right text-xs text-muted-foreground">
                 {newContent.length}/2000
               </p>
             </div>
@@ -278,7 +298,7 @@ export function ProfileSectionsEditor() {
               disabled={createSection.isPending}
             >
               {createSection.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               Add Section
             </Button>
@@ -320,7 +340,7 @@ export function ProfileSectionsEditor() {
                 rows={5}
                 maxLength={2000}
               />
-              <p className="text-xs text-muted-foreground text-right">
+              <p className="text-right text-xs text-muted-foreground">
                 {editContent.length}/2000
               </p>
             </div>
@@ -348,7 +368,7 @@ export function ProfileSectionsEditor() {
               disabled={updateSection.isPending}
             >
               {updateSection.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               Save Changes
             </Button>
@@ -379,7 +399,7 @@ export function ProfileSectionsEditor() {
               disabled={deleteSection.isPending}
             >
               {deleteSection.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               Delete
             </Button>

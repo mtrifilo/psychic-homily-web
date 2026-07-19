@@ -60,12 +60,12 @@ describe('ProfileSectionsEditor', () => {
       // Loader2 has animate-spin class
       expect(container.querySelector('.animate-spin')).toBeInTheDocument()
       // Header text only renders after load
-      expect(screen.queryByText('Custom Sections')).not.toBeInTheDocument()
+      expect(screen.queryByText('Custom sections')).not.toBeInTheDocument()
     })
 
-    it('renders header with section count out of MAX_SECTIONS (3)', () => {
+    it('renders mono counter with section count out of MAX_SECTIONS (3)', () => {
       renderWithProviders(<ProfileSectionsEditor />)
-      expect(screen.getByText(/2\/3/)).toBeInTheDocument()
+      expect(screen.getByText('2 / 3 used')).toBeInTheDocument()
     })
 
     it('renders edit buttons with aria-label="Edit section"', () => {
@@ -99,18 +99,27 @@ describe('ProfileSectionsEditor', () => {
       expect(screen.queryByText('Hidden')).not.toBeInTheDocument()
     })
 
-    it('renders empty-state card when there are no sections', () => {
+    it('renders dashed empty-slot hint when slots remain (zero sections)', () => {
       mockUseOwnSections.mockReturnValue({
         data: { sections: [] },
         isLoading: false,
       })
       renderWithProviders(<ProfileSectionsEditor />)
       expect(
-        screen.getByText(/No custom sections yet/i)
+        screen.getByText('Add a section to personalize your profile.')
       ).toBeInTheDocument()
     })
 
-    it('hides the "Add Section" button when at MAX_SECTIONS (3) sections', () => {
+    it('renders "One more slot" empty-slot hint when one slot remains', () => {
+      renderWithProviders(<ProfileSectionsEditor />)
+      expect(
+        screen.getByText(
+          'One more slot — add a section to personalize your profile.'
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('hides the empty-slot hint and "+ Add section" when at MAX_SECTIONS (3)', () => {
       mockUseOwnSections.mockReturnValue({
         data: {
           sections: [
@@ -123,14 +132,16 @@ describe('ProfileSectionsEditor', () => {
       })
       renderWithProviders(<ProfileSectionsEditor />)
       expect(
-        screen.queryByRole('button', { name: /Add Section/i })
+        screen.queryByRole('button', { name: /\+ Add section/i })
       ).not.toBeInTheDocument()
+      expect(screen.queryByText(/more slot/i)).not.toBeInTheDocument()
+      expect(screen.getByText('3 / 3 used')).toBeInTheDocument()
     })
 
-    it('shows the "Add Section" button when below MAX_SECTIONS', () => {
+    it('shows the "+ Add section" button when below MAX_SECTIONS', () => {
       renderWithProviders(<ProfileSectionsEditor />)
       expect(
-        screen.getByRole('button', { name: /Add Section/i })
+        screen.getByRole('button', { name: /\+ Add section/i })
       ).toBeInTheDocument()
     })
 
@@ -158,7 +169,7 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       // Dialog title appears (rendered via Radix Dialog)
       expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -169,10 +180,10 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       const dialog = screen.getByRole('dialog')
-      const submitButton = within(dialog).getByRole('button', { name: /Add Section/i })
+      const submitButton = within(dialog).getByRole('button', { name: /^Add Section$/i })
       await user.click(submitButton)
 
       expect(screen.getByText('Title is required')).toBeInTheDocument()
@@ -183,13 +194,13 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       const titleInput = screen.getByLabelText('Title')
       await user.type(titleInput, 'My Title')
 
       const dialog = screen.getByRole('dialog')
-      const submitButton = within(dialog).getByRole('button', { name: /Add Section/i })
+      const submitButton = within(dialog).getByRole('button', { name: /^Add Section$/i })
       await user.click(submitButton)
 
       expect(screen.getByText('Content is required')).toBeInTheDocument()
@@ -200,13 +211,13 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       await user.type(screen.getByLabelText('Title'), '  My Title  ')
       await user.type(screen.getByLabelText('Content'), '  Some body  ')
 
       const dialog = screen.getByRole('dialog')
-      const submitButton = within(dialog).getByRole('button', { name: /Add Section/i })
+      const submitButton = within(dialog).getByRole('button', { name: /^Add Section$/i })
       await user.click(submitButton)
 
       expect(mockCreateMutate).toHaveBeenCalledTimes(1)
@@ -229,13 +240,13 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       await user.type(screen.getByLabelText('Title'), 'New Section')
       await user.type(screen.getByLabelText('Content'), 'New content')
 
       const dialog = screen.getByRole('dialog')
-      const submitButton = within(dialog).getByRole('button', { name: /Add Section/i })
+      const submitButton = within(dialog).getByRole('button', { name: /^Add Section$/i })
       await user.click(submitButton)
 
       // Dialog should close after success
@@ -252,13 +263,13 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       await user.type(screen.getByLabelText('Title'), 'New Section')
       await user.type(screen.getByLabelText('Content'), 'New content')
 
       const dialog = screen.getByRole('dialog')
-      const submitButton = within(dialog).getByRole('button', { name: /Add Section/i })
+      const submitButton = within(dialog).getByRole('button', { name: /^Add Section$/i })
       await user.click(submitButton)
 
       expect(
@@ -270,7 +281,7 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       const dialog = screen.getByRole('dialog')
       const cancelButton = within(dialog).getByRole('button', { name: /Cancel/i })
@@ -284,7 +295,7 @@ describe('ProfileSectionsEditor', () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfileSectionsEditor />)
 
-      await user.click(screen.getByRole('button', { name: /Add Section/i }))
+      await user.click(screen.getByRole('button', { name: /\+ Add section/i }))
 
       expect(screen.getByText('0/2000')).toBeInTheDocument()
       await user.type(screen.getByLabelText('Content'), 'hello')
