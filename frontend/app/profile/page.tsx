@@ -73,7 +73,7 @@ function ProfileTab() {
     const el = document.getElementById(fieldId)
     if (!el) return
 
-    el.focus()
+    el.focus({ preventScroll: true })
     const scrollTarget =
       el.closest<HTMLElement>('[data-profile-field-anchor]') ?? el
     scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' })
