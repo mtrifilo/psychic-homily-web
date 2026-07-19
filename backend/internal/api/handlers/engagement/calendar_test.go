@@ -281,6 +281,8 @@ func TestGetCalendarFeedHandler_Success(t *testing.T) {
 // =============================================================================
 
 func TestGetAPIBaseURL(t *testing.T) {
+	t.Setenv("API_ADDR", "")
+
 	tests := []struct {
 		name        string
 		frontendURL string
@@ -303,4 +305,12 @@ func TestGetAPIBaseURL(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("uses API_ADDR in local/dev", func(t *testing.T) {
+		t.Setenv("API_ADDR", "localhost:63516")
+		cfg := &config.Config{Email: config.EmailConfig{FrontendURL: "http://localhost:3000"}}
+		if got := getAPIBaseURL(cfg); got != "http://localhost:63516" {
+			t.Errorf("getAPIBaseURL with API_ADDR = %q, want http://localhost:63516", got)
+		}
+	})
 }

@@ -3,10 +3,12 @@ package engagement
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	ics "github.com/arran4/golang-ical"
@@ -28,18 +30,34 @@ const icalLocalTimeFormat = "20060102T150405"
 // events (the source data has no end time).
 const defaultShowDuration = 3 * time.Hour
 
+// icsFeedCacheTTL is a short per-user cache for ICS payloads. Calendar clients
+// poll coarsely; this cuts DB load without serving stale feeds after regenerate
+// (cache is keyed by user and cleared on CreateToken/DeleteToken).
+const icsFeedCacheTTL = 2 * time.Minute
+
 const (
 	// CalendarTokenPrefix is prepended to calendar tokens for identification
 	CalendarTokenPrefix = "phcal_"
 
 	// calendarTokenLength is the length of the generated token in bytes (32 bytes = 64 hex chars)
 	calendarTokenLength = 32
+
+	// calendarFeedPathPrefix is the canonical public feed path (PSY-1430).
+	// /calendar/{token} remains as a backward-compatible alias.
+	calendarFeedPathPrefix = "/feeds/"
+	calendarFeedPathSuffix = "/saved-shows.ics"
 )
+
+type icsFeedCacheEntry struct {
+	data      []byte
+	expiresAt time.Time
+}
 
 // CalendarService handles calendar feed token and ICS generation
 type CalendarService struct {
 	db           *gorm.DB
 	savedShowSvc contracts.SavedShowServiceInterface
+	feedCache    sync.Map // userID (uint) → icsFeedCacheEntry
 }
 
 // NewCalendarService creates a new calendar service
@@ -51,6 +69,15 @@ func NewCalendarService(database *gorm.DB, savedShowSvc contracts.SavedShowServi
 		db:           database,
 		savedShowSvc: savedShowSvc,
 	}
+}
+
+// calendarFeedURL builds the canonical subscribe URL for a plaintext token.
+func calendarFeedURL(apiBaseURL, plainToken string) string {
+	return fmt.Sprintf("%s%s%s%s", strings.TrimRight(apiBaseURL, "/"), calendarFeedPathPrefix, plainToken, calendarFeedPathSuffix)
+}
+
+func (s *CalendarService) invalidateFeedCache(userID uint) {
+	s.feedCache.Delete(userID)
 }
 
 // generateCalendarToken creates a cryptographically secure random calendar token
@@ -102,17 +129,17 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contract
 		return nil, err
 	}
 
+	s.invalidateFeedCache(userID)
+
 	// Fetch the created token to get the server-set created_at
 	var created engagementm.CalendarToken
 	if err := s.db.Where("user_id = ?", userID).First(&created).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch created token: %w", err)
 	}
 
-	feedURL := fmt.Sprintf("%s/calendar/%s", apiBaseURL, plainToken)
-
 	return &contracts.CalendarTokenCreateResponse{
 		Token:     plainToken,
-		FeedURL:   feedURL,
+		FeedURL:   calendarFeedURL(apiBaseURL, plainToken),
 		CreatedAt: created.CreatedAt,
 	}, nil
 }
@@ -151,10 +178,13 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("no calendar token found")
 	}
+	s.invalidateFeedCache(userID)
 	return nil
 }
 
-// ValidateCalendarToken validates a plaintext calendar token and returns the associated user
+// ValidateCalendarToken validates a plaintext calendar token and returns the associated user.
+// Lookup hashes the candidate then constant-time-compares against the stored hash so a
+// successful match path does not short-circuit on string equality (PSY-1430).
 func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -165,10 +195,17 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 	var token engagementm.CalendarToken
 	err := s.db.Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error
 	if err != nil {
+		// Dummy compare so miss-path work is closer to hit-path (hash already
+		// computed; compare against itself to keep timing shape similar).
+		_ = subtle.ConstantTimeCompare([]byte(tokenHash), []byte(tokenHash))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("invalid calendar token")
 		}
 		return nil, fmt.Errorf("failed to validate token: %w", err)
+	}
+
+	if subtle.ConstantTimeCompare([]byte(token.TokenHash), []byte(tokenHash)) != 1 {
+		return nil, fmt.Errorf("invalid calendar token")
 	}
 
 	if !token.User.IsActive {
@@ -178,14 +215,24 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 	return &token.User, nil
 }
 
-// GenerateICSFeed creates an ICS calendar feed for a user's saved shows
+// GenerateICSFeed creates an ICS calendar feed for a user's saved upcoming shows.
 func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]byte, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Fetch saved shows (large limit to get all relevant shows)
-	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, 500, 0, "")
+	if cached, ok := s.feedCache.Load(userID); ok {
+		entry := cached.(icsFeedCacheEntry)
+		if time.Now().Before(entry.expiresAt) {
+			out := make([]byte, len(entry.data))
+			copy(out, entry.data)
+			return out, nil
+		}
+		s.feedCache.Delete(userID)
+	}
+
+	// Upcoming only — venue-local date ≥ today (PSY-1430).
+	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, 500, 0, "upcoming")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch saved shows: %w", err)
 	}
@@ -197,18 +244,11 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 	cal.SetDescription("Your saved shows from Psychic Homily")
 	cal.SetXWRCalName("Psychic Homily - My Shows")
 
-	now := time.Now()
-	cutoff := now.AddDate(0, 0, -30) // 30 days in the past
-
 	for _, show := range shows {
-		// Filter: approved, not cancelled, event_date within range
 		if show.Status != "approved" {
 			continue
 		}
 		if show.IsCancelled {
-			continue
-		}
-		if show.EventDate.Before(cutoff) {
 			continue
 		}
 
@@ -228,30 +268,24 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		}
 		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, venueTimezone, venueState)
 
-		// Summary
 		summary := show.Title
 		if show.IsSoldOut {
 			summary += " [SOLD OUT]"
 		}
 		event.SetSummary(summary)
 
-		// Location
 		if len(show.Venues) > 0 {
-			venue := show.Venues[0]
-			location := venue.Name
-			if venue.City != "" {
-				location += ", " + venue.City
-			}
-			if venue.State != "" {
-				location += ", " + venue.State
-			}
-			event.SetLocation(location)
+			event.SetLocation(formatVenueLocation(show.Venues[0]))
 		}
 
-		// Description
 		var descParts []string
 
-		// Artist lineup
+		if len(show.Venues) > 0 {
+			if loc := formatVenueLocation(show.Venues[0]); loc != "" {
+				descParts = append(descParts, "Venue: "+loc)
+			}
+		}
+
 		if len(show.Artists) > 0 {
 			names := make([]string, len(show.Artists))
 			for i, a := range show.Artists {
@@ -267,7 +301,6 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 			descParts = append(descParts, "Ages: "+*show.AgeRequirement)
 		}
 
-		// Show URL
 		slug := show.Slug
 		if slug == "" {
 			slug = fmt.Sprintf("%d", show.ID)
@@ -279,7 +312,29 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		event.SetURL(showURL)
 	}
 
-	return []byte(cal.Serialize()), nil
+	data := []byte(cal.Serialize())
+	cachedCopy := make([]byte, len(data))
+	copy(cachedCopy, data)
+	s.feedCache.Store(userID, icsFeedCacheEntry{
+		data:      cachedCopy,
+		expiresAt: time.Now().Add(icsFeedCacheTTL),
+	})
+	return data, nil
+}
+
+// formatVenueLocation builds a LOCATION-friendly venue string including address.
+func formatVenueLocation(venue contracts.VenueResponse) string {
+	parts := []string{venue.Name}
+	if venue.Address != nil && strings.TrimSpace(*venue.Address) != "" {
+		parts = append(parts, strings.TrimSpace(*venue.Address))
+	}
+	if venue.City != "" {
+		parts = append(parts, venue.City)
+	}
+	if venue.State != "" {
+		parts = append(parts, venue.State)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // setVenueLocalEventTimes writes DTSTART/DTEND anchored to the venue's local

@@ -28,13 +28,15 @@ describe('CalendarFeedSection', () => {
     vi.clearAllMocks()
     mockHasToken = false
     mockCreateToken.mockResolvedValue({
-      token: 'calendar-token',
-      feed_url: 'https://example.com/calendar.ics',
+      token: 'phcal_test',
+      feed_url: 'https://api.example.com/feeds/phcal_test/saved-shows.ics',
     })
   })
 
-  it('renders the compact setup card and keeps Enable functional', async () => {
-    const { container } = renderWithProviders(<CalendarFeedSection />)
+  it('renders the compact library setup card and keeps Enable functional', async () => {
+    const { container } = renderWithProviders(
+      <CalendarFeedSection variant="library" />
+    )
 
     expect(screen.getByText('Subscribe to calendar')).toBeTruthy()
     expect(
@@ -52,17 +54,47 @@ describe('CalendarFeedSection', () => {
 
     await waitFor(() => expect(mockCreateToken).toHaveBeenCalledTimes(1))
     expect(screen.getByText('Calendar Feed Active')).toBeTruthy()
+    expect(screen.getByDisplayValue(/feeds\/phcal_test\/saved-shows\.ics/)).toBeTruthy()
+    expect(screen.getByText('Google Calendar')).toBeTruthy()
+    expect(screen.getByText(/Regenerate or disable from/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull()
   })
 
-  it('stacks active-token details and actions on narrow screens', () => {
+  it('library active-token state links to Settings instead of regenerating', () => {
     mockHasToken = true
-    const { container } = renderWithProviders(<CalendarFeedSection />)
+    renderWithProviders(<CalendarFeedSection variant="library" />)
 
-    expect(screen.getByText('Calendar Feed Active')).toBeTruthy()
+    expect(screen.getByText('Calendar feed enabled')).toBeTruthy()
+    const manage = screen.getByRole('link', { name: 'Manage feed' })
+    expect(manage.getAttribute('href')).toBe('/profile?tab=settings')
+    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull()
+  })
+
+  it('settings variant owns regenerate and shows leakage warning', async () => {
+    renderWithProviders(<CalendarFeedSection variant="settings" />)
+
+    expect(screen.getByText('Saved shows calendar feed')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+
+    await waitFor(() => expect(mockCreateToken).toHaveBeenCalledTimes(1))
+    expect(
+      screen.getByText(/Anyone with this URL can see your saved shows/)
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Disable' })).toBeTruthy()
+  })
+
+  it('settings active-token state exposes regenerate without URL', () => {
+    mockHasToken = true
+    const { container } = renderWithProviders(
+      <CalendarFeedSection variant="settings" />
+    )
+
+    expect(screen.getByText('Saved shows calendar feed')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Disable' })).toBeTruthy()
     const layout = container.firstElementChild?.firstElementChild as HTMLElement
     expect(layout.className).toContain('flex-col')
     expect(layout.className).toContain('sm:flex-row')
-    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Disable' })).toBeTruthy()
   })
 })
