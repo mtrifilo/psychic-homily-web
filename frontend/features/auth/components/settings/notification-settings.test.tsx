@@ -110,7 +110,7 @@ describe('NotificationSettings', () => {
     expect(screen.getByText('Notifications')).toBeInTheDocument()
     expect(
       screen.getByText(
-        /Control how you're notified about upcoming shows, your collections, and your contributions/
+        /Email and reminder preferences. Digest frequency lives with each/
       )
     ).toBeInTheDocument()
   })
@@ -120,7 +120,7 @@ describe('NotificationSettings', () => {
 
     expect(screen.getByText('Show reminders')).toBeInTheDocument()
     expect(
-      screen.getByText('Get an email 24 hours before your saved shows')
+      screen.getByText("Day-before reminders for shows you've saved")
     ).toBeInTheDocument()
   })
 
@@ -378,7 +378,7 @@ describe('NotificationSettings', () => {
 
       expect(screen.getByText('Tier-change emails')).toBeInTheDocument()
       expect(
-        screen.getByText(/when your contributor tier changes/)
+        screen.getByText(/When your contributor tier advances/)
       ).toBeInTheDocument()
     })
 
@@ -456,7 +456,7 @@ describe('NotificationSettings', () => {
 
       expect(screen.getByText('Edit-review emails')).toBeInTheDocument()
       expect(
-        screen.getByText(/when your submitted edits are approved or rejected/)
+        screen.getByText(/When a pending edit you submitted is reviewed/)
       ).toBeInTheDocument()
     })
 

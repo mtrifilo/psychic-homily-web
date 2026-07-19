@@ -18,8 +18,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
-  Link2,
-  Link2Off,
 } from 'lucide-react'
 
 // Use direct backend URL for OAuth (not the Next.js proxy)
@@ -82,38 +80,29 @@ export function OAuthAccounts() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Link2 className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Connected Accounts</CardTitle>
-        </div>
+        <CardTitle className="text-base">Connected accounts</CardTitle>
         <CardDescription>
-          Manage your connected sign-in methods
+          OAuth sign-in methods linked to this account.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           {/* Google Account */}
-          <div className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-background">
-                <GoogleIcon className="h-5 w-5" />
-              </div>
-              <div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <GoogleIcon className="h-5 w-5 shrink-0" />
+              <div className="min-w-0">
                 {googleAccount ? (
                   <>
-                    <p className="text-sm font-medium">
-                      {googleAccount.email || googleAccount.name || 'Google Account'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Connected {new Date(googleAccount.connected_at).toLocaleDateString()}
+                    <p className="text-sm font-medium">Google</p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {googleAccount.email || googleAccount.name || 'Connected'}
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="text-sm font-medium">Google</p>
-                    <p className="text-xs text-muted-foreground">
-                      Not connected
-                    </p>
+                    <p className="text-xs text-muted-foreground">Not connected</p>
                   </>
                 )}
               </div>
@@ -123,18 +112,16 @@ export function OAuthAccounts() {
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : googleAccount ? (
               <Button
-                variant="outline"
+                variant="link"
                 size="sm"
+                className="h-auto shrink-0 px-0 text-primary"
                 onClick={() => setUnlinkProvider('google')}
                 disabled={unlinkMutation.isPending}
               >
                 {unlinkMutation.isPending && unlinkProvider === 'google' ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <>
-                    <Link2Off className="h-4 w-4" />
-                    Disconnect
-                  </>
+                  'Disconnect'
                 )}
               </Button>
             ) : (
@@ -143,7 +130,6 @@ export function OAuthAccounts() {
                 size="sm"
                 onClick={handleConnectGoogle}
               >
-                <Link2 className="h-4 w-4" />
                 Connect
               </Button>
             )}

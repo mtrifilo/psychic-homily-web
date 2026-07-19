@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { MapPin, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
 import { useShowCities } from '@/features/shows'
@@ -62,12 +62,9 @@ export function FavoriteCitiesSettings() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <MapPin className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Favorite Cities</CardTitle>
-        </div>
+        <CardTitle className="text-base">Favorite cities</CardTitle>
         <CardDescription>
-          Choose your default cities for the show calendar. Selected cities will be pre-filtered when you visit the home page or shows page.
+          Cities pinned first in show filters and digests.
         </CardDescription>
       </CardHeader>
       <CardContent>

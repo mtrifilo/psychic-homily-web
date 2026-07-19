@@ -65,9 +65,9 @@ describe('OAuthAccounts', () => {
   it('renders card title and description', () => {
     renderWithProviders(<OAuthAccounts />)
 
-    expect(screen.getByText('Connected Accounts')).toBeInTheDocument()
+    expect(screen.getByText('Connected accounts')).toBeInTheDocument()
     expect(
-      screen.getByText('Manage your connected sign-in methods')
+      screen.getByText('OAuth sign-in methods linked to this account.')
     ).toBeInTheDocument()
   })
 
@@ -119,7 +119,7 @@ describe('OAuthAccounts', () => {
     expect(screen.getByText('Test User')).toBeInTheDocument()
   })
 
-  it('shows fallback "Google Account" when neither email nor name exists', () => {
+  it('shows fallback "Connected" when neither email nor name exists', () => {
     mockOAuthData = {
       accounts: [
         {
@@ -130,7 +130,7 @@ describe('OAuthAccounts', () => {
     }
     renderWithProviders(<OAuthAccounts />)
 
-    expect(screen.getByText('Google Account')).toBeInTheDocument()
+    expect(screen.getByText('Connected')).toBeInTheDocument()
   })
 
   it('shows error alert when fetching accounts fails', () => {
@@ -218,7 +218,7 @@ describe('OAuthAccounts', () => {
     expect(screen.queryByRole('button', { name: /Disconnect/ })).not.toBeInTheDocument()
   })
 
-  it('shows connected_at date', () => {
+  it('shows Google label with email for connected accounts', () => {
     mockOAuthData = {
       accounts: [
         {
@@ -230,12 +230,9 @@ describe('OAuthAccounts', () => {
     }
     renderWithProviders(<OAuthAccounts />)
 
-    // The date is formatted via toLocaleDateString, preceded by "Connected "
-    const connectedText = screen.getAllByText(/Connected /)
-    expect(connectedText.length).toBeGreaterThanOrEqual(1)
-    // Verify the date text is present (format varies by locale)
-    const dateEl = connectedText.find(el => el.textContent?.includes('2025'))
-    expect(dateEl).toBeDefined()
+    // Board J: "Google" label + mono email (no connected_at date row)
+    expect(screen.getAllByText('Google').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('user@gmail.com')).toBeInTheDocument()
   })
 
   it('calls mutateAsync with provider when Disconnect is confirmed', async () => {

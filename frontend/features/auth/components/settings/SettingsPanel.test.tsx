@@ -6,7 +6,6 @@ import { SettingsPanel } from './SettingsPanel'
 
 // --- Mocks ---
 
-
 let mockUser: {
   email: string
   email_verified: boolean
@@ -58,7 +57,6 @@ vi.mock('@/features/auth', () => ({
   useProfile: () => ({ data: null as unknown }),
 }))
 
-// Mock sub-components to isolate SettingsPanel tests
 vi.mock('./change-password', () => ({
   ChangePassword: () => <div data-testid="change-password">ChangePassword</div>,
 }))
@@ -135,8 +133,6 @@ describe('SettingsPanel', () => {
     mockGenerateCLITokenMutateAsync.mockReset()
   })
 
-  // --- Sub-component rendering ---
-
   it('renders FavoriteCitiesSettings component', () => {
     renderWithProviders(<SettingsPanel />)
     expect(screen.getByTestId('favorite-cities')).toBeInTheDocument()
@@ -169,14 +165,14 @@ describe('SettingsPanel', () => {
     expect(screen.getByTestId('change-password')).toBeInTheDocument()
   })
 
-  // --- Email Verification Section ---
+  // --- Account (email + verification fold) ---
 
-  it('renders email verification section', () => {
+  it('renders Account card with board J copy', () => {
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('Email Verification')).toBeInTheDocument()
+    expect(screen.getByText('Account')).toBeInTheDocument()
     expect(
-      screen.getByText('Verify your email to submit shows to the calendar')
+      screen.getByText('Your sign-in email. Verification unlocks contributions.')
     ).toBeInTheDocument()
   })
 
@@ -186,10 +182,10 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('user@example.com')).toBeInTheDocument()
   })
 
-  it('shows "Not Verified" badge when email is not verified', () => {
+  it('shows "Not verified" badge when email is not verified', () => {
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('Not Verified')).toBeInTheDocument()
+    expect(screen.getByText('Not verified')).toBeInTheDocument()
   })
 
   it('shows "Verified" badge when email is verified', () => {
@@ -210,33 +206,21 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Verified')).toBeInTheDocument()
   })
 
-  it('shows Send Verification Email button for unverified users', () => {
+  it('shows Resend verification button for unverified users', () => {
     renderWithProviders(<SettingsPanel />)
 
     expect(
-      screen.getByRole('button', { name: /Send Verification Email/ })
+      screen.getByRole('button', { name: /Resend verification/ })
     ).toBeInTheDocument()
   })
 
-  it('does not show Send Verification Email button for verified users', () => {
+  it('does not show Resend verification button for verified users', () => {
     mockUser = { email: 'user@example.com', email_verified: true }
     renderWithProviders(<SettingsPanel />)
 
     expect(
-      screen.queryByRole('button', { name: /Send Verification Email/ })
+      screen.queryByRole('button', { name: /Resend verification/ })
     ).not.toBeInTheDocument()
-  })
-
-  it('shows "Your email is verified" message for verified non-admin users', () => {
-    mockUser = { email: 'user@example.com', email_verified: true }
-    renderWithProviders(<SettingsPanel />)
-
-    expect(screen.getByText('Your email is verified')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'You can submit shows to the Arizona music calendar.'
-      )
-    ).toBeInTheDocument()
   })
 
   it('shows admin notice for admin users', () => {
@@ -247,13 +231,8 @@ describe('SettingsPanel', () => {
     }
     renderWithProviders(<SettingsPanel />)
 
-    // "Admin account" appears both in the email status subtitle and the admin notice
-    const adminTexts = screen.getAllByText('Admin account')
-    expect(adminTexts.length).toBeGreaterThanOrEqual(1)
     expect(
-      screen.getByText(
-        /As an admin, you can submit shows without email verification/
-      )
+      screen.getByText(/Admin accounts can contribute without email verification/)
     ).toBeInTheDocument()
   })
 
@@ -271,33 +250,22 @@ describe('SettingsPanel', () => {
 
   // --- Data Export Section ---
 
-  it('renders data export section', () => {
+  it('renders data export section with board J copy', () => {
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('Export Your Data')).toBeInTheDocument()
+    expect(screen.getByText('Export your data')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Download a copy of all your data in JSON format'
+        /Download everything tied to your account — profile, contributions, collections, saved shows — as JSON\./
       )
     ).toBeInTheDocument()
   })
 
-  it('shows export includes list', () => {
-    renderWithProviders(<SettingsPanel />)
-
-    expect(screen.getByText('Profile information')).toBeInTheDocument()
-    expect(screen.getByText('Email preferences')).toBeInTheDocument()
-    expect(screen.getByText('Connected accounts')).toBeInTheDocument()
-    expect(screen.getByText('Passkeys')).toBeInTheDocument()
-    expect(screen.getByText('Saved shows')).toBeInTheDocument()
-    expect(screen.getByText('Submitted shows')).toBeInTheDocument()
-  })
-
-  it('shows Export My Data button', () => {
+  it('shows Export JSON button', () => {
     renderWithProviders(<SettingsPanel />)
 
     expect(
-      screen.getByRole('button', { name: /Export My Data/ })
+      screen.getByRole('button', { name: /Export JSON/ })
     ).toBeInTheDocument()
   })
 
@@ -350,15 +318,15 @@ describe('SettingsPanel', () => {
     expect(screen.getByTestId('api-token-management')).toBeInTheDocument()
   })
 
-  it('does not show CLI Authentication for non-admin users', () => {
+  it('does not show CLI authentication for non-admin users', () => {
     renderWithProviders(<SettingsPanel />)
 
     expect(
-      screen.queryByText('CLI Authentication')
+      screen.queryByText('CLI authentication')
     ).not.toBeInTheDocument()
   })
 
-  it('shows CLI Authentication section for admin users', () => {
+  it('shows CLI authentication section for admin users', () => {
     mockUser = {
       email: 'admin@example.com',
       email_verified: true,
@@ -366,14 +334,14 @@ describe('SettingsPanel', () => {
     }
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('CLI Authentication')).toBeInTheDocument()
+    expect(screen.getByText('CLI authentication')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Generate a short-lived token for the admin CLI tool'
+        'Generate a short-lived token for the ph command-line tool.'
       )
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Generate CLI Token/ })
+      screen.getByRole('button', { name: /Generate CLI token/ })
     ).toBeInTheDocument()
   })
 
@@ -382,28 +350,28 @@ describe('SettingsPanel', () => {
   it('renders danger zone section', () => {
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+    expect(screen.getByText('Danger zone')).toBeInTheDocument()
     expect(
-      screen.getByText('Irreversible actions that affect your account')
+      screen.getByText(/Deleting your account removes your profile and sign-in/)
     ).toBeInTheDocument()
   })
 
-  it('shows Delete Account button', () => {
+  it('shows Delete account button', () => {
     renderWithProviders(<SettingsPanel />)
 
     expect(
-      screen.getByRole('button', { name: /Delete Account/ })
+      screen.getByRole('button', { name: /Delete account/ })
     ).toBeInTheDocument()
   })
 
-  it('opens delete account dialog when Delete Account is clicked', async () => {
+  it('opens delete account dialog when Delete account is clicked', async () => {
     const user = userEvent.setup()
     renderWithProviders(<SettingsPanel />)
 
     expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
 
     await user.click(
-      screen.getByRole('button', { name: /Delete Account/ })
+      screen.getByRole('button', { name: /Delete account/ })
     )
 
     expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
@@ -424,7 +392,7 @@ describe('SettingsPanel', () => {
     renderWithProviders(<SettingsPanel />)
 
     await user.click(
-      screen.getByRole('button', { name: /Generate CLI Token/ })
+      screen.getByRole('button', { name: /Generate CLI token/ })
     )
 
     expect(mockGenerateCLITokenMutateAsync).toHaveBeenCalled()
@@ -446,9 +414,8 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Token generation failed')).toBeInTheDocument()
   })
 
-  it('shows "Verification email sent!" success UI after Send Verification Email is clicked', async () => {
+  it('shows "Verification email sent!" success UI after Resend verification is clicked', async () => {
     mockSendVerificationMutateAsync.mockResolvedValueOnce(undefined)
-    // After awaitable resolves, the hook is in success state.
     mockSendVerificationState = {
       isPending: false,
       isError: false,
@@ -459,7 +426,7 @@ describe('SettingsPanel', () => {
     renderWithProviders(<SettingsPanel />)
 
     await user.click(
-      screen.getByRole('button', { name: /Send Verification Email/ })
+      screen.getByRole('button', { name: /Resend verification/ })
     )
 
     expect(mockSendVerificationMutateAsync).toHaveBeenCalled()
@@ -468,19 +435,15 @@ describe('SettingsPanel', () => {
         screen.getByText('Verification email sent! Check your inbox.')
       ).toBeInTheDocument()
     })
-    // After success, the send button is replaced by the success message.
     expect(
-      screen.queryByRole('button', { name: /Send Verification Email/ })
+      screen.queryByRole('button', { name: /Resend verification/ })
     ).not.toBeInTheDocument()
   })
 
-  it('triggers data-export download flow when Export My Data is clicked', async () => {
+  it('triggers data-export download flow when Export JSON is clicked', async () => {
     const exportPayload = { profile: { email: 'user@example.com' } }
     mockExportMutateAsync.mockResolvedValueOnce(exportPayload)
 
-    // Capture URL.createObjectURL + revokeObjectURL. Wrap in try/finally so
-    // a failing assertion can't poison subsequent tests in this file with a
-    // broken URL.createObjectURL stub.
     const createObjectURL = vi.fn().mockReturnValue('blob:fake-url')
     const revokeObjectURL = vi.fn()
     const originalCreateObjectURL = URL.createObjectURL
@@ -492,7 +455,7 @@ describe('SettingsPanel', () => {
       const user = userEvent.setup()
       renderWithProviders(<SettingsPanel />)
 
-      await user.click(screen.getByRole('button', { name: /Export My Data/ }))
+      await user.click(screen.getByRole('button', { name: /Export JSON/ }))
 
       expect(mockExportMutateAsync).toHaveBeenCalled()
       await waitFor(() => {
@@ -519,18 +482,17 @@ describe('SettingsPanel', () => {
     renderWithProviders(<SettingsPanel />)
 
     await user.click(
-      screen.getByRole('button', { name: /Generate CLI Token/ })
+      screen.getByRole('button', { name: /Generate CLI token/ })
     )
 
     await waitFor(() => {
       expect(screen.getByText('cli-token-xyz-789')).toBeInTheDocument()
     })
     expect(
-      screen.getByText(/This token will expire in 24 hours/)
+      screen.getByText(/This token expires in 24 hours/)
     ).toBeInTheDocument()
-    // A "Generate New Token" button now replaces the original.
     expect(
-      screen.getByRole('button', { name: /Generate New Token/ })
+      screen.getByRole('button', { name: /Generate new token/ })
     ).toBeInTheDocument()
   })
 
@@ -544,8 +506,6 @@ describe('SettingsPanel', () => {
       token: 'cli-copyable-token',
     })
 
-    // userEvent v14 installs a clipboard stub on navigator.clipboard at
-    // setup() time. Spying after setup() ensures the test sees the call.
     const user = userEvent.setup()
     const writeTextSpy = vi
       .spyOn(navigator.clipboard, 'writeText')
@@ -554,14 +514,13 @@ describe('SettingsPanel', () => {
     renderWithProviders(<SettingsPanel />)
 
     await user.click(
-      screen.getByRole('button', { name: /Generate CLI Token/ })
+      screen.getByRole('button', { name: /Generate CLI token/ })
     )
 
     await waitFor(() => {
       expect(screen.getByText('cli-copyable-token')).toBeInTheDocument()
     })
 
-    // Find the icon-only Copy button — it sits next to the token <code>.
     const tokenCodeEl = screen.getByText('cli-copyable-token')
     const copyBtn = tokenCodeEl.parentElement?.querySelector('button')
     expect(copyBtn).toBeTruthy()
@@ -574,37 +533,30 @@ describe('SettingsPanel', () => {
     writeTextSpy.mockRestore()
   })
 
-  it('opens delete account dialog when Delete Account button is clicked (verifies open state propagates)', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<SettingsPanel />)
-
-    // Dialog mock only mounts when open=true (per the vi.mock above), so its
-    // presence verifies the open-state wiring on the trigger button.
-    expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: /Delete Account/ })
-    )
-
-    expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
-  })
-
-  // ---- Structural / ordering smoke test (the panel is single-column, not tabs) ----
-
-  it('renders sub-sections in expected vertical order: cities, notifications, reply permission', () => {
+  it('renders board J vertical order: account, cities, notifications, calendar, reply', () => {
     const { container } = renderWithProviders(<SettingsPanel />)
 
-    const sectionIds = [
+    const texts = [
+      'Account',
       'favorite-cities',
       'notification-settings',
+      'calendar-feed-section',
       'reply-permission-settings',
+      'oauth-accounts',
+      'change-password',
     ]
-    const positions = sectionIds.map(id =>
+
+    // Account is a CardTitle text node; the rest are mocked testids.
+    const accountIdx = Array.from(container.querySelectorAll('*')).findIndex(
+      el => el.textContent === 'Account' && el.children.length === 0
+    )
+    expect(accountIdx).toBeGreaterThanOrEqual(0)
+
+    const positions = texts.slice(1).map(id =>
       Array.from(container.querySelectorAll('[data-testid]')).findIndex(
         el => el.getAttribute('data-testid') === id
       )
     )
-    // Each section is present (positions[i] !== -1) and in ascending order.
     expect(positions.every(p => p !== -1)).toBe(true)
     for (let i = 1; i < positions.length; i++) {
       expect(positions[i]).toBeGreaterThan(positions[i - 1])

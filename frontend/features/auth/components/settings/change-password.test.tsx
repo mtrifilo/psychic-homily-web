@@ -39,17 +39,17 @@ describe('ChangePassword', () => {
   it('renders all 3 fields and submit button without errors initially', () => {
     renderForm()
 
-    expect(screen.getByLabelText('Current Password')).toBeInTheDocument()
-    expect(screen.getByLabelText('New Password')).toBeInTheDocument()
-    expect(screen.getByLabelText('Confirm New Password')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Change Password' })).toBeEnabled()
+    expect(screen.getByLabelText('Current password')).toBeInTheDocument()
+    expect(screen.getByLabelText('New password')).toBeInTheDocument()
+    expect(screen.getByLabelText('Confirm new password')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Update password' })).toBeEnabled()
     expect(screen.queryAllByRole('alert')).toHaveLength(0)
   })
 
   it('shows currentPassword error on submit with empty fields', async () => {
     const { user } = renderForm()
 
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getByText('Current password is required')).toBeInTheDocument()
@@ -59,10 +59,10 @@ describe('ChangePassword', () => {
   it('shows newPassword error for password shorter than 12 chars', async () => {
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'short')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'short')
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'short')
+    await user.type(screen.getByLabelText('Confirm new password'), 'short')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getByText(/Password must be at least 12 characters/)).toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('ChangePassword', () => {
     const { user } = renderForm()
 
     // Submit empty form — all 3 field errors should appear
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getByText('Please confirm your new password')).toBeInTheDocument()
@@ -87,10 +87,10 @@ describe('ChangePassword', () => {
   it('shows "Passwords do not match" Zod error when passwords differ', async () => {
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'differentPassword456!')
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'differentPassword456!')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getByText('Passwords do not match')).toBeInTheDocument()
@@ -101,10 +101,10 @@ describe('ChangePassword', () => {
     const { user } = renderForm()
     const samePassword = 'samePassword123!'
 
-    await user.type(screen.getByLabelText('Current Password'), samePassword)
-    await user.type(screen.getByLabelText('New Password'), samePassword)
-    await user.type(screen.getByLabelText('Confirm New Password'), samePassword)
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.type(screen.getByLabelText('Current password'), samePassword)
+    await user.type(screen.getByLabelText('New password'), samePassword)
+    await user.type(screen.getByLabelText('Confirm new password'), samePassword)
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getByText('New password must be different from current password')).toBeInTheDocument()
@@ -114,7 +114,7 @@ describe('ChangePassword', () => {
   it('shows PasswordStrengthMeter for new password field', async () => {
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('New Password'), 'abc')
+    await user.type(screen.getByLabelText('New password'), 'abc')
 
     // The strength meter renders its section heading when password is non-empty
     await waitFor(() => {
@@ -125,9 +125,9 @@ describe('ChangePassword', () => {
   it('shows password match indicator when confirm field has value and no errors', async () => {
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
 
     await waitFor(() => {
       expect(screen.getByText('Passwords match')).toBeInTheDocument()
@@ -137,7 +137,7 @@ describe('ChangePassword', () => {
   it('does not show duplicate error messages', async () => {
     const { user } = renderForm()
 
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getAllByRole('alert').length).toBeGreaterThanOrEqual(1)
@@ -153,10 +153,10 @@ describe('ChangePassword', () => {
   it('calls mutation with correct payload on valid submit', async () => {
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(mockMutate).toHaveBeenCalledWith(
@@ -172,10 +172,10 @@ describe('ChangePassword', () => {
     })
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => {
       expect(screen.getByText('Password changed successfully')).toBeInTheDocument()
@@ -196,7 +196,7 @@ describe('ChangePassword', () => {
   it('toggles show/hide for current password field', async () => {
     const { user } = renderForm()
 
-    const input = screen.getByLabelText('Current Password')
+    const input = screen.getByLabelText('Current password')
     expect(input).toHaveAttribute('type', 'password')
 
     const toggleButtons = screen.getAllByRole('button', { name: 'Show password' })
@@ -209,7 +209,7 @@ describe('ChangePassword', () => {
   it('toggles show/hide for new password field', async () => {
     const { user } = renderForm()
 
-    const input = screen.getByLabelText('New Password')
+    const input = screen.getByLabelText('New password')
     expect(input).toHaveAttribute('type', 'password')
 
     // Second toggle button is for new password
@@ -222,7 +222,7 @@ describe('ChangePassword', () => {
   it('toggles show/hide for confirm password field', async () => {
     const { user } = renderForm()
 
-    const input = screen.getByLabelText('Confirm New Password')
+    const input = screen.getByLabelText('Confirm new password')
     expect(input).toHaveAttribute('type', 'password')
 
     // Third toggle button is for confirm password
@@ -236,11 +236,11 @@ describe('ChangePassword', () => {
     mockMutationState = { isPending: true, isError: false, error: null }
     renderForm()
 
-    // The submit-button label switches from "Change Password" to the pending
+    // The submit-button label switches from "Update password" to the pending
     // copy whenever mutation.isPending is true (independent of form-validity).
     expect(screen.getByText('Changing password...')).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Change Password' })
+      screen.queryByRole('button', { name: 'Update password' })
     ).not.toBeInTheDocument()
   })
 
@@ -250,9 +250,9 @@ describe('ChangePassword', () => {
 
     // Fill in valid form values so canSubmit isn't the reason the button is
     // disabled — the disabled state must be driven by mutation.isPending alone.
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
 
     const submitButton = screen.getByText('Changing password...').closest('button')
     expect(submitButton).toBeDisabled()
@@ -264,18 +264,18 @@ describe('ChangePassword', () => {
     })
     const { user } = renderForm()
 
-    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
-    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
-    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
-    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
 
     // After success, form.reset() empties the inputs.
     await waitFor(() => {
       expect(screen.getByText('Password changed successfully')).toBeInTheDocument()
     })
-    expect(screen.getByLabelText('Current Password')).toHaveValue('')
-    expect(screen.getByLabelText('New Password')).toHaveValue('')
-    expect(screen.getByLabelText('Confirm New Password')).toHaveValue('')
+    expect(screen.getByLabelText('Current password')).toHaveValue('')
+    expect(screen.getByLabelText('New password')).toHaveValue('')
+    expect(screen.getByLabelText('Confirm new password')).toHaveValue('')
   })
 
   it('falls back to generic error copy when mutation error has no message', () => {

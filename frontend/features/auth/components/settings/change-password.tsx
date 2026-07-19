@@ -8,7 +8,7 @@ import { useChangePassword } from '@/features/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 
@@ -82,13 +82,7 @@ export function ChangePassword() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Lock className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Change Password</CardTitle>
-        </div>
-        <CardDescription>
-          Update your password to keep your account secure
-        </CardDescription>
+        <CardTitle className="text-base">Change password</CardTitle>
       </CardHeader>
       <CardContent>
         <form
@@ -119,7 +113,7 @@ export function ChangePassword() {
           <form.Field name="currentPassword">
             {field => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Current Password</Label>
+                <Label htmlFor={field.name}>Current password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -156,7 +150,7 @@ export function ChangePassword() {
           <form.Field name="newPassword">
             {field => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>New Password</Label>
+                <Label htmlFor={field.name}>New password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -198,7 +192,7 @@ export function ChangePassword() {
           <form.Field name="confirmPassword">
             {field => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Confirm New Password</Label>
+                <Label htmlFor={field.name}>Confirm new password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -254,7 +248,7 @@ export function ChangePassword() {
                     Changing password...
                   </>
                 ) : (
-                  'Change Password'
+                  'Update password'
                 )}
               </Button>
             )}
