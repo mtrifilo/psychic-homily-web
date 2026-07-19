@@ -239,6 +239,11 @@ describe('ProfilePage (PSY-683)', () => {
       setAuthenticated({
         user: { ...AUTHED_USER, username: null, display_name: '', bio: '' },
       })
+      mockMutateAsync.mockResolvedValueOnce({
+        success: true,
+        message: 'ok',
+        user: { username: 'newhandle' },
+      })
       const user = userEvent.setup()
       renderWithProviders(<ProfilePage />)
 
@@ -250,6 +255,22 @@ describe('ProfilePage (PSY-683)', () => {
       })
       expect(mockPush).toHaveBeenCalledWith('/users/newhandle')
       expect(screen.queryByText(/profile updated/i)).toBeNull()
+    })
+
+    it('falls back to the form username when the mutation response omits user', async () => {
+      setAuthenticated({
+        user: { ...AUTHED_USER, username: '', display_name: '', bio: '' },
+      })
+      mockMutateAsync.mockResolvedValueOnce({ success: true, message: 'ok' })
+      const user = userEvent.setup()
+      renderWithProviders(<ProfilePage />)
+
+      await user.type(screen.getByLabelText(/username/i), 'fallbackhandle')
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/users/fallbackhandle')
+      })
     })
 
     it('does not redirect when editing an already-set username', async () => {

@@ -77,16 +77,19 @@ function ProfileTab() {
     const claimedUsername = username.trim()
 
     try {
-      await updateProfile.mutateAsync({
+      const result = await updateProfile.mutateAsync({
         username: claimedUsername || undefined,
         display_name: displayName.trim(),
         bio: bio.trim(),
       })
 
       // First-time username claim: land on the new public profile immediately.
+      // Prefer the server-returned username in case persistence ever normalizes
+      // the handle; fall back to the trimmed form value.
       // Editing an already-set username stays on /profile with the toast.
       if (wasUsernameEmpty && claimedUsername) {
-        router.push(`/users/${claimedUsername}`)
+        const destUsername = result.user?.username?.trim() || claimedUsername
+        router.push(`/users/${destUsername}`)
         return
       }
 
