@@ -20,7 +20,6 @@ import {
 } from '@/components/ui/dialog'
 import {
   Key,
-  Plus,
   Trash2,
   Copy,
   Check,
@@ -177,18 +176,20 @@ export function APITokenManagement() {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Key className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg">API Tokens</CardTitle>
+          <div>
+            <CardTitle className="text-base">API tokens</CardTitle>
+            <CardDescription className="mt-1.5">
+              Programmatic access for the ph CLI and integrations. Tokens are
+              shown once at creation.
+            </CardDescription>
           </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
             if (!open) handleCloseCreateDialog()
             else setIsCreateDialogOpen(true)
           }}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-2">
-                <Plus className="h-4 w-4" />
-                Create Token
+              <Button size="sm" variant="outline">
+                Generate new token
               </Button>
             </DialogTrigger>
             <DialogContent>

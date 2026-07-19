@@ -58,9 +58,9 @@ describe('FavoriteCitiesSettings', () => {
   it('renders the card title and description', () => {
     renderWithProviders(<FavoriteCitiesSettings />)
 
-    expect(screen.getByText('Favorite Cities')).toBeInTheDocument()
+    expect(screen.getByText('Favorite cities')).toBeInTheDocument()
     expect(
-      screen.getByText(/Choose your default cities for the show calendar/)
+      screen.getByText(/Cities pinned first in show filters and digests/)
     ).toBeInTheDocument()
   })
 

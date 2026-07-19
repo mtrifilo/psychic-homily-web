@@ -7,14 +7,13 @@ import {
   type ReplyPermission,
 } from '@/features/comments'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Loader2, MessageSquare } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 /**
  * Settings panel section for the user's default reply permission. PSY-296.
  *
  * Applied to all new top-level comments the user creates. Per-comment
- * override is still available from the Comment form.
+ * override is still available from the CommentForm.
  */
 export function ReplyPermissionSettings() {
   const { data: profileData } = useProfile()
@@ -33,37 +32,23 @@ export function ReplyPermissionSettings() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5" />
-          <CardTitle>Default reply permission</CardTitle>
-        </div>
+        <CardTitle className="text-base">Default reply permission</CardTitle>
         <CardDescription>
-          Applied to new comments you create. You can still change this
-          per-comment.
+          Who can reply to your comments and field notes by default.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="default-reply-permission">Who can reply</Label>
-            <p className="text-sm text-muted-foreground">
-              &ldquo;Everyone&rdquo; is the default. Choose &ldquo;Followers
-              only&rdquo; or &ldquo;Replies disabled&rdquo; if you prefer a
-              quieter conversation.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {setDefault.isPending && (
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            )}
-            <ReplyPermissionSelect
-              id="default-reply-permission"
-              value={current}
-              onChange={handleChange}
-              disabled={setDefault.isPending}
-              ariaLabel="Default reply permission"
-            />
-          </div>
+        <div className="flex items-center gap-2">
+          {setDefault.isPending && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
+          <ReplyPermissionSelect
+            id="default-reply-permission"
+            value={current}
+            onChange={handleChange}
+            disabled={setDefault.isPending}
+            ariaLabel="Default reply permission"
+          />
         </div>
         {setDefault.isError && (
           <p className="mt-2 text-sm text-destructive">

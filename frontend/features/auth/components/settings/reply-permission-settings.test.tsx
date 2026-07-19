@@ -55,15 +55,15 @@ describe('ReplyPermissionSettings', () => {
     expect(screen.getByText('Default reply permission')).toBeInTheDocument()
     expect(
       screen.getByText(
-        /Applied to new comments you create. You can still change this per-comment./
+        /Who can reply to your comments and field notes by default./
       )
     ).toBeInTheDocument()
   })
 
-  it('renders the labeled select control with the "Who can reply" label', () => {
+  it('renders the select control with accessible name', () => {
     renderWithProviders(<ReplyPermissionSettings />)
 
-    expect(screen.getByLabelText('Who can reply')).toBeInTheDocument()
+    expect(screen.getByLabelText('Default reply permission')).toBeInTheDocument()
     expect(screen.getByTestId('reply-permission-select')).toBeInTheDocument()
   })
 

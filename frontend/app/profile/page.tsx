@@ -239,21 +239,7 @@ function ProfileTab() {
       {/* Tier + advancement requirements (board-H order: after the form) */}
       <TierAdvancementCard tier={(user?.user_tier ?? 'new_user')} />
 
-      {/* Account details (read-only) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Account Details</CardTitle>
-          <CardDescription>Your account information</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Email</p>
-              <p className="text-sm">{user?.email}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Account email + verification live on Settings (board J / PSY-1414) */}
     </div>
   )
 }

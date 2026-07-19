@@ -69,7 +69,7 @@ describe('APITokenManagement', () => {
   it('renders card title and description', () => {
     renderWithProviders(<APITokenManagement />)
 
-    expect(screen.getByText('API Tokens')).toBeInTheDocument()
+    expect(screen.getByText('API tokens')).toBeInTheDocument()
     expect(
       screen.getByText(
         'Long-lived tokens for the local discovery app and other admin tools'
@@ -77,11 +77,11 @@ describe('APITokenManagement', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows Create Token button', () => {
+  it('shows Generate new token button', () => {
     renderWithProviders(<APITokenManagement />)
 
     expect(
-      screen.getByRole('button', { name: /Create Token/ })
+      screen.getByRole('button', { name: /Generate new token/ })
     ).toBeInTheDocument()
   })
 
@@ -179,12 +179,12 @@ describe('APITokenManagement', () => {
     ).toBeInTheDocument()
   })
 
-  it('opens create token dialog when Create Token is clicked', async () => {
+  it('opens create token dialog when Generate new token is clicked', async () => {
     mockTokensData = { tokens: [] }
     const user = userEvent.setup()
     renderWithProviders(<APITokenManagement />)
 
-    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
 
     expect(screen.getByText('Create API Token')).toBeInTheDocument()
     expect(screen.getByLabelText('Description (optional)')).toBeInTheDocument()
@@ -237,10 +237,10 @@ describe('APITokenManagement', () => {
 
     // Find the delete/revoke button on the token row (the ghost icon button)
     const revokeButtons = screen.getAllByRole('button')
-    // The delete button is the one that's not "Create Token"
+    // The delete button is the one that's not "Generate new token"
     const deleteBtn = revokeButtons.find(
       btn =>
-        btn.textContent !== 'Create Token' &&
+        btn.textContent !== 'Generate new token' &&
         !btn.textContent?.includes('Create')
     )
     expect(deleteBtn).toBeDefined()
@@ -282,7 +282,7 @@ describe('APITokenManagement', () => {
     const allButtons = screen.getAllByRole('button')
     const deleteBtn = allButtons.find(
       btn =>
-        btn.textContent !== 'Create Token' &&
+        btn.textContent !== 'Generate new token' &&
         !btn.textContent?.includes('Create')
     )
     await user.click(deleteBtn!)
@@ -307,7 +307,7 @@ describe('APITokenManagement', () => {
     renderWithProviders(<APITokenManagement />)
 
     // Open create dialog.
-    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
 
     // Fill description, override expiration_days.
     await user.type(
@@ -318,7 +318,7 @@ describe('APITokenManagement', () => {
     await user.clear(expirationInput)
     await user.type(expirationInput, '30')
 
-    // Submit (the dialog has two "Create Token" buttons — the trigger and the
+    // Submit (trigger is "Generate new token"; dialog submit is still "Create Token" —
     // confirm button inside the dialog footer). Pick the dialog one.
     const submitBtn = screen.getAllByRole('button', { name: /Create Token/ })
       .find(btn => btn.closest('[role="dialog"]'))
@@ -344,7 +344,7 @@ describe('APITokenManagement', () => {
     const user = userEvent.setup()
     renderWithProviders(<APITokenManagement />)
 
-    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
 
     // Don't touch the description (empty) or expiration_days (default 90).
     const submitBtn = screen.getAllByRole('button', { name: /Create Token/ })
@@ -373,7 +373,7 @@ describe('APITokenManagement', () => {
     renderWithProviders(<APITokenManagement />)
 
     // Issue the token first.
-    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
     const submitBtn = screen.getAllByRole('button', { name: /Create Token/ })
       .find(btn => btn.closest('[role="dialog"]'))
     await user.click(submitBtn!)
@@ -412,7 +412,7 @@ describe('APITokenManagement', () => {
 
     // Open the dialog so the in-dialog submit button is mounted; the
     // `mutation.isPending` flag drives `disabled` on that button.
-    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
 
     const submitBtn = screen
       .getAllByRole('button', { name: /Create Token/ })

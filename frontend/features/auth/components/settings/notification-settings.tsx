@@ -10,21 +10,21 @@ import { useSetSceneDigestPreference } from '@/features/scenes'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Bell, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 /**
- * Notification preference toggles. Each row follows the same shape — a label
- * + supporting text on the left, a Switch (with optional pending spinner) on
- * the right — so the surface stays scannable as we add more channels.
+ * Notification preference toggles (board J / PSY-1414). Each row: label +
+ * supporting text on the left, Switch (optional pending spinner) on the right.
  *
  * Toggles wired up:
- *   - Show reminders (PSY): email 24h before saved shows.
- *   - Weekly collection digest (PSY-350 / PSY-515): batched email of new
- *     items in collections you follow. Server default is OFF (opt-IN); the
- *     UI shows the unchecked Switch until the user enables it.
- *   - Tier-change + edit-review emails (PSY-756 / PSY-807): per-category
- *     opt-OUT. Server default is ON for both, so an undefined preference
- *     renders the Switch checked until the user opts out.
+ *   - Show reminders — day-before email for saved shows.
+ *   - Weekly collection digest (PSY-350 / PSY-515): opt-IN; server default OFF.
+ *   - Weekly scene digest (PSY-1342): opt-IN; server default OFF.
+ *   - Tier-change + edit-review emails (PSY-756 / PSY-807): opt-OUT; default ON.
+ *
+ * Board J shows only reminders + tier + edit; digests stay here until they
+ * move to per-collection / per-scene surfaces (board copy notes digest
+ * frequency lives with each followed collection).
  */
 export function NotificationSettings() {
   const { data: profileData } = useProfile()
@@ -68,23 +68,20 @@ export function NotificationSettings() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Bell className="h-5 w-5" />
-          <CardTitle>Notifications</CardTitle>
-        </div>
+        <CardTitle className="text-base">Notifications</CardTitle>
         <CardDescription>
-          Control how you&apos;re notified about upcoming shows, your
-          collections, and your contributions
+          Email and reminder preferences. Digest frequency lives with each
+          followed collection.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Show reminders */}
         <div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label htmlFor="show-reminders">Show reminders</Label>
               <p className="text-sm text-muted-foreground">
-                Get an email 24 hours before your saved shows
+                Day-before reminders for shows you&apos;ve saved
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -170,12 +167,11 @@ export function NotificationSettings() {
 
         {/* Tier-change emails (PSY-756 / PSY-807) */}
         <div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label htmlFor="tier-notifications">Tier-change emails</Label>
               <p className="text-sm text-muted-foreground">
-                Get an email when your contributor tier changes (promotion,
-                demotion, or an at-risk warning).
+                When your contributor tier advances
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -199,11 +195,11 @@ export function NotificationSettings() {
 
         {/* Edit-review emails (PSY-756 / PSY-807) */}
         <div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label htmlFor="edit-notifications">Edit-review emails</Label>
               <p className="text-sm text-muted-foreground">
-                Get an email when your submitted edits are approved or rejected.
+                When a pending edit you submitted is reviewed
               </p>
             </div>
             <div className="flex items-center gap-2">

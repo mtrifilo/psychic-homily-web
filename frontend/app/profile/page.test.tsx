@@ -160,8 +160,6 @@ describe('ProfilePage (PSY-683)', () => {
       expect((screen.getByLabelText(/^bio$/i) as HTMLTextAreaElement).value).toBe(
         'I like loud guitars.'
       )
-      // Read-only account email is surfaced too.
-      expect(screen.getByText('alice@example.com')).toBeTruthy()
     })
 
     it('disables Save Changes initially (no changes) and enables it after an edit', async () => {
