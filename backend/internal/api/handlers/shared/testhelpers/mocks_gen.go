@@ -2501,6 +2501,49 @@ func (m *MockPendingEditService) CancelPendingEdit(editID uint, userID uint) err
 }
 
 // ============================================================================
+// Mock: RadioPlayMatchSuggestionServiceInterface
+// ============================================================================
+
+type MockRadioPlayMatchSuggestionService struct {
+	CreateSuggestionFn        func(uint, uint, *contracts.CreateRadioPlayMatchSuggestionRequest) (*contracts.RadioPlayMatchSuggestionEntry, error)
+	GetOwnPendingSuggestionFn func(uint, uint) (*contracts.RadioPlayMatchSuggestionEntry, error)
+	ListPendingSuggestionsFn  func(int, int) (*contracts.RadioPlayMatchSuggestionListResult, error)
+	AcceptSuggestionFn        func(uint, uint, *contracts.AcceptRadioPlayMatchSuggestionRequest) (*contracts.RadioPlayMatchSuggestionReviewResult, error)
+	RejectSuggestionFn        func(uint, uint, *contracts.RejectRadioPlayMatchSuggestionRequest) (*contracts.RadioPlayMatchSuggestionReviewResult, error)
+}
+
+func (m *MockRadioPlayMatchSuggestionService) CreateSuggestion(playID uint, submitterID uint, req *contracts.CreateRadioPlayMatchSuggestionRequest) (*contracts.RadioPlayMatchSuggestionEntry, error) {
+	if m.CreateSuggestionFn != nil {
+		return m.CreateSuggestionFn(playID, submitterID, req)
+	}
+	return nil, nil
+}
+func (m *MockRadioPlayMatchSuggestionService) GetOwnPendingSuggestion(playID uint, submitterID uint) (*contracts.RadioPlayMatchSuggestionEntry, error) {
+	if m.GetOwnPendingSuggestionFn != nil {
+		return m.GetOwnPendingSuggestionFn(playID, submitterID)
+	}
+	return nil, nil
+}
+func (m *MockRadioPlayMatchSuggestionService) ListPendingSuggestions(limit int, offset int) (*contracts.RadioPlayMatchSuggestionListResult, error) {
+	if m.ListPendingSuggestionsFn != nil {
+		return m.ListPendingSuggestionsFn(limit, offset)
+	}
+	return nil, nil
+}
+func (m *MockRadioPlayMatchSuggestionService) AcceptSuggestion(suggestionID uint, reviewerUserID uint, req *contracts.AcceptRadioPlayMatchSuggestionRequest) (*contracts.RadioPlayMatchSuggestionReviewResult, error) {
+	if m.AcceptSuggestionFn != nil {
+		return m.AcceptSuggestionFn(suggestionID, reviewerUserID, req)
+	}
+	return nil, nil
+}
+func (m *MockRadioPlayMatchSuggestionService) RejectSuggestion(suggestionID uint, reviewerUserID uint, req *contracts.RejectRadioPlayMatchSuggestionRequest) (*contracts.RadioPlayMatchSuggestionReviewResult, error) {
+	if m.RejectSuggestionFn != nil {
+		return m.RejectSuggestionFn(suggestionID, reviewerUserID, req)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: RadioServiceInterface
 // ============================================================================
 
@@ -4477,6 +4520,7 @@ var _ contracts.LinkSuggestionServiceInterface = (*MockLinkSuggestionService)(ni
 var _ contracts.NotificationFilterServiceInterface = (*MockNotificationFilterService)(nil)
 var _ contracts.PasswordValidatorInterface = (*MockPasswordValidator)(nil)
 var _ contracts.PendingEditServiceInterface = (*MockPendingEditService)(nil)
+var _ contracts.RadioPlayMatchSuggestionServiceInterface = (*MockRadioPlayMatchSuggestionService)(nil)
 var _ contracts.RadioServiceInterface = (*MockRadioService)(nil)
 var _ contracts.ReleaseServiceInterface = (*MockReleaseService)(nil)
 var _ contracts.RequestServiceInterface = (*MockRequestService)(nil)
