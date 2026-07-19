@@ -6,14 +6,25 @@ import { Card, CardContent } from '@/components/ui/card'
 import { UserTierBadge } from './UserTierBadge'
 import { getNextTierInfo, TIERS_HELP_PATH } from '@/lib/tiers'
 import { useAdvancementProgress } from '@/features/auth'
-import type { AdvancementRequirement } from '@/features/auth'
-import type { UserTier } from '@/features/auth'
+import type { AdvancementRequirement, UserTier } from '@/features/auth'
 
 interface TierAdvancementCardProps {
   tier: UserTier
 }
 
 const APPROVED_EDITS_ID = 'approved_edits'
+
+const KNOWN_TIERS: ReadonlySet<string> = new Set([
+  'new_user',
+  'contributor',
+  'trusted_contributor',
+  'local_ambassador',
+])
+
+function asUserTier(value: string | undefined, fallback: UserTier): UserTier {
+  if (value && KNOWN_TIERS.has(value)) return value as UserTier
+  return fallback
+}
 
 function findApprovedEdits(
   requirements: AdvancementRequirement[] | undefined
@@ -32,10 +43,16 @@ function progressPercent(current: number, threshold: number): number {
  * primary approved-edits progress bar, and a dense met/unmet requirements list.
  */
 export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
-  const next = getNextTierInfo(tier)
-  // Highest tier has nothing to fetch; skip the request.
-  const { data: advancement } = useAdvancementProgress(Boolean(next))
+  // Prefer the live advancement payload's current_tier so a stale auth-context
+  // tier (common right after daily auto-promotion) can't mash mismatched
+  // requirement labels with a counter from a different gate.
+  const { data: advancement, isLoading } = useAdvancementProgress(true)
+  const effectiveTier = asUserTier(advancement?.current_tier, tier)
+  const next = getNextTierInfo(effectiveTier)
 
+  // Highest tier: keep the fetch cheap once we know — if the prop already says
+  // ambassador and advancement hasn't loaded, skip waiting on the bar path.
+  // (Hook always runs; we just don't render progress UI without `next`.)
   const edits = findApprovedEdits(advancement?.requirements)
   const current = edits?.current ?? 0
   const threshold = edits?.threshold ?? 0
@@ -49,13 +66,14 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
   const metById = new Map(
     (advancement?.requirements ?? []).map(r => [r.requirement, r.met])
   )
+  const ariaNow = Math.min(Math.floor(current), Math.floor(threshold || 0))
 
   return (
     <Card>
       <CardContent className="p-5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold">Contributor tier</h2>
-          <UserTierBadge tier={tier} />
+          <UserTierBadge tier={effectiveTier} />
         </div>
 
         {next ? (
@@ -77,7 +95,7 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
               <div
                 className="h-2 w-full overflow-hidden rounded bg-muted"
                 role="progressbar"
-                aria-valuenow={Math.floor(current)}
+                aria-valuenow={ariaNow}
                 aria-valuemin={0}
                 aria-valuemax={Math.floor(threshold)}
                 aria-label="Approved edits toward next tier"
@@ -95,10 +113,12 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
               </p>
               <ul className="mt-1.5 space-y-1 text-sm">
                 {next.advancementRequirements?.map(req => {
-                  const met = metById.get(req.id)
+                  // Only treat as met when advancement data has arrived; while
+                  // loading, keep neutral bullets so we don't flash false-unmet.
+                  const met = !isLoading && metById.get(req.id) === true
                   return (
                     <li key={req.id} className="flex items-baseline gap-2">
-                      {met === true ? (
+                      {met ? (
                         <Check
                           aria-label="Met"
                           className="h-3 w-3 shrink-0 text-primary translate-y-0.5"
@@ -111,11 +131,7 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
                           ●
                         </span>
                       )}
-                      <span
-                        className={
-                          met === true ? 'text-muted-foreground' : undefined
-                        }
-                      >
+                      <span className={met ? 'text-muted-foreground' : undefined}>
                         {req.text}
                       </span>
                     </li>
