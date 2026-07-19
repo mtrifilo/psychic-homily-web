@@ -47,11 +47,23 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
   // so the browser's native fragment scroll on a cold-loaded / shared hash URL
   // fires before the target exists. Scroll once the station data lands (mirrors
   // StationGraph's own #graph workaround). In-session taps already work.
+  //
+  // Keyed by slug, not a bare boolean: NetworkTabBar switches between sibling
+  // stations by URL change WITHOUT remounting this component (same reason
+  // StationGraph below is key={station.slug}), so a boolean ref would fire once
+  // and stay latched, dead for every sibling reached via back/forward to a
+  // #recent-playlists hash.
   const hash = useUrlHash()
-  const scrolledToPlaylists = useRef(false)
+  const scrolledForSlug = useRef<string | null>(null)
   useEffect(() => {
-    if (hash !== `#${STATION_PLAYLISTS_ANCHOR}` || scrolledToPlaylists.current || !station) return
-    scrolledToPlaylists.current = true
+    if (
+      hash !== `#${STATION_PLAYLISTS_ANCHOR}` ||
+      !station ||
+      scrolledForSlug.current === station.slug
+    ) {
+      return
+    }
+    scrolledForSlug.current = station.slug
     document.getElementById(STATION_PLAYLISTS_ANCHOR)?.scrollIntoView()
   }, [hash, station])
 

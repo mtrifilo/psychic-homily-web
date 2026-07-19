@@ -157,11 +157,14 @@ vi.mock('./VenueShowsList', () => ({
 // PSY-365: VenueBillNetwork pulls in d3-force + react-force-graph (canvas
 // can't render in jsdom). Stub it; coverage lives in
 // VenueBillNetwork.test.tsx.
-vi.mock('./VenueBillNetwork', () => ({
+// Keep the REAL VENUE_SHOWS_ANCHOR (via importActual) so the anchor-id test
+// exercises the actual constant, not a hand-typed copy — only the heavy canvas
+// component is stubbed.
+vi.mock('./VenueBillNetwork', async importOriginal => ({
+  ...(await importOriginal<typeof import('./VenueBillNetwork')>()),
   VenueBillNetwork: ({ venueIdOrSlug }: { venueIdOrSlug: number | string }) => (
     <div data-testid="venue-bill-network">Bill Network for {String(venueIdOrSlug)}</div>
   ),
-  VENUE_SHOWS_ANCHOR: 'venue-shows',
 }))
 
 vi.mock('@/features/contributions', () => ({

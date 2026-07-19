@@ -10,9 +10,11 @@ import Link from 'next/link'
  * VenueBillNetwork so the states can't drift apart per surface again.
  *
  * - Error states pass `role="alert"` so the settled failure is announced.
- * - Mobile teasers pass a `linkHref`/`linkLabel` pair only when a link-out
- *   target exists (mirrors HomeSceneGraph / InlineGraph's teaser pattern);
- *   surfaces whose non-graph content lives on the same page omit it.
+ * - Mobile teasers pass a `linkHref`/`linkLabel` pair to point the visitor at
+ *   a browse-able alternative (PSY-1472): the four Section detail-page teasers
+ *   (scene / station / venue / collection) now scroll to that page's own list
+ *   (`#scene-artists`, `#recent-playlists`, `#venue-shows`, `#items`), and the
+ *   homepage teaser links to the scene page. Error-state cards omit the link.
  * - Sizing is the caller's via `className` (same contract as GraphSkeleton)
  *   so each surface can match its own canvas/skeleton height budget.
  */

@@ -51,9 +51,12 @@ vi.mock('next/link', () => ({
 vi.mock('./ScenePulse', () => ({
   ScenePulse: () => <div data-testid="scene-pulse" />,
 }))
-vi.mock('./SceneGraph', () => ({
+// Keep the REAL SCENE_ARTISTS_ANCHOR (via importActual) so the anchor-id test
+// below exercises the actual constant, not a hand-typed copy — only the heavy
+// canvas component is stubbed.
+vi.mock('./SceneGraph', async importOriginal => ({
+  ...(await importOriginal<typeof import('./SceneGraph')>()),
   SceneGraph: () => <div data-testid="scene-graph" />,
-  SCENE_ARTISTS_ANCHOR: 'scene-artists',
 }))
 
 const mockUseSceneDetail = vi.fn()

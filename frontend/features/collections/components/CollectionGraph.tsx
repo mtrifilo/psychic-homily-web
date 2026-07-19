@@ -255,8 +255,11 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
         )}
 
         {/* Sub-640px: shared teaser card (PSY-1446) — says WHY + gives a way
-            forward (PSY-1472). Link-out scrolls to the collection's item list
-            on this page (#items, CollectionDetail). */}
+            forward (PSY-1472). Link-out scrolls to the collection's item list.
+            Unlike the scene/station/venue anchors (new PSY-1472 constants),
+            "#items" is the pre-existing, load-bearing CollectionAnchorNav anchor
+            (ANCHOR_SECTIONS in CollectionDetail + the id on CollectionItemsList),
+            reused here deliberately rather than duplicated as a new constant. */}
         {!isLoading && data && nodeCount > 0 && !graphAvailable && containerWidth !== null && (
           <GraphStateCard
             className={GRAPH_TEASER_HEIGHT_CLASS}

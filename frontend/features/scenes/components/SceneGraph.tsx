@@ -303,7 +303,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
           hasEnoughForGraph && (
             <GraphStateCard
               className={GRAPH_TEASER_HEIGHT_CLASS}
-              message={`The ${city}${state ? `, ${state}` : ''} scene is a map of who plays with whom. The interactive version needs a larger screen.`}
+              message={`The ${city}${state ? `, ${state}` : ''} scene is a map of who plays with whom. Needs a larger screen.`}
               linkHref={`#${SCENE_ARTISTS_ANCHOR}`}
               linkLabel={`Browse ${city} artists →`}
             />
