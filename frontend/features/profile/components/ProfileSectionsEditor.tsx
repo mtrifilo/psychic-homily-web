@@ -216,7 +216,7 @@ export function ProfileSectionsEditor() {
                     type="button"
                     onClick={() => openEditDialog(section)}
                     aria-label="Edit section"
-                    className="text-xs font-medium text-primary hover:underline"
+                    className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                   >
                     Edit
                   </button>
@@ -224,7 +224,7 @@ export function ProfileSectionsEditor() {
                     type="button"
                     onClick={() => setDeletingSection(section)}
                     aria-label="Delete section"
-                    className="text-xs font-medium text-muted-foreground hover:underline"
+                    className="text-xs font-medium text-muted-foreground hover:underline focus-visible:outline-none focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                   >
                     Delete
                   </button>
