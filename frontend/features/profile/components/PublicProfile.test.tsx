@@ -208,7 +208,7 @@ describe('PublicProfile', () => {
     renderWithProviders(<PublicProfile username="alice" />)
     expect(screen.getByText('Your Profile Is Private')).toBeInTheDocument()
     const editLink = screen.getByRole('link', { name: /edit profile/i })
-    expect(editLink).toHaveAttribute('href', '/profile')
+    expect(editLink).toHaveAttribute('href', '/profile?tab=privacy')
   })
 
   it('renders null when profile data is missing', () => {
