@@ -38,10 +38,12 @@ describe('Tiers help page (/help/tiers)', () => {
     expect(screen.getByText(/Account age at least 180 days/i)).toBeInTheDocument()
   })
 
-  it('links back to the profile page', () => {
+  // PSY-1486: "View your profile" → public identity view (/users/me redirects
+  // to /users/<username> when one is set), not the /profile editor.
+  it('links to the public identity view', () => {
     render(<TiersHelpPage />)
 
     const profileLink = screen.getByRole('link', { name: /View your profile/i })
-    expect(profileLink).toHaveAttribute('href', '/profile')
+    expect(profileLink).toHaveAttribute('href', '/users/me')
   })
 })

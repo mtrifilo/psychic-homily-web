@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Loader2, LogOut, Shield, UserCircle, Library, Bell, Palette } from 'lucide-react'
+import { Loader2, LogOut, Shield, UserCircle, Library, Bell, Palette, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -88,6 +88,15 @@ export function UserMenu() {
                 <Link href={profileHref}>
                   <UserCircle className="mr-2 size-4" />
                   Profile
+                </Link>
+              </DropdownMenuItem>
+              {/* PSY-1486: Settings → /profile editor (parity with MobileNav).
+                  Profile above is the public identity view; this is Edit
+                  profile & settings. */}
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <Settings className="mr-2 size-4" />
+                  Settings
                 </Link>
               </DropdownMenuItem>
               {/* Appearance is reachable here in the DEFAULT top-bar mode — the
