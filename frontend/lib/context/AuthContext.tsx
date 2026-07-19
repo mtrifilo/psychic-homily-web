@@ -20,6 +20,8 @@ interface User {
   first_name?: string
   last_name?: string
   bio?: string
+  // OAuth / profile avatar URL (PSY-1488). Passed through from /auth/profile.
+  avatar_url?: string
   email_verified: boolean
   is_admin?: boolean
   user_tier?: UserTier
@@ -86,6 +88,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         first_name: profileData.user.first_name,
         last_name: profileData.user.last_name,
         bio: profileData.user.bio,
+        avatar_url: profileData.user.avatar_url,
         email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,
         user_tier: profileData.user.user_tier as UserTier | undefined,

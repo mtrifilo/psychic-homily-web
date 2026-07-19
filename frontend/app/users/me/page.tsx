@@ -71,6 +71,8 @@ export default function SelfProfilePage() {
     profile?.first_name ||
     user?.email ||
     'You'
+  // OAuth avatar from auth user, else own contributor profile (PSY-1488).
+  const avatarUrl = user?.avatar_url || profile?.avatar_url
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-10">
@@ -88,9 +90,17 @@ export default function SelfProfilePage() {
               Edit profile
             </Link>
           </Button>
-          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center text-2xl font-bold text-muted-foreground border-2 border-border">
-            {displayName[0]?.toUpperCase() ?? '?'}
-          </div>
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={`${displayName}'s avatar`}
+              className="h-16 w-16 rounded-full object-cover border-2 border-border"
+            />
+          ) : (
+            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center text-2xl font-bold text-muted-foreground border-2 border-border">
+              {displayName[0]?.toUpperCase() ?? '?'}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold">{displayName}</h1>

@@ -94,6 +94,9 @@ interface UserProfile {
     first_name?: string
     last_name?: string
     bio?: string
+    // OAuth / profile avatar (PSY-1488 claim-state header). Backend User
+    // always includes the field; optional here for legacy cached payloads.
+    avatar_url?: string
     is_admin?: boolean
     email_verified?: boolean
     user_tier?: string
