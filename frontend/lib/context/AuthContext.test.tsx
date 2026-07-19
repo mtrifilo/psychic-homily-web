@@ -92,6 +92,30 @@ describe('AuthContext', () => {
       expect(result.current.isAuthenticated).toBe(true)
     })
 
+    it('maps avatar_url from profile data (PSY-1488)', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            email_verified: true,
+            avatar_url: 'https://example.com/oauth-avatar.jpg',
+          },
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.user?.avatar_url).toBe(
+        'https://example.com/oauth-avatar.jpg'
+      )
+    })
+
     it('returns null user when profile is not successful', () => {
       mockUseProfile.mockReturnValue({
         data: {
