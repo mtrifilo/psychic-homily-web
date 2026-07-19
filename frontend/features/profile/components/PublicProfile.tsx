@@ -280,12 +280,17 @@ export function PublicProfile({ username }: PublicProfileProps) {
               <UserTierBadge tier={profile.user_tier} />
             </div>
 
-            {/* Meta line (mono, board A) — location pending a backend field */}
+            {/* Meta line (mono, board A) — populated segments only */}
             <p className="mt-2 font-mono text-xs text-muted-foreground">
-              joined {formatDate(profile.joined_at)}
-              {profile.last_active && (
-                <> · active {formatLastActive(profile.last_active)}</>
-              )}
+              {[
+                profile.location?.trim() || null,
+                `joined ${formatDate(profile.joined_at)}`,
+                profile.last_active
+                  ? `active ${formatLastActive(profile.last_active)}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           </div>
         </div>
