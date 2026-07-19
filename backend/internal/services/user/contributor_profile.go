@@ -16,6 +16,7 @@ import (
 	communitym "psychic-homily-backend/internal/models/community"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	svcsengagement "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -391,11 +392,11 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	// so the count stays "entities I follow" (aligned with ProfileFollowing / Library).
 	s.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND action = ? AND entity_type <> ?",
-			userID, engagementm.BookmarkActionFollow, "user").
+			userID, engagementm.BookmarkActionFollow, svcsengagement.FollowEntityUser).
 		Count(&stats.FollowingCount)
 	s.db.Model(&engagementm.UserBookmark{}).
 		Where("entity_type = ? AND entity_id = ? AND action = ?",
-			"user", userID, engagementm.BookmarkActionFollow).
+			svcsengagement.FollowEntityUser, userID, engagementm.BookmarkActionFollow).
 		Count(&stats.FollowersCount)
 
 	// Approval rate from pending_entity_edits

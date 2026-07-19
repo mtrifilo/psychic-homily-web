@@ -177,7 +177,11 @@ func (h *UserFollowHandler) UserFollowersHandler(ctx context.Context, req *UserF
 	}
 
 	resp := &UserFollowersResponse{}
-	resp.Body.Username = req.Username
+	if target.Username != nil {
+		resp.Body.Username = *target.Username
+	} else {
+		resp.Body.Username = req.Username
+	}
 
 	count, err := h.followService.GetFollowerCount(userEntityType, target.ID)
 	if err != nil {
