@@ -285,6 +285,106 @@ describe('ShowList', () => {
       render(<ShowList />)
       expect(screen.getByText('Clear filters')).toBeInTheDocument()
     })
+
+    it('suggests nearby cities and applies one on click', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null => {
+          if (key === 'cities') return 'Phoenix,AZ'
+          return null
+        }),
+      })
+      mockUseShowCities.mockReturnValue({
+        data: {
+          cities: [
+            {
+              city: 'Phoenix',
+              state: 'AZ',
+              show_count: 40,
+              latitude: 33.4484,
+              longitude: -112.074,
+            },
+            {
+              city: 'Tempe',
+              state: 'AZ',
+              show_count: 8,
+              latitude: 33.4255,
+              longitude: -111.94,
+            },
+            {
+              city: 'Tucson',
+              state: 'AZ',
+              show_count: 20,
+              latitude: 32.2226,
+              longitude: -110.9747,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+      })
+      mockUseUpcomingShows.mockReturnValue({
+        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<ShowList />)
+
+      expect(screen.getByTestId('shows-city-suggestions')).toHaveTextContent(
+        'Try Tempe, or Tucson.'
+      )
+      await user.click(screen.getByTestId('shows-suggest-city-tempe-az'))
+      expect(mockSetCities).toHaveBeenCalledWith([{ city: 'Tempe', state: 'AZ' }])
+    })
+
+    it('offers same-tags-all-cities when both city and tags yield nothing', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null => {
+          if (key === 'cities') return 'Phoenix,AZ'
+          if (key === 'tags') return 'shoegaze'
+          return null
+        }),
+      })
+      mockUseShowCities.mockReturnValue({
+        data: {
+          cities: [
+            {
+              city: 'Phoenix',
+              state: 'AZ',
+              show_count: 40,
+              latitude: 33.4484,
+              longitude: -112.074,
+            },
+            {
+              city: 'Tucson',
+              state: 'AZ',
+              show_count: 20,
+              latitude: 32.2226,
+              longitude: -110.9747,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+      })
+      mockUseUpcomingShows.mockReturnValue({
+        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<ShowList />)
+
+      await user.click(screen.getByTestId('shows-suggest-same-tags-all-cities'))
+      expect(mockPush).toHaveBeenCalledWith(
+        '/shows?cities=all&tags=shoegaze',
+        { scroll: false }
+      )
+    })
   })
 
   describe('with show data', () => {

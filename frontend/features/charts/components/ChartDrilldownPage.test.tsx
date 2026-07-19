@@ -204,6 +204,15 @@ vi.mock('../hooks', () => ({
           artist_count: 41,
           venue_count: 12,
         },
+        {
+          metro: '46060',
+          name: 'Tucson, AZ',
+          city: 'Tucson',
+          state: 'AZ',
+          show_count: 17,
+          artist_count: 19,
+          venue_count: 8,
+        },
       ],
     }
     return {
@@ -257,6 +266,21 @@ describe('ChartDrilldownPage', () => {
     sceneQueryDataAvailable = true
     moduleQueryError = false
     payloads['most-active-artists'].total = 120
+    payloads['most-active-artists'].artists = [
+      {
+        artist_id: 1,
+        name: 'Glass Harbor',
+        slug: 'glass-harbor',
+        city: 'Phoenix',
+        state: 'AZ',
+        show_count: 9,
+        headline_pct: 80,
+        last_show_date: '2026-07-02T00:00:00Z',
+        last_show_slug: 'glass-harbor-valley-bar',
+        last_show_venue: 'Valley Bar',
+        rank: 51,
+      },
+    ]
   })
 
   it('derives page offset, renders stable server ranks, and updates URL pagination', async () => {
@@ -342,6 +366,22 @@ describe('ChartDrilldownPage', () => {
       screen.queryByText('No qualifying rows in this window and scene.')
     ).not.toBeInTheDocument()
     expect(mockSetPage).toHaveBeenCalledWith(3)
+  })
+
+  it('suggests alternative scenes on a zero-result scene drilldown', async () => {
+    const user = userEvent.setup()
+    payloads['most-active-artists'].total = 0
+    payloads['most-active-artists'].artists = []
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(
+      screen.getByText('No qualifying rows in this window and scene.')
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('chart-zero-result-suggestions')).toHaveTextContent(
+      'Nothing charting in Phoenix this window — try Tucson.'
+    )
+    await user.click(screen.getByTestId('chart-suggest-scene-46060'))
+    expect(mockSetScene).toHaveBeenCalledWith('46060')
   })
 
   it('paginates the unranked most-anticipated fallback without repeating page one', () => {
