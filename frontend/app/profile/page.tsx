@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -20,15 +20,20 @@ import {
   ProfileSectionsEditor,
   TierAdvancementCard,
 } from '@/features/profile'
+import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 
 // Sentinel for the adjust-during-render form seeding below: a value guaranteed
 // distinct from any real `user`, so the guard also fires on the FIRST render
 // (the prior effect always ran on mount and seeded the form).
 const UNSET = Symbol('unset')
 
+const PROFILE_FIELD_HASHES = new Set(['username', 'bio'])
+
 function ProfileTab() {
+  const router = useRouter()
   const { user } = useAuthContext()
   const updateProfile = useUpdateProfile()
+  const urlHash = useUrlHash()
 
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -51,16 +56,43 @@ function ProfileTab() {
     setBio(user.bio || '')
   }
 
+  // Deep-link from /users/me claim CTAs: /profile#username | /profile#bio.
+  // Profile is the default tab, so hashing the field id is enough.
+  useEffect(() => {
+    const fieldId = urlHash.replace(/^#/, '')
+    if (!PROFILE_FIELD_HASHES.has(fieldId)) return
+
+    const el = document.getElementById(fieldId)
+    if (!el) return
+
+    el.focus()
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [urlHash])
+
   const handleSave = async () => {
     setError(null)
     setSaved(false)
 
+    const wasUsernameEmpty = !user?.username
+    const claimedUsername = username.trim()
+
     try {
-      await updateProfile.mutateAsync({
-        username: username.trim() || undefined,
+      const result = await updateProfile.mutateAsync({
+        username: claimedUsername || undefined,
         display_name: displayName.trim(),
         bio: bio.trim(),
       })
+
+      // First-time username claim: land on the new public profile immediately.
+      // Prefer the server-returned username in case persistence ever normalizes
+      // the handle; fall back to the trimmed form value.
+      // Editing an already-set username stays on /profile with the toast.
+      if (wasUsernameEmpty && claimedUsername) {
+        const destUsername = result.user?.username?.trim() || claimedUsername
+        router.push(`/users/${destUsername}`)
+        return
+      }
+
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err: unknown) {
