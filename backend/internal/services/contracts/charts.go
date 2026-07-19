@@ -313,8 +313,9 @@ type ChartsSummary struct {
 // inventory counts, not window-scoped *added* activity (that's ChartsSummary).
 // Same numbers for every visitor — no auth, no scene scope.
 type CommunityPulse struct {
-	// ShowsThisWeek is approved shows with event_date in [now, now+7d)
-	// (same half-open window as scene ShowsThisWeek / PSY-1309).
+	// ShowsThisWeek is approved non-cancelled shows with event_date in
+	// [start-of-today UTC, start-of-today+7d) — midnight-safe like
+	// most-anticipated / GetUpcomingShows, so tonight's shows stay counted.
 	ShowsThisWeek int `json:"shows_this_week"`
 	// EntitiesInGraph is the sum of the six collection-indexed KG types:
 	// artists + venues + approved shows + releases + labels + festivals.
