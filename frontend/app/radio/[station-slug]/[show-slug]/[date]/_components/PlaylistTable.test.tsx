@@ -270,6 +270,24 @@ describe('PlaylistTable', () => {
     expect(screen.queryByTestId('suggest-match-cta')).not.toBeInTheDocument()
   })
 
+  it('does not flash suggestion pending while the mine query is loading', () => {
+    mockAuthContext.mockReturnValue({
+      user: { id: '1' },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    mockOwnPending.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    })
+
+    render(<PlaylistTable plays={[makePlay()]} />)
+    expect(screen.queryByTestId('suggest-match-pending')).not.toBeInTheDocument()
+    expect(screen.getByTestId('suggest-match-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('suggest-match-cta')).not.toBeInTheDocument()
+  })
+
   it('opens the picker for an authenticated user without a pending suggestion', async () => {
     mockAuthContext.mockReturnValue({
       user: { id: '1' },

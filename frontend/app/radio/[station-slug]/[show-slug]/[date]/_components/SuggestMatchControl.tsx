@@ -54,13 +54,27 @@ export function SuggestMatchControl({
   const [note, setNote] = useState('')
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  if (isAuthenticated && (pendingLoading || pending)) {
+  if (isAuthenticated && pending) {
     return (
       <span
         className="font-mono text-[10px] text-muted-foreground"
         data-testid="suggest-match-pending"
       >
         suggestion pending
+      </span>
+    )
+  }
+
+  // While the mine query is in flight, keep a quiet placeholder so we don't
+  // flash "suggestion pending" for rows that have no suggestion yet.
+  if (isAuthenticated && pendingLoading) {
+    return (
+      <span
+        className="font-mono text-[10px] text-muted-foreground/50"
+        data-testid="suggest-match-loading"
+        aria-hidden="true"
+      >
+        …
       </span>
     )
   }
