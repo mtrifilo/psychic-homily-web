@@ -33,6 +33,7 @@ import {
   parseTagsParam,
   buildTagsParam,
 } from '@/features/tags'
+import { suggestAlternativeCities } from '../suggestCities'
 
 export function ShowList() {
   const router = useRouter()
@@ -224,6 +225,30 @@ export function ShowList() {
     })
   }, [notifyUserInteracted, router])
 
+  // Keep tags, drop the city constraint (PSY-1433 empty-state suggestion).
+  const handleSameTagsAllCities = useCallback(() => {
+    notifyUserInteracted()
+    setCursor(undefined)
+    setAccumulatedShows([])
+    const params = new URLSearchParams()
+    params.set('cities', 'all')
+    if (selectedTags.length > 0) {
+      params.set('tags', buildTagsParam(selectedTags))
+      if (tagMatch === 'any') params.set('tag_match', 'any')
+    }
+    startTransition(() => {
+      router.push(`/shows?${params.toString()}`, { scroll: false })
+    })
+  }, [notifyUserInteracted, router, selectedTags, tagMatch])
+
+  const alternativeCities = useMemo(
+    () =>
+      allShows.length === 0 && selectedCities.length > 0
+        ? suggestAlternativeCities(cities, selectedCities, 3)
+        : [],
+    [allShows.length, selectedCities, cities]
+  )
+
   // Determine if "Save as default" / "Clear defaults" should show
   const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
 
@@ -312,19 +337,66 @@ export function ShowList() {
           {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
         </p>
         {allShows.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
+          <div
+            className="text-center py-12 text-muted-foreground"
+            data-testid="shows-zero-result"
+          >
             <p>
               {selectedTags.length > 0 || selectedCities.length > 0
                 ? 'No upcoming shows match the current filters.'
                 : 'No upcoming shows at this time.'}
             </p>
             {(selectedTags.length > 0 || selectedCities.length > 0) && (
-              <button
-                onClick={handleClearFilters}
-                className="mt-4 text-primary hover:underline"
-              >
-                Clear filters
-              </button>
+              <div className="mt-4 flex flex-col items-center gap-3 text-sm">
+                {alternativeCities.length > 0 ? (
+                  <p data-testid="shows-city-suggestions">
+                    Try{' '}
+                    {alternativeCities.map((city, index) => (
+                      <span key={`${city.city}-${city.state}`}>
+                        {index > 0
+                          ? index === alternativeCities.length - 1
+                            ? ', or '
+                            : ', '
+                          : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleFilterChange([
+                              { city: city.city, state: city.state },
+                            ])
+                          }
+                          className="text-primary hover:underline"
+                          data-testid={`shows-suggest-city-${city.city}-${city.state}`
+                            .toLowerCase()
+                            .replace(/\s+/g, '-')}
+                        >
+                          {city.city}
+                        </button>
+                      </span>
+                    ))}
+                    .
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+                  {selectedTags.length > 0 && selectedCities.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleSameTagsAllCities}
+                      className="text-primary hover:underline"
+                      data-testid="shows-suggest-same-tags-all-cities"
+                    >
+                      Same tags, all cities
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="text-primary hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         ) : (

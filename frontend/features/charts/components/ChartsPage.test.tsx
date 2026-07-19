@@ -53,6 +53,7 @@ let sceneListError = false
 let sceneListFetching = false
 let sceneListRefetchError = false
 let anticipatedMode: 'ranked' | 'soonest_upcoming' = 'ranked'
+let emptyAllModules = false
 let chartScenes = [
   {
     metro: '38060',
@@ -230,110 +231,122 @@ vi.mock('../hooks', () => ({
   },
   useMostActiveArtists: (...args: unknown[]) => {
     mockScopedHook('active', ...args)
-    return query({ artists: activeArtists })
+    return query({ artists: emptyAllModules ? [] : activeArtists })
   },
   useOnTheRadio: (...args: unknown[]) => {
     mockScopedHook('radio', ...args)
     return query({
-      artists: [
-        {
-          artist_id: 2,
-          name: 'Static Bloom',
-          slug: 'static-bloom',
-          city: 'Tucson',
-          state: 'AZ',
-          play_count: 12,
-          station_count: 2,
-          is_new: true,
-          rank: 1,
-        },
-      ],
+      artists: emptyAllModules
+        ? []
+        : [
+            {
+              artist_id: 2,
+              name: 'Static Bloom',
+              slug: 'static-bloom',
+              city: 'Tucson',
+              state: 'AZ',
+              play_count: 12,
+              station_count: 2,
+              is_new: true,
+              rank: 1,
+            },
+          ],
     })
   },
   useMostAnticipated: (...args: unknown[]) => {
     mockScopedHook('anticipated', ...args)
     return query({
       mode: anticipatedMode,
-      shows: [
-        {
-          show_id: 3,
-          title: 'Glass Harbor at Valley Bar',
-          slug: 'glass-harbor-valley-bar',
-          date: '2026-07-18T03:00:00Z',
-          venue_name: 'Valley Bar',
-          venue_slug: 'valley-bar',
-          city: 'Phoenix',
-          artist_names: ['Glass Harbor'],
-          save_count: anticipatedMode === 'ranked' ? 7 : undefined,
-          rank: anticipatedMode === 'ranked' ? 1 : undefined,
-        },
-      ],
+      shows: emptyAllModules
+        ? []
+        : [
+            {
+              show_id: 3,
+              title: 'Glass Harbor at Valley Bar',
+              slug: 'glass-harbor-valley-bar',
+              date: '2026-07-18T03:00:00Z',
+              venue_name: 'Valley Bar',
+              venue_slug: 'valley-bar',
+              city: 'Phoenix',
+              artist_names: ['Glass Harbor'],
+              save_count: anticipatedMode === 'ranked' ? 7 : undefined,
+              rank: anticipatedMode === 'ranked' ? 1 : undefined,
+            },
+          ],
     })
   },
   useBusiestVenues: (...args: unknown[]) => {
     mockScopedHook('venues', ...args)
     return query({
-      venues: [
-        {
-          venue_id: 4,
-          name: 'Valley Bar',
-          slug: 'valley-bar',
-          city: 'Phoenix',
-          state: 'AZ',
-          show_count: 14,
-          rank: 1,
-        },
-      ],
+      venues: emptyAllModules
+        ? []
+        : [
+            {
+              venue_id: 4,
+              name: 'Valley Bar',
+              slug: 'valley-bar',
+              city: 'Phoenix',
+              state: 'AZ',
+              show_count: 14,
+              rank: 1,
+            },
+          ],
     })
   },
   useNewReleases: (...args: unknown[]) => {
     mockScopedHook('releases', ...args)
     return query({
-      releases: [
-        {
-          release_id: 5,
-          title: 'Night Ledger',
-          slug: 'night-ledger',
-          release_type: 'lp',
-          release_date: '2026-07-01',
-          added_at: '2026-07-02T00:00:00Z',
-          rank: 1,
-          artists: [{ id: 1, name: 'Glass Harbor', slug: 'glass-harbor' }],
-          labels: [{ id: 6, name: 'Desert Static', slug: 'desert-static' }],
-        },
-      ],
+      releases: emptyAllModules
+        ? []
+        : [
+            {
+              release_id: 5,
+              title: 'Night Ledger',
+              slug: 'night-ledger',
+              release_type: 'lp',
+              release_date: '2026-07-01',
+              added_at: '2026-07-02T00:00:00Z',
+              rank: 1,
+              artists: [{ id: 1, name: 'Glass Harbor', slug: 'glass-harbor' }],
+              labels: [{ id: 6, name: 'Desert Static', slug: 'desert-static' }],
+            },
+          ],
     })
   },
   useOpenersToWatch: (...args: unknown[]) => {
     mockScopedHook('openers', ...args)
     return query({
-      artists: [
-        {
-          artist_id: 7,
-          name: 'Soft Exit',
-          slug: 'soft-exit',
-          city: 'Mesa',
-          state: 'AZ',
-          support_slot_count: 5,
-          rank: 1,
-        },
-      ],
+      artists: emptyAllModules
+        ? []
+        : [
+            {
+              artist_id: 7,
+              name: 'Soft Exit',
+              slug: 'soft-exit',
+              city: 'Mesa',
+              state: 'AZ',
+              support_slot_count: 5,
+              rank: 1,
+            },
+          ],
     })
   },
   useTopTags: (...args: unknown[]) => {
     mockScopedHook('tags', ...args)
     return query({
-      tags: [
-        {
-          tag_id: 8,
-          name: 'Shoegaze',
-          slug: 'shoegaze',
-          category: 'genre',
-          weighted_saves: 14,
-          show_count: 4,
-          rank: 1,
-        },
-      ],
+      tags: emptyAllModules
+        ? []
+        : [
+            {
+              tag_id: 8,
+              name: 'Shoegaze',
+              slug: 'shoegaze',
+              category: 'genre',
+              weighted_saves: 14,
+              show_count: 4,
+              rank: 1,
+            },
+          ],
     })
   },
   useChartsSummary: (...args: unknown[]) => {
@@ -387,6 +400,7 @@ describe('ChartsPage', () => {
     sceneListFetching = false
     sceneListRefetchError = false
     anticipatedMode = 'ranked'
+    emptyAllModules = false
     chartScenes = [
       {
         metro: '38060',
@@ -856,6 +870,28 @@ describe('ChartsPage', () => {
     render(<ChartsPage />)
     expect(
       screen.queryByTestId('chart-most-active-artists')
+    ).not.toBeInTheDocument()
+  })
+
+  it('suggests alternative scenes when a scene filter yields no chart rows', async () => {
+    const user = userEvent.setup()
+    queryScene = '38060'
+    emptyAllModules = true
+    render(<ChartsPage />)
+
+    const banner = screen.getByTestId('chart-zero-result-suggestions')
+    expect(banner).toHaveTextContent(
+      'Nothing charting in Phoenix this window — try Tucson.'
+    )
+    await user.click(screen.getByTestId('chart-suggest-scene-46060'))
+    expect(mockSetScene).toHaveBeenCalledWith('46060')
+  })
+
+  it('does not suggest scenes when the all-scenes view is empty', () => {
+    emptyAllModules = true
+    render(<ChartsPage />)
+    expect(
+      screen.queryByTestId('chart-zero-result-suggestions')
     ).not.toBeInTheDocument()
   })
 

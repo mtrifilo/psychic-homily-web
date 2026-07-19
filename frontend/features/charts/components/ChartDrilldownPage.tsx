@@ -48,6 +48,8 @@ import {
   type ChartWindow,
   type RollingChartWindow,
 } from '../types'
+import { suggestAlternativeScenes } from '../suggestScenes'
+import { ZeroResultSceneSuggestions } from './ZeroResultSceneSuggestions'
 
 const PAGE_SIZE = 50
 const MAX_PAGE = 201 // Backend offsets are capped at 10,000.
@@ -706,7 +708,20 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   colSpan={config.columns.length + 2}
                   className="px-2 py-8 text-center text-muted-foreground"
                 >
-                  No qualifying rows in this window and scene.
+                  <p>No qualifying rows in this window and scene.</p>
+                  {effectiveScene && selectedScene ? (
+                    <div className="mt-4 text-left sm:mx-auto sm:max-w-xl sm:text-center">
+                      <ZeroResultSceneSuggestions
+                        sceneLabel={selectedScene.city}
+                        suggestions={suggestAlternativeScenes(
+                          sceneList.data?.scenes ?? [],
+                          effectiveScene,
+                          3
+                        )}
+                        onSelect={changeScene}
+                      />
+                    </div>
+                  ) : null}
                 </td>
               </tr>
             ) : (

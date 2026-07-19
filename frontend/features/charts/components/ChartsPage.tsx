@@ -53,10 +53,12 @@ import {
   type FreshlyAddedItem,
   type RollingChartWindow,
 } from '../types'
+import { suggestAlternativeScenes } from '../suggestScenes'
 import { ArchiveMasthead } from './ArchiveMasthead'
 import { ChartModule, ChartRow } from './ChartModule'
 import { PersonalStatsStrip } from './PersonalStatsStrip'
 import { SaveChartDefaultsButton } from './SaveChartDefaultsButton'
+import { ZeroResultSceneSuggestions } from './ZeroResultSceneSuggestions'
 
 /** Explicit "all scenes" URL sentinel — mirrors `?cities=all` on /shows. */
 const SCENE_ALL = 'all'
@@ -513,6 +515,42 @@ export function ChartsPage({
   const followFallback = { follower_count: 0, is_following: false }
   const saveFallback = { save_count: 0, is_saved: false }
 
+  // PSY-1433: when a scene filter yields no chart rows across modules, surface
+  // most-active alternatives from the already-fetched scenes list (global v1).
+  const chartModules = [
+    active,
+    radio,
+    anticipated,
+    venues,
+    releases,
+    openers,
+    tags,
+  ]
+  const chartModuleRowCounts = [
+    active.data?.artists.length ?? 0,
+    radio.data?.artists.length ?? 0,
+    anticipated.data?.shows.length ?? 0,
+    venues.data?.venues.length ?? 0,
+    releases.data?.releases.length ?? 0,
+    openers.data?.artists.length ?? 0,
+    tags.data?.tags.length ?? 0,
+  ]
+  const chartModulesSettled =
+    sceneResolved &&
+    chartModules.every(query => !query.isLoading && query.data !== undefined)
+  const sceneHasZeroChartRows =
+    Boolean(effectiveScene) &&
+    Boolean(selectedScene) &&
+    chartModulesSettled &&
+    chartModuleRowCounts.every(count => count === 0)
+  const alternativeScenes = sceneHasZeroChartRows
+    ? suggestAlternativeScenes(
+        sceneList.data?.scenes ?? [],
+        effectiveScene,
+        3
+      )
+    : []
+
   // Keep URL clean when writing the value that bare /charts would derive.
   // If selecting the anonymous default while a saved default would otherwise
   // apply, write an explicit sentinel so URL params still win on refresh.
@@ -677,6 +715,14 @@ export function ChartsPage({
       )}
 
       <PersonalStatsStrip />
+
+      {!sceneValidationFailed && sceneHasZeroChartRows && selectedScene ? (
+        <ZeroResultSceneSuggestions
+          sceneLabel={selectedScene.city}
+          suggestions={alternativeScenes}
+          onSelect={changeScene}
+        />
+      ) : null}
 
       <div
         hidden={sceneValidationFailed}
