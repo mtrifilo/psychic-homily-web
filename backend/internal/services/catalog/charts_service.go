@@ -1877,6 +1877,66 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 	return &summary, nil
 }
 
+// communityPulseThisWeekDays matches sceneThisWeekDays (PSY-1309): the
+// half-open [now, now+7d) window for "shows this week".
+const communityPulseThisWeekDays = 7
+
+// GetCommunityPulse returns the homepage global heartbeat (PSY-1431):
+// approved shows happening in the next 7 days, plus the sum of the six
+// collection-indexed knowledge-graph entity types. Viewer-independent;
+// TTL-cached on the masthead cache so homepage traffic never fans out into
+// six live COUNTs per request.
+func (s *ChartsService) GetCommunityPulse() (*contracts.CommunityPulse, error) {
+	return chartsCached(s.mastheadCache, "community-pulse", chartsMastheadTTL, func() (*contracts.CommunityPulse, error) {
+		return s.getCommunityPulseUncached()
+	})
+}
+
+func (s *ChartsService) getCommunityPulseUncached() (*contracts.CommunityPulse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	weekAhead := now.AddDate(0, 0, communityPulseThisWeekDays)
+
+	type pulseRow struct {
+		ShowsThisWeek   int `gorm:"column:shows_this_week"`
+		EntitiesInGraph int `gorm:"column:entities_in_graph"`
+	}
+
+	var row pulseRow
+	// One round-trip: week window mirrors scene ShowsThisWeek; entity sum is
+	// the six collection KG types (artists/venues/approved shows/releases/
+	// labels/festivals). No status gate on labels/festivals — inactive or
+	// completed rows are still graph entities.
+	err := s.db.Raw(`
+		SELECT
+			(SELECT COUNT(*)
+				FROM shows s
+				WHERE s.status = ?
+					AND s.event_date >= ?
+					AND s.event_date < ?
+			) AS shows_this_week,
+			(
+				(SELECT COUNT(*) FROM artists) +
+				(SELECT COUNT(*) FROM venues) +
+				(SELECT COUNT(*) FROM shows WHERE status = ?) +
+				(SELECT COUNT(*) FROM releases) +
+				(SELECT COUNT(*) FROM labels) +
+				(SELECT COUNT(*) FROM festivals)
+			) AS entities_in_graph
+	`, catalogm.ShowStatusApproved, now, weekAhead, catalogm.ShowStatusApproved).Scan(&row).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get community pulse: %w", err)
+	}
+
+	return &contracts.CommunityPulse{
+		ShowsThisWeek:   row.ShowsThisWeek,
+		EntitiesInGraph: row.EntitiesInGraph,
+	}, nil
+}
+
 // GetFreshlyAdded returns the most recently added entities across types
 // (artist/venue/release/station) interleaved newest-first — the footer
 // ticker. Each branch pre-limits to the requested size before the global

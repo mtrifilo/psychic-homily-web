@@ -1936,6 +1936,39 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_Empty() {
 	suite.Equal(&contracts.ChartsSummary{}, summary)
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetCommunityPulse_Empty() {
+	pulse, err := suite.chartsService.GetCommunityPulse()
+	suite.Require().NoError(err)
+	suite.Equal(&contracts.CommunityPulse{}, pulse)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetCommunityPulse_ShowsThisWeekAndEntitySum() {
+	now := time.Now().UTC()
+	user := suite.createUser("pulse-owner@test.com")
+	venue := suite.createVenue("Pulse Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Pulse Artist")
+
+	// In-window: today + day 6 (both count). Day 7 is out of the half-open window.
+	suite.createApprovedShow("This Week A", venue.ID, artist.ID, user.ID, now)
+	suite.createApprovedShow("This Week B", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 6))
+	suite.createApprovedShow("Next Week", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 7))
+	past := suite.createApprovedShow("Past", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, -1))
+	_ = past
+	pending := suite.createApprovedShow("Pending Week", venue.ID, artist.ID, user.ID, now.AddDate(0, 0, 2))
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+
+	suite.createRelease("Pulse Release")
+	label := &catalogm.Label{Name: "Pulse Label"}
+	suite.Require().NoError(suite.db.Create(label).Error)
+
+	pulse, err := suite.chartsService.GetCommunityPulse()
+	suite.Require().NoError(err)
+	suite.Equal(2, pulse.ShowsThisWeek, "only approved shows in [now, now+7d)")
+	// 1 artist + 1 venue + 4 approved shows (past + 2 in-week + next-week;
+	// pending excluded) + 1 release + 1 label + 0 festivals = 8
+	suite.Equal(8, pulse.EntitiesInGraph)
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_CalendarQuarterCreatedAtBoundaries() {
 	user := suite.createUser("summary-calendar@test.com")
 	venue := suite.createVenue("Summary Calendar Venue", "Phoenix", "AZ")

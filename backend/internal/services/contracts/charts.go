@@ -309,6 +309,18 @@ type ChartsSummary struct {
 	ActiveScenes int `json:"active_scenes"`
 }
 
+// CommunityPulse is the homepage global heartbeat strip (PSY-1431): live
+// inventory counts, not window-scoped *added* activity (that's ChartsSummary).
+// Same numbers for every visitor — no auth, no scene scope.
+type CommunityPulse struct {
+	// ShowsThisWeek is approved shows with event_date in [now, now+7d)
+	// (same half-open window as scene ShowsThisWeek / PSY-1309).
+	ShowsThisWeek int `json:"shows_this_week"`
+	// EntitiesInGraph is the sum of the six collection-indexed KG types:
+	// artists + venues + approved shows + releases + labels + festivals.
+	EntitiesInGraph int `json:"entities_in_graph"`
+}
+
 // FreshlyAddedItem is one row of the freshly-added footer ticker: the most
 // recently added entities across types, newest first.
 type FreshlyAddedItem struct {
@@ -435,6 +447,9 @@ type ChartsServiceInterface interface {
 	GetChartEntityRank(entityType ChartRankEntityType, entityID uint, window ChartWindow) (*ChartEntityRank, error)
 	GetTopTags(window ChartWindow, scene string, limit, offset int) ([]TopTag, int, error)
 	GetChartsSummary(window ChartWindow, scene string) (*ChartsSummary, error)
+	// GetCommunityPulse returns the homepage global pulse counts
+	// (shows-this-week + entities-in-graph). TTL-cached; viewer-independent.
+	GetCommunityPulse() (*CommunityPulse, error)
 	GetFreshlyAdded(scene string, limit int) ([]FreshlyAddedItem, error)
 	GetChartScenes(window ChartWindow) ([]ChartScene, error)
 	GetPersonalChartsStats(userID uint) (*PersonalChartsStats, error)

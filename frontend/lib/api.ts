@@ -427,6 +427,8 @@ export const API_ENDPOINTS = {
   // Community endpoints (public)
   COMMUNITY: {
     LEADERBOARD: `${API_BASE_URL}/community/leaderboard`,
+    /** Homepage global pulse (PSY-1431) — TTL-cached COUNT pair. */
+    PULSE: `${API_BASE_URL}/community/pulse`,
   },
 
   // Charts endpoints (public)

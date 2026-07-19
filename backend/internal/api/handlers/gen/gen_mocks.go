@@ -167,6 +167,9 @@ var customDefaults = map[string]methodDefault{
 	"MockChartsService.GetChartsSummary": {
 		body: `	return &contracts.ChartsSummary{}, nil`,
 	},
+	"MockChartsService.GetCommunityPulse": {
+		body: `	return &contracts.CommunityPulse{}, nil`,
+	},
 	"MockChartsService.GetPersonalChartsStats": {
 		body: `	return &contracts.PersonalChartsStats{}, nil`,
 	},
