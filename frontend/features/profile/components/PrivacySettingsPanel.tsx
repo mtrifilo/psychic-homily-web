@@ -94,6 +94,7 @@ function PrivacyLevelSelector({
             aria-pressed={isActive}
             className={cn(
               'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+              'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
               isActive
                 ? 'bg-foreground text-card'
                 : 'border border-border text-muted-foreground hover:text-foreground'
