@@ -24,6 +24,7 @@ vi.mock('@/lib/api', () => ({
     CONTRIBUTOR: {
       OWN_PROFILE: '/auth/profile/contributor',
       OWN_CONTRIBUTIONS: '/auth/profile/contributions',
+      ADVANCEMENT: '/auth/profile/advancement',
       VISIBILITY: '/auth/profile/visibility',
       PRIVACY: '/auth/profile/privacy',
       OWN_SECTIONS: '/auth/profile/sections',
@@ -39,6 +40,7 @@ vi.mock('@/lib/queryClient', () => ({
     contributor: {
       profile: (username: string) => ['contributor', 'profile', username],
       ownProfile: ['contributor', 'ownProfile'],
+      advancement: ['contributor', 'advancement'],
       contributions: (username: string) => ['contributor', 'contributions', username],
       ownContributions: ['contributor', 'ownContributions'],
       ownSections: ['contributor', 'ownSections'],
@@ -61,6 +63,7 @@ import {
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,
+  useAdvancementProgress,
   useUpdateVisibility,
   useUpdatePrivacy,
   useCreateSection,
@@ -461,6 +464,43 @@ describe('useOwnContributorProfile', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.data).toBeUndefined()
     expect((result.current.error as Error).message).toBe('Unauthorized')
+  })
+})
+
+describe('useAdvancementProgress', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('fetches GET /auth/profile/advancement', async () => {
+    const mockProgress = {
+      current_tier: 'trusted_contributor',
+      next_tier: 'local_ambassador',
+      requirements: [
+        { requirement: 'approved_edits', current: 32, threshold: 50, met: false },
+      ],
+    }
+    mockApiRequest.mockResolvedValueOnce(mockProgress)
+
+    const { result } = renderHook(() => useAdvancementProgress(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith('/auth/profile/advancement', {
+      method: 'GET',
+    })
+    expect(result.current.data?.requirements[0].current).toBe(32)
+  })
+
+  it('skips the request when enabled=false', async () => {
+    const { result } = renderHook(() => useAdvancementProgress(false), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 })
 

@@ -325,6 +325,8 @@ export const queryKeys = {
     profile: (username: string) =>
       ['contributor', 'profile', username] as const,
     ownProfile: ['contributor', 'ownProfile'] as const,
+    // PSY-1087: next-tier advancement progress for the profile card.
+    advancement: ['contributor', 'advancement'] as const,
     contributions: (username: string) =>
       ['contributor', 'contributions', username] as const,
     ownContributions: ['contributor', 'ownContributions'] as const,

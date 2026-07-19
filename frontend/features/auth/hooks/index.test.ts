@@ -54,6 +54,7 @@ describe('auth hooks barrel', () => {
     expect(typeof hooks.useOwnContributorProfile).toBe('function')
     expect(typeof hooks.useOwnContributions).toBe('function')
     expect(typeof hooks.useOwnSections).toBe('function')
+    expect(typeof hooks.useAdvancementProgress).toBe('function')
     expect(typeof hooks.useUpdateVisibility).toBe('function')
     expect(typeof hooks.useUpdatePrivacy).toBe('function')
     expect(typeof hooks.useCreateSection).toBe('function')

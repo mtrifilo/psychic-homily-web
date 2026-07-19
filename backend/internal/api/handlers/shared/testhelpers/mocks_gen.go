@@ -553,8 +553,9 @@ func (m *MockAuthService) SetOAuthCompleter(completer contracts.OAuthCompleter) 
 // ============================================================================
 
 type MockAutoPromotionService struct {
-	EvaluateAllUsersFn func() (*contracts.AutoPromotionResult, error)
-	EvaluateUserFn     func(uint) (*contracts.UserEvaluationResult, error)
+	EvaluateAllUsersFn       func() (*contracts.AutoPromotionResult, error)
+	EvaluateUserFn           func(uint) (*contracts.UserEvaluationResult, error)
+	GetAdvancementProgressFn func(uint) (*contracts.AdvancementProgress, error)
 }
 
 func (m *MockAutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResult, error) {
@@ -566,6 +567,12 @@ func (m *MockAutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionR
 func (m *MockAutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluationResult, error) {
 	if m.EvaluateUserFn != nil {
 		return m.EvaluateUserFn(userID)
+	}
+	return nil, nil
+}
+func (m *MockAutoPromotionService) GetAdvancementProgress(userID uint) (*contracts.AdvancementProgress, error) {
+	if m.GetAdvancementProgressFn != nil {
+		return m.GetAdvancementProgressFn(userID)
 	}
 	return nil, nil
 }

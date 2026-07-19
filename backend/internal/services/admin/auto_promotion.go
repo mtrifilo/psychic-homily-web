@@ -354,6 +354,76 @@ func (s *AutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluat
 	return s.evaluateUserInternal(&user)
 }
 
+// GetAdvancementProgress returns user-facing next-tier progress for userID.
+// Reuses EvaluateUser's read-only queries; strips demotion-watch metrics.
+func (s *AutoPromotionService) GetAdvancementProgress(userID uint) (*contracts.AdvancementProgress, error) {
+	eval, err := s.EvaluateUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	return buildAdvancementProgress(eval), nil
+}
+
+// buildAdvancementProgress maps an evaluation result into the self-scoped DTO.
+// Exported-via-package for unit tests without a DB.
+func buildAdvancementProgress(eval *contracts.UserEvaluationResult) *contracts.AdvancementProgress {
+	progress := &contracts.AdvancementProgress{
+		CurrentTier:  eval.CurrentTier,
+		Requirements: []contracts.AdvancementRequirement{},
+	}
+
+	accountAgeDays := float64(int(eval.AccountAge.Hours() / 24))
+	approved := float64(eval.ApprovedEdits)
+	cityEdits := float64(eval.CityEditCount)
+	// Present approval rate as a 0–100 percentage so FE can render "95%" directly.
+	approvalPct := eval.ApprovalRate * 100
+
+	switch eval.CurrentTier {
+	case TierNewUser:
+		progress.NextTier = TierContributor
+		progress.Requirements = []contracts.AdvancementRequirement{
+			numericReq(contracts.AdvancementReqApprovedEdits, approved, float64(ContributorMinEdits)),
+			numericReq(contracts.AdvancementReqAccountAgeDays, accountAgeDays, ContributorMinAccountAge.Hours()/24),
+			boolReq(contracts.AdvancementReqEmailVerified, eval.EmailVerified),
+		}
+	case TierContributor:
+		progress.NextTier = TierTrustedContributor
+		progress.Requirements = []contracts.AdvancementRequirement{
+			numericReq(contracts.AdvancementReqApprovedEdits, approved, float64(TrustedMinEdits)),
+			numericReq(contracts.AdvancementReqApprovalRate, approvalPct, TrustedMinApprovalRate*100),
+			numericReq(contracts.AdvancementReqAccountAgeDays, accountAgeDays, TrustedMinAccountAge.Hours()/24),
+		}
+	case TierTrustedContributor:
+		progress.NextTier = TierLocalAmbassador
+		progress.Requirements = []contracts.AdvancementRequirement{
+			numericReq(contracts.AdvancementReqApprovedEdits, approved, float64(AmbassadorMinEdits)),
+			numericReq(contracts.AdvancementReqCityEdits, cityEdits, float64(AmbassadorMinCityEdits)),
+			numericReq(contracts.AdvancementReqAccountAgeDays, accountAgeDays, AmbassadorMinAccountAge.Hours()/24),
+		}
+	case TierLocalAmbassador:
+		// Highest tier — empty next + requirements.
+	}
+
+	return progress
+}
+
+func numericReq(id string, current, threshold float64) contracts.AdvancementRequirement {
+	c, t := current, threshold
+	return contracts.AdvancementRequirement{
+		Requirement: id,
+		Current:     &c,
+		Threshold:   &t,
+		Met:         current >= threshold,
+	}
+}
+
+func boolReq(id string, met bool) contracts.AdvancementRequirement {
+	return contracts.AdvancementRequirement{
+		Requirement: id,
+		Met:         met,
+	}
+}
+
 // evaluateUserInternal computes promotion/demotion for a single user.
 func (s *AutoPromotionService) evaluateUserInternal(user *authm.User) (*contracts.UserEvaluationResult, error) {
 	now := time.Now()

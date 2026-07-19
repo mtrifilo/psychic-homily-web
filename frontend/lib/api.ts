@@ -261,6 +261,8 @@ export const API_ENDPOINTS = {
   CONTRIBUTOR: {
     OWN_PROFILE: `${API_BASE_URL}/auth/profile/contributor`,
     OWN_CONTRIBUTIONS: `${API_BASE_URL}/auth/profile/contributions`,
+    // PSY-1087: self-scoped next-tier progress for TierAdvancementCard.
+    ADVANCEMENT: `${API_BASE_URL}/auth/profile/advancement`,
     VISIBILITY: `${API_BASE_URL}/auth/profile/visibility`,
     PRIVACY: `${API_BASE_URL}/auth/profile/privacy`,
     OWN_SECTIONS: `${API_BASE_URL}/auth/profile/sections`,
