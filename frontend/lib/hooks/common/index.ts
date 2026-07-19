@@ -33,6 +33,12 @@ export {
 } from './useFollow'
 
 export {
+  useUserFollowStatus,
+  useUserFollow,
+  useUserUnfollow,
+} from './useUserFollow'
+
+export {
   useEntitySearch,
   type EntitySearchResult,
   type EntitySearchResults,

@@ -17,6 +17,7 @@ import { ProfileFollowing } from './ProfileFollowing'
 import { ProfileCollections } from './ProfileCollections'
 import { ProfileFieldNotes } from './ProfileFieldNotes'
 import { ProfileStatsSidebar } from './ProfileStatsSidebar'
+import { UserFollowButton } from './UserFollowButton'
 import { usePublicProfile } from '@/features/auth'
 import { useUserPublicCollections } from '@/features/collections'
 
@@ -238,9 +239,9 @@ export function PublicProfile({ username }: PublicProfileProps) {
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-10">
-      {/* Identity header (board A: large avatar, display-scale name, mono
-          meta line; owner gets Edit profile + Share, visitors Share only —
-          the visitor Follow button is a deferred feature, PSY-1059). */}
+      {/* Identity header (board A/C: large avatar, display-scale name, mono
+          meta line; owner gets Edit profile + Share, visitors get Follow +
+          Share). */}
       <header className="mb-8 border-b border-border/60 pb-6">
         <div className="flex items-start gap-5">
           <div className="order-last ml-auto flex shrink-0 items-center gap-4">
@@ -251,6 +252,9 @@ export function PublicProfile({ username }: PublicProfileProps) {
                   Edit profile
                 </Link>
               </Button>
+            )}
+            {!isOwner && (
+              <UserFollowButton username={profile.username} />
             )}
             <ShareButton username={profile.username} />
           </div>

@@ -49,13 +49,24 @@ vi.mock('./ProfileFieldNotes', () => ({
   ),
 }))
 
+vi.mock('./UserFollowButton', () => ({
+  UserFollowButton: ({ username }: { username: string }) => (
+    <button type="button" data-testid="user-follow-button">
+      Follow {username}
+    </button>
+  ),
+}))
+
 // Owner-detection compares the logged-in user (from AuthContext) against the
 // viewed profile's username. Default to an anonymous viewer; owner tests set
 // mockUser explicitly. PSY-1025.
 let mockUser: { username?: string } | null = null
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ user: mockUser }),
+  useAuthContext: () => ({
+    user: mockUser,
+    isAuthenticated: Boolean(mockUser),
+  }),
 }))
 
 // Mock child components
@@ -581,6 +592,34 @@ describe('PublicProfile', () => {
     expect(
       screen.getByRole('button', { name: /copy a link to this profile/i })
     ).toBeInTheDocument()
+    expect(screen.queryByTestId('user-follow-button')).not.toBeInTheDocument()
+  })
+
+  it('shows Follow to visitors and not Edit profile', () => {
+    mockUser = { username: 'bob' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByTestId('user-follow-button')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /edit profile/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows Follow to anonymous visitors', () => {
+    mockUser = null
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByTestId('user-follow-button')).toBeInTheDocument()
   })
 
   it('shows custom sections when available', () => {

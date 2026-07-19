@@ -455,6 +455,9 @@ export const queryKeys = {
       ['follows', 'library', 'following', userId ?? null, entityType] as const,
     followers: (entityType: string, entityId: number) =>
       ['follows', 'followers', entityType, entityId] as const,
+    // Username-addressed user→user follow status (GET /users/{username}/followers).
+    user: (username: string, userId?: string | number) =>
+      ['follows', 'user', userId ?? null, username] as const,
   },
 
   // Scene queries
