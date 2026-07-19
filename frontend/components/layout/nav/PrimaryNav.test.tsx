@@ -34,6 +34,14 @@ describe('PrimaryNav', () => {
     expect(screen.getByRole('link', { name: 'Atlas' })).toHaveAttribute('href', '/atlas')
   })
 
+  // PSY-1498: Radio sits immediately after Shows in the desktop primary row.
+  it('orders primary links Home → Shows → Radio → Artists → Graph → Atlas', () => {
+    render(<PrimaryNav />)
+    const nav = screen.getByRole('navigation', { name: 'Primary' })
+    const labels = Array.from(nav.querySelectorAll('a')).map(a => a.textContent)
+    expect(labels).toEqual(['Home', 'Shows', 'Radio', 'Artists', 'Graph', 'Atlas'])
+  })
+
   it('marks Home active on the home route only', () => {
     mockPathname = '/'
     render(<PrimaryNav />)

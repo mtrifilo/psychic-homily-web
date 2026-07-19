@@ -15,9 +15,9 @@ import { isNavActive, navItemClassName } from './navData'
 const primaryLinks = [
   { href: '/', label: 'Home' },
   { href: '/shows', label: 'Shows' },
+  { href: '/radio', label: 'Radio' },
   { href: '/artists', label: 'Artists' },
   { href: '/graph', label: 'Graph' },
-  { href: '/radio', label: 'Radio' },
   // Atlas — the spin-to-discover globe of scenes (PSY-1213); promoted to the top
   // bar as a flagship discovery surface (PSY-1219).
   { href: '/atlas', label: 'Atlas' },
