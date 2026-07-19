@@ -62,6 +62,13 @@ const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
   { value: 'community', label: 'Community' },
 ]
 
+/**
+ * The scroll-anchor id for the mobile teaser's "Browse artists" link-out
+ * (PSY-1472). Single-sourced here so this component's `linkHref` and the
+ * SceneDetail wrapper's `id` can't drift apart.
+ */
+export const SCENE_ARTISTS_ANCHOR = 'scene-artists'
+
 interface SceneGraphProps {
   slug: string
   city: string
@@ -288,14 +295,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         )}
 
         {/* Sub-640px: shared teaser card instead of the old silent hide
-            (PSY-369/511 kept the canvas off; the card says WHY). No link-out:
-            the scene's list views live on this same page. */}
+            (PSY-369/511 kept the canvas off; the card says WHY + gives a way
+            forward, PSY-1472). Link-out scrolls to the scene's artist list on
+            this page (#scene-artists, SceneDetail). */}
         {containerWidth !== null &&
           containerWidth < GRAPH_BREAKPOINT_PX &&
           hasEnoughForGraph && (
             <GraphStateCard
               className={GRAPH_TEASER_HEIGHT_CLASS}
-              message="The interactive scene graph is best on a larger screen."
+              message={`The ${city}${state ? `, ${state}` : ''} scene is a map of who plays with whom. Needs a larger screen.`}
+              linkHref={`#${SCENE_ARTISTS_ANCHOR}`}
+              linkLabel={`Browse ${city} artists →`}
             />
           )}
 

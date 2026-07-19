@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { SCENE_ARTISTS_ANCHOR } from './SceneGraph'
 import type {
   SceneDetail,
   SceneArtistsResponse,
@@ -50,7 +51,11 @@ vi.mock('next/link', () => ({
 vi.mock('./ScenePulse', () => ({
   ScenePulse: () => <div data-testid="scene-pulse" />,
 }))
-vi.mock('./SceneGraph', () => ({
+// Keep the REAL SCENE_ARTISTS_ANCHOR (via importActual) so the anchor-id test
+// below exercises the actual constant, not a hand-typed copy — only the heavy
+// canvas component is stubbed.
+vi.mock('./SceneGraph', async importOriginal => ({
+  ...(await importOriginal<typeof import('./SceneGraph')>()),
   SceneGraph: () => <div data-testid="scene-graph" />,
 }))
 
@@ -148,6 +153,16 @@ describe('SceneDetailView', () => {
       expect(summary.textContent).toBe(
         ['12 venues', '85 artists', '45 upcoming shows'].join(sep)
       )
+    })
+
+    it('renders the #scene-artists anchor the mobile graph teaser links to (PSY-1472)', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene(),
+        isLoading: false,
+        error: null,
+      })
+      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBeInTheDocument()
     })
 
     it('renders the scene description when present', () => {

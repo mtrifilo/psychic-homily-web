@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -20,6 +21,8 @@ import {
   StationSidebar,
   getBroadcastTypeLabel,
 } from '@/features/radio'
+import { STATION_PLAYLISTS_ANCHOR } from '@/features/radio/components/StationGraph'
+import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 
 interface StationDetailProps {
   stationSlug: string
@@ -38,6 +41,31 @@ interface StationDetailProps {
  */
 export default function StationDetail({ stationSlug }: StationDetailProps) {
   const { data: station, isLoading, error } = useRadioStation(stationSlug)
+
+  // PSY-1472: the mobile graph teaser links to #recent-playlists, but this page
+  // is client-fetched — the playlists feed mounts only after the station fetch,
+  // so the browser's native fragment scroll on a cold-loaded / shared hash URL
+  // fires before the target exists. Scroll once the station data lands (mirrors
+  // StationGraph's own #graph workaround). In-session taps already work.
+  //
+  // Keyed by slug, not a bare boolean: NetworkTabBar switches between sibling
+  // stations by URL change WITHOUT remounting this component (same reason
+  // StationGraph below is key={station.slug}), so a boolean ref would fire once
+  // and stay latched, dead for every sibling reached via back/forward to a
+  // #recent-playlists hash.
+  const hash = useUrlHash()
+  const scrolledForSlug = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      hash !== `#${STATION_PLAYLISTS_ANCHOR}` ||
+      !station ||
+      scrolledForSlug.current === station.slug
+    ) {
+      return
+    }
+    scrolledForSlug.current = station.slug
+    document.getElementById(STATION_PLAYLISTS_ANCHOR)?.scrollIntoView()
+  }, [hash, station])
 
   if (isLoading) {
     return (
@@ -176,7 +204,11 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex flex-col gap-8 min-w-0">
             <StationOnAirBox station={station} />
-            <StationPlaylistsFeed station={station} />
+            {/* id="recent-playlists": the mobile graph teaser's link-out target
+                (StationGraph, PSY-1472). scroll-mt for the sticky header. */}
+            <div id={STATION_PLAYLISTS_ANCHOR} className="scroll-mt-20">
+              <StationPlaylistsFeed station={station} />
+            </div>
             <StationShowsDirectory
               stationId={station.id}
               stationSlug={station.slug}

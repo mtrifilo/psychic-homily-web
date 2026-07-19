@@ -44,6 +44,13 @@ import { SceneGraphVisualizationStyleAdapter } from './VenueBillNetworkAdapter'
 const MIN_GRAPH_NODES = 3 // mirror SceneGraph — under 3 connected artists is too sparse
 const MIN_GRAPH_SHOWS = 10 // PSY-365 ticket: empty state for "<10 shows at the venue"
 
+/**
+ * The scroll-anchor id for the mobile teaser's "Browse shows" link-out
+ * (PSY-1472). Single-sourced here so this component's `linkHref` and the
+ * VenueDetail wrapper's `id` can't drift apart.
+ */
+export const VENUE_SHOWS_ANCHOR = 'venue-shows'
+
 // ------------------------------------------------------------------
 // Year picker bounds
 // ------------------------------------------------------------------
@@ -312,15 +319,17 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
               <GraphSkeleton className={`mt-2 ${GRAPH_BOX_HEIGHT_CLASS}`} />
             )}
 
-            {/* Sub-640px, non-sparse: shared teaser card instead of the old
-                silent hide (PSY-1446). No link-out: the venue's show history
-                lives on this same page. */}
+            {/* Sub-640px, non-sparse: shared teaser card (PSY-1446) — says WHY
+                + gives a way forward (PSY-1472). Link-out scrolls to the
+                venue's show list on this page (#venue-shows, VenueDetail). */}
             {!tooSparse &&
               containerWidth !== null &&
               containerWidth < GRAPH_BREAKPOINT_PX && (
                 <GraphStateCard
                   className={`mt-2 ${GRAPH_TEASER_HEIGHT_CLASS}`}
-                  message="The interactive bill network is best on a larger screen."
+                  message={`Who plays ${venueName} together, mapped by shared bills here. Needs a larger screen.`}
+                  linkHref={`#${VENUE_SHOWS_ANCHOR}`}
+                  linkLabel={`Browse shows at ${venueName} →`}
                 />
               )}
 

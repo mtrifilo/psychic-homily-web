@@ -196,8 +196,13 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     ro.setWidth(500)
     renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
     expect(screen.queryByTestId('collection-graph-canvas')).not.toBeInTheDocument()
+    // PSY-1472: teaser card carries the connectedness pitch + a link-out that
+    // scrolls to the collection's item list (#items) on this page.
     expect(
-      screen.getByText(/interactive collection graph is best on a larger screen/i),
+      screen.getByText(/Desert Doom as a map/i),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Browse the collection/i }),
+    ).toHaveAttribute('href', '#items')
   })
 })
