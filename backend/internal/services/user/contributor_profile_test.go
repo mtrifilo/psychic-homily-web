@@ -750,6 +750,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_FollowingCount() {
 	user := suite.createTestUser("follower")
+	other := suite.createTestUser("followed")
 
 	// Follow some entities
 	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
@@ -760,6 +761,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		UserID: user.ID, EntityType: engagementm.BookmarkEntityVenue,
 		EntityID: 1, Action: engagementm.BookmarkActionFollow,
 	}).Error)
+	// User→user follow must NOT inflate following_count (PSY-1496)
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityType("user"),
+		EntityID: other.ID, Action: engagementm.BookmarkActionFollow,
+	}).Error)
 	// "save" action should not count
 	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
 		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
@@ -769,6 +775,30 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	stats, err := suite.profileService.GetContributionStats(user.ID)
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.FollowingCount)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_FollowersCount() {
+	target := suite.createTestUser("celeb")
+	a := suite.createTestUser("fan_a")
+	b := suite.createTestUser("fan_b")
+
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: a.ID, EntityType: engagementm.BookmarkEntityType("user"),
+		EntityID: target.ID, Action: engagementm.BookmarkActionFollow,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: b.ID, EntityType: engagementm.BookmarkEntityType("user"),
+		EntityID: target.ID, Action: engagementm.BookmarkActionFollow,
+	}).Error)
+	// Entity follow of someone else's artist must not count as a user follower
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: a.ID, EntityType: engagementm.BookmarkEntityArtist,
+		EntityID: target.ID, Action: engagementm.BookmarkActionFollow,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(target.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.FollowersCount)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_TotalIncludesNewStats() {

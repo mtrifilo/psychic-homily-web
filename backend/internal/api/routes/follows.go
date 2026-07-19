@@ -31,6 +31,14 @@ func setupFollowRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/scenes/{slug}/follow", sceneFollowHandler.SceneUnfollowHandler)
 	huma.Get(optionalAuthGroup, "/scenes/{slug}/followers", sceneFollowHandler.SceneFollowersHandler)
 
+	// User follows (PSY-1496): username-addressed — do NOT add "users" to the
+	// generic entity_type map; numeric user ids are not the profile UX key.
+	// Reuses FollowService with entity_type=user (FollowEntityUser / PSY-296).
+	userFollowHandler := engagementh.NewUserFollowHandler(rc.SC.Follow, rc.SC.User)
+	huma.Post(rc.Protected, "/users/{username}/follow", userFollowHandler.UserFollowHandler)
+	huma.Delete(rc.Protected, "/users/{username}/follow", userFollowHandler.UserUnfollowHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/followers", userFollowHandler.UserFollowersHandler)
+
 	// Public with optional auth: follower count + user follow status
 	huma.Get(optionalAuthGroup, "/{entity_type}/{entity_id}/followers", followHandler.GetFollowersHandler)
 
