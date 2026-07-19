@@ -606,6 +606,84 @@ describe('PublicProfile', () => {
     expect(screen.getByTestId('profile-sections')).toBeInTheDocument()
   })
 
+  // --- Sections Manage affordance (PSY-1492) ---
+
+  it('shows Manage → /profile?tab=sections to the owner when sections exist', () => {
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        username: 'alice',
+        sections: [
+          {
+            id: 1,
+            title: 'About',
+            content: 'Hi',
+            position: 0,
+            is_visible: true,
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+    })
+    // Non-empty profile so Get started doesn't replace content sections.
+    mockUseUserPublicCollections.mockReturnValue({
+      data: { collections: [], total: 1 },
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    const manage = screen.getByRole('link', {
+      name: /manage your profile sections/i,
+    })
+    expect(manage).toHaveAttribute('href', '/profile?tab=sections')
+    expect(manage).toHaveTextContent('Manage')
+  })
+
+  it('does NOT show sections Manage to a visitor when sections exist', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        sections: [
+          {
+            id: 1,
+            title: 'About',
+            content: 'Hi',
+            position: 0,
+            is_visible: true,
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByTestId('profile-sections')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /manage your profile sections/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT show sections Manage to the owner when there are no sections', () => {
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice', sections: undefined }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseUserPublicCollections.mockReturnValue({
+      data: { collections: [], total: 1 },
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.queryByRole('link', { name: /manage your profile sections/i })
+    ).not.toBeInTheDocument()
+  })
+
   it('shows empty state when profile has no content', () => {
     // Empty-state requires KNOWN-zero contributions (visible stats at 0) —
     // with stats hidden we can't claim emptiness (see the visitor tests).

@@ -107,6 +107,20 @@ describe('ProfilePage (PSY-683)', () => {
       expect(screen.queryByText('Edit Profile')).toBeNull()
     })
 
+    it('opens the sections tab when ?tab=sections is in the URL', () => {
+      mockSearchParams = new URLSearchParams('tab=sections')
+
+      renderWithProviders(<ProfilePage />)
+
+      expect(screen.getByTestId('sections-panel')).toBeTruthy()
+      expect(screen.queryByText('Edit Profile')).toBeNull()
+      expect(
+        within(screen.getByRole('tablist')).getByRole('tab', {
+          name: /sections/i,
+        })
+      ).toHaveAttribute('data-state', 'active')
+    })
+
     it('replaces the URL with ?tab=privacy when the privacy tab is clicked', async () => {
       const user = userEvent.setup()
       renderWithProviders(<ProfilePage />)
