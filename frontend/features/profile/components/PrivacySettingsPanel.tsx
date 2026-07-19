@@ -1,20 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import {
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  Globe,
-  Lock,
-  Eye,
-  EyeOff,
-  Hash,
-} from 'lucide-react'
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   useOwnContributorProfile,
   useUpdateVisibility,
@@ -41,18 +33,18 @@ const privacyFields: {
   },
   {
     key: 'saved_shows',
-    label: 'Saved Shows',
+    label: 'Saved shows',
     description: 'Shows you have saved to your list',
   },
   {
     key: 'following',
     label: 'Following',
-    description: 'Artists and venues you follow',
+    description: 'Artists, venues & labels you follow',
   },
   {
     key: 'collections',
     label: 'Collections',
-    description: 'Your curated collections',
+    description: 'Your public collections',
   },
 ]
 
@@ -63,15 +55,25 @@ const binaryPrivacyFields: {
 }[] = [
   {
     key: 'last_active',
-    label: 'Last Active',
+    label: 'Last active',
     description: 'When you were last active on the site',
   },
   {
     key: 'profile_sections',
-    label: 'Custom Sections',
+    label: 'Custom sections',
     description: 'Your custom profile sections',
   },
 ]
+
+const privacyLevelOptions: { value: PrivacyLevel; label: string }[] = [
+  { value: 'visible', label: 'Visible' },
+  { value: 'count_only', label: 'Count only' },
+  { value: 'hidden', label: 'Hidden' },
+]
+
+/** Pill Switch: board I uses a rounded track; rounded-full ban is badges-only. */
+const pillSwitchClassName =
+  'h-5 w-9 rounded-full [&_[data-slot=switch-thumb]]:rounded-full'
 
 function PrivacyLevelSelector({
   value,
@@ -81,34 +83,47 @@ function PrivacyLevelSelector({
   onChange: (value: PrivacyLevel) => void
 }) {
   return (
-    <div className="flex items-center gap-1">
-      <Button
-        variant={value === 'visible' ? 'default' : 'outline'}
-        size="sm"
-        className="h-7 px-2 text-xs gap-1"
-        onClick={() => onChange('visible')}
-      >
-        <Eye className="h-3 w-3" />
-        Visible
-      </Button>
-      <Button
-        variant={value === 'count_only' ? 'default' : 'outline'}
-        size="sm"
-        className="h-7 px-2 text-xs gap-1"
-        onClick={() => onChange('count_only')}
-      >
-        <Hash className="h-3 w-3" />
-        Count Only
-      </Button>
-      <Button
-        variant={value === 'hidden' ? 'default' : 'outline'}
-        size="sm"
-        className="h-7 px-2 text-xs gap-1"
-        onClick={() => onChange('hidden')}
-      >
-        <EyeOff className="h-3 w-3" />
-        Hidden
-      </Button>
+    <div className="flex shrink-0 items-center gap-1.5" role="group">
+      {privacyLevelOptions.map(option => {
+        const isActive = value === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={isActive}
+            className={cn(
+              'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+              'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              isActive
+                ? 'bg-foreground text-card'
+                : 'border border-border text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function PrivacyRow({
+  label,
+  description,
+  children,
+}: {
+  label: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="min-w-0 space-y-0.5">
+        <Label className="text-[13px] font-medium">{label}</Label>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {children}
     </div>
   )
 }
@@ -151,6 +166,7 @@ export function PrivacySettingsPanel() {
   }
 
   const isPublic = profile?.profile_visibility === 'public'
+  const username = profile?.username || ''
 
   const handleVisibilityToggle = () => {
     updateVisibility.mutate(
@@ -204,7 +220,7 @@ export function PrivacySettingsPanel() {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="p-6 flex justify-center">
+        <CardContent className="flex justify-center p-6">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </CardContent>
       </Card>
@@ -213,30 +229,21 @@ export function PrivacySettingsPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Profile Visibility */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            {isPublic ? (
-              <Globe className="h-5 w-5 text-muted-foreground" />
-            ) : (
-              <Lock className="h-5 w-5 text-muted-foreground" />
-            )}
-            <CardTitle className="text-lg">Profile Visibility</CardTitle>
-          </div>
-          <CardDescription>
-            Control whether your profile is visible to others
+      <Card className="gap-3 py-5">
+        <CardHeader className="gap-1.5 px-5">
+          <CardTitle className="text-sm">Profile visibility</CardTitle>
+          <CardDescription className="text-xs">
+            Control whether your public profile is visible at all. Per-section
+            controls below apply only while the profile is public.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 p-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">
-                {isPublic ? 'Public Profile' : 'Private Profile'}
-              </p>
+        <CardContent className="px-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-[13px] font-medium">Public profile</p>
               <p className="text-xs text-muted-foreground">
                 {isPublic
-                  ? 'Your profile is visible to everyone at /users/' + (profile?.username || '')
+                  ? `Anyone can view psychichomily.com/users/${username}`
                   : 'Only you can see your profile'}
               </p>
             </div>
@@ -244,90 +251,98 @@ export function PrivacySettingsPanel() {
               checked={isPublic}
               onCheckedChange={handleVisibilityToggle}
               disabled={updateVisibility.isPending}
+              className={pillSwitchClassName}
             />
           </div>
           {updateVisibility.isError && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive mt-3">
+            <div className="mt-3 flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{updateVisibility.error?.message || 'Failed to update visibility'}</span>
+              <span>
+                {updateVisibility.error?.message || 'Failed to update visibility'}
+              </span>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Granular Privacy Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Privacy Controls</CardTitle>
-          <CardDescription>
-            Choose what information is visible on your public profile
+      <Card className="gap-3 py-5">
+        <CardHeader className="gap-1.5 px-5">
+          <CardTitle className="text-sm">Privacy controls</CardTitle>
+          <CardDescription className="text-xs">
+            Choose what visitors see, section by section. Everything defaults to
+            visible — opt down where you want; you always see your own full
+            profile.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Three-level privacy fields */}
-          {localPrivacy && privacyFields.map(field => (
-            <div
-              key={field.key}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-3 border-b border-border/30 last:border-0"
-            >
-              <div className="space-y-0.5">
-                <Label className="text-sm font-medium">{field.label}</Label>
-                <p className="text-xs text-muted-foreground">{field.description}</p>
-              </div>
-              <PrivacyLevelSelector
-                value={localPrivacy[field.key]}
-                onChange={value => handlePrivacyFieldChange(field.key, value)}
-              />
-            </div>
-          ))}
+        <CardContent className="px-5">
+          {localPrivacy && (
+            <div className="divide-y divide-border">
+              {privacyFields.map(field => (
+                <PrivacyRow
+                  key={field.key}
+                  label={field.label}
+                  description={field.description}
+                >
+                  <PrivacyLevelSelector
+                    value={localPrivacy[field.key]}
+                    onChange={value =>
+                      handlePrivacyFieldChange(field.key, value)
+                    }
+                  />
+                </PrivacyRow>
+              ))}
 
-          {/* Binary privacy fields */}
-          {localPrivacy && binaryPrivacyFields.map(field => (
-            <div
-              key={field.key}
-              className="flex items-center justify-between gap-2 py-3 border-b border-border/30 last:border-0"
-            >
-              <div className="space-y-0.5">
-                <Label className="text-sm font-medium">{field.label}</Label>
-                <p className="text-xs text-muted-foreground">{field.description}</p>
-              </div>
-              <Switch
-                checked={localPrivacy[field.key] === 'visible'}
-                onCheckedChange={checked =>
-                  handlePrivacyFieldChange(field.key, checked ? 'visible' : 'hidden')
-                }
-              />
+              {binaryPrivacyFields.map(field => (
+                <PrivacyRow
+                  key={field.key}
+                  label={field.label}
+                  description={field.description}
+                >
+                  <Switch
+                    checked={localPrivacy[field.key] === 'visible'}
+                    onCheckedChange={checked =>
+                      handlePrivacyFieldChange(
+                        field.key,
+                        checked ? 'visible' : 'hidden'
+                      )
+                    }
+                    className={pillSwitchClassName}
+                  />
+                </PrivacyRow>
+              ))}
             </div>
-          ))}
-
-          {/* Save Button */}
-          <div className="flex items-center justify-between pt-2">
-            <div>
-              {saveSuccess && (
-                <div className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Settings saved
-                </div>
-              )}
-              {updatePrivacy.isError && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  {updatePrivacy.error?.message || 'Failed to save'}
-                </div>
-              )}
-            </div>
-            <Button
-              onClick={handleSavePrivacy}
-              disabled={!hasChanges || updatePrivacy.isPending}
-              size="sm"
-            >
-              {updatePrivacy.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              )}
-              Save Privacy Settings
-            </Button>
-          </div>
+          )}
         </CardContent>
+        <CardFooter className="flex flex-col items-stretch gap-3 border-t border-border px-5 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            {saveSuccess ? (
+              <div className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" />
+                Settings saved
+              </div>
+            ) : updatePrivacy.isError ? (
+              <div className="flex items-center gap-1.5 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4" />
+                {updatePrivacy.error?.message || 'Failed to save'}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Saved changes apply to your public profile immediately.
+              </p>
+            )}
+          </div>
+          <Button
+            onClick={handleSavePrivacy}
+            disabled={!hasChanges || updatePrivacy.isPending}
+            size="sm"
+            className="shrink-0 self-end sm:self-auto"
+          >
+            {updatePrivacy.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            Save privacy settings
+          </Button>
+        </CardFooter>
       </Card>
     </div>
   )
