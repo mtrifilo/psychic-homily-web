@@ -29,6 +29,10 @@ const UNSET = Symbol('unset')
 
 const PROFILE_FIELD_HASHES = new Set(['username', 'bio'])
 
+/** Clears sticky TopBar so hash deep-links show label + input. Prior art: CollectionAnchorNav. */
+const PROFILE_FIELD_SCROLL_MT =
+  'scroll-mt-[calc(var(--topbar-height)+1rem)]'
+
 function ProfileTab() {
   const router = useRouter()
   const { user } = useAuthContext()
@@ -60,6 +64,8 @@ function ProfileTab() {
 
   // Deep-link from /users/me claim CTAs: /profile#username | /profile#bio.
   // Profile is the default tab, so hashing the field id is enough.
+  // Scroll the field wrapper (label + input) with scroll-mt so sticky TopBar
+  // does not cover the target; focus stays on the input (PSY-1485).
   useEffect(() => {
     const fieldId = urlHash.replace(/^#/, '')
     if (!PROFILE_FIELD_HASHES.has(fieldId)) return
@@ -68,7 +74,9 @@ function ProfileTab() {
     if (!el) return
 
     el.focus()
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const scrollTarget =
+      el.closest<HTMLElement>('[data-profile-field-anchor]') ?? el
+    scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [urlHash])
 
   const handleSave = async () => {
@@ -130,7 +138,10 @@ function ProfileTab() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4">
-            <div className="space-y-2">
+            <div
+              className={`space-y-2 ${PROFILE_FIELD_SCROLL_MT}`}
+              data-profile-field-anchor
+            >
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
@@ -173,7 +184,10 @@ function ProfileTab() {
               </p>
             </div>
 
-            <div className="space-y-2">
+            <div
+              className={`space-y-2 ${PROFILE_FIELD_SCROLL_MT}`}
+              data-profile-field-anchor
+            >
               <Label htmlFor="bio">Bio</Label>
               <Textarea
                 id="bio"

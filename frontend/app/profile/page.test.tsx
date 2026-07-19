@@ -312,8 +312,19 @@ describe('ProfilePage (PSY-683)', () => {
       window.location.hash = '#username'
       renderWithProviders(<ProfilePage />)
 
+      const username = screen.getByLabelText(/username/i)
       await waitFor(() => {
-        expect(document.activeElement).toBe(screen.getByLabelText(/username/i))
+        expect(document.activeElement).toBe(username)
+      })
+
+      const anchor = username.closest('[data-profile-field-anchor]')
+      expect(anchor).toBeTruthy()
+      expect(anchor?.className).toContain(
+        'scroll-mt-[calc(var(--topbar-height)+1rem)]'
+      )
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
       })
     })
 
@@ -321,8 +332,19 @@ describe('ProfilePage (PSY-683)', () => {
       window.location.hash = '#bio'
       renderWithProviders(<ProfilePage />)
 
+      const bio = screen.getByLabelText(/^bio$/i)
       await waitFor(() => {
-        expect(document.activeElement).toBe(screen.getByLabelText(/^bio$/i))
+        expect(document.activeElement).toBe(bio)
+      })
+
+      const anchor = bio.closest('[data-profile-field-anchor]')
+      expect(anchor).toBeTruthy()
+      expect(anchor?.className).toContain(
+        'scroll-mt-[calc(var(--topbar-height)+1rem)]'
+      )
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
       })
     })
   })
