@@ -44,6 +44,13 @@ import { SceneGraphVisualizationStyleAdapter } from './VenueBillNetworkAdapter'
 const MIN_GRAPH_NODES = 3 // mirror SceneGraph — under 3 connected artists is too sparse
 const MIN_GRAPH_SHOWS = 10 // PSY-365 ticket: empty state for "<10 shows at the venue"
 
+/**
+ * The scroll-anchor id for the mobile teaser's "Browse shows" link-out
+ * (PSY-1472). Single-sourced here so this component's `linkHref` and the
+ * VenueDetail wrapper's `id` can't drift apart.
+ */
+export const VENUE_SHOWS_ANCHOR = 'venue-shows'
+
 // ------------------------------------------------------------------
 // Year picker bounds
 // ------------------------------------------------------------------
@@ -321,7 +328,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
                 <GraphStateCard
                   className={`mt-2 ${GRAPH_TEASER_HEIGHT_CLASS}`}
                   message={`Who plays ${venueName} together, mapped by shared bills here. Needs a larger screen.`}
-                  linkHref="#venue-shows"
+                  linkHref={`#${VENUE_SHOWS_ANCHOR}`}
                   linkLabel={`Browse shows at ${venueName} →`}
                 />
               )}

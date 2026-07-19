@@ -62,6 +62,13 @@ const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
   { value: 'community', label: 'Community' },
 ]
 
+/**
+ * The scroll-anchor id for the mobile teaser's "Browse artists" link-out
+ * (PSY-1472). Single-sourced here so this component's `linkHref` and the
+ * SceneDetail wrapper's `id` can't drift apart.
+ */
+export const SCENE_ARTISTS_ANCHOR = 'scene-artists'
+
 interface SceneGraphProps {
   slug: string
   city: string
@@ -296,8 +303,8 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
           hasEnoughForGraph && (
             <GraphStateCard
               className={GRAPH_TEASER_HEIGHT_CLASS}
-              message={`The ${city}, ${state} scene is a map of who plays with whom. The interactive version needs a larger screen.`}
-              linkHref="#scene-artists"
+              message={`The ${city}${state ? `, ${state}` : ''} scene is a map of who plays with whom. The interactive version needs a larger screen.`}
+              linkHref={`#${SCENE_ARTISTS_ANCHOR}`}
               linkLabel={`Browse ${city} artists →`}
             />
           )}

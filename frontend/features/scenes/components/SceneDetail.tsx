@@ -12,7 +12,7 @@ import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
-import { SceneGraph } from './SceneGraph'
+import { SceneGraph, SCENE_ARTISTS_ANCHOR } from './SceneGraph'
 
 interface SceneDetailProps {
   slug: string
@@ -240,7 +240,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
         {/* Local Artists — the metro roster, active bands first.
             id="scene-artists": the mobile graph teaser's link-out target
             (SceneGraph, PSY-1472). scroll-mt for the sticky entity header. */}
-        <Card id="scene-artists" className="lg:col-span-2 scroll-mt-20">
+        <Card id={SCENE_ARTISTS_ANCHOR} className="lg:col-span-2 scroll-mt-20">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Mic2 className="h-4 w-4 text-muted-foreground" />

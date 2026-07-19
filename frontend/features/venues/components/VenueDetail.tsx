@@ -18,7 +18,7 @@ import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
-import { VenueBillNetwork } from './VenueBillNetwork'
+import { VenueBillNetwork, VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
@@ -326,7 +326,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           {/* Shows List. id="venue-shows": the mobile graph teaser's link-out
               target (VenueBillNetwork, PSY-1472). scroll-mt for the sticky
               header. */}
-          <div id="venue-shows" className="scroll-mt-20">
+          <div id={VENUE_SHOWS_ANCHOR} className="scroll-mt-20">
             <VenueShowsList
               venueId={venue.id}
               venueSlug={venue.slug}

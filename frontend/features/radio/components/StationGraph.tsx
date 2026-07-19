@@ -31,6 +31,14 @@ import { StationGraphVisualization } from './StationGraphVisualization'
 
 const MIN_GRAPH_NODES = 3
 
+/**
+ * The scroll-anchor id for the mobile teaser's "See recent playlists" link-out
+ * (PSY-1472). Single-sourced here so this component's `linkHref`, the
+ * StationDetail wrapper's `id`, and StationDetail's cold-load scroll workaround
+ * can't drift apart.
+ */
+export const STATION_PLAYLISTS_ANCHOR = 'recent-playlists'
+
 interface StationGraphProps {
   slug: string
   stationName: string
@@ -198,7 +206,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
           <GraphStateCard
             className={GRAPH_TEASER_HEIGHT_CLASS}
             message={`${stationName}'s airplay as a map — artists linked by how often they're played together. Needs a larger screen.`}
-            linkHref="#recent-playlists"
+            linkHref={`#${STATION_PLAYLISTS_ANCHOR}`}
             linkLabel="See recent playlists →"
           />
         )}

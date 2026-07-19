@@ -260,7 +260,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
         {!isLoading && data && nodeCount > 0 && !graphAvailable && containerWidth !== null && (
           <GraphStateCard
             className={GRAPH_TEASER_HEIGHT_CLASS}
-            message={`${collectionTitle} as a map — its artists, venues, releases & labels and how they connect. Needs a larger screen.`}
+            message={`${collectionTitle} as a map — how its artists, venues, releases, labels, festivals and shows connect. Needs a larger screen.`}
             linkHref="#items"
             linkLabel="Browse the collection →"
           />

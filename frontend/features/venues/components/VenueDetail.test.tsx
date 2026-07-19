@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VenueDetail } from './VenueDetail'
+import { VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
 import type { Venue } from '../types'
 
 // Mock AuthContext.
@@ -160,6 +161,7 @@ vi.mock('./VenueBillNetwork', () => ({
   VenueBillNetwork: ({ venueIdOrSlug }: { venueIdOrSlug: number | string }) => (
     <div data-testid="venue-bill-network">Bill Network for {String(venueIdOrSlug)}</div>
   ),
+  VENUE_SHOWS_ANCHOR: 'venue-shows',
 }))
 
 vi.mock('@/features/contributions', () => ({
@@ -323,10 +325,12 @@ describe('VenueDetail', () => {
       expect(link).toHaveAttribute('href', '/venues')
     })
 
-    it('renders venue shows list', () => {
-      render(<VenueDetail venueId="1" />)
+    it('renders venue shows list under the #venue-shows anchor (PSY-1472)', () => {
+      const { container } = render(<VenueDetail venueId="1" />)
       expect(screen.getByTestId('venue-shows-list')).toBeInTheDocument()
       expect(screen.getByText('Shows for venue 1')).toBeInTheDocument()
+      // The wrapper carries the anchor the mobile graph teaser links to.
+      expect(container.querySelector(`#${VENUE_SHOWS_ANCHOR}`)).toBeInTheDocument()
     })
 
     it('renders location card in sidebar', () => {
