@@ -83,6 +83,7 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"show_reminders":          "sent by background job; read-only from E2E",
 	"enrichment_runs":         "background service writes these; not user-mutated",
 	"artist_link_suggestions": "discovery-candidate review queue (PSY-1199); populated by the sweep cmd + admin-reviewed (reviewed_by_user_id), has its own service/handler tests with explicit cleanup; not part of E2E mutating flows",
+	"radio_play_match_suggestions": "community radio play match queue (PSY-1494); submitted_by/reviewed_by FKs to users; has its own service/handler tests with explicit cleanup; not part of E2E mutating flows yet (playlist CTA is a follow-up)",
 	"ai_extraction_throttle":  "per-user AI-extraction rate-limit counter (PSY-855); backend-owned upsert/counter plumbing in services/ratelimit, admin-bypassed in E2E so not exercised — revisit (move to allowlist for reset) if an E2E flow ever drives it",
 	"revisions":               "version history; tests don't assert on the count",
 	"auto_promotion_runs":     "background service output; not user-mutated",

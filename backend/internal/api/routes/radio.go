@@ -1,14 +1,33 @@
 package routes
 
 import (
-	"github.com/danielgtaylor/huma/v2"
+	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
+
+	appdb "psychic-homily-backend/db"
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
+	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/services/engagement"
 )
 
 // setupRadioRoutes configures radio entity endpoints (stations, shows, episodes, plays).
 func setupRadioRoutes(rc RouteContext) {
 	radioHandler := catalogh.NewRadioHandler(rc.SC.Radio, rc.SC.Artist, rc.SC.Release, rc.SC.AuditLog)
+	matchSuggestionHandler := catalogh.NewRadioPlayMatchSuggestionHandler(
+		rc.SC.RadioPlayMatchSuggestion,
+		rc.SC.AuditLog,
+	)
+	matchSuggestionHandler.SetApprovalEmailDeps(
+		appdb.GetDB(),
+		rc.SC.Email,
+		rc.Cfg.Email.FrontendURL,
+		engagement.DeriveBackendURL(rc.Cfg.Email.FrontendURL),
+		rc.Cfg.JWT.SecretKey,
+	)
 
 	// Public radio station endpoints
 	huma.Get(rc.API, "/radio-stations", radioHandler.ListRadioStationsHandler)
@@ -36,6 +55,27 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/radio/guide", radioHandler.GetRadioGuideHandler)
 	huma.Get(rc.API, "/radio/new-releases", radioHandler.GetRadioNewReleaseRadarHandler)
 	huma.Get(rc.API, "/radio/stats", radioHandler.GetRadioStatsHandler)
+
+	// Community match suggestions (PSY-1494): authed submit + own-pending read.
+	// POST is rate-limited: 20/hour per authenticated user (conservative queue
+	// flood protection). GET own-pending stays on rc.Protected without the
+	// extra limiter.
+	rc.Router.Group(func(r chi.Router) {
+		r.Use(middleware.RateLimitRadioPlayMatchSuggestionsByUser(
+			rc.SC.JWT,
+			httprate.Limit(
+				middleware.RadioPlayMatchSuggestionRequestsPerHour,
+				time.Hour,
+				httprate.WithKeyFuncs(middleware.RadioPlayMatchSuggestionUserKeyFunc),
+				httprate.WithLimitHandler(rateLimitHandler),
+			),
+		))
+		suggestAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Radio Match Suggestions", "1.0.0"))
+		suggestAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		suggestAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+		huma.Post(suggestAPI, "/radio/plays/{id}/match-suggestions", matchSuggestionHandler.CreateRadioPlayMatchSuggestionHandler)
+	})
+	huma.Get(rc.Protected, "/radio/plays/{id}/match-suggestions/mine", matchSuggestionHandler.GetOwnRadioPlayMatchSuggestionHandler)
 
 	// Admin radio station endpoints (PSY-423: rc.Admin enforces auth + IsAdmin)
 	huma.Post(rc.Admin, "/admin/radio-stations", radioHandler.AdminCreateRadioStationHandler)
@@ -70,4 +110,9 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
 	huma.Post(rc.Admin, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
 	huma.Post(rc.Admin, "/admin/radio/rematch", radioHandler.AdminReMatchPlaysHandler)
+
+	// Admin radio play match-suggestion review queue (PSY-1494).
+	huma.Get(rc.Admin, "/admin/radio/match-suggestions", matchSuggestionHandler.ListRadioPlayMatchSuggestionsHandler)
+	huma.Post(rc.Admin, "/admin/radio/match-suggestions/{id}/accept", matchSuggestionHandler.AcceptRadioPlayMatchSuggestionHandler)
+	huma.Post(rc.Admin, "/admin/radio/match-suggestions/{id}/reject", matchSuggestionHandler.RejectRadioPlayMatchSuggestionHandler)
 }
