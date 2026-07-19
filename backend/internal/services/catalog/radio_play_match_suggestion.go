@@ -90,11 +90,15 @@ func (s *RadioPlayMatchSuggestionService) CreateSuggestion(
 	}
 
 	now := s.now().UTC()
+	note := trimNote(req.Note)
+	if note != nil && len(*note) > 2000 {
+		return nil, contracts.ErrRadioPlayMatchSuggestionNoteTooLong
+	}
 	row := catalogm.RadioPlayMatchSuggestion{
 		PlayID:            playID,
 		SuggestedArtistID: req.ArtistID,
 		SubmittedBy:       submitterID,
-		Note:              trimNote(req.Note),
+		Note:              note,
 		Status:            catalogm.RadioPlayMatchSuggestionStatusPending,
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -296,6 +300,9 @@ func (s *RadioPlayMatchSuggestionService) RejectSuggestion(
 		return nil, contracts.ErrRadioPlayMatchSuggestionRejectReasonRequired
 	}
 	reason := strings.TrimSpace(req.Reason)
+	if len(reason) > 2000 {
+		return nil, contracts.ErrRadioPlayMatchSuggestionRejectReasonRequired
+	}
 
 	suggestion, err := s.loadSuggestion(suggestionID)
 	if err != nil {

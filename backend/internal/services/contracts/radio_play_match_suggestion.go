@@ -88,6 +88,8 @@ var (
 	ErrRadioPlayMatchSuggestionArtistNotFound = errors.New("suggested artist not found")
 	// ErrRadioPlayMatchSuggestionRejectReasonRequired: reject without reason (422).
 	ErrRadioPlayMatchSuggestionRejectReasonRequired = errors.New("rejection reason is required")
+	// ErrRadioPlayMatchSuggestionNoteTooLong: note exceeds 2000 chars (422).
+	ErrRadioPlayMatchSuggestionNoteTooLong = errors.New("match suggestion note too long")
 )
 
 // RadioPlayMatchSuggestionServiceInterface is the community submit + admin

@@ -293,6 +293,8 @@ func mapMatchSuggestionError(ctx context.Context, err error, requestID, action s
 		return huma.Error422UnprocessableEntity("Play is not suggestable (must have null artist_id and match_state in unmatched/ambiguous/no_match)")
 	case errors.Is(err, contracts.ErrRadioPlayMatchSuggestionRejectReasonRequired):
 		return huma.Error422UnprocessableEntity("rejection reason is required")
+	case errors.Is(err, contracts.ErrRadioPlayMatchSuggestionNoteTooLong):
+		return huma.Error422UnprocessableEntity("note must be at most 2000 characters")
 	default:
 		logger.FromContext(ctx).Error("radio_play_match_suggestion_failed",
 			"action", action,
