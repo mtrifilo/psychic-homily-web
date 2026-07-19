@@ -16,6 +16,7 @@ import (
 	communitym "psychic-homily-backend/internal/models/community"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	svcsengagement "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -386,11 +387,17 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	stats.ReportsResolved = entityReportsResolved + showReportsResolved + artistReportsResolved
 
 	// Social: followers and following via user_bookmarks with action = 'follow'
-	// Followers = other users who follow entities that *are* this user (not applicable with current schema)
-	// Following = entities this user follows
-	s.db.Model(&engagementm.UserBookmark{}).Where("user_id = ? AND action = ?", userID, engagementm.BookmarkActionFollow).Count(&stats.FollowingCount)
-	// FollowersCount is not directly queryable in the current schema (bookmarks are entity-based, not user-to-user)
-	// Leave at 0 until a user-to-user follow system exists
+	// (PSY-1496). Followers = other users who follow this user (entity_type=user).
+	// Following = catalog entities this user follows — exclude entity_type=user
+	// so the count stays "entities I follow" (aligned with ProfileFollowing / Library).
+	s.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND action = ? AND entity_type <> ?",
+			userID, engagementm.BookmarkActionFollow, svcsengagement.FollowEntityUser).
+		Count(&stats.FollowingCount)
+	s.db.Model(&engagementm.UserBookmark{}).
+		Where("entity_type = ? AND entity_id = ? AND action = ?",
+			svcsengagement.FollowEntityUser, userID, engagementm.BookmarkActionFollow).
+		Count(&stats.FollowersCount)
 
 	// Approval rate from pending_entity_edits
 	var approved, rejected int64

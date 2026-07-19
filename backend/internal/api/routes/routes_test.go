@@ -153,6 +153,34 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	countsResponse := countsOperation.Responses["200"].Content["application/json"].Schema
 	assertProperties(countsResponse, "artists", "venues", "scenes", "labels", "festivals")
 
+	// PSY-1496: username-addressed user follow routes must be documented.
+	for _, check := range []struct {
+		path   string
+		method string
+	}{
+		{"/users/{username}/follow", "POST"},
+		{"/users/{username}/follow", "DELETE"},
+		{"/users/{username}/followers", "GET"},
+	} {
+		item, exists := api.OpenAPI().Paths[check.path]
+		if !exists {
+			t.Errorf("Expected OpenAPI path %s", check.path)
+			continue
+		}
+		var op any
+		switch check.method {
+		case "POST":
+			op = item.Post
+		case "DELETE":
+			op = item.Delete
+		case "GET":
+			op = item.Get
+		}
+		if op == nil {
+			t.Errorf("Expected OpenAPI %s operation for %s", check.method, check.path)
+		}
+	}
+
 	// PSY-1466: the scene follow body's notify_mode enum must include "off"
 	// alongside the pre-existing "all" and "followed_bands_only".
 	sceneFollowOp := api.OpenAPI().Paths["/scenes/{slug}/follow"].Post

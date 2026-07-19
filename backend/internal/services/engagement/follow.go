@@ -279,7 +279,9 @@ func (s *FollowService) GetBatchUserFollowing(userID uint, entityType string, en
 }
 
 // GetUserFollowing lists all entities a user follows of a given type, ordered by follow date DESC.
-// If entityType is empty, returns follows across all types.
+// If entityType is empty, returns follows across catalog entity types only —
+// entity_type=user (user→user follows, PSY-1496) is excluded so the list stays
+// "entities I follow" (aligned with ProfileFollowing / Library / following_count).
 func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -295,6 +297,9 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 		Where("user_id = ? AND action = ?", userID, engagementm.BookmarkActionFollow)
 	if entityType != "" {
 		baseQuery = baseQuery.Where("entity_type = ?", engagementm.BookmarkEntityType(entityType))
+	} else {
+		// PSY-1496: empty filter is entities-only, not people.
+		baseQuery = baseQuery.Where("entity_type <> ?", FollowEntityUser)
 	}
 
 	// Count total

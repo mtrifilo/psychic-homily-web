@@ -308,6 +308,41 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Artist() {
 	suite.Equal(int64(1), count)
 }
 
+// PSY-1496: user→user follows reuse FollowEntityUser; IsFollowing must see
+// edges created the same way the username-addressed API writes them (PSY-296
+// reply gating depends on this).
+func (suite *FollowServiceIntegrationTestSuite) TestFollow_User_IdempotentAndIsFollowing() {
+	follower := suite.createTestUser()
+	target := suite.createTestUser()
+
+	err := suite.followService.Follow(follower.ID, FollowEntityUser, target.ID)
+	suite.Require().NoError(err)
+	err = suite.followService.Follow(follower.ID, FollowEntityUser, target.ID)
+	suite.Require().NoError(err)
+
+	following, err := suite.followService.IsFollowing(follower.ID, FollowEntityUser, target.ID)
+	suite.Require().NoError(err)
+	suite.True(following)
+
+	count, err := suite.followService.GetFollowerCount(FollowEntityUser, target.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), count)
+
+	// Empty-type GetUserFollowing is entities-only — user edge must not appear.
+	artistID := suite.createTestArtist("Also Followed")
+	suite.Require().NoError(suite.followService.Follow(follower.ID, "artist", artistID))
+	list, total, err := suite.followService.GetUserFollowing(follower.ID, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(list, 1)
+	suite.Equal("artist", list[0].EntityType)
+
+	suite.Require().NoError(suite.followService.Unfollow(follower.ID, FollowEntityUser, target.ID))
+	following, err = suite.followService.IsFollowing(follower.ID, FollowEntityUser, target.ID)
+	suite.Require().NoError(err)
+	suite.False(following)
+}
+
 func (suite *FollowServiceIntegrationTestSuite) TestFollow_Idempotent() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Idempotent Artist")
