@@ -331,6 +331,15 @@ export function PublicProfile({ username }: PublicProfileProps) {
               ) : null}
               {hasSections && (
                 <div className="mt-4">
+                  {isOwner && (
+                    <div className="mb-2 flex justify-end">
+                      <ProfileSectionAction
+                        label="Manage"
+                        href="/profile?tab=sections"
+                        ariaLabel="Manage your profile sections"
+                      />
+                    </div>
+                  )}
                   <ProfileSections sections={visibleSections} />
                 </div>
               )}
