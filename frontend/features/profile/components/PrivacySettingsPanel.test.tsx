@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen, act } from '@testing-library/react'
 import { PrivacySettingsPanel } from './PrivacySettingsPanel'
 import type { PrivacySettings } from '@/features/auth'
 
@@ -107,16 +106,16 @@ describe('PrivacySettingsPanel', () => {
       })
       render(<PrivacySettingsPanel />)
       // When loading, main content is not shown
-      expect(screen.queryByText('Profile Visibility')).not.toBeInTheDocument()
+      expect(screen.queryByText('Profile visibility')).not.toBeInTheDocument()
     })
 
     it('renders profile visibility section', () => {
       render(<PrivacySettingsPanel />)
-      expect(screen.getByText('Profile Visibility')).toBeInTheDocument()
-      expect(screen.getByText('Public Profile')).toBeInTheDocument()
+      expect(screen.getByText('Profile visibility')).toBeInTheDocument()
+      expect(screen.getByText('Public profile')).toBeInTheDocument()
     })
 
-    it('shows "Private Profile" copy when visibility is private', () => {
+    it('shows private-profile copy when visibility is private', () => {
       mockUseOwnContributorProfile.mockReturnValue({
         data: {
           ...baseProfile,
@@ -126,7 +125,8 @@ describe('PrivacySettingsPanel', () => {
         isLoading: false,
       })
       render(<PrivacySettingsPanel />)
-      expect(screen.getByText('Private Profile')).toBeInTheDocument()
+      // Board I always labels the row "Public profile"; private state is in the description.
+      expect(screen.getByText('Public profile')).toBeInTheDocument()
       expect(
         screen.getByText(/Only you can see your profile/i)
       ).toBeInTheDocument()
@@ -135,33 +135,43 @@ describe('PrivacySettingsPanel', () => {
     it('shows the public profile URL when visibility is public', () => {
       render(<PrivacySettingsPanel />)
       expect(
-        screen.getByText(/visible to everyone at \/users\/testuser/)
+        screen.getByText(/Anyone can view psychichomily.com\/users\/testuser/)
       ).toBeInTheDocument()
     })
 
     it('renders privacy controls section with all fields', () => {
       render(<PrivacySettingsPanel />)
-      expect(screen.getByText('Privacy Controls')).toBeInTheDocument()
+      expect(screen.getByText('Privacy controls')).toBeInTheDocument()
       expect(screen.getByText('Contributions')).toBeInTheDocument()
-      expect(screen.getByText('Saved Shows')).toBeInTheDocument()
+      expect(screen.getByText('Saved shows')).toBeInTheDocument()
       expect(screen.getByText('Following')).toBeInTheDocument()
       expect(screen.getByText('Collections')).toBeInTheDocument()
-      expect(screen.getByText('Last Active')).toBeInTheDocument()
-      expect(screen.getByText('Custom Sections')).toBeInTheDocument()
+      expect(screen.getByText('Last active')).toBeInTheDocument()
+      expect(screen.getByText('Custom sections')).toBeInTheDocument()
+      expect(screen.queryByText(/Attendance/i)).not.toBeInTheDocument()
     })
 
-    it('renders three privacy-level buttons (Visible / Count Only / Hidden) per privacy field', () => {
+    it('renders three privacy-level chips (Visible / Count only / Hidden) per privacy field', () => {
       render(<PrivacySettingsPanel />)
-      // 4 three-level fields × 3 buttons = 12 buttons; plus the Save button
+      // 4 three-level fields × 3 chips = 12 buttons; plus the Save button
       expect(
         screen.getAllByRole('button', { name: /^Visible$/i })
       ).toHaveLength(4)
       expect(
-        screen.getAllByRole('button', { name: /^Count Only$/i })
+        screen.getAllByRole('button', { name: /^Count only$/i })
       ).toHaveLength(4)
       expect(
         screen.getAllByRole('button', { name: /^Hidden$/i })
       ).toHaveLength(4)
+    })
+
+    it('shows the board footer save-applies copy', () => {
+      render(<PrivacySettingsPanel />)
+      expect(
+        screen.getByText(
+          'Saved changes apply to your public profile immediately.'
+        )
+      ).toBeInTheDocument()
     })
   })
 
@@ -256,10 +266,10 @@ describe('PrivacySettingsPanel', () => {
   })
 
   describe('privacy field controls', () => {
-    it('Save Privacy Settings button is disabled when there are no changes', () => {
+    it('Save privacy settings button is disabled when there are no changes', () => {
       render(<PrivacySettingsPanel />)
       const saveButton = screen.getByRole('button', {
-        name: /Save Privacy Settings/i,
+        name: /Save privacy settings/i,
       })
       expect(saveButton).toBeDisabled()
     })
@@ -271,25 +281,25 @@ describe('PrivacySettingsPanel', () => {
         hiddenButtons[0].click()
       })
       const saveButton = screen.getByRole('button', {
-        name: /Save Privacy Settings/i,
+        name: /Save privacy settings/i,
       })
       expect(saveButton).toBeEnabled()
     })
 
-    it('cycles a three-level field through Hidden -> Count Only -> Visible', () => {
+    it('cycles a three-level field through Hidden -> Count only -> Visible', () => {
       render(<PrivacySettingsPanel />)
 
       // Click Hidden for the first three-level field (Contributions)
       act(() => {
         screen.getAllByRole('button', { name: /^Hidden$/i })[0].click()
       })
-      // Click Count Only
+      // Click Count only
       act(() => {
-        screen.getAllByRole('button', { name: /^Count Only$/i })[0].click()
+        screen.getAllByRole('button', { name: /^Count only$/i })[0].click()
       })
       // Save
       act(() => {
-        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+        screen.getByRole('button', { name: /Save privacy settings/i }).click()
       })
 
       expect(mockPrivacyMutate).toHaveBeenCalledTimes(1)
@@ -297,7 +307,7 @@ describe('PrivacySettingsPanel', () => {
       expect(payload.contributions).toBe('count_only')
     })
 
-    it('toggling the Last Active binary switch from visible to hidden sends "hidden"', () => {
+    it('toggling the Last active binary switch from visible to hidden sends "hidden"', () => {
       render(<PrivacySettingsPanel />)
 
       // The binary switches are the trailing two switches (after the visibility toggle).
@@ -311,14 +321,14 @@ describe('PrivacySettingsPanel', () => {
       })
 
       act(() => {
-        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+        screen.getByRole('button', { name: /Save privacy settings/i }).click()
       })
 
       const [payload] = mockPrivacyMutate.mock.calls[0]
       expect(payload.last_active).toBe('hidden')
     })
 
-    it('toggling the Custom Sections binary switch from visible to hidden sends "hidden"', () => {
+    it('toggling the Custom sections binary switch from visible to hidden sends "hidden"', () => {
       render(<PrivacySettingsPanel />)
 
       const switches = screen.getAllByRole('switch')
@@ -330,7 +340,7 @@ describe('PrivacySettingsPanel', () => {
       })
 
       act(() => {
-        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+        screen.getByRole('button', { name: /Save privacy settings/i }).click()
       })
 
       const [payload] = mockPrivacyMutate.mock.calls[0]
@@ -359,7 +369,7 @@ describe('PrivacySettingsPanel', () => {
       })
 
       act(() => {
-        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+        screen.getByRole('button', { name: /Save privacy settings/i }).click()
       })
 
       const [payload] = mockPrivacyMutate.mock.calls[0]
@@ -373,7 +383,7 @@ describe('PrivacySettingsPanel', () => {
         screen.getAllByRole('button', { name: /^Hidden$/i })[0].click()
       })
       act(() => {
-        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+        screen.getByRole('button', { name: /Save privacy settings/i }).click()
       })
 
       const [payload] = mockPrivacyMutate.mock.calls[0]
@@ -427,7 +437,7 @@ describe('PrivacySettingsPanel', () => {
       })
 
       const saveButton = screen.getByRole('button', {
-        name: /Save Privacy Settings/i,
+        name: /Save privacy settings/i,
       })
       expect(saveButton).toBeDisabled()
     })
@@ -447,7 +457,7 @@ describe('PrivacySettingsPanel', () => {
       })
 
       const saveButton = screen.getByRole('button', {
-        name: /Save Privacy Settings/i,
+        name: /Save privacy settings/i,
       })
       act(() => {
         saveButton.click()
@@ -476,7 +486,7 @@ describe('PrivacySettingsPanel', () => {
       })
 
       const saveButton = screen.getByRole('button', {
-        name: /Save Privacy Settings/i,
+        name: /Save privacy settings/i,
       })
       act(() => {
         saveButton.click()
@@ -514,15 +524,20 @@ describe('PrivacySettingsPanel', () => {
         screen.getAllByRole('button', { name: /^Hidden$/i })[0].click()
       })
       act(() => {
-        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+        screen.getByRole('button', { name: /Save privacy settings/i }).click()
       })
       expect(screen.getByText('Settings saved')).toBeInTheDocument()
 
       // Make a new change before the 3s timeout fires → indicator clears
       act(() => {
-        screen.getAllByRole('button', { name: /^Count Only$/i })[0].click()
+        screen.getAllByRole('button', { name: /^Count only$/i })[0].click()
       })
       expect(screen.queryByText('Settings saved')).not.toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Saved changes apply to your public profile immediately.'
+        )
+      ).toBeInTheDocument()
     })
   })
 })
