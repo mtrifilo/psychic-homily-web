@@ -31,6 +31,9 @@ import {
   useCancelSyncRun,
   useUnmatchedPlays,
   useBulkLinkPlays,
+  useAdminMatchSuggestions,
+  useAcceptMatchSuggestion,
+  useRejectMatchSuggestion,
 } from './useAdminRadio'
 
 describe('radioQueryKeys', () => {
@@ -652,5 +655,95 @@ describe('useBulkLinkPlays', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect((result.current.error as Error).message).toBe('Artist not found')
     expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('useAdminMatchSuggestions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('GETs the admin pending list with pagination', async () => {
+    mockApiRequest.mockResolvedValueOnce({ suggestions: [], total: 0 })
+
+    const { result } = renderHook(() => useAdminMatchSuggestions(25, 50), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).toContain('/admin/radio/match-suggestions')
+    expect(url).toContain('limit=25')
+    expect(url).toContain('offset=50')
+  })
+})
+
+describe('useAcceptMatchSuggestion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('POSTs accept with also_bulk_link_name', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      id: 7,
+      status: 'accepted',
+      bulk_updated: 3,
+    })
+
+    const { result } = renderHook(() => useAcceptMatchSuggestion(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ suggestionId: 7, alsoBulkLinkName: true })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      'http://localhost:8080/admin/radio/match-suggestions/7/accept',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ also_bulk_link_name: true }),
+      })
+    )
+  })
+})
+
+describe('useRejectMatchSuggestion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('POSTs reject with reason and invalidates queues', async () => {
+    mockApiRequest.mockResolvedValueOnce({ id: 7, status: 'rejected' })
+
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { result } = renderHook(() => useRejectMatchSuggestion(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ suggestionId: 7, reason: 'Nope' })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      'http://localhost:8080/admin/radio/match-suggestions/7/reject',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Nope' }),
+      })
+    )
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['radio', 'match-suggestions'],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['radio', 'unmatched'],
+    })
   })
 })

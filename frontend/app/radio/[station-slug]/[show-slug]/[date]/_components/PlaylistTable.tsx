@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { DenseTable } from '@/components/shared/DenseTable'
 import { formatPlayTime, getRotationStatusColor } from '@/features/radio'
 import type { RadioPlay } from '@/features/radio'
+import { SuggestMatchControl } from './SuggestMatchControl'
 
 interface PlaylistTableProps {
   plays: RadioPlay[]
@@ -30,17 +31,12 @@ function rotationTagLabel(status: string): string {
 const BADGE_CLASSES = 'font-mono text-[10px] px-1.5 py-0'
 
 /**
- * The playlist page's full-width record-collector track table (PSY-1051,
- * locked PSY-1049 decision 5): TIME · ARTIST · TRACK · ALBUM · LABEL · YEAR ·
- * NOTES. Matched artists (artist_id) render as an orange link with a ● dot;
- * unmatched as plain text with ○ — explained by the legend row underneath.
- * TIME comes from air_timestamp where the feed carries one and is otherwise
- * blank (never fabricated); position keeps the row order. dj_comment renders
- * as an indented full-width sub-row under its track.
- *
- * Explicitly NOT here in v1 (locked): airbreak divider rows (no play_type
- * data), [suggest a match] on unmatched rows (PSY-1052 spike), TIME
- * deep-links into a seekable player.
+ * The playlist page's full-width record-collector track table: TIME · ARTIST ·
+ * TRACK · ALBUM · LABEL · YEAR · NOTES. Matched artists (artist_id) render as
+ * an orange link with a ● dot; unmatched as plain text with ○ plus a quiet
+ * [suggest a match] CTA. TIME comes from air_timestamp where the feed carries
+ * one and is otherwise blank (never fabricated); position keeps the row order.
+ * dj_comment renders as an indented full-width sub-row under its track.
  */
 export function PlaylistTable({ plays }: PlaylistTableProps) {
   return (
@@ -69,7 +65,7 @@ export function PlaylistTable({ plays }: PlaylistTableProps) {
                     {time ?? ''}
                   </td>
                   <td>
-                    <span className="inline-flex items-baseline gap-1.5">
+                    <span className="inline-flex flex-wrap items-baseline gap-1.5">
                       <span
                         className={matched ? 'text-primary' : 'text-muted-foreground/60'}
                         aria-hidden="true"
@@ -87,6 +83,12 @@ export function PlaylistTable({ plays }: PlaylistTableProps) {
                         <span className="font-medium text-foreground">
                           {play.artist_name}
                         </span>
+                      )}
+                      {!matched && (
+                        <SuggestMatchControl
+                          playId={play.id}
+                          playArtistName={play.artist_name}
+                        />
                       )}
                     </span>
                   </td>
@@ -167,7 +169,6 @@ export function PlaylistTable({ plays }: PlaylistTableProps) {
         </tbody>
       </DenseTable>
 
-      {/* Legend (the [suggest a match] action is the PSY-1052 spike — v1 is legend-only) */}
       <p className="mt-3 font-mono text-xs text-muted-foreground">
         <span className="text-primary" aria-hidden="true">
           ●

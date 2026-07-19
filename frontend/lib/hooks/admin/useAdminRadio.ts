@@ -32,6 +32,8 @@ export const radioQueryKeys = {
   stationHealthAll: ['radio', 'station-health'] as const,
   stationHealth: (stationId: number) => ['radio', 'stations', stationId, 'health'] as const,
   unmatched: (stationId: number) => ['radio', 'unmatched', stationId] as const,
+  matchSuggestions: (limit: number, offset: number) =>
+    ['radio', 'match-suggestions', limit, offset] as const,
 }
 
 // ============================================================================
@@ -70,6 +72,11 @@ const RADIO_ENDPOINTS = {
   ADMIN_UNMATCHED: `${API_BASE_URL}/admin/radio/unmatched`,
   ADMIN_LINK_PLAY: (playId: number) => `${API_BASE_URL}/admin/radio/plays/${playId}/link`,
   ADMIN_BULK_LINK: `${API_BASE_URL}/admin/radio/plays/bulk-link`,
+  ADMIN_MATCH_SUGGESTIONS: `${API_BASE_URL}/admin/radio/match-suggestions`,
+  ADMIN_ACCEPT_MATCH_SUGGESTION: (id: number) =>
+    `${API_BASE_URL}/admin/radio/match-suggestions/${id}/accept`,
+  ADMIN_REJECT_MATCH_SUGGESTION: (id: number) =>
+    `${API_BASE_URL}/admin/radio/match-suggestions/${id}/reject`,
 }
 
 // ============================================================================
@@ -296,6 +303,42 @@ export interface UnmatchedPlayGroup {
 
 export interface BulkLinkResult {
   updated: number
+}
+
+/** Pending community match-suggestion row (admin list / review). */
+export interface RadioPlayMatchSuggestionEntry {
+  id: number
+  play_id: number
+  play_artist_name: string
+  play_match_state: string
+  suggested_artist_id: number
+  suggested_artist_name: string
+  suggested_artist_slug?: string | null
+  submitted_by: number
+  submitter_username?: string | null
+  note?: string | null
+  status: string
+  reviewed_by?: number | null
+  reviewed_at?: string | null
+  rejection_reason?: string | null
+  created_at: string
+}
+
+export interface RadioPlayMatchSuggestionListResult {
+  suggestions: RadioPlayMatchSuggestionEntry[]
+  total: number
+}
+
+export interface RadioPlayMatchSuggestionReviewResult {
+  id: number
+  play_id: number
+  suggested_artist_id: number
+  submitted_by: number
+  status: string
+  reviewed_by?: number | null
+  reviewed_at?: string | null
+  rejection_reason?: string | null
+  bulk_updated?: number | null
 }
 
 // ============================================================================
@@ -820,6 +863,89 @@ export function useBulkLinkPlays() {
       // Invalidate unmatched queries and stats
       queryClient.invalidateQueries({ queryKey: ['radio', 'unmatched'] })
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+    },
+  })
+}
+
+/**
+ * Pending community match suggestions for the admin Matching tab.
+ */
+export function useAdminMatchSuggestions(limit = 50, offset = 0) {
+  return useQuery({
+    queryKey: radioQueryKeys.matchSuggestions(limit, offset),
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('limit', String(limit))
+      params.set('offset', String(offset))
+      return apiRequest<RadioPlayMatchSuggestionListResult>(
+        `${RADIO_ENDPOINTS.ADMIN_MATCH_SUGGESTIONS}?${params.toString()}`
+      )
+    },
+  })
+}
+
+function invalidateMatchSuggestionQueues(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['radio', 'match-suggestions'] })
+  queryClient.invalidateQueries({ queryKey: ['radio', 'unmatched'] })
+  queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+  // Community per-play "mine" pending rows
+  queryClient.invalidateQueries({ queryKey: ['radio', 'plays'] })
+}
+
+/**
+ * Accept a community match suggestion (LinkPlay + optional BulkLinkPlays).
+ */
+export function useAcceptMatchSuggestion() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      suggestionId,
+      alsoBulkLinkName = false,
+    }: {
+      suggestionId: number
+      alsoBulkLinkName?: boolean
+    }) => {
+      return apiRequest<RadioPlayMatchSuggestionReviewResult>(
+        RADIO_ENDPOINTS.ADMIN_ACCEPT_MATCH_SUGGESTION(suggestionId),
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            also_bulk_link_name: alsoBulkLinkName,
+          }),
+        }
+      )
+    },
+    onSuccess: () => {
+      invalidateMatchSuggestionQueues(queryClient)
+    },
+  })
+}
+
+/**
+ * Reject a community match suggestion with a required reason.
+ */
+export function useRejectMatchSuggestion() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      suggestionId,
+      reason,
+    }: {
+      suggestionId: number
+      reason: string
+    }) => {
+      return apiRequest<RadioPlayMatchSuggestionReviewResult>(
+        RADIO_ENDPOINTS.ADMIN_REJECT_MATCH_SUGGESTION(suggestionId),
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }
+      )
+    },
+    onSuccess: () => {
+      invalidateMatchSuggestionQueues(queryClient)
     },
   })
 }
