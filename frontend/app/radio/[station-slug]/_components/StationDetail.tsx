@@ -176,7 +176,11 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex flex-col gap-8 min-w-0">
             <StationOnAirBox station={station} />
-            <StationPlaylistsFeed station={station} />
+            {/* id="recent-playlists": the mobile graph teaser's link-out target
+                (StationGraph, PSY-1472). scroll-mt for the sticky header. */}
+            <div id="recent-playlists" className="scroll-mt-20">
+              <StationPlaylistsFeed station={station} />
+            </div>
             <StationShowsDirectory
               stationId={station.id}
               stationSlug={station.slug}

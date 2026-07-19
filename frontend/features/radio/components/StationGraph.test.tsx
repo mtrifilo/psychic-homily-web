@@ -170,10 +170,14 @@ describe('StationGraph', () => {
     renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
     expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/The Morning Show \(6\)/)).not.toBeInTheDocument()
-    // PSY-1446: the shared teaser card replaces the old silent hide.
+    // PSY-1472: the teaser card carries the connectedness pitch + a link-out
+    // that scrolls to the station's playlists feed on this page.
     expect(
-      screen.getByText(/interactive airplay graph is best on a larger screen/i),
+      screen.getByText(/KEXP.s airplay as a map/i),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /See recent playlists/i }),
+    ).toHaveAttribute('href', '#recent-playlists')
   })
 
   it('renders canvas + cluster legend at desktop width', () => {

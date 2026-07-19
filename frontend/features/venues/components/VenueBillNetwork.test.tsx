@@ -179,11 +179,14 @@ describe('VenueBillNetwork', () => {
     // Even when the venue is non-sparse, the canvas is gated; on this
     // dataset (4 artists, 25 shows) it's non-sparse but mobile-gated.
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
-    // PSY-1446: non-sparse mobile shows the shared teaser card instead of
-    // silently rendering header + filter with nothing under them.
+    // PSY-1472: non-sparse mobile shows the teaser card — connectedness pitch
+    // + a link-out that scrolls to the venue's show list on this page.
     expect(
-      screen.getByText(/interactive bill network is best on a larger screen/i),
+      screen.getByText(/Who plays Valley Bar together, mapped by shared bills/i),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Browse shows at Valley Bar/i }),
+    ).toHaveAttribute('href', '#venue-shows')
     expect(container).toBeTruthy()
   })
 

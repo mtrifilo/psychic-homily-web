@@ -191,13 +191,15 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
           <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
         )}
 
-        {/* Sub-640px: shared teaser card instead of the old silent hide —
-            the playlists feed + shows directory on this page remain the
-            small-screen surfaces, so no link-out target. */}
+        {/* Sub-640px: shared teaser card — says WHY + gives a way forward
+            (PSY-1472). Link-out scrolls to the station's playlists feed on this
+            page (#recent-playlists, StationDetail). */}
         {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
           <GraphStateCard
             className={GRAPH_TEASER_HEIGHT_CLASS}
-            message="The interactive airplay graph is best on a larger screen."
+            message={`${stationName}'s airplay as a map — artists linked by how often they're played together. Needs a larger screen.`}
+            linkHref="#recent-playlists"
+            linkLabel="See recent playlists →"
           />
         )}
 

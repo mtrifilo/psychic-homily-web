@@ -237,8 +237,10 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           </CardContent>
         </Card>
 
-        {/* Local Artists — the metro roster, active bands first */}
-        <Card className="lg:col-span-2">
+        {/* Local Artists — the metro roster, active bands first.
+            id="scene-artists": the mobile graph teaser's link-out target
+            (SceneGraph, PSY-1472). scroll-mt for the sticky entity header. */}
+        <Card id="scene-artists" className="lg:col-span-2 scroll-mt-20">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Mic2 className="h-4 w-4 text-muted-foreground" />

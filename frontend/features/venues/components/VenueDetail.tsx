@@ -323,18 +323,22 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             />
           </div>
 
-          {/* Shows List */}
-          <VenueShowsList
-            venueId={venue.id}
-            venueSlug={venue.slug}
-            venueName={venue.name}
-            venueCity={venue.city}
-            venueState={venue.state}
-            venueTimezone={venue.timezone}
-            venueAddress={venue.address}
-            venueVerified={venue.verified}
-            onShowAdded={handleShowAdded}
-          />
+          {/* Shows List. id="venue-shows": the mobile graph teaser's link-out
+              target (VenueBillNetwork, PSY-1472). scroll-mt for the sticky
+              header. */}
+          <div id="venue-shows" className="scroll-mt-20">
+            <VenueShowsList
+              venueId={venue.id}
+              venueSlug={venue.slug}
+              venueName={venue.name}
+              venueCity={venue.city}
+              venueState={venue.state}
+              venueTimezone={venue.timezone}
+              venueAddress={venue.address}
+              venueVerified={venue.verified}
+              onShowAdded={handleShowAdded}
+            />
+          </div>
 
           {/* Bill Network — PSY-365: who plays together at this venue. The
               section returns null when the venue is too sparse, when the

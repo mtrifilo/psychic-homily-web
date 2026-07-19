@@ -288,14 +288,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         )}
 
         {/* Sub-640px: shared teaser card instead of the old silent hide
-            (PSY-369/511 kept the canvas off; the card says WHY). No link-out:
-            the scene's list views live on this same page. */}
+            (PSY-369/511 kept the canvas off; the card says WHY + gives a way
+            forward, PSY-1472). Link-out scrolls to the scene's artist list on
+            this page (#scene-artists, SceneDetail). */}
         {containerWidth !== null &&
           containerWidth < GRAPH_BREAKPOINT_PX &&
           hasEnoughForGraph && (
             <GraphStateCard
               className={GRAPH_TEASER_HEIGHT_CLASS}
-              message="The interactive scene graph is best on a larger screen."
+              message={`The ${city}, ${state} scene is a map of who plays with whom. The interactive version needs a larger screen.`}
+              linkHref="#scene-artists"
+              linkLabel={`Browse ${city} artists →`}
             />
           )}
 

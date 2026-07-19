@@ -190,10 +190,14 @@ describe('SceneGraph', () => {
     // so it may still render. The canvas + cluster legend must be absent.
     expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/Valley Bar \(6\)/)).not.toBeInTheDocument()
-    // PSY-1446: the shared teaser card replaces the old silent hide.
+    // PSY-1472: the teaser card carries the connectedness pitch + a link-out
+    // that scrolls to the scene's artist list on this page.
     expect(
-      screen.getByText(/interactive scene graph is best on a larger screen/i),
+      screen.getByText(/The Phoenix, AZ scene is a map of who plays with whom/i),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Browse Phoenix artists/i }),
+    ).toHaveAttribute('href', '#scene-artists')
   })
 
   it('renders canvas + cluster legend at desktop width', () => {
