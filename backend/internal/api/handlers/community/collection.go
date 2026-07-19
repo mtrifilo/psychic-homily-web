@@ -29,6 +29,24 @@ func NewCollectionHandler(collectionService contracts.CollectionServiceInterface
 	}
 }
 
+// resolveCollectionIDForAudit returns the numeric collection ID for a slug so
+// audit-log rows carry the durable entity identity instead of only a mutable
+// slug (PSY-1502). Handlers whose mutation service methods expose only the slug
+// use this to stamp the real entity_id. Returns 0 (and logs a warning) when the
+// lookup fails so audit logging stays best-effort and never blocks the request.
+func (h *CollectionHandler) resolveCollectionIDForAudit(ctx context.Context, slug, action string) uint {
+	collectionID, err := h.collectionService.ResolveIDBySlug(slug)
+	if err != nil {
+		logger.FromContext(ctx).Warn("audit_collection_id_resolve_failed",
+			"action", action,
+			"slug", slug,
+			"error", err.Error(),
+		)
+		return 0
+	}
+	return collectionID
+}
+
 // ============================================================================
 // List Collections
 // ============================================================================
@@ -340,6 +358,13 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
+	// Resolve the collection ID before deletion so the audit row carries the
+	// real entity_id; the row is gone once DeleteCollection commits (PSY-1502).
+	var collectionID uint
+	if h.auditLogService != nil {
+		collectionID = h.resolveCollectionIDForAudit(ctx, req.Slug, "delete_collection")
+	}
+
 	err := h.collectionService.DeleteCollection(req.Slug, user.ID, user.IsAdmin)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
@@ -359,7 +384,7 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "delete_collection", "collection", 0, map[string]interface{}{"slug": req.Slug})
+			h.auditLogService.LogAction(user.ID, "delete_collection", "collection", collectionID, map[string]interface{}{"slug": req.Slug})
 		})
 	}
 
@@ -506,8 +531,9 @@ func (h *CollectionHandler) BulkAddItemsHandler(ctx context.Context, req *BulkAd
 	if h.auditLogService != nil && (len(resp.Added) > 0 || len(resp.Errors) > 0) {
 		addedCount := len(resp.Added)
 		errorCount := len(resp.Errors)
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "bulk_add_collection_items")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "bulk_add_collection_items", "collection", 0, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "bulk_add_collection_items", "collection", collectionID, map[string]interface{}{
 				"slug":          req.Slug,
 				"added_count":   addedCount,
 				"rejected_count": errorCount,
@@ -758,10 +784,14 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). Resolve the real collection ID so the audit
+	// row's entity_id is the durable identity rather than a mutable slug
+	// (PSY-1502). The SetFeatured service call already confirmed the row
+	// exists, so a failure here is unexpected; fall back to 0 with a warning.
 	if h.auditLogService != nil {
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "set_collection_featured")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", 0, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", collectionID, map[string]interface{}{
 				"slug":     req.Slug,
 				"featured": req.Body.Featured,
 			})
@@ -1103,8 +1133,9 @@ func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *Ad
 	}
 
 	if h.auditLogService != nil {
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "add_collection_tag")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "add_collection_tag", "collection", 0, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "add_collection_tag", "collection", collectionID, map[string]interface{}{
 				"slug":     req.Slug,
 				"tag_id":   req.Body.TagID,
 				"tag_name": req.Body.TagName,
@@ -1154,8 +1185,9 @@ func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req 
 	}
 
 	if h.auditLogService != nil {
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "remove_collection_tag")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "remove_collection_tag", "collection", 0, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "remove_collection_tag", "collection", collectionID, map[string]interface{}{
 				"slug":   req.Slug,
 				"tag_id": tagID,
 			})

@@ -777,6 +777,7 @@ type MockCollectionService struct {
 	CloneCollectionFn                    func(string, uint) (*contracts.CollectionDetailResponse, error)
 	GetBySlugFn                          func(string, uint) (*contracts.CollectionDetailResponse, error)
 	GetByIDFn                            func(uint, uint) (*contracts.CollectionDetailResponse, error)
+	ResolveIDBySlugFn                    func(string) (uint, error)
 	ListCollectionsFn                    func(contracts.CollectionFilters, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	UpdateCollectionFn                   func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
 	DeleteCollectionFn                   func(string, uint, bool) error
@@ -826,6 +827,12 @@ func (m *MockCollectionService) GetByID(id uint, viewerID uint) (*contracts.Coll
 		return m.GetByIDFn(id, viewerID)
 	}
 	return nil, nil
+}
+func (m *MockCollectionService) ResolveIDBySlug(slug string) (uint, error) {
+	if m.ResolveIDBySlugFn != nil {
+		return m.ResolveIDBySlugFn(slug)
+	}
+	return 0, nil
 }
 func (m *MockCollectionService) ListCollections(filters contracts.CollectionFilters, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if m.ListCollectionsFn != nil {
