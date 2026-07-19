@@ -1,9 +1,9 @@
 import { test, expect } from '../fixtures'
 
-test.describe('Graph Observatory', () => {
+test.describe('Music Knowledge Graph', () => {
   test('search → graph → context → recenter → reset', async ({ page }) => {
     await page.goto('/graph')
-    await expect(page.getByRole('heading', { name: 'Follow the threads.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeVisible()
 
     const rootArtist = 'Playboy Manbaby'
     const search = page.getByPlaceholder('Search an artist to begin…')
@@ -59,6 +59,6 @@ test.describe('Graph Observatory', () => {
   test('/explore hands off to the Observatory', async ({ page }) => {
     await page.goto('/explore')
     await expect(page).toHaveURL(/\/graph$/)
-    await expect(page.getByRole('heading', { name: 'Follow the threads.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeVisible()
   })
 })

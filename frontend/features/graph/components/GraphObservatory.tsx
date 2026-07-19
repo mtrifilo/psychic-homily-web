@@ -612,9 +612,8 @@ export function GraphObservatory() {
     <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
       <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">Graph Observatory</p>
-          <h1 className="font-display text-3xl font-medium tracking-tight sm:text-4xl">
-            Follow the threads.
+          <h1 className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+            Music Knowledge Graph
           </h1>
         </div>
         <p className="max-w-xl text-sm text-muted-foreground sm:text-right">
