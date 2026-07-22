@@ -76,9 +76,11 @@ func TestAdvancementRouteOpenAPI(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Advancement route", "1.0.0"))
 	protected := huma.NewGroup(api, "")
+	// setupProtectedAuthRoutes also registers /auth/cli-token on rc.Admin.
+	admin := huma.NewGroup(api, "")
 
 	setupProtectedAuthRoutes(RouteContext{
-		Router: router, API: api, Protected: protected, SC: sc, Cfg: cfg,
+		Router: router, API: api, Protected: protected, Admin: admin, SC: sc, Cfg: cfg,
 	})
 
 	item, exists := api.OpenAPI().Paths["/auth/profile/advancement"]
