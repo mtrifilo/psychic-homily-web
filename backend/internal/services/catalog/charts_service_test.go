@@ -48,6 +48,10 @@ func (suite *ChartsServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
 	_, _ = sqlDB.Exec("DELETE FROM radio_networks")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
+	// PSY-1500: feature-run reads join collections; clean both before users.
+	_, _ = sqlDB.Exec("DELETE FROM collection_feature_runs")
+	_, _ = sqlDB.Exec("DELETE FROM collection_items")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")

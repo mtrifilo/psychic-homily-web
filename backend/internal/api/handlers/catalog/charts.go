@@ -1136,6 +1136,118 @@ func (h *ChartsHandler) GetChartsOverviewHandler(ctx context.Context, _ *GetChar
 	return resp, nil
 }
 
+// --- GetFeaturedCollection (PSY-1500) ---
+
+// FeaturedCollectionRunResponse is one featuring stint on the wire — the
+// Broadsheet live card and one archive row share this shape. FeaturedAtEstimated
+// is exposed so the FE renders a reconstructed start as approximate, never as a
+// precise fact.
+type FeaturedCollectionRunResponse struct {
+	RunID               uint       `json:"run_id"`
+	CollectionID        uint       `json:"collection_id"`
+	Title               string     `json:"title"`
+	Slug                string     `json:"slug"`
+	Description         string     `json:"description"`
+	CoverImageURL       *string    `json:"cover_image_url"`
+	CreatorID           uint       `json:"creator_id"`
+	CreatorName         string     `json:"creator_name"`
+	CreatorUsername     *string    `json:"creator_username"`
+	ItemCount           int        `json:"item_count"`
+	FeaturedAt          time.Time  `json:"featured_at"`
+	UnfeaturedAt        *time.Time `json:"unfeatured_at"`
+	FeaturedAtEstimated bool       `json:"featured_at_estimated"`
+}
+
+func toFeaturedCollectionRunResponse(r contracts.FeaturedCollectionRun) FeaturedCollectionRunResponse {
+	return FeaturedCollectionRunResponse{
+		RunID:               r.RunID,
+		CollectionID:        r.CollectionID,
+		Title:               r.Title,
+		Slug:                r.Slug,
+		Description:         r.Description,
+		CoverImageURL:       r.CoverImageURL,
+		CreatorID:           r.CreatorID,
+		CreatorName:         r.CreatorName,
+		CreatorUsername:     r.CreatorUsername,
+		ItemCount:           r.ItemCount,
+		FeaturedAt:          r.FeaturedAt,
+		UnfeaturedAt:        r.UnfeaturedAt,
+		FeaturedAtEstimated: r.FeaturedAtEstimated,
+	}
+}
+
+// GetFeaturedCollectionRequest is the (empty) Huma request for the live pick.
+type GetFeaturedCollectionRequest struct{}
+
+// GetFeaturedCollectionResponse is the Huma response for GET
+// /charts/featured-collection. Featured is nil when nothing is currently
+// featured — the FE treats that as "render no card" (the charts zero-row
+// convention), so this deliberately does NOT 404 for the empty case.
+type GetFeaturedCollectionResponse struct {
+	// CacheControl mirrors the masthead tier: the live pick folds into the
+	// 60s masthead cache and renders on the Broadsheet masthead.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Featured *FeaturedCollectionRunResponse `json:"featured" doc:"The current featured-collection pick, or null when nothing is featured"`
+	}
+}
+
+// GetFeaturedCollectionHandler handles GET /charts/featured-collection — the
+// single live featured-collection pick for the Broadsheet card.
+func (h *ChartsHandler) GetFeaturedCollectionHandler(ctx context.Context, _ *GetFeaturedCollectionRequest) (*GetFeaturedCollectionResponse, error) {
+	data, err := h.chartsService.GetFeaturedCollection()
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_featured_collection_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get featured collection")
+	}
+
+	resp := &GetFeaturedCollectionResponse{CacheControl: chartsMastheadCacheControl}
+	if data != nil {
+		run := toFeaturedCollectionRunResponse(*data)
+		resp.Body.Featured = &run
+	}
+	return resp, nil
+}
+
+// --- GetFeaturedCollectionHistory (PSY-1500) ---
+
+// GetFeaturedCollectionHistoryRequest is the Huma request for the archive.
+type GetFeaturedCollectionHistoryRequest struct {
+	Limit  int `query:"limit" required:"false" default:"20" minimum:"1" maximum:"100" doc:"Page size (default 20, max 100)"`
+	Offset int `query:"offset" required:"false" default:"0" minimum:"0" maximum:"10000" doc:"Offset into the full archive (default 0)"`
+}
+
+// GetFeaturedCollectionHistoryResponse is the Huma response for GET
+// /charts/featured-collection/history — every featuring stint newest-first.
+type GetFeaturedCollectionHistoryResponse struct {
+	// CacheControl: public, viewer-independent, stale-tolerant module payload.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Total int                             `json:"total" doc:"Total count of feature runs (full archive size)"`
+		Runs  []FeaturedCollectionRunResponse `json:"runs"`
+	}
+}
+
+// GetFeaturedCollectionHistoryHandler handles GET
+// /charts/featured-collection/history — the paginated picks archive.
+func (h *ChartsHandler) GetFeaturedCollectionHistoryHandler(ctx context.Context, req *GetFeaturedCollectionHistoryRequest) (*GetFeaturedCollectionHistoryResponse, error) {
+	// limit/offset defaults and bounds are owned by the huma tags — the
+	// request never reaches here outside [1,100]/[0,10000].
+	data, total, err := h.chartsService.GetFeaturedCollectionHistory(req.Limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("charts_featured_collection_history_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get featured collection history")
+	}
+
+	resp := &GetFeaturedCollectionHistoryResponse{CacheControl: chartsModuleCacheControl}
+	resp.Body.Total = total
+	resp.Body.Runs = make([]FeaturedCollectionRunResponse, len(data))
+	for i, r := range data {
+		resp.Body.Runs[i] = toFeaturedCollectionRunResponse(r)
+	}
+	return resp, nil
+}
+
 // --- Helpers ---
 
 // normalizeChartWindow maps the optional window query param to a ChartWindow.

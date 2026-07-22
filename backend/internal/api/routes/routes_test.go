@@ -76,7 +76,8 @@ func TestAdvancementRouteOpenAPI(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Advancement route", "1.0.0"))
 	protected := huma.NewGroup(api, "")
-	// setupProtectedAuthRoutes also registers /auth/cli-token on rc.Admin.
+	// setupProtectedAuthRoutes also registers /auth/cli-token on rc.Admin
+	// (PSY-550); a nil Admin group panics inside huma.Post.
 	admin := huma.NewGroup(api, "")
 
 	setupProtectedAuthRoutes(RouteContext{

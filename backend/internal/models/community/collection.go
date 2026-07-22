@@ -133,3 +133,41 @@ type CollectionLike struct {
 func (CollectionLike) TableName() string {
 	return "collection_likes"
 }
+
+// CollectionFeatureRun is one featuring stint for a collection (PSY-1500) — a
+// journal row that opens when a collection is featured and closes when it is
+// unfeatured. It replaces the history-destroying bare boolean as the source of
+// truth for "who has been featured, when, and in what order," which is what
+// PSY-1411's "most recently featured" lock needs. Shape mirrors the
+// radio_sync_runs lifecycle table (catalog.RadioSyncRun), the house pattern for
+// "a thing that starts, runs, and ends."
+//
+// UnfeaturedAt NULL means the run is OPEN (still featured). A partial unique
+// index (collection_feature_runs_one_open) enforces at most one open run per
+// collection; closed runs are unconstrained so re-featuring accrues history.
+// collections.is_featured is kept as a denormalised cache of "has an open run"
+// and CollectionService.SetFeatured writes both in one transaction so they can
+// never drift.
+type CollectionFeatureRun struct {
+	ID           uint       `gorm:"primaryKey"`
+	CollectionID uint       `gorm:"column:collection_id;not null"`
+	FeaturedAt   time.Time  `gorm:"column:featured_at;not null"`
+	UnfeaturedAt *time.Time `gorm:"column:unfeatured_at"`
+	// FeaturedBy/UnfeaturedBy are soft references (ON DELETE SET NULL) so
+	// deleting the acting admin never deletes the historical run.
+	FeaturedBy   *uint `gorm:"column:featured_by"`
+	UnfeaturedBy *uint `gorm:"column:unfeatured_by"`
+	// FeaturedAtEstimated marks a start reconstructed at backfill from
+	// collections.created_at rather than an observed audit event — the archive
+	// must not render a precise date for an estimated row.
+	FeaturedAtEstimated bool      `gorm:"column:featured_at_estimated;not null;default:false"`
+	CreatedAt           time.Time `gorm:"column:created_at;not null"`
+
+	// Relationships
+	Collection Collection `gorm:"foreignKey:CollectionID"`
+}
+
+// TableName specifies the table name for CollectionFeatureRun.
+func (CollectionFeatureRun) TableName() string {
+	return "collection_feature_runs"
+}

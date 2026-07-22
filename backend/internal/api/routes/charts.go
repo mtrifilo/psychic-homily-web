@@ -28,6 +28,11 @@ func setupChartsRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/charts/scenes", chartsHandler.GetChartScenesHandler)
 	huma.Get(rc.API, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 
+	// PSY-1500: featured-collection picks. Live pick folds into the masthead
+	// cache tier; history is the paginated public archive.
+	huma.Get(rc.API, "/charts/featured-collection", chartsHandler.GetFeaturedCollectionHandler)
+	huma.Get(rc.API, "/charts/featured-collection/history", chartsHandler.GetFeaturedCollectionHistoryHandler)
+
 	// Homepage global pulse (PSY-1431). Lives under /community/* next to the
 	// leaderboard for branding, but reuses ChartsService's masthead TTL cache
 	// (same cheap COUNT + Cache-Control shape as /charts/summary).

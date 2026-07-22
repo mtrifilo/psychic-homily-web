@@ -239,6 +239,21 @@ func cachedChartPage[T any](c *chartsCache, module string, window contracts.Char
 	return page.rows, page.total, err
 }
 
+// cachedFeaturedHistory caches the /charts/featured-collection/history page +
+// its full-set total as one pair (PSY-1500), keyed by limit|offset — both
+// client-controlled, so it rides the capped module cache like cachedChartPage.
+// The archive changes only on a feature/unfeature, so the module TTL (5m) is
+// amply fresh. NOTE (as with cachedChartPage): pages cache independently, so a
+// row's total is a per-page snapshot, not a cross-page guarantee.
+func cachedFeaturedHistory(c *chartsCache, limit, offset int, fetch func() ([]contracts.FeaturedCollectionRun, int, error)) ([]contracts.FeaturedCollectionRun, int, error) {
+	key := "featured_collection_history|" + strconv.Itoa(limit) + "|" + strconv.Itoa(offset)
+	page, err := chartsCached(c, key, chartsModuleTTL, func() (pagedChartRows[contracts.FeaturedCollectionRun], error) {
+		rows, total, err := fetch()
+		return pagedChartRows[contracts.FeaturedCollectionRun]{rows: rows, total: total}, err
+	})
+	return page.rows, page.total, err
+}
+
 // chartCountKey is the offset-independent cache key for a module's full-set
 // count — the beyond-the-end re-count caches under it so a client walking
 // junk offsets pays the count aggregation once per TTL, not per request.

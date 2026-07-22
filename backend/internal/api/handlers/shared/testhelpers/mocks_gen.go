@@ -639,24 +639,26 @@ func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) (
 // ============================================================================
 
 type MockChartsService struct {
-	GetTrendingShowsFn        func(int) ([]contracts.TrendingShow, error)
-	GetMostAnticipatedShowsFn func(contracts.ChartWindow, string, int, int) (*contracts.MostAnticipatedShows, error)
-	GetMostActiveArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.MostActiveArtist, int, error)
-	GetBusiestVenuesFn        func(contracts.ChartWindow, string, int, int) ([]contracts.BusiestVenue, int, error)
-	GetOpenersToWatchFn       func(contracts.ChartWindow, string, int, int) ([]contracts.OpenerToWatch, int, error)
-	GetOnTheRadioArtistsFn    func(contracts.ChartWindow, string, int, int) ([]contracts.OnTheRadioArtist, int, error)
-	GetNewReleasesFn          func(contracts.ChartWindow, string, int, int) ([]contracts.NewRelease, int, error)
-	GetChartEntityRankFn      func(contracts.ChartRankEntityType, uint, contracts.ChartWindow) (*contracts.ChartEntityRank, error)
-	GetTopTagsFn              func(contracts.ChartWindow, string, int, int) ([]contracts.TopTag, int, error)
-	GetChartsSummaryFn        func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
-	GetCommunityPulseFn       func() (*contracts.CommunityPulse, error)
-	GetFreshlyAddedFn         func(string, int) ([]contracts.FreshlyAddedItem, error)
-	GetChartScenesFn          func(contracts.ChartWindow) ([]contracts.ChartScene, error)
-	GetPersonalChartsStatsFn  func(uint) (*contracts.PersonalChartsStats, error)
-	GetPopularArtistsFn       func(int) ([]contracts.PopularArtist, error)
-	GetActiveVenuesFn         func(int) ([]contracts.ActiveVenue, error)
-	GetHotReleasesFn          func(int) ([]contracts.HotRelease, error)
-	GetChartsOverviewFn       func() (*contracts.ChartsOverview, error)
+	GetTrendingShowsFn             func(int) ([]contracts.TrendingShow, error)
+	GetMostAnticipatedShowsFn      func(contracts.ChartWindow, string, int, int) (*contracts.MostAnticipatedShows, error)
+	GetMostActiveArtistsFn         func(contracts.ChartWindow, string, int, int) ([]contracts.MostActiveArtist, int, error)
+	GetBusiestVenuesFn             func(contracts.ChartWindow, string, int, int) ([]contracts.BusiestVenue, int, error)
+	GetOpenersToWatchFn            func(contracts.ChartWindow, string, int, int) ([]contracts.OpenerToWatch, int, error)
+	GetOnTheRadioArtistsFn         func(contracts.ChartWindow, string, int, int) ([]contracts.OnTheRadioArtist, int, error)
+	GetNewReleasesFn               func(contracts.ChartWindow, string, int, int) ([]contracts.NewRelease, int, error)
+	GetChartEntityRankFn           func(contracts.ChartRankEntityType, uint, contracts.ChartWindow) (*contracts.ChartEntityRank, error)
+	GetTopTagsFn                   func(contracts.ChartWindow, string, int, int) ([]contracts.TopTag, int, error)
+	GetChartsSummaryFn             func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
+	GetCommunityPulseFn            func() (*contracts.CommunityPulse, error)
+	GetFreshlyAddedFn              func(string, int) ([]contracts.FreshlyAddedItem, error)
+	GetChartScenesFn               func(contracts.ChartWindow) ([]contracts.ChartScene, error)
+	GetPersonalChartsStatsFn       func(uint) (*contracts.PersonalChartsStats, error)
+	GetPopularArtistsFn            func(int) ([]contracts.PopularArtist, error)
+	GetActiveVenuesFn              func(int) ([]contracts.ActiveVenue, error)
+	GetHotReleasesFn               func(int) ([]contracts.HotRelease, error)
+	GetChartsOverviewFn            func() (*contracts.ChartsOverview, error)
+	GetFeaturedCollectionFn        func() (*contracts.FeaturedCollectionRun, error)
+	GetFeaturedCollectionHistoryFn func(int, int) ([]contracts.FeaturedCollectionRun, int, error)
 }
 
 func (m *MockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
@@ -781,6 +783,18 @@ func (m *MockChartsService) GetChartsOverview() (*contracts.ChartsOverview, erro
 		HotReleases:    []contracts.HotRelease{},
 	}, nil
 }
+func (m *MockChartsService) GetFeaturedCollection() (*contracts.FeaturedCollectionRun, error) {
+	if m.GetFeaturedCollectionFn != nil {
+		return m.GetFeaturedCollectionFn()
+	}
+	return nil, nil
+}
+func (m *MockChartsService) GetFeaturedCollectionHistory(limit int, offset int) ([]contracts.FeaturedCollectionRun, int, error) {
+	if m.GetFeaturedCollectionHistoryFn != nil {
+		return m.GetFeaturedCollectionHistoryFn(limit, offset)
+	}
+	return nil, 0, nil
+}
 
 // ============================================================================
 // Mock: CollectionServiceInterface
@@ -812,7 +826,7 @@ type MockCollectionService struct {
 	GetEntityCollectionsFn               func(string, uint, uint, int) ([]*contracts.CollectionListResponse, error)
 	GetUserPublicCollectionsFn           func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	SetFeaturedFn                        func(string, bool) error
+	SetFeaturedFn                        func(string, bool, uint) error
 	AddTagToCollectionFn                 func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error)
 	RemoveTagFromCollectionFn            func(string, uint, uint) error
 	GetCollectionGraphFn                 func(string, uint, []string) (*contracts.CollectionGraphResponse, error)
@@ -968,9 +982,9 @@ func (m *MockCollectionService) GetUserPublicCollectionsByUsername(username stri
 	}
 	return nil, 0, nil
 }
-func (m *MockCollectionService) SetFeatured(slug string, featured bool) error {
+func (m *MockCollectionService) SetFeatured(slug string, featured bool, actorID uint) error {
 	if m.SetFeaturedFn != nil {
-		return m.SetFeaturedFn(slug, featured)
+		return m.SetFeaturedFn(slug, featured, actorID)
 	}
 	return nil
 }

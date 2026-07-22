@@ -56,6 +56,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM collection_likes")
 	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
 	_, _ = sqlDB.Exec("DELETE FROM collection_items")
+	// PSY-1500: feature runs FK-cascade off collections, but delete explicitly
+	// so featured_by/unfeatured_by (ON DELETE SET NULL) never leave rows that
+	// outlive the users deleted below.
+	_, _ = sqlDB.Exec("DELETE FROM collection_feature_runs")
 	_, _ = sqlDB.Exec("DELETE FROM collections")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
@@ -774,7 +778,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	coll := suite.createBasicCollection(user, "Featured Collection")
 	suite.createBasicCollection(user, "Normal Collection")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true))
+	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
 
 	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{Featured: true}, 20, 0)
 
@@ -1890,7 +1894,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_Success() {
 	user := suite.createTestUser("FeaturedCreator")
 	coll := suite.createBasicCollection(user, "Feature Me")
 
-	err := suite.collectionService.SetFeatured(coll.Slug, true)
+	err := suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
 	suite.Require().NoError(err)
 
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
@@ -1902,9 +1906,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_Unfeature() 
 	user := suite.createTestUser("UnfeatureCreator")
 	coll := suite.createBasicCollection(user, "Unfeature Me")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true))
+	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
 
-	err := suite.collectionService.SetFeatured(coll.Slug, false)
+	err := suite.collectionService.SetFeatured(coll.Slug, false, user.ID)
 	suite.Require().NoError(err)
 
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
@@ -1913,7 +1917,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_Unfeature() 
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_NotFound() {
-	err := suite.collectionService.SetFeatured("nonexistent-slug", true)
+	err := suite.collectionService.SetFeatured("nonexistent-slug", true, 0)
 	suite.Require().Error(err)
 	var collErr *apperrors.CollectionError
 	suite.ErrorAs(err, &collErr)

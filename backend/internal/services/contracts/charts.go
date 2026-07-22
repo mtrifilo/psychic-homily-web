@@ -421,6 +421,33 @@ type ChartScene struct {
 	VenueCount  int    `json:"venue_count"`
 }
 
+// FeaturedCollectionRun is one collection-featuring stint surfaced to the
+// public charts surfaces (PSY-1500): the Broadsheet's live "Featured
+// Collection" card (the open run with the newest featured_at) and the
+// /charts/featured-collection/history archive (every run, newest-first). It
+// flattens a collection_feature_runs row joined to its collection plus the
+// enrichment the card renders (curator, item count).
+//
+// UnfeaturedAt is nil for the currently-open run. FeaturedAtEstimated is true
+// when FeaturedAt was reconstructed at backfill rather than observed, so the
+// archive must render it as approximate ("featured before {date}"), never as a
+// precise fact.
+type FeaturedCollectionRun struct {
+	RunID               uint       `json:"run_id"`
+	CollectionID        uint       `json:"collection_id"`
+	Title               string     `json:"title"`
+	Slug                string     `json:"slug"`
+	Description         string     `json:"description"`
+	CoverImageURL       *string    `json:"cover_image_url"`
+	CreatorID           uint       `json:"creator_id"`
+	CreatorName         string     `json:"creator_name"`
+	CreatorUsername     *string    `json:"creator_username"`
+	ItemCount           int        `json:"item_count"`
+	FeaturedAt          time.Time  `json:"featured_at"`
+	UnfeaturedAt        *time.Time `json:"unfeatured_at"`
+	FeaturedAtEstimated bool       `json:"featured_at_estimated"`
+}
+
 // ──────────────────────────────────────────────
 // Charts Service Interface
 // ──────────────────────────────────────────────
@@ -458,4 +485,13 @@ type ChartsServiceInterface interface {
 	GetActiveVenues(limit int) ([]ActiveVenue, error)
 	GetHotReleases(limit int) ([]HotRelease, error)
 	GetChartsOverview() (*ChartsOverview, error)
+	// GetFeaturedCollection returns the single live featured-collection pick —
+	// the open collection_feature_runs row with the newest featured_at — or nil
+	// when nothing is currently featured (PSY-1500). Folded into the masthead
+	// cache tier (60s) since it renders on the Broadsheet masthead.
+	GetFeaturedCollection() (*FeaturedCollectionRun, error)
+	// GetFeaturedCollectionHistory returns all featuring stints (open + closed)
+	// newest-first, paginated, for the /charts/featured-collection/history
+	// archive (PSY-1500). Returns the page plus the full-set total.
+	GetFeaturedCollectionHistory(limit, offset int) ([]FeaturedCollectionRun, int, error)
 }

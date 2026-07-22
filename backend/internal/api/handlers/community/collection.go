@@ -768,7 +768,14 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 
 	user := middleware.GetUserFromContext(ctx)
 
-	err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
+	// rc.Admin already enforces auth + IsAdmin, so user is non-nil here; the
+	// actor ID is recorded as featured_by / unfeatured_by on the run (PSY-1500).
+	var actorID uint
+	if user != nil {
+		actorID = user.ID
+	}
+
+	err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured, actorID)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
