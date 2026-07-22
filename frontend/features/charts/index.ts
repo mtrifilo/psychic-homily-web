@@ -27,6 +27,8 @@ export type {
   ChartsSummaryResponse,
   FreshlyAddedItem,
   FreshlyAddedResponse,
+  FeaturedCollectionRun,
+  FeaturedCollectionHistoryResponse,
 } from './types'
 
 export { CHART_WINDOWS } from './types'
@@ -46,6 +48,7 @@ export {
   useFreshlyAdded,
   useChartScenes,
   useChartEntityRank,
+  useFeaturedCollectionHistory,
 } from './hooks'
 
 // Components
@@ -54,6 +57,7 @@ export {
   ChartDrilldownPage,
   EntityChartRankBadge,
   ArchiveMasthead,
+  FeaturedArchivePage,
 } from './components'
 export {
   CHART_MODULE_CONFIG,

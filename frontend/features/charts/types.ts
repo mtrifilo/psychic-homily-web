@@ -177,6 +177,36 @@ export interface FreshlyAddedResponse {
   items: FreshlyAddedItem[]
 }
 
+/**
+ * One featuring stint on the wire (PSY-1500). The Broadsheet live card and a
+ * single archive row share this shape. `featured_at_estimated` is exposed so
+ * the archive renders a reconstructed start as approximate ("before <date>"),
+ * never as a precise fabricated date.
+ */
+export interface FeaturedCollectionRun {
+  run_id: number
+  collection_id: number
+  title: string
+  slug: string
+  description: string
+  cover_image_url: string | null
+  creator_id: number
+  creator_name: string
+  creator_username: string | null
+  item_count: number
+  featured_at: string
+  /** Null while the run is the live pick; set once superseded. */
+  unfeatured_at: string | null
+  featured_at_estimated: boolean
+}
+
+/** GET /charts/featured-collection/history — every stint newest-first. */
+export interface FeaturedCollectionHistoryResponse {
+  /** Full-archive size (may exceed `runs.length` when paginated). */
+  total: number
+  runs: FeaturedCollectionRun[]
+}
+
 /** Entity types accepted by GET /charts/rank (PSY-1419). */
 export type ChartRankEntityType = 'show' | 'artist' | 'venue' | 'release'
 
