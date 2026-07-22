@@ -29,6 +29,7 @@ type featuredRunRow struct {
 	CoverImageURL       *string `gorm:"column:cover_image_url"`
 	CreatorID           uint       `gorm:"column:creator_id"`
 	ItemCount           int        `gorm:"column:item_count"`
+	SubscriberCount     int        `gorm:"column:subscriber_count"`
 	FeaturedAt          time.Time  `gorm:"column:featured_at"`
 	UnfeaturedAt        *time.Time `gorm:"column:unfeatured_at"`
 	FeaturedAtEstimated bool       `gorm:"column:featured_at_estimated"`
@@ -112,6 +113,7 @@ func (s *ChartsService) queryFeaturedRuns(openOnly bool, limit, offset int) ([]c
 			c.cover_image_url,
 			c.creator_id,
 			(SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) AS item_count,
+			(SELECT COUNT(*) FROM collection_subscribers cs WHERE cs.collection_id = c.id) AS subscriber_count,
 			r.featured_at,
 			r.unfeatured_at,
 			r.featured_at_estimated
@@ -160,6 +162,7 @@ func (s *ChartsService) queryFeaturedRuns(openOnly bool, limit, offset int) ([]c
 			CreatorName:         names[r.CreatorID],
 			CreatorUsername:     usernames[r.CreatorID],
 			ItemCount:           r.ItemCount,
+			SubscriberCount:     r.SubscriberCount,
 			FeaturedAt:          r.FeaturedAt,
 			UnfeaturedAt:        r.UnfeaturedAt,
 			FeaturedAtEstimated: r.FeaturedAtEstimated,
