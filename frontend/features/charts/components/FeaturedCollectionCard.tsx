@@ -45,7 +45,8 @@ function countLabel(count: number, singular: string): string {
  * and a muted meta line. The meta row carries a `discuss →` link into the
  * collection's comment thread (`#discussion`), and a `previously featured →`
  * link to the archive renders below the card ONLY when a closed run exists —
- * gated like PSY-1422's "Archives:" line.
+ * gated like PSY-1422's "Archives:" line. The archive page itself is PSY-1501;
+ * this card only links once history confirms a closed stint.
  */
 export function FeaturedCollectionCard() {
   const { data, isLoading, isError } = useFeaturedCollection()
@@ -54,16 +55,16 @@ export function FeaturedCollectionCard() {
   // History is only consulted to decide whether the archive link is warranted,
   // so it's skipped entirely until a pick actually renders (no extra request on
   // the far-more-common nothing-featured path).
-  const history = useFeaturedCollectionHistory(20, 0, {
+  // Gate the archive link off history once a pick exists. Limit 100 matches the
+  // archive page default and covers every realistic concurrent-open set (manual
+  // unfeature, lock 2A). Wait for success before painting the link so a slow or
+  // failed history fetch does not flash / hide "previously featured →".
+  const history = useFeaturedCollectionHistory(100, 0, {
     enabled: Boolean(run),
   })
-  // The archive is worth linking only once a genuine closed run exists — a set
-  // of currently-open runs are all "featured", none "previously". Newest-first,
-  // so a closed run surfaces on the first page in every realistic case (manual,
-  // rare unfeaturing per lock 2A keeps concurrent open runs few).
-  const hasClosedRuns = Boolean(
-    history.data?.runs?.some((r) => r.unfeatured_at !== null)
-  )
+  const hasClosedRuns =
+    history.isSuccess &&
+    Boolean(history.data?.runs?.some((r) => r.unfeatured_at !== null))
 
   // Zero-row rule: nothing (loading, error, or genuinely unfeatured) renders
   // no card and no placeholder.

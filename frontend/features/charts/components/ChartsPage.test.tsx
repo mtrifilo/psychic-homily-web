@@ -970,4 +970,58 @@ describe('ChartsPage', () => {
     )
     vi.useRealTimers()
   })
+
+  it('renders the Featured Collection card on the live Broadsheet when a pick exists', () => {
+    featuredPick = {
+      run_id: 1,
+      collection_id: 10,
+      title: 'Desert Psych Comp',
+      slug: 'desert-psych-comp',
+      description: 'A desert-psych shortlist.',
+      cover_image_url: null,
+      creator_id: 3,
+      creator_name: 'Ada',
+      creator_username: 'ada',
+      item_count: 12,
+      subscriber_count: 4,
+      featured_at: '2026-07-01T00:00:00Z',
+      unfeatured_at: null,
+      featured_at_estimated: false,
+    }
+    featuredHistoryRuns = [{ unfeatured_at: '2026-06-01T00:00:00Z' }]
+
+    render(<ChartsPage />)
+
+    expect(screen.getByTestId('featured-collection')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'discuss →' })).toHaveAttribute(
+      'href',
+      '/collections/desert-psych-comp#discussion'
+    )
+    expect(
+      screen.getByRole('link', { name: 'previously featured →' })
+    ).toHaveAttribute('href', '/charts/featured')
+  })
+
+  it('hides the Featured Collection card on archive windows even when a pick exists', () => {
+    featuredPick = {
+      run_id: 1,
+      collection_id: 10,
+      title: 'Desert Psych Comp',
+      slug: 'desert-psych-comp',
+      description: '',
+      cover_image_url: null,
+      creator_id: 3,
+      creator_name: 'Ada',
+      creator_username: 'ada',
+      item_count: 1,
+      subscriber_count: 0,
+      featured_at: '2026-07-01T00:00:00Z',
+      unfeatured_at: null,
+      featured_at_estimated: false,
+    }
+
+    render(<ChartsPage pinnedWindow="2026-q1" />)
+
+    expect(screen.queryByTestId('featured-collection')).not.toBeInTheDocument()
+  })
 })

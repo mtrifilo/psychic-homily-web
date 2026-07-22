@@ -257,10 +257,11 @@ export function useFeaturedCollection(enabled = true) {
  * Featured-collection picks archive (PSY-1500): every featuring stint (open +
  * closed) newest-first, paginated, plus the full-set `total`. The Broadsheet
  * card uses it only to decide whether a closed run exists (gating the
- * "previously featured →" link); the archive page (PSY-1501) renders the rows.
+ * "previously featured →" link; limit 100 so concurrent open runs cannot bury
+ * a closed row on page 1); the archive page (PSY-1501) renders the rows.
  */
 export function useFeaturedCollectionHistory(
-  limit = 20,
+  limit = 100,
   offset = 0,
   { enabled = true }: { enabled?: boolean } = {}
 ) {

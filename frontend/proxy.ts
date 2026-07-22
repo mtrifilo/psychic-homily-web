@@ -129,6 +129,14 @@ const CHART_MODULE_SEGMENTS = new Set([
   'openers-to-watch',
 ])
 
+/**
+ * Static charts routes that are NOT module drill-downs — pass through so the
+ * App Router can resolve `app/charts/<seg>/page.tsx` (PSY-1411 link target /
+ * PSY-1501 archive page). Without this, `/charts/featured` is rewritten to a
+ * hard 404 before Next sees the static segment.
+ */
+const CHART_STATIC_SEGMENTS = new Set(['featured'])
+
 function isChartArchiveYearSegment(segment: string): boolean {
   return /^[0-9]{4}$/.test(segment)
 }
@@ -158,8 +166,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const slug = segments[2]
 
   // Charts: module drill-downs + calendar archives (`/charts/2026`,
-  // `/charts/2026/q2`). Bare `/charts` passes through; unknown shapes get a
-  // real 404 (page `notFound()` alone soft-404s under cacheComponents).
+  // `/charts/2026/q2`) + static editorial routes (`/charts/featured`). Bare
+  // `/charts` passes through; unknown shapes get a real 404 (page `notFound()`
+  // alone soft-404s under cacheComponents).
   if (entityType === 'charts') {
     if (!slug) {
       return NextResponse.next()
@@ -167,6 +176,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (segments.length === 3) {
       if (
         CHART_MODULE_SEGMENTS.has(slug) ||
+        CHART_STATIC_SEGMENTS.has(slug) ||
         isChartArchiveYearSegment(slug)
       ) {
         return NextResponse.next()
