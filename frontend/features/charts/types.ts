@@ -177,6 +177,48 @@ export interface FreshlyAddedResponse {
   items: FreshlyAddedItem[]
 }
 
+/**
+ * One collection-featuring stint on the wire (PSY-1500). The Broadsheet live
+ * "Featured Collection" card (the open run with the newest `featured_at`) and a
+ * single picks-archive row share this shape. `unfeatured_at` is null for the
+ * currently-open run; `featured_at_estimated` is true when `featured_at` was
+ * reconstructed at backfill, so a start date must render as approximate
+ * ("featured before <date>"), never as a precise fabricated fact.
+ */
+export interface FeaturedCollectionRun {
+  run_id: number
+  collection_id: number
+  title: string
+  slug: string
+  description: string
+  cover_image_url: string | null
+  creator_id: number
+  creator_name: string
+  creator_username: string | null
+  item_count: number
+  subscriber_count: number
+  featured_at: string
+  unfeatured_at: string | null
+  featured_at_estimated: boolean
+}
+
+/**
+ * GET /charts/featured-collection — the single live pick, or null when nothing
+ * is currently featured (the FE renders no card; charts zero-row convention).
+ */
+export interface FeaturedCollectionResponse {
+  featured: FeaturedCollectionRun | null
+}
+
+/**
+ * GET /charts/featured-collection/history — every featuring stint newest-first,
+ * paginated. `total` is the full-archive size (may exceed `runs.length`).
+ */
+export interface FeaturedCollectionHistoryResponse {
+  total: number
+  runs: FeaturedCollectionRun[]
+}
+
 /** Entity types accepted by GET /charts/rank (PSY-1419). */
 export type ChartRankEntityType = 'show' | 'artist' | 'venue' | 'release'
 

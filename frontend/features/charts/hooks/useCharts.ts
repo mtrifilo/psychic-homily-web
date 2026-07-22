@@ -10,6 +10,8 @@ import type {
   ChartScenesResponse,
   ChartsSummaryResponse,
   ChartWindow,
+  FeaturedCollectionHistoryResponse,
+  FeaturedCollectionResponse,
   FreshlyAddedResponse,
   MostActiveArtistsResponse,
   MostAnticipatedResponse,
@@ -231,6 +233,48 @@ export function usePersonalChartsStats(
         method: 'GET',
       }),
     enabled: enabled && userId != null,
+  })
+}
+
+/**
+ * Live featured-collection pick for the Broadsheet card (PSY-1411 / PSY-1500):
+ * the open run with the newest `featured_at`, or `{ featured: null }` when
+ * nothing is currently featured. Folds into the masthead cache tier server-side.
+ */
+export function useFeaturedCollection(enabled = true) {
+  return useQuery({
+    queryKey: chartQueryKeys.featuredCollection,
+    queryFn: () =>
+      apiRequest<FeaturedCollectionResponse>(
+        chartEndpoints.FEATURED_COLLECTION,
+        { method: 'GET' }
+      ),
+    enabled,
+  })
+}
+
+/**
+ * Featured-collection picks archive (PSY-1500): every featuring stint (open +
+ * closed) newest-first, paginated, plus the full-set `total`. The Broadsheet
+ * card uses it only to decide whether a closed run exists (gating the
+ * "previously featured →" link); the archive page (PSY-1501) renders the rows.
+ */
+export function useFeaturedCollectionHistory(
+  limit = 20,
+  offset = 0,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: chartQueryKeys.featuredCollectionHistory(limit, offset),
+    queryFn: () =>
+      apiRequest<FeaturedCollectionHistoryResponse>(
+        withParams(chartEndpoints.FEATURED_COLLECTION_HISTORY, {
+          limit,
+          offset: offset || undefined,
+        }),
+        { method: 'GET' }
+      ),
+    enabled,
   })
 }
 

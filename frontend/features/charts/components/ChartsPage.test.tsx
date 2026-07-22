@@ -54,6 +54,8 @@ let sceneListFetching = false
 let sceneListRefetchError = false
 let anticipatedMode: 'ranked' | 'soonest_upcoming' = 'ranked'
 let emptyAllModules = false
+let featuredPick: Record<string, unknown> | null = null
+let featuredHistoryRuns: Array<{ unfeatured_at: string | null }> = []
 let chartScenes = [
   {
     metro: '38060',
@@ -166,6 +168,10 @@ vi.mock('@/components/shared', () => ({
   ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
     <button>save-release-{releaseId}</button>
   ),
+  UserAttribution: ({ name }: { name?: string | null }) => <span>{name}</span>,
+}))
+vi.mock('@/features/collections/components/CollectionCoverImage', () => ({
+  CollectionCoverImage: ({ alt }: { alt: string }) => <div>{alt}</div>,
 }))
 vi.mock('../hooks', () => ({
   usePersonalChartsStats: (_userId: string | undefined, enabled: boolean) => {
@@ -373,6 +379,12 @@ vi.mock('../hooks', () => ({
       ],
     })
   },
+  useFeaturedCollection: () => query({ featured: featuredPick }),
+  useFeaturedCollectionHistory: (
+    _limit?: number,
+    _offset?: number,
+    _opts?: { enabled?: boolean }
+  ) => query({ total: featuredHistoryRuns.length, runs: featuredHistoryRuns }),
 }))
 
 describe('ChartsPage', () => {
@@ -401,6 +413,8 @@ describe('ChartsPage', () => {
     sceneListRefetchError = false
     anticipatedMode = 'ranked'
     emptyAllModules = false
+    featuredPick = null
+    featuredHistoryRuns = []
     chartScenes = [
       {
         metro: '38060',

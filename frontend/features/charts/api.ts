@@ -14,6 +14,8 @@ export const chartEndpoints = {
   SCENES: `${API_BASE_URL}/charts/scenes`,
   PERSONAL: `${API_BASE_URL}/charts/me`,
   RANK: `${API_BASE_URL}/charts/rank`,
+  FEATURED_COLLECTION: `${API_BASE_URL}/charts/featured-collection`,
+  FEATURED_COLLECTION_HISTORY: `${API_BASE_URL}/charts/featured-collection/history`,
 } as const
 
 export const chartQueryKeys = {
@@ -68,4 +70,7 @@ export const chartQueryKeys = {
     entityId: number,
     window: ChartWindow
   ) => ['charts', 'rank', entityType, entityId, window] as const,
+  featuredCollection: ['charts', 'featured-collection'] as const,
+  featuredCollectionHistory: (limit: number, offset = 0) =>
+    ['charts', 'featured-collection', 'history', limit, offset] as const,
 } as const
