@@ -208,8 +208,13 @@ export function FeaturedArchivePage() {
   const history = useFeaturedCollectionHistory()
 
   const runs = history.data?.runs ?? []
+  // Newest stint (open or closed) is the lead editorial card. The ledger is
+  // closed runs only — multi-open featuring (lock 1B) must not put a still-live
+  // secondary pick under the "PREVIOUSLY FEATURED" heading.
   const lead = runs[0]
-  const ledger = runs.slice(1)
+  const ledger = runs
+    .slice(1)
+    .filter((run) => run.unfeatured_at !== null)
 
   return (
     <div className="space-y-[26px]">

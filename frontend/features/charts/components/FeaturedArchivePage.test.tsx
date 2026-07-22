@@ -122,6 +122,37 @@ describe('FeaturedArchivePage', () => {
     ).toHaveAttribute('href', '/collections/the-flenser-primer#discussion')
   })
 
+  it('keeps secondary still-open picks out of the previously-featured ledger', () => {
+    mockHistory.mockReturnValue(
+      success([
+        run({ title: 'Newest Open', slug: 'newest-open' }),
+        run({
+          run_id: 2,
+          collection_id: 11,
+          title: 'Older Still Open',
+          slug: 'older-still-open',
+          featured_at: '2026-04-01T00:00:00Z',
+          unfeatured_at: null,
+        }),
+        run({
+          run_id: 3,
+          collection_id: 12,
+          title: 'Actually Closed',
+          slug: 'actually-closed',
+          featured_at: '2026-01-08T00:00:00Z',
+          unfeatured_at: '2026-03-04T00:00:00Z',
+        }),
+      ])
+    )
+
+    render(<FeaturedArchivePage />)
+
+    expect(screen.getByText('Newest Open')).toBeInTheDocument()
+    expect(screen.queryByText('Older Still Open')).not.toBeInTheDocument()
+    expect(screen.getByText('Actually Closed')).toBeInTheDocument()
+    expect(screen.getByText('1 closed run')).toBeInTheDocument()
+  })
+
   it('renders an estimated start as "before <date>", never a fabricated date', () => {
     mockHistory.mockReturnValue(
       success([
