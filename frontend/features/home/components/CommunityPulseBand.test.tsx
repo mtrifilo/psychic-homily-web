@@ -23,9 +23,9 @@ describe('CommunityPulseBand', () => {
     render(<CommunityPulseBand />)
 
     expect(
-      screen.getByRole('region', { name: /community pulse/i })
+      screen.getByRole('region', { name: /current stats/i })
     ).toBeInTheDocument()
-    expect(screen.getByText('Community pulse')).toBeInTheDocument()
+    expect(screen.getByText('Current stats')).toBeInTheDocument()
     expect(screen.getByText('84')).toBeInTheDocument()
     expect(screen.getByText('shows this week')).toBeInTheDocument()
     expect(screen.getByText('18,432')).toBeInTheDocument()
@@ -41,7 +41,7 @@ describe('CommunityPulseBand', () => {
 
     const { container } = render(<CommunityPulseBand />)
     expect(
-      screen.getByRole('region', { name: /community pulse/i })
+      screen.getByRole('region', { name: /current stats/i })
     ).toBeInTheDocument()
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(
       0

@@ -17,9 +17,9 @@ test.describe('Homepage', () => {
     ).toBeVisible()
     await expect(page.getByText('Your music knowledge graph.')).toBeVisible()
 
-    // Community pulse band (PSY-1431) — global stats under the hero.
+    // Current stats band (PSY-1431) — global stats under the hero.
     await expect(
-      page.getByRole('region', { name: /community pulse/i })
+      page.getByRole('region', { name: /current stats/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(page.getByText('shows this week')).toBeVisible()
     await expect(page.getByText('entities in the graph')).toBeVisible()

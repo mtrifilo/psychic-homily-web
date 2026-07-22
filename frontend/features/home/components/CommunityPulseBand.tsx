@@ -31,11 +31,11 @@ export function CommunityPulseBand() {
 
   return (
     <section
-      aria-label="Community pulse"
+      aria-label="Current stats"
       className="flex w-full items-center justify-between gap-4 border-y border-border py-[18px]"
     >
       <p className="shrink-0 font-mono text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
-        Community pulse
+        Current stats
       </p>
 
       {isLoading || !data ? (
