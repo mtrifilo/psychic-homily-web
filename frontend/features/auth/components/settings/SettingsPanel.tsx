@@ -20,6 +20,7 @@ import {
 import { ChangePassword } from './change-password'
 import { DeleteAccountDialog } from './delete-account-dialog'
 import { OAuthAccounts } from './oauth-accounts'
+import { PasskeyManagement } from './passkey-management'
 import { APITokenManagement } from './api-token-management'
 import { FavoriteCitiesSettings } from './favorite-cities'
 import { NotificationSettings } from './notification-settings'
@@ -27,9 +28,9 @@ import { ReplyPermissionSettings } from './reply-permission-settings'
 import { CalendarFeedSection } from '@/features/collections'
 
 /**
- * Settings tab — board J card order (PSY-1414):
+ * Settings tab — board J card order (PSY-1414 / PSY-1508):
  * Account → Favorite cities → Notifications → Calendar feed (PSY-1430) →
- * Default reply permission → Connected accounts → (Passkeys deferred) →
+ * Default reply permission → Connected accounts → Passkeys →
  * Change password → API tokens → CLI authentication → Export → Danger zone.
  */
 export function SettingsPanel() {
@@ -181,7 +182,7 @@ export function SettingsPanel() {
 
       <OAuthAccounts />
 
-      {/* Passkeys deferred — PasskeyManagement exists; wire-up filed as follow-up */}
+      <PasskeyManagement />
 
       <ChangePassword />
 

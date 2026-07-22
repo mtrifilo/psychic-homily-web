@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
-import { Fingerprint, Loader2, Plus } from 'lucide-react'
+import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -112,16 +112,15 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" className={className}>
-          <Plus className="h-4 w-4" />
-          Add a passkey
+        <Button variant="outline" size="sm" className={className}>
+          Add passkey
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Fingerprint className="h-5 w-5" />
-            Add a passkey
+            Add passkey
           </DialogTitle>
           <DialogDescription>
             Passkeys let you sign in securely using your device&apos;s biometrics (Face ID, Touch ID,

@@ -24,20 +24,14 @@ test.describe('Profile page', () => {
       authenticatedPage.getByRole('tab', { name: /settings/i })
     ).toBeVisible()
 
-    // User email displayed (use first() — also appears in nav link).
-    // PSY-431: `authenticatedPage` is worker-scoped, so the email can be any
-    // of the 5 seeded regular users (e2e-user@ / e2e-user-{1..4}@).
-    await expect(
-      authenticatedPage.getByText(/^e2e-user(-[1-4])?@test\.local$/).first()
-    ).toBeVisible()
-
-    // First name displayed in Account Details section (use first() — also appears in contributor profile)
+    // Email lives on Settings → Account (board J / PSY-1414), not Profile tab.
+    // First name displayed in profile header (use first() — also appears in form)
     await expect(
       authenticatedPage.getByText('Test', { exact: true }).first()
     ).toBeVisible()
   })
 
-  test('settings tab shows account sections', async ({
+  test('settings tab shows board J account sections', async ({
     authenticatedPage,
   }) => {
     await authenticatedPage.goto('/profile?tab=settings')
@@ -46,26 +40,42 @@ test.describe('Profile page', () => {
       authenticatedPage.getByRole('heading', { name: /edit profile & settings/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Email Verification section with Verified badge
+    // Account card (email + verification fold) — not a standalone "Email Verification"
     await expect(
-      authenticatedPage.getByText('Email Verification')
+      authenticatedPage.getByText('Account', { exact: true })
     ).toBeVisible({ timeout: 5_000 })
+    await expect(
+      authenticatedPage.getByText(/^e2e-user(-[1-4])?@test\.local$/).first()
+    ).toBeVisible()
     await expect(
       authenticatedPage.getByText('Verified', { exact: true })
     ).toBeVisible()
-
-    // Change Password section (first() — title + button both match)
     await expect(
-      authenticatedPage.getByText('Change Password').first()
+      authenticatedPage.getByText('Email Verification')
+    ).toHaveCount(0)
+
+    // Passkeys card (PSY-1508)
+    await expect(
+      authenticatedPage.getByText('Passkeys', { exact: true })
+    ).toBeVisible()
+    await expect(
+      authenticatedPage.getByText(
+        'Sign in with Touch ID, Face ID, or a security key.'
+      )
     ).toBeVisible()
 
-    // Export Your Data section
+    // Change password section (first() — title + button both match)
     await expect(
-      authenticatedPage.getByText('Export Your Data')
+      authenticatedPage.getByText('Change password').first()
     ).toBeVisible()
 
-    // Danger Zone with Delete Account
-    await expect(authenticatedPage.getByText('Danger Zone')).toBeVisible()
+    // Export your data section
+    await expect(
+      authenticatedPage.getByText('Export your data')
+    ).toBeVisible()
+
+    // Danger zone with Delete account
+    await expect(authenticatedPage.getByText('Danger zone')).toBeVisible()
     await expect(
       authenticatedPage.getByRole('button', { name: /delete account/i })
     ).toBeVisible()
@@ -78,13 +88,13 @@ test.describe('Profile page', () => {
       adminPage.getByRole('heading', { name: /edit profile & settings/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // API Tokens section (admin-only)
+    // API tokens section (admin-only)
     await expect(
-      adminPage.getByText('API Tokens', { exact: true })
+      adminPage.getByText('API tokens', { exact: true })
     ).toBeVisible({ timeout: 5_000 })
 
-    // CLI Authentication section (admin-only)
-    await expect(adminPage.getByText('CLI Authentication')).toBeVisible()
+    // CLI authentication section (admin-only)
+    await expect(adminPage.getByText('CLI authentication')).toBeVisible()
   })
 
   test('hash deep-link focuses the Username field', async ({

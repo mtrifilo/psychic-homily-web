@@ -70,6 +70,12 @@ vi.mock('./oauth-accounts', () => ({
   OAuthAccounts: () => <div data-testid="oauth-accounts">OAuthAccounts</div>,
 }))
 
+vi.mock('./passkey-management', () => ({
+  PasskeyManagement: () => (
+    <div data-testid="passkey-management">PasskeyManagement</div>
+  ),
+}))
+
 vi.mock('./api-token-management', () => ({
   APITokenManagement: () => (
     <div data-testid="api-token-management">APITokenManagement</div>
@@ -158,6 +164,11 @@ describe('SettingsPanel', () => {
   it('renders OAuthAccounts component', () => {
     renderWithProviders(<SettingsPanel />)
     expect(screen.getByTestId('oauth-accounts')).toBeInTheDocument()
+  })
+
+  it('renders PasskeyManagement component', () => {
+    renderWithProviders(<SettingsPanel />)
+    expect(screen.getByTestId('passkey-management')).toBeInTheDocument()
   })
 
   it('renders ChangePassword component', () => {
@@ -533,7 +544,7 @@ describe('SettingsPanel', () => {
     writeTextSpy.mockRestore()
   })
 
-  it('renders board J vertical order: account, cities, notifications, calendar, reply', () => {
+  it('renders board J vertical order: account → … → oauth → passkeys → change password', () => {
     const { container } = renderWithProviders(<SettingsPanel />)
 
     const texts = [
@@ -543,6 +554,7 @@ describe('SettingsPanel', () => {
       'calendar-feed-section',
       'reply-permission-settings',
       'oauth-accounts',
+      'passkey-management',
       'change-password',
     ]
 
