@@ -649,6 +649,7 @@ type MockChartsService struct {
 	GetChartEntityRankFn           func(contracts.ChartRankEntityType, uint, contracts.ChartWindow) (*contracts.ChartEntityRank, error)
 	GetTopTagsFn                   func(contracts.ChartWindow, string, int, int) ([]contracts.TopTag, int, error)
 	GetChartsSummaryFn             func(contracts.ChartWindow, string) (*contracts.ChartsSummary, error)
+	GetCommunityPulseFn            func() (*contracts.CommunityPulse, error)
 	GetFreshlyAddedFn              func(string, int) ([]contracts.FreshlyAddedItem, error)
 	GetChartScenesFn               func(contracts.ChartWindow) ([]contracts.ChartScene, error)
 	GetPersonalChartsStatsFn       func(uint) (*contracts.PersonalChartsStats, error)
@@ -728,6 +729,12 @@ func (m *MockChartsService) GetChartsSummary(window contracts.ChartWindow, scene
 		return m.GetChartsSummaryFn(window, scene)
 	}
 	return &contracts.ChartsSummary{}, nil
+}
+func (m *MockChartsService) GetCommunityPulse() (*contracts.CommunityPulse, error) {
+	if m.GetCommunityPulseFn != nil {
+		return m.GetCommunityPulseFn()
+	}
+	return &contracts.CommunityPulse{}, nil
 }
 func (m *MockChartsService) GetFreshlyAdded(scene string, limit int) ([]contracts.FreshlyAddedItem, error) {
 	if m.GetFreshlyAddedFn != nil {

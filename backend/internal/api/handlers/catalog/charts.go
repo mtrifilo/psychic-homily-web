@@ -798,6 +798,38 @@ func (h *ChartsHandler) GetChartsSummaryHandler(ctx context.Context, req *GetCha
 	return resp, nil
 }
 
+// --- GetCommunityPulse ---
+
+// GetCommunityPulseRequest is the Huma request for GET /community/pulse.
+// No query params — global, viewer-independent counts.
+type GetCommunityPulseRequest struct{}
+
+// GetCommunityPulseResponse is the Huma response for GET /community/pulse —
+// the homepage community-pulse hairline band (PSY-1431).
+type GetCommunityPulseResponse struct {
+	// CacheControl: public, viewer-independent, stale-tolerant — same
+	// masthead budget as /charts/summary (client max-age=30 + server TTL 1m).
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		ShowsThisWeek   int `json:"shows_this_week"`
+		EntitiesInGraph int `json:"entities_in_graph"`
+	}
+}
+
+// GetCommunityPulseHandler handles GET /community/pulse.
+func (h *ChartsHandler) GetCommunityPulseHandler(ctx context.Context, _ *GetCommunityPulseRequest) (*GetCommunityPulseResponse, error) {
+	data, err := h.chartsService.GetCommunityPulse()
+	if err != nil {
+		logger.FromContext(ctx).Error("community_pulse_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get community pulse")
+	}
+
+	resp := &GetCommunityPulseResponse{CacheControl: chartsMastheadCacheControl}
+	resp.Body.ShowsThisWeek = data.ShowsThisWeek
+	resp.Body.EntitiesInGraph = data.EntitiesInGraph
+	return resp, nil
+}
+
 // --- GetFreshlyAdded ---
 
 // GetFreshlyAddedRequest is the Huma request for GET /charts/freshly-added

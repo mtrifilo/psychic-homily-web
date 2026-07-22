@@ -1940,6 +1940,42 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_Empty() {
 	suite.Equal(&contracts.ChartsSummary{}, summary)
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetCommunityPulse_Empty() {
+	pulse, err := suite.chartsService.GetCommunityPulse()
+	suite.Require().NoError(err)
+	suite.Equal(&contracts.CommunityPulse{}, pulse)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetCommunityPulse_ShowsThisWeekAndEntitySum() {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	user := suite.createUser("pulse-owner@test.com")
+	venue := suite.createVenue("Pulse Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Pulse Artist")
+
+	// Midnight-dated: today + day 6 count; day 7 is out of the half-open window.
+	// Using Truncate(24h) dates (not live `now`) exercises the start-of-today
+	// bound that keeps tonight's shows in the pulse.
+	suite.createApprovedShow("This Week A", venue.ID, artist.ID, user.ID, today)
+	suite.createApprovedShow("This Week B", venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 6))
+	suite.createApprovedShow("Next Week", venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 7))
+	suite.createApprovedShow("Past", venue.ID, artist.ID, user.ID, today.AddDate(0, 0, -1))
+	pending := suite.createApprovedShow("Pending Week", venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 2))
+	suite.Require().NoError(suite.db.Model(pending).Update("status", catalogm.ShowStatusPending).Error)
+	cancelled := suite.createApprovedShow("Cancelled Week", venue.ID, artist.ID, user.ID, today.AddDate(0, 0, 3))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	suite.createRelease("Pulse Release")
+	label := &catalogm.Label{Name: "Pulse Label"}
+	suite.Require().NoError(suite.db.Create(label).Error)
+
+	pulse, err := suite.chartsService.GetCommunityPulse()
+	suite.Require().NoError(err)
+	suite.Equal(2, pulse.ShowsThisWeek, "only approved non-cancelled shows in [start-of-today, +7d)")
+	// 1 artist + 1 venue + 5 approved shows (past + 2 in-week + next-week +
+	// cancelled; pending excluded) + 1 release + 1 label + 0 festivals = 9
+	suite.Equal(9, pulse.EntitiesInGraph)
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_CalendarQuarterCreatedAtBoundaries() {
 	user := suite.createUser("summary-calendar@test.com")
 	venue := suite.createVenue("Summary Calendar Venue", "Phoenix", "AZ")

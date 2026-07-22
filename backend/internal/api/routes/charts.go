@@ -33,6 +33,11 @@ func setupChartsRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/charts/featured-collection", chartsHandler.GetFeaturedCollectionHandler)
 	huma.Get(rc.API, "/charts/featured-collection/history", chartsHandler.GetFeaturedCollectionHistoryHandler)
 
+	// Homepage global pulse (PSY-1431). Lives under /community/* next to the
+	// leaderboard for branding, but reuses ChartsService's masthead TTL cache
+	// (same cheap COUNT + Cache-Control shape as /charts/summary).
+	huma.Get(rc.API, "/community/pulse", chartsHandler.GetCommunityPulseHandler)
+
 	// Personal stats strip: the user's own aggregates, so it requires auth
 	// (anonymous → 401; the frontend simply doesn't render the strip).
 	huma.Get(rc.Protected, "/charts/me", chartsHandler.GetPersonalChartsStatsHandler)

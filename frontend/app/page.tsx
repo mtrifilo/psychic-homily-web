@@ -1,6 +1,11 @@
 import Link from 'next/link'
 import { HomeShowList } from '@/features/shows'
-import { HomeHero, HomeSceneGraph, LatestRadioShows } from '@/features/home'
+import {
+  CommunityPulseBand,
+  HomeHero,
+  HomeSceneGraph,
+  LatestRadioShows,
+} from '@/features/home'
 import { Button } from '@/components/ui/button'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
@@ -34,7 +39,14 @@ export default function Home() {
       <JsonLd data={generateWebSiteSchema()} />
       <div className="flex w-full justify-center">
         <div className="flex w-full max-w-6xl flex-col gap-14 px-4 pb-16 pt-12 md:px-8">
-          <HomeHero />
+          <div className="flex w-full flex-col gap-6">
+            <HomeHero />
+
+            {/* PSY-1431: global community-pulse hairline band (Figma 1083:7).
+                Same numbers for every visitor — Logged-in Dashboard owns
+                personalized widgets. */}
+            <CommunityPulseBand />
+          </div>
 
           {/* Upcoming shows — the unique advantage, privileged at top. The city
               filter, geo-default, and popular-cities row all live inside the

@@ -987,6 +987,35 @@ func TestChartsHandler_Summary_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+func TestChartsHandler_CommunityPulse_Success(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetCommunityPulseFn: func() (*contracts.CommunityPulse, error) {
+			return &contracts.CommunityPulse{ShowsThisWeek: 84, EntitiesInGraph: 18432}, nil
+		},
+	})
+
+	resp, err := h.GetCommunityPulseHandler(context.Background(), &GetCommunityPulseRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CacheControl != chartsMastheadCacheControl {
+		t.Errorf("expected masthead Cache-Control, got %q", resp.CacheControl)
+	}
+	if resp.Body.ShowsThisWeek != 84 || resp.Body.EntitiesInGraph != 18432 {
+		t.Errorf("unexpected mapping: %+v", resp.Body)
+	}
+}
+
+func TestChartsHandler_CommunityPulse_ServiceError(t *testing.T) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetCommunityPulseFn: func() (*contracts.CommunityPulse, error) {
+			return nil, fmt.Errorf("db exploded")
+		},
+	})
+	_, err := h.GetCommunityPulseHandler(context.Background(), &GetCommunityPulseRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
 // TestChartsHandler_Summary_InvalidWindow422 exercises the huma enum-tag
 // validation chain (dead-validate-tag gotcha: assert the 422).
 func TestChartsHandler_Summary_InvalidWindow422(t *testing.T) {
@@ -1312,6 +1341,7 @@ func TestChartsHandler_PublicCacheControl(t *testing.T) {
 	huma.Get(api, "/charts/most-active-artists", h.GetMostActiveArtistsHandler)
 	huma.Get(api, "/charts/summary", h.GetChartsSummaryHandler)
 	huma.Get(api, "/charts/freshly-added", h.GetFreshlyAddedHandler)
+	huma.Get(api, "/community/pulse", h.GetCommunityPulseHandler)
 
 	if cc := api.Get("/charts/most-active-artists").Header().Get("Cache-Control"); cc != "public, max-age=60" {
 		t.Errorf("module endpoints must be public max-age=60 (a fraction of the server TTL), got %q", cc)
@@ -1321,6 +1351,9 @@ func TestChartsHandler_PublicCacheControl(t *testing.T) {
 	}
 	if cc := api.Get("/charts/freshly-added").Header().Get("Cache-Control"); cc != "public, max-age=30" {
 		t.Errorf("ticker must be public max-age=30, got %q", cc)
+	}
+	if cc := api.Get("/community/pulse").Header().Get("Cache-Control"); cc != "public, max-age=30" {
+		t.Errorf("community pulse must be public max-age=30, got %q", cc)
 	}
 }
 
