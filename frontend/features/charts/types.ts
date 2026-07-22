@@ -198,6 +198,7 @@ export interface FeaturedCollectionRun {
   item_count: number
   subscriber_count: number
   featured_at: string
+  /** Null while the run is the live pick; set once superseded. */
   unfeatured_at: string | null
   featured_at_estimated: boolean
 }

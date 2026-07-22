@@ -59,6 +59,7 @@ export {
   ChartDrilldownPage,
   EntityChartRankBadge,
   ArchiveMasthead,
+  FeaturedArchivePage,
   FeaturedCollectionCard,
 } from './components'
 export {

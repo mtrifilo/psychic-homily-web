@@ -45,6 +45,11 @@ describe('proxy charts module allowlist', () => {
     expect(response.status).toBe(200)
   })
 
+  it('allows the previously-featured static archive segment', async () => {
+    const response = await proxy(chartsRequest('/charts/featured'))
+    expect(response.status).toBe(200)
+  })
+
   it('allows year/quarter archive paths', async () => {
     const response = await proxy(chartsRequest('/charts/2026/q2'))
     expect(response.status).toBe(200)
