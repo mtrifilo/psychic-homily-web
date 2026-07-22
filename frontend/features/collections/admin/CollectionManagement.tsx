@@ -13,6 +13,31 @@ import { Switch } from '@/components/ui/switch'
 import { EntityTypeBadge } from '@/components/shared'
 import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
 
+/**
+ * PSY-1504: build the "featured since {date}" caption shown beside the Featured
+ * toggle for currently-featured collections. Data comes from the PSY-1500 admin
+ * list payload (`featured_at` + `featured_at_estimated`) — no per-row fetch.
+ *
+ * - Returns `null` when there's no usable start date (unfeatured rows, or a
+ *   featured row whose `featured_at` is missing/unparseable). The caller renders
+ *   nothing in that case — no em-dash / placeholder.
+ * - When the start was reconstructed at backfill (`estimated`), the date is
+ *   presented as approximate ("featured since before {date}") so an estimated
+ *   start is never shown as a precise, fabricated date.
+ */
+export function featuredSinceLabel(
+  featuredAt?: string | null,
+  estimated?: boolean | null
+): string | null {
+  if (!featuredAt) return null
+  const date = new Date(featuredAt)
+  if (Number.isNaN(date.getTime())) return null
+  const formatted = date.toLocaleDateString()
+  return estimated
+    ? `featured since before ${formatted}`
+    : `featured since ${formatted}`
+}
+
 function CollectionDetailPanel({
   collection,
   onClose,
@@ -227,30 +252,46 @@ export function CollectionManagement() {
       header: 'Featured',
       align: 'center',
       stopRowClick: true,
-      render: (c) => (
-        <Switch
-          checked={c.is_featured}
-          onCheckedChange={(checked) => {
-            setFeaturedError(null)
-            setFeatured.mutate(
-              { slug: c.slug, featured: checked },
-              {
-                // Clears-on-next-success per the sticky-on-error
-                // mutation-feedback convention (PSY-609).
-                onSuccess: () => setFeaturedError(null),
-                onError: (err) =>
-                  setFeaturedError(
-                    err instanceof Error
-                      ? err.message
-                      : 'Failed to update featured status'
-                  ),
-              }
-            )
-          }}
-          disabled={setFeatured.isPending}
-          size="sm"
-        />
-      ),
+      render: (c) => {
+        // PSY-1504: "featured since {date}" beside the toggle for currently-
+        // featured rows. Fed by the PSY-1500 list payload (featured_at +
+        // featured_at_estimated) — no per-row fetch. The label refreshes with
+        // the list on toggle (useSetFeatured invalidates collections.all).
+        const sinceLabel = c.is_featured
+          ? featuredSinceLabel(c.featured_at, c.featured_at_estimated)
+          : null
+        return (
+          <div className="flex flex-col items-center gap-1">
+            <Switch
+              checked={c.is_featured}
+              onCheckedChange={(checked) => {
+                setFeaturedError(null)
+                setFeatured.mutate(
+                  { slug: c.slug, featured: checked },
+                  {
+                    // Clears-on-next-success per the sticky-on-error
+                    // mutation-feedback convention (PSY-609).
+                    onSuccess: () => setFeaturedError(null),
+                    onError: (err) =>
+                      setFeaturedError(
+                        err instanceof Error
+                          ? err.message
+                          : 'Failed to update featured status'
+                      ),
+                  }
+                )
+              }}
+              disabled={setFeatured.isPending}
+              size="sm"
+            />
+            {sinceLabel && (
+              <span className="whitespace-nowrap text-[11px] leading-tight text-muted-foreground">
+                {sinceLabel}
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'public',
