@@ -126,63 +126,61 @@ export function PasskeyManagement() {
           </Alert>
         )}
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 flex-1 space-y-3">
-              {credentials.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No passkeys registered yet. Add a passkey for faster, more secure sign-in.
-                </p>
-              ) : (
-                credentials.map(credential => {
-                  const lastUsed = formatDate(credential.last_used_at)
-                  return (
-                    <div
-                      key={credential.id}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <p className="text-sm font-medium">
-                          {credential.display_name || 'Unnamed passkey'}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 space-y-3">
+            {isLoading ? (
+              <div className="flex items-center py-1">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : credentials.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No passkeys registered yet. Add a passkey for faster, more secure sign-in.
+              </p>
+            ) : (
+              credentials.map(credential => {
+                const lastUsed = formatDate(credential.last_used_at)
+                return (
+                  <div
+                    key={credential.id}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <p className="text-sm font-medium">
+                        {credential.display_name || 'Unnamed passkey'}
+                      </p>
+                      {lastUsed && (
+                        <p className="font-mono text-xs text-muted-foreground">
+                          Last used {lastUsed}
                         </p>
-                        {lastUsed && (
-                          <p className="font-mono text-xs text-muted-foreground">
-                            Last used {lastUsed}
-                          </p>
-                        )}
-                        {credential.backup_state && (
-                          <span className="text-xs text-success-foreground">Synced</span>
-                        )}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(credential.id)}
-                        disabled={deletingId === credential.id}
-                        className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={`Remove ${credential.display_name || 'passkey'}`}
-                      >
-                        {deletingId === credential.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
+                      )}
+                      {credential.backup_state && (
+                        <span className="text-xs text-success-foreground">Synced</span>
+                      )}
                     </div>
-                  )
-                })
-              )}
-            </div>
-            <PasskeyRegisterButton
-              onSuccess={() => fetchCredentials()}
-              onError={err => setError(err)}
-            />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(credential.id)}
+                      disabled={deletingId === credential.id}
+                      className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Remove ${credential.display_name || 'passkey'}`}
+                    >
+                      {deletingId === credential.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                )
+              })
+            )}
           </div>
-        )}
+          <PasskeyRegisterButton
+            onSuccess={() => fetchCredentials()}
+            onError={err => setError(err)}
+          />
+        </div>
       </CardContent>
     </Card>
   )
