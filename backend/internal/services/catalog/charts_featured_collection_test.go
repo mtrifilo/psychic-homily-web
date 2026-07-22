@@ -35,6 +35,15 @@ func (suite *ChartsServiceIntegrationTestSuite) insertRun(collectionID uint, fea
 	return run
 }
 
+// subscribe adds a distinct subscriber to a collection so subscriber_count
+// enrichment on the featured-run reads is exercised.
+func (suite *ChartsServiceIntegrationTestSuite) subscribe(collectionID, userID uint) {
+	suite.Require().NoError(suite.db.Create(&communitym.CollectionSubscriber{
+		CollectionID: collectionID,
+		UserID:       userID,
+	}).Error)
+}
+
 // Live pick = the open run with the newest featured_at, even when several
 // collections are featured at once (PSY-1411's "most recently featured" lock).
 func (suite *ChartsServiceIntegrationTestSuite) TestGetFeaturedCollection_ReturnsMostRecentlyFeaturedOpenRun() {
@@ -45,6 +54,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFeaturedCollection_Return
 	now := time.Now().UTC()
 	suite.insertRun(older.ID, now.Add(-72*time.Hour), nil, false)
 	suite.insertRun(newer.ID, now.Add(-1*time.Hour), nil, false)
+	// Two distinct subscribers on the winning pick so subscriber_count is
+	// enriched (and not just defaulted to zero).
+	sub1 := suite.createUser("featpick-sub1@test.com")
+	sub2 := suite.createUser("featpick-sub2@test.com")
+	suite.subscribe(newer.ID, sub1.ID)
+	suite.subscribe(newer.ID, sub2.ID)
 	// A closed run that is newer than both must NOT win the LIVE pick.
 	closedNewer := suite.createCollection(user.ID, "Closed Newer", "closed-newer")
 	suite.insertRun(closedNewer.ID, now, featTimePtr(now.Add(30*time.Minute)), false)
@@ -55,6 +70,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetFeaturedCollection_Return
 	suite.Equal(newer.ID, pick.CollectionID)
 	suite.Equal("Newer Pick", pick.Title)
 	suite.Nil(pick.UnfeaturedAt)
+	suite.Equal(2, pick.SubscriberCount)
 }
 
 // Nothing featured → nil, not an error (the FE renders no card).

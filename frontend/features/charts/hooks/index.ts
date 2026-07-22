@@ -11,5 +11,6 @@ export {
   useChartScenes,
   usePersonalChartsStats,
   useChartEntityRank,
+  useFeaturedCollection,
   useFeaturedCollectionHistory,
 } from './useCharts'

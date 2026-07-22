@@ -119,6 +119,21 @@ export interface Collection {
   cover_image_url?: string | null
   is_public: boolean
   is_featured: boolean
+  /**
+   * PSY-1500 / PSY-1504: start of the collection's currently-open feature run,
+   * folded into the admin/browse list payload so CollectionManagement can render
+   * "featured since {date}" without a per-row second fetch. Null / omitted for
+   * rows that are not currently featured (no open run). ISO-8601 string on the
+   * wire (backend `featured_at,omitempty`).
+   */
+  featured_at?: string | null
+  /**
+   * PSY-1500: true when `featured_at` was reconstructed at backfill (from the
+   * collection's created_at) rather than observed from an audit event. When set,
+   * the UI must present the start as approximate ("featured since before {date}")
+   * rather than a fabricated precise date. Null / omitted when `featured_at` is.
+   */
+  featured_at_estimated?: boolean | null
   display_mode: CollectionDisplayMode
   item_count: number
   subscriber_count: number

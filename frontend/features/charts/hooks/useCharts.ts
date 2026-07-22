@@ -11,6 +11,7 @@ import type {
   ChartsSummaryResponse,
   ChartWindow,
   FeaturedCollectionHistoryResponse,
+  FeaturedCollectionResponse,
   FreshlyAddedResponse,
   MostActiveArtistsResponse,
   MostAnticipatedResponse,
@@ -236,13 +237,29 @@ export function usePersonalChartsStats(
 }
 
 /**
+ * Live featured-collection pick for the Broadsheet card (PSY-1411 / PSY-1500):
+ * the open run with the newest `featured_at`, or `{ featured: null }` when
+ * nothing is currently featured. Folds into the masthead cache tier server-side.
+ */
+export function useFeaturedCollection(enabled = true) {
+  return useQuery({
+    queryKey: chartQueryKeys.featuredCollection,
+    queryFn: () =>
+      apiRequest<FeaturedCollectionResponse>(
+        chartEndpoints.FEATURED_COLLECTION,
+        { method: 'GET' }
+      ),
+    enabled,
+  })
+}
+
+/**
  * Featured-collection picks archive (PSY-1500 / PSY-1501). Returns every
- * featuring stint newest-first, so the caller can peel the newest run off as
- * the lead editorial card and render the remainder as the closed-run ledger.
- * Defaults to the endpoint's max page size — the archive is a flat, single-page
- * ledger by design, so one generous fetch covers the current pick + history.
- * Optional `enabled` lets the Broadsheet card (PSY-1411) skip the request when
- * nothing is featured.
+ * featuring stint newest-first, so the archive page can peel the newest run
+ * off as the lead editorial card and render closed runs as the ledger. The
+ * Broadsheet card (PSY-1411) uses it only to decide whether a closed run
+ * exists (gating "previously featured →"; limit 100). Optional `enabled` lets
+ * the card skip the request when nothing is featured.
  */
 export function useFeaturedCollectionHistory(
   limit = 100,

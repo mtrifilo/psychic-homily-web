@@ -426,7 +426,7 @@ type ChartScene struct {
 // Collection" card (the open run with the newest featured_at) and the
 // /charts/featured-collection/history archive (every run, newest-first). It
 // flattens a collection_feature_runs row joined to its collection plus the
-// enrichment the card renders (curator, item count).
+// enrichment the card renders (curator, item count, subscriber count).
 //
 // UnfeaturedAt is nil for the currently-open run. FeaturedAtEstimated is true
 // when FeaturedAt was reconstructed at backfill rather than observed, so the
@@ -443,6 +443,7 @@ type FeaturedCollectionRun struct {
 	CreatorName         string     `json:"creator_name"`
 	CreatorUsername     *string    `json:"creator_username"`
 	ItemCount           int        `json:"item_count"`
+	SubscriberCount     int        `json:"subscriber_count"`
 	FeaturedAt          time.Time  `json:"featured_at"`
 	UnfeaturedAt        *time.Time `json:"unfeatured_at"`
 	FeaturedAtEstimated bool       `json:"featured_at_estimated"`

@@ -21,6 +21,7 @@ function run(overrides: Partial<FeaturedCollectionRun> = {}): FeaturedCollection
     creator_name: 'mtrifilo',
     creator_username: 'mtrifilo',
     item_count: 24,
+    subscriber_count: 4,
     featured_at: '2026-05-30T00:00:00Z',
     unfeatured_at: null,
     featured_at_estimated: false,

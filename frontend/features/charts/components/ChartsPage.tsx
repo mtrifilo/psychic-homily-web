@@ -56,6 +56,7 @@ import {
 import { suggestAlternativeScenes } from '../suggestScenes'
 import { ArchiveMasthead } from './ArchiveMasthead'
 import { ChartModule, ChartRow } from './ChartModule'
+import { FeaturedCollectionCard } from './FeaturedCollectionCard'
 import { PersonalStatsStrip } from './PersonalStatsStrip'
 import { SaveChartDefaultsButton } from './SaveChartDefaultsButton'
 import { ZeroResultSceneSuggestions } from './ZeroResultSceneSuggestions'
@@ -1085,6 +1086,11 @@ export function ChartsPage({
       {!isArchive && !sceneValidationFailed && sceneResolved ? (
         <FreshlyAddedTicker items={freshlyAdded.data?.items ?? []} />
       ) : null}
+
+      {/* Editorial slot at the foot of the live Broadsheet (PSY-1411). Global,
+          not scene-scoped, and self-hides when nothing is featured — so it's
+          gated only on archive mode, not on scene resolution. */}
+      {!isArchive ? <FeaturedCollectionCard /> : null}
     </div>
   )
 }

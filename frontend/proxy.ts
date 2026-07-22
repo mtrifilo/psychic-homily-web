@@ -131,9 +131,9 @@ const CHART_MODULE_SEGMENTS = new Set([
 
 /**
  * Static charts routes that are NOT module drill-downs — pass through so the
- * App Router can resolve `app/charts/<seg>/page.tsx` (PSY-1501 previously-
- * featured archive). Without this, `/charts/featured` is rewritten to a hard
- * 404 before Next sees the static segment.
+ * App Router can resolve `app/charts/<seg>/page.tsx` (PSY-1411 link target /
+ * PSY-1501 archive page). Without this, `/charts/featured` is rewritten to a
+ * hard 404 before Next sees the static segment.
  */
 const CHART_STATIC_SEGMENTS = new Set(['featured'])
 

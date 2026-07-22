@@ -1153,6 +1153,7 @@ type FeaturedCollectionRunResponse struct {
 	CreatorName         string     `json:"creator_name"`
 	CreatorUsername     *string    `json:"creator_username"`
 	ItemCount           int        `json:"item_count"`
+	SubscriberCount     int        `json:"subscriber_count"`
 	FeaturedAt          time.Time  `json:"featured_at"`
 	UnfeaturedAt        *time.Time `json:"unfeatured_at"`
 	FeaturedAtEstimated bool       `json:"featured_at_estimated"`
@@ -1170,6 +1171,7 @@ func toFeaturedCollectionRunResponse(r contracts.FeaturedCollectionRun) Featured
 		CreatorName:         r.CreatorName,
 		CreatorUsername:     r.CreatorUsername,
 		ItemCount:           r.ItemCount,
+		SubscriberCount:     r.SubscriberCount,
 		FeaturedAt:          r.FeaturedAt,
 		UnfeaturedAt:        r.UnfeaturedAt,
 		FeaturedAtEstimated: r.FeaturedAtEstimated,

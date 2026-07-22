@@ -28,6 +28,7 @@ export type {
   FreshlyAddedItem,
   FreshlyAddedResponse,
   FeaturedCollectionRun,
+  FeaturedCollectionResponse,
   FeaturedCollectionHistoryResponse,
 } from './types'
 
@@ -48,6 +49,7 @@ export {
   useFreshlyAdded,
   useChartScenes,
   useChartEntityRank,
+  useFeaturedCollection,
   useFeaturedCollectionHistory,
 } from './hooks'
 
@@ -58,6 +60,7 @@ export {
   EntityChartRankBadge,
   ArchiveMasthead,
   FeaturedArchivePage,
+  FeaturedCollectionCard,
 } from './components'
 export {
   CHART_MODULE_CONFIG,
