@@ -69,7 +69,7 @@ vi.mock('../hooks', () => ({
   useDeleteCollection: () => mockUseDeleteCollection(),
 }))
 
-import { CollectionManagement } from './CollectionManagement'
+import { CollectionManagement, featuredSinceLabel } from './CollectionManagement'
 
 function makeCollection(overrides: Partial<Collection> = {}): Collection {
   return {
@@ -229,6 +229,127 @@ describe('CollectionManagement', () => {
         { slug: 'coll-a', featured: true },
         expect.any(Object)
       )
+    })
+  })
+
+  describe('featuredSinceLabel helper (PSY-1504)', () => {
+    it('returns null when featured_at is missing/empty', () => {
+      expect(featuredSinceLabel(undefined, undefined)).toBeNull()
+      expect(featuredSinceLabel(null, false)).toBeNull()
+      expect(featuredSinceLabel('', false)).toBeNull()
+    })
+
+    it('returns null for an unparseable date (no fabricated label)', () => {
+      expect(featuredSinceLabel('not-a-date', false)).toBeNull()
+    })
+
+    it('formats a precise start as "featured since {date}"', () => {
+      const iso = '2026-03-15T18:00:00Z'
+      const expected = `featured since ${new Date(iso).toLocaleDateString()}`
+      expect(featuredSinceLabel(iso, false)).toBe(expected)
+    })
+
+    it('formats an estimated start as "featured since before {date}"', () => {
+      const iso = '2026-03-15T18:00:00Z'
+      const expected = `featured since before ${new Date(iso).toLocaleDateString()}`
+      expect(featuredSinceLabel(iso, true)).toBe(expected)
+    })
+  })
+
+  describe('featured-since column caption (PSY-1504)', () => {
+    it('shows "featured since {date}" for a currently-featured row', () => {
+      const iso = '2026-03-15T18:00:00Z'
+      mockUseCollections.mockReturnValueOnce({
+        data: {
+          collections: [
+            makeCollection({
+              id: 1,
+              slug: 'coll-a',
+              title: 'Coll A',
+              is_featured: true,
+              featured_at: iso,
+              featured_at_estimated: false,
+            }),
+          ],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionManagement />)
+      expect(
+        screen.getByText(`featured since ${new Date(iso).toLocaleDateString()}`)
+      ).toBeInTheDocument()
+    })
+
+    it('shows "featured since before {date}" for an estimated start', () => {
+      const iso = '2026-03-15T18:00:00Z'
+      mockUseCollections.mockReturnValueOnce({
+        data: {
+          collections: [
+            makeCollection({
+              id: 1,
+              slug: 'coll-a',
+              title: 'Coll A',
+              is_featured: true,
+              featured_at: iso,
+              featured_at_estimated: true,
+            }),
+          ],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionManagement />)
+      expect(
+        screen.getByText(
+          `featured since before ${new Date(iso).toLocaleDateString()}`
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('renders no caption for an unfeatured row', () => {
+      mockUseCollections.mockReturnValueOnce({
+        data: {
+          collections: [
+            makeCollection({
+              id: 1,
+              slug: 'coll-a',
+              title: 'Coll A',
+              is_featured: false,
+              featured_at: null,
+              featured_at_estimated: null,
+            }),
+          ],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionManagement />)
+      expect(screen.queryByText(/featured since/i)).not.toBeInTheDocument()
+    })
+
+    it('renders no caption for a featured row missing featured_at (defensive)', () => {
+      mockUseCollections.mockReturnValueOnce({
+        data: {
+          collections: [
+            makeCollection({
+              id: 1,
+              slug: 'coll-a',
+              title: 'Coll A',
+              is_featured: true,
+              featured_at: null,
+            }),
+          ],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionManagement />)
+      expect(screen.queryByText(/featured since/i)).not.toBeInTheDocument()
     })
   })
 
