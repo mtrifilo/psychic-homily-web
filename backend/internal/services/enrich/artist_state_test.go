@@ -309,6 +309,34 @@ func TestBackfillArtistStates_ScansPastConfirmedStatelessCandidate(t *testing.T)
 	}
 }
 
+// TestBackfillArtistStates_StoredMBIDNoLink: PSY-1271 — a stored
+// musicbrainz_artist_id confirms identity without a platform link.
+func TestBackfillArtistStates_StoredMBIDNoLink(t *testing.T) {
+	const mbid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "Linkless Band", City: sp("Pasadena"),
+			MusicBrainzArtistID: sp(mbid)},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{
+			"Linkless Band": {{ID: mbid, Name: "Linkless Band", Country: "US",
+				BeginArea: cityArea("Pasadena", "a1"), Area: &pipeline.MBArea{Name: "California", Type: "Subdivision"}}},
+		},
+	}
+
+	rep, err := backfillArtistStates(context.Background(), store, g, mb, StateOptions{})
+	if err != nil {
+		t.Fatalf("backfillArtistStates: %v", err)
+	}
+	if rep.FilledMusicBrainz != 1 || store.updates[1]["state"] != "CA" {
+		t.Fatalf("stored MBID must fill CA; FilledMB=%d state=%v", rep.FilledMusicBrainz, store.updates[1]["state"])
+	}
+	if mb.urlCalls != 0 {
+		t.Errorf("stored MBID must not call url-rels, got %d", mb.urlCalls)
+	}
+}
+
 // TestBackfillArtistStates_SingleCandidateNoLink: an artist with no platform link
 // can't have identity confirmed, so MusicBrainz is not even searched and the
 // state is left NULL.

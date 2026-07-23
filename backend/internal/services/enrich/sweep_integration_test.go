@@ -231,3 +231,38 @@ func (s *ArtistLocationSweepIntegrationTestSuite) TestOnCreateStampMakesSweepSki
 		s.NotEqualf(a.ID, c.ID, "the sweep must skip the just-on-create-stamped artist %d", a.ID)
 	}
 }
+
+// PSY-1271 end-to-end: location enrichment stamps musicbrainz_artist_id, then
+// verify-and-correct uses that MBID as exact identity (no streaming link) to fix
+// a wrong geocoder guess.
+func (s *ArtistLocationSweepIntegrationTestSuite) TestStampedMBIDEnablesVerifyCorrection() {
+	const mbid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	wrongState := "TX"
+	a := &catalogm.Artist{
+		Name:                "Pasadena Band",
+		City:                strptr("Pasadena"),
+		State:               &wrongState,
+		MusicBrainzArtistID: strptr(mbid), // as if stamped by a prior location run
+	}
+	s.Require().NoError(s.db.Create(a).Error)
+
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{
+			"Pasadena Band": {{
+				ID: mbid, Name: "Pasadena Band", Country: "US",
+				BeginArea: &pipeline.MBArea{Name: "Pasadena", Type: "City"},
+				Area:      &pipeline.MBArea{Name: "California", Type: "Subdivision"},
+			}},
+		},
+	}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+
+	rep, err := verifyArtistStates(context.Background(), &gormArtistStore{db: s.db}, g, mb, VerifyOptions{})
+	s.Require().NoError(err)
+	s.Equal(1, rep.Corrected, "stored MBID must identity-confirm and correct TX→CA")
+
+	var reloaded catalogm.Artist
+	s.Require().NoError(s.db.First(&reloaded, a.ID).Error)
+	s.Require().NotNil(reloaded.State)
+	s.Equal("CA", *reloaded.State)
+}
