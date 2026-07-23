@@ -167,8 +167,8 @@ func (s *ArtistRelationshipService) deriveMusicBrainzArtistRels(ctx context.Cont
 	}
 
 	type mbidRow struct {
-		ID                  uint
-		MusicBrainzArtistID string
+		ID                  uint   `gorm:"column:id"`
+		MusicBrainzArtistID string `gorm:"column:musicbrainz_artist_id"`
 	}
 	var allWithMBID []mbidRow
 	if err := s.db.Model(&catalogm.Artist{}).
