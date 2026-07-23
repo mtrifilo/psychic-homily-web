@@ -285,6 +285,36 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_BookmarkedR
 	suite.Equal(0, shows[1].SaveCount)
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_MultiVenueShowAppearsOnce() {
+	user := suite.createUser("trending-mv-owner@test.com")
+	// Created first, so it has the LOWER venue id despite sorting last by
+	// name — the pick must follow venue_id (the show-page primary-venue
+	// convention), and this ordering makes the test fail if it ever reverts
+	// to a name-ordered pick.
+	venueZ := suite.createVenue("Zeta Hall", "Phoenix", "AZ")
+	venueA := suite.createVenue("Alpha Hall", "Tempe", "AZ")
+	artist := suite.createArtist("Trending MV Artist")
+	savers := []*authm.User{
+		suite.createUser("trending-mv-saver-1@test.com"),
+		suite.createUser("trending-mv-saver-2@test.com"),
+		suite.createUser("trending-mv-saver-3@test.com"),
+	}
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	multi := suite.createApprovedShow("Two Venue Fest", venueZ.ID, artist.ID, user.ID, future)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: multi.ID, VenueID: venueA.ID}).Error)
+	for _, saver := range savers {
+		suite.createBookmark(saver.ID, engagementm.BookmarkEntityShow, multi.ID, engagementm.BookmarkActionSave)
+	}
+
+	shows, err := suite.chartsService.GetTrendingShows(20)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1, "a multi-venue show is one row, not one per venue")
+	suite.Equal(multi.ID, shows[0].ShowID)
+	suite.Equal(3, shows[0].SaveCount, "save_count must not inflate across venue rows")
+	suite.Equal("Zeta Hall", shows[0].VenueName, "venue pick follows lowest venue_id, not name order")
+}
+
 // =============================================================================
 // GetPopularArtists Tests
 // =============================================================================
