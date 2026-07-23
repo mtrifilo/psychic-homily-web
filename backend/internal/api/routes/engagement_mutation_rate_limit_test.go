@@ -69,7 +69,7 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		{http.MethodGet, "/saved-shows", false},
 		{http.MethodGet, "/saved-shows/42/check", false},
 		{http.MethodGet, "/artists/1/followers", false},
-		{http.MethodPost, "/follows/batch", false},
+		{http.MethodPost, FollowsBatchPath, false},
 		{http.MethodPost, SaveCountsBatchPath, false},
 		{http.MethodPost, "/me/following", false},
 		{http.MethodPost, "/auth/login", false},

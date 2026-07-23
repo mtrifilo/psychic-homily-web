@@ -45,8 +45,9 @@ func setupFollowRoutes(rc RouteContext) {
 	// Public with optional auth: follower list
 	huma.Get(optionalAuthGroup, "/{entity_type}/{entity_id}/followers/list", followHandler.GetFollowersListHandler)
 
-	// Batch follow counts (optional auth)
-	huma.Post(optionalAuthGroup, "/follows/batch", followHandler.BatchFollowHandler)
+	// Batch follow counts (optional auth). FollowsBatchPath, not a literal: the
+	// read-via-POST rate-limit allowlist must stay in sync with registration.
+	huma.Post(optionalAuthGroup, FollowsBatchPath, followHandler.BatchFollowHandler)
 
 	// User's following list (protected)
 	huma.Get(rc.Protected, "/me/following", followHandler.GetMyFollowingHandler)

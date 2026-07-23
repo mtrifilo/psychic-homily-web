@@ -104,14 +104,16 @@ const SaveCountsBatchPath = "/shows/saves/batch"
 // the request body.
 const ReleaseSaveCountsBatchPath = "/releases/saves/batch"
 
+// FollowsBatchPath is the batch follow-count endpoint. Like the save-count
+// batch paths, it is declared once and used by BOTH the route registration and
+// the read-via-POST allowlist below.
+const FollowsBatchPath = "/follows/batch"
+
 // readViaPostPaths are POST endpoints that are semantically READS: the request
 // body only carries a batch of entity IDs, and the response is public data.
 // They must share the public-read budget — otherwise an anonymous caller gets
 // an unmetered batch aggregate query simply because the endpoint takes a body.
-//
-// NOTE: /follows/batch has the same shape and is still unmetered. It predates
-// this list and is tracked separately; do not assume this list is exhaustive.
-var readViaPostPaths = []string{SaveCountsBatchPath, ReleaseSaveCountsBatchPath}
+var readViaPostPaths = []string{SaveCountsBatchPath, ReleaseSaveCountsBatchPath, FollowsBatchPath}
 
 // limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
 // the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/
