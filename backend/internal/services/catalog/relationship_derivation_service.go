@@ -14,8 +14,9 @@ import (
 const DefaultDerivationInterval = 24 * time.Hour
 
 // RelationshipDerivationService is a background service that periodically derives
-// artist relationships from show co-occurrences (shared_bills) and label
-// co-occurrences (shared_label).
+// artist relationships from show co-occurrences (shared_bills), label
+// co-occurrences (shared_label), and MusicBrainz artist-rels (member_of /
+// side_project — PSY-1382).
 //
 // It follows the same Start/Stop pattern as RadioFetchService and other background services.
 type RelationshipDerivationService struct {
@@ -68,7 +69,8 @@ func (s *RelationshipDerivationService) runLoop(ctx context.Context) {
 	})
 }
 
-// RunDerivationCycle runs both shared_bills and shared_label derivation.
+// RunDerivationCycle runs shared_bills, shared_label, and MusicBrainz
+// member_of / side_project derivation (PSY-1382).
 // Exported for use by the admin trigger endpoint.
 func (s *RelationshipDerivationService) RunDerivationCycle() {
 	start := time.Now()
@@ -90,9 +92,25 @@ func (s *RelationshipDerivationService) RunDerivationCycle() {
 		s.logger.Info("shared labels derivation complete", "upserted", labelsCount)
 	}
 
+	// PSY-1382: member_of / side_project from MusicBrainz artist-rels
+	mbResult, err := s.relService.DeriveMusicBrainzArtistRels(context.Background())
+	if err != nil {
+		s.logger.Error("musicbrainz artist-rels derivation failed", "error", err)
+	} else {
+		s.logger.Info("musicbrainz artist-rels derivation complete",
+			"member_of_upserted", mbResult.MemberOfUpserted,
+			"side_project_upserted", mbResult.SideProjectUpserted,
+			"artists_scanned", mbResult.ArtistsScanned,
+			"lookups_failed", mbResult.LookupsFailed,
+			"peers_skipped", mbResult.PeersSkipped,
+		)
+	}
+
 	s.logger.Info("relationship derivation cycle complete",
 		"shared_bills_upserted", billsCount,
 		"shared_labels_upserted", labelsCount,
+		"member_of_upserted", mbResult.MemberOfUpserted,
+		"side_project_upserted", mbResult.SideProjectUpserted,
 		"duration", time.Since(start),
 	)
 }
