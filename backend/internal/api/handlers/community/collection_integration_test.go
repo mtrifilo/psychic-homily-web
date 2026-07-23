@@ -1102,11 +1102,15 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AuditEntityID() {
 	_, err := s.handler.SetFeaturedHandler(ctx, req)
 	s.Require().NoError(err)
 
-	// The audit write is fire-and-forget (GoSafe), so poll for the row.
+	// The audit write is fire-and-forget (GoSafe), so poll for THIS
+	// collection's row. Matching only on action can succeed on a sibling
+	// suite's earlier set_collection_featured row (entity_id off-by-one flake).
 	var log adminm.AuditLog
 	s.Require().Eventually(func() bool {
-		return s.deps.DB.Where("action = ?", "set_collection_featured").
-			Order("id DESC").First(&log).Error == nil
+		return s.deps.DB.Where(
+			"action = ? AND entity_type = ? AND entity_id = ?",
+			"set_collection_featured", "collection", coll.ID,
+		).Order("id DESC").First(&log).Error == nil
 	}, 2*time.Second, 20*time.Millisecond)
 
 	s.Equal("collection", log.EntityType)
