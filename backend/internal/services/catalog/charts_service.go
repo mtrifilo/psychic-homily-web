@@ -2191,6 +2191,13 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 	return results, nil
 }
 
+// Personal taste top-N defaults (PSY-1507 / Gazelle + Figma State G).
+const (
+	personalTopScenesLimit  = 5
+	personalTopTagsLimit    = 5
+	personalTopArtistsLimit = 10
+)
+
 // GetPersonalChartsStats returns the authed personal stats strip: all-time
 // aggregates over the requesting user's own user_bookmarks rows (PSY-352
 // composite-PK join-table conventions — aggregate queries, no counters).
@@ -2208,23 +2215,33 @@ func (s *ChartsService) getChartScenesUncached(window contracts.ChartWindow) ([]
 // saved shows count toward SavedShows but never toward a venue; the inner
 // JOIN (not LEFT JOIN) LATERAL is what drops them there.
 //
-// ONE statement on purpose: a single snapshot is what makes the shape
-// guarantees hold under concurrent writes (TopVenue.SavedShowCount can never
-// exceed SavedShows, and TopVenue is always nil when SavedShows is 0) — two
-// queries could interleave with a save/unsave and contradict each other.
+// Taste top-N lists (PSY-1507) are all-time and bounded (scenes/tags top-5,
+// artists top-10). They run as a fixed handful of LIMIT-capped aggregates —
+// deliberately NOT TTL-cached: charts_cache.go keeps personal stats out of
+// the shared chart cache because the payload is per-user private data, and
+// Cache-Control: no-store already marks the HTTP response uncacheable.
+//
+// Aggregate + top-venue stay ONE statement so TopVenue.SavedShowCount can never
+// exceed SavedShows under concurrent writes. Top-N lists are separate bounded
+// queries afterward (same user_id scope); a concurrent save between them can
+// only shift rankings, never leak another user's rows.
 func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.PersonalChartsStats, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	type personalRow struct {
-		SavedShows      int        `gorm:"column:saved_shows"`
-		ArtistsFollowed int        `gorm:"column:artists_followed"`
-		FirstActivityAt *time.Time `gorm:"column:first_activity_at"`
-		VenueID         *uint      `gorm:"column:venue_id"`
-		VenueName       *string    `gorm:"column:venue_name"`
-		VenueSlug       *string    `gorm:"column:venue_slug"`
-		SavedShowCount  *int       `gorm:"column:saved_show_count"`
+		SavedShows        int        `gorm:"column:saved_shows"`
+		ArtistsFollowed   int        `gorm:"column:artists_followed"`
+		VenuesFollowed    int        `gorm:"column:venues_followed"`
+		LabelsFollowed    int        `gorm:"column:labels_followed"`
+		ScenesFollowed    int        `gorm:"column:scenes_followed"`
+		FestivalsFollowed int        `gorm:"column:festivals_followed"`
+		FirstActivityAt   *time.Time `gorm:"column:first_activity_at"`
+		VenueID           *uint      `gorm:"column:venue_id"`
+		VenueName         *string    `gorm:"column:venue_name"`
+		VenueSlug         *string    `gorm:"column:venue_slug"`
+		SavedShowCount    *int       `gorm:"column:saved_show_count"`
 	}
 	// The stats subquery is one pass over the user's bookmark rows (FILTER
 	// clauses share the single user_id predicate, so the counts can't
@@ -2235,6 +2252,10 @@ func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.Personal
 		SELECT
 			stats.saved_shows,
 			stats.artists_followed,
+			stats.venues_followed,
+			stats.labels_followed,
+			stats.scenes_followed,
+			stats.festivals_followed,
 			stats.first_activity_at,
 			tv.venue_id,
 			tv.venue_name,
@@ -2244,6 +2265,10 @@ func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.Personal
 			SELECT
 				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS saved_shows,
 				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS artists_followed,
+				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS venues_followed,
+				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS labels_followed,
+				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS scenes_followed,
+				COUNT(*) FILTER (WHERE entity_type = ? AND action = ?) AS festivals_followed,
 				MIN(created_at) AS first_activity_at
 			FROM user_bookmarks
 			WHERE user_id = ?
@@ -2264,6 +2289,10 @@ func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.Personal
 		) tv ON TRUE
 	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
 		engagementm.BookmarkEntityArtist, engagementm.BookmarkActionFollow,
+		engagementm.BookmarkEntityVenue, engagementm.BookmarkActionFollow,
+		engagementm.BookmarkEntityLabel, engagementm.BookmarkActionFollow,
+		engagementm.BookmarkEntityScene, engagementm.BookmarkActionFollow,
+		engagementm.BookmarkEntityFestival, engagementm.BookmarkActionFollow,
 		userID,
 		userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave).Scan(&row).Error
 	if err != nil {
@@ -2271,9 +2300,16 @@ func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.Personal
 	}
 
 	stats := &contracts.PersonalChartsStats{
-		SavedShows:      row.SavedShows,
-		ArtistsFollowed: row.ArtistsFollowed,
-		FirstActivityAt: row.FirstActivityAt,
+		SavedShows:        row.SavedShows,
+		ArtistsFollowed:   row.ArtistsFollowed,
+		VenuesFollowed:    row.VenuesFollowed,
+		LabelsFollowed:    row.LabelsFollowed,
+		ScenesFollowed:    row.ScenesFollowed,
+		FestivalsFollowed: row.FestivalsFollowed,
+		FirstActivityAt:   row.FirstActivityAt,
+		TopScenes:         []contracts.PersonalTopScene{},
+		TopTags:           []contracts.PersonalTopTag{},
+		TopArtists:        []contracts.PersonalTopArtist{},
 	}
 	if row.VenueID != nil && row.VenueName != nil && row.VenueSlug != nil && row.SavedShowCount != nil {
 		stats.TopVenue = &contracts.PersonalTopVenue{
@@ -2283,7 +2319,251 @@ func (s *ChartsService) GetPersonalChartsStats(userID uint) (*contracts.Personal
 			SavedShowCount: *row.SavedShowCount,
 		}
 	}
+
+	scenes, err := s.personalTopScenes(userID, personalTopScenesLimit)
+	if err != nil {
+		return nil, err
+	}
+	stats.TopScenes = scenes
+
+	tags, err := s.personalTopTags(userID, personalTopTagsLimit)
+	if err != nil {
+		return nil, err
+	}
+	stats.TopTags = tags
+
+	artists, err := s.personalTopArtists(userID, personalTopArtistsLimit)
+	if err != nil {
+		return nil, err
+	}
+	stats.TopArtists = artists
+
 	return stats, nil
+}
+
+// personalTopScenes ranks metros (and city|state fallbacks from followed
+// scenes) by saved-show primary-venue metro hits plus scene follows.
+func (s *ChartsService) personalTopScenes(userID uint, limit int) ([]contracts.PersonalTopScene, error) {
+	type sceneRow struct {
+		Metro    string  `gorm:"column:metro"`
+		City     string  `gorm:"column:city"`
+		State    string  `gorm:"column:state"`
+		RegCity  *string `gorm:"column:reg_city"`
+		RegState *string `gorm:"column:reg_state"`
+		RegSlug  *string `gorm:"column:reg_slug"`
+		Count    int     `gorm:"column:count"`
+	}
+	// Metro-keyed hits from saved shows; followed scenes contribute 1 each
+	// under their registry metro (or city|state when metro is null).
+	var rows []sceneRow
+	err := s.db.Raw(`
+		WITH hits AS (
+			SELECT
+				v.metro AS metro,
+				''::text AS city,
+				''::text AS state,
+				COUNT(*)::int AS cnt
+			FROM user_bookmarks ub
+			JOIN LATERAL `+primaryVenueLateralSQL(
+		"iv.metro, iv.city, iv.state", "ub.entity_id")+` v ON TRUE
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+			  AND v.metro IS NOT NULL AND v.metro <> ''
+			GROUP BY v.metro
+			UNION ALL
+			SELECT
+				COALESCE(sc.metro, '') AS metro,
+				CASE WHEN sc.metro IS NULL OR sc.metro = '' THEN sc.city ELSE '' END AS city,
+				CASE WHEN sc.metro IS NULL OR sc.metro = '' THEN sc.state ELSE '' END AS state,
+				COUNT(*)::int AS cnt
+			FROM user_bookmarks ub
+			JOIN scenes sc ON sc.id = ub.entity_id
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+			GROUP BY COALESCE(sc.metro, ''),
+			         CASE WHEN sc.metro IS NULL OR sc.metro = '' THEN sc.city ELSE '' END,
+			         CASE WHEN sc.metro IS NULL OR sc.metro = '' THEN sc.state ELSE '' END
+		),
+		ranked AS (
+			SELECT metro, city, state, SUM(cnt)::int AS count
+			FROM hits
+			GROUP BY metro, city, state
+		)
+		SELECT
+			r.metro,
+			r.city,
+			r.state,
+			r.count,
+			sc.city AS reg_city,
+			sc.state AS reg_state,
+			sc.slug AS reg_slug
+		FROM ranked r
+		LEFT JOIN LATERAL (
+			SELECT s.city, s.state, s.slug
+			FROM scenes s
+			WHERE (r.metro <> '' AND s.metro = r.metro)
+			   OR (r.metro = '' AND LOWER(s.city) = LOWER(r.city) AND LOWER(s.state) = LOWER(r.state))
+			ORDER BY s.id ASC
+			LIMIT 1
+		) sc ON TRUE
+		ORDER BY r.count DESC,
+		         COALESCE(sc.city, r.city) ASC,
+		         COALESCE(sc.state, r.state) ASC,
+		         r.metro ASC
+		LIMIT ?
+	`, userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
+		userID, engagementm.BookmarkEntityScene, engagementm.BookmarkActionFollow,
+		limit).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get personal top scenes: %w", err)
+	}
+
+	results := make([]contracts.PersonalTopScene, 0, len(rows))
+	for _, r := range rows {
+		city, state, slug, name := r.City, r.State, "", ""
+		if r.RegCity != nil && r.RegState != nil && r.RegSlug != nil {
+			city, state, slug = *r.RegCity, *r.RegState, *r.RegSlug
+		}
+		if r.Metro != "" {
+			if mp, ok := geo.MetroPrincipalByCBSA(r.Metro); ok {
+				if city == "" {
+					city, state = mp.City, mp.State
+				}
+				name = mp.Name
+				if slug == "" {
+					slug = buildSceneSlug(mp.City, mp.State)
+				}
+			}
+		}
+		if name == "" && city != "" {
+			name = city + ", " + state
+		}
+		if slug == "" && city != "" {
+			slug = buildSceneSlug(city, state)
+		}
+		if name == "" || slug == "" {
+			continue
+		}
+		results = append(results, contracts.PersonalTopScene{
+			Metro: r.Metro,
+			Name:  name,
+			Slug:  slug,
+			City:  city,
+			State: state,
+			Count: r.Count,
+		})
+	}
+	return results, nil
+}
+
+// personalTopTags ranks tags by all-time personal taste weight: each saved
+// show contributes once per distinct billed-artist tag (same transitive
+// model as GetTopTags / /shows?tags=), and each followed artist contributes
+// once per of their tags.
+func (s *ChartsService) personalTopTags(userID uint, limit int) ([]contracts.PersonalTopTag, error) {
+	type tagRow struct {
+		TagID    uint   `gorm:"column:tag_id"`
+		Name     string `gorm:"column:name"`
+		Slug     string `gorm:"column:slug"`
+		Category string `gorm:"column:category"`
+		Count    int    `gorm:"column:count"`
+	}
+	var rows []tagRow
+	err := s.db.Raw(`
+		WITH tagged AS (
+			SELECT et.tag_id, COUNT(DISTINCT ub.entity_id)::int AS cnt
+			FROM user_bookmarks ub
+			JOIN show_artists sa ON sa.show_id = ub.entity_id
+			JOIN entity_tags et ON et.entity_type = ? AND et.entity_id = sa.artist_id
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+			GROUP BY et.tag_id
+			UNION ALL
+			SELECT et.tag_id, COUNT(DISTINCT ub.entity_id)::int AS cnt
+			FROM user_bookmarks ub
+			JOIN entity_tags et ON et.entity_type = ? AND et.entity_id = ub.entity_id
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+			GROUP BY et.tag_id
+		)
+		SELECT
+			t.id AS tag_id,
+			t.name,
+			COALESCE(t.slug, '') AS slug,
+			t.category,
+			SUM(tagged.cnt)::int AS count
+		FROM tagged
+		JOIN tags t ON t.id = tagged.tag_id
+		GROUP BY t.id, t.name, t.slug, t.category
+		ORDER BY count DESC, t.name ASC, t.id ASC
+		LIMIT ?
+	`, catalogm.TagEntityArtist,
+		userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
+		catalogm.TagEntityArtist,
+		userID, engagementm.BookmarkEntityArtist, engagementm.BookmarkActionFollow,
+		limit).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get personal top tags: %w", err)
+	}
+
+	results := make([]contracts.PersonalTopTag, 0, len(rows))
+	for _, r := range rows {
+		results = append(results, contracts.PersonalTopTag{
+			TagID:    r.TagID,
+			Name:     r.Name,
+			Slug:     r.Slug,
+			Category: r.Category,
+			Count:    r.Count,
+		})
+	}
+	return results, nil
+}
+
+// personalTopArtists ranks artists by combined all-time weight: one point per
+// saved show that bills them, plus one point if the user follows them.
+func (s *ChartsService) personalTopArtists(userID uint, limit int) ([]contracts.PersonalTopArtist, error) {
+	type artistRow struct {
+		ArtistID uint   `gorm:"column:artist_id"`
+		Name     string `gorm:"column:name"`
+		Slug     string `gorm:"column:slug"`
+		Count    int    `gorm:"column:count"`
+	}
+	var rows []artistRow
+	err := s.db.Raw(`
+		WITH hits AS (
+			SELECT sa.artist_id, COUNT(*)::int AS cnt
+			FROM user_bookmarks ub
+			JOIN show_artists sa ON sa.show_id = ub.entity_id
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+			GROUP BY sa.artist_id
+			UNION ALL
+			SELECT ub.entity_id AS artist_id, 1 AS cnt
+			FROM user_bookmarks ub
+			WHERE ub.user_id = ? AND ub.entity_type = ? AND ub.action = ?
+		)
+		SELECT
+			a.id AS artist_id,
+			a.name,
+			COALESCE(a.slug, '') AS slug,
+			SUM(hits.cnt)::int AS count
+		FROM hits
+		JOIN artists a ON a.id = hits.artist_id
+		GROUP BY a.id, a.name, a.slug
+		ORDER BY count DESC, a.name ASC, a.id ASC
+		LIMIT ?
+	`, userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
+		userID, engagementm.BookmarkEntityArtist, engagementm.BookmarkActionFollow,
+		limit).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get personal top artists: %w", err)
+	}
+
+	results := make([]contracts.PersonalTopArtist, 0, len(rows))
+	for _, r := range rows {
+		results = append(results, contracts.PersonalTopArtist{
+			ArtistID: r.ArtistID,
+			Name:     r.Name,
+			Slug:     r.Slug,
+			Count:    r.Count,
+		})
+	}
+	return results, nil
 }
 
 // GetChartsOverview returns a condensed summary with top 5 of each chart.

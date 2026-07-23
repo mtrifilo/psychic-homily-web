@@ -343,16 +343,60 @@ type PersonalTopVenue struct {
 	SavedShowCount int    `json:"saved_show_count"`
 }
 
+// PersonalTopScene is one metro (or city|state fallback) in the user's
+// all-time taste sidebar, ranked by saved-show attribution via primary venue
+// metro plus followed scenes (PSY-1507).
+type PersonalTopScene struct {
+	Metro string `json:"metro"`
+	Name  string `json:"name"`
+	Slug  string `json:"slug"`
+	City  string `json:"city"`
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
+// PersonalTopTag is one tag in the user's all-time taste sidebar. Count is
+// saved shows carrying the tag via billed artists, plus followed artists that
+// carry the tag (PSY-1507).
+type PersonalTopTag struct {
+	TagID    uint   `json:"tag_id"`
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
+	Category string `json:"category"`
+	Count    int    `json:"count"`
+}
+
+// PersonalTopArtist is one artist in the user's all-time taste sidebar. Count
+// is the number of saved shows that bill the artist, plus 1 when the user
+// also follows them (PSY-1507).
+type PersonalTopArtist struct {
+	ArtistID uint   `json:"artist_id"`
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
+	Count    int    `json:"count"`
+}
+
 // PersonalChartsStats is the authed personal stats strip: all-time aggregates
 // over the requesting user's own engagement rows. Zeros are a valid shape (a
 // new user sees zeros and the frontend renders a "start marking shows" nudge);
 // TopVenue is nil until the user has a saved show with a venue, and
 // FirstActivityAt is nil until they have any bookmark row at all.
+//
+// TopScenes / TopTags / TopArtists are empty slices (never nil) when the user
+// has no qualifying activity. Follow counts cover every Library follow entity
+// type; ArtistsFollowed stays for the existing Broadsheet strip.
 type PersonalChartsStats struct {
-	SavedShows      int               `json:"saved_shows"`
-	ArtistsFollowed int               `json:"artists_followed"`
-	TopVenue        *PersonalTopVenue `json:"top_venue"`
-	FirstActivityAt *time.Time        `json:"first_activity_at"`
+	SavedShows        int                  `json:"saved_shows"`
+	ArtistsFollowed   int                  `json:"artists_followed"`
+	VenuesFollowed    int                  `json:"venues_followed"`
+	LabelsFollowed    int                  `json:"labels_followed"`
+	ScenesFollowed    int                  `json:"scenes_followed"`
+	FestivalsFollowed int                  `json:"festivals_followed"`
+	TopVenue          *PersonalTopVenue    `json:"top_venue"`
+	FirstActivityAt   *time.Time           `json:"first_activity_at"`
+	TopScenes         []PersonalTopScene   `json:"top_scenes"`
+	TopTags           []PersonalTopTag     `json:"top_tags"`
+	TopArtists        []PersonalTopArtist  `json:"top_artists"`
 }
 
 // ChartsOverview contains condensed top-5 versions of the four original

@@ -30,11 +30,48 @@ export interface PersonalTopVenue {
   saved_show_count: number
 }
 
+/** All-time taste scene on GET /charts/me (PSY-1507). */
+export interface PersonalTopScene {
+  metro: string
+  name: string
+  slug: string
+  city: string
+  state: string
+  count: number
+}
+
+/** All-time taste tag on GET /charts/me (PSY-1507). */
+export interface PersonalTopTag {
+  tag_id: number
+  name: string
+  slug: string
+  category: string
+  count: number
+}
+
+/**
+ * All-time taste artist on GET /charts/me (PSY-1507). `count` is saved shows
+ * billing the artist, plus 1 when also followed.
+ */
+export interface PersonalTopArtist {
+  artist_id: number
+  name: string
+  slug: string
+  count: number
+}
+
 export interface PersonalChartsStats {
   saved_shows: number
   artists_followed: number
+  venues_followed: number
+  labels_followed: number
+  scenes_followed: number
+  festivals_followed: number
   top_venue: PersonalTopVenue | null
   first_activity_at: string | null
+  top_scenes: PersonalTopScene[]
+  top_tags: PersonalTopTag[]
+  top_artists: PersonalTopArtist[]
 }
 
 export interface ChartEntityReference {

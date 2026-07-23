@@ -60,6 +60,8 @@ func (suite *ChartsServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM release_labels")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM labels")
+	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	_, _ = sqlDB.Exec("DELETE FROM scenes")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM tags")
@@ -2203,8 +2205,18 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_Empty
 	suite.Require().NotNil(stats)
 	suite.Equal(0, stats.SavedShows)
 	suite.Equal(0, stats.ArtistsFollowed)
+	suite.Equal(0, stats.VenuesFollowed)
+	suite.Equal(0, stats.LabelsFollowed)
+	suite.Equal(0, stats.ScenesFollowed)
+	suite.Equal(0, stats.FestivalsFollowed)
 	suite.Nil(stats.TopVenue)
 	suite.Nil(stats.FirstActivityAt)
+	suite.Empty(stats.TopScenes)
+	suite.Empty(stats.TopTags)
+	suite.Empty(stats.TopArtists)
+	suite.NotNil(stats.TopScenes)
+	suite.NotNil(stats.TopTags)
+	suite.NotNil(stats.TopArtists)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_AggregatesAndCrossUserIsolation() {
@@ -2214,20 +2226,33 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_Aggre
 	venueY := suite.createVenue("Valley Bar", "Phoenix", "AZ")
 	artist1 := suite.createArtist("Band One")
 	artist2 := suite.createArtist("Band Two")
+	label := &catalogm.Label{Name: "Personal Label"}
+	suite.Require().NoError(suite.db.Create(label).Error)
+	festival := &catalogm.Festival{
+		Name: "Personal Fest", Slug: "personal-fest-2026", SeriesSlug: "personal-fest",
+		EditionYear: 2026, StartDate: "2026-06-01", EndDate: "2026-06-03",
+	}
+	suite.Require().NoError(suite.db.Create(festival).Error)
+	metro := "38060"
+	scene := &catalogm.Scene{Metro: &metro, City: "Phoenix", State: "AZ", Slug: "phoenix-az"}
+	suite.Require().NoError(suite.db.Create(scene).Error)
 
 	past := time.Now().UTC().AddDate(0, 0, -14)
 	show1 := suite.createApprovedShow("Show 1", venueX.ID, artist1.ID, userA.ID, past)
 	show2 := suite.createApprovedShow("Show 2", venueX.ID, artist1.ID, userA.ID, past.AddDate(0, 0, 1))
 	show3 := suite.createApprovedShow("Show 3", venueY.ID, artist2.ID, userA.ID, past.AddDate(0, 0, 2))
 
-	// User A: 3 saved shows (2 at X, 1 at Y), 2 artist follows, 1 venue
-	// follow (must count toward NEITHER aggregate's artist/show buckets).
+	// User A: 3 saved shows (2 at X, 1 at Y), 2 artist follows, 1 each of
+	// venue/label/scene/festival follows (must not bleed into artist/show buckets).
 	suite.createBookmark(userA.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionSave)
 	suite.createBookmark(userA.ID, engagementm.BookmarkEntityShow, show2.ID, engagementm.BookmarkActionSave)
 	suite.createBookmark(userA.ID, engagementm.BookmarkEntityShow, show3.ID, engagementm.BookmarkActionSave)
 	suite.createBookmark(userA.ID, engagementm.BookmarkEntityArtist, artist1.ID, engagementm.BookmarkActionFollow)
 	suite.createBookmark(userA.ID, engagementm.BookmarkEntityArtist, artist2.ID, engagementm.BookmarkActionFollow)
 	suite.createBookmark(userA.ID, engagementm.BookmarkEntityVenue, venueX.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityLabel, label.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityScene, scene.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(userA.ID, engagementm.BookmarkEntityFestival, festival.ID, engagementm.BookmarkActionFollow)
 
 	// User B: 1 saved show (at Y), 1 artist follow.
 	suite.createBookmark(userB.ID, engagementm.BookmarkEntityShow, show3.ID, engagementm.BookmarkActionSave)
@@ -2237,6 +2262,10 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_Aggre
 	suite.Require().NoError(err)
 	suite.Equal(3, statsA.SavedShows)
 	suite.Equal(2, statsA.ArtistsFollowed, "venue follow must not count as an artist follow")
+	suite.Equal(1, statsA.VenuesFollowed)
+	suite.Equal(1, statsA.LabelsFollowed)
+	suite.Equal(1, statsA.ScenesFollowed)
+	suite.Equal(1, statsA.FestivalsFollowed)
 	suite.Require().NotNil(statsA.TopVenue)
 	suite.Equal(venueX.ID, statsA.TopVenue.VenueID)
 	suite.Equal("Crescent Ballroom", statsA.TopVenue.Name)
@@ -2247,9 +2276,94 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_Aggre
 	suite.Require().NoError(err)
 	suite.Equal(1, statsB.SavedShows, "user A's saves must not leak into user B's count")
 	suite.Equal(1, statsB.ArtistsFollowed)
+	suite.Equal(0, statsB.VenuesFollowed)
+	suite.Equal(0, statsB.LabelsFollowed)
+	suite.Equal(0, statsB.ScenesFollowed)
+	suite.Equal(0, statsB.FestivalsFollowed)
 	suite.Require().NotNil(statsB.TopVenue)
 	suite.Equal(venueY.ID, statsB.TopVenue.VenueID)
 	suite.Equal(1, statsB.TopVenue.SavedShowCount)
+}
+
+// TestGetPersonalChartsStats_TasteTopN lists all-time top scenes/tags/artists
+// from the user's own saves + follows, combining artist show-bills with follows.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_TasteTopN() {
+	user := suite.createUser("personal-taste@test.com")
+	other := suite.createUser("personal-taste-other@test.com")
+
+	phx := suite.createVenue("Taste PHX", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(phx).Update("metro", "38060").Error)
+	chi := suite.createVenue("Taste CHI", "Chicago", "IL")
+	suite.Require().NoError(suite.db.Model(chi).Update("metro", "16980").Error)
+
+	metroPHX := "38060"
+	scenePHX := &catalogm.Scene{Metro: &metroPHX, City: "Phoenix", State: "AZ", Slug: "phoenix-az"}
+	suite.Require().NoError(suite.db.Create(scenePHX).Error)
+
+	headliner := suite.createArtist("Taste Headliner")
+	support := suite.createArtist("Taste Support")
+	followedOnly := suite.createArtist("Taste Followed Only")
+	otherArtist := suite.createArtist("Other User Artist")
+
+	shoegaze := suite.createTag("Taste Shoegaze", "taste-shoegaze", catalogm.TagCategoryGenre)
+	postPunk := suite.createTag("Taste Post Punk", "taste-post-punk", catalogm.TagCategoryGenre)
+	suite.applyArtistTag(shoegaze.ID, headliner.ID, user.ID)
+	suite.applyArtistTag(postPunk.ID, support.ID, user.ID)
+	suite.applyArtistTag(shoegaze.ID, followedOnly.ID, user.ID)
+	suite.applyArtistTag(postPunk.ID, otherArtist.ID, user.ID)
+
+	past := time.Now().UTC().AddDate(0, 0, -7)
+	// 3 PHX shows bill headliner; 1 CHI show bills support.
+	for i := 0; i < 3; i++ {
+		show := suite.createApprovedShow(fmt.Sprintf("PHX %d", i), phx.ID, headliner.ID, user.ID, past.AddDate(0, 0, i))
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave)
+	}
+	chiShow := suite.createApprovedShow("CHI 1", chi.ID, support.ID, user.ID, past.AddDate(0, 0, 4))
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, chiShow.ID, engagementm.BookmarkActionSave)
+
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, headliner.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, followedOnly.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityScene, scenePHX.ID, engagementm.BookmarkActionFollow)
+
+	// Other user's activity must never appear.
+	otherShow := suite.createApprovedShow("Other show", chi.ID, otherArtist.ID, other.ID, past)
+	suite.createBookmark(other.ID, engagementm.BookmarkEntityShow, otherShow.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(other.ID, engagementm.BookmarkEntityArtist, otherArtist.ID, engagementm.BookmarkActionFollow)
+
+	stats, err := suite.chartsService.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+
+	suite.Require().NotEmpty(stats.TopScenes)
+	suite.Equal("38060", stats.TopScenes[0].Metro)
+	suite.Equal("phoenix-az", stats.TopScenes[0].Slug)
+	// 3 saved PHX shows + 1 Phoenix scene follow.
+	suite.Equal(4, stats.TopScenes[0].Count)
+	if len(stats.TopScenes) > 1 {
+		suite.Equal("16980", stats.TopScenes[1].Metro)
+		suite.Equal(1, stats.TopScenes[1].Count)
+	}
+
+	suite.Require().NotEmpty(stats.TopTags)
+	suite.Equal(shoegaze.ID, stats.TopTags[0].TagID)
+	// 3 saved shows with shoegaze + follow on headliner + follow on followedOnly.
+	suite.Equal(5, stats.TopTags[0].Count)
+
+	suite.Require().NotEmpty(stats.TopArtists)
+	suite.Equal(headliner.ID, stats.TopArtists[0].ArtistID)
+	// 3 saved shows + 1 follow.
+	suite.Equal(4, stats.TopArtists[0].Count)
+	suite.Equal(followedOnly.ID, stats.TopArtists[1].ArtistID)
+	suite.Equal(1, stats.TopArtists[1].Count)
+
+	for _, a := range stats.TopArtists {
+		suite.NotEqual(otherArtist.ID, a.ArtistID, "other user's artists must not leak")
+	}
+	for _, t := range stats.TopTags {
+		if t.TagID == postPunk.ID {
+			// Only the user's one CHI save with support — other user's post-punk must not add.
+			suite.Equal(1, t.Count)
+		}
+	}
 }
 
 // TestGetPersonalChartsStats_TopVenuePrimaryAttributionAndVenuelessSaves:

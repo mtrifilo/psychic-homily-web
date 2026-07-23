@@ -33,6 +33,10 @@ let personalStatsError = false
 let personalStats = {
   saved_shows: 12,
   artists_followed: 34,
+  venues_followed: 0,
+  labels_followed: 0,
+  scenes_followed: 0,
+  festivals_followed: 0,
   top_venue: {
     venue_id: 9,
     name: 'The Rebel Lounge',
@@ -45,6 +49,27 @@ let personalStats = {
     saved_show_count: number
   } | null,
   first_activity_at: '2026-03-12T00:00:00Z' as string | null,
+  top_scenes: [] as Array<{
+    metro: string
+    name: string
+    slug: string
+    city: string
+    state: string
+    count: number
+  }>,
+  top_tags: [] as Array<{
+    tag_id: number
+    name: string
+    slug: string
+    category: string
+    count: number
+  }>,
+  top_artists: [] as Array<{
+    artist_id: number
+    name: string
+    slug: string
+    count: number
+  }>,
 }
 let queryWindow: 'month' | 'quarter' | 'all_time' | null = null
 let queryScene: string | null = null
@@ -397,6 +422,10 @@ describe('ChartsPage', () => {
     personalStats = {
       saved_shows: 12,
       artists_followed: 34,
+      venues_followed: 0,
+      labels_followed: 0,
+      scenes_followed: 0,
+      festivals_followed: 0,
       top_venue: {
         venue_id: 9,
         name: 'The Rebel Lounge',
@@ -404,6 +433,9 @@ describe('ChartsPage', () => {
         saved_show_count: 5,
       },
       first_activity_at: '2026-03-12T00:00:00Z',
+      top_scenes: [],
+      top_tags: [],
+      top_artists: [],
     }
     queryWindow = null
     queryScene = null
@@ -530,8 +562,15 @@ describe('ChartsPage', () => {
     personalStats = {
       saved_shows: 0,
       artists_followed: 0,
+      venues_followed: 0,
+      labels_followed: 0,
+      scenes_followed: 0,
+      festivals_followed: 0,
       top_venue: null,
       first_activity_at: null,
+      top_scenes: [],
+      top_tags: [],
+      top_artists: [],
     }
     render(<ChartsPage />)
 
@@ -546,8 +585,15 @@ describe('ChartsPage', () => {
     personalStats = {
       saved_shows: 0,
       artists_followed: 0,
+      venues_followed: 0,
+      labels_followed: 0,
+      scenes_followed: 0,
+      festivals_followed: 0,
       top_venue: null,
       first_activity_at: '2026-03-12T00:00:00Z',
+      top_scenes: [],
+      top_tags: [],
+      top_artists: [],
     }
     render(<ChartsPage />)
 
