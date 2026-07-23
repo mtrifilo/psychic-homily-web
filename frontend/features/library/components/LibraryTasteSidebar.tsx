@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { usePersonalChartsStats } from '@/features/charts/hooks'
@@ -35,7 +36,7 @@ function SidebarBlock({
   children,
 }: {
   title: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <section className="border-t border-border pt-3">

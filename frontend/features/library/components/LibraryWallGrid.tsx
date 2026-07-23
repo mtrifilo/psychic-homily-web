@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import type { SavedShowResponse } from '@/features/shows'
 import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
@@ -25,6 +26,19 @@ function metaLine(show: SavedShowResponse): string {
   return venue ? `${monthDay} · ${venue}` : monthDay
 }
 
+function TypographicFallback({ label }: { label: string }) {
+  return (
+    <div
+      className="flex h-full w-full items-center justify-center bg-muted/50 px-3 text-center"
+      data-testid="library-wall-tile-fallback"
+    >
+      <span className="line-clamp-3 text-sm font-medium leading-snug text-foreground/80">
+        {label}
+      </span>
+    </div>
+  )
+}
+
 function WallTile({
   show,
   onRemove,
@@ -39,7 +53,8 @@ function WallTile({
   const name = displayName(show)
   const tileLabel = primaryName(show)
   const href = `/shows/${show.slug || show.id}`
-  const hasImage = Boolean(show.image_url)
+  const [imageFailed, setImageFailed] = useState(false)
+  const showImage = Boolean(show.image_url) && !imageFailed
 
   return (
     <article
@@ -51,23 +66,17 @@ function WallTile({
         href={href}
         className="block aspect-square overflow-hidden border border-border bg-muted/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {hasImage ? (
+        {showImage ? (
           /* eslint-disable-next-line @next/next/no-img-element -- flyer URLs are hotlinked hosts outside next/image remotePatterns */
           <img
             src={show.image_url ?? ''}
             alt=""
             className="h-full w-full object-cover"
             data-testid="library-wall-tile-image"
+            onError={() => setImageFailed(true)}
           />
         ) : (
-          <div
-            className="flex h-full w-full items-center justify-center bg-muted/50 px-3 text-center"
-            data-testid="library-wall-tile-fallback"
-          >
-            <span className="line-clamp-3 text-sm font-medium leading-snug text-foreground/80">
-              {tileLabel}
-            </span>
-          </div>
+          <TypographicFallback label={tileLabel} />
         )}
       </Link>
 

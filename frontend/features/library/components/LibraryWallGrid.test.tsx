@@ -89,8 +89,37 @@ describe('LibraryWallGrid', () => {
     )
 
     fireEvent.click(
-      screen.getByRole('button', { name: /Remove Bar Italia from saved shows/i })
+      screen.getByRole('button', {
+        name: /Remove Bar Italia from saved shows/i,
+      })
     )
     expect(onRemove).toHaveBeenCalledWith(3)
+  })
+
+  it('falls back to typographic tile when the image fails to load', async () => {
+    render(
+      <LibraryWallGrid
+        shows={[
+          makeShow({
+            id: 4,
+            title: 'Broken Flyer',
+            image_url: 'https://example.com/missing.jpg',
+            artists: [
+              {
+                id: 4,
+                name: 'Broken Flyer',
+                slug: 'broken-flyer',
+              } as SavedShowResponse['artists'][number],
+            ],
+          }),
+        ]}
+        onRemove={vi.fn()}
+        isRemovalPending={false}
+      />
+    )
+
+    const img = screen.getByTestId('library-wall-tile-image')
+    fireEvent.error(img)
+    expect(await screen.findByTestId('library-wall-tile-fallback')).toBeTruthy()
   })
 })
