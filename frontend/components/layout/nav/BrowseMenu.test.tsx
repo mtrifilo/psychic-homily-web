@@ -57,19 +57,17 @@ describe('BrowseMenu', () => {
     render(<BrowseMenu />)
     await user.click(screen.getByRole('button', { name: 'Browse the catalog' }))
 
-    expect(await screen.findByRole('menuitem', { name: 'Phoenix' })).toHaveAttribute(
-      'href',
-      '/scenes/phoenix-az'
-    )
-    expect(screen.getByRole('menuitem', { name: 'Tucson' })).toHaveAttribute(
-      'href',
-      '/scenes/tucson-az'
-    )
-    expect(screen.getByRole('menuitem', { name: 'Los Angeles' })).toHaveAttribute(
-      'href',
-      '/scenes/los-angeles-ca'
-    )
-    expect(screen.getByRole('menuitem', { name: 'All scenes' })).toHaveAttribute('href', '/scenes')
+    // PSY-1030: stage-verified resolving scenes only (Phoenix/Tucson/LA/Denver).
+    const cases: Array<[string, string]> = [
+      ['Phoenix', '/scenes/phoenix-az'],
+      ['Tucson', '/scenes/tucson-az'],
+      ['Los Angeles', '/scenes/los-angeles-ca'],
+      ['Denver', '/scenes/denver-co'],
+      ['All scenes', '/scenes'],
+    ]
+    for (const [name, href] of cases) {
+      expect(await screen.findByRole('menuitem', { name })).toHaveAttribute('href', href)
+    }
   })
 
   it('opens via keyboard (Enter on the focused trigger) — APG menu pattern', async () => {

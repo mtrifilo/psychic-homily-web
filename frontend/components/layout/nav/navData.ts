@@ -58,16 +58,17 @@ export const browseGroups: NavGroup[] = [
   {
     // Scene pages are DERIVED from verified-venue location data, not stored
     // entities; a `<city>` slug is `<city-lowercased,-spaces→dashes>-<state>`
-    // (backend `buildSceneSlug`, e.g. Phoenix/AZ → `phoenix-az`). These three
-    // are the scent-rich shortcuts the redesign curates per Figma `455:5`
-    // (Browse mega-menu); "All scenes" is the index. A curated city that has
-    // not yet crossed the scene threshold renders a real 404 (the page's
-    // server-side existence check) — acceptable for a hand-picked shortcut.
+    // (backend `buildSceneSlug`, e.g. Phoenix/AZ → `phoenix-az`). Shortcuts
+    // below were reconciled in PSY-1030 against stage
+    // (`stage.api.psychichomily.com/scenes/<slug>` + UI 200): Phoenix, Tucson,
+    // Los Angeles, and Denver (Figma `455:5` 4th city) all resolve. "All
+    // scenes" is the index. Do not add a curated city that 404s on stage.
     label: 'Scenes',
     items: [
       { href: '/scenes/phoenix-az', label: 'Phoenix', icon: MapPin },
       { href: '/scenes/tucson-az', label: 'Tucson', icon: MapPin },
       { href: '/scenes/los-angeles-ca', label: 'Los Angeles', icon: MapPin },
+      { href: '/scenes/denver-co', label: 'Denver', icon: MapPin },
       { href: '/scenes', label: 'All scenes', icon: Globe },
     ],
   },
