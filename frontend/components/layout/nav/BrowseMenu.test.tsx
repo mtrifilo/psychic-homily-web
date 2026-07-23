@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowseMenu } from './BrowseMenu'
+import { browseGroups } from './navData'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -52,24 +53,28 @@ describe('BrowseMenu', () => {
     }
   })
 
-  it('renders the curated scene shortcuts with the derived <city>-<state> slug shape', async () => {
+  it('renders Browse → Scenes shortcuts from navData (href wiring)', async () => {
     const user = userEvent.setup()
     render(<BrowseMenu />)
     await user.click(screen.getByRole('button', { name: 'Browse the catalog' }))
 
-    expect(await screen.findByRole('menuitem', { name: 'Phoenix' })).toHaveAttribute(
-      'href',
-      '/scenes/phoenix-az'
-    )
-    expect(screen.getByRole('menuitem', { name: 'Tucson' })).toHaveAttribute(
-      'href',
-      '/scenes/tucson-az'
-    )
-    expect(screen.getByRole('menuitem', { name: 'Los Angeles' })).toHaveAttribute(
-      'href',
-      '/scenes/los-angeles-ca'
-    )
-    expect(screen.getByRole('menuitem', { name: 'All scenes' })).toHaveAttribute('href', '/scenes')
+    // Wiring only — HTTP 200 resolution was verified manually against stage
+    // (2026-07-22), not by this unit test. Lock the curated set so a silent
+    // navData edit still fails here.
+    const scenes = browseGroups.find(g => g.label === 'Scenes')!.items
+    expect(scenes.map(i => i.href)).toEqual([
+      '/scenes/phoenix-az',
+      '/scenes/tucson-az',
+      '/scenes/los-angeles-ca',
+      '/scenes/denver-co',
+      '/scenes',
+    ])
+    for (const item of scenes) {
+      expect(await screen.findByRole('menuitem', { name: item.label })).toHaveAttribute(
+        'href',
+        item.href
+      )
+    }
   })
 
   it('opens via keyboard (Enter on the focused trigger) — APG menu pattern', async () => {
