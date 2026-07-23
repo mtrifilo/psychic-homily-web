@@ -122,10 +122,10 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	}
 	entityType := params["type"]
 	expectedTypes := map[any]bool{
-		"artist": true, "venue": true, "scene": true, "label": true, "festival": true,
+		"artist": true, "venue": true, "scene": true, "label": true, "festival": true, "tag": true,
 	}
 	if entityType == nil || !entityType.Required || len(entityType.Schema.Enum) != len(expectedTypes) {
-		t.Fatalf("expected required five-value type enum, got %+v", entityType)
+		t.Fatalf("expected required six-value type enum, got %+v", entityType)
 	}
 	for _, value := range entityType.Schema.Enum {
 		if !expectedTypes[value] {
@@ -177,7 +177,7 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 
 	countsOperation := api.OpenAPI().Paths["/me/library/following/counts"].Get
 	countsResponse := countsOperation.Responses["200"].Content["application/json"].Schema
-	assertProperties(countsResponse, "artists", "venues", "scenes", "labels", "festivals")
+	assertProperties(countsResponse, "artists", "venues", "scenes", "labels", "festivals", "tags")
 
 	// PSY-1496: username-addressed user follow routes must be documented.
 	for _, check := range []struct {
