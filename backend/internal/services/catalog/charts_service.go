@@ -48,8 +48,8 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 // redesigned charts page; this stays only until the frontend hook migrates
 // off /charts/trending-shows. Known divergences fixed in the replacement and
 // deliberately NOT back-ported here (don't "fix" a route slated for
-// deletion): no is_cancelled filter, multi-venue shows duplicate one row per
-// venue, and the bound is the current instant rather than start-of-today.
+// deletion): no is_cancelled filter and the bound is the current instant
+// rather than start-of-today.
 func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -80,14 +80,13 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 			COALESCE(v.city, '') AS city,
 			COALESCE(COUNT(ub.id), 0) AS save_count
 		FROM shows s
-		LEFT JOIN show_venues sv ON sv.show_id = s.id
-		LEFT JOIN venues v ON v.id = sv.venue_id
+		LEFT JOIN LATERAL ` + primaryVenueLateralSQL("iv.name, iv.slug, iv.city", "s.id") + ` v ON TRUE
 		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
 			AND ub.entity_type = ?
 			AND ub.action = ?
 		WHERE s.status = ?
 			AND s.event_date >= ?
-		GROUP BY s.id, s.title, s.slug, s.event_date, v.name, v.slug, v.city
+		GROUP BY s.id, v.name, v.slug, v.city
 		ORDER BY save_count DESC, s.event_date ASC
 		LIMIT ?
 	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
@@ -303,12 +302,11 @@ const (
 // the same rule as the pv lateral in show.go, so a multi-venue show names the
 // same venue here as on its show page. `cols` selects from venues aliased iv;
 // `showIDExpr` anchors the pick (s.id, ub.entity_id, ...). Both must be
-// compile-time literals, never runtime input. Consumers: the most-anticipated
-// queries and the personal-stats top venue. (GetTrendingShows predates it and
-// deliberately keeps its one-row-per-venue join until deletion; the
-// most-active last-show lookup breaks venue ties by name for display, a
-// different job.) New venue-ATTRIBUTING chart queries must build through
-// this so the pick rule can't drift between surfaces.
+// compile-time literals, never runtime input. Consumers: trending-shows,
+// most-anticipated, and personal-stats top venue. (The most-active last-show
+// lookup breaks venue ties by name for display, a different job.) New
+// venue-ATTRIBUTING chart queries must build through this so the pick rule
+// can't drift between surfaces.
 func primaryVenueLateralSQL(cols, showIDExpr string) string {
 	return `(
 			SELECT ` + cols + `
