@@ -59,9 +59,12 @@ Typical order after a new label roster:
 roster ingest → link enrichment → release-pass → artist tag rollup
 ```
 
-Each step after roster is optional. Names-only Shopify rosters (Sacred Bones, Dais) need link enrichment before release-pass.
+**Pipeline completion (scoped):**
+- Roster alone completes the label↔artist graph.
+- Link enrichment + release-pass are **required for playable artist embeds** (optional only if you explicitly accept names-only / no-player). Names-only Shopify rosters (Sacred Bones, Dais) need link enrichment before release-pass.
+- Artist tag rollup remains optional.
 
-**Release-pass is the primary feeder of artist playable embeds.** Artist pages need `bandcamp_embed_url` = a Bandcamp `/album` or `/track` URL — a bare profile root in `social.bandcamp` is not enough by itself. Writing release `external_links` with `platform: "bandcamp"` and an `/album|/track` URL (what [release-pass](references/release-pass.md) captures) auto-fills empty artist embeds (`release_derived`, keep-fresh on create/link). Profile roots still help: link enrichment + the profile→embed resolver can fill when no release link exists yet, but **roster alone does not complete the embed pipeline** — run release-pass (or confirm embeds another way) before calling a roster "done" for playable audio. Labels/venues do not get embeds today (deferred). Checklist: [release-pass.md § Embed verification](references/release-pass.md#embed-verification-after-roster--release-pass).
+**Release-pass is the primary feeder of artist playable embeds.** Artist pages need `bandcamp_embed_url` = a Bandcamp `/album` or `/track` URL — a bare profile root in `social.bandcamp` is not enough by itself. Writing release `external_links` with an embeddable `/album|/track` URL (what [release-pass](references/release-pass.md) captures; conventionally `platform: "bandcamp"`) **fills empty** artist embeds on create/add-link (`release_derived`, fill-when-empty — first qualifying link wins; newer releases do not overwrite). Auto-derived embeds are recomputed only when a release/link is removed. Profile roots still help: link enrichment + the profile→embed resolver can fill when no release link exists yet, but do not treat that as a substitute for release-pass. Labels/venues do not get embeds today (deferred). Checklist: [release-pass.md § Embed verification](references/release-pass.md#embed-verification-after-roster--release-pass).
 
 ## Shared rules (all workflows)
 

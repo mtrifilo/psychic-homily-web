@@ -39,7 +39,7 @@ Dry-run reports link plan; confirm reports outcomes.
    bun run src/entry.ts --env <env> sources refresh label <id>
    ```
    Stale list: `ph sources stale --limit 20`
-8. **Optional follow:** [link-enrichment.md](link-enrichment.md) → [release-pass.md](release-pass.md) → [artist-tag-rollup.md](artist-tag-rollup.md). For **playable artist embeds**, release-pass is not really optional — profile roots from the roster are not embeddable alone; `/album|/track` release links are what fill `bandcamp_embed_url`. See [release-pass.md § Embed verification](release-pass.md#embed-verification-after-roster--release-pass).
+8. **Follow-ups:** [link-enrichment.md](link-enrichment.md) → [release-pass.md](release-pass.md) → optional [artist-tag-rollup.md](artist-tag-rollup.md). Graph linkage is done after roster; **playable artist embeds** need release-pass (`/album|/track` on releases fill `bandcamp_embed_url` when empty — profile roots alone are not embeddable). See [release-pass.md § Embed verification](release-pass.md#embed-verification-after-roster--release-pass).
 
 > **Label `twitter`:** only `twitter.com`/`x.com` — Bluesky 422s. See [troubleshooting.md](troubleshooting.md).
 
@@ -62,4 +62,4 @@ Dry-run reports link plan; confirm reports outcomes.
 roster ingest → link enrichment → release-pass → artist tag rollup
 ```
 
-Each step is optional except roster for new labels.
+Roster completes the label↔artist graph. Link enrichment + release-pass are required for playable artist embeds (optional only if you accept names-only / no-player). Tag rollup stays optional.

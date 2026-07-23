@@ -2,7 +2,7 @@
 
 After roster ingest + Bandcamp links, pull each artist's Bandcamp discography into `release` entities — title, year, type, playable Bandcamp link, genre/locale tags.
 
-**Why this matters for embeds:** each release's Bandcamp `/album` or `/track` URL (written as `external_links: [{ platform: "bandcamp", url: "…" }]`) is what powers the **artist** playable embed. On create / add-link, the backend derives `artists.bandcamp_embed_url` when empty (`release_derived`) and keeps auto-derived embeds fresh as newer release links land. A roster that only stores profile roots (`https://<artist>.bandcamp.com`) leaves artists without a reliable player until this pass (or the slower profile→embed resolver) runs. Capture `/album|/track` URLs here — not just roots.
+**Why this matters for embeds:** each release's Bandcamp `/album` or `/track` URL (written as `external_links: [{ platform: "bandcamp", url: "…" }]`) is what powers the **artist** playable embed. On create / add-link, the backend **fills** `artists.bandcamp_embed_url` when empty (`release_derived`, fill-when-empty — first qualifying link wins; later releases do not overwrite an already-set embed). Auto-derived embeds are recomputed only when a release or its Bandcamp link is removed (so a deleted featured release does not leave a stale URL). A roster that only stores profile roots (`https://<artist>.bandcamp.com`) leaves artists without a reliable player until this pass (or the slower profile→embed resolver) runs. Capture `/album|/track` URLs here — not just roots.
 
 **Prerequisites:** artists exist; Bandcamp roots on artists ([link-enrichment.md](link-enrichment.md) if needed).
 
@@ -33,7 +33,7 @@ Allowlist + promotion loop — see [tag-allowlist.md](tag-allowlist.md).
 4. Promote tags, rebuild from cache
 5. Dry-run → fix unresolved → 0 unresolved
 6. Confirm (PSY-1173 for tags)
-7. Verify `GET /artists/{id}/releases` + `GET /entities/release/{id}/tags`
+7. Verify tags via `GET /entities/release/{id}/tags`; verify Bandcamp links + artist embeds via the checklist below (artist releases *list* omits `external_links`)
 8. **Embed verification** (below) — sample artists until embeds look right
 9. Optional: [artist-tag-rollup.md](artist-tag-rollup.md)
 
@@ -41,11 +41,11 @@ See [troubleshooting.md](troubleshooting.md) for PSY-1184 release dedup requirem
 
 ## Embed verification (after roster + release-pass)
 
-Lightweight checklist so a newly ingested label roster is confirmed to feed the playable-embed pipeline. List/roster projections omit `social`, `bandcamp`, `bandcamp_embed_url`, and release `external_links` — **always use detail endpoints**.
+Lightweight checklist so a newly ingested label roster is confirmed to feed the playable-embed pipeline. Run steps 2–4 only after release-pass (or after you knowingly skipped it and accept no-player). List/roster projections omit `social`, `bandcamp`, `bandcamp_embed_url`, and release `external_links` — **always use detail endpoints**.
 
-1. **Roster landed roots where the source had them** — for a sample of artists: `GET /artists/{id}` → `social.bandcamp` is a profile root (`https://<slug>.bandcamp.com`) when the roster/hub exposed one. Names-only Shopify rosters (Sacred Bones, Dais) need [link-enrichment](link-enrichment.md) first.
-2. **Release-pass wrote playable links** — for those artists: `GET /releases/{id}` (not the artist releases *list*) → `external_links` includes `platform: "bandcamp"` with an `/album/` or `/track/` URL. Prefer confirming at least one release per sampled artist that has a Bandcamp discography.
-3. **Artist embed filled** — same `GET /artists/{id}` → `bandcamp_embed_url` is a non-null `/album` or `/track` URL (often matching a recent release link). Empty embed + present release Bandcamp link ⇒ re-check the link shape or re-run create/link; empty embed + no release Bandcamp links ⇒ release-pass still needed (profile resolver may fill asynchronously from the root, but do not rely on it as the primary path).
+1. **Roster landed roots where the source had them** (post-roster / post-link-enrichment) — for a sample of artists: `GET /artists/{id}` → `social.bandcamp` is a profile root (`https://<slug>.bandcamp.com`) when the roster/hub exposed one. Names-only Shopify rosters (Sacred Bones, Dais) need [link-enrichment](link-enrichment.md) first.
+2. **Release-pass wrote playable links** — discover release IDs via `GET /artists/{id}/releases`, then for each sampled ID: `GET /releases/{id}` → `external_links` includes an embeddable `/album/` or `/track/` URL (release-pass writes these as `platform: "bandcamp"`; the embed gate is URL shape, not the platform label). Prefer confirming at least one such release per sampled artist that has a Bandcamp discography.
+3. **Artist embed filled** — same `GET /artists/{id}` → `bandcamp_embed_url` is a non-null `/album` or `/track` URL (any valid release link is fine — **first fill wins**, not necessarily the newest). Empty embed + present embeddable release link ⇒ check URL path is `/album|/track`, confirm the artist is credited on that release; if links predate the keep-fresh hooks, run `BackfillArtistBandcampEmbeds` (or add the link once via the release links endpoint) — do **not** recreate releases. Empty embed + no embeddable release links ⇒ release-pass still needed (profile resolver may fill asynchronously from the root; treat that as a fallback, not the primary path).
 4. **Coverage sanity** — spot-check ~5–10 roster artists (mix of single-release and deep discographies). If many have roots but zero embeds and zero release Bandcamp links, the release-pass did not run or skipped that artist.
 
 Do **not** treat label/venue Bandcamp fields as embed sources — artist embeds only.
