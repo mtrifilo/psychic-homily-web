@@ -127,6 +127,12 @@ func main() {
 	}
 	database := db.GetDB()
 
+	// PSY-1384: refuse to boot if critical columns are missing — catches
+	// schema_migrations/DDL drift before engagement writes 422 at runtime.
+	if err := db.AssertRequiredSchema(database); err != nil {
+		log.Fatalf("PSY-1384 schema assertion: %v", err)
+	}
+
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {
 		log.Fatalf("Failed to setup Goth: %v", err)
