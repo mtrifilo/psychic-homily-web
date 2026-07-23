@@ -239,7 +239,7 @@ describe('MusicEmbed', () => {
     render(
       <MusicEmbed
         bandcampAlbumUrl="https://band.bandcamp.com/album/test"
-        spotifyUrl="https://open.spotify.com/artist/abc123"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
         artistName="Test Artist"
       />
     )

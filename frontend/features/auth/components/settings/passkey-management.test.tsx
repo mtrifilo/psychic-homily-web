@@ -21,7 +21,7 @@ vi.mock('@/features/auth', async importActual => ({
   ...(await importActual<typeof import('@/features/auth')>()),
   PasskeyRegisterButton: ({ onSuccess }: { onSuccess: () => void; onError: (err: string) => void }) => (
     <button onClick={() => onSuccess()} data-testid="register-passkey-btn">
-      Add passkey
+      Add Passkey
     </button>
   ),
 }))
@@ -72,7 +72,7 @@ describe('PasskeyManagement', () => {
       expect(screen.getByText('Passkeys')).toBeInTheDocument()
     })
     expect(
-      screen.getByText('Sign in with Touch ID, Face ID, or a security key.')
+      screen.getByText(/Passkeys let you sign in securely/)
     ).toBeInTheDocument()
   })
 
