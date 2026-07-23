@@ -16,7 +16,7 @@ vi.mock('@simplewebauthn/browser', () => ({
 vi.mock('@/features/auth', () => ({
   PasskeyRegisterButton: ({ onSuccess, onError }: { onSuccess: () => void; onError: (err: string) => void }) => (
     <button onClick={() => onSuccess()} data-testid="register-passkey-btn">
-      Add Passkey
+      Add passkey
     </button>
   ),
 }))
@@ -61,7 +61,7 @@ describe('PasskeyManagement', () => {
       expect(screen.getByText('Passkeys')).toBeInTheDocument()
     })
     expect(
-      screen.getByText(/Passkeys let you sign in securely/)
+      screen.getByText('Sign in with Touch ID, Face ID, or a security key.')
     ).toBeInTheDocument()
   })
 
