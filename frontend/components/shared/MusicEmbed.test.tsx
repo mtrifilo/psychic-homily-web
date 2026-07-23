@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+// MusicEmbed resolves its Bandcamp embed via TanStack Query (PSY-1102), so it
+// must render inside a QueryClientProvider. `renderWithProviders` (re-exported
+// as `render`) wraps each render in a fresh client with retries disabled, which
+// keeps the `mockRejectedValueOnce` error-path tests deterministic.
+import { render } from '../../test/utils'
 import { MusicEmbed } from './MusicEmbed'
 
 
@@ -217,6 +222,30 @@ describe('MusicEmbed', () => {
       expect(link).toBeInTheDocument()
       expect(link).toHaveAttribute('href', 'https://band.bandcamp.com/album/test')
       expect(link).toHaveAttribute('target', '_blank')
+    })
+  })
+
+  // PSY-1102 adversarial review: a transient 5xx from the scraper route must
+  // NOT cache as a durable null "success" (which would freeze the embed on the
+  // fallback link for the whole staleTime). resolveBandcampEmbed throws on 5xx
+  // so the query errors instead of caching; this mount still falls through to
+  // Spotify, and a later mount would retry.
+  it('falls through to spotify when the bandcamp resolve returns a 5xx', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+    } as Response)
+
+    render(
+      <MusicEmbed
+        bandcampAlbumUrl="https://band.bandcamp.com/album/test"
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
+        artistName="Test Artist"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Test Artist on Spotify')).toBeInTheDocument()
     })
   })
 

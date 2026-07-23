@@ -523,6 +523,21 @@ export const queryKeys = {
     randomArtistTarget: ['discovery', 'randomArtistTarget'] as const,
   },
 
+  // Passkey credential list (settings → security). One list read; refetched
+  // after register / delete via its own key (no parent-prefix family needed
+  // while there's a single list).
+  passkeys: {
+    credentials: ['passkeys', 'credentials'] as const,
+  },
+
+  // Bandcamp embed resolution (PSY-1102). MusicEmbed renders one instance
+  // per show/artist card, so list pages mount many copies pointing at the
+  // same album URL. Keying on the album URL dedups the `/api/bandcamp/album-id`
+  // resolve across every instance and caches the result across nav/remount.
+  bandcamp: {
+    embed: (albumUrl: string) => ['bandcamp', 'embed', albumUrl] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,

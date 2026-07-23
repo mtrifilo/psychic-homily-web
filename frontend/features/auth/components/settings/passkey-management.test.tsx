@@ -13,21 +13,37 @@ vi.mock('@simplewebauthn/browser', () => ({
 }))
 
 
-vi.mock('@/features/auth', () => ({
-  PasskeyRegisterButton: ({ onSuccess, onError }: { onSuccess: () => void; onError: (err: string) => void }) => (
+// Stub ONLY the WebAuthn register button (its real implementation drives the
+// browser credential ceremony). The credential-list query + delete mutation
+// hooks (PSY-1102) keep their real implementations so the global.fetch mock
+// below exercises them end-to-end.
+vi.mock('@/features/auth', async importActual => ({
+  ...(await importActual<typeof import('@/features/auth')>()),
+  PasskeyRegisterButton: ({ onSuccess }: { onSuccess: () => void; onError: (err: string) => void }) => (
     <button onClick={() => onSuccess()} data-testid="register-passkey-btn">
-      Add passkey
+      Add Passkey
     </button>
   ),
 }))
 
-let mockFetchResponse: {
-  ok: boolean
-  json: () => Promise<unknown>
-} = {
-  ok: true,
-  json: async () => ({ success: true, credentials: [] }),
+// The credential list + delete now flow through `apiRequest` (PSY-1102), which
+// reads `response.headers.get(...)` and `response.status`. A bare
+// `{ ok, json }` literal lacks those, so wrap each mock body in a Response-
+// shaped object with a real Headers instance.
+function jsonResponse(
+  body: unknown,
+  { ok = true, status = ok ? 200 : 400 }: { ok?: boolean; status?: number } = {}
+): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? 'OK' : 'Error',
+    headers: new Headers(),
+    json: async () => body,
+  } as Response
 }
+
+let mockFetchResponse: Response = jsonResponse({ success: true, credentials: [] })
 
 // --- Tests ---
 
@@ -35,13 +51,8 @@ describe('PasskeyManagement', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSupportsWebAuthn = true
-    mockFetchResponse = {
-      ok: true,
-      json: async () => ({ success: true, credentials: [] }),
-    }
-    vi.spyOn(global, 'fetch').mockImplementation(async () =>
-      mockFetchResponse as Response
-    )
+    mockFetchResponse = jsonResponse({ success: true, credentials: [] })
+    vi.spyOn(global, 'fetch').mockImplementation(async () => mockFetchResponse)
   })
 
   it('shows "browser does not support passkeys" when WebAuthn not supported', () => {
@@ -61,7 +72,7 @@ describe('PasskeyManagement', () => {
       expect(screen.getByText('Passkeys')).toBeInTheDocument()
     })
     expect(
-      screen.getByText('Sign in with Touch ID, Face ID, or a security key.')
+      screen.getByText(/Passkeys let you sign in securely/)
     ).toBeInTheDocument()
   })
 
@@ -76,30 +87,27 @@ describe('PasskeyManagement', () => {
   })
 
   it('renders credentials list when passkeys exist', async () => {
-    mockFetchResponse = {
-      ok: true,
-      json: async () => ({
-        success: true,
-        credentials: [
-          {
-            id: 1,
-            display_name: 'MacBook Pro',
-            created_at: '2025-06-15T10:00:00Z',
-            last_used_at: '2025-07-01T14:30:00Z',
-            backup_eligible: true,
-            backup_state: true,
-          },
-          {
-            id: 2,
-            display_name: 'iPhone',
-            created_at: '2025-08-01T10:00:00Z',
-            last_used_at: null,
-            backup_eligible: false,
-            backup_state: false,
-          },
-        ],
-      }),
-    }
+    mockFetchResponse = jsonResponse({
+      success: true,
+      credentials: [
+        {
+          id: 1,
+          display_name: 'MacBook Pro',
+          created_at: '2025-06-15T10:00:00Z',
+          last_used_at: '2025-07-01T14:30:00Z',
+          backup_eligible: true,
+          backup_state: true,
+        },
+        {
+          id: 2,
+          display_name: 'iPhone',
+          created_at: '2025-08-01T10:00:00Z',
+          last_used_at: null,
+          backup_eligible: false,
+          backup_state: false,
+        },
+      ],
+    })
     renderWithProviders(<PasskeyManagement />)
 
     await waitFor(() => {
@@ -110,22 +118,19 @@ describe('PasskeyManagement', () => {
   })
 
   it('shows "Unnamed passkey" for credentials without display_name', async () => {
-    mockFetchResponse = {
-      ok: true,
-      json: async () => ({
-        success: true,
-        credentials: [
-          {
-            id: 1,
-            display_name: '',
-            created_at: '2025-06-15T10:00:00Z',
-            last_used_at: null,
-            backup_eligible: false,
-            backup_state: false,
-          },
-        ],
-      }),
-    }
+    mockFetchResponse = jsonResponse({
+      success: true,
+      credentials: [
+        {
+          id: 1,
+          display_name: '',
+          created_at: '2025-06-15T10:00:00Z',
+          last_used_at: null,
+          backup_eligible: false,
+          backup_state: false,
+        },
+      ],
+    })
     renderWithProviders(<PasskeyManagement />)
 
     await waitFor(() => {
@@ -134,10 +139,7 @@ describe('PasskeyManagement', () => {
   })
 
   it('shows error when fetch fails', async () => {
-    mockFetchResponse = {
-      ok: true,
-      json: async () => ({ success: false, message: 'Unauthorized' }),
-    }
+    mockFetchResponse = jsonResponse({ success: false, message: 'Unauthorized' })
     renderWithProviders(<PasskeyManagement />)
 
     await waitFor(() => {
@@ -155,22 +157,19 @@ describe('PasskeyManagement', () => {
   })
 
   it('renders delete button for each credential', async () => {
-    mockFetchResponse = {
-      ok: true,
-      json: async () => ({
-        success: true,
-        credentials: [
-          {
-            id: 1,
-            display_name: 'MacBook Pro',
-            created_at: '2025-06-15T10:00:00Z',
-            last_used_at: null,
-            backup_eligible: false,
-            backup_state: false,
-          },
-        ],
-      }),
-    }
+    mockFetchResponse = jsonResponse({
+      success: true,
+      credentials: [
+        {
+          id: 1,
+          display_name: 'MacBook Pro',
+          created_at: '2025-06-15T10:00:00Z',
+          last_used_at: null,
+          backup_eligible: false,
+          backup_state: false,
+        },
+      ],
+    })
     renderWithProviders(<PasskeyManagement />)
 
     await waitFor(() => {
@@ -197,9 +196,8 @@ describe('PasskeyManagement', () => {
     // Use a controlled fetch that returns the initial list, then 200 on DELETE.
     const fetchMock = vi.fn()
       // initial list fetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      .mockResolvedValueOnce(
+        jsonResponse({
           success: true,
           credentials: [
             {
@@ -211,13 +209,13 @@ describe('PasskeyManagement', () => {
               backup_state: false,
             },
           ],
-        }),
-      } as Response)
+        })
+      )
       // DELETE response
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ success: true }),
-      } as Response)
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      // Post-delete refetch (the mutation invalidates the list query) — the
+      // deleted credential is gone server-side.
+      .mockResolvedValueOnce(jsonResponse({ success: true, credentials: [] }))
 
     vi.spyOn(global, 'fetch').mockImplementation(fetchMock)
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -256,22 +254,19 @@ describe('PasskeyManagement', () => {
   })
 
   it('does NOT call DELETE when the user cancels the confirm prompt', async () => {
-    const initialListResponse = {
-      ok: true,
-      json: async () => ({
-        success: true,
-        credentials: [
-          {
-            id: 99,
-            display_name: 'Phone passkey',
-            created_at: '2025-06-15T10:00:00Z',
-            last_used_at: null,
-            backup_eligible: false,
-            backup_state: false,
-          },
-        ],
-      }),
-    } as Response
+    const initialListResponse = jsonResponse({
+      success: true,
+      credentials: [
+        {
+          id: 99,
+          display_name: 'Phone passkey',
+          created_at: '2025-06-15T10:00:00Z',
+          last_used_at: null,
+          backup_eligible: false,
+          backup_state: false,
+        },
+      ],
+    })
 
     const fetchMock = vi.fn().mockResolvedValue(initialListResponse)
     vi.spyOn(global, 'fetch').mockImplementation(fetchMock)
@@ -304,9 +299,8 @@ describe('PasskeyManagement', () => {
 
   it('shows the server message when DELETE returns success=false', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      .mockResolvedValueOnce(
+        jsonResponse({
           success: true,
           credentials: [
             {
@@ -318,15 +312,31 @@ describe('PasskeyManagement', () => {
               backup_state: false,
             },
           ],
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
           success: false,
           message: 'Cannot delete last passkey',
-        }),
-      } as Response)
+        })
+      )
+      // Post-mutation reconcile refetch (onSettled fires on failure too) — the
+      // credential is still present server-side since the DELETE was rejected.
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          credentials: [
+            {
+              id: 5,
+              display_name: 'Old key',
+              created_at: '2025-06-15T10:00:00Z',
+              last_used_at: null,
+              backup_eligible: false,
+              backup_state: false,
+            },
+          ],
+        })
+      )
 
     vi.spyOn(global, 'fetch').mockImplementation(fetchMock)
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -348,7 +358,8 @@ describe('PasskeyManagement', () => {
         screen.getByText('Cannot delete last passkey')
       ).toBeInTheDocument()
     })
-    // Credential should remain in the list since DELETE failed server-side.
+    // Credential reappears after the optimistic removal is rolled back (DELETE
+    // failed server-side) and the reconcile refetch confirms it.
     expect(screen.getByText('Old key')).toBeInTheDocument()
 
     confirmSpy.mockRestore()
@@ -357,13 +368,9 @@ describe('PasskeyManagement', () => {
   it('refetches credentials after PasskeyRegisterButton fires onSuccess', async () => {
     // Initial list: empty. After re-fetch: one credential.
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ success: true, credentials: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      .mockResolvedValueOnce(jsonResponse({ success: true, credentials: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
           success: true,
           credentials: [
             {
@@ -375,8 +382,8 @@ describe('PasskeyManagement', () => {
               backup_state: false,
             },
           ],
-        }),
-      } as Response)
+        })
+      )
 
     vi.spyOn(global, 'fetch').mockImplementation(fetchMock)
 

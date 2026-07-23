@@ -956,6 +956,131 @@ export const useUnlinkOAuthAccount = () => {
   })
 }
 
+// Passkey credential management types (settings → security)
+export interface PasskeyCredential {
+  id: number
+  display_name: string
+  created_at: string
+  last_used_at: string | null
+  backup_eligible: boolean
+  backup_state: boolean
+}
+
+interface PasskeyCredentialsResponse {
+  success: boolean
+  credentials?: PasskeyCredential[]
+  message?: string
+  error_code?: string
+  request_id?: string
+}
+
+interface DeletePasskeyResponse {
+  success: boolean
+  message?: string
+  error_code?: string
+  request_id?: string
+}
+
+// List the current user's registered passkeys (PSY-1102). Replaces a raw
+// fetch-in-effect in PasskeyManagement so the list joins the shared query
+// cache and is invalidated after register / delete. `enabled` is caller-gated
+// (browserSupportsWebAuthn) so unsupported browsers never issue the request.
+export const usePasskeyCredentials = (enabled = true) => {
+  return useQuery({
+    queryKey: queryKeys.passkeys.credentials,
+    queryFn: async (): Promise<PasskeyCredential[]> => {
+      authLogger.debug('Fetching passkey credentials')
+
+      const response = await apiRequest<PasskeyCredentialsResponse>(
+        API_ENDPOINTS.AUTH.PASSKEY_CREDENTIALS,
+        {
+          method: 'GET',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to load passkeys',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response.credentials ?? []
+    },
+    enabled,
+  })
+}
+
+// Delete one passkey credential, then invalidate the list (PSY-1102).
+export const useDeletePasskey = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (credentialId: number): Promise<DeletePasskeyResponse> => {
+      authLogger.debug('Deleting passkey credential', { credentialId })
+
+      const response = await apiRequest<DeletePasskeyResponse>(
+        API_ENDPOINTS.AUTH.PASSKEY_CREDENTIAL(credentialId),
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to delete passkey',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    // Optimistically drop the row so the delete feels instant (matching the
+    // pre-TanStack local-filter behavior) AND so the now-removed row can't be
+    // clicked a second time while its DELETE is in flight — which would fire a
+    // duplicate DELETE that 404s and surfaces a spurious failure (PSY-1102
+    // adversarial review). Snapshot for rollback on error.
+    onMutate: async (credentialId: number) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.passkeys.credentials })
+      const previous = queryClient.getQueryData<PasskeyCredential[]>(
+        queryKeys.passkeys.credentials
+      )
+      queryClient.setQueryData<PasskeyCredential[]>(
+        queryKeys.passkeys.credentials,
+        old => (old ?? []).filter(c => c.id !== credentialId)
+      )
+      return { previous }
+    },
+    onError: (_error, _credentialId, context) => {
+      // Roll back the optimistic removal so the row reappears on failure.
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(queryKeys.passkeys.credentials, context.previous)
+      }
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Passkey deleted successfully',
+        { message: data.message },
+        data.request_id
+      )
+    },
+    onSettled: () => {
+      // Reconcile with server truth after the mutation resolves either way.
+      queryClient.invalidateQueries({ queryKey: queryKeys.passkeys.credentials })
+    },
+  })
+}
+
 // Account recovery types
 interface RecoverAccountRequest {
   email: string
