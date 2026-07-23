@@ -17,7 +17,7 @@ Roster / calendar ingests often land entities **names-only**. This pass fills mi
 
 Full on-platform URLs (same host rules as [screenshot-batch.md](screenshot-batch.md)):
 
-- **artist:** Bandcamp first, then Spotify, Instagram, website
+- **artist:** Bandcamp first (prefer profile root `https://<slug>.bandcamp.com` — the profile→embed resolver can fill a featured album when no release link exists yet; still run [release-pass](release-pass.md) afterward so release `/album|/track` links fill empty embeds and cover artists the resolver missed), then Spotify, Instagram, website
 - **venue:** website + Instagram (`"<name>" <city> venue`)
 
 ### Shopify internal-collections rosters (Sacred Bones, Dais, 4AD…)

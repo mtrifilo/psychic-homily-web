@@ -59,13 +59,18 @@ Typical order after a new label roster:
 roster ingest → link enrichment → release-pass → artist tag rollup
 ```
 
-Each step after roster is optional. Names-only Shopify rosters (Sacred Bones, Dais) need link enrichment before release-pass.
+**Pipeline completion (scoped):**
+- Roster alone completes the label↔artist graph.
+- Link enrichment + release-pass are **required for playable artist embeds** (optional only if you explicitly accept names-only / no-player). Names-only Shopify rosters (Sacred Bones, Dais) need link enrichment before release-pass.
+- Artist tag rollup remains optional.
+
+**Release-pass is the primary feeder of artist playable embeds.** Artist pages need `bandcamp_embed_url` = a Bandcamp `/album` or `/track` URL — a bare profile root in `social.bandcamp` is not enough by itself. Writing release `external_links` with an embeddable `/album|/track` URL (what [release-pass](references/release-pass.md) captures; conventionally `platform: "bandcamp"`) **fills empty** artist embeds on create/add-link (`release_derived`, fill-when-empty — first qualifying link wins; newer releases do not overwrite). Auto-derived embeds are recomputed only when a release/link is removed. Profile roots still help: link enrichment + the profile→embed resolver can fill when no release link exists yet, but do not treat that as a substitute for release-pass. Labels/venues do not get embeds today (deferred). Checklist: [release-pass.md § Embed verification](references/release-pass.md#embed-verification-after-roster--release-pass).
 
 ## Shared rules (all workflows)
 
 1. **Dry-run → explicit user OK → `--confirm`** — never skip confirmation on bulk writes.
 2. **Social URLs must be full on-platform URLs** — bare `@handles` are rejected. Bluesky does **not** go on `twitter` (422).
-3. **Verify via detail endpoints** — list/roster projections omit `social`/`bandcamp`; use `GET /artists/{id}`, not `GET /labels/{id}/artists`, for link checks.
+3. **Verify via detail endpoints** — list/roster projections omit `social`/`bandcamp`/`bandcamp_embed_url` (and release list omits `external_links`); use `GET /artists/{id}` and `GET /releases/{id}`, not `GET /labels/{id}/artists`, for link + embed checks.
 4. **Artist-skip QA scan** on large rosters/calendars — map SKIPs to proposed names; pre-create distinct artists via `POST /admin/artists` (not `ph submit artist`) to beat 0.6 fuzzy false-matches.
 5. **Don't auto-split `and`/`&`/`,` in band names** unless the source clearly lists separate acts.
 6. **Register + stamp sources** after successful venue/label ingests so [catalog-refresh](references/catalog-refresh.md) can pick them up.
@@ -101,7 +106,7 @@ bun run src/entry.ts --env <env> sources refresh venue|label <id>
 | [venue-events.md](references/venue-events.md) | Venue calendar ingest, transform skeleton, venue registry |
 | [label-roster.md](references/label-roster.md) | Label roster ingest, inline `artists` shape, label registry |
 | [link-enrichment.md](references/link-enrichment.md) | Bandcamp hub, MusicBrainz, PATCH follow-up |
-| [release-pass.md](references/release-pass.md) | Bandcamp `#music-grid` parser, workflow, PSY-1173 gate |
+| [release-pass.md](references/release-pass.md) | Bandcamp `#music-grid` parser, workflow, embed verification, PSY-1173 gate |
 | [artist-tag-rollup.md](references/artist-tag-rollup.md) | Release keywords → artist genre/locale tags |
 | [tag-allowlist.md](references/tag-allowlist.md) | GENRES/LOCALES allowlist + promotion loop |
 | [label-discography.md](references/label-discography.md) | CAT – Artist – Title catalogue pages |
