@@ -180,19 +180,20 @@ func (m *MockAnalyticsService) GetDataQualityTrends(months int) (*contracts.Data
 // ============================================================================
 
 type MockArtistRelationshipService struct {
-	CreateRelationshipFn        func(uint, uint, string, bool) (*catalogm.ArtistRelationship, error)
-	GetRelationshipFn           func(uint, uint, string) (*catalogm.ArtistRelationship, error)
-	GetRelatedArtistsFn         func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
-	DeleteRelationshipFn        func(uint, uint, string) error
-	GetArtistGraphFn            func(uint, []string, uint) (*contracts.ArtistGraph, error)
-	GetArtistBillCompositionFn  func(uint, int) (*contracts.ArtistBillComposition, error)
-	CountRelationshipsByTypeFn  func(uint) (map[string]int, error)
-	GetRelationshipProvenanceFn func(uint, uint) (*contracts.RelationshipProvenance, error)
-	VoteFn                      func(uint, uint, string, uint, bool) error
-	RemoveVoteFn                func(uint, uint, string, uint) error
-	GetUserVoteFn               func(uint, uint, string, uint) (*catalogm.ArtistRelationshipVote, error)
-	DeriveSharedBillsFn         func(int) (int64, error)
-	DeriveSharedLabelsFn        func(int) (int64, error)
+	CreateRelationshipFn          func(uint, uint, string, bool) (*catalogm.ArtistRelationship, error)
+	GetRelationshipFn             func(uint, uint, string) (*catalogm.ArtistRelationship, error)
+	GetRelatedArtistsFn           func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
+	DeleteRelationshipFn          func(uint, uint, string) error
+	GetArtistGraphFn              func(uint, []string, uint) (*contracts.ArtistGraph, error)
+	GetArtistBillCompositionFn    func(uint, int) (*contracts.ArtistBillComposition, error)
+	CountRelationshipsByTypeFn    func(uint) (map[string]int, error)
+	GetRelationshipProvenanceFn   func(uint, uint) (*contracts.RelationshipProvenance, error)
+	VoteFn                        func(uint, uint, string, uint, bool) error
+	RemoveVoteFn                  func(uint, uint, string, uint) error
+	GetUserVoteFn                 func(uint, uint, string, uint) (*catalogm.ArtistRelationshipVote, error)
+	DeriveSharedBillsFn           func(int) (int64, error)
+	DeriveSharedLabelsFn          func(int) (int64, error)
+	DeriveMusicBrainzArtistRelsFn func(context.Context) (contracts.MusicBrainzArtistRelsResult, error)
 }
 
 func (m *MockArtistRelationshipService) CreateRelationship(sourceID uint, targetID uint, relType string, autoDerived bool) (*catalogm.ArtistRelationship, error) {
@@ -272,6 +273,12 @@ func (m *MockArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64
 		return m.DeriveSharedLabelsFn(minLabels)
 	}
 	return 0, nil
+}
+func (m *MockArtistRelationshipService) DeriveMusicBrainzArtistRels(ctx context.Context) (contracts.MusicBrainzArtistRelsResult, error) {
+	if m.DeriveMusicBrainzArtistRelsFn != nil {
+		return m.DeriveMusicBrainzArtistRelsFn(ctx)
+	}
+	return contracts.MusicBrainzArtistRelsResult{}, nil
 }
 
 // ============================================================================

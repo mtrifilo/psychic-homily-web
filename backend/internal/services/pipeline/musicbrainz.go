@@ -246,6 +246,54 @@ func (c *MusicBrainzClient) LookupArtistURLRelations(ctx context.Context, mbid s
 	return result.Relations, nil
 }
 
+// MBArtistArtistRelations is the response from the MusicBrainz artist lookup
+// with `inc=artist-rels`. Only the relations array is decoded (PSY-1382).
+type MBArtistArtistRelations struct {
+	Relations []MBArtistRelation `json:"relations"`
+}
+
+// MBRelatedArtist is the nested peer artist on an artist-rels row.
+type MBRelatedArtist struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// MBArtistRelation is one artist↔artist relationship. MusicBrainz repeats the
+// same pair once per instrument/attribute on "member of band", and may keep
+// both ended + current rows for "is person" — callers must dedupe.
+type MBArtistRelation struct {
+	Type       string           `json:"type"`
+	TypeID     string           `json:"type-id"`
+	Direction  string           `json:"direction"`
+	Ended      bool             `json:"ended"`
+	Attributes []string         `json:"attributes"`
+	Artist     *MBRelatedArtist `json:"artist"`
+}
+
+// LookupArtistArtistRelations fetches an artist's artist-artist relationships
+// from MusicBrainz (`inc=artist-rels`). Used by PSY-1382 to backfill member_of
+// / side_project edges. mbid is path-escaped; shares this client's ~1 req/s throttle.
+func (c *MusicBrainzClient) LookupArtistArtistRelations(ctx context.Context, mbid string) ([]MBArtistRelation, error) {
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
+
+	lookupURL := fmt.Sprintf("%s/artist/%s?inc=artist-rels&fmt=json", c.baseURL, url.PathEscape(mbid))
+
+	body, err := c.doRequestCtx(ctx, lookupURL)
+	if err != nil {
+		return nil, fmt.Errorf("musicbrainz artist-rels lookup failed: %w", err)
+	}
+
+	var result MBArtistArtistRelations
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse musicbrainz artist-rels response: %w", err)
+	}
+
+	return result.Relations, nil
+}
+
 // LookupAreaRelations fetches an area's relationships (inc=area-rels) so a caller
 // can walk from a City to its parent Subdivision — the US state the artist search
 // response leaves out when it tags a band by city alone (PSY-1255). Shares this

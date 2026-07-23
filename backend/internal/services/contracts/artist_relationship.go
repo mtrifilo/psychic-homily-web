@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"context"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -151,6 +152,18 @@ type ArtistRelationshipServiceInterface interface {
 	// Auto-derivation
 	DeriveSharedBills(minShows int) (int64, error)
 	DeriveSharedLabels(minLabels int) (int64, error)
+	// DeriveMusicBrainzArtistRels backfills member_of / side_project from
+	// MusicBrainz artist-rels (PSY-1382).
+	DeriveMusicBrainzArtistRels(ctx context.Context) (MusicBrainzArtistRelsResult, error)
+}
+
+// MusicBrainzArtistRelsResult is the upsert summary from a PSY-1382 derive run.
+type MusicBrainzArtistRelsResult struct {
+	MemberOfUpserted    int64 `json:"member_of_upserted"`
+	SideProjectUpserted int64 `json:"side_project_upserted"`
+	ArtistsScanned      int   `json:"artists_scanned"`
+	LookupsFailed       int   `json:"lookups_failed"`
+	PeersSkipped        int   `json:"peers_skipped"`
 }
 
 // Production thresholds for the auto-derivation steps, shared by the admin

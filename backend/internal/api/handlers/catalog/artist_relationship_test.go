@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -371,6 +372,9 @@ func TestDeriveRelationships_Success(t *testing.T) {
 				}
 				return 3, nil
 			},
+			DeriveMusicBrainzArtistRelsFn: func(_ context.Context) (contracts.MusicBrainzArtistRelsResult, error) {
+				return contracts.MusicBrainzArtistRelsResult{MemberOfUpserted: 11}, nil
+			},
 		},
 		nil,
 	)
@@ -382,6 +386,11 @@ func TestDeriveRelationships_Success(t *testing.T) {
 	if !resp.Body.Success || resp.Body.SharedBillsUpserted != 7 || resp.Body.SharedLabelsUpserted != 3 {
 		t.Errorf("unexpected body: %+v", resp.Body)
 	}
+	if !resp.Body.MBArtistRelsStarted {
+		t.Errorf("expected mb_artist_rels_started=true, got %+v", resp.Body)
+	}
+	// Give the fire-and-forget goroutine a moment so the mock is invoked.
+	time.Sleep(50 * time.Millisecond)
 }
 
 func TestDeriveRelationships_SharedBillsError(t *testing.T) {

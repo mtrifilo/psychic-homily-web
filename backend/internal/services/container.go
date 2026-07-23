@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/services/enrich"
 	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/imageenrich"
+	"psychic-homily-backend/internal/services/mbadapter"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/services/ratelimit"
@@ -214,6 +215,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	shared.OnRadioArtistNameRematch = radioSvc.ScheduleRematchForArtistName
 	shared.OnRadioLabelNameRematch = radioSvc.ScheduleRematchForLabelName
 	artistRelSvc := catalog.NewArtistRelationshipService(database)
+	artistRelSvc.SetArtistRelsClient(mbadapter.NewArtistRelsAdapter(mbClient))
 
 	// PSY-997: entity_requests creation queue + its fulfillment adapter. The
 	// fulfiller composes the catalog create services so the admin decide-approve

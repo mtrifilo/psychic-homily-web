@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -388,6 +389,11 @@ type DeriveRelationshipsResponse struct {
 		Success              bool  `json:"success"`
 		SharedBillsUpserted  int64 `json:"shared_bills_upserted"`
 		SharedLabelsUpserted int64 `json:"shared_labels_upserted"`
+		// MBArtistRelsStarted is true when the MusicBrainz member_of /
+		// side_project derive was kicked off in the background (PSY-1382).
+		// A full MB pass is rate-limited (~1 req/s × thousands of MBIDs) so it
+		// must not block this admin HTTP handler; use the CLI for a waited run.
+		MBArtistRelsStarted bool `json:"mb_artist_rels_started"`
 	}
 }
 
@@ -410,12 +416,22 @@ func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Conte
 		)
 	}
 
+	// PSY-1382: MB artist-rels derive is too slow for a sync admin request
+	// (~1 req/s × N MBIDs). Fire-and-forget; the 24h cycle + CLI are the
+	// waited paths. Use Background so cancel of the HTTP ctx doesn't abort it.
+	servicesshared.GoSafe(ctx, "mb_artist_rels_derive", func() {
+		if _, err := h.relService.DeriveMusicBrainzArtistRels(context.Background()); err != nil {
+			slog.Error("background MusicBrainz artist-rels derive failed", "error", err)
+		}
+	})
+
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "derive_artist_relationships", "system", 0, map[string]interface{}{
 				"shared_bills_upserted":  billsCount,
 				"shared_labels_upserted": labelsCount,
+				"mb_artist_rels_started": true,
 			})
 		})
 	}
@@ -424,5 +440,6 @@ func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Conte
 	resp.Body.Success = true
 	resp.Body.SharedBillsUpserted = billsCount
 	resp.Body.SharedLabelsUpserted = labelsCount
+	resp.Body.MBArtistRelsStarted = true
 	return resp, nil
 }

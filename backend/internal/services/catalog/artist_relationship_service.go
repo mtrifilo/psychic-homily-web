@@ -20,7 +20,8 @@ import (
 
 // ArtistRelationshipService handles artist relationship business logic.
 type ArtistRelationshipService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	mbRels artistArtistRelsClient // optional; nil skips MB member/side-project derive (PSY-1382)
 }
 
 // NewArtistRelationshipService creates a new artist relationship service.

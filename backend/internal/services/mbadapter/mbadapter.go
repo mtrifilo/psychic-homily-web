@@ -75,6 +75,46 @@ func (a ReleaseAdapter) SearchReleaseGroups(ctx context.Context, artist, title s
 	return out, nil
 }
 
+// ArtistRelsAdapter satisfies catalog's artist-rels client using the shared MB
+// client (PSY-1382 member_of / side_project backfill).
+type ArtistRelsAdapter struct {
+	client *pipeline.MusicBrainzClient
+}
+
+// NewArtistRelsAdapter wraps the shared MusicBrainz client for artist-rels.
+func NewArtistRelsAdapter(client *pipeline.MusicBrainzClient) ArtistRelsAdapter {
+	return ArtistRelsAdapter{client: client}
+}
+
+func (a ArtistRelsAdapter) LookupArtistArtistRelations(ctx context.Context, mbid string) ([]catalog.MBArtistRel, error) {
+	raw, err := a.client.LookupArtistArtistRelations(ctx, mbid)
+	if err != nil {
+		return nil, err
+	}
+	return ToMBArtistRels(raw), nil
+}
+
+// ToMBArtistRels maps pipeline artist-rels to the catalog-local type.
+func ToMBArtistRels(raw []pipeline.MBArtistRelation) []catalog.MBArtistRel {
+	out := make([]catalog.MBArtistRel, 0, len(raw))
+	for _, r := range raw {
+		rel := catalog.MBArtistRel{
+			Type:       r.Type,
+			TypeID:     r.TypeID,
+			Direction:  r.Direction,
+			Ended:      r.Ended,
+			Attributes: r.Attributes,
+		}
+		if r.Artist != nil {
+			rel.PeerMBID = r.Artist.ID
+			rel.PeerName = r.Artist.Name
+			rel.PeerType = r.Artist.Type
+		}
+		out = append(out, rel)
+	}
+	return out
+}
+
 // ToMBArtistCandidates maps MusicBrainz search results to the catalog candidate type.
 func ToMBArtistCandidates(raw []pipeline.MBArtistResult) []catalog.MBArtistCandidate {
 	out := make([]catalog.MBArtistCandidate, 0, len(raw))
