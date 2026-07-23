@@ -208,18 +208,22 @@ func backfillArtistStates(
 // MusicBrainz, WITHOUT ever guessing. A bare name + same-city match is NEVER
 // enough on its own: a same-named band from a same-NAMED city in another state
 // looks identical (whether it appears once or as several agreeing duplicates), so
-// matching on it would re-open the PSY-1244 wrong-state corruption. The only
-// trusted signal is IDENTITY — the candidate's url-rels share one of the artist's
-// own Spotify/Bandcamp links:
+// matching on it would re-open the PSY-1244 wrong-state corruption. Identity is
+// confirmed by one of two signals (PSY-1271):
 //
-//   - the artist has no such link to anchor on → "" (can't confirm; leave NULL),
-//     and we skip the search entirely.
-//   - otherwise, the first identity-confirmed candidate that YIELDS a US state is
-//     used — its city's parent Subdivision, on the search result if MusicBrainz
-//     tagged one, else via a single area-rels lookup. A confirmed candidate whose
-//     record carries no usable parent state is skipped and scanning continues
-//     (another record of the same artist may carry one).
-//   - no candidate confirms (or none yields a state) → "" (leave NULL).
+//   - STORED MBID (preferred): artists.musicbrainz_artist_id, stamped during
+//     location enrichment on an exact-name match (PSY-1249). A candidate whose ID
+//     equals the stored MBID is trusted without a streaming link.
+//   - PLATFORM LINK (fallback): when no MBID is stored, the candidate's url-rels
+//     must share one of the artist's own Spotify/Bandcamp links.
+//
+// In both cases the candidate must also name-match and city-match the stored city.
+// With neither signal, no MusicBrainz match is trustworthy and we skip the search.
+// The first identity-confirmed candidate that YIELDS a US state is used — its city's
+// parent Subdivision, on the search result if MusicBrainz tagged one, else via a
+// single area-rels lookup. A confirmed candidate whose record carries no usable
+// parent state is skipped and scanning continues (another record of the same
+// artist may carry one). No candidate confirms (or none yields a state) → "".
 //
 // Returns a non-nil error only for a MusicBrainz transport failure, so the
 // caller's circuit breaker can observe it.
@@ -228,10 +232,11 @@ func mbState(ctx context.Context, mb MBStateResolver, a *catalogm.Artist, stored
 	if want == "" {
 		return "", "", nil
 	}
-	// Identity can only be confirmed against the artist's own platform links;
-	// with none, no MusicBrainz match is trustworthy, so don't even search.
+	storedMBID := trimPtr(a.MusicBrainzArtistID)
+	hasStoredMBID := pipeline.IsValidMBID(storedMBID)
 	links := artistPlatformLinks(a)
-	if len(links) == 0 {
+	// Without a stored MBID, identity can only be confirmed against platform links.
+	if !hasStoredMBID && len(links) == 0 {
 		return "", "", nil
 	}
 	candidates, err := mb.SearchArtistCandidates(ctx, a.Name)
@@ -248,12 +253,19 @@ func mbState(ctx context.Context, mb MBStateResolver, a *catalogm.Artist, stored
 		if cityArea == nil || !geo.SamePlaceName(cityArea.Name, storedCity) {
 			continue // not the same city → can't be our artist's origin record
 		}
-		confirmed, idErr := candidateMatchesLinks(ctx, mb, c, links)
-		if idErr != nil {
-			return "", "", idErr
+		var confirmed bool
+		switch {
+		case hasStoredMBID && c.ID == storedMBID:
+			confirmed = true // exact identity — no streaming link required (PSY-1271)
+		case !hasStoredMBID:
+			var idErr error
+			confirmed, idErr = candidateMatchesLinks(ctx, mb, c, links)
+			if idErr != nil {
+				return "", "", idErr
+			}
 		}
 		if !confirmed {
-			continue // a homonym sharing the name + city but not the artist's links
+			continue // homonym, wrong MBID, or link mismatch
 		}
 		// Identity confirmed: this record IS our artist. Read its city's state.
 		st, lookupErr := candidateState(ctx, mb, c, cityArea)

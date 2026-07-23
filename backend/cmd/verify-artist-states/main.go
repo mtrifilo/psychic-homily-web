@@ -6,8 +6,9 @@
 // state for every city-only artist. That is right for the dominant city
 // (Austin→TX) but wrong for a smaller one (Pasadena→TX, not CA), and the two are
 // indistinguishable offline. This pass re-derives the state through the same
-// identity-confirmed path as the fill backfill (a MusicBrainz candidate is
-// trusted only when its url-rels share the artist's own Spotify/Bandcamp link)
+// identity-confirmed path as the fill backfill (a stored musicbrainz_artist_id is
+// exact identity; otherwise a MusicBrainz candidate is trusted only when its
+// url-rels share the artist's own Spotify/Bandcamp link)
 // and OVERWRITES the stored state only on a confirmed disagreement. It never
 // NULLs and never guesses, so it cannot destroy a correct state:
 //

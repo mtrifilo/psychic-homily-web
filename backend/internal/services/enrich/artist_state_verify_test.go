@@ -28,7 +28,74 @@ func confirmedCandidate(id, name, city, subdivision, link string) (pipeline.MBAr
 	}, []pipeline.MBURLRelation{spotifyRel(link)}
 }
 
-// TestVerifyArtistStates_CorrectsWrongGuess is the point of the pass: a bad
+// TestVerifyArtistStates_CorrectsViaStoredMBID: PSY-1271 — a stored
+// musicbrainz_artist_id is exact identity, so Pasadena→TX is corrected without
+// any Spotify/Bandcamp link on the artist.
+func TestVerifyArtistStates_CorrectsViaStoredMBID(t *testing.T) {
+	const mbid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	cand := pipeline.MBArtistResult{
+		ID: mbid, Name: "LA Band", Country: "US",
+		BeginArea: cityArea("Pasadena", "area-1"),
+		Area:      &pipeline.MBArea{Name: "California", Type: "Subdivision"},
+	}
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "LA Band", City: sp("Pasadena"), State: sp("TX"), // wrong guess
+			MusicBrainzArtistID: sp(mbid)}, // stamped by location enrichment — no link
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{"LA Band": {cand}},
+	}
+
+	rep, err := verifyArtistStates(context.Background(), store, g, mb, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verifyArtistStates: %v", err)
+	}
+	if rep.Corrected != 1 {
+		t.Fatalf("Corrected = %d, want 1 (MBID identity, no link)", rep.Corrected)
+	}
+	if mb.urlCalls != 0 {
+		t.Errorf("stored MBID must not call url-rels, got %d", mb.urlCalls)
+	}
+	if store.updates[1]["state"] != "CA" {
+		t.Errorf("state = %v, want CA", store.updates[1]["state"])
+	}
+}
+
+// TestVerifyArtistStates_StoredMBIDIgnoresLinkOnlyHomonym: when a stored MBID is
+// set, a link-confirmed homonym must NOT win over the MBID match.
+func TestVerifyArtistStates_StoredMBIDIgnoresLinkOnlyHomonym(t *testing.T) {
+	const mbid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	right := pipeline.MBArtistResult{
+		ID: mbid, Name: "LA Band", Country: "US",
+		BeginArea: cityArea("Pasadena", "area-right"),
+		Area:      &pipeline.MBArea{Name: "California", Type: "Subdivision"},
+	}
+	wrong := pipeline.MBArtistResult{
+		ID: "homonym-id", Name: "LA Band", Country: "US",
+		BeginArea: cityArea("Pasadena", "area-wrong"),
+		Area:      &pipeline.MBArea{Name: "Texas", Type: "Subdivision"},
+	}
+	store := &fakeStateStore{artists: []catalogm.Artist{
+		{ID: 1, Name: "LA Band", City: sp("Pasadena"), State: sp("TX"),
+			MusicBrainzArtistID: sp(mbid),
+			Social:              catalogm.Social{Spotify: sp(spotifyA)}},
+	}}
+	g := fakeGeo{ambiguous: map[string]bool{"pasadena": true}}
+	mb := &fakeStateMB{
+		candidates: map[string][]pipeline.MBArtistResult{"LA Band": {wrong, right}},
+		urlRels:    map[string][]pipeline.MBURLRelation{"homonym-id": {spotifyRel(spotifyA)}},
+	}
+
+	rep, err := verifyArtistStates(context.Background(), store, g, mb, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verifyArtistStates: %v", err)
+	}
+	if rep.Corrected != 1 || store.updates[1]["state"] != "CA" {
+		t.Fatalf("MBID match must win; Corrected=%d state=%v", rep.Corrected, store.updates[1]["state"])
+	}
+}
+
 // highest-pop guess (Pasadena→TX) is overwritten with the identity-confirmed
 // MusicBrainz state (CA).
 func TestVerifyArtistStates_CorrectsWrongGuess(t *testing.T) {

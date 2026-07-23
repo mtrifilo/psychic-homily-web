@@ -21,8 +21,9 @@ import (
 // is the artist's OWN MusicBrainz record.
 //
 // So this pass re-derives the state through the same identity-confirmed path as
-// the fill pass (mbState: a candidate is trusted only when its url-rels share the
-// artist's Spotify/Bandcamp link) and OVERWRITES the stored state ONLY when
+// the fill pass (mbState: a stored musicbrainz_artist_id is exact identity;
+// otherwise a candidate is trusted only when its url-rels share the artist's
+// Spotify/Bandcamp link) and OVERWRITES the stored state ONLY when
 // MusicBrainz identity-confirms a DIFFERENT one. A correct guess (MusicBrainz
 // agrees), an unconfirmable artist (no link / not in MusicBrainz), and a
 // geocoder-unambiguous city are all left untouched — the pass never NULLs and
