@@ -30,6 +30,8 @@ describe('CalendarFeedSection', () => {
     mockCreateToken.mockResolvedValue({
       token: 'phcal_test',
       feed_url: 'https://api.example.com/feeds/phcal_test/saved-shows.ics',
+      follows_feed_url:
+        'https://api.example.com/feeds/phcal_test/follows.atom',
     })
   })
 

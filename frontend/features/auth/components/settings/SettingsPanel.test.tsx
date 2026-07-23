@@ -106,6 +106,11 @@ vi.mock('@/features/collections', () => ({
       CalendarFeedSection
     </div>
   ),
+  FollowsActivityFeedSection: () => (
+    <div data-testid="follows-activity-feed-section">
+      FollowsActivityFeedSection
+    </div>
+  ),
 }))
 
 // --- Tests ---
@@ -159,6 +164,13 @@ describe('SettingsPanel', () => {
     const feed = screen.getByTestId('calendar-feed-section')
     expect(feed).toBeInTheDocument()
     expect(feed).toHaveAttribute('data-variant', 'settings')
+  })
+
+  it('renders FollowsActivityFeedSection', () => {
+    renderWithProviders(<SettingsPanel />)
+    expect(
+      screen.getByTestId('follows-activity-feed-section')
+    ).toBeInTheDocument()
   })
 
   it('renders OAuthAccounts component', () => {
@@ -552,6 +564,7 @@ describe('SettingsPanel', () => {
       'favorite-cities',
       'notification-settings',
       'calendar-feed-section',
+      'follows-activity-feed-section',
       'reply-permission-settings',
       'oauth-accounts',
       'passkey-management',

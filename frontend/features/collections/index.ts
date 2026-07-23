@@ -33,5 +33,6 @@ export { useSetCollectionDigestPreference } from './hooks/useCollectionDigestPre
 
 export {
   CalendarFeedSection,
+  FollowsActivityFeedSection,
   EntityCollections,
 } from './components'

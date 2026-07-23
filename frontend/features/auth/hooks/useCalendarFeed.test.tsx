@@ -179,6 +179,8 @@ describe('useCreateCalendarToken', () => {
     const mockResponse = {
       token: 'abc123token',
       feed_url: 'https://api.psychichomily.com/calendar/feed/abc123token',
+      follows_feed_url:
+        'https://api.psychichomily.com/feeds/abc123token/follows.atom',
       created_at: '2025-03-15T10:00:00Z',
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
@@ -204,6 +206,8 @@ describe('useCreateCalendarToken', () => {
     const mockResponse = {
       token: 'abc123token',
       feed_url: 'https://api.psychichomily.com/calendar/feed/abc123token',
+      follows_feed_url:
+        'https://api.psychichomily.com/feeds/abc123token/follows.atom',
       created_at: '2025-03-15T10:00:00Z',
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
@@ -301,6 +305,7 @@ describe('useCreateCalendarToken', () => {
       resolveMutation!({
         token: 't',
         feed_url: 'https://example.com',
+        follows_feed_url: 'https://example.com/follows.atom',
         created_at: 'now',
       })
     })

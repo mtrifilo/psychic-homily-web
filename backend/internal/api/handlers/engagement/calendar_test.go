@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -273,6 +274,84 @@ func TestGetCalendarFeedHandler_Success(t *testing.T) {
 	}
 	if w.Body.String() != string(ics) {
 		t.Errorf("body = %q, want %q", w.Body.String(), string(ics))
+	}
+}
+
+func TestGetFollowsActivityFeedHandler_MissingToken(t *testing.T) {
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
+	w := httptest.NewRecorder()
+
+	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken(""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("missing token status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestGetFollowsActivityFeedHandler_InvalidToken(t *testing.T) {
+	mock := &testhelpers.MockCalendarService{
+		ValidateCalendarTokenFn: func(token string) (*authm.User, error) {
+			return nil, fmt.Errorf("token not found")
+		},
+	}
+	h := NewCalendarHandler(mock, testCalendarConfig())
+	w := httptest.NewRecorder()
+
+	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken("phcal_bad"))
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("invalid token status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestGetFollowsActivityFeedHandler_GenerationError(t *testing.T) {
+	mock := &testhelpers.MockCalendarService{
+		ValidateCalendarTokenFn: func(token string) (*authm.User, error) {
+			return &authm.User{ID: 1}, nil
+		},
+		GenerateFollowsActivityFeedFn: func(userID uint, frontendURL string) ([]byte, error) {
+			return nil, fmt.Errorf("atom build failed")
+		},
+	}
+	h := NewCalendarHandler(mock, testCalendarConfig())
+	w := httptest.NewRecorder()
+
+	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken("phcal_ok"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("generation-error status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestGetFollowsActivityFeedHandler_Success(t *testing.T) {
+	atom := []byte(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<feed xmlns="http://www.w3.org/2005/Atom"></feed>`)
+	mock := &testhelpers.MockCalendarService{
+		ValidateCalendarTokenFn: func(token string) (*authm.User, error) {
+			if token != "phcal_ok" {
+				t.Errorf("unexpected token=%q", token)
+			}
+			return &authm.User{ID: 7}, nil
+		},
+		GenerateFollowsActivityFeedFn: func(userID uint, frontendURL string) ([]byte, error) {
+			if userID != 7 {
+				t.Errorf("unexpected userID=%d", userID)
+			}
+			return atom, nil
+		},
+	}
+	h := NewCalendarHandler(mock, testCalendarConfig())
+	w := httptest.NewRecorder()
+
+	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken("phcal_ok"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("success status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/atom+xml") {
+		t.Errorf("Content-Type = %q, want application/atom+xml", ct)
+	}
+	if w.Body.String() != string(atom) {
+		t.Errorf("body = %q, want %q", w.Body.String(), string(atom))
 	}
 }
 

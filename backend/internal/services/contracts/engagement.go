@@ -88,11 +88,14 @@ type ArtistReportArtistInfo struct {
 // Calendar types
 // ──────────────────────────────────────────────
 
-// CalendarTokenCreateResponse is returned when a token is created
+// CalendarTokenCreateResponse is returned when a token is created.
+// One personal feed token unlocks both the saved-shows iCal URL and the
+// followed-artist activity Atom URL (PSY-1430 / PSY-1505).
 type CalendarTokenCreateResponse struct {
-	Token     string    `json:"token"`
-	FeedURL   string    `json:"feed_url"`
-	CreatedAt time.Time `json:"created_at"`
+	Token          string    `json:"token"`
+	FeedURL        string    `json:"feed_url"`
+	FollowsFeedURL string    `json:"follows_feed_url"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // CalendarTokenStatusResponse is returned for token status checks
@@ -232,11 +235,15 @@ type FollowServiceInterface interface {
 // Calendar Service Interface
 // ──────────────────────────────────────────────
 
-// CalendarServiceInterface defines the contract for calendar feed operations.
+// CalendarServiceInterface defines the contract for personal feed-token
+// operations (saved-shows iCal + followed-artist Atom activity).
 type CalendarServiceInterface interface {
 	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
 	GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error)
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
+	// GenerateFollowsActivityFeed builds an Atom 1.0 feed of recent shows +
+	// releases involving artists the user follows (PSY-1505).
+	GenerateFollowsActivityFeed(userID uint, frontendURL string) ([]byte, error)
 }

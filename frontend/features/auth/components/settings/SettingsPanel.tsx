@@ -25,13 +25,14 @@ import { APITokenManagement } from './api-token-management'
 import { FavoriteCitiesSettings } from './favorite-cities'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
-import { CalendarFeedSection } from '@/features/collections'
+import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
 
 /**
  * Settings tab — board J card order (PSY-1414 / PSY-1508):
  * Account → Favorite cities → Notifications → Calendar feed (PSY-1430) →
- * Default reply permission → Connected accounts → Passkeys →
- * Change password → API tokens → CLI authentication → Export → Danger zone.
+ * Follows activity feed (PSY-1505) → Default reply permission → Connected
+ * accounts → Passkeys → Change password → API tokens → CLI authentication →
+ * Export → Danger zone.
  */
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -175,6 +176,19 @@ export function SettingsPanel() {
         </CardHeader>
         <CardContent>
           <CalendarFeedSection variant="settings" />
+        </CardContent>
+      </Card>
+
+      {/* Followed-artist Atom activity feed (PSY-1505) — same personal feed token */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Follows activity feed</CardTitle>
+          <CardDescription>
+            Atom feed of new shows and releases for artists you follow
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FollowsActivityFeedSection />
         </CardContent>
       </Card>
 

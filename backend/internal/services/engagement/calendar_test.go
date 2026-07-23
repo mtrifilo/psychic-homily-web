@@ -309,8 +309,13 @@ func (suite *CalendarIntegrationTestSuite) TearDownSuite() {
 func (suite *CalendarIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
-	_, _ = sqlDB.Exec("DELETE FROM calendar_tokens")
-	_, _ = sqlDB.Exec("DELETE FROM users")
+	for _, table := range []string{
+		"show_artists", "show_venues", "artist_releases",
+		"shows", "releases", "artists", "venues",
+		"user_bookmarks", "calendar_tokens", "users",
+	} {
+		_, _ = sqlDB.Exec("DELETE FROM " + table)
+	}
 }
 
 func TestCalendarIntegrationTestSuite(t *testing.T) {
@@ -347,6 +352,8 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_Success() {
 	suite.True(strings.HasPrefix(resp.Token, CalendarTokenPrefix))
 	suite.Contains(resp.FeedURL, "http://localhost:8080/feeds/phcal_")
 	suite.True(strings.HasSuffix(resp.FeedURL, "/saved-shows.ics"))
+	suite.Contains(resp.FollowsFeedURL, "http://localhost:8080/feeds/phcal_")
+	suite.True(strings.HasSuffix(resp.FollowsFeedURL, "/follows.atom"))
 	suite.NotZero(resp.CreatedAt)
 }
 

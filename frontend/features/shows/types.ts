@@ -245,6 +245,8 @@ export interface CalendarTokenStatusResponse {
 export interface CalendarTokenCreateResponse {
   token: string
   feed_url: string
+  /** Atom activity feed for followed artists (PSY-1505); same personal token. */
+  follows_feed_url: string
   created_at: string // ISO date string
 }
 
