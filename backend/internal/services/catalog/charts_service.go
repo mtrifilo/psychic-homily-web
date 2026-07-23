@@ -2355,6 +2355,10 @@ func (s *ChartsService) personalTopScenes(userID uint, limit int) ([]contracts.P
 	}
 	// Metro-keyed hits from saved shows; followed scenes contribute 1 each
 	// under their registry metro (or city|state when metro is null).
+	// Over-fetch slightly: unknown CBSA codes are dropped during enrichment
+	// (no principal city → no displayable slug), and a post-filter LIMIT
+	// underfill would otherwise starve the sidebar of real scenes.
+	fetchLimit := limit + personalTopScenesLimit
 	var rows []sceneRow
 	err := s.db.Raw(`
 		WITH hits AS (
@@ -2411,7 +2415,7 @@ func (s *ChartsService) personalTopScenes(userID uint, limit int) ([]contracts.P
 		LIMIT ?
 	`, userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave,
 		userID, engagementm.BookmarkEntityScene, engagementm.BookmarkActionFollow,
-		limit).Scan(&rows).Error
+		fetchLimit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get personal top scenes: %w", err)
 	}
@@ -2450,6 +2454,9 @@ func (s *ChartsService) personalTopScenes(userID uint, limit int) ([]contracts.P
 			State: state,
 			Count: r.Count,
 		})
+		if len(results) >= limit {
+			break
+		}
 	}
 	return results, nil
 }
