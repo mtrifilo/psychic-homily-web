@@ -196,9 +196,10 @@ func TestPublicReadRateLimiter_HealthPathExempt(t *testing.T) {
 	}
 }
 
-// PSY-1430: personal iCal feeds are token-auth'd URL polls from Google/Apple
-// Calendar cloud IPs. They must not share the anonymous public-read per-IP
-// bucket (PSY-1418) or calendar fetchers get unfairly 429'd.
+// PSY-1430 / PSY-1505: personal iCal + Atom feeds are token-auth'd URL polls
+// from Google/Apple Calendar / RSS-reader cloud IPs. They must not share the
+// anonymous public-read per-IP bucket (PSY-1418) or feed fetchers get unfairly
+// 429'd. The /feeds/ prefix covers both saved-shows.ics and follows.atom.
 func TestPublicReadRateLimiter_PersonalFeedPathsExempt(t *testing.T) {
 	mw := PublicReadRateLimiter(nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -207,6 +208,7 @@ func TestPublicReadRateLimiter_PersonalFeedPathsExempt(t *testing.T) {
 
 	paths := []string{
 		"/feeds/phcal_abc123/saved-shows.ics",
+		"/feeds/phcal_abc123/follows.atom",
 		"/calendar/phcal_abc123",
 	}
 	for _, path := range paths {

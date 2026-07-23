@@ -74,6 +74,47 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 	respond.SafeWrite(r.Context(), w, icsData)
 }
 
+// GetFollowsActivityFeedHandler serves the Atom feed of followed-artist
+// activity (new shows + new releases). Same personal feed token as iCal
+// (PSY-1505); never session JWT.
+func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	if token == "" {
+		http.Error(w, "missing token", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.calendarService.ValidateCalendarToken(token)
+	if err != nil {
+		logger.FromContext(r.Context()).Warn("follows_activity_feed_invalid_token",
+			"error", err.Error(),
+		)
+		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+		return
+	}
+
+	frontendURL := h.config.Email.FrontendURL
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+
+	atomData, err := h.calendarService.GenerateFollowsActivityFeed(user.ID, frontendURL)
+	if err != nil {
+		logger.FromContext(r.Context()).Error("follows_activity_feed_generation_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+		)
+		http.Error(w, "failed to generate activity feed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/atom+xml; charset=utf-8")
+	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily-follows.atom\"")
+	w.Header().Set("Cache-Control", "private, max-age=120")
+	w.WriteHeader(http.StatusOK)
+	respond.SafeWrite(r.Context(), w, atomData)
+}
+
 // --- Token CRUD endpoints (Huma, protected) ---
 
 // CreateCalendarTokenRequest is empty — user is derived from JWT context

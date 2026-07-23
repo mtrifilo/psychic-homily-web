@@ -6,13 +6,19 @@ import (
 	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
 )
 
-// setupCalendarRoutes configures calendar feed and token management endpoints.
-// Public feed paths are token-authenticated (not JWT). Canonical path is
-// /feeds/{token}/saved-shows.ics; /calendar/{token} is a backward-compatible alias.
+// setupCalendarRoutes configures personal feed and token management endpoints.
+// Public feed paths are token-authenticated (not JWT). Canonical paths:
+//   - /feeds/{token}/saved-shows.ics  (PSY-1430 iCal)
+//   - /feeds/{token}/follows.atom     (PSY-1505 Atom activity)
+//
+// /calendar/{token} is a backward-compatible iCal alias.
+// Both /feeds/… shapes inherit the PSY-1418 personal-feed rate-limit exemption
+// via the /feeds/ prefix (see public_read_rate_limit.go).
 func setupCalendarRoutes(rc RouteContext) {
 	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
 
 	rc.Router.Get("/feeds/{token}/saved-shows.ics", calendarHandler.GetCalendarFeedHandler)
+	rc.Router.Get("/feeds/{token}/follows.atom", calendarHandler.GetFollowsActivityFeedHandler)
 	rc.Router.Get("/calendar/{token}", calendarHandler.GetCalendarFeedHandler)
 
 	// Protected Huma routes for token CRUD

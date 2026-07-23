@@ -42,10 +42,11 @@ const (
 	// calendarTokenLength is the length of the generated token in bytes (32 bytes = 64 hex chars)
 	calendarTokenLength = 32
 
-	// calendarFeedPathPrefix is the canonical public feed path (PSY-1430).
-	// /calendar/{token} remains as a backward-compatible alias.
-	calendarFeedPathPrefix = "/feeds/"
-	calendarFeedPathSuffix = "/saved-shows.ics"
+	// calendarFeedPathPrefix is the canonical public feed path (PSY-1430 / PSY-1505).
+	// /calendar/{token} remains as a backward-compatible iCal alias.
+	calendarFeedPathPrefix    = "/feeds/"
+	calendarFeedPathSuffix    = "/saved-shows.ics"
+	followsActivityPathSuffix = "/follows.atom"
 )
 
 type icsFeedCacheEntry struct {
@@ -53,11 +54,14 @@ type icsFeedCacheEntry struct {
 	expiresAt time.Time
 }
 
-// CalendarService handles calendar feed token and ICS generation
+// CalendarService handles personal feed-token CRUD plus ICS / Atom generation.
+// One calendar_tokens row authenticates both /feeds/{token}/saved-shows.ics
+// and /feeds/{token}/follows.atom (PSY-1430 / PSY-1505).
 type CalendarService struct {
-	db           *gorm.DB
-	savedShowSvc contracts.SavedShowServiceInterface
-	feedCache    sync.Map // userID (uint) → icsFeedCacheEntry
+	db            *gorm.DB
+	savedShowSvc  contracts.SavedShowServiceInterface
+	feedCache     sync.Map // userID (uint) → icsFeedCacheEntry (ICS)
+	atomFeedCache sync.Map // userID (uint) → icsFeedCacheEntry (Atom)
 }
 
 // NewCalendarService creates a new calendar service
@@ -71,13 +75,19 @@ func NewCalendarService(database *gorm.DB, savedShowSvc contracts.SavedShowServi
 	}
 }
 
-// calendarFeedURL builds the canonical subscribe URL for a plaintext token.
+// calendarFeedURL builds the canonical iCal subscribe URL for a plaintext token.
 func calendarFeedURL(apiBaseURL, plainToken string) string {
 	return fmt.Sprintf("%s%s%s%s", strings.TrimRight(apiBaseURL, "/"), calendarFeedPathPrefix, plainToken, calendarFeedPathSuffix)
 }
 
+// followsActivityFeedURL builds the canonical Atom subscribe URL for a plaintext token.
+func followsActivityFeedURL(apiBaseURL, plainToken string) string {
+	return fmt.Sprintf("%s%s%s%s", strings.TrimRight(apiBaseURL, "/"), calendarFeedPathPrefix, plainToken, followsActivityPathSuffix)
+}
+
 func (s *CalendarService) invalidateFeedCache(userID uint) {
 	s.feedCache.Delete(userID)
+	s.atomFeedCache.Delete(userID)
 }
 
 // generateCalendarToken creates a cryptographically secure random calendar token
@@ -138,9 +148,10 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contract
 	}
 
 	return &contracts.CalendarTokenCreateResponse{
-		Token:     plainToken,
-		FeedURL:   calendarFeedURL(apiBaseURL, plainToken),
-		CreatedAt: created.CreatedAt,
+		Token:          plainToken,
+		FeedURL:        calendarFeedURL(apiBaseURL, plainToken),
+		FollowsFeedURL: followsActivityFeedURL(apiBaseURL, plainToken),
+		CreatedAt:      created.CreatedAt,
 	}, nil
 }
 

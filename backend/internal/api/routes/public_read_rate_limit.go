@@ -53,14 +53,15 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 var infraPathsExemptFromRateLimit = []string{"/health"}
 
 // personalFeedPathPrefixesExemptFromRateLimit are token-authenticated personal
-// feeds (PSY-1430). Google Calendar / Apple Calendar poll from shared cloud IPs;
-// putting them on the anonymous per-IP public-read bucket (PSY-1418 / PSY-1362)
-// would unfairly 429 calendar fetchers that share an egress IP with scrapers.
-// Auth is the URL token itself (hashed lookup), not session JWT — so they never
-// land in the authenticated per-user bucket either. Exempt only the feed URL
-// shapes (canonical /feeds/… and legacy /calendar/phcal_… alias) — NOT
-// /calendar/token CRUD, which remains on the normal public-read budget when
-// unauthenticated probes hit it.
+// feeds (PSY-1430 iCal + PSY-1505 Atom). Google Calendar / Apple Calendar / RSS
+// readers poll from shared cloud IPs; putting them on the anonymous per-IP
+// public-read bucket (PSY-1418 / PSY-1362) would unfairly 429 feed fetchers that
+// share an egress IP with scrapers. Auth is the URL token itself (hashed
+// lookup), not session JWT — so they never land in the authenticated per-user
+// bucket either. Exempt only the feed URL shapes (canonical /feeds/… covering
+// saved-shows.ics and follows.atom, plus legacy /calendar/phcal_… iCal alias)
+// — NOT /calendar/token CRUD, which remains on the normal public-read budget
+// when unauthenticated probes hit it.
 var personalFeedPathPrefixesExemptFromRateLimit = []string{
 	"/feeds/",
 	"/calendar/phcal_",
