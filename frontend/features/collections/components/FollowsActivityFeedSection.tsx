@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Rss,
   Copy,
@@ -17,6 +17,8 @@ import {
   useCreateCalendarToken,
   useDeleteCalendarToken,
 } from '@/features/auth'
+import type { CalendarTokenCreateResponse } from '@/features/shows'
+import { PERSONAL_FEED_TOKEN_ROTATED_EVENT, PERSONAL_FEED_TOKEN_REVOKED_EVENT } from './personalFeedTokenEvents'
 
 /**
  * Settings manage surface for the followed-artist Atom activity feed (PSY-1505).
@@ -33,13 +35,40 @@ export function FollowsActivityFeedSection() {
   } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Keep plaintext URLs in sync when the sibling Calendar card rotates/revokes
+  // the shared personal feed token.
+  useEffect(() => {
+    const onRotated = (event: Event) => {
+      const detail = (event as CustomEvent<CalendarTokenCreateResponse>).detail
+      if (!detail?.follows_feed_url) return
+      setCreatedToken({
+        token: detail.token,
+        follows_feed_url: detail.follows_feed_url,
+      })
+    }
+    const onRevoked = () => setCreatedToken(null)
+    window.addEventListener(PERSONAL_FEED_TOKEN_ROTATED_EVENT, onRotated)
+    window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
+    return () => {
+      window.removeEventListener(PERSONAL_FEED_TOKEN_ROTATED_EVENT, onRotated)
+      window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
+    }
+  }, [])
+
+  const applyCreated = (result: CalendarTokenCreateResponse) => {
+    setCreatedToken({
+      token: result.token,
+      follows_feed_url: result.follows_feed_url,
+    })
+    window.dispatchEvent(
+      new CustomEvent(PERSONAL_FEED_TOKEN_ROTATED_EVENT, { detail: result })
+    )
+  }
+
   const handleCreate = async () => {
     try {
       const result = await createToken.mutateAsync()
-      setCreatedToken({
-        token: result.token,
-        follows_feed_url: result.follows_feed_url,
-      })
+      applyCreated(result)
     } catch {
       // Error handled by mutation state
     }
@@ -48,10 +77,7 @@ export function FollowsActivityFeedSection() {
   const handleRegenerate = async () => {
     try {
       const result = await createToken.mutateAsync()
-      setCreatedToken({
-        token: result.token,
-        follows_feed_url: result.follows_feed_url,
-      })
+      applyCreated(result)
     } catch {
       // Error handled by mutation state
     }
@@ -61,6 +87,7 @@ export function FollowsActivityFeedSection() {
     try {
       await deleteToken.mutateAsync()
       setCreatedToken(null)
+      window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
     } catch {
       // Error handled by mutation state
     }

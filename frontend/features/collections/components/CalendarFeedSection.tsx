@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   CalendarDays,
@@ -19,6 +19,8 @@ import {
   useCreateCalendarToken,
   useDeleteCalendarToken,
 } from '@/features/auth'
+import type { CalendarTokenCreateResponse } from '@/features/shows'
+import { PERSONAL_FEED_TOKEN_ROTATED_EVENT, PERSONAL_FEED_TOKEN_REVOKED_EVENT } from './personalFeedTokenEvents'
 
 export type CalendarFeedVariant = 'settings' | 'library'
 
@@ -48,10 +50,34 @@ export function CalendarFeedSection({
   } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Keep plaintext URLs in sync when the sibling Follows card rotates/revokes
+  // the shared personal feed token (PSY-1505).
+  useEffect(() => {
+    const onRotated = (event: Event) => {
+      const detail = (event as CustomEvent<CalendarTokenCreateResponse>).detail
+      if (!detail?.feed_url) return
+      setCreatedToken({ token: detail.token, feed_url: detail.feed_url })
+    }
+    const onRevoked = () => setCreatedToken(null)
+    window.addEventListener(PERSONAL_FEED_TOKEN_ROTATED_EVENT, onRotated)
+    window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
+    return () => {
+      window.removeEventListener(PERSONAL_FEED_TOKEN_ROTATED_EVENT, onRotated)
+      window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
+    }
+  }, [])
+
+  const applyCreated = (result: CalendarTokenCreateResponse) => {
+    setCreatedToken({ token: result.token, feed_url: result.feed_url })
+    window.dispatchEvent(
+      new CustomEvent(PERSONAL_FEED_TOKEN_ROTATED_EVENT, { detail: result })
+    )
+  }
+
   const handleCreate = async () => {
     try {
       const result = await createToken.mutateAsync()
-      setCreatedToken({ token: result.token, feed_url: result.feed_url })
+      applyCreated(result)
     } catch {
       // Error handled by mutation state
     }
@@ -60,7 +86,7 @@ export function CalendarFeedSection({
   const handleRegenerate = async () => {
     try {
       const result = await createToken.mutateAsync()
-      setCreatedToken({ token: result.token, feed_url: result.feed_url })
+      applyCreated(result)
     } catch {
       // Error handled by mutation state
     }
@@ -70,6 +96,7 @@ export function CalendarFeedSection({
     try {
       await deleteToken.mutateAsync()
       setCreatedToken(null)
+      window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
     } catch {
       // Error handled by mutation state
     }
@@ -156,8 +183,9 @@ export function CalendarFeedSection({
             <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               Anyone with this URL can see your saved shows. Regenerate
-              immediately if it leaks — the old URL stops working right away.
-              Copy it now; it won&apos;t be shown again until you regenerate.
+              immediately if it leaks — the old URL stops working right away
+              (and rotates the follows activity feed URL too). Copy it now; it
+              won&apos;t be shown again until you regenerate.
             </span>
           </div>
         )}
