@@ -114,6 +114,56 @@ func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
 	}
 }
 
+// The batch follow-count endpoint is a READ that carries entity IDs in a POST
+// body. It must share the anonymous read budget (PSY-1397).
+func TestPublicReadRateLimiter_LimitsFollowsBatch(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodPost, FollowsBatchPath, nil)
+		req.RemoteAddr = "7.7.7.23:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("batch read %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, FollowsBatchPath, nil)
+	req.RemoteAddr = "7.7.7.23:100"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("batch read past limit: status = %d, want 429 (read-via-POST must be metered)", rr.Code)
+	}
+	if rr.Header().Get("Retry-After") != "60" {
+		t.Errorf("Retry-After = %q, want 60", rr.Header().Get("Retry-After"))
+	}
+}
+
+// Every optional-auth POST is read-shaped and must appear on readViaPostPaths.
+// If a new huma.Post(optionalAuthGroup, …) is added, list it here or justify
+// an explicit exemption — otherwise it slips through the GET/HEAD filter unmetered.
+func TestReadViaPostPaths_CoversOptionalAuthPosts(t *testing.T) {
+	optionalAuthPosts := []string{
+		SaveCountsBatchPath,
+		ReleaseSaveCountsBatchPath,
+		FollowsBatchPath,
+	}
+	listed := make(map[string]bool, len(readViaPostPaths))
+	for _, p := range readViaPostPaths {
+		listed[p] = true
+	}
+	for _, p := range optionalAuthPosts {
+		if !listed[p] {
+			t.Errorf("optional-auth POST %q not in readViaPostPaths", p)
+		}
+	}
+}
+
 func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
 	mw := PublicReadRateLimiter(nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -136,6 +186,25 @@ func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("read past limit: status = %d, want 429", rr.Code)
+	}
+}
+
+// Genuine follow writes must bypass the read budget — only the batch read path
+// is on the read-via-POST allowlist, not /{entity_type}/{entity_id}/follow.
+func TestPublicReadRateLimiter_FollowWriteNotLimited(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/artists/42/follow", nil)
+		req.RemoteAddr = "7.7.7.24:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("follow write %d: status = %d, want 200 (writes bypass the read limiter)", i, rr.Code)
+		}
 	}
 }
 
