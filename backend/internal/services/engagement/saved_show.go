@@ -376,11 +376,9 @@ func (s *SavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map[uin
 	return s.bookmark.GetBookmarkedEntityIDs(userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, showIDs)
 }
 
-// GetSaveCount returns the public save count for a show.
-//
-// The count is an aggregate only — no endpoint anywhere exposes which users
-// saved a show, so a user's saved list stays private while the count doubles as
-// a buzz signal for visitors.
+// GetSaveCount returns the public save count for a show. Delegates to
+// GetBatchSaveCounts, which is the single source of truth for save-count
+// privacy posture (see PSY-1396).
 func (s *SavedShowService) GetSaveCount(showID uint) (int, error) {
 	counts, err := s.GetBatchSaveCounts([]uint{showID})
 	if err != nil {
@@ -390,7 +388,20 @@ func (s *SavedShowService) GetSaveCount(showID uint) (int, error) {
 }
 
 // GetBatchSaveCounts returns public save counts for multiple shows in a single
-// query.
+// query. Single source of truth for show save-count privacy posture; GetSaveCount
+// delegates here.
+//
+// Posture (PSY-1396): public save counts are accepted as a buzz signal. A save
+// on an approved public show is not treated as sensitive enough to suppress or
+// bucket — exact counts, including 1 and 2, are returned as-is.
+//
+// Residual risk: an observer who already knows (out-of-band) that a specific user
+// saved a specific approved show could infer new saves by watching the count tick
+// on low-traffic listings. We accept that trade-off; no low-count floor.
+//
+// Mitigations in place:
+//   - Only APPROVED shows contribute a non-zero count (see below).
+//   - POST /shows/saves/batch shares the public-read rate-limit budget.
 //
 // Only APPROVED shows contribute a count. A show can be saved while it is
 // pending, rejected, or private (SaveShow deliberately allows any status), and

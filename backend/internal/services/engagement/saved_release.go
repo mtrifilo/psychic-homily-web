@@ -206,6 +206,9 @@ func (s *SavedReleaseService) GetSavedReleaseIDs(userID uint, releaseIDs []uint)
 	return result, nil
 }
 
+// GetSaveCount returns the public save count for a release. Delegates to
+// GetBatchSaveCounts, which is the single source of truth for save-count
+// privacy posture (see PSY-1396).
 func (s *SavedReleaseService) GetSaveCount(releaseID uint) (int, error) {
 	counts, err := s.GetBatchSaveCounts([]uint{releaseID})
 	if err != nil {
@@ -215,8 +218,20 @@ func (s *SavedReleaseService) GetSaveCount(releaseID uint) (int, error) {
 }
 
 // GetBatchSaveCounts returns one zero-filled public count per requested ID.
-// Joining releases makes old dangling polymorphic rows invisible without
-// turning the endpoint into an existence oracle.
+// Single source of truth for release save-count privacy posture; GetSaveCount
+// delegates here.
+//
+// Posture (PSY-1396): same as show save counts — public counts are accepted as
+// a buzz signal and are not suppressed or bucketed at low values.
+//
+// Residual risk: an observer with out-of-band attribution could infer new saves
+// on low-traffic releases by watching the count tick. We accept that trade-off;
+// no low-count floor.
+//
+// Mitigations in place:
+//   - Joining releases makes old dangling polymorphic rows invisible without
+//     turning the endpoint into an existence oracle (missing releases report 0).
+//   - POST /releases/saves/batch shares the public-read rate-limit budget.
 func (s *SavedReleaseService) GetBatchSaveCounts(releaseIDs []uint) (map[uint]int, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
