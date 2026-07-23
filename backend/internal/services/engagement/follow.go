@@ -27,6 +27,7 @@ var validFollowEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityVenue):     true,
 	string(engagementm.BookmarkEntityLabel):     true,
 	string(engagementm.BookmarkEntityFestival):  true,
+	string(engagementm.BookmarkEntityTag):       true,
 	string(engagementm.BookmarkEntityScene):     true,
 	string(engagementm.BookmarkEntityRadioShow): true,
 	FollowEntityUser: true,
@@ -37,6 +38,7 @@ var libraryFollowEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityVenue):    true,
 	string(engagementm.BookmarkEntityLabel):    true,
 	string(engagementm.BookmarkEntityFestival): true,
+	string(engagementm.BookmarkEntityTag):      true,
 	string(engagementm.BookmarkEntityScene):    true,
 }
 
@@ -412,6 +414,16 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 			for _, f := range festivals {
 				entityNames[entityKey{t, f.ID}] = struct{ Name, Slug string }{f.Name, f.Slug}
 			}
+		case string(engagementm.BookmarkEntityTag):
+			var tags []struct {
+				ID   uint
+				Name string
+				Slug string
+			}
+			s.db.Table("tags").Select("id, name, slug").Where("id IN ?", ids).Find(&tags)
+			for _, tg := range tags {
+				entityNames[entityKey{t, tg.ID}] = struct{ Name, Slug string }{tg.Name, tg.Slug}
+			}
 		case string(engagementm.BookmarkEntityRadioShow):
 			// One query: show ⋈ station, plus a correlated latest-episode lookup
 			// (idx_radio_episodes_show is (show_id, air_date DESC), so the
@@ -514,7 +526,8 @@ func (s *FollowService) GetLibraryFollowingCounts(userID uint) (*contracts.Libra
 			COUNT(*) FILTER (WHERE ub.entity_type = 'venue' AND EXISTS (SELECT 1 FROM venues e WHERE e.id = ub.entity_id)) AS venues,
 			COUNT(*) FILTER (WHERE ub.entity_type = 'scene' AND EXISTS (SELECT 1 FROM scenes e WHERE e.id = ub.entity_id)) AS scenes,
 			COUNT(*) FILTER (WHERE ub.entity_type = 'label' AND EXISTS (SELECT 1 FROM labels e WHERE e.id = ub.entity_id)) AS labels,
-			COUNT(*) FILTER (WHERE ub.entity_type = 'festival' AND EXISTS (SELECT 1 FROM festivals e WHERE e.id = ub.entity_id)) AS festivals`).
+			COUNT(*) FILTER (WHERE ub.entity_type = 'festival' AND EXISTS (SELECT 1 FROM festivals e WHERE e.id = ub.entity_id)) AS festivals,
+			COUNT(*) FILTER (WHERE ub.entity_type = 'tag' AND EXISTS (SELECT 1 FROM tags e WHERE e.id = ub.entity_id)) AS tags`).
 		Where("ub.user_id = ? AND ub.action = ?", userID, engagementm.BookmarkActionFollow).
 		Scan(counts).Error; err != nil {
 		return nil, fmt.Errorf("failed to count library following: %w", err)
@@ -541,6 +554,8 @@ func libraryFollowingSourceFor(entityType string) (libraryFollowingSource, error
 		return libraryFollowingSource{"labels", "entity", "entity.name", "COALESCE(entity.slug, '')"}, nil
 	case string(engagementm.BookmarkEntityFestival):
 		return libraryFollowingSource{"festivals", "entity", "entity.name", "entity.slug"}, nil
+	case string(engagementm.BookmarkEntityTag):
+		return libraryFollowingSource{"tags", "entity", "entity.name", "entity.slug"}, nil
 	default:
 		return libraryFollowingSource{}, fmt.Errorf("entity type %q is not available in Library", entityType)
 	}

@@ -80,7 +80,7 @@ func TestFollowEntityHandler_ServiceError(t *testing.T) {
 }
 
 func TestFollowEntityHandler_AllEntityTypes(t *testing.T) {
-	for _, entityType := range []string{"artists", "venues", "labels", "festivals"} {
+	for _, entityType := range []string{"artists", "venues", "labels", "festivals", "tags"} {
 		t.Run(entityType, func(t *testing.T) {
 			var capturedType string
 			mock := &testhelpers.MockFollowService{
@@ -593,7 +593,7 @@ func TestGetMyFollowingHandler_PaginationClamping(t *testing.T) {
 }
 
 func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
-	for _, typeFilter := range []string{"artist", "venue", "label", "festival"} {
+	for _, typeFilter := range []string{"artist", "venue", "label", "festival", "tag", "scene", "radio_show"} {
 		t.Run(typeFilter, func(t *testing.T) {
 			var capturedType string
 			mock := &testhelpers.MockFollowService{

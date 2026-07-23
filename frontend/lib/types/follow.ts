@@ -52,6 +52,7 @@ export interface LibraryFollowingCounts {
   scenes: number
   labels: number
   festivals: number
+  tags: number
 }
 
 export interface LibraryFollowingPage {

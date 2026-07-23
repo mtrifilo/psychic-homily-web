@@ -191,7 +191,7 @@ export interface APIToken {
 // ============================================================================
 
 export interface FollowingEntity {
-  entity_type: 'artist' | 'venue' | 'label' | 'festival' | string
+  entity_type: 'artist' | 'venue' | 'label' | 'festival' | 'tag' | 'scene' | string
   entity_id: number
   name: string
   slug?: string

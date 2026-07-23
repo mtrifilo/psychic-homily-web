@@ -134,7 +134,7 @@ function setLoadedData() {
     error: null,
   })
   mockUseLibraryFollowingCounts.mockReturnValue({
-    data: { artists: 4, venues: 2, scenes: 3, labels: 1, festivals: 0 },
+    data: { artists: 4, venues: 2, scenes: 3, labels: 1, festivals: 0, tags: 0 },
     isLoading: false,
     isFetching: false,
     error: null,
@@ -234,6 +234,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Scenes · 3',
         'Labels · 1',
         'Festivals · 0',
+        'Tags · 0',
         'Releases · 0',
       ])
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
@@ -309,7 +310,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       let countsLoaded = false
       mockUseLibraryFollowingCounts.mockImplementation(() => ({
         data: countsLoaded
-          ? { artists: 3, venues: 3, scenes: 3, labels: 3, festivals: 0 }
+          ? { artists: 3, venues: 3, scenes: 3, labels: 3, festivals: 0, tags: 0 }
           : undefined,
         isLoading: !countsLoaded,
         isFetching: !countsLoaded,
@@ -423,6 +424,13 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Follow festivals to get lineup and schedule updates.',
         'Browse festivals',
         '/festivals',
+      ],
+      [
+        'tags',
+        'No tags followed.',
+        'Follow tags to keep genres and scenes on your profile.',
+        'Browse tags',
+        '/tags',
       ],
     ])(
       'renders exact %s empty-state copy and CTA',

@@ -286,6 +286,7 @@ describe('useFollow', () => {
       scenes: 1,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
     const allFollowingKey = [
       'follows',
@@ -369,6 +370,7 @@ describe('useFollow', () => {
       scenes: 0,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
@@ -422,6 +424,7 @@ describe('useFollow', () => {
       scenes: 1,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
 
     const cancelGate = createDeferred<void>()
@@ -539,6 +542,7 @@ describe('useUnfollow', () => {
       scenes: 1,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
     const allFollowingKey = [
       'follows',
@@ -607,6 +611,7 @@ describe('useUnfollow', () => {
       scenes: 1,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
     expect(queryClient.getQueryState(countsKey)?.isInvalidated).toBe(true)
     expect(
@@ -644,6 +649,7 @@ describe('useUnfollow', () => {
       scenes: 0,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
@@ -771,6 +777,7 @@ describe('useUnfollow', () => {
       scenes: 0,
       labels: 0,
       festivals: 0,
+      tags: 0,
     })
     queryClient.setQueryData(followingKey, {
       following: [first, second],
@@ -948,6 +955,7 @@ describe('Library following read model', () => {
       scenes: 1,
       labels: 0,
       festivals: 3,
+      tags: 0,
     })
 
     const { result } = renderHook(() => useLibraryFollowingCounts(), {

@@ -15,6 +15,9 @@ const (
 	BookmarkEntityRelease  BookmarkEntityType = "release"
 	BookmarkEntityLabel    BookmarkEntityType = "label"
 	BookmarkEntityFestival BookmarkEntityType = "festival"
+	// BookmarkEntityTag follows a tags row (PSY-1064) — display-only in v1
+	// (profile TAGS row + library); no notification / show-alert fan-out.
+	BookmarkEntityTag BookmarkEntityType = "tag"
 	// BookmarkEntityScene follows a scenes-registry row (PSY-1339) — the
 	// lazily-materialized identity for a computed metro scene.
 	BookmarkEntityScene BookmarkEntityType = "scene"

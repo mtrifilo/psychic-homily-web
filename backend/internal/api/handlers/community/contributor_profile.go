@@ -180,7 +180,7 @@ type GetPercentileRankingsResponse struct {
 
 type GetUserFollowingRequest struct {
 	Username string `path:"username" doc:"Username of the contributor"`
-	Type     string `query:"type" default:"all" doc:"Entity type filter: artist, venue, label, festival, or all"`
+	Type     string `query:"type" default:"all" doc:"Entity type filter: artist, venue, label, festival, tag, scene, or all"`
 	Limit    int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of items per page (max 100)"`
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
@@ -872,9 +872,9 @@ func (h *ContributorProfileHandler) GetUserFollowingHandler(ctx context.Context,
 		entityType = ""
 	}
 	switch entityType {
-	case "", "artist", "venue", "label", "festival", "scene":
+	case "", "artist", "venue", "label", "festival", "tag", "scene":
 	default:
-		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', 'scene', or 'all'")
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', 'tag', 'scene', or 'all'")
 	}
 
 	emptyBody := func(total int64) *GetUserFollowingResponse {

@@ -33,6 +33,13 @@ func TestFollowService_RadioShowEntityTypeAccepted(t *testing.T) {
 	assert.Equal(t, "radio_show", string(engagementm.BookmarkEntityRadioShow))
 }
 
+// PSY-1064: ensure "tag" is accepted as a valid follow entity type.
+func TestFollowService_TagEntityTypeAccepted(t *testing.T) {
+	assert.True(t, validFollowEntityTypes[string(engagementm.BookmarkEntityTag)])
+	assert.True(t, libraryFollowEntityTypes[string(engagementm.BookmarkEntityTag)])
+	assert.Equal(t, "tag", string(engagementm.BookmarkEntityTag))
+}
+
 func TestFollowService_InvalidEntityType(t *testing.T) {
 	svc := &FollowService{db: &gorm.DB{}}
 
@@ -286,6 +293,20 @@ func (suite *FollowServiceIntegrationTestSuite) createTestFestival(name string) 
 	err := suite.db.Create(festival).Error
 	suite.Require().NoError(err)
 	return festival.ID
+}
+
+func (suite *FollowServiceIntegrationTestSuite) createTestTag(name string) uint {
+	// Name uniqueness is global (idx_tags_name_lower); suffix so suite cases can
+	// reuse display-ish prefixes without colliding across tests.
+	unique := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	tag := &catalogm.Tag{
+		Name:     unique,
+		Slug:     unique,
+		Category: catalogm.TagCategoryGenre,
+	}
+	err := suite.db.Create(tag).Error
+	suite.Require().NoError(err)
+	return tag.ID
 }
 
 // =============================================================================
@@ -694,12 +715,13 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowingCounts_Al
 	venueID := suite.createTestVenue("Count Venue")
 	labelID := suite.createTestLabel("Count Label")
 	festivalID := suite.createTestFestival("Count Festival")
+	tagID := suite.createTestTag("shoegaze")
 	scene := &catalogm.Scene{City: "Phoenix", State: "AZ", Slug: "phoenix-az"}
 	suite.Require().NoError(suite.db.Create(scene).Error)
 
 	for entityType, entityID := range map[string]uint{
 		"artist": artistID, "venue": venueID, "scene": scene.ID,
-		"label": labelID, "festival": festivalID,
+		"label": labelID, "festival": festivalID, "tag": tagID,
 	} {
 		suite.Require().NoError(suite.followService.Follow(user.ID, entityType, entityID))
 	}
@@ -710,7 +732,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowingCounts_Al
 	counts, err := suite.followService.GetLibraryFollowingCounts(user.ID)
 	suite.Require().NoError(err)
 	suite.Equal(&contracts.LibraryFollowingCounts{
-		Artists: 1, Venues: 1, Scenes: 1, Labels: 1, Festivals: 1,
+		Artists: 1, Venues: 1, Scenes: 1, Labels: 1, Festivals: 1, Tags: 1,
 	}, counts)
 }
 
@@ -892,6 +914,40 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_FestivalNam
 	suite.Equal("festival", following[0].EntityType)
 	suite.Equal("summer-fest", following[0].Name)
 	suite.Equal("summer-fest", following[0].Slug)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_TagNameSlug() {
+	user := suite.createTestUser()
+	tagID := suite.createTestTag("shoegaze")
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "tag", tagID))
+
+	following, total, err := suite.followService.GetUserFollowing(user.ID, "tag", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(following, 1)
+	suite.Equal("tag", following[0].EntityType)
+	suite.Contains(following[0].Name, "shoegaze")
+	suite.NotEmpty(following[0].Slug)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestFollowUnfollow_TagIdempotent() {
+	user := suite.createTestUser()
+	tagID := suite.createTestTag("noise-rock")
+
+	suite.Require().NoError(suite.followService.Follow(user.ID, "tag", tagID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "tag", tagID)) // idempotent
+
+	ok, err := suite.followService.IsFollowing(user.ID, "tag", tagID)
+	suite.Require().NoError(err)
+	suite.True(ok)
+
+	suite.Require().NoError(suite.followService.Unfollow(user.ID, "tag", tagID))
+	suite.Require().NoError(suite.followService.Unfollow(user.ID, "tag", tagID)) // idempotent
+
+	ok, err = suite.followService.IsFollowing(user.ID, "tag", tagID)
+	suite.Require().NoError(err)
+	suite.False(ok)
 }
 
 func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_LabelNameSlug() {

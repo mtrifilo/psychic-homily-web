@@ -70,8 +70,22 @@ describe('ProfileFollowing', () => {
             slug: 'valley-bar',
             followed_at: '2026-01-03T00:00:00Z',
           },
+          {
+            entity_type: 'tag',
+            entity_id: 4,
+            name: 'shoegaze',
+            slug: 'shoegaze',
+            followed_at: '2026-01-04T00:00:00Z',
+          },
+          {
+            entity_type: 'tag',
+            entity_id: 5,
+            name: 'noise-rock',
+            slug: 'noise-rock',
+            followed_at: '2026-01-05T00:00:00Z',
+          },
         ],
-        total: 3,
+        total: 5,
         limit: 100,
         offset: 0,
       },
@@ -83,6 +97,7 @@ describe('ProfileFollowing', () => {
     expect(screen.getByText('Following')).toBeInTheDocument()
     expect(screen.getByText('Artists')).toBeInTheDocument()
     expect(screen.getByText('Venues')).toBeInTheDocument()
+    expect(screen.getByText('Tags')).toBeInTheDocument()
     // No labels/festivals followed → those rows are omitted entirely.
     expect(screen.queryByText('Labels')).not.toBeInTheDocument()
     expect(screen.queryByText('Festivals')).not.toBeInTheDocument()
@@ -93,6 +108,14 @@ describe('ProfileFollowing', () => {
     expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveAttribute(
       'href',
       '/venues/valley-bar'
+    )
+    expect(screen.getByRole('link', { name: 'shoegaze' })).toHaveAttribute(
+      'href',
+      '/tags/shoegaze'
+    )
+    expect(screen.getByRole('link', { name: 'noise-rock' })).toHaveAttribute(
+      'href',
+      '/tags/noise-rock'
     )
   })
 

@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 
 interface FollowButtonProps {
-  /** Entity type for URL path (plural: "artists", "venues", "labels", "festivals", "scenes") */
+  /** Entity type for URL path (plural: "artists", "venues", "labels", "festivals", "tags", "scenes") */
   entityType: string
   /** Numeric id, or the scene SLUG for entityType "scenes" (PSY-1340). */
   entityId: number | string
