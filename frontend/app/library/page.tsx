@@ -1020,7 +1020,7 @@ function ActiveLibraryContent({
               <FollowingList
                 type="tag"
                 emptyTitle="No tags followed."
-                emptyDescription="Follow tags to keep genres and scenes on your profile."
+                emptyDescription="Follow tags to surface them on your profile Following row."
                 browseHref="/tags"
                 browseLabel="Browse tags"
               />

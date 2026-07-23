@@ -428,7 +428,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       [
         'tags',
         'No tags followed.',
-        'Follow tags to keep genres and scenes on your profile.',
+        'Follow tags to surface them on your profile Following row.',
         'Browse tags',
         '/tags',
       ],
