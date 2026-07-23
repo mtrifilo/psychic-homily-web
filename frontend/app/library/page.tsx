@@ -906,7 +906,7 @@ function ActiveLibraryContent({
     <div className="container mx-auto max-w-6xl px-4 py-5 md:py-10">
       {/* PSY-1429: main (~792) + gap-10 (40) + sidebar (320) inside max-w-6xl */}
       <div className="flex flex-col gap-10 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1" data-testid="library-main">
           {/* Header (Library board A / G): plain editorial title, no icon */}
           <header className="mb-4 md:mb-7">
             <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">
