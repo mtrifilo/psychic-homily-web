@@ -81,6 +81,26 @@ vi.mock('@/features/collections', () => ({
   CalendarFeedSection: () => <div data-testid="calendar-feed" />,
 }))
 
+vi.mock('@/features/charts/hooks', () => ({
+  usePersonalChartsStats: () => ({
+    data: {
+      saved_shows: 0,
+      artists_followed: 0,
+      venues_followed: 0,
+      labels_followed: 0,
+      scenes_followed: 0,
+      festivals_followed: 0,
+      top_venue: null,
+      first_activity_at: null,
+      top_scenes: [],
+      top_tags: [],
+      top_artists: [],
+    },
+    isLoading: false,
+    isError: false,
+  }),
+}))
+
 vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useSetShowSoldOut: () => ({ mutate: vi.fn(), isPending: false }),
   useSetShowCancelled: () => ({ mutate: vi.fn(), isPending: false }),
@@ -167,6 +187,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.clearAllMocks()
+    window.localStorage.removeItem('ph-library-view')
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
       value: mockScrollTo,
@@ -189,10 +210,14 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         screen.getByRole('heading', { level: 1, name: 'Library' })
       ).toBeTruthy()
       expect(
-        screen.getByText(
-          'Your saved shows, and the artists, venues, scenes and labels you follow.'
-        )
+        screen.getByText("Everything you've saved and everyone you follow.")
       ).toBeTruthy()
+    })
+
+    it('renders the taste sidebar chrome', () => {
+      renderWithProviders(<LibraryPage />)
+      expect(screen.getByTestId('library-taste-sidebar')).toBeTruthy()
+      expect(screen.getByText('Your taste')).toBeTruthy()
     })
   })
 
@@ -620,6 +645,54 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('saved-show rows', () => {
+    it('toggles to wall view with typographic fallback tiles', async () => {
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') => ({
+          data: {
+            pages: [
+              {
+                shows:
+                  timeFilter === 'upcoming'
+                    ? [
+                        makeSavedShow({
+                          id: 90,
+                          title: 'Hotline TNT',
+                          eventDate: '2026-08-19T20:00:00Z',
+                          savedAt: '2026-07-10T12:00:00Z',
+                        }),
+                      ]
+                    : [],
+                total: timeFilter === 'upcoming' ? 1 : 0,
+                limit: 4,
+                offset: 0,
+              },
+            ],
+            pageParams: [{ limit: 4, offset: 0 }],
+          },
+          isLoading: false,
+          error: null,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: mockFetchNextPage,
+        })
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.getByRole('radio', { name: 'Table view' })).toBeTruthy()
+      fireEvent.click(screen.getByRole('radio', { name: 'Wall view' }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('library-wall-grid')).toBeTruthy()
+      })
+      expect(screen.getByTestId('library-wall-tile-fallback')).toBeTruthy()
+      expect(
+        screen.getByRole('button', {
+          name: 'Remove Hotline TNT from saved shows',
+        })
+      ).toBeTruthy()
+    })
+
     it('renders the compact mobile date and two-line show details', () => {
       mockUseSavedShows.mockImplementation(
         (timeFilter: 'upcoming' | 'past') => ({

@@ -26,6 +26,13 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BracketLink, ReleaseSaveButton } from '@/components/shared'
 import { CalendarFeedSection } from '@/features/collections'
+import {
+  LibraryTasteSidebar,
+  LibraryViewToggle,
+  LibraryWallGrid,
+  useLibraryView,
+  type LibraryView,
+} from '@/features/library'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -197,6 +204,9 @@ function SavedShowsSection({
   shows,
   total,
   isPast,
+  view,
+  onViewChange,
+  showViewToggle,
   hasNextPage,
   isFetchingNextPage,
   onExpand,
@@ -208,6 +218,9 @@ function SavedShowsSection({
   shows: SavedShowResponse[]
   total: number
   isPast: boolean
+  view: LibraryView
+  onViewChange: (view: LibraryView) => void
+  showViewToggle: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onExpand: () => Promise<void>
@@ -216,8 +229,11 @@ function SavedShowsSection({
   isRemovalPending: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const visibleShows = expanded ? shows : shows.slice(0, COLLAPSED_SHOW_COUNT)
-  const hasExpandableRows = shows.length > COLLAPSED_SHOW_COUNT
+  const wallMode = view === 'wall'
+  // Wall shows the full fetched list; table keeps the compact collapse.
+  const visibleShows =
+    wallMode || expanded ? shows : shows.slice(0, COLLAPSED_SHOW_COUNT)
+  const hasExpandableRows = !wallMode && shows.length > COLLAPSED_SHOW_COUNT
   const countLabel = `${total} ${total === 1 ? 'show' : 'shows'}`
   const orderLabel = isPast ? 'most recent first' : 'soonest first'
   const headingId = `saved-shows-${title.toLowerCase()}`
@@ -228,7 +244,7 @@ function SavedShowsSection({
         <h2 id={headingId} className="text-base font-semibold">
           {title}
         </h2>
-        <p className="font-mono text-[11px] text-muted-foreground md:text-xs">
+        <p className="min-w-0 flex-1 font-mono text-[11px] text-muted-foreground md:text-xs">
           {countLabel} · {orderLabel}
           {isPast && (
             <span className="hidden md:inline">
@@ -237,6 +253,13 @@ function SavedShowsSection({
             </span>
           )}
         </p>
+        {showViewToggle && (
+          <LibraryViewToggle
+            view={view}
+            onViewChange={onViewChange}
+            className="ml-auto"
+          />
+        )}
         {isPast && (
           <p className="w-full font-mono text-[11px] text-muted-foreground md:hidden">
             Saved shows move here automatically when the date passes.
@@ -248,6 +271,15 @@ function SavedShowsSection({
         <p className="py-4 text-sm text-muted-foreground">
           No {title.toLowerCase()} saved shows.
         </p>
+      ) : wallMode ? (
+        <div className="pt-3">
+          <LibraryWallGrid
+            shows={visibleShows}
+            onRemove={onRemove}
+            removingShowId={removingShowId}
+            isRemovalPending={isRemovalPending}
+          />
+        </div>
       ) : (
         <div>
           {visibleShows.map(show => (
@@ -297,6 +329,7 @@ function SavedShowsSection({
 }
 
 function ShowsTab({ currentUserId }: { currentUserId?: number }) {
+  const { view, setView } = useLibraryView()
   const upcoming = useInfiniteSavedShows(
     'upcoming',
     currentUserId,
@@ -365,6 +398,9 @@ function ShowsTab({ currentUserId }: { currentUserId?: number }) {
             shows={upcomingShows}
             total={upcomingTotal}
             isPast={false}
+            view={view}
+            onViewChange={setView}
+            showViewToggle
             hasNextPage={upcoming.hasNextPage}
             isFetchingNextPage={upcoming.isFetchingNextPage}
             onExpand={() => fetchAllPages(upcoming)}
@@ -379,6 +415,9 @@ function ShowsTab({ currentUserId }: { currentUserId?: number }) {
             shows={pastShows}
             total={pastTotal}
             isPast
+            view={view}
+            onViewChange={setView}
+            showViewToggle={false}
             hasNextPage={past.hasNextPage}
             isFetchingNextPage={past.isFetchingNextPage}
             onExpand={() => fetchAllPages(past)}
@@ -865,108 +904,114 @@ function ActiveLibraryContent({
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-5 md:py-10">
-      {/* Header (Library board A): plain editorial title, no icon */}
-      <header className="mb-4 md:mb-7">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">
-          Library
-        </h1>
-        <p className="mt-1.5 hidden text-sm text-muted-foreground md:block">
-          Your saved shows, and the artists, venues, scenes and labels you
-          follow.
-        </p>
-      </header>
+      {/* PSY-1429: main (~792) + gap-10 (40) + sidebar (320) inside max-w-6xl */}
+      <div className="flex flex-col gap-10 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1" data-testid="library-main">
+          {/* Header (Library board A / G): plain editorial title, no icon */}
+          <header className="mb-4 md:mb-7">
+            <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">
+              Library
+            </h1>
+            <p className="mt-1.5 hidden text-sm text-muted-foreground md:block">
+              Everything you&apos;ve saved and everyone you follow.
+            </p>
+          </header>
 
-      {/* Tabs — underline style per the Library design direction (board A),
-          horizontally scrollable on small screens instead of wrapping (board F) */}
-      <Tabs
-        value={currentTab}
-        onValueChange={handleTabChange}
-        className="w-full"
-      >
-        <TabsList
-          ref={tabListRef}
-          className="mb-6 h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0"
-        >
-          {LIBRARY_TABS.map(tab => (
-            <TabsTrigger
-              key={tab}
-              ref={tab === currentTab ? activeTabTriggerRef : undefined}
-              value={tab}
-              aria-label={
-                tabCounts[tab] === undefined
-                  ? TAB_LABELS[tab]
-                  : tab === 'releases'
-                    ? `${TAB_LABELS[tab]}, ${tabCounts[tab]} saved`
-                    : `${TAB_LABELS[tab]}, ${tabCounts[tab]} followed`
-              }
-              className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
+          {/* Tabs — underline style per the Library design direction (board A),
+              horizontally scrollable on small screens instead of wrapping (board F) */}
+          <Tabs
+            value={currentTab}
+            onValueChange={handleTabChange}
+            className="w-full"
+          >
+            <TabsList
+              ref={tabListRef}
+              className="mb-6 h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0"
             >
-              {TAB_LABELS[tab]}
-              {tabCounts[tab] !== undefined && (
-                <span aria-hidden> · {tabCounts[tab]}</span>
-              )}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+              {LIBRARY_TABS.map(tab => (
+                <TabsTrigger
+                  key={tab}
+                  ref={tab === currentTab ? activeTabTriggerRef : undefined}
+                  value={tab}
+                  aria-label={
+                    tabCounts[tab] === undefined
+                      ? TAB_LABELS[tab]
+                      : tab === 'releases'
+                        ? `${TAB_LABELS[tab]}, ${tabCounts[tab]} saved`
+                        : `${TAB_LABELS[tab]}, ${tabCounts[tab]} followed`
+                  }
+                  className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
+                >
+                  {TAB_LABELS[tab]}
+                  {tabCounts[tab] !== undefined && (
+                    <span aria-hidden> · {tabCounts[tab]}</span>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-        <TabsContent value="shows">
-          <ShowsTab currentUserId={currentUserId} />
-        </TabsContent>
+            <TabsContent value="shows">
+              <ShowsTab currentUserId={currentUserId} />
+            </TabsContent>
 
-        <TabsContent value="artists">
-          <FollowingList
-            type="artist"
-            emptyTitle="No artists followed."
-            emptyDescription="Follow artists to keep up with their shows and releases."
-            browseHref="/artists"
-            browseLabel="Browse artists"
-          />
-        </TabsContent>
+            <TabsContent value="artists">
+              <FollowingList
+                type="artist"
+                emptyTitle="No artists followed."
+                emptyDescription="Follow artists to keep up with their shows and releases."
+                browseHref="/artists"
+                browseLabel="Browse artists"
+              />
+            </TabsContent>
 
-        <TabsContent value="venues">
-          <FollowingList
-            type="venue"
-            emptyTitle="No venues followed."
-            emptyDescription="Follow venues to keep up with their upcoming shows."
-            browseHref="/venues"
-            browseLabel="Browse venues"
-          />
-        </TabsContent>
+            <TabsContent value="venues">
+              <FollowingList
+                type="venue"
+                emptyTitle="No venues followed."
+                emptyDescription="Follow venues to keep up with their upcoming shows."
+                browseHref="/venues"
+                browseLabel="Browse venues"
+              />
+            </TabsContent>
 
-        <TabsContent value="scenes">
-          <FollowingList
-            type="scene"
-            emptyTitle="No scenes followed."
-            emptyDescription="Follow scenes to keep up with the places you care about."
-            browseHref="/atlas"
-            browseLabel="Explore scenes"
-          />
-        </TabsContent>
+            <TabsContent value="scenes">
+              <FollowingList
+                type="scene"
+                emptyTitle="No scenes followed."
+                emptyDescription="Follow scenes to keep up with the places you care about."
+                browseHref="/atlas"
+                browseLabel="Explore scenes"
+              />
+            </TabsContent>
 
-        <TabsContent value="releases">
-          <ReleasesTab userId={currentUserId} />
-        </TabsContent>
+            <TabsContent value="releases">
+              <ReleasesTab userId={currentUserId} />
+            </TabsContent>
 
-        <TabsContent value="labels">
-          <FollowingList
-            type="label"
-            emptyTitle="No labels followed."
-            emptyDescription="Follow labels to discover new releases and roster updates."
-            browseHref="/labels"
-            browseLabel="Browse labels"
-          />
-        </TabsContent>
+            <TabsContent value="labels">
+              <FollowingList
+                type="label"
+                emptyTitle="No labels followed."
+                emptyDescription="Follow labels to discover new releases and roster updates."
+                browseHref="/labels"
+                browseLabel="Browse labels"
+              />
+            </TabsContent>
 
-        <TabsContent value="festivals">
-          <FollowingList
-            type="festival"
-            emptyTitle="No festivals followed."
-            emptyDescription="Follow festivals to get lineup and schedule updates."
-            browseHref="/festivals"
-            browseLabel="Browse festivals"
-          />
-        </TabsContent>
-      </Tabs>
+            <TabsContent value="festivals">
+              <FollowingList
+                type="festival"
+                emptyTitle="No festivals followed."
+                emptyDescription="Follow festivals to get lineup and schedule updates."
+                browseHref="/festivals"
+                browseLabel="Browse festivals"
+              />
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        <LibraryTasteSidebar />
+      </div>
     </div>
   )
 }

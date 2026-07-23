@@ -110,13 +110,17 @@ test.describe('Follow and save', () => {
     ).toBeVisible({ timeout: 5_000 })
 
     // Navigate to Library Artists tab and verify the followed artist
-    // surfaces there via FollowingEntityCard's link.
+    // surfaces there via FollowingEntityCard's link. Scope to the main
+    // column — PSY-1429's taste sidebar may also link the same artist
+    // (strict-mode collision on getByRole('link', { name })).
     await authenticatedPage.goto('/library?tab=artists')
     await expect(
       authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
-      authenticatedPage.getByRole('link', { name: RESERVED_ARTIST_NAME })
+      authenticatedPage
+        .getByTestId('library-main')
+        .getByRole('link', { name: RESERVED_ARTIST_NAME })
     ).toBeVisible({ timeout: 5_000 })
 
     // Cleanup: navigate back and unfollow so the test is idempotent.
