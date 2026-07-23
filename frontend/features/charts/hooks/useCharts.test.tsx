@@ -182,8 +182,15 @@ describe('chart hooks', () => {
     mockApiRequest.mockResolvedValueOnce({
       saved_shows: 12,
       artists_followed: 34,
+      venues_followed: 0,
+      labels_followed: 0,
+      scenes_followed: 0,
+      festivals_followed: 0,
       top_venue: null,
       first_activity_at: '2026-03-12T00:00:00Z',
+      top_scenes: [],
+      top_tags: [],
+      top_artists: [],
     })
     const { result } = renderHook(() => usePersonalChartsStats('42', true), {
       wrapper: createWrapper(),

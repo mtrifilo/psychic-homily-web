@@ -7,6 +7,10 @@ let followedLooseEndsCount = 0
 const personalStats = {
   saved_shows: 12,
   artists_followed: 34,
+  venues_followed: 0,
+  labels_followed: 0,
+  scenes_followed: 0,
+  festivals_followed: 0,
   top_venue: null as null | {
     venue_id: number
     name: string
@@ -14,6 +18,27 @@ const personalStats = {
     saved_show_count: number
   },
   first_activity_at: null as string | null,
+  top_scenes: [] as Array<{
+    metro: string
+    name: string
+    slug: string
+    city: string
+    state: string
+    count: number
+  }>,
+  top_tags: [] as Array<{
+    tag_id: number
+    name: string
+    slug: string
+    category: string
+    count: number
+  }>,
+  top_artists: [] as Array<{
+    artist_id: number
+    name: string
+    slug: string
+    count: number
+  }>,
 }
 
 vi.mock('@/lib/context/AuthContext', () => ({

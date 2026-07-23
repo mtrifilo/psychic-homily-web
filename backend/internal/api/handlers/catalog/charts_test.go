@@ -1097,10 +1097,23 @@ func TestChartsHandler_PersonalStats_Success(t *testing.T) {
 		GetPersonalChartsStatsFn: func(userID uint) (*contracts.PersonalChartsStats, error) {
 			receivedUserID = userID
 			return &contracts.PersonalChartsStats{
-				SavedShows:      17,
-				ArtistsFollowed: 5,
-				TopVenue:        &contracts.PersonalTopVenue{VenueID: 3, Name: "Valley Bar", Slug: "valley-bar", SavedShowCount: 6},
-				FirstActivityAt: &first,
+				SavedShows:        17,
+				ArtistsFollowed:   5,
+				VenuesFollowed:    2,
+				LabelsFollowed:    1,
+				ScenesFollowed:    3,
+				FestivalsFollowed: 1,
+				TopVenue:          &contracts.PersonalTopVenue{VenueID: 3, Name: "Valley Bar", Slug: "valley-bar", SavedShowCount: 6},
+				FirstActivityAt:   &first,
+				TopScenes: []contracts.PersonalTopScene{
+					{Metro: "38060", Name: "Phoenix-Mesa-Chandler, AZ", Slug: "phoenix-az", City: "Phoenix", State: "AZ", Count: 4},
+				},
+				TopTags: []contracts.PersonalTopTag{
+					{TagID: 9, Name: "Shoegaze", Slug: "shoegaze", Category: "genre", Count: 5},
+				},
+				TopArtists: []contracts.PersonalTopArtist{
+					{ArtistID: 11, Name: "Band", Slug: "band", Count: 7},
+				},
 			}, nil
 		},
 	})
@@ -1113,7 +1126,7 @@ func TestChartsHandler_PersonalStats_Success(t *testing.T) {
 		t.Errorf("expected the context user's id (42) forwarded, got %d", receivedUserID)
 	}
 	b := resp.Body
-	if b.SavedShows != 17 || b.ArtistsFollowed != 5 {
+	if b.SavedShows != 17 || b.ArtistsFollowed != 5 || b.VenuesFollowed != 2 || b.ScenesFollowed != 3 {
 		t.Errorf("unexpected counts: %+v", b)
 	}
 	if b.TopVenue == nil || b.TopVenue.Name != "Valley Bar" || b.TopVenue.SavedShowCount != 6 {
@@ -1121,6 +1134,15 @@ func TestChartsHandler_PersonalStats_Success(t *testing.T) {
 	}
 	if b.FirstActivityAt == nil || !b.FirstActivityAt.Equal(first) {
 		t.Errorf("unexpected first activity: %v", b.FirstActivityAt)
+	}
+	if len(b.TopScenes) != 1 || b.TopScenes[0].Slug != "phoenix-az" || b.TopScenes[0].Count != 4 {
+		t.Errorf("unexpected top scenes: %+v", b.TopScenes)
+	}
+	if len(b.TopTags) != 1 || b.TopTags[0].Name != "Shoegaze" {
+		t.Errorf("unexpected top tags: %+v", b.TopTags)
+	}
+	if len(b.TopArtists) != 1 || b.TopArtists[0].Count != 7 {
+		t.Errorf("unexpected top artists: %+v", b.TopArtists)
 	}
 }
 
@@ -1168,7 +1190,12 @@ func TestChartsHandler_PersonalStats_WireShape(t *testing.T) {
 		t.Errorf("per-user response must be Cache-Control: no-store, got %q", cc)
 	}
 	body := resp.Body.String()
-	for _, want := range []string{`"saved_shows":0`, `"artists_followed":0`, `"top_venue":null`, `"first_activity_at":null`} {
+	for _, want := range []string{
+		`"saved_shows":0`, `"artists_followed":0`, `"venues_followed":0`,
+		`"labels_followed":0`, `"scenes_followed":0`, `"festivals_followed":0`,
+		`"top_venue":null`, `"first_activity_at":null`,
+		`"top_scenes":[]`, `"top_tags":[]`, `"top_artists":[]`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("zeros wire payload must include %s: %s", want, body)
 		}
@@ -1180,13 +1207,21 @@ func TestChartsHandler_PersonalStats_WireShape(t *testing.T) {
 		ArtistsFollowed: 1,
 		TopVenue:        &contracts.PersonalTopVenue{VenueID: 7, Name: "Trunk Space", Slug: "trunk-space", SavedShowCount: 2},
 		FirstActivityAt: &first,
+		TopScenes:       []contracts.PersonalTopScene{{Metro: "38060", Name: "Phoenix-Mesa-Chandler, AZ", Slug: "phoenix-az", City: "Phoenix", State: "AZ", Count: 2}},
+		TopTags:         []contracts.PersonalTopTag{{TagID: 1, Name: "Shoegaze", Slug: "shoegaze", Category: "genre", Count: 3}},
+		TopArtists:      []contracts.PersonalTopArtist{{ArtistID: 4, Name: "Band", Slug: "band", Count: 5}},
 	}
 	resp = api.Get("/charts/me")
 	if resp.Code != 200 {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
 	body = resp.Body.String()
-	for _, want := range []string{`"saved_shows":3`, `"saved_show_count":2`, `"slug":"trunk-space"`, `"first_activity_at":"2026-05-01T12:00:00Z"`} {
+	for _, want := range []string{
+		`"saved_shows":3`, `"saved_show_count":2`, `"slug":"trunk-space"`,
+		`"first_activity_at":"2026-05-01T12:00:00Z"`,
+		`"top_scenes":[{`, `"phoenix-az"`, `"top_tags":[{`, `"shoegaze"`,
+		`"top_artists":[{`, `"artist_id":4`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("populated wire payload must include %s: %s", want, body)
 		}

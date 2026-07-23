@@ -952,24 +952,61 @@ type PersonalTopVenueResponse struct {
 	SavedShowCount int    `json:"saved_show_count"`
 }
 
+// PersonalTopSceneResponse is one all-time taste scene (PSY-1507).
+type PersonalTopSceneResponse struct {
+	Metro string `json:"metro"`
+	Name  string `json:"name"`
+	Slug  string `json:"slug"`
+	City  string `json:"city"`
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
+// PersonalTopTagResponse is one all-time taste tag (PSY-1507).
+type PersonalTopTagResponse struct {
+	TagID    uint   `json:"tag_id"`
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
+	Category string `json:"category"`
+	Count    int    `json:"count"`
+}
+
+// PersonalTopArtistResponse is one all-time taste artist (PSY-1507). Count is
+// saved shows billing the artist plus 1 when also followed.
+type PersonalTopArtistResponse struct {
+	ArtistID uint   `json:"artist_id"`
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
+	Count    int    `json:"count"`
+}
+
 // GetPersonalChartsStatsResponse is the Huma response for GET /charts/me —
 // the authed personal stats strip. Zeros are a valid shape (new user; the
 // frontend renders a nudge instead of the strip); top_venue and
 // first_activity_at are explicit nulls until the user has the underlying
-// activity.
+// activity. Taste top-N lists are empty arrays when the user has none.
 type GetPersonalChartsStatsResponse struct {
 	// CacheControl is no-store: auth is cookie-based, so nothing else marks
 	// this per-user response uncacheable — without it a browser's heuristic
 	// cache (or any future proxy in front of the otherwise-public /charts/*)
 	// could replay one user's private stats to another. Same intent as the
 	// calendar/unsubscribe handlers (per-user responses marked uncacheable;
-	// those are chi handlers setting the header imperatively).
+	// those are chi handlers setting the header imperatively). Personal
+	// stats are also deliberately excluded from the in-process charts TTL
+	// cache (charts_cache.go); top-N work is bounded by fixed LIMITs instead.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
-		SavedShows      int                       `json:"saved_shows"`
-		ArtistsFollowed int                       `json:"artists_followed"`
-		TopVenue        *PersonalTopVenueResponse `json:"top_venue"`
-		FirstActivityAt *time.Time                `json:"first_activity_at"`
+		SavedShows        int                         `json:"saved_shows"`
+		ArtistsFollowed   int                         `json:"artists_followed"`
+		VenuesFollowed    int                         `json:"venues_followed"`
+		LabelsFollowed    int                         `json:"labels_followed"`
+		ScenesFollowed    int                         `json:"scenes_followed"`
+		FestivalsFollowed int                         `json:"festivals_followed"`
+		TopVenue          *PersonalTopVenueResponse   `json:"top_venue"`
+		FirstActivityAt   *time.Time                  `json:"first_activity_at"`
+		TopScenes         []PersonalTopSceneResponse  `json:"top_scenes"`
+		TopTags           []PersonalTopTagResponse    `json:"top_tags"`
+		TopArtists        []PersonalTopArtistResponse `json:"top_artists"`
 	}
 }
 
@@ -995,12 +1032,28 @@ func (h *ChartsHandler) GetPersonalChartsStatsHandler(ctx context.Context, _ *Ge
 	resp := &GetPersonalChartsStatsResponse{CacheControl: "no-store"}
 	resp.Body.SavedShows = data.SavedShows
 	resp.Body.ArtistsFollowed = data.ArtistsFollowed
+	resp.Body.VenuesFollowed = data.VenuesFollowed
+	resp.Body.LabelsFollowed = data.LabelsFollowed
+	resp.Body.ScenesFollowed = data.ScenesFollowed
+	resp.Body.FestivalsFollowed = data.FestivalsFollowed
 	resp.Body.FirstActivityAt = data.FirstActivityAt
 	if data.TopVenue != nil {
 		// Direct conversion (field-identical structs): a one-sided field add
 		// breaks the build instead of silently shipping a zero value.
 		tv := PersonalTopVenueResponse(*data.TopVenue)
 		resp.Body.TopVenue = &tv
+	}
+	resp.Body.TopScenes = make([]PersonalTopSceneResponse, len(data.TopScenes))
+	for i, s := range data.TopScenes {
+		resp.Body.TopScenes[i] = PersonalTopSceneResponse(s)
+	}
+	resp.Body.TopTags = make([]PersonalTopTagResponse, len(data.TopTags))
+	for i, t := range data.TopTags {
+		resp.Body.TopTags[i] = PersonalTopTagResponse(t)
+	}
+	resp.Body.TopArtists = make([]PersonalTopArtistResponse, len(data.TopArtists))
+	for i, a := range data.TopArtists {
+		resp.Body.TopArtists[i] = PersonalTopArtistResponse(a)
 	}
 	return resp, nil
 }
