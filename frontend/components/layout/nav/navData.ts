@@ -58,11 +58,12 @@ export const browseGroups: NavGroup[] = [
   {
     // Scene pages are DERIVED from verified-venue location data, not stored
     // entities; a `<city>` slug is `<city-lowercased,-spaces→dashes>-<state>`
-    // (backend `buildSceneSlug`, e.g. Phoenix/AZ → `phoenix-az`). Shortcuts
-    // below were reconciled in PSY-1030 against stage
-    // (`stage.api.psychichomily.com/scenes/<slug>` + UI 200): Phoenix, Tucson,
-    // Los Angeles, and Denver (Figma `455:5` 4th city) all resolve. "All
-    // scenes" is the index. Do not add a curated city that 404s on stage.
+    // (backend `buildSceneSlug`, e.g. Phoenix/AZ → `phoenix-az`). PSY-1030
+    // reconciled this list against stage (2026-07-22): API+UI 200 for
+    // phoenix-az, tucson-az, los-angeles-ca, denver-co. Denver sat at the
+    // sceneMinVenues floor (2) — kept because it resolved; re-check before
+    // adding more. "All scenes" is the index. Do not add a city that 404s
+    // on stage.
     label: 'Scenes',
     items: [
       { href: '/scenes/phoenix-az', label: 'Phoenix', icon: MapPin },
