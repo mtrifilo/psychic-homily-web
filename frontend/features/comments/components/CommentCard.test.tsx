@@ -642,3 +642,79 @@ describe('CommentCard — self-vote button hiding (PSY-593)', () => {
     expect(screen.getByTestId('downvote-button')).toBeInTheDocument()
   })
 })
+
+describe('CommentCard — deep-link anchors + highlight (PSY-1512)', () => {
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetAllMutationMocks()
+    mockAuthContext.mockReturnValue({ isAuthenticated: false, user: null })
+  })
+
+  it('renders id="comment-{id}" on the card root', () => {
+    render(<CommentCard {...defaultProps} comment={makeComment({ id: 123 })} />)
+
+    const card = screen.getByTestId('comment-card')
+    expect(card).toHaveAttribute('id', 'comment-123')
+  })
+
+  it('renders the anchor id on deleted comments too (notification links stay valid)', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ id: 77, visibility: 'hidden_by_user' })}
+      />
+    )
+
+    expect(screen.getByTestId('comment-deleted')).toHaveAttribute(
+      'id',
+      'comment-77'
+    )
+  })
+
+  it('applies the highlight tint when highlightId matches this comment', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ id: 123 })}
+        highlightId={123}
+      />
+    )
+
+    expect(screen.getByTestId('comment-card').className).toContain('outline')
+  })
+
+  it('does NOT apply the highlight tint when highlightId is a different comment', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ id: 123 })}
+        highlightId={456}
+      />
+    )
+
+    expect(screen.getByTestId('comment-card').className).not.toContain('outline')
+  })
+
+  it('forwards highlightId to inline reply cards', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ id: 1 })}
+        replies={[
+          makeComment({ id: 2, parent_id: 1, root_id: 1, depth: 1 }),
+        ]}
+        highlightId={2}
+      />
+    )
+
+    const cards = screen.getAllByTestId('comment-card')
+    const replyCard = cards.find((c) => c.id === 'comment-2')
+    expect(replyCard).toBeDefined()
+    expect(replyCard?.className).toContain('outline')
+  })
+})

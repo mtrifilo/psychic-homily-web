@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
+import { cn } from '@/lib/utils'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +22,7 @@ import {
   useCommentThread,
   formatCommentSubmissionError,
 } from '../hooks'
+import { commentAnchorId } from '../hooks/useCommentDeepLink'
 import {
   REPLY_PERMISSION_BADGE_LABELS,
   type Comment,
@@ -33,6 +35,16 @@ interface CommentCardProps {
   entityId: number
   /** Nested replies already loaded at the top-level list */
   replies?: Comment[]
+  /**
+   * PSY-1512: comment id currently highlighted by a `#comment-{id}` deep
+   * link. Forwarded to nested reply cards so a linked reply gets the tint.
+   */
+  highlightId?: number | null
+  /**
+   * PSY-1512: auto-load and show this card's reply thread on mount — set
+   * when a deep link targets one of its replies.
+   */
+  autoExpandThread?: boolean
 }
 
 export function CommentCard({
@@ -40,6 +52,8 @@ export function CommentCard({
   entityType,
   entityId,
   replies = [],
+  highlightId = null,
+  autoExpandThread = false,
 }: CommentCardProps) {
   const { user, isAuthenticated } = useAuthContext()
   const currentUserId = user?.id ? Number(user.id) : null
@@ -61,9 +75,12 @@ export function CommentCard({
   const updateReplyPermissionMutation = useUpdateReplyPermission()
   const deleteMutation = useDeleteComment()
 
-  // Load thread on demand if no inline replies were provided
+  // Load thread on demand if no inline replies were provided. PSY-1512:
+  // `autoExpandThread` (deep link targets a reply of this comment) forces
+  // the load without waiting for a "Show replies" click.
   const hasInlineReplies = replies.length > 0
-  const { data: threadData } = useCommentThread(comment.id, loadedThread && !hasInlineReplies)
+  const effectiveLoadedThread = loadedThread || autoExpandThread
+  const { data: threadData } = useCommentThread(comment.id, effectiveLoadedThread && !hasInlineReplies)
   const threadReplies = hasInlineReplies ? replies : (threadData?.replies ?? [])
 
   const isDeleted = comment.visibility === 'hidden_by_user' || comment.visibility === 'hidden_by_mod'
@@ -112,16 +129,30 @@ export function CommentCard({
   // Indentation based on depth (max depth 2)
   const depthMargin = comment.depth > 0 ? `ml-${Math.min(comment.depth, 2) * 8}` : ''
 
+  // PSY-1512: anchor for `#comment-{id}` deep links (notifications/emails).
+  // `scroll-mt-20` keeps the sticky top bar from covering the target;
+  // the highlight is a brief, subtle accent tint applied by the deep-link
+  // hook via `highlightId`.
+  const anchorId = commentAnchorId(comment.id)
+  const highlightClasses =
+    comment.id === highlightId
+      ? 'rounded-sm bg-primary/5 outline outline-2 outline-primary/30 outline-offset-4'
+      : ''
+
   if (isDeleted) {
     return (
-      <div className={`${depthMargin} py-3 text-sm text-muted-foreground italic`} data-testid="comment-deleted">
+      <div
+        id={anchorId}
+        className={cn(depthMargin, 'scroll-mt-20 py-3 text-sm text-muted-foreground italic', highlightClasses)}
+        data-testid="comment-deleted"
+      >
         {comment.visibility === 'hidden_by_user' ? '[deleted]' : '[removed]'}
       </div>
     )
   }
 
   return (
-    <div className={depthMargin} data-testid="comment-card">
+    <div id={anchorId} className={cn(depthMargin, 'scroll-mt-20', highlightClasses)} data-testid="comment-card">
       <div className="flex items-center gap-2 text-sm">
         <UserAttribution
           name={comment.author_name}
@@ -372,6 +403,7 @@ export function CommentCard({
                   comment={reply}
                   entityType={entityType}
                   entityId={entityId}
+                  highlightId={highlightId}
                 />
               ))}
             </div>
@@ -387,7 +419,7 @@ export function CommentCard({
           single-comment endpoints) leave the field undefined; treat the
           missing-field case the same as 0 since there's no signal to act on. */}
       {!hasInlineReplies &&
-        !loadedThread &&
+        !effectiveLoadedThread &&
         comment.depth === 0 &&
         (comment.reply_count ?? 0) > 0 && (
           <Button

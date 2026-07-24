@@ -25,6 +25,10 @@ export const commentEndpoints = {
     `${API_BASE_URL}/comments/${commentId}/vote`,
   THREAD: (commentId: number) =>
     `${API_BASE_URL}/comments/${commentId}/thread`,
+  // PSY-1512: single-comment fetch, used to resolve a `#comment-{id}`
+  // deep link (from notifications/emails) to its thread root.
+  SINGLE: (commentId: number) =>
+    `${API_BASE_URL}/comments/${commentId}`,
   // PSY-296: owner-only reply-permission toggle.
   REPLY_PERMISSION: (commentId: number) =>
     `${API_BASE_URL}/comments/${commentId}/reply-permission`,
