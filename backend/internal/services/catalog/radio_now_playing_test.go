@@ -578,8 +578,10 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_MatchedShowAndArtist(
 	suite.Equal("The Morning Show", *resp.ShowName)
 	suite.Require().NotNil(resp.HostName)
 	suite.Equal("John Richards", *resp.HostName)
-	suite.Nil(resp.EpisodeAirDate, "live payloads carry no archive air date")
-	suite.Nil(resp.EpisodeStartsAt, "live payloads carry no archive window (PSY-1306)")
+	// PSY-1509: the matched show has NO episode row covering now, so the live
+	// payload carries no air date — it is never fabricated.
+	suite.Nil(resp.EpisodeAirDate, "no covering episode row → no air date (never fabricated)")
+	suite.Nil(resp.EpisodeStartsAt, "no covering episode row → no window")
 	suite.Nil(resp.EpisodeEndsAt)
 
 	suite.Require().NotNil(resp.CurrentTrack)
@@ -592,6 +594,49 @@ func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_MatchedShowAndArtist(
 	suite.Require().Len(resp.RecentArtists, 2)
 	suite.Equal("Chic", resp.RecentArtists[0].ArtistName)
 	suite.Equal("Sister Sledge", resp.RecentArtists[1].ArtistName)
+}
+
+// TestLive_MatchedShowWithCoveringRowCarriesAirDate (PSY-1509): when the
+// matched show has an episode row whose frozen air window covers now (created
+// at airtime by the airing-feed ingestion for KEXP/NTS), the live payload
+// deep-links it: episode_air_date + the frozen window are populated. An older
+// aired row must NOT be picked — only the covering one qualifies.
+func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_MatchedShowWithCoveringRowCarriesAirDate() {
+	station := suite.createStation("KEXP", "kexp", catalogm.PlaylistSourceKEXP)
+	ext := "37"
+	show := suite.createShow(station.ID, "Astral Plane", "astral-plane", &ext, nil)
+
+	// An old aired episode (past window) — present so the test pins that the
+	// covering row, not merely the latest aired row, supplies the date.
+	suite.createEpisode(show.ID, "2026-07-15")
+
+	// The airing episode: window covers now.
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	starts := now.Add(-30 * time.Minute)
+	ends := now.Add(90 * time.Minute)
+	airDate := now.Format("2006-01-02")
+	airing := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: airDate, StartsAt: &starts, EndsAt: &ends}
+	suite.Require().NoError(suite.db.Create(airing).Error)
+
+	fake := &fakeLiveProvider{live: &RadioLiveNowPlaying{
+		ShowName:       "Astral Plane",
+		ShowExternalID: &ext,
+	}}
+	suite.injectLiveProvider(fake)
+
+	resp, err := suite.radioService.GetStationNowPlaying(station.ID)
+	suite.Require().NoError(err)
+
+	suite.Equal(contracts.NowPlayingSourceLive, resp.Source)
+	suite.True(resp.OnAir)
+	suite.Require().NotNil(resp.Show)
+	suite.Equal("astral-plane", resp.Show.Slug)
+	suite.Require().NotNil(resp.EpisodeAirDate, "a covering episode row makes the live payload deep-linkable")
+	suite.Equal(airDate, *resp.EpisodeAirDate)
+	suite.Require().NotNil(resp.EpisodeStartsAt)
+	suite.True(resp.EpisodeStartsAt.Equal(starts))
+	suite.Require().NotNil(resp.EpisodeEndsAt)
+	suite.True(resp.EpisodeEndsAt.Equal(ends))
 }
 
 func (suite *RadioNowPlayingIntegrationTestSuite) TestLive_AmbiguousShowNameYieldsNilShow() {

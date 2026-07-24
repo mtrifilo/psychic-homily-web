@@ -25,24 +25,27 @@ import (
 // attempt, exactly as when the 6h sweep imports a mid-air show; the delta is
 // ~2 such fetches per airing. Scoped runs are BREAKER-NEUTRAL and excluded
 // from failure streaks, the volume-anomaly guard/baseline, and the station
-// health rates (see RunStationSync + computeStationRates). Stations without
-// stored schedules (KEXP/NTS today) keep riding the interval sweep, which
-// remains the backstop for everything.
+// health rates (see RunStationSync + computeStationRates). The boundary work
+// list is schedule-driven, so it covers the WFMU family only; KEXP/NTS episode
+// rows are created at airtime by the airing-feed ingestion (PSY-1509,
+// radio_airing_ingest.go) and then ride the live-refresh work list below. The
+// interval sweep remains the backstop for everything.
 //
 // PSY-1370 (live refresh): the boundary work list alone re-fetches a show only at
 // its slot start/end — so a playlist fetched empty before airtime (WFMU pre-publishes
 // the page hours early) stays at 0 tracks for the whole live window. Each tick the
-// cycle therefore ALSO scoped-fetches every SCHEDULE-BEARING show with an episode
-// airing right now whose playlist is still incomplete (ShowsWithLiveIncompleteEpisodes),
-// so tracks accumulate during the show. Same neutral scoped-fetch path (all the
-// neutrality guarantees above are inherited), same ~one incremental fetch per tick per
-// live show; the re-fetch itself is opened by ShouldRefreshLivePlaylist in
-// reimportExistingEpisode. Scope is deliberately the schedule-bearing family only —
-// KEXP/NTS keep riding the 6h sweep (see ShowsWithLiveIncompleteEpisodes). Handoff is
-// clean: past ends_at the episode is no longer live and the post-air backfill owns the
-// single final fetch → complete. Worst case within a window is a persistently-broken
-// live feed re-fetched every tick with no backoff — bounded by ends_at + the WFMU
-// show's duration (typically 1–3h), and breaker-neutral by the scoped-run design.
+// cycle therefore ALSO scoped-fetches every show with an episode airing right now
+// whose playlist is still incomplete (ShowsWithLiveIncompleteEpisodes), so tracks
+// accumulate during the show. Same neutral scoped-fetch path (all the neutrality
+// guarantees above are inherited), same ~one incremental fetch per tick per live
+// show; the re-fetch itself is opened by ShouldRefreshLivePlaylist in
+// reimportExistingEpisode. Eligibility keys on the live windowed EPISODE, not a
+// stored show schedule (PSY-1509 — see ShowsWithLiveIncompleteEpisodes for the
+// bounding invariant). Handoff is clean: past ends_at the episode is no longer live
+// and the post-air backfill owns the single final fetch → complete. Worst case
+// within a window is a persistently-broken live feed re-fetched every tick with no
+// backoff — bounded by ends_at + the show's duration (typically 1–3h), and
+// breaker-neutral by the scoped-run design.
 
 // slotBoundaryDue reports whether any slot of the schedule has a start or end
 // instant inside (from, to]. Half-open on the left so back-to-back ticker
@@ -130,17 +133,18 @@ func (s *RadioService) ShowsWithSlotBoundariesIn(from, to time.Time) (map[uint][
 // on-air show is re-fetched every tick and its playlist grows during the show — not
 // only at the boundary.
 //
-// The show population is IDENTICAL to ShowsWithSlotBoundariesIn (active shows with an
-// external id on active, automated stations) INCLUDING the schedule IS NOT NULL filter.
-// That last clause is a deliberate SCOPE decision, not incidental: live refresh is
-// bounded to schedule-bearing shows — the WFMU family, the reported case — so it stays
-// on exactly the population the slot ticker already owns. Extending it to KEXP/NTS
-// (which have no stored schedule and ride the 6h sweep by PSY-1333's explicit design)
-// would put a continuously-airing station on this 10-min ticker forever — a real,
-// permanent load increase that needs its own decision + rate-limit review, NOT to be
-// inherited by omitting a filter. WFMU windows are schedule-derived anyway, so a
-// genuinely-live WFMU episode always has a non-null schedule; the filter excludes
-// nothing legitimate in scope.
+// The show population mirrors ShowsWithSlotBoundariesIn (active shows with an
+// external id on active, automated stations) EXCEPT the schedule IS NOT NULL filter,
+// which this query deliberately does NOT share (PSY-1509 — the locked eligibility
+// decision). Eligibility keys on the EPISODE, not the show: a show is refreshed only
+// while it has a genuinely-live windowed episode row (starts_at <= now <= ends_at,
+// playlist still pending/partial). Those rows come exclusively from real ingested air
+// windows — WFMU's schedule-derived stamping (PSY-1152/1238) or the KEXP/NTS
+// airing-feed ingestion (radio_airing_ingest.go) — so the population is bounded by
+// actual broadcasts in flight, and the old 24/7-ticker concern (a schedule-less,
+// continuously-airing station riding this ticker forever) does not arise: with no
+// live windowed row there is nothing to refresh, and every window ends. The boundary
+// work list (ShowsWithSlotBoundariesIn) STAYS schedule-gated.
 //
 // "Live" is the bounded-window condition ComputeEpisodeStatus uses (starts_at <= now <=
 // ends_at). The SQL bounds match it exactly at the boundary instants: `starts_at <= now`
@@ -160,7 +164,6 @@ func (s *RadioService) ShowsWithLiveIncompleteEpisodes(now time.Time) (map[uint]
 		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
 		Joins("JOIN radio_stations ON radio_stations.id = radio_shows.station_id").
 		Where("radio_shows.is_active = TRUE AND radio_shows.external_id IS NOT NULL AND radio_shows.external_id != ''").
-		Where("radio_shows.schedule IS NOT NULL").
 		Where("radio_stations.is_active = TRUE AND radio_stations.playlist_source IS NOT NULL AND radio_stations.playlist_source != '' AND radio_stations.playlist_source != ?", catalogm.PlaylistSourceManual).
 		Where("radio_episodes.starts_at IS NOT NULL AND radio_episodes.ends_at IS NOT NULL").
 		Where("radio_episodes.starts_at <= ? AND radio_episodes.ends_at >= ?", now, now).
