@@ -3,12 +3,12 @@ package engagement
 import (
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -164,21 +164,13 @@ type watchingRow struct {
 	UnreadCount   int
 }
 
-// watchingEntityRow is the scan target for the per-table entity batch
-// lookup. Slug scans to "" for entities whose slug column is NULL.
-type watchingEntityRow struct {
-	ID   uint
-	Name string
-	Slug string
-}
-
 // ListWatching returns the user's subscriptions enriched with entity
 // context and last comment activity, ordered by last activity (newest
 // first; threads without comments last, by subscription recency).
 //
 // Aggregates (count / last activity / unread-vs-last-read) come from one
 // LATERAL query; entity names and last-commenter names are then resolved
-// in one batch query per distinct entity table plus one for users — no
+// in one batch query per distinct entity table plus two for users — no
 // per-row queries.
 func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int) ([]contracts.WatchingItem, int64, error) {
 	if s.db == nil {
@@ -203,8 +195,14 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 		return []contracts.WatchingItem{}, 0, nil
 	}
 
-	// Only kind='comment' rows form the watched thread; field notes are a
-	// separate surface. Visibility mirrors GetUnreadCount.
+	// Display aggregates (comment_count, last comment) cover only
+	// kind='comment' — field notes are a separate surface. unread_count
+	// deliberately spans ALL visible kinds so it agrees with
+	// GetUnreadCount, which backs the per-entity subscribe/status badge.
+	// last_comment_id is the id of the latest comment BY created_at
+	// (ties broken by id), so LastCommentAt and LastCommenterName always
+	// describe the same comment. The trailing (entity_type, entity_id)
+	// sort keys make pagination deterministic under timestamp ties.
 	var rows []watchingRow
 	err = s.db.Raw(`
 		SELECT cs.entity_type,
@@ -220,20 +218,22 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 		      AND clr.entity_type = cs.entity_type
 		      AND clr.entity_id = cs.entity_id
 		LEFT JOIN LATERAL (
-			SELECT COUNT(*)          AS comment_count,
-			       MAX(c.created_at) AS last_comment_at,
-			       MAX(c.id)         AS last_comment_id,
+			SELECT COUNT(*)          FILTER (WHERE c.kind = ?) AS comment_count,
+			       MAX(c.created_at) FILTER (WHERE c.kind = ?) AS last_comment_at,
+			       (ARRAY_AGG(c.id ORDER BY c.created_at DESC, c.id DESC)
+			            FILTER (WHERE c.kind = ?))[1]           AS last_comment_id,
 			       COUNT(*) FILTER (WHERE c.id > COALESCE(clr.last_read_comment_id, 0)) AS unread_count
 			FROM comments c
 			WHERE c.entity_type = cs.entity_type
 			  AND c.entity_id = cs.entity_id
-			  AND c.kind = ?
 			  AND c.visibility = ?
 		) agg ON true
 		WHERE cs.user_id = ?
-		ORDER BY agg.last_comment_at DESC NULLS LAST, cs.subscribed_at DESC
+		ORDER BY agg.last_comment_at DESC NULLS LAST, cs.subscribed_at DESC,
+		         cs.entity_type ASC, cs.entity_id ASC
 		LIMIT ? OFFSET ?`,
-		engagementm.CommentKindComment, engagementm.CommentVisibilityVisible,
+		engagementm.CommentKindComment, engagementm.CommentKindComment, engagementm.CommentKindComment,
+		engagementm.CommentVisibilityVisible,
 		userID, limit, offset,
 	).Scan(&rows).Error
 	if err != nil {
@@ -252,7 +252,6 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 			CommentCount:  row.CommentCount,
 			LastCommentAt: row.LastCommentAt,
 			UnreadCount:   row.UnreadCount,
-			Unread:        row.UnreadCount > 0,
 		}
 		item.EntityName, item.EntitySlug, item.EntityURL = resolveWatchingEntity(row.EntityType, row.EntityID, entities)
 		if row.LastCommentID != nil {
@@ -266,45 +265,22 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 
 // loadWatchingEntities batch-loads (id, name, slug) for the page's
 // entities, one SELECT per distinct entity table.
-func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) map[string]map[uint]watchingEntityRow {
-	idsByType := make(map[string]map[uint]struct{})
+func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) map[string]map[uint]shared.EntityNameRow {
+	idsByType := make(map[string][]uint)
+	seen := make(map[string]map[uint]struct{})
 	for _, r := range rows {
-		if _, _, _, ok := engagementm.CommentEntityPathAndTable(r.EntityType); !ok {
-			continue
-		}
-		set, exists := idsByType[r.EntityType]
+		set, exists := seen[r.EntityType]
 		if !exists {
 			set = make(map[uint]struct{})
-			idsByType[r.EntityType] = set
+			seen[r.EntityType] = set
 		}
-		set[r.EntityID] = struct{}{}
-	}
-
-	out := make(map[string]map[uint]watchingEntityRow, len(idsByType))
-	for entityType, idSet := range idsByType {
-		_, table, nameCol, _ := engagementm.CommentEntityPathAndTable(entityType)
-		ids := make([]uint, 0, len(idSet))
-		for id := range idSet {
-			ids = append(ids, id)
-		}
-		var entityRows []watchingEntityRow
-		// Aliased SELECT so shows (column "title") and the rest (column
-		// "name") scan into the same struct field.
-		err := s.db.Table(table).
-			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
-			Where("id IN ?", ids).
-			Scan(&entityRows).Error
-		if err != nil {
-			// Fall through: rows resolve to the "<type> #<id>" fallback.
+		if _, dup := set[r.EntityID]; dup {
 			continue
 		}
-		byID := make(map[uint]watchingEntityRow, len(entityRows))
-		for _, r := range entityRows {
-			byID[r.ID] = r
-		}
-		out[entityType] = byID
+		set[r.EntityID] = struct{}{}
+		idsByType[r.EntityType] = append(idsByType[r.EntityType], r.EntityID)
 	}
-	return out
+	return shared.LoadCommentEntityNames(s.db, idsByType)
 }
 
 // loadLastCommenterNames batch-resolves the display name of each
@@ -320,38 +296,35 @@ func (s *CommentSubscriptionService) loadLastCommenterNames(rows []watchingRow) 
 		return map[uint]string{}
 	}
 
-	// Every ResolveUserName chain column must be selected (see the
-	// warning on shared.ResolveUserName).
-	type commenterRow struct {
-		CommentID   uint
-		UserID      uint
-		Username    *string
-		DisplayName *string
-		FirstName   *string
-		LastName    *string
-		Email       *string
+	type commentAuthorRow struct {
+		ID     uint
+		UserID uint
 	}
-	var commenters []commenterRow
+	var authors []commentAuthorRow
 	err := s.db.Table("comments").
-		Select(`comments.id AS comment_id, users.id AS user_id, users.username,
-			users.display_name, users.first_name, users.last_name, users.email`).
-		Joins("JOIN users ON users.id = comments.user_id").
-		Where("comments.id IN ?", commentIDs).
-		Scan(&commenters).Error
+		Select("id, user_id").
+		Where("id IN ?", commentIDs).
+		Scan(&authors).Error
 	if err != nil {
+		log.Printf("warning: failed to load last-comment authors for watching list: %v", err)
 		return map[uint]string{}
 	}
 
-	names := make(map[uint]string, len(commenters))
-	for _, c := range commenters {
-		names[c.CommentID] = shared.ResolveUserName(&authm.User{
-			ID:          c.UserID,
-			Username:    c.Username,
-			DisplayName: c.DisplayName,
-			FirstName:   c.FirstName,
-			LastName:    c.LastName,
-			Email:       c.Email,
-		})
+	userIDs := make([]uint, 0, len(authors))
+	for _, a := range authors {
+		userIDs = append(userIDs, a.UserID)
+	}
+	namesByUser, err := shared.BatchResolveUserNames(s.db, userIDs)
+	if err != nil {
+		log.Printf("warning: failed to resolve commenter names for watching list: %v", err)
+		return map[uint]string{}
+	}
+
+	names := make(map[uint]string, len(authors))
+	for _, a := range authors {
+		if name, ok := namesByUser[a.UserID]; ok {
+			names[a.ID] = name
+		}
 	}
 	return names
 }
@@ -359,7 +332,7 @@ func (s *CommentSubscriptionService) loadLastCommenterNames(rows []watchingRow) 
 // resolveWatchingEntity turns a (type, id) pair into the display name,
 // slug, and root-relative URL, falling back to "<type> #<id>" + an
 // ID-based URL when the entity row is missing (deleted since subscribe).
-func resolveWatchingEntity(entityType string, entityID uint, entities map[string]map[uint]watchingEntityRow) (name, slug, url string) {
+func resolveWatchingEntity(entityType string, entityID uint, entities map[string]map[uint]shared.EntityNameRow) (name, slug, url string) {
 	pathSegment, _, _, ok := engagementm.CommentEntityPathAndTable(entityType)
 	if !ok {
 		return fmt.Sprintf("%s #%d", entityType, entityID), "", ""

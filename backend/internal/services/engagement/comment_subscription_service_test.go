@@ -364,6 +364,10 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnr
 	base := time.Now().UTC().Add(-time.Hour)
 	suite.createTestCommentAt(commenter.ID, "venue", venue.ID, base)
 	suite.createTestCommentAt(commenter.ID, "artist", artist.ID, base.Add(time.Minute))
+	// Backdated comment with a HIGHER id but EARLIER created_at: the last
+	// commenter must be resolved from the latest comment BY TIMESTAMP
+	// (DJ Spectre's), not from MAX(id).
+	suite.createTestCommentAt(user.ID, "artist", artist.ID, base.Add(-time.Minute))
 
 	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
 	suite.NoError(err)
@@ -375,7 +379,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnr
 	suite.Equal("Watch Artist", items[0].EntityName)
 	suite.Equal(*artist.Slug, items[0].EntitySlug)
 	suite.Equal("/artists/"+*artist.Slug, items[0].EntityURL)
-	suite.Equal(1, items[0].CommentCount)
+	suite.Equal(2, items[0].CommentCount)
 	suite.Equal(displayName, items[0].LastCommenterName)
 	suite.NotNil(items[0].LastCommentAt)
 
@@ -415,9 +419,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingUnr
 	show1 := items[byEntity[1]]
 	show2 := items[byEntity[2]]
 
-	suite.True(show1.Unread)
 	suite.Equal(2, show1.UnreadCount)
-	suite.False(show2.Unread)
 	suite.Equal(0, show2.UnreadCount)
 
 	// New comment after mark-read flips show 2 back to unread
@@ -426,7 +428,6 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingUnr
 	suite.NoError(err)
 	for _, item := range items {
 		if item.EntityID == 2 {
-			suite.True(item.Unread)
 			suite.Equal(1, item.UnreadCount)
 		}
 	}
@@ -492,8 +493,11 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCou
 	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
 	suite.NoError(err)
 	suite.Require().Len(items, 1)
+	// comment_count covers only visible kind='comment' rows
 	suite.Equal(1, items[0].CommentCount)
-	suite.Equal(1, items[0].UnreadCount)
+	// unread_count spans all visible kinds (comment + field note), matching
+	// the subscribe/status badge semantics (GetUnreadCount)
+	suite.Equal(2, items[0].UnreadCount)
 }
 
 // TestListWatchingScopedToUser: another user's subscriptions must never

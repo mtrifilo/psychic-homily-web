@@ -995,12 +995,9 @@ type commentRow struct {
 }
 
 // entityNameRow projects the (id, name|title, slug) tuple from a parent
-// entity table during the per-table batch lookup.
-type entityNameRow struct {
-	ID   uint
-	Name string
-	Slug string
-}
+// entity table during the per-table batch lookup (shared with the
+// watching-list enrichment).
+type entityNameRow = shared.EntityNameRow
 
 // enrichCommentNotifications walks entries, finds the comment-driven rows,
 // then batch-loads (in order): the referenced comments, the commenters'
@@ -1112,31 +1109,15 @@ func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]c
 		set[c.EntityID] = struct{}{}
 	}
 
-	out := make(map[string]map[uint]entityNameRow, len(idsByType))
+	idListByType := make(map[string][]uint, len(idsByType))
 	for entityType, idSet := range idsByType {
-		_, table, nameCol, _ := commentEntityPathAndTable(entityType)
 		ids := make([]uint, 0, len(idSet))
 		for id := range idSet {
 			ids = append(ids, id)
 		}
-		var rows []entityNameRow
-		// Aliased SELECT so shows (column "title") and the rest (column
-		// "name") scan into the same struct field.
-		err := s.db.Table(table).
-			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
-			Where("id IN ?", ids).
-			Scan(&rows).Error
-		if err != nil {
-			log.Printf("warning: failed to load parent entities for table %s: %v", table, err)
-			continue
-		}
-		byID := make(map[uint]entityNameRow, len(rows))
-		for _, r := range rows {
-			byID[r.ID] = r
-		}
-		out[entityType] = byID
+		idListByType[entityType] = ids
 	}
-	return out
+	return shared.LoadCommentEntityNames(s.db, idListByType)
 }
 
 // formatEntityURL builds the (URL, display-name) pair for a comment's

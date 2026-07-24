@@ -295,7 +295,7 @@ func TestListSubscriptions_SelfScopedAndPaginated(t *testing.T) {
 				return nil, 0, fmt.Errorf("unexpected args: %d, %d, %d", userID, limit, offset)
 			}
 			return []contracts.WatchingItem{
-				{EntityType: "artist", EntityID: 3, EntityName: "Watch Artist", EntityURL: "/artists/watch-artist", CommentCount: 4, Unread: true, UnreadCount: 2},
+				{EntityType: "artist", EntityID: 3, EntityName: "Watch Artist", EntityURL: "/artists/watch-artist", CommentCount: 4, UnreadCount: 2},
 			}, 31, nil
 		},
 	}, nil)

@@ -242,8 +242,7 @@ type WatchingItem struct {
 	CommentCount      int        `json:"comment_count" doc:"Number of visible comments on the entity"`
 	LastCommentAt     *time.Time `json:"last_comment_at,omitempty" required:"false" doc:"Timestamp of the most recent visible comment, null when the thread is empty"`
 	LastCommenterName string     `json:"last_commenter_name,omitempty" required:"false" doc:"Display name of the most recent commenter, empty when the thread is empty"`
-	UnreadCount       int        `json:"unread_count" doc:"Visible comments newer than the user's last-read marker"`
-	Unread            bool       `json:"unread" doc:"Whether the thread has comments newer than the user's last-read marker"`
+	UnreadCount       int        `json:"unread_count" doc:"Visible comments (any kind) newer than the user's last-read marker; matches the subscribe/status badge"`
 }
 
 // WatchingListResponse is the paginated watch-list payload.
