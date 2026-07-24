@@ -42,4 +42,6 @@ export {
   NotifyMeButton,
   NotificationBell,
   NotificationList,
+  EarlierDivider,
+  partitionNotificationsByRead,
 } from './components'
