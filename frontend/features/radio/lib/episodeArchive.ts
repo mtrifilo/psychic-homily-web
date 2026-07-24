@@ -67,6 +67,11 @@ export function liveEpisodePollMs(
  * air_timestamp. Null when the feed carried no timestamp (the cell renders
  * blank rather than fabricating a time, matching the archive rendering).
  * A slightly-future timestamp (clock skew) clamps to "now".
+ *
+ * Deliberately distinct from the consolidated lib/formatRelativeTime +
+ * lib/formatTimeAgo helpers: the ledger's compact mono grammar has no
+ * " ago" suffix, combines "1h 2m", and takes an injected `now` for the
+ * render-pulse/test pattern. Don't fold them together in a drift audit.
  */
 export function formatRelativeMinutes(
   isoString: string | null | undefined,

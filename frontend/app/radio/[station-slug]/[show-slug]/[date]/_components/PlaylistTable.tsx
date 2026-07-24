@@ -74,11 +74,11 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
         <tbody>
           {ordered.map((play, index) => {
             const isNewest = live && index === 0
-            const time = live
-              ? isNewest
+            const time = !live
+              ? formatPlayTime(play.air_timestamp)
+              : isNewest
                 ? '▸ now'
                 : formatRelativeMinutes(play.air_timestamp, now)
-              : formatPlayTime(play.air_timestamp)
             const matched = play.artist_id != null
 
             return (

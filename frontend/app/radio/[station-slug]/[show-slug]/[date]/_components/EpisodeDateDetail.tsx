@@ -40,10 +40,12 @@ function formatWeekday(dateStr: string): string {
 }
 
 /**
- * Coarse clock tick while the live ledger is on screen, so the relative row
- * times and the band's "updated Ns ago" don't freeze between polls. This is
- * purely a re-render pulse — the live regime and row order themselves are
- * DERIVED from the air window at render time, never stored in state.
+ * Coarse clock tick while the live ledger is on screen. The ~60s poll's
+ * dataUpdatedAt bump already re-renders the happy path; this pulse keeps
+ * the relative row times and the band's "updated Ns ago" honest when the
+ * poll is stopped (query error) or paused (backgrounded tab). It is purely
+ * a re-render pulse — the live regime and row order themselves are DERIVED
+ * from the air window at render time, never stored in state.
  */
 function useLiveMinuteTick(enabled: boolean) {
   const [, setTick] = useState(0)

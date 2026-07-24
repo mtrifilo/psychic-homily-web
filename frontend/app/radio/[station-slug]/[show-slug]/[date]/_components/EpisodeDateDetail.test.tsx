@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { RadioEpisodeDetail } from '@/features/radio'
 import { localIso } from '@/features/radio/lib/localIso.testutil'
+import { makeRadioPlay } from '@/features/radio/lib/radioPlay.testutil'
 
 const mockUseRadioEpisode = vi.fn()
 const mockUseEpisodeNeighbors = vi.fn()
@@ -125,31 +126,7 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
   // Matched plays (artist_id set) so the table doesn't mount
   // SuggestMatchControl, which needs the auth-context test harness — the
   // match affordances themselves are covered in PlaylistTable.test.tsx.
-  const playFixture = {
-    id: 1,
-    episode_id: 1,
-    position: 1,
-    artist_name: 'CAN',
-    track_title: 'Mother Sky',
-    album_title: null,
-    label_name: null,
-    release_year: null,
-    is_new: false,
-    rotation_status: null,
-    dj_comment: null,
-    is_live_performance: false,
-    is_request: false,
-    artist_id: 5,
-    artist_slug: 'can',
-    release_id: null,
-    release_slug: null,
-    label_id: null,
-    label_slug: null,
-    musicbrainz_artist_id: null,
-    musicbrainz_recording_id: null,
-    musicbrainz_release_id: null,
-    air_timestamp: null,
-  }
+  const playFixture = makeRadioPlay({ artist_id: 5, artist_slug: 'can' })
 
   it('shows the ON AIR band with the updated-ago aside while the episode is live', () => {
     setEpisode(makeEpisode(liveWindow()), Date.now() - 40 * 1000)
