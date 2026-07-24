@@ -43,12 +43,9 @@ const mockUseCommentDeepLink = vi.fn()
 
 vi.mock('../hooks/useCommentDeepLink', () => ({
   useCommentDeepLink: (...args: unknown[]) => mockUseCommentDeepLink(...args),
-  commentAnchorId: (id: number) => `comment-${id}`,
-  COMMENTS_SECTION_ANCHOR: 'comments',
 }))
 
 const inertDeepLink = {
-  targetId: null,
   highlightId: null,
   expandRootId: null,
   linkedThread: null,
@@ -468,7 +465,6 @@ describe('CommentThread — deep links (PSY-1512)', () => {
       isLoading: false,
     })
     mockUseCommentDeepLink.mockReturnValue({
-      targetId: 30,
       highlightId: 30,
       expandRootId: null,
       linkedThread: {
@@ -508,7 +504,6 @@ describe('CommentThread — deep links (PSY-1512)', () => {
       isLoading: false,
     })
     mockUseCommentDeepLink.mockReturnValue({
-      targetId: 9,
       highlightId: null,
       expandRootId: 5,
       linkedThread: null,
@@ -519,6 +514,40 @@ describe('CommentThread — deep links (PSY-1512)', () => {
     // autoExpandThread suppresses the manual "Show replies" affordance —
     // the thread is being loaded without a click.
     expect(screen.queryByTestId('show-replies-button')).not.toBeInTheDocument()
+  })
+
+  it('renders the linked thread even when the first page has no visible top-level comments', () => {
+    mockUseComments.mockReturnValue({
+      data: { comments: [], total: 0, has_more: false },
+      isLoading: false,
+    })
+    mockUseCommentDeepLink.mockReturnValue({
+      highlightId: 30,
+      expandRootId: null,
+      linkedThread: {
+        comment: makeComment({
+          id: 21,
+          visibility: 'hidden_by_user',
+          body_html: '<p>hidden root</p>',
+        }),
+        replies: [
+          makeComment({
+            id: 30,
+            parent_id: 21,
+            root_id: 21,
+            depth: 1,
+            body_html: '<p>Reply under hidden root</p>',
+          }),
+        ],
+      },
+    })
+
+    render(<CommentThread {...defaultProps} />)
+
+    // The empty state must NOT swallow the resolved thread.
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument()
+    expect(screen.getByTestId('deep-link-thread')).toBeInTheDocument()
+    expect(screen.getByText('Reply under hidden root')).toBeInTheDocument()
   })
 
   it('still renders the manual "Show replies" affordance when no deep link targets the thread', () => {

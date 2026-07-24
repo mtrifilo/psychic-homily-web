@@ -5,21 +5,9 @@ import { useQuery } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { commentEndpoints, commentQueryKeys } from '../api'
+import { commentAnchorId, COMMENTS_SECTION_ANCHOR } from '../anchors'
 import { useCommentThread } from './index'
 import type { Comment } from '../types'
-
-/**
- * DOM id for a comment card. Backend notification/email URLs append
- * `#comment-{id}` (see filter_service.go CommentURL and
- * comment_notification.go buildCommentURL) — this is the frontend half of
- * that contract.
- */
-export function commentAnchorId(commentId: number): string {
-  return `comment-${commentId}`
-}
-
-/** DOM id of the whole comments section — the deep-link fallback target. */
-export const COMMENTS_SECTION_ANCHOR = 'comments'
 
 const HASH_PATTERN = /^#comment-(\d+)$/
 
@@ -38,8 +26,6 @@ const SCROLL_MAX_ATTEMPTS = 100
 const SCROLL_RETRY_MS = 100
 
 export interface CommentDeepLinkState {
-  /** Parsed `#comment-{id}` target, or null when the hash isn't a comment link. */
-  targetId: number | null
   /** Comment id to highlight right now (cleared after HIGHLIGHT_DURATION_MS). */
   highlightId: number | null
   /**
@@ -89,12 +75,16 @@ export function useCommentDeepLink(
   const targetId = match ? Number(match[1]) : null
 
   const listReady = !isListLoading && listComments !== undefined
+  // List query settled without data (e.g. transient 500): resolution can
+  // never proceed, so treat the target as unreachable and land at the
+  // section rather than silently doing nothing.
+  const listFailed = !isListLoading && listComments === undefined
   const comments = listComments ?? []
   const targetInList = targetId !== null && comments.some((c) => c.id === targetId)
 
   // Step 2: resolve the target's root when it isn't in the fetched page.
   const singleQuery = useQuery<Comment>({
-    queryKey: [...commentQueryKeys.all, 'single', targetId ?? 0],
+    queryKey: commentQueryKeys.single(targetId ?? 0),
     queryFn: () =>
       apiRequest<Comment>(commentEndpoints.SINGLE(targetId ?? 0)),
     enabled: targetId !== null && listReady && !targetInList,
@@ -103,11 +93,15 @@ export function useCommentDeepLink(
   })
 
   // Guard against a hash carrying a comment id from a different entity —
-  // without this we'd render a foreign thread into this page.
+  // without this we'd render a foreign thread into this page. Also gate on
+  // kind: field notes share the comments table (PSY-588) but live in their
+  // own surface, and rendering their thread inside the discussion list
+  // would duplicate them.
   const single =
     singleQuery.data &&
     singleQuery.data.entity_type === entityType &&
-    singleQuery.data.entity_id === entityId
+    singleQuery.data.entity_id === entityId &&
+    (singleQuery.data.kind ?? 'comment') === 'comment'
       ? singleQuery.data
       : undefined
   const wrongEntity = Boolean(singleQuery.data) && !single
@@ -133,12 +127,16 @@ export function useCommentDeepLink(
 
   const unreachable =
     targetId !== null &&
-    listReady &&
-    (singleQuery.isError || threadQuery.isError || wrongEntity)
+    (listFailed ||
+      (listReady &&
+        (singleQuery.isError || threadQuery.isError || wrongEntity)))
 
   // Scroll + highlight once the target element exists in the DOM.
   const [highlightId, setHighlightId] = useState<number | null>(null)
-  const scrolledRef = useRef(false)
+  // Tracks WHICH target we already scrolled to, so a second deep link on
+  // the same mounted page (hashchange to a different comment) re-triggers
+  // instead of silently no-oping.
+  const scrolledTargetRef = useRef<number | null>(null)
   const linkedThreadReady = linkedThread !== null
 
   // Don't start the scroll-retry loop until resolution has settled —
@@ -149,10 +147,10 @@ export function useCommentDeepLink(
     targetInList || expandRootId !== null || linkedThreadReady
 
   useEffect(() => {
-    if (targetId === null || scrolledRef.current) return
+    if (targetId === null || scrolledTargetRef.current === targetId) return
 
     if (unreachable) {
-      scrolledRef.current = true
+      scrolledTargetRef.current = targetId
       const section = document.getElementById(COMMENTS_SECTION_ANCHOR)
       if (section) scrollToElement(section)
       return
@@ -165,10 +163,10 @@ export function useCommentDeepLink(
     let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     const tryScroll = () => {
-      if (cancelled || scrolledRef.current) return
+      if (cancelled || scrolledTargetRef.current === targetId) return
       const el = document.getElementById(commentAnchorId(targetId))
       if (el) {
-        scrolledRef.current = true
+        scrolledTargetRef.current = targetId
         scrollToElement(el)
         setHighlightId(targetId)
         return
@@ -178,7 +176,7 @@ export function useCommentDeepLink(
         retryTimer = setTimeout(tryScroll, SCROLL_RETRY_MS)
       } else {
         // Bounded give-up: land at the comments section, not the page top.
-        scrolledRef.current = true
+        scrolledTargetRef.current = targetId
         const section = document.getElementById(COMMENTS_SECTION_ANCHOR)
         if (section) scrollToElement(section)
       }
@@ -200,5 +198,5 @@ export function useCommentDeepLink(
     return () => clearTimeout(timer)
   }, [highlightId])
 
-  return { targetId, highlightId, expandRootId, linkedThread }
+  return { highlightId, expandRootId, linkedThread }
 }

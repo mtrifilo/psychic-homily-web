@@ -56,6 +56,9 @@ export const commentQueryKeys = {
     ['comments', entityType, entityId] as const,
   thread: (commentId: number) =>
     ['comments', 'thread', commentId] as const,
+  // PSY-1512: single-comment fetch for deep-link resolution.
+  single: (commentId: number) =>
+    ['comments', 'single', commentId] as const,
 } as const
 
 export const fieldNoteQueryKeys = {

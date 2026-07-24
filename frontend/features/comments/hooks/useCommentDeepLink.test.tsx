@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper } from '@/test/utils'
-import {
-  useCommentDeepLink,
-  commentAnchorId,
-  COMMENTS_SECTION_ANCHOR,
-} from './useCommentDeepLink'
+import { useCommentDeepLink } from './useCommentDeepLink'
+import { commentAnchorId, COMMENTS_SECTION_ANCHOR } from '../anchors'
 import type { Comment } from '../types'
 
 const mockApiRequest = vi.fn()
@@ -75,7 +72,6 @@ describe('useCommentDeepLink (PSY-1512)', () => {
       { wrapper: createWrapper() }
     )
 
-    expect(result.current.targetId).toBeNull()
     expect(result.current.highlightId).toBeNull()
     expect(result.current.linkedThread).toBeNull()
     expect(mockApiRequest).not.toHaveBeenCalled()
@@ -89,8 +85,9 @@ describe('useCommentDeepLink (PSY-1512)', () => {
       { wrapper: createWrapper() }
     )
 
-    expect(result.current.targetId).toBeNull()
+    expect(result.current.highlightId).toBeNull()
     expect(mockApiRequest).not.toHaveBeenCalled()
+    expect(scrollIntoViewMock).not.toHaveBeenCalled()
   })
 
   it('scrolls to and highlights an in-page top-level comment without extra fetches', async () => {
@@ -206,6 +203,38 @@ describe('useCommentDeepLink (PSY-1512)', () => {
     )
     expect(result.current.linkedThread).toBeNull()
     expect(result.current.expandRootId).toBeNull()
+  })
+
+  it('treats a field-note target as unreachable (kind guard, PSY-588)', async () => {
+    window.location.hash = '#comment-9'
+    const section = mountSection()
+    mockApiRequest.mockResolvedValueOnce(
+      makeComment({ id: 9, kind: 'field_note' })
+    )
+
+    const { result } = renderHook(
+      () => useCommentDeepLink('artist', 42, [makeComment({ id: 1 })], false),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() =>
+      expect(scrollIntoViewMock.mock.contexts).toContain(section)
+    )
+    expect(result.current.linkedThread).toBeNull()
+  })
+
+  it('falls back to the comments section when the list query itself failed', async () => {
+    window.location.hash = '#comment-5'
+    const section = mountSection()
+
+    renderHook(() => useCommentDeepLink('artist', 42, undefined, false), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() =>
+      expect(scrollIntoViewMock.mock.contexts).toContain(section)
+    )
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
   it('does nothing while the comment list is still loading', () => {

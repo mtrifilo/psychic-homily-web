@@ -700,6 +700,34 @@ describe('CommentCard — deep-link anchors + highlight (PSY-1512)', () => {
     expect(screen.getByTestId('comment-card').className).not.toContain('outline')
   })
 
+  it('renders inline replies under a deleted root (deep-linked hidden-root thread)', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ id: 21, visibility: 'hidden_by_user' })}
+        replies={[
+          makeComment({
+            id: 30,
+            parent_id: 21,
+            root_id: 21,
+            depth: 1,
+            body_html: '<p>Visible reply</p>',
+          }),
+        ]}
+        highlightId={30}
+      />
+    )
+
+    expect(screen.getByTestId('comment-deleted')).toHaveAttribute(
+      'id',
+      'comment-21'
+    )
+    expect(screen.getByText('Visible reply')).toBeInTheDocument()
+    const cards = screen.getAllByTestId('comment-card')
+    const replyCard = cards.find((c) => c.id === 'comment-30')
+    expect(replyCard?.className).toContain('outline')
+  })
+
   it('forwards highlightId to inline reply cards', () => {
     render(
       <CommentCard

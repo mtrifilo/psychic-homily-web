@@ -10,10 +10,8 @@ import {
   useCreateComment,
   formatCommentSubmissionError,
 } from '../hooks'
-import {
-  useCommentDeepLink,
-  COMMENTS_SECTION_ANCHOR,
-} from '../hooks/useCommentDeepLink'
+import { COMMENTS_SECTION_ANCHOR } from '../anchors'
+import { useCommentDeepLink } from '../hooks/useCommentDeepLink'
 import { CommentForm } from './CommentForm'
 import { CommentCard } from './CommentCard'
 import type { Comment, ReplyPermission } from '../types'
@@ -177,7 +175,7 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
             </div>
           ))}
         </div>
-      ) : topLevel.length === 0 && !effectivePending ? (
+      ) : topLevel.length === 0 && !effectivePending && !linkedThread ? (
         <p className="text-sm text-muted-foreground py-8 text-center" data-testid="empty-state">
           No comments yet. Be the first to share your thoughts.
         </p>

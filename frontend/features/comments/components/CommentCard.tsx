@@ -22,7 +22,7 @@ import {
   useCommentThread,
   formatCommentSubmissionError,
 } from '../hooks'
-import { commentAnchorId } from '../hooks/useCommentDeepLink'
+import { commentAnchorId } from '../anchors'
 import {
   REPLY_PERMISSION_BADGE_LABELS,
   type Comment,
@@ -147,6 +147,24 @@ export function CommentCard({
         data-testid="comment-deleted"
       >
         {comment.visibility === 'hidden_by_user' ? '[deleted]' : '[removed]'}
+        {/* PSY-1512: still render inline replies under a deleted root —
+            a deep-linked thread whose root was hidden must be able to
+            mount its (visible) replies, or the notification link
+            dead-ends. Hidden roots never appear in the paginated list, so
+            this only triggers for the linked-thread path. */}
+        {replies.length > 0 && (
+          <div className="mt-2 space-y-3 border-l-2 border-border/50 pl-3 not-italic">
+            {replies.map((reply) => (
+              <CommentCard
+                key={reply.id}
+                comment={reply}
+                entityType={entityType}
+                entityId={entityId}
+                highlightId={highlightId}
+              />
+            ))}
+          </div>
+        )}
       </div>
     )
   }
