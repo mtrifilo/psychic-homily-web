@@ -140,11 +140,17 @@ func (s *RadioService) ShowsWithSlotBoundariesIn(from, to time.Time) (map[uint][
 // while it has a genuinely-live windowed episode row (starts_at <= now <= ends_at,
 // playlist still pending/partial). Those rows come exclusively from real ingested air
 // windows — WFMU's schedule-derived stamping (PSY-1152/1238) or the KEXP/NTS
-// airing-feed ingestion (radio_airing_ingest.go) — so the population is bounded by
-// actual broadcasts in flight, and the old 24/7-ticker concern (a schedule-less,
-// continuously-airing station riding this ticker forever) does not arise: with no
-// live windowed row there is nothing to refresh, and every window ends. The boundary
-// work list (ShowsWithSlotBoundariesIn) STAYS schedule-gated.
+// airing-feed ingestion (radio_airing_ingest.go).
+//
+// Load honesty: for a back-to-back 24/7 broadcaster (KEXP) this DOES mean the
+// station's current show is, in steady state, continuously in this work list —
+// the scenario the pre-PSY-1509 scope comment deferred for its own decision.
+// That decision was made (PSY-1509, reviewed with numbers in its PR): ~1 scoped
+// fetch per tick ≈ 144/day/station at the 10-min default, bounded per-show by
+// ends_at and gated to MATCHED shows with real ingested windows (unmatched or
+// rerun broadcasts contribute nothing), with every scoped-run neutrality
+// guarantee unchanged. The boundary work list (ShowsWithSlotBoundariesIn)
+// STAYS schedule-gated.
 //
 // "Live" is the bounded-window condition ComputeEpisodeStatus uses (starts_at <= now <=
 // ends_at). The SQL bounds match it exactly at the boundary instants: `starts_at <= now`

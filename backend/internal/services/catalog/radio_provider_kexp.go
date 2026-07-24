@@ -581,9 +581,9 @@ func (p *KEXPProvider) FetchLiveNowPlaying(_ string) (*RadioLiveNowPlaying, erro
 //
 // Two time-boxed calls:
 //   - /v2/shows/?limit=1 — the current broadcast instance (id, program,
-//     program_name, start_time). The listing carries NO end_time (PSY-813 —
-//     verified again 2026-07-23: the field is absent from both the list and
-//     detail responses), so the end bound comes from…
+//     program_name, start_time). The API publishes no end_time on broadcasts
+//     (neither the list nor the detail response carries the field — the
+//     long-standing PSY-813 observation), so the end bound comes from…
 //   - /v2/timeslots/ — KEXP's weekly grid (weekday, start_time, end_time per
 //     program), from which the slot covering this broadcast yields the airing's
 //     end instant. No covering slot (a special broadcast) → EndsAt stays nil —
@@ -639,64 +639,95 @@ func (p *KEXPProvider) FetchCurrentAirings(_ string) ([]RadioAiring, error) {
 // kexpTimeslotStartGraceMinutes tolerates a broadcast starting slightly BEFORE
 // its grid slot (a DJ handing over a couple of minutes early). Late starts
 // (observed: Drive Time at 16:01:04 for a 16:00 slot) are covered by the slot
-// window itself.
+// window itself — including a late start that slips past midnight, which is
+// matched against the PREVIOUS calendar day's slot (see the day-offset loop).
 const kexpTimeslotStartGraceMinutes = 10
 
+// kexpTimeslotMaxPages caps the timeslot-grid pagination walk. The grid is
+// small today (~59 rows, one page), but the endpoint is paginated like every
+// other KEXP list endpoint, so we follow `next` rather than silently reading
+// only page one — a program whose slot sorted past the first page would
+// otherwise never resolve an end bound. The cap (500 rows) is a runaway guard
+// for this fast-ticker path, not a real limit.
+const kexpTimeslotMaxPages = 5
+
 // resolveAiringEnd resolves a KEXP broadcast's end instant from the /v2/timeslots/
-// weekly grid: the date-valid slot for the same program on the broadcast's local
-// weekday whose window covers the broadcast's start clock time. Best-effort —
-// any failure (fetch, parse, no covering slot) returns nil so the airing is
-// still ingested, just unbounded (never falsely live).
+// weekly grid: the date-valid slot for the same program whose window covers the
+// broadcast's start — checked against BOTH the start's own calendar day and the
+// previous day, because a slot that wraps past midnight (e.g. Friday 23:00–01:00)
+// must still cover a broadcast that starts a few minutes after midnight (Saturday
+// 00:05): that broadcast's weekday no longer matches the slot's, but the slot is
+// still in progress. Best-effort — any failure (fetch, parse, no covering slot)
+// returns nil so the airing is still ingested, just unbounded (never falsely live).
 func (p *KEXPProvider) resolveAiringEnd(programID int, start time.Time) *time.Time {
-	body, err := radioLiveGet(p.httpClient, fmt.Sprintf("%s/v2/timeslots/?limit=100", p.baseURL), kexpUserAgent, "KEXP API")
-	if err != nil {
-		slog.Warn("kexp: fetching timeslot grid for airing end failed", "error", err)
-		return nil
+	url := fmt.Sprintf("%s/v2/timeslots/?limit=100", p.baseURL)
+	for pages := 0; url != "" && pages < kexpTimeslotMaxPages; pages++ {
+		body, err := radioLiveGet(p.httpClient, url, kexpUserAgent, "KEXP API")
+		if err != nil {
+			slog.Warn("kexp: fetching timeslot grid for airing end failed", "error", err)
+			return nil
+		}
+		var page kexpTimeslotsResponse
+		if err := json.Unmarshal(body, &page); err != nil {
+			slog.Warn("kexp: parsing timeslot grid for airing end failed", "error", err)
+			return nil
+		}
+		for i := range page.Results {
+			if end := timeslotAiringEnd(&page.Results[i], programID, start); end != nil {
+				return end
+			}
+		}
+		url = page.Next
 	}
-	var page kexpTimeslotsResponse
-	if err := json.Unmarshal(body, &page); err != nil {
-		slog.Warn("kexp: parsing timeslot grid for airing end failed", "error", err)
-		return nil
-	}
+	return nil
+}
 
-	// KEXP weekday convention is ISO-like: 1=Monday … 7=Sunday (verified against
-	// a known Thursday broadcast → weekday 4). Go's Weekday is 0=Sunday.
-	isoWeekday := (int(start.Weekday())+6)%7 + 1
+// timeslotAiringEnd reports the end instant a single grid slot implies for the
+// broadcast, or nil when the slot doesn't cover it. dayOffset 0 checks the
+// slot materialized on the broadcast's own local calendar day; -1 checks the
+// previous day's materialization (a midnight-wrapping slot still in progress).
+func timeslotAiringEnd(slot *kexpTimeslot, programID int, start time.Time) *time.Time {
+	if slot.Program != programID {
+		return nil
+	}
+	s, sok := clockMinutes(slot.StartTime)
+	e, eok := clockMinutes(slot.EndTime)
+	if !sok || !eok {
+		return nil
+	}
+	if e <= s {
+		e += 24 * 60 // slot wraps past midnight
+	}
 	startClock := start.Hour()*60 + start.Minute()
-	airDate := start.Format("2006-01-02")
 
-	for _, slot := range page.Results {
-		if slot.Program != programID || slot.Weekday != isoWeekday {
+	for _, dayOffset := range []int{0, -1} {
+		day := start.AddDate(0, 0, dayOffset)
+		// KEXP weekday convention is ISO-like: 1=Monday … 7=Sunday (verified
+		// against a known Thursday broadcast → weekday 4). Go: 0=Sunday.
+		if slot.Weekday != (int(day.Weekday())+6)%7+1 {
 			continue
 		}
-		// Slot validity range (start_date/end_date are dates; end_date null = open).
-		if slot.StartDate != "" && airDate < slot.StartDate {
+		// Slot validity range against the slot's own calendar day
+		// (start_date/end_date are dates; end_date null = open).
+		dayDate := day.Format("2006-01-02")
+		if slot.StartDate != "" && dayDate < slot.StartDate {
 			continue
 		}
-		if slot.EndDate != nil && *slot.EndDate != "" && airDate > *slot.EndDate {
+		if slot.EndDate != nil && *slot.EndDate != "" && dayDate > *slot.EndDate {
 			continue
 		}
-		s, sok := clockMinutes(slot.StartTime)
-		e, eok := clockMinutes(slot.EndTime)
-		if !sok || !eok {
+		// The broadcast's clock position relative to the slot's day: a start on
+		// the day AFTER the slot's day sits 24h into the slot's timeline.
+		c := startClock - dayOffset*24*60
+		if !clockInWindow(c, s-kexpTimeslotStartGraceMinutes, e) {
 			continue
 		}
-		if e <= s {
-			e += 24 * 60 // slot wraps past midnight
-		}
-		// Cover the broadcast's start clock (with a small early-start grace),
-		// checking the wrapped position too for slots spanning midnight.
-		covered := clockInWindow(startClock, s-kexpTimeslotStartGraceMinutes, e) ||
-			clockInWindow(startClock+24*60, s-kexpTimeslotStartGraceMinutes, e)
-		if !covered {
-			continue
-		}
-		// End instant: the broadcast's local date at the slot's end clock, in the
+		// End instant: the slot's calendar day at the slot's end clock, in the
 		// broadcast's own zone offset; a wrapped end lands on the next day.
-		endDay := start
+		endDay := day
 		endMins := e
 		if endMins >= 24*60 {
-			endDay = start.AddDate(0, 0, 1)
+			endDay = day.AddDate(0, 0, 1)
 			endMins -= 24 * 60
 		}
 		end := time.Date(endDay.Year(), endDay.Month(), endDay.Day(), endMins/60, endMins%60, 0, 0, start.Location())
@@ -873,8 +904,10 @@ type kexpLiveShowsResponse struct {
 
 // kexpTimeslotsResponse models /v2/timeslots/ — KEXP's weekly grid, the only
 // place the API publishes an end bound for a broadcast (the /v2/shows list and
-// detail responses carry no end_time). weekday is ISO-like (1=Monday).
+// detail responses carry no end_time — see FetchCurrentAirings). weekday is
+// ISO-like (1=Monday). Paginated like every other KEXP list endpoint.
 type kexpTimeslotsResponse struct {
+	kexpPaginatedResponse
 	Results []kexpTimeslot `json:"results"`
 }
 

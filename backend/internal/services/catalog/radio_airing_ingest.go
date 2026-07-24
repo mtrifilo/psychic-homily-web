@@ -71,9 +71,12 @@ func (s *RadioService) IngestCurrentAirings(now time.Time) AiringIngestResult {
 		if !ok {
 			continue // no live routing for this station (mirrors the now-playing path)
 		}
-		// Honor an open breaker: a station in outage shouldn't be polled by yet
-		// another loop. gateTrial is allowed — a single cheap feed GET is not the
-		// half-open trial (this path never writes breaker state either way).
+		// Breaker: skip ONLY while the breaker is open and inside its cooldown
+		// (gateBlocked). Once past cooldown (gateTrial) the cheap feed GET is
+		// allowed through on every tick — it is deliberately NOT the sweep's
+		// half-open trial and never reads as one: this path writes no breaker
+		// state, so an open breaker stays open (and this loop keeps polling)
+		// until the sweep's real trial resolves it.
 		if breakerGateFor(s.readBreakerSnapshot(station.ID), now) == gateBlocked {
 			continue
 		}
@@ -157,6 +160,12 @@ func (s *RadioService) matchAiringShow(stationID uint, externalID, name string) 
 	}
 	if name != "" {
 		if show := s.findSingleShowRow("station_id = ? AND is_active = TRUE AND LOWER(name) = LOWER(?)", stationID, name); show != nil {
+			// The name tier feeds a WRITE path (episode creation), unlike the
+			// read-only now-playing match it mirrors — log it so a persistent
+			// name collision misattributing airings is discoverable.
+			slog.Info("radio airing ingest: airing matched by exact name (no external-id match)",
+				"station_id", stationID, "provider_external_id", externalID,
+				"show_id", show.ID, "show_name", name)
 			return show
 		}
 	}
@@ -191,9 +200,15 @@ func (s *RadioService) healAiringWindow(existing *catalogm.RadioEpisode, ep Radi
 	updates := map[string]any{}
 	switch {
 	case existing.StartsAt == nil:
-		existing.StartsAt, existing.EndsAt = ep.StartsAt, ep.EndsAt
+		existing.StartsAt = ep.StartsAt
 		updates["starts_at"] = ep.StartsAt
-		updates["ends_at"] = ep.EndsAt
+		// Defense in depth: no current import path produces (nil starts_at,
+		// non-nil ends_at), but never let a feed with no end bound null out a
+		// previously-known one.
+		if ep.EndsAt != nil {
+			existing.EndsAt = ep.EndsAt
+			updates["ends_at"] = ep.EndsAt
+		}
 	case existing.EndsAt == nil && ep.EndsAt != nil && ep.StartsAt.Equal(*existing.StartsAt):
 		existing.EndsAt = ep.EndsAt
 		updates["ends_at"] = ep.EndsAt
