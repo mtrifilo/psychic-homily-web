@@ -71,6 +71,13 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_CreatesWindowedRowIdempotently
 	s.Equal(1, res.StationsPolled)
 	s.Equal(1, res.RowsCreated)
 	s.Equal(0, res.WindowsHealed)
+	s.Equal("", mock.lastChannel, "KEXP is single-stream: the empty channel routes")
+
+	// Neutrality pin: airing ingestion is NOT a sync run — it must write no
+	// radio_sync_runs rows (the scoped-run neutrality family's newest member).
+	var runCount int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioSyncRun{}).Count(&runCount).Error)
+	s.EqualValues(0, runCount, "airing ingestion must leave no sync-run trace")
 
 	var ep catalogm.RadioEpisode
 	s.Require().NoError(s.db.Where("show_id = ? AND external_id = ?", show.ID, "67334").First(&ep).Error)
@@ -122,6 +129,90 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_HealsEndlessRowAndReopensPlayl
 	s.Equal(catalogm.RadioEpisodeStatusLive, ep.Status)
 	s.Equal(catalogm.RadioPlaylistStatePartial, ep.PlaylistState,
 		"a mid-air 'complete' verdict reopens so the live refresh can grow it")
+}
+
+// TestIngestCurrentAirings_DisagreeingStartNeverHeals: an existing end-less row
+// whose stored start does NOT match the feed's start is a different broadcast
+// (or drifted data) — the frozen window must not be touched.
+func (s *RadioSyncSuite) TestIngestCurrentAirings_DisagreeingStartNeverHeals() {
+	now := time.Now()
+	feedStarts, feedEnds := now.Add(-30*time.Minute), now.Add(90*time.Minute)
+	storedStarts := feedStarts.Add(-15 * time.Minute) // disagrees with the feed
+
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	show := s.seedActiveShow(st.ID, "37", nil)
+	seeded := s.seedEpisodeFor(show.ID, "67334", storedStarts.Format("2006-01-02"),
+		catalogm.RadioPlaylistStatePending, 0, &storedStarts, nil, now)
+
+	mock := &mockAiringProvider{airings: []RadioAiring{airingFor("37", "67334", "Eastern Echoes", feedStarts, feedEnds)}}
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) { return mock, nil }
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	res := s.svc.IngestCurrentAirings(now)
+	s.Equal(0, res.RowsCreated)
+	s.Equal(0, res.WindowsHealed, "a disagreeing start must not heal anything")
+
+	ep := s.reloadEpisode(seeded.ID)
+	s.Require().NotNil(ep.StartsAt)
+	s.True(ep.StartsAt.Equal(storedStarts), "the frozen start is untouched")
+	s.Nil(ep.EndsAt, "no end bound is stamped from a disagreeing feed")
+}
+
+// TestIngestCurrentAirings_TrialBreakerPollsWithoutMutatingBreaker: an open
+// breaker PAST its cooldown (gateTrial) does not block the airing poll, and the
+// poll never mutates breaker state — it is not the half-open trial.
+func (s *RadioSyncSuite) TestIngestCurrentAirings_TrialBreakerPollsWithoutMutatingBreaker() {
+	now := time.Now()
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	s.seedActiveShow(st.ID, "37", nil)
+	tripped := now.Add(-45 * time.Minute) // past the 30-min cooldown → gateTrial
+	s.Require().NoError(s.db.Create(&catalogm.RadioStationHealth{
+		StationID:        st.ID,
+		BreakerState:     catalogm.RadioBreakerStateOpen,
+		BreakerTrippedAt: &tripped,
+	}).Error)
+
+	mock := &mockAiringProvider{airings: []RadioAiring{
+		airingFor("37", "67334", "Eastern Echoes", now.Add(-10*time.Minute), now.Add(50*time.Minute)),
+	}}
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) { return mock, nil }
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	res := s.svc.IngestCurrentAirings(now)
+	s.Equal(1, res.StationsPolled, "gateTrial does not block the airing poll")
+	s.Equal(1, mock.airingCalls)
+	s.Equal(1, res.RowsCreated)
+
+	var health catalogm.RadioStationHealth
+	s.Require().NoError(s.db.First(&health, "station_id = ?", st.ID).Error)
+	s.Equal(catalogm.RadioBreakerStateOpen, health.BreakerState,
+		"airing ingestion never consumes the half-open trial or mutates breaker state")
+	s.Require().NotNil(health.BreakerTrippedAt)
+	s.True(health.BreakerTrippedAt.Equal(tripped), "the trip time is untouched")
+}
+
+// TestIngestCurrentAirings_AmbiguousNameMatchSkipped: an airing whose external
+// id matches nothing and whose name matches TWO shows must not guess.
+func (s *RadioSyncSuite) TestIngestCurrentAirings_AmbiguousNameMatchSkipped() {
+	now := time.Now()
+	st := s.seedStation(catalogm.PlaylistSourceKEXP)
+	s.seedActiveShow(st.ID, "dup-a", nil)
+	s.seedActiveShow(st.ID, "dup-b", nil)
+	// Both shows share the display name the airing reports.
+	s.Require().NoError(s.db.Model(&catalogm.RadioShow{}).
+		Where("station_id = ?", st.ID).Update("name", "Duplicated Show").Error)
+
+	mock := &mockAiringProvider{airings: []RadioAiring{
+		airingFor("999", "70002", "Duplicated Show", now.Add(-10*time.Minute), now.Add(50*time.Minute)),
+	}}
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) { return mock, nil }
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	res := s.svc.IngestCurrentAirings(now)
+	s.Equal(0, res.RowsCreated, "an ambiguous name match must not create a row")
+	var epCount int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioEpisode{}).Count(&epCount).Error)
+	s.EqualValues(0, epCount)
 }
 
 // TestIngestCurrentAirings_UnmatchedAiringCreatesNothing: an airing matching no
