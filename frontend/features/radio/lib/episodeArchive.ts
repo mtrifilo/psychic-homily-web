@@ -42,6 +42,92 @@ export function isLiveNow(
 }
 
 /**
+ * Whether the episode's air window is still ahead of or containing `now` —
+ * i.e. the page may still need to FLIP regimes (upcoming→live at starts_at,
+ * live→archive at ends_at). Drives the minute tick: without a pre-window
+ * tick, a page opened before starts_at would show "airs …" through the
+ * whole broadcast (nothing else re-renders it in production, where focus
+ * refetch is disabled). Same conservative null/NaN handling as isLiveNow.
+ */
+export function isWindowLiveOrPending(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!startsAt || !endsAt) return false
+  const start = new Date(startsAt).getTime()
+  const end = new Date(endsAt).getTime()
+  if (isNaN(start) || isNaN(end)) return false
+  return now.getTime() <= end
+}
+
+/** Poll cadence for a live episode's playlist (the live ledger regime). */
+export const LIVE_EPISODE_POLL_MS = 60 * 1000
+
+/**
+ * refetchInterval gate for the episode playlist query: poll only while the
+ * episode is genuinely live (inside its frozen air window), and stop on a
+ * failing query — a function refetchInterval keeps firing on a persistently
+ * failing query otherwise (the PSY-1136 infinite-poll class). Past ends_at
+ * (or for windowless episodes) the page is a static archive: no polling.
+ */
+export function liveEpisodePollMs(
+  error: unknown,
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
+  now: Date = new Date()
+): number | false {
+  if (error) return false
+  return isLiveNow(startsAt, endsAt, now) ? LIVE_EPISODE_POLL_MS : false
+}
+
+/**
+ * Relative TIME label for the live ledger's older rows: "now" under a
+ * minute, then minute-granular "2m" / "14m" / "1h 2m" since the play's
+ * air_timestamp. Null when the feed carried no timestamp (the cell renders
+ * blank rather than fabricating a time, matching the archive rendering).
+ * A slightly-future timestamp (clock skew) clamps to "now".
+ *
+ * Deliberately distinct from the consolidated lib/formatRelativeTime +
+ * lib/formatTimeAgo helpers: the ledger's compact mono grammar has no
+ * " ago" suffix, combines "1h 2m", and takes an injected `now` for the
+ * render-pulse/test pattern. Don't fold them together in a drift audit.
+ */
+export function formatRelativeMinutes(
+  isoString: string | null | undefined,
+  now: Date = new Date()
+): string | null {
+  if (!isoString) return null
+  const t = new Date(isoString).getTime()
+  if (isNaN(t)) return null
+  const mins = Math.max(0, Math.floor((now.getTime() - t) / 60_000))
+  if (mins < 1) return 'now'
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  const rest = mins % 60
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
+}
+
+/**
+ * "updated 40s ago" / "updated 2m ago" for the live band's right edge, from
+ * the query's dataUpdatedAt (ms epoch). Null before the first fetch resolves
+ * (dataUpdatedAt 0) — the band renders without the aside rather than
+ * claiming an update time it doesn't have.
+ */
+export function formatUpdatedAgo(
+  updatedAtMs: number,
+  now: Date = new Date()
+): string | null {
+  if (!updatedAtMs) return null
+  const secs = Math.max(0, Math.floor((now.getTime() - updatedAtMs) / 1000))
+  if (secs < 60) return `updated ${secs}s ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `updated ${mins}m ago`
+  // A long-backgrounded tab can wake hours behind — "187m" reads wrong.
+  return `updated ${Math.floor(mins / 60)}h ago`
+}
+
+/**
  * Map an episode row's artist preview (PSY-1048) onto the ArtistHops shape so
  * matched artists render as graph links and unmatched names as plain text.
  */

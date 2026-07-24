@@ -4,12 +4,25 @@ import { Fragment } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { DenseTable } from '@/components/shared/DenseTable'
-import { formatPlayTime, getRotationStatusColor } from '@/features/radio'
+import { cn } from '@/lib/utils'
+import {
+  formatPlayTime,
+  formatRelativeMinutes,
+  getRotationStatusColor,
+} from '@/features/radio'
 import type { RadioPlay } from '@/features/radio'
 import { SuggestMatchControl } from './SuggestMatchControl'
 
 interface PlaylistTableProps {
   plays: RadioPlay[]
+  /**
+   * Live ledger regime (while the episode is ON AIR): rows render
+   * NEWEST-FIRST with relative TIME labels ("▸ now" on the newest arrival
+   * while its timestamp is fresh, honest relative times otherwise), and the
+   * newest row gets a soft primary tint. Off (default) = the archive
+   * rendering: chronological, absolute times.
+   */
+  live?: boolean
 }
 
 /**
@@ -31,6 +44,14 @@ function rotationTagLabel(status: string): string {
 const BADGE_CLASSES = 'font-mono text-[10px] px-1.5 py-0'
 
 /**
+ * How old the newest row's air_timestamp may be and still read "▸ now".
+ * Past this, the marker would lie exactly when the pipeline is unhealthy
+ * (scrape lag, dead poll) — fall back to the honest relative time instead.
+ * A timestamp-less newest row keeps the marker (nothing to contradict it).
+ */
+const NEWEST_NOW_MAX_AGE_MS = 10 * 60 * 1000
+
+/**
  * The playlist page's full-width record-collector track table: TIME · ARTIST ·
  * TRACK · ALBUM · LABEL · YEAR · NOTES. Matched artists (artist_id) render as
  * an orange link with a ● dot; unmatched as plain text with ○ plus a quiet
@@ -38,7 +59,13 @@ const BADGE_CLASSES = 'font-mono text-[10px] px-1.5 py-0'
  * one and is otherwise blank (never fabricated); position keeps the row order.
  * dj_comment renders as an indented full-width sub-row under its track.
  */
-export function PlaylistTable({ plays }: PlaylistTableProps) {
+export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
+  // Live regime: the API's chronological order reversed = newest-first.
+  // `now` is captured per render; the parent's poll + minute tick re-render
+  // this table, which is what keeps the relative labels fresh (no effect).
+  const ordered = live ? [...plays].reverse() : plays
+  const now = new Date()
+
   return (
     <div>
       <DenseTable>
@@ -54,14 +81,39 @@ export function PlaylistTable({ plays }: PlaylistTableProps) {
           </tr>
         </thead>
         <tbody>
-          {plays.map(play => {
-            const time = formatPlayTime(play.air_timestamp)
+          {ordered.map((play, index) => {
+            const isNewest = live && index === 0
+            const ts = play.air_timestamp
+              ? new Date(play.air_timestamp).getTime()
+              : NaN
+            const newestIsFresh =
+              isNewest &&
+              (isNaN(ts) || now.getTime() - ts < NEWEST_NOW_MAX_AGE_MS)
+            const time = !live
+              ? formatPlayTime(play.air_timestamp)
+              : newestIsFresh
+                ? 'now'
+                : formatRelativeMinutes(play.air_timestamp, now)
             const matched = play.artist_id != null
 
             return (
               <Fragment key={play.id}>
-                <tr className={play.dj_comment ? 'border-b-0!' : undefined}>
-                  <td className="whitespace-nowrap font-mono text-xs text-primary/90 tabular-nums">
+                <tr
+                  data-live-newest={isNewest || undefined}
+                  className={cn(
+                    isNewest && 'bg-primary/5',
+                    play.dj_comment && 'border-b-0!'
+                  )}
+                >
+                  <td
+                    className={cn(
+                      'whitespace-nowrap font-mono text-xs tabular-nums',
+                      isNewest ? 'text-primary font-medium' : 'text-primary/90'
+                    )}
+                  >
+                    {newestIsFresh && (
+                      <span aria-hidden="true">{'▸'} </span>
+                    )}
                     {time ?? ''}
                   </td>
                   <td>
@@ -153,7 +205,7 @@ export function PlaylistTable({ plays }: PlaylistTableProps) {
                   </td>
                 </tr>
                 {play.dj_comment && (
-                  <tr>
+                  <tr className={cn(isNewest && 'bg-primary/5')}>
                     <td aria-hidden="true" />
                     <td colSpan={6} className="pt-0!">
                       <span className="font-mono text-xs text-muted-foreground">

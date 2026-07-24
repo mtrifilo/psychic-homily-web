@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ArrowUpRight, Loader2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,8 +10,11 @@ import {
   computeArtistMatchStats,
   formatDurationMinutes,
   formatTimeOfDay,
+  formatUpdatedAgo,
   formatViewerAiredLine,
   airedVerbForWindow,
+  isLiveNow,
+  isWindowLiveOrPending,
 } from '@/features/radio'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
@@ -36,9 +40,36 @@ function formatWeekday(dateStr: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short' })
 }
 
+/**
+ * Coarse clock tick while the page may still need to change with the clock:
+ * before starts_at (so an open "airs …" tab actually FLIPS to the live
+ * ledger — in production nothing else re-renders it, focus refetch is dev
+ * only) and during the window (relative row times, "updated Ns ago", and
+ * the flip back to the archive at ends_at). The tick's re-render also makes
+ * TanStack re-evaluate refetchInterval, which is what starts the poll at
+ * starts_at. It is purely a re-render pulse — the live regime and row order
+ * themselves are DERIVED from the air window at render time, never stored
+ * in state.
+ */
+function useLiveMinuteTick(enabled: boolean) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    const id = setInterval(() => setTick(t => t + 1), 60 * 1000)
+    return () => clearInterval(id)
+  }, [enabled])
+}
+
 export default function EpisodeDateDetail({ stationSlug, showSlug, date }: EpisodeDateDetailProps) {
-  const { data: episode, isLoading, error } = useRadioEpisode(showSlug, date)
+  const { data: episode, isLoading, error, dataUpdatedAt } = useRadioEpisode(showSlug, date)
   const { data: neighbors } = useEpisodeNeighbors(showSlug, date)
+
+  // Live regime (the ON AIR ledger): derived from the frozen air window on
+  // every render — the query's ~60s poll plus the minute tick below provide
+  // the re-renders that cross the regime boundaries (upcoming→live at
+  // starts_at, live→archive at ends_at).
+  const isLive = isLiveNow(episode?.starts_at, episode?.ends_at)
+  useLiveMinuteTick(isWindowLiveOrPending(episode?.starts_at, episode?.ends_at))
 
   if (isLoading) {
     return (
@@ -48,7 +79,13 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     )
   }
 
-  if (error || !episode) {
+  // Gate the not-found screen on missing DATA, not on `error`: the live
+  // regime's ~60s poll means a single failed background refetch now
+  // coexists with still-valid cached data (TanStack keeps `data` on error),
+  // and blanking a live ledger to "Episode Not Found" over a transient
+  // network blip would discard a page that is otherwise fine. A genuine
+  // not-found still lands here — a failed FIRST fetch has no data.
+  if (!episode) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
@@ -69,6 +106,15 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
 
   const plays = episode.plays ?? []
   const showUrl = `/radio/${stationSlug}/${showSlug}`
+  // The band's right aside must not claim freshness the poll can't deliver:
+  // liveEpisodePollMs stops polling on a query error and nothing restarts it
+  // in production (focus refetch is dev-only), so a lingering error means
+  // the ledger is frozen — say so instead of counting "updated Nm ago" up.
+  const updatedAgo = !isLive
+    ? null
+    : error
+      ? 'live updates paused — reload to resume'
+      : formatUpdatedAgo(dataUpdatedAt)
 
   const matchStats = computeArtistMatchStats(plays)
   const duration = formatDurationMinutes(episode.duration_minutes)
@@ -93,7 +139,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     : `${airedVerb} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
 
   const metaParts = [
-    `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}`,
+    `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}${isLive ? ' so far' : ''}`,
     duration,
     airedLine,
     matchStats.total > 0
@@ -165,12 +211,32 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
           )}
         </header>
 
+        {/* Live band — shown only while the episode is inside its air window
+            (the show page's ON AIR strip language, PSY-1152) */}
+        {isLive && (
+          <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
+            <span className="font-mono text-xs text-foreground">
+              <span className="text-primary" aria-hidden="true">
+                ●
+              </span>{' '}
+              ON AIR NOW — the playlist is updating live
+            </span>
+            {updatedAgo && (
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {updatedAgo}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Track table */}
         {plays.length > 0 ? (
-          <PlaylistTable plays={plays} />
+          <PlaylistTable plays={plays} live={isLive} />
         ) : (
           <div className="py-8 text-center text-sm text-muted-foreground">
-            No playlist data available for this episode
+            {isLive
+              ? 'Waiting for the first track — plays land here as the station reports them'
+              : 'No playlist data available for this episode'}
           </div>
         )}
       </main>

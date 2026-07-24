@@ -6,6 +6,11 @@ import {
   formatPlayTime,
   formatTimeOfDay,
   formatDurationMinutes,
+  formatRelativeMinutes,
+  formatUpdatedAgo,
+  isWindowLiveOrPending,
+  liveEpisodePollMs,
+  LIVE_EPISODE_POLL_MS,
   walkEpisodeNeighbors,
 } from './episodeArchive'
 import type { RadioEpisodeListItem, RadioEpisodesListResponse, RadioPlay } from '../types'
@@ -91,6 +96,95 @@ describe('isLiveNow', () => {
 
   it('is false for an unparseable window', () => {
     expect(isLiveNow('not-a-date', end, new Date('2026-06-09T22:00:00Z'))).toBe(false)
+  })
+})
+
+describe('isWindowLiveOrPending (PSY-1511 tick gate)', () => {
+  const start = '2026-06-09T21:00:00Z'
+  const end = '2026-06-09T23:00:00Z'
+
+  it('is true before and inside the window (the page may still flip regimes)', () => {
+    expect(isWindowLiveOrPending(start, end, new Date('2026-06-09T20:00:00Z'))).toBe(true)
+    expect(isWindowLiveOrPending(start, end, new Date('2026-06-09T22:00:00Z'))).toBe(true)
+    expect(isWindowLiveOrPending(start, end, new Date(end))).toBe(true)
+  })
+
+  it('is false past ends_at (archive pages carry no timer)', () => {
+    expect(isWindowLiveOrPending(start, end, new Date('2026-06-09T23:01:00Z'))).toBe(false)
+  })
+
+  it('is false for missing or unparseable windows', () => {
+    const now = new Date('2026-06-09T22:00:00Z')
+    expect(isWindowLiveOrPending(null, null, now)).toBe(false)
+    expect(isWindowLiveOrPending(start, null, now)).toBe(false)
+    expect(isWindowLiveOrPending('not-a-date', end, now)).toBe(false)
+  })
+})
+
+describe('liveEpisodePollMs (PSY-1511 polling gate)', () => {
+  const start = '2026-06-09T21:00:00Z'
+  const end = '2026-06-09T23:00:00Z'
+  const during = new Date('2026-06-09T22:00:00Z')
+  const after = new Date('2026-06-09T23:01:00Z')
+
+  it('polls while the episode is live', () => {
+    expect(liveEpisodePollMs(null, start, end, during)).toBe(LIVE_EPISODE_POLL_MS)
+  })
+
+  it('stops on a failing query even mid-window (PSY-1136 class)', () => {
+    expect(liveEpisodePollMs(new Error('boom'), start, end, during)).toBe(false)
+  })
+
+  it('stops past ends_at', () => {
+    expect(liveEpisodePollMs(null, start, end, after)).toBe(false)
+  })
+
+  it('never polls a windowless episode or before data arrives', () => {
+    expect(liveEpisodePollMs(null, null, null, during)).toBe(false)
+    expect(liveEpisodePollMs(null, undefined, undefined, during)).toBe(false)
+  })
+
+  it('does not poll before the window opens (upcoming)', () => {
+    expect(liveEpisodePollMs(null, start, end, new Date('2026-06-09T20:00:00Z'))).toBe(
+      false
+    )
+  })
+})
+
+describe('formatRelativeMinutes (PSY-1511 live ledger rows)', () => {
+  const now = new Date('2026-06-09T22:00:00Z')
+
+  it('renders minute granularity, then hours + minutes', () => {
+    expect(formatRelativeMinutes('2026-06-09T21:58:00Z', now)).toBe('2m')
+    expect(formatRelativeMinutes('2026-06-09T21:51:30Z', now)).toBe('8m')
+    expect(formatRelativeMinutes('2026-06-09T20:58:00Z', now)).toBe('1h 2m')
+    expect(formatRelativeMinutes('2026-06-09T21:00:00Z', now)).toBe('1h')
+  })
+
+  it('renders "now" under a minute and clamps future timestamps (clock skew)', () => {
+    expect(formatRelativeMinutes('2026-06-09T21:59:30Z', now)).toBe('now')
+    expect(formatRelativeMinutes('2026-06-09T22:00:30Z', now)).toBe('now')
+  })
+
+  it('is null for missing or unparseable timestamps (blank cell, never fabricated)', () => {
+    expect(formatRelativeMinutes(null, now)).toBeNull()
+    expect(formatRelativeMinutes(undefined, now)).toBeNull()
+    expect(formatRelativeMinutes('not-a-date', now)).toBeNull()
+  })
+})
+
+describe('formatUpdatedAgo (PSY-1511 live band)', () => {
+  const now = new Date('2026-06-09T22:00:00Z')
+
+  it('renders seconds under a minute, then minutes, then hours', () => {
+    expect(formatUpdatedAgo(now.getTime() - 40_000, now)).toBe('updated 40s ago')
+    expect(formatUpdatedAgo(now.getTime() - 2 * 60_000, now)).toBe('updated 2m ago')
+    // A long-backgrounded tab must not read "updated 187m ago"
+    expect(formatUpdatedAgo(now.getTime() - 187 * 60_000, now)).toBe('updated 3h ago')
+  })
+
+  it('is null before the first fetch resolves (dataUpdatedAt 0)', () => {
+    expect(formatUpdatedAgo(0, now)).toBeNull()
   })
 })
 

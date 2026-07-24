@@ -124,6 +124,11 @@ export {
   formatViewerAiredLine,
   airedVerbForWindow,
   walkEpisodeNeighbors,
+  // Live playlist regime: relative row times, the band's "updated N ago",
+  // and the tick gate that lets an open page cross the regime boundaries
+  formatRelativeMinutes,
+  formatUpdatedAgo,
+  isWindowLiveOrPending,
 } from './lib/episodeArchive'
 export type { ArtistMatchStats, EpisodeNeighbors } from './lib/episodeArchive'
 
