@@ -224,6 +224,103 @@ describe('PlaylistTable', () => {
     expect(screen.getByText('not matched yet')).toBeInTheDocument()
   })
 
+  describe('live regime (PSY-1511)', () => {
+    it('renders rows newest-first', () => {
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({ id: 1, position: 1, artist_name: 'CAN' }),
+            makePlay({ id: 2, position: 2, artist_name: 'Neu!' }),
+            makePlay({ id: 3, position: 3, artist_name: 'Harmonia' }),
+          ]}
+        />
+      )
+      const rows = screen.getAllByRole('row').slice(1)
+      expect(rows[0]).toHaveTextContent('Harmonia')
+      expect(rows[1]).toHaveTextContent('Neu!')
+      expect(rows[2]).toHaveTextContent('CAN')
+    })
+
+    it('marks the newest row "▸ now" with the primary tint and gives older rows relative times', () => {
+      const now = Date.now()
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({
+              id: 1,
+              position: 1,
+              artist_name: 'CAN',
+              air_timestamp: new Date(now - 9 * 60_000).toISOString(),
+            }),
+            makePlay({
+              id: 2,
+              position: 2,
+              artist_name: 'Neu!',
+              air_timestamp: new Date(now - 60_000).toISOString(),
+            }),
+          ]}
+        />
+      )
+      const rows = screen.getAllByRole('row').slice(1)
+      expect(rows[0]).toHaveTextContent('▸ now')
+      expect(rows[0]).toHaveTextContent('Neu!')
+      expect(rows[0].className).toContain('bg-primary/5')
+      expect(rows[1]).toHaveTextContent('9m')
+      expect(rows[1].className).not.toContain('bg-primary/5')
+    })
+
+    it('leaves older rows blank when the feed carried no timestamp', () => {
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({ id: 1, position: 1, air_timestamp: null }),
+            makePlay({ id: 2, position: 2, artist_name: 'Neu!', air_timestamp: null }),
+          ]}
+        />
+      )
+      const timeCells = document.querySelectorAll('tbody td:first-child')
+      expect(timeCells[0].textContent).toBe('▸ now')
+      expect(timeCells[1].textContent).toBe('')
+    })
+
+    it('keeps the match affordances: dots, links, and suggest-a-match', () => {
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({ id: 1, position: 1, artist_id: 5, artist_slug: 'can' }),
+            makePlay({ id: 2, position: 2, artist_name: 'The Tweeters' }),
+          ]}
+        />
+      )
+      expect(screen.getByRole('link', { name: 'CAN' })).toHaveAttribute(
+        'href',
+        '/artists/can'
+      )
+      expect(screen.getByTestId('suggest-match-cta')).toBeInTheDocument()
+    })
+
+    it('keeps a dj_comment sub-row under its (reordered) track', () => {
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({ id: 1, position: 1, dj_comment: 'recorded in Forst' }),
+            makePlay({ id: 2, position: 2, artist_name: 'Neu!' }),
+          ]}
+        />
+      )
+      const comment = screen.getByText('recorded in Forst')
+      // CAN's row is now LAST; its comment row must directly follow it.
+      const rows = screen.getAllByRole('row').slice(1)
+      expect(rows[1]).toHaveTextContent('Mother Sky')
+      expect(rows[2]).toBe(comment.closest('tr'))
+    })
+  })
+
   it('shows suggest-a-match CTA on unmatched rows for guests', () => {
     render(<PlaylistTable plays={[makePlay({ artist_name: 'The Tweeters' })]} />)
     expect(screen.getByTestId('suggest-match-cta')).toBeInTheDocument()

@@ -61,9 +61,22 @@ function makeEpisode(overrides: Partial<RadioEpisodeDetail> = {}): RadioEpisodeD
   }
 }
 
-function setEpisode(episode: RadioEpisodeDetail) {
-  mockUseRadioEpisode.mockReturnValue({ data: episode, isLoading: false, error: null })
+function setEpisode(episode: RadioEpisodeDetail, dataUpdatedAt = 0) {
+  mockUseRadioEpisode.mockReturnValue({
+    data: episode,
+    isLoading: false,
+    error: null,
+    dataUpdatedAt,
+  })
   mockUseEpisodeNeighbors.mockReturnValue({ data: undefined })
+}
+
+/** A window covering `now` — the live regime (PSY-1511). */
+function liveWindow() {
+  return {
+    starts_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    ends_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  }
 }
 
 const props = { stationSlug: 'wfmu', showSlug: 'night-owl', date: '2026-06-08' }
@@ -98,10 +111,108 @@ describe('EpisodeDateDetail (PSY-1306)', () => {
   })
 
   it('says "airing" mid-window instead of claiming an in-progress show aired', () => {
-    const starts = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-    const ends = new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    setEpisode(makeEpisode({ starts_at: starts, ends_at: ends }))
+    setEpisode(makeEpisode(liveWindow()))
     render(<EpisodeDateDetail {...props} />)
     expect(screen.getByText(/· airing .* your time/)).toBeInTheDocument()
+  })
+})
+
+describe('EpisodeDateDetail live regime (PSY-1511)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // Matched plays (artist_id set) so the table doesn't mount
+  // SuggestMatchControl, which needs the auth-context test harness — the
+  // match affordances themselves are covered in PlaylistTable.test.tsx.
+  const playFixture = {
+    id: 1,
+    episode_id: 1,
+    position: 1,
+    artist_name: 'CAN',
+    track_title: 'Mother Sky',
+    album_title: null,
+    label_name: null,
+    release_year: null,
+    is_new: false,
+    rotation_status: null,
+    dj_comment: null,
+    is_live_performance: false,
+    is_request: false,
+    artist_id: 5,
+    artist_slug: 'can',
+    release_id: null,
+    release_slug: null,
+    label_id: null,
+    label_slug: null,
+    musicbrainz_artist_id: null,
+    musicbrainz_recording_id: null,
+    musicbrainz_release_id: null,
+    air_timestamp: null,
+  }
+
+  it('shows the ON AIR band with the updated-ago aside while the episode is live', () => {
+    setEpisode(makeEpisode(liveWindow()), Date.now() - 40 * 1000)
+    render(<EpisodeDateDetail {...props} />)
+    expect(
+      screen.getByText(/ON AIR NOW — the playlist is updating live/)
+    ).toBeInTheDocument()
+    expect(screen.getByText('updated 40s ago')).toBeInTheDocument()
+    expect(screen.getByText(/3 tracks so far/)).toBeInTheDocument()
+  })
+
+  it('renders the live ledger: newest-first with the ▸ now marker', () => {
+    setEpisode(
+      makeEpisode({
+        ...liveWindow(),
+        plays: [
+          playFixture,
+          { ...playFixture, id: 2, position: 2, artist_name: 'Neu!' },
+        ],
+      })
+    )
+    render(<EpisodeDateDetail {...props} />)
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(rows[0]).toHaveTextContent('▸ now')
+    expect(rows[0]).toHaveTextContent('Neu!')
+    expect(rows[1]).toHaveTextContent('CAN')
+  })
+
+  it('renders the archive page past ends_at: no band, chronological order', () => {
+    setEpisode(
+      makeEpisode({
+        starts_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        ends_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        plays: [
+          playFixture,
+          { ...playFixture, id: 2, position: 2, artist_name: 'Neu!' },
+        ],
+      }),
+      Date.now()
+    )
+    render(<EpisodeDateDetail {...props} />)
+    expect(screen.queryByText(/ON AIR NOW/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/updated .* ago/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/so far/)).not.toBeInTheDocument()
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(rows[0]).toHaveTextContent('CAN')
+    expect(rows[1]).toHaveTextContent('Neu!')
+    expect(screen.queryByText('▸ now')).not.toBeInTheDocument()
+  })
+
+  it('leaves an upcoming episode untouched: "airs", no band (PSY-1205)', () => {
+    setEpisode(
+      makeEpisode({
+        starts_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        ends_at: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+        is_upcoming: true,
+        play_count: 0,
+        plays: [],
+      })
+    )
+    render(<EpisodeDateDetail {...props} />)
+    expect(screen.getByText(/airs .* your time/)).toBeInTheDocument()
+    expect(screen.queryByText(/ON AIR NOW/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/so far/)).not.toBeInTheDocument()
   })
 })

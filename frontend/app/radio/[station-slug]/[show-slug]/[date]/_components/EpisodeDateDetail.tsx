@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ArrowUpRight, Loader2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,8 +10,10 @@ import {
   computeArtistMatchStats,
   formatDurationMinutes,
   formatTimeOfDay,
+  formatUpdatedAgo,
   formatViewerAiredLine,
   airedVerbForWindow,
+  isLiveNow,
 } from '@/features/radio'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
@@ -36,9 +39,30 @@ function formatWeekday(dateStr: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short' })
 }
 
+/**
+ * Coarse clock tick while the live ledger is on screen, so the relative row
+ * times and the band's "updated Ns ago" don't freeze between polls. This is
+ * purely a re-render pulse — the live regime and row order themselves are
+ * DERIVED from the air window at render time, never stored in state.
+ */
+function useLiveMinuteTick(enabled: boolean) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    const id = setInterval(() => setTick(t => t + 1), 60 * 1000)
+    return () => clearInterval(id)
+  }, [enabled])
+}
+
 export default function EpisodeDateDetail({ stationSlug, showSlug, date }: EpisodeDateDetailProps) {
-  const { data: episode, isLoading, error } = useRadioEpisode(showSlug, date)
+  const { data: episode, isLoading, error, dataUpdatedAt } = useRadioEpisode(showSlug, date)
   const { data: neighbors } = useEpisodeNeighbors(showSlug, date)
+
+  // Live regime (the ON AIR ledger): derived from the frozen air window on
+  // every render — the query's ~60s poll plus the minute tick below provide
+  // the re-renders that flip this back to the archive rendering at ends_at.
+  const isLive = isLiveNow(episode?.starts_at, episode?.ends_at)
+  useLiveMinuteTick(isLive)
 
   if (isLoading) {
     return (
@@ -69,6 +93,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
 
   const plays = episode.plays ?? []
   const showUrl = `/radio/${stationSlug}/${showSlug}`
+  const updatedAgo = isLive ? formatUpdatedAgo(dataUpdatedAt) : null
 
   const matchStats = computeArtistMatchStats(plays)
   const duration = formatDurationMinutes(episode.duration_minutes)
@@ -93,7 +118,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     : `${airedVerb} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
 
   const metaParts = [
-    `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}`,
+    `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}${isLive ? ' so far' : ''}`,
     duration,
     airedLine,
     matchStats.total > 0
@@ -165,9 +190,27 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
           )}
         </header>
 
+        {/* Live band — shown only while the episode is inside its air window
+            (the show page's ON AIR strip language, PSY-1152) */}
+        {isLive && (
+          <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
+            <span className="font-mono text-xs text-foreground">
+              <span className="text-primary" aria-hidden="true">
+                ●
+              </span>{' '}
+              ON AIR NOW — the playlist is updating live
+            </span>
+            {updatedAgo && (
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {updatedAgo}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Track table */}
         {plays.length > 0 ? (
-          <PlaylistTable plays={plays} />
+          <PlaylistTable plays={plays} live={isLive} />
         ) : (
           <div className="py-8 text-center text-sm text-muted-foreground">
             No playlist data available for this episode
