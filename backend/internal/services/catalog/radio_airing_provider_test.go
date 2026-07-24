@@ -305,6 +305,35 @@ func TestNTSFetchCurrentAirings_BroadcastSkewGuard(t *testing.T) {
 	assert.Nil(t, sameDayRerun, "an overnight repeat of yesterday evening's broadcast is skipped")
 }
 
+func TestNTSFetchCurrentAirings_DateOnlyBroadcastTier(t *testing.T) {
+	// NTS sometimes emits a DATE-ONLY broadcast field (the recurring PSY-1152
+	// shape). That must be compared at day granularity — never as an instant
+	// against a fabricated midnight, which would fail the 1h skew tier for
+	// nearly every real first-run.
+	fetch := func(broadcast string) ([]RadioAiring, error) {
+		body := ntsAiringLiveFixture(
+			"2026-07-24T04:00:00+01:00", "2026-07-24T06:00:00+01:00",
+			broadcast, "channeling-special")
+		server := newNTSAiringServer(t, body)
+		defer server.Close()
+		provider := NewNTSProviderWithClient(server.Client(), server.URL)
+		defer provider.Close()
+		return provider.FetchCurrentAirings("1")
+	}
+
+	sameDay, err := fetch("2026-07-24")
+	require.NoError(t, err)
+	assert.Len(t, sameDay, 1, "date-only broadcast on the live start's day → first run, ingested")
+
+	otherDay, err := fetch("2026-07-23")
+	require.NoError(t, err)
+	assert.Nil(t, otherDay, "date-only broadcast on another day → repeat, skipped")
+
+	garbage, err := fetch("not-a-date")
+	require.NoError(t, err)
+	assert.Nil(t, garbage, "unparseable broadcast → fail closed")
+}
+
 func TestNTSFetchCurrentAirings_AliasDateTier(t *testing.T) {
 	// No broadcast field: the alias-recovered date (day granularity) must be
 	// the live start's own calendar day.
