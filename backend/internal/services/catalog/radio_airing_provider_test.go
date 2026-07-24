@@ -102,6 +102,56 @@ func TestKEXPFetchCurrentAirings_EmptyFeed(t *testing.T) {
 	assert.Nil(t, airings)
 }
 
+func TestKEXPResolveAiringEnd_PostMidnightStartMatchesPreviousDaySlot(t *testing.T) {
+	// A broadcast that starts a few minutes AFTER midnight (Saturday 00:05)
+	// inside the previous day's wrapping slot (Friday 23:00–01:00) must still
+	// resolve its end from that slot — the start's own weekday no longer
+	// matches the slot's, but the slot is still in progress.
+	slots := `{"count":1,"results":[{"program":50,"weekday":5,"start_date":"2020-01-01","end_date":null,"start_time":"23:00:00","end_time":"01:00:00"}]}`
+	shows := `{"count":1,"results":[{"id":70001,"program":50,"program_name":"Night Show","start_time":"2026-07-25T00:05:00-07:00"}]}`
+	server := newKEXPAiringServer(t, shows, slots)
+	defer server.Close()
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	airings, err := provider.FetchCurrentAirings("")
+	require.NoError(t, err)
+	require.Len(t, airings, 1)
+	wantEnd, _ := time.Parse(time.RFC3339, "2026-07-25T01:00:00-07:00")
+	require.NotNil(t, airings[0].Episode.EndsAt, "the previous day's wrapping slot covers a post-midnight start")
+	assert.True(t, airings[0].Episode.EndsAt.Equal(wantEnd))
+}
+
+func TestKEXPResolveAiringEnd_FollowsTimeslotPagination(t *testing.T) {
+	// The grid endpoint is paginated like every other KEXP list endpoint: a
+	// covering slot on page TWO must still resolve.
+	page2 := `{"count":101,"next":null,"results":[{"program":37,"weekday":4,"start_date":"2023-09-13","end_date":null,"start_time":"19:00:00","end_time":"22:00:00"}]}`
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/v2/timeslots/") && r.URL.Query().Get("offset") == "100":
+			_, _ = w.Write([]byte(page2))
+		case strings.HasPrefix(r.URL.Path, "/v2/timeslots/"):
+			// Page one: a full page of non-matching slots + a next cursor.
+			_, _ = w.Write([]byte(`{"count":101,"next":"` + server.URL + `/v2/timeslots/?limit=100&offset=100","results":[{"program":99,"weekday":1,"start_date":"2020-01-01","end_date":null,"start_time":"00:00:00","end_time":"01:00:00"}]}`))
+		case strings.HasPrefix(r.URL.Path, "/v2/shows/"):
+			_, _ = w.Write([]byte(kexpAiringShowsFixture))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	airings, err := provider.FetchCurrentAirings("")
+	require.NoError(t, err)
+	require.Len(t, airings, 1)
+	wantEnd, _ := time.Parse(time.RFC3339, "2026-07-23T22:00:00-07:00")
+	require.NotNil(t, airings[0].Episode.EndsAt, "a slot on page two of the grid must still resolve the end")
+	assert.True(t, airings[0].Episode.EndsAt.Equal(wantEnd))
+}
+
 func TestKEXPResolveAiringEnd_MidnightWrapAndGrace(t *testing.T) {
 	// A late-night slot wrapping past midnight (23:00–01:00), and a broadcast
 	// that started 5 minutes EARLY (22:55) — inside the start grace.
@@ -230,11 +280,12 @@ func TestNTSFetchCurrentAirings_UndateableEpisodeSkipped(t *testing.T) {
 	assert.Nil(t, airings, "an undateable episode cannot be verified as a first run — skip")
 }
 
-func TestNTSFetchCurrentAirings_RerunToleranceBoundary(t *testing.T) {
-	// Pin the 36h tolerance direction: an episode dated 35h before the live
-	// start is a first-run (page stamped the previous day), 37h is a rerun.
-	// Alias carries no date so the broadcast instant alone drives the guard.
-	newProvider := func(broadcast string) ([]RadioAiring, error) {
+func TestNTSFetchCurrentAirings_BroadcastSkewGuard(t *testing.T) {
+	// The broadcast-instant tier: a first run's embedded episode IS this
+	// broadcast, so its instant must match the live start within the 1h skew
+	// tolerance. A same-day rerun (original evening → overnight repeat, hours
+	// apart) must be skipped. Alias carries no date so the instant alone drives.
+	fetch := func(broadcast string) ([]RadioAiring, error) {
 		body := ntsAiringLiveFixture(
 			"2026-07-24T04:00:00+01:00", "2026-07-24T06:00:00+01:00",
 			broadcast, "channeling-special")
@@ -245,13 +296,54 @@ func TestNTSFetchCurrentAirings_RerunToleranceBoundary(t *testing.T) {
 		return provider.FetchCurrentAirings("1")
 	}
 
-	inside, err := newProvider("2026-07-22T17:00:00+01:00") // 35h before start
+	inside, err := fetch("2026-07-24T03:30:00+01:00") // 30min skew
 	require.NoError(t, err)
-	assert.Len(t, inside, 1, "35h inside the 36h tolerance → ingested")
+	assert.Len(t, inside, 1, "30min stamping skew → still a first run")
 
-	outside, err := newProvider("2026-07-22T15:00:00+01:00") // 37h before start
+	sameDayRerun, err := fetch("2026-07-23T20:00:00+01:00") // 8h earlier
 	require.NoError(t, err)
-	assert.Nil(t, outside, "37h outside the 36h tolerance → skipped as a rerun")
+	assert.Nil(t, sameDayRerun, "an overnight repeat of yesterday evening's broadcast is skipped")
+}
+
+func TestNTSFetchCurrentAirings_AliasDateTier(t *testing.T) {
+	// No broadcast field: the alias-recovered date (day granularity) must be
+	// the live start's own calendar day.
+	fetch := func(alias string) ([]RadioAiring, error) {
+		body := ntsAiringLiveFixture(
+			"2026-07-24T04:00:00+01:00", "2026-07-24T06:00:00+01:00",
+			"", alias)
+		server := newNTSAiringServer(t, body)
+		defer server.Close()
+		provider := NewNTSProviderWithClient(server.Client(), server.URL)
+		defer provider.Close()
+		return provider.FetchCurrentAirings("1")
+	}
+
+	sameDay, err := fetch("channeling-24th-july-2026")
+	require.NoError(t, err)
+	assert.Len(t, sameDay, 1, "alias dated the live start's own day → ingested")
+
+	otherDay, err := fetch("channeling-23rd-july-2026")
+	require.NoError(t, err)
+	assert.Nil(t, otherDay, "alias dated another day → skipped as a repeat")
+}
+
+func TestNTSFetchCurrentAirings_ImplausibleEndDropped(t *testing.T) {
+	// end_timestamp is untrusted: a window longer than the plausibility cap is
+	// dropped (row stays unbounded — never falsely live for days).
+	body := ntsAiringLiveFixture(
+		"2026-07-24T04:00:00+01:00", "2026-07-25T05:00:00+01:00", // 25h "broadcast"
+		"2026-07-24T04:00:00+01:00", "channeling-24th-july-2026")
+	server := newNTSAiringServer(t, body)
+	defer server.Close()
+	provider := NewNTSProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	airings, err := provider.FetchCurrentAirings("1")
+	require.NoError(t, err)
+	require.Len(t, airings, 1)
+	assert.NotNil(t, airings[0].Episode.StartsAt)
+	assert.Nil(t, airings[0].Episode.EndsAt, "an implausibly long end bound is not frozen")
 }
 
 func TestNTSFetchCurrentAirings_MissingEpisodeAliasSkipped(t *testing.T) {

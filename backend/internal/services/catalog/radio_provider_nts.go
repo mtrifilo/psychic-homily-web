@@ -301,13 +301,22 @@ func (p *NTSProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying,
 	return nil, nil // requested channel not present in the live feed
 }
 
-// ntsAiringRerunToleranceHours bounds how far the embedded episode's own air
-// date (details.broadcast, or its alias-recovered date) may sit from the live
-// window's start before the airing is treated as a REPEAT and skipped. 36h
-// accepts a first-run whose episode page was stamped on the neighboring
-// calendar day (timezone / date-only alias) while catching real reruns, whose
-// original air date is weeks-to-years old.
-const ntsAiringRerunToleranceHours = 36
+// ntsAiringBroadcastSkewTolerance bounds how far the embedded episode's own
+// broadcast INSTANT may sit from the live window's start before the airing is
+// treated as a REPEAT and skipped. For a genuine first run the embedded
+// episode IS this broadcast, so its `broadcast` matches start_timestamp (the
+// observed rerun shape carries the ORIGINAL air instant instead — years off);
+// 1h absorbs minor upstream clock/stamping skew while catching even a
+// same-day rerun (original evening → overnight repeat is hours apart).
+const ntsAiringBroadcastSkewTolerance = time.Hour
+
+// ntsMaxAiringDuration caps the live-feed window accepted as an episode's
+// frozen air window. end_timestamp is untrusted external input, and once
+// frozen an absurd window would pin the episode "live" (and on the 10-min
+// live-refresh ticker) until it passes — the same defensive-bound posture as
+// the import path's future-air-date guard. NTS broadcasts run 1–4h; 12h is
+// generous headroom.
+const ntsMaxAiringDuration = 12 * time.Hour
 
 // FetchCurrentAirings returns the channel's currently-airing NTS broadcast as
 // a windowed episode import (PSY-1509), from the same /v2/live feed the live
@@ -349,20 +358,27 @@ func (p *NTSProvider) FetchCurrentAirings(channel string) ([]RadioAiring, error)
 			return nil, nil // an airing without a start instant can't be windowed
 		}
 
-		// Rerun guard: date the embedded episode by its own broadcast instant
-		// (or alias-recovered date) and skip when it's far from the live start.
-		// FAIL-CLOSED: an episode we cannot date at all cannot be verified as a
-		// first run, so it is skipped too — ingesting it could stamp a live
-		// window onto an archive episode's row, exactly the identity rewrite
-		// this guard exists to prevent (never guess).
-		ownAt, dated := episodeFilterTime(RadioEpisodeImport{
-			AirDate:  dateFromNTSAlias(det.EpisodeAlias),
-			StartsAt: ntsBroadcastPtr(det.Broadcast),
-		})
-		if !dated {
-			return nil, nil
-		}
-		if diff := start.Sub(ownAt); diff > ntsAiringRerunToleranceHours*time.Hour || diff < -ntsAiringRerunToleranceHours*time.Hour {
+		// Rerun guard, FAIL-CLOSED: only an airing verifiably identical to the
+		// embedded episode's own broadcast is ingested. Anything else — a
+		// repeat, or an episode we cannot date at all — is skipped: stamping a
+		// live window under an archive episode's external id would rewrite
+		// that episode's identity and fabricate an airing that never happened.
+		//   - broadcast instant present → it must match the live start within
+		//     ntsAiringBroadcastSkewTolerance (a first run IS this broadcast);
+		//   - alias date only (day granularity) → it must be the live start's
+		//     own local calendar day;
+		//   - neither → unverifiable, skip.
+		// Known residual: an alias-dated same-calendar-day repeat passes (both
+		// airings share the date, so air_date at least stays right).
+		if bAt, ok := parseNTSBroadcast(det.Broadcast); ok {
+			if diff := start.Sub(bAt); diff > ntsAiringBroadcastSkewTolerance || diff < -ntsAiringBroadcastSkewTolerance {
+				return nil, nil
+			}
+		} else if aliasDate := dateFromNTSAlias(det.EpisodeAlias); aliasDate != "" {
+			if aliasDate != start.Format("2006-01-02") {
+				return nil, nil
+			}
+		} else {
 			return nil, nil
 		}
 
@@ -374,7 +390,10 @@ func (p *NTSProvider) FetchCurrentAirings(channel string) ([]RadioAiring, error)
 			AirTime:        &airTime,
 			StartsAt:       &start,
 		}
-		if end, ok := parseNTSBroadcast(ch.Now.EndTimestamp); ok && end.After(start) {
+		// Plausibility-cap the untrusted end bound (ntsMaxAiringDuration): an
+		// absurd window is dropped, leaving the row honestly unbounded (never
+		// falsely live) rather than frozen wrong forever.
+		if end, ok := parseNTSBroadcast(ch.Now.EndTimestamp); ok && end.After(start) && end.Sub(start) <= ntsMaxAiringDuration {
 			e := end
 			ep.EndsAt = &e
 			if dur := int(end.Sub(start).Minutes()); dur > 0 {
@@ -396,15 +415,6 @@ func (p *NTSProvider) FetchCurrentAirings(channel string) ([]RadioAiring, error)
 		}}, nil
 	}
 	return nil, nil // requested channel not present in the live feed
-}
-
-// ntsBroadcastPtr parses an NTS broadcast timestamp into a *time.Time (nil when
-// absent/unparseable) — adapter for episodeFilterTime's DTO shape.
-func ntsBroadcastPtr(broadcast string) *time.Time {
-	if t, ok := parseNTSBroadcast(broadcast); ok {
-		return &t
-	}
-	return nil
 }
 
 // =============================================================================
