@@ -5,7 +5,6 @@ import { Loader2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
-  useStationOverview,
   useStationNowPlaying,
   useRadioStation,
   formatStationLocation,
@@ -28,26 +27,24 @@ interface DialStationStripProps {
 /**
  * One full-width strip on The Dial (PSY-1049): identity column (underlined
  * station name + frequency + location), ON AIR column (current show + track +
- * "earlier:" artist hops, via the PSY-1016 v1 heuristic), and actions
- * ([▶ Listen] + [ live playlist ]). Network flagships also list their channel
- * sub-rows.
+ * "earlier:" artist hops), and actions ([▶ Listen] + a playlist link).
+ * Network flagships also list their channel sub-rows.
  *
  * Underline convention (locked 2026-06-09): station/channel names are
  * underlined foreground links — underline means "this identity is a page".
  * Orange links remain for content (shows/playlists).
  *
- * The ON AIR line consumes the PSY-1022 now-playing endpoint: real live
- * broadcast data where the station's provider exposes it, with an honestly
- * labeled latest-archive fallback otherwise. useStationOverview still feeds
- * the actions column ([▶ Listen] external URL + the [ live playlist ]
- * archive deep-link).
+ * Both the ON AIR line and the actions column's playlist link consume the
+ * same now-playing payload (useStationNowPlaying): real live broadcast data
+ * where the station's provider exposes it, with an honestly labeled
+ * latest-archive fallback otherwise. The link therefore always targets the
+ * show the ON AIR line names — never a different show. useRadioStation
+ * supplies only the [▶ Listen] external URL.
  */
 export function DialStationStrip({ station }: DialStationStripProps) {
-  const {
-    station: detail,
-    nowPlayingShow,
-    latestEpisode,
-  } = useStationOverview(station.slug)
+  const { data: detail } = useRadioStation(station.slug)
+  // Same query key as OnAirBlock's call below — TanStack dedupes the fetch.
+  const { data: nowPlaying } = useStationNowPlaying(station.slug)
 
   // Non-flagship siblings = the network's channels (sibling_stations excludes
   // self, so on a flagship every non-flagship entry is a channel sub-row).
@@ -63,10 +60,9 @@ export function DialStationStrip({ station }: DialStationStripProps) {
     .filter(Boolean)
     .join(' · ')
 
-  const livePlaylistUrl =
-    nowPlayingShow && latestEpisode
-      ? `/radio/${station.slug}/${nowPlayingShow.slug}/${latestEpisode.air_date}`
-      : null
+  const playlistAction = nowPlaying
+    ? playlistActionFor(station.slug, nowPlaying)
+    : null
 
   return (
     <article className="grid gap-3 border-b border-border/60 py-5 last:border-b-0 md:grid-cols-[200px_minmax(0,1fr)_auto] md:gap-6">
@@ -118,16 +114,47 @@ export function DialStationStrip({ station }: DialStationStripProps) {
             </a>
           </Button>
         )}
-        {livePlaylistUrl && (
+        {playlistAction && (
           <BracketLink
-            label="live playlist"
-            href={livePlaylistUrl}
+            label={playlistAction.label}
+            href={playlistAction.href}
             className="font-mono text-xs text-primary hover:text-primary/80"
           />
         )}
       </div>
     </article>
   )
+}
+
+/**
+ * The actions-column playlist link, derived from the SAME now-playing payload
+ * the ON AIR line renders — so the link can never name a different show than
+ * the line above it. Label ladder (mirrors OnAirBlock's On air / Latest
+ * playlist header switch):
+ *
+ * - on air + dated payload → [live playlist] → the dated episode deep-link
+ * - on air, no episode date (live payloads carry none today) → [playlists]
+ *   → the show page
+ * - off air (latest-archive fallback; carries the episode date) →
+ *   [latest playlist] → the dated deep-link
+ * - unmatched show (`show: null`) → no link at all
+ *
+ * "live playlist" is only ever claimed for a dated deep-link while on air.
+ */
+function playlistActionFor(
+  stationSlug: string,
+  data: RadioNowPlaying
+): { label: string; href: string } | null {
+  if (!data.show) return null
+  const showUrl = `/radio/${stationSlug}/${data.show.slug}`
+  if (!data.episode_air_date) {
+    // No dated episode to target — link the show page under an honest label.
+    return { label: 'playlists', href: showUrl }
+  }
+  const datedUrl = `${showUrl}/${data.episode_air_date}`
+  return data.on_air
+    ? { label: 'live playlist', href: datedUrl }
+    : { label: 'latest playlist', href: datedUrl }
 }
 
 // ---------------------------------------------------------------------------

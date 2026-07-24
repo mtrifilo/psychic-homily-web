@@ -11,8 +11,7 @@ import type { RadioEpisodeDetail } from '../types'
  * endpoint: the episodes list (air_date DESC) gives the newest air-date, then
  * the by-date endpoint returns that episode's plays + entity links. The live
  * on-air lines moved to PSY-1022's now-playing endpoint; this hook survives
- * to anchor the archive playlist deep-links (StationOnAirBox,
- * useStationOverview's [ live playlist ]).
+ * to anchor the station page's archive playlist deep-link (StationOnAirBox).
  */
 export function useShowLatestEpisode(showSlug: string | undefined) {
   const slug = showSlug ?? ''

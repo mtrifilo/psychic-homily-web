@@ -2,12 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type {
   RadioStationListItem,
-  RadioStationDetail,
-  RadioEpisodeDetail,
   RadioNowPlaying,
 } from '@/features/radio'
 
-const mockUseStationOverview = vi.fn()
 const mockUseStationNowPlaying = vi.fn()
 const mockUseRadioStation = vi.fn()
 
@@ -15,7 +12,6 @@ vi.mock('@/features/radio', async importOriginal => {
   const actual = await importOriginal<typeof import('@/features/radio')>()
   return {
     ...actual,
-    useStationOverview: (...args: unknown[]) => mockUseStationOverview(...args),
     useStationNowPlaying: (...args: unknown[]) =>
       mockUseStationNowPlaying(...args),
     useRadioStation: (...args: unknown[]) => mockUseRadioStation(...args),
@@ -53,14 +49,6 @@ function makeStation(
     ...overrides,
   }
 }
-
-const stationDetail = {
-  slug: 'wfmu',
-  name: 'WFMU',
-  website: 'https://wfmu.org',
-} as RadioStationDetail
-
-const latestEpisode = { air_date: '2026-06-09' } as RadioEpisodeDetail
 
 /** Live payload for the flagship strip (slug "wfmu"). */
 function liveNowPlaying(overrides: Partial<RadioNowPlaying> = {}): RadioNowPlaying {
@@ -119,16 +107,6 @@ function channelNowPlaying(
   })
 }
 
-// Mirrors the slimmed StationOverview shape (PSY-1075): station detail for
-// [▶ Listen], plus the signature show + latest episode for [ live playlist ].
-function overviewLoaded() {
-  return {
-    station: stationDetail,
-    nowPlayingShow: { id: 3, slug: 'night-owl' },
-    latestEpisode,
-  }
-}
-
 function setNowPlayingBySlug(bySlug: Record<string, RadioNowPlaying | undefined>) {
   mockUseStationNowPlaying.mockImplementation((slug: string) => ({
     data: bySlug[slug],
@@ -137,18 +115,24 @@ function setNowPlayingBySlug(bySlug: Record<string, RadioNowPlaying | undefined>
   }))
 }
 
+// Station detail feeds only the [▶ Listen] external URL — per slug so the
+// flagship strip and channel sub-rows resolve their own stream links.
+const websiteBySlug: Record<string, string> = {
+  wfmu: 'https://wfmu.org',
+  'wfmu-drummer': 'https://wfmu.org/drummer',
+}
+
 describe('DialStationStrip', () => {
   beforeEach(() => {
-    mockUseStationOverview.mockReset().mockReturnValue(overviewLoaded())
     mockUseStationNowPlaying.mockReset()
     setNowPlayingBySlug({
       wfmu: liveNowPlaying(),
       'wfmu-drummer': channelNowPlaying(),
     })
-    mockUseRadioStation.mockReset().mockReturnValue({
-      data: { website: 'https://wfmu.org/drummer' },
+    mockUseRadioStation.mockReset().mockImplementation((slug: string) => ({
+      data: { website: websiteBySlug[slug] },
       isLoading: false,
-    })
+    }))
   })
 
   it('renders the station name as an underlined link to the station page', () => {
@@ -223,8 +207,11 @@ describe('DialStationStrip', () => {
     expect(screen.getByText('w/ DJ Perro Caliente')).toBeInTheDocument()
   })
 
-  it('renders Listen + live playlist actions', () => {
-    render(<DialStationStrip station={makeStation()} />)
+  it('links [live playlist] to the dated episode of the ON AIR show when live and dated', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying({ episode_air_date: '2026-07-22' }),
+    })
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
 
     expect(screen.getByRole('link', { name: /Listen/ })).toHaveAttribute(
       'href',
@@ -232,7 +219,55 @@ describe('DialStationStrip', () => {
     )
     expect(
       screen.getByRole('link', { name: 'live playlist' })
+    ).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-07-22')
+  })
+
+  it('links [playlists] to the ON AIR show page when live but undated', () => {
+    // Default live payload carries episode_air_date: null (all live payloads
+    // today, until PSY-1509).
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
+
+    const link = screen.getByRole('link', { name: 'playlists' })
+    expect(link).toHaveAttribute('href', '/radio/wfmu/night-owl')
+    expect(
+      screen.queryByRole('link', { name: 'live playlist' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('links [latest playlist] to the dated deep-link for the off-air archive fallback', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying({
+        source: 'latest_archive',
+        on_air: false,
+        episode_air_date: '2026-06-09',
+      }),
+    })
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
+
+    expect(
+      screen.getByRole('link', { name: 'latest playlist' })
     ).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-09')
+    expect(
+      screen.queryByRole('link', { name: 'live playlist' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders no playlist action for an unmatched live show', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying({
+        show: null,
+        show_name: 'Secret Canine Agents',
+        episode_air_date: '2026-07-22',
+      }),
+    })
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
+
+    expect(
+      screen.queryByRole('link', { name: /playlist/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'playlists' })
+    ).not.toBeInTheDocument()
   })
 
   it('renders channel sub-rows with the CHANNEL OWN broadcast', () => {
@@ -301,16 +336,11 @@ describe('DialStationStrip', () => {
         recent_artists: [],
       }),
     })
-    mockUseStationOverview.mockReturnValue({
-      ...overviewLoaded(),
-      nowPlayingShow: null,
-      latestEpisode: undefined,
-    })
     render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
 
     expect(screen.getByText('No playlists tracked yet.')).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'live playlist' })
+      screen.queryByRole('link', { name: /playlist/ })
     ).not.toBeInTheDocument()
   })
 
@@ -320,12 +350,10 @@ describe('DialStationStrip', () => {
       isLoading: true,
       error: null,
     }))
-    mockUseStationOverview.mockReturnValue({
-      ...overviewLoaded(),
-      station: undefined,
-      nowPlayingShow: null,
-      latestEpisode: undefined,
-    })
+    mockUseRadioStation.mockImplementation(() => ({
+      data: undefined,
+      isLoading: true,
+    }))
     render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
     expect(screen.getByText('Loading on-air info')).toBeInTheDocument()
   })
