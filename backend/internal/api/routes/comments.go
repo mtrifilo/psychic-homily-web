@@ -60,6 +60,9 @@ func setupCommentSubscriptionRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe", subHandler.UnsubscribeHandler)
 	huma.Get(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe/status", subHandler.SubscriptionStatusHandler)
 	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/mark-read", subHandler.MarkReadHandler)
+
+	// Protected, self-scoped: the user's watching list (PSY Watching tab)
+	huma.Get(rc.Protected, "/me/comment-subscriptions", subHandler.ListSubscriptionsHandler)
 }
 
 // setupFieldNoteRoutes configures field note endpoints on shows.

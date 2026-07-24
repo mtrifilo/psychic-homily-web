@@ -176,6 +176,45 @@ func (h *CommentSubscriptionHandler) SubscriptionStatusHandler(ctx context.Conte
 }
 
 // ============================================================================
+// List Subscriptions / Watching (protected, self-scoped)
+// ============================================================================
+
+// ListCommentSubscriptionsRequest is the request for the watching list.
+type ListCommentSubscriptionsRequest struct {
+	Limit  int `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Page size"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Pagination offset"`
+}
+
+// ListCommentSubscriptionsResponse is the paginated watching list.
+type ListCommentSubscriptionsResponse struct {
+	Body contracts.WatchingListResponse
+}
+
+// ListSubscriptionsHandler handles GET /me/comment-subscriptions.
+// Self-scoped: the user ID always comes from the authenticated context.
+func (h *CommentSubscriptionHandler) ListSubscriptionsHandler(ctx context.Context, req *ListCommentSubscriptionsRequest) (*ListCommentSubscriptionsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	items, total, err := h.subscriptionService.ListWatching(user.ID, req.Limit, req.Offset)
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to list subscriptions (request_id: %s)", requestID),
+		)
+	}
+
+	resp := &ListCommentSubscriptionsResponse{}
+	resp.Body.Items = items
+	resp.Body.Total = total
+	resp.Body.Limit = req.Limit
+	resp.Body.Offset = req.Offset
+	return resp, nil
+}
+
+// ============================================================================
 // Mark Read (protected)
 // ============================================================================
 

@@ -230,12 +230,27 @@ type CommentVoteServiceInterface interface {
 // Comment subscription response types
 // ──────────────────────────────────────────────
 
-// SubscriptionResponse represents a user's subscription to an entity with unread count.
-type SubscriptionResponse struct {
-	EntityType   string    `json:"entity_type"`
-	EntityID     uint      `json:"entity_id"`
-	SubscribedAt time.Time `json:"subscribed_at"`
-	UnreadCount  int       `json:"unread_count"`
+// WatchingItem is one row of a user's comment-thread watch list: the
+// subscription plus entity context and thread activity.
+type WatchingItem struct {
+	EntityType        string     `json:"entity_type" doc:"Entity type (artist, venue, show, release, label, festival, collection)"`
+	EntityID          uint       `json:"entity_id" doc:"Entity ID"`
+	EntityName        string     `json:"entity_name" doc:"Entity display name (falls back to '<type> #<id>' when the entity row is gone)"`
+	EntitySlug        string     `json:"entity_slug,omitempty" required:"false" doc:"Entity slug, empty when the entity has none"`
+	EntityURL         string     `json:"entity_url" doc:"Root-relative frontend path for the entity (slug when present, ID otherwise)"`
+	SubscribedAt      time.Time  `json:"subscribed_at" doc:"When the user subscribed"`
+	CommentCount      int        `json:"comment_count" doc:"Number of visible comments on the entity"`
+	LastCommentAt     *time.Time `json:"last_comment_at,omitempty" required:"false" doc:"Timestamp of the most recent visible comment, null when the thread is empty"`
+	LastCommenterName string     `json:"last_commenter_name,omitempty" required:"false" doc:"Display name of the most recent commenter, empty when the thread is empty"`
+	UnreadCount       int        `json:"unread_count" doc:"Visible comments (any kind) newer than the user's last-read marker; matches the subscribe/status badge"`
+}
+
+// WatchingListResponse is the paginated watch-list payload.
+type WatchingListResponse struct {
+	Items  []WatchingItem `json:"items" doc:"Watch-list rows ordered by last comment activity, newest first"`
+	Total  int64          `json:"total" doc:"Total subscription count for the user (for the watching tab label)"`
+	Limit  int            `json:"limit" doc:"Page size used"`
+	Offset int            `json:"offset" doc:"Offset used"`
 }
 
 // SubscriptionStatusResponse represents subscription status and unread count for an entity.
@@ -265,8 +280,10 @@ type CommentSubscriptionServiceInterface interface {
 	// GetUnreadCount returns the number of unread comments for a user on an entity.
 	GetUnreadCount(userID uint, entityType string, entityID uint) (int, error)
 
-	// GetSubscriptionsForUser returns paginated subscriptions with unread counts.
-	GetSubscriptionsForUser(userID uint, limit, offset int) ([]SubscriptionResponse, int64, error)
+	// ListWatching returns the user's subscriptions enriched with entity
+	// context and last comment activity, ordered by last activity (newest
+	// first), plus the total subscription count.
+	ListWatching(userID uint, limit, offset int) ([]WatchingItem, int64, error)
 
 	// GetSubscribersForEntity returns user IDs of all subscribers for an entity.
 	GetSubscribersForEntity(entityType string, entityID uint) ([]uint, error)

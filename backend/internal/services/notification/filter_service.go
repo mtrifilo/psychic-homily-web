@@ -18,6 +18,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
@@ -974,24 +975,7 @@ const commentInboxExcerptMaxRunes = 140
 // engagementm.ValidCommentEntityTypes map at row-write time, so any
 // entity_type that arrives here is guaranteed to be one of these seven.
 func commentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {
-	switch entityType {
-	case "artist":
-		return "artists", "artists", "name", true
-	case "venue":
-		return "venues", "venues", "name", true
-	case "show":
-		return "shows", "shows", "title", true
-	case "release":
-		return "releases", "releases", "name", true
-	case "label":
-		return "labels", "labels", "name", true
-	case "festival":
-		return "festivals", "festivals", "name", true
-	case "collection":
-		return "collections", "collections", "name", true
-	default:
-		return "", "", "", false
-	}
+	return engagementm.CommentEntityPathAndTable(entityType)
 }
 
 // commentNotificationEntityTypes is the set of notification_log.entity_type
@@ -1011,12 +995,9 @@ type commentRow struct {
 }
 
 // entityNameRow projects the (id, name|title, slug) tuple from a parent
-// entity table during the per-table batch lookup.
-type entityNameRow struct {
-	ID   uint
-	Name string
-	Slug string
-}
+// entity table during the per-table batch lookup (shared with the
+// watching-list enrichment).
+type entityNameRow = shared.EntityNameRow
 
 // enrichCommentNotifications walks entries, finds the comment-driven rows,
 // then batch-loads (in order): the referenced comments, the commenters'
@@ -1128,31 +1109,15 @@ func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]c
 		set[c.EntityID] = struct{}{}
 	}
 
-	out := make(map[string]map[uint]entityNameRow, len(idsByType))
+	idListByType := make(map[string][]uint, len(idsByType))
 	for entityType, idSet := range idsByType {
-		_, table, nameCol, _ := commentEntityPathAndTable(entityType)
 		ids := make([]uint, 0, len(idSet))
 		for id := range idSet {
 			ids = append(ids, id)
 		}
-		var rows []entityNameRow
-		// Aliased SELECT so shows (column "title") and the rest (column
-		// "name") scan into the same struct field.
-		err := s.db.Table(table).
-			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
-			Where("id IN ?", ids).
-			Scan(&rows).Error
-		if err != nil {
-			log.Printf("warning: failed to load parent entities for table %s: %v", table, err)
-			continue
-		}
-		byID := make(map[uint]entityNameRow, len(rows))
-		for _, r := range rows {
-			byID[r.ID] = r
-		}
-		out[entityType] = byID
+		idListByType[entityType] = ids
 	}
-	return out
+	return shared.LoadCommentEntityNames(s.db, idListByType)
 }
 
 // formatEntityURL builds the (URL, display-name) pair for a comment's
