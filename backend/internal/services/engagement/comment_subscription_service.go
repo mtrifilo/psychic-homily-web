@@ -8,8 +8,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // CommentSubscriptionService implements CommentSubscriptionServiceInterface.
@@ -151,8 +153,34 @@ func (s *CommentSubscriptionService) GetUnreadCount(userID uint, entityType stri
 	return int(count), nil
 }
 
-// GetSubscriptionsForUser returns paginated subscriptions with unread counts.
-func (s *CommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit, offset int) ([]contracts.SubscriptionResponse, int64, error) {
+// watchingRow is the scan target for the ListWatching aggregate query.
+type watchingRow struct {
+	EntityType    string
+	EntityID      uint
+	SubscribedAt  time.Time
+	CommentCount  int
+	LastCommentAt *time.Time
+	LastCommentID *uint
+	UnreadCount   int
+}
+
+// watchingEntityRow is the scan target for the per-table entity batch
+// lookup. Slug scans to "" for entities whose slug column is NULL.
+type watchingEntityRow struct {
+	ID   uint
+	Name string
+	Slug string
+}
+
+// ListWatching returns the user's subscriptions enriched with entity
+// context and last comment activity, ordered by last activity (newest
+// first; threads without comments last, by subscription recency).
+//
+// Aggregates (count / last activity / unread-vs-last-read) come from one
+// LATERAL query; entity names and last-commenter names are then resolved
+// in one batch query per distinct entity table plus one for users — no
+// per-row queries.
+func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int) ([]contracts.WatchingItem, int64, error) {
 	if s.db == nil {
 		return nil, 0, errors.New("database not initialized")
 	}
@@ -164,7 +192,6 @@ func (s *CommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit,
 		offset = 0
 	}
 
-	// Count total subscriptions
 	var total int64
 	err := s.db.Model(&engagementm.CommentSubscription{}).
 		Where("user_id = ?", userID).
@@ -172,34 +199,183 @@ func (s *CommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit,
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count subscriptions: %w", err)
 	}
-
 	if total == 0 {
-		return []contracts.SubscriptionResponse{}, 0, nil
+		return []contracts.WatchingItem{}, 0, nil
 	}
 
-	// Fetch subscriptions ordered by most recent first
-	var subs []engagementm.CommentSubscription
-	err = s.db.Where("user_id = ?", userID).
-		Order("subscribed_at DESC").
-		Limit(limit).Offset(offset).
-		Find(&subs).Error
+	// Only kind='comment' rows form the watched thread; field notes are a
+	// separate surface. Visibility mirrors GetUnreadCount.
+	var rows []watchingRow
+	err = s.db.Raw(`
+		SELECT cs.entity_type,
+		       cs.entity_id,
+		       cs.subscribed_at,
+		       COALESCE(agg.comment_count, 0)  AS comment_count,
+		       agg.last_comment_at,
+		       agg.last_comment_id,
+		       COALESCE(agg.unread_count, 0)   AS unread_count
+		FROM comment_subscriptions cs
+		LEFT JOIN comment_last_read clr
+		       ON clr.user_id = cs.user_id
+		      AND clr.entity_type = cs.entity_type
+		      AND clr.entity_id = cs.entity_id
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*)          AS comment_count,
+			       MAX(c.created_at) AS last_comment_at,
+			       MAX(c.id)         AS last_comment_id,
+			       COUNT(*) FILTER (WHERE c.id > COALESCE(clr.last_read_comment_id, 0)) AS unread_count
+			FROM comments c
+			WHERE c.entity_type = cs.entity_type
+			  AND c.entity_id = cs.entity_id
+			  AND c.kind = ?
+			  AND c.visibility = ?
+		) agg ON true
+		WHERE cs.user_id = ?
+		ORDER BY agg.last_comment_at DESC NULLS LAST, cs.subscribed_at DESC
+		LIMIT ? OFFSET ?`,
+		engagementm.CommentKindComment, engagementm.CommentVisibilityVisible,
+		userID, limit, offset,
+	).Scan(&rows).Error
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch subscriptions: %w", err)
+		return nil, 0, fmt.Errorf("failed to fetch watching list: %w", err)
 	}
 
-	// Build responses with unread counts
-	responses := make([]contracts.SubscriptionResponse, len(subs))
-	for i, sub := range subs {
-		unread, _ := s.GetUnreadCount(userID, sub.EntityType, sub.EntityID)
-		responses[i] = contracts.SubscriptionResponse{
-			EntityType:   sub.EntityType,
-			EntityID:     sub.EntityID,
-			SubscribedAt: sub.SubscribedAt,
-			UnreadCount:  unread,
+	entities := s.loadWatchingEntities(rows)
+	commenterNames := s.loadLastCommenterNames(rows)
+
+	items := make([]contracts.WatchingItem, len(rows))
+	for i, row := range rows {
+		item := contracts.WatchingItem{
+			EntityType:    row.EntityType,
+			EntityID:      row.EntityID,
+			SubscribedAt:  row.SubscribedAt,
+			CommentCount:  row.CommentCount,
+			LastCommentAt: row.LastCommentAt,
+			UnreadCount:   row.UnreadCount,
+			Unread:        row.UnreadCount > 0,
+		}
+		item.EntityName, item.EntitySlug, item.EntityURL = resolveWatchingEntity(row.EntityType, row.EntityID, entities)
+		if row.LastCommentID != nil {
+			item.LastCommenterName = commenterNames[*row.LastCommentID]
+		}
+		items[i] = item
+	}
+
+	return items, total, nil
+}
+
+// loadWatchingEntities batch-loads (id, name, slug) for the page's
+// entities, one SELECT per distinct entity table.
+func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) map[string]map[uint]watchingEntityRow {
+	idsByType := make(map[string]map[uint]struct{})
+	for _, r := range rows {
+		if _, _, _, ok := engagementm.CommentEntityPathAndTable(r.EntityType); !ok {
+			continue
+		}
+		set, exists := idsByType[r.EntityType]
+		if !exists {
+			set = make(map[uint]struct{})
+			idsByType[r.EntityType] = set
+		}
+		set[r.EntityID] = struct{}{}
+	}
+
+	out := make(map[string]map[uint]watchingEntityRow, len(idsByType))
+	for entityType, idSet := range idsByType {
+		_, table, nameCol, _ := engagementm.CommentEntityPathAndTable(entityType)
+		ids := make([]uint, 0, len(idSet))
+		for id := range idSet {
+			ids = append(ids, id)
+		}
+		var entityRows []watchingEntityRow
+		// Aliased SELECT so shows (column "title") and the rest (column
+		// "name") scan into the same struct field.
+		err := s.db.Table(table).
+			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
+			Where("id IN ?", ids).
+			Scan(&entityRows).Error
+		if err != nil {
+			// Fall through: rows resolve to the "<type> #<id>" fallback.
+			continue
+		}
+		byID := make(map[uint]watchingEntityRow, len(entityRows))
+		for _, r := range entityRows {
+			byID[r.ID] = r
+		}
+		out[entityType] = byID
+	}
+	return out
+}
+
+// loadLastCommenterNames batch-resolves the display name of each
+// last-comment author, keyed by comment ID.
+func (s *CommentSubscriptionService) loadLastCommenterNames(rows []watchingRow) map[uint]string {
+	commentIDs := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		if r.LastCommentID != nil {
+			commentIDs = append(commentIDs, *r.LastCommentID)
 		}
 	}
+	if len(commentIDs) == 0 {
+		return map[uint]string{}
+	}
 
-	return responses, total, nil
+	// Every ResolveUserName chain column must be selected (see the
+	// warning on shared.ResolveUserName).
+	type commenterRow struct {
+		CommentID   uint
+		UserID      uint
+		Username    *string
+		DisplayName *string
+		FirstName   *string
+		LastName    *string
+		Email       *string
+	}
+	var commenters []commenterRow
+	err := s.db.Table("comments").
+		Select(`comments.id AS comment_id, users.id AS user_id, users.username,
+			users.display_name, users.first_name, users.last_name, users.email`).
+		Joins("JOIN users ON users.id = comments.user_id").
+		Where("comments.id IN ?", commentIDs).
+		Scan(&commenters).Error
+	if err != nil {
+		return map[uint]string{}
+	}
+
+	names := make(map[uint]string, len(commenters))
+	for _, c := range commenters {
+		names[c.CommentID] = shared.ResolveUserName(&authm.User{
+			ID:          c.UserID,
+			Username:    c.Username,
+			DisplayName: c.DisplayName,
+			FirstName:   c.FirstName,
+			LastName:    c.LastName,
+			Email:       c.Email,
+		})
+	}
+	return names
+}
+
+// resolveWatchingEntity turns a (type, id) pair into the display name,
+// slug, and root-relative URL, falling back to "<type> #<id>" + an
+// ID-based URL when the entity row is missing (deleted since subscribe).
+func resolveWatchingEntity(entityType string, entityID uint, entities map[string]map[uint]watchingEntityRow) (name, slug, url string) {
+	pathSegment, _, _, ok := engagementm.CommentEntityPathAndTable(entityType)
+	if !ok {
+		return fmt.Sprintf("%s #%d", entityType, entityID), "", ""
+	}
+	row, hasRow := entities[entityType][entityID]
+	if hasRow && row.Slug != "" {
+		url = fmt.Sprintf("/%s/%s", pathSegment, row.Slug)
+	} else {
+		url = fmt.Sprintf("/%s/%d", pathSegment, entityID)
+	}
+	if hasRow && row.Name != "" {
+		name = row.Name
+	} else {
+		name = fmt.Sprintf("%s #%d", entityType, entityID)
+	}
+	return name, row.Slug, url
 }
 
 // GetSubscribersForEntity returns user IDs of all subscribers for an entity.

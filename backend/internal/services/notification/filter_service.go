@@ -18,6 +18,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
@@ -974,24 +975,7 @@ const commentInboxExcerptMaxRunes = 140
 // engagementm.ValidCommentEntityTypes map at row-write time, so any
 // entity_type that arrives here is guaranteed to be one of these seven.
 func commentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {
-	switch entityType {
-	case "artist":
-		return "artists", "artists", "name", true
-	case "venue":
-		return "venues", "venues", "name", true
-	case "show":
-		return "shows", "shows", "title", true
-	case "release":
-		return "releases", "releases", "name", true
-	case "label":
-		return "labels", "labels", "name", true
-	case "festival":
-		return "festivals", "festivals", "name", true
-	case "collection":
-		return "collections", "collections", "name", true
-	default:
-		return "", "", "", false
-	}
+	return engagementm.CommentEntityPathAndTable(entityType)
 }
 
 // commentNotificationEntityTypes is the set of notification_log.entity_type

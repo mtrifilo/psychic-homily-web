@@ -8,6 +8,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Uses auto-generated testhelpers.MockCommentSubscriptionService and testhelpers.MockAuditLogService
@@ -271,6 +272,63 @@ func TestSubscriptionStatus_ServiceError(t *testing.T) {
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
 
 	_, err := h.SubscriptionStatusHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// ListSubscriptionsHandler Tests
+// ============================================================================
+
+func TestListSubscriptions_NoAuth(t *testing.T) {
+	h := testCommentSubscriptionHandler()
+	req := &ListCommentSubscriptionsRequest{Limit: 20, Offset: 0}
+
+	_, err := h.ListSubscriptionsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestListSubscriptions_SelfScopedAndPaginated(t *testing.T) {
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		ListWatchingFn: func(userID uint, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
+			// User ID must come from the authenticated context, never the request
+			if userID != 7 || limit != 10 || offset != 20 {
+				return nil, 0, fmt.Errorf("unexpected args: %d, %d, %d", userID, limit, offset)
+			}
+			return []contracts.WatchingItem{
+				{EntityType: "artist", EntityID: 3, EntityName: "Watch Artist", EntityURL: "/artists/watch-artist", CommentCount: 4, Unread: true, UnreadCount: 2},
+			}, 31, nil
+		},
+	}, nil)
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7})
+	req := &ListCommentSubscriptionsRequest{Limit: 10, Offset: 20}
+
+	resp, err := h.ListSubscriptionsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 31 {
+		t.Errorf("expected total=31, got %d", resp.Body.Total)
+	}
+	if len(resp.Body.Items) != 1 || resp.Body.Items[0].EntityName != "Watch Artist" {
+		t.Errorf("unexpected items: %+v", resp.Body.Items)
+	}
+	if resp.Body.Limit != 10 || resp.Body.Offset != 20 {
+		t.Errorf("expected limit/offset echoed, got %d/%d", resp.Body.Limit, resp.Body.Offset)
+	}
+}
+
+func TestListSubscriptions_ServiceError(t *testing.T) {
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		ListWatchingFn: func(userID uint, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
+			return nil, 0, fmt.Errorf("database error")
+		},
+	}, nil)
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &ListCommentSubscriptionsRequest{Limit: 20, Offset: 0}
+
+	_, err := h.ListSubscriptionsHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 500)
 }
 

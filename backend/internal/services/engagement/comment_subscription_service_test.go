@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -41,6 +42,8 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM comment_subscriptions")
 	_, _ = sqlDB.Exec("DELETE FROM comments")
 	_, _ = sqlDB.Exec("DELETE FROM users")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
+	_, _ = sqlDB.Exec("DELETE FROM venues")
 }
 
 func TestCommentSubscriptionServiceIntegrationTestSuite(t *testing.T) {
@@ -300,65 +303,213 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestGetUnreadCountZ
 }
 
 // =============================================================================
-// GET SUBSCRIPTIONS FOR USER TESTS
+// LIST WATCHING TESTS
 // =============================================================================
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestGetSubscriptionsForUserWithResults() {
-	user := suite.createTestUser()
-
-	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
-	suite.NoError(suite.service.Subscribe(user.ID, "artist", 2))
-
-	subs, total, err := suite.service.GetSubscriptionsForUser(user.ID, 20, 0)
-	suite.NoError(err)
-	suite.Equal(int64(2), total)
-	suite.Len(subs, 2)
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
+	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	artist := &catalogm.Artist{Name: name, Slug: &slug}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+	return artist
 }
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestGetSubscriptionsForUserEmpty() {
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestVenue(name string) *catalogm.Venue {
+	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	venue := &catalogm.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	return venue
+}
+
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestCommentAt(userID uint, entityType string, entityID uint, createdAt time.Time) *engagementm.Comment {
+	comment := &engagementm.Comment{
+		Kind:       engagementm.CommentKindComment,
+		EntityType: engagementm.CommentEntityType(entityType),
+		EntityID:   entityID,
+		UserID:     userID,
+		Body:       "Test comment",
+		BodyHTML:   "<p>Test comment</p>",
+		Visibility: engagementm.CommentVisibilityVisible,
+		CreatedAt:  createdAt,
+	}
+	suite.Require().NoError(suite.db.Create(comment).Error)
+	return comment
+}
+
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEmpty() {
 	user := suite.createTestUser()
 
-	subs, total, err := suite.service.GetSubscriptionsForUser(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(0), total)
-	suite.Len(subs, 0)
+	suite.Len(items, 0)
 }
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestGetSubscriptionsForUserPagination() {
+// TestListWatchingEnrichesEntityContextAcrossTypes covers the batched
+// multi-entity-type resolution: artist + venue rows resolve to names,
+// slugs, and slug URLs; a subscription whose entity row is missing
+// falls back to "<type> #<id>" + ID URL.
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnrichesEntityContextAcrossTypes() {
 	user := suite.createTestUser()
+	commenter := suite.createTestUser()
+	displayName := "DJ Spectre"
+	suite.Require().NoError(suite.db.Model(commenter).Update("display_name", displayName).Error)
 
-	for i := 1; i <= 5; i++ {
-		suite.NoError(suite.service.Subscribe(user.ID, "show", uint(i)))
-	}
+	artist := suite.createTestArtist("Watch Artist")
+	venue := suite.createTestVenue("Watch Venue")
 
-	// First page
-	subs, total, err := suite.service.GetSubscriptionsForUser(user.ID, 2, 0)
+	suite.NoError(suite.service.Subscribe(user.ID, "artist", artist.ID))
+	suite.NoError(suite.service.Subscribe(user.ID, "venue", venue.ID))
+	suite.NoError(suite.service.Subscribe(user.ID, "show", 999)) // no show row
+
+	base := time.Now().UTC().Add(-time.Hour)
+	suite.createTestCommentAt(commenter.ID, "venue", venue.ID, base)
+	suite.createTestCommentAt(commenter.ID, "artist", artist.ID, base.Add(time.Minute))
+
+	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
 	suite.NoError(err)
-	suite.Equal(int64(5), total)
-	suite.Len(subs, 2)
+	suite.Equal(int64(3), total)
+	suite.Require().Len(items, 3)
 
-	// Second page
-	subs2, _, err := suite.service.GetSubscriptionsForUser(user.ID, 2, 2)
-	suite.NoError(err)
-	suite.Len(subs2, 2)
+	// Ordered by last_comment_at DESC; no-comment sub last
+	suite.Equal("artist", items[0].EntityType)
+	suite.Equal("Watch Artist", items[0].EntityName)
+	suite.Equal(*artist.Slug, items[0].EntitySlug)
+	suite.Equal("/artists/"+*artist.Slug, items[0].EntityURL)
+	suite.Equal(1, items[0].CommentCount)
+	suite.Equal(displayName, items[0].LastCommenterName)
+	suite.NotNil(items[0].LastCommentAt)
 
-	// Third page (only 1 remaining)
-	subs3, _, err := suite.service.GetSubscriptionsForUser(user.ID, 2, 4)
-	suite.NoError(err)
-	suite.Len(subs3, 1)
+	suite.Equal("venue", items[1].EntityType)
+	suite.Equal("Watch Venue", items[1].EntityName)
+	suite.Equal("/venues/"+*venue.Slug, items[1].EntityURL)
+
+	// Missing entity row → fallback name + ID URL, empty thread
+	suite.Equal("show", items[2].EntityType)
+	suite.Equal("show #999", items[2].EntityName)
+	suite.Equal("", items[2].EntitySlug)
+	suite.Equal("/shows/999", items[2].EntityURL)
+	suite.Equal(0, items[2].CommentCount)
+	suite.Nil(items[2].LastCommentAt)
+	suite.Equal("", items[2].LastCommenterName)
 }
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestGetSubscriptionsForUserIncludesUnreadCount() {
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingUnreadVsLastRead() {
 	user := suite.createTestUser()
 
 	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
+	suite.NoError(suite.service.Subscribe(user.ID, "show", 2))
+
+	// show 1: two comments, never read → unread
 	suite.createTestComment(user.ID, "show", 1)
 	suite.createTestComment(user.ID, "show", 1)
 
-	subs, _, err := suite.service.GetSubscriptionsForUser(user.ID, 20, 0)
+	// show 2: one comment, fully read → not unread
+	suite.createTestComment(user.ID, "show", 2)
+	suite.NoError(suite.service.MarkRead(user.ID, "show", 2))
+
+	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
 	suite.NoError(err)
-	suite.Len(subs, 1)
-	suite.Equal(2, subs[0].UnreadCount)
+	suite.Require().Len(items, 2)
+
+	byEntity := map[uint]int{items[0].EntityID: 0, items[1].EntityID: 1}
+	show1 := items[byEntity[1]]
+	show2 := items[byEntity[2]]
+
+	suite.True(show1.Unread)
+	suite.Equal(2, show1.UnreadCount)
+	suite.False(show2.Unread)
+	suite.Equal(0, show2.UnreadCount)
+
+	// New comment after mark-read flips show 2 back to unread
+	suite.createTestComment(user.ID, "show", 2)
+	items, _, err = suite.service.ListWatching(user.ID, 20, 0)
+	suite.NoError(err)
+	for _, item := range items {
+		if item.EntityID == 2 {
+			suite.True(item.Unread)
+			suite.Equal(1, item.UnreadCount)
+		}
+	}
+}
+
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingPagination() {
+	user := suite.createTestUser()
+
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := 1; i <= 5; i++ {
+		suite.NoError(suite.service.Subscribe(user.ID, "show", uint(i)))
+		suite.createTestCommentAt(user.ID, "show", uint(i), base.Add(time.Duration(i)*time.Minute))
+	}
+
+	// First page: newest activity first (show 5, show 4)
+	items, total, err := suite.service.ListWatching(user.ID, 2, 0)
+	suite.NoError(err)
+	suite.Equal(int64(5), total)
+	suite.Require().Len(items, 2)
+	suite.Equal(uint(5), items[0].EntityID)
+	suite.Equal(uint(4), items[1].EntityID)
+
+	// Second page
+	items2, _, err := suite.service.ListWatching(user.ID, 2, 2)
+	suite.NoError(err)
+	suite.Require().Len(items2, 2)
+	suite.Equal(uint(3), items2[0].EntityID)
+
+	// Third page (only 1 remaining)
+	items3, _, err := suite.service.ListWatching(user.ID, 2, 4)
+	suite.NoError(err)
+	suite.Len(items3, 1)
+}
+
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCountsOnlyVisibleComments() {
+	user := suite.createTestUser()
+	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
+
+	suite.createTestComment(user.ID, "show", 1)
+
+	hidden := &engagementm.Comment{
+		Kind:       engagementm.CommentKindComment,
+		EntityType: "show",
+		EntityID:   1,
+		UserID:     user.ID,
+		Body:       "Hidden",
+		BodyHTML:   "<p>Hidden</p>",
+		Visibility: engagementm.CommentVisibilityHiddenByMod,
+	}
+	suite.Require().NoError(suite.db.Create(hidden).Error)
+
+	fieldNote := &engagementm.Comment{
+		Kind:       engagementm.CommentKindFieldNote,
+		EntityType: "show",
+		EntityID:   1,
+		UserID:     user.ID,
+		Body:       "Field note",
+		BodyHTML:   "<p>Field note</p>",
+		Visibility: engagementm.CommentVisibilityVisible,
+	}
+	suite.Require().NoError(suite.db.Create(fieldNote).Error)
+
+	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
+	suite.NoError(err)
+	suite.Require().Len(items, 1)
+	suite.Equal(1, items[0].CommentCount)
+	suite.Equal(1, items[0].UnreadCount)
+}
+
+// TestListWatchingScopedToUser: another user's subscriptions must never
+// appear in (or affect the total of) the requesting user's list.
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingScopedToUser() {
+	user := suite.createTestUser()
+	other := suite.createTestUser()
+
+	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
+	suite.NoError(suite.service.Subscribe(other.ID, "show", 2))
+
+	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	suite.NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(items, 1)
+	suite.Equal(uint(1), items[0].EntityID)
 }
 
 // =============================================================================
@@ -451,9 +602,9 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBGetUnreadC
 	suite.Contains(err.Error(), "database not initialized")
 }
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBGetSubscriptionsForUser() {
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBListWatching() {
 	svc := &CommentSubscriptionService{db: nil}
-	_, _, err := svc.GetSubscriptionsForUser(1, 20, 0)
+	_, _, err := svc.ListWatching(1, 20, 0)
 	suite.Error(err)
 	suite.Contains(err.Error(), "database not initialized")
 }

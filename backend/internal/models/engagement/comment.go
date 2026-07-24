@@ -67,6 +67,32 @@ var ValidCommentEntityTypes = map[CommentEntityType]string{
 	CommentEntityCollection: "collections",
 }
 
+// CommentEntityPathAndTable maps a comment entity type string to its
+// frontend path segment, database table, and display-name column.
+// Single source of truth for enrichment surfaces (notification inbox,
+// watching list) that resolve a comment's parent entity into a
+// name + URL.
+func CommentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {
+	switch CommentEntityType(entityType) {
+	case CommentEntityArtist:
+		return "artists", "artists", "name", true
+	case CommentEntityVenue:
+		return "venues", "venues", "name", true
+	case CommentEntityShow:
+		return "shows", "shows", "title", true
+	case CommentEntityRelease:
+		return "releases", "releases", "name", true
+	case CommentEntityLabel:
+		return "labels", "labels", "name", true
+	case CommentEntityFestival:
+		return "festivals", "festivals", "name", true
+	case CommentEntityCollection:
+		return "collections", "collections", "name", true
+	default:
+		return "", "", "", false
+	}
+}
+
 // MaxCommentDepth is the maximum nesting depth (0=top-level, 1=reply, 2=reply-to-reply)
 const MaxCommentDepth = 2
 

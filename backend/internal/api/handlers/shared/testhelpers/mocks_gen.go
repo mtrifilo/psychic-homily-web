@@ -1138,7 +1138,7 @@ type MockCommentSubscriptionService struct {
 	IsSubscribedFn            func(uint, string, uint) (bool, error)
 	MarkReadFn                func(uint, string, uint) error
 	GetUnreadCountFn          func(uint, string, uint) (int, error)
-	GetSubscriptionsForUserFn func(uint, int, int) ([]contracts.SubscriptionResponse, int64, error)
+	ListWatchingFn            func(uint, int, int) ([]contracts.WatchingItem, int64, error)
 	GetSubscribersForEntityFn func(string, uint) ([]uint, error)
 }
 
@@ -1172,9 +1172,9 @@ func (m *MockCommentSubscriptionService) GetUnreadCount(userID uint, entityType 
 	}
 	return 0, nil
 }
-func (m *MockCommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit int, offset int) ([]contracts.SubscriptionResponse, int64, error) {
-	if m.GetSubscriptionsForUserFn != nil {
-		return m.GetSubscriptionsForUserFn(userID, limit, offset)
+func (m *MockCommentSubscriptionService) ListWatching(userID uint, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
+	if m.ListWatchingFn != nil {
+		return m.ListWatchingFn(userID, limit, offset)
 	}
 	return nil, 0, nil
 }
