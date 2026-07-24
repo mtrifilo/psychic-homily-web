@@ -134,7 +134,9 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
     expect(
       screen.getByText(/ON AIR NOW — the playlist is updating live/)
     ).toBeInTheDocument()
-    expect(screen.getByText('updated 40s ago')).toBeInTheDocument()
+    // Seconds-granular but not exact-value: the fixture is Date.now()-relative
+    // and the formatter reads its own clock, so pin the shape, not "40".
+    expect(screen.getByText(/^updated \d+s ago$/)).toBeInTheDocument()
     expect(screen.getByText(/3 tracks so far/)).toBeInTheDocument()
   })
 
@@ -175,6 +177,37 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
     expect(rows[0]).toHaveTextContent('CAN')
     expect(rows[1]).toHaveTextContent('Neu!')
     expect(screen.queryByText('▸ now')).not.toBeInTheDocument()
+  })
+
+  it('keeps rendering cached data when a background poll errors (no false Not Found)', () => {
+    // TanStack keeps `data` when a refetch fails: error and data coexist.
+    // The ~60s live poll makes this state routine — it must not blank the
+    // ledger to "Episode Not Found" over a transient blip.
+    mockUseRadioEpisode.mockReturnValue({
+      data: makeEpisode({ ...liveWindow(), plays: [playFixture] }),
+      isLoading: false,
+      error: new Error('transient poll failure'),
+      dataUpdatedAt: Date.now() - 90 * 1000,
+    })
+    mockUseEpisodeNeighbors.mockReturnValue({ data: undefined })
+    render(<EpisodeDateDetail {...props} />)
+    expect(screen.queryByText('Episode Not Found')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/ON AIR NOW — the playlist is updating live/)
+    ).toBeInTheDocument()
+    expect(screen.getByText('Mother Sky')).toBeInTheDocument()
+  })
+
+  it('still shows Not Found when the first fetch fails with no data', () => {
+    mockUseRadioEpisode.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error('404'),
+      dataUpdatedAt: 0,
+    })
+    mockUseEpisodeNeighbors.mockReturnValue({ data: undefined })
+    render(<EpisodeDateDetail {...props} />)
+    expect(screen.getByText('Episode Not Found')).toBeInTheDocument()
   })
 
   it('leaves an upcoming episode untouched: "airs", no band (PSY-1205)', () => {

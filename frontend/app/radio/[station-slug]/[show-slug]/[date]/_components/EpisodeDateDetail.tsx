@@ -57,7 +57,7 @@ function useLiveMinuteTick(enabled: boolean) {
 }
 
 export default function EpisodeDateDetail({ stationSlug, showSlug, date }: EpisodeDateDetailProps) {
-  const { data: episode, isLoading, error, dataUpdatedAt } = useRadioEpisode(showSlug, date)
+  const { data: episode, isLoading, dataUpdatedAt } = useRadioEpisode(showSlug, date)
   const { data: neighbors } = useEpisodeNeighbors(showSlug, date)
 
   // Live regime (the ON AIR ledger): derived from the frozen air window on
@@ -74,7 +74,13 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     )
   }
 
-  if (error || !episode) {
+  // Gate the not-found screen on missing DATA, not on `error`: the live
+  // regime's ~60s poll means a single failed background refetch now
+  // coexists with still-valid cached data (TanStack keeps `data` on error),
+  // and blanking a live ledger to "Episode Not Found" over a transient
+  // network blip would discard a page that is otherwise fine. A genuine
+  // not-found still lands here — a failed FIRST fetch has no data.
+  if (!episode) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">

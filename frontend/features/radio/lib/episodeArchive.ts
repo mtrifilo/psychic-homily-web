@@ -101,7 +101,10 @@ export function formatUpdatedAgo(
   if (!updatedAtMs) return null
   const secs = Math.max(0, Math.floor((now.getTime() - updatedAtMs) / 1000))
   if (secs < 60) return `updated ${secs}s ago`
-  return `updated ${Math.floor(secs / 60)}m ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `updated ${mins}m ago`
+  // A long-backgrounded tab can wake hours behind — "187m" reads wrong.
+  return `updated ${Math.floor(mins / 60)}h ago`
 }
 
 /**

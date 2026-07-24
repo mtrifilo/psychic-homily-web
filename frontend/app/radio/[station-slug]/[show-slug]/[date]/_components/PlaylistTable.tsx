@@ -77,7 +77,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
             const time = !live
               ? formatPlayTime(play.air_timestamp)
               : isNewest
-                ? '▸ now'
+                ? 'now'
                 : formatRelativeMinutes(play.air_timestamp, now)
             const matched = play.artist_id != null
 
@@ -95,6 +95,9 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                       isNewest ? 'text-primary font-medium' : 'text-primary/90'
                     )}
                   >
+                    {isNewest && (
+                      <span aria-hidden="true">{'▸'} </span>
+                    )}
                     {time ?? ''}
                   </td>
                   <td>

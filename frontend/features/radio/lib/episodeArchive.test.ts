@@ -153,9 +153,11 @@ describe('formatRelativeMinutes (PSY-1511 live ledger rows)', () => {
 describe('formatUpdatedAgo (PSY-1511 live band)', () => {
   const now = new Date('2026-06-09T22:00:00Z')
 
-  it('renders seconds under a minute, then minutes', () => {
+  it('renders seconds under a minute, then minutes, then hours', () => {
     expect(formatUpdatedAgo(now.getTime() - 40_000, now)).toBe('updated 40s ago')
     expect(formatUpdatedAgo(now.getTime() - 2 * 60_000, now)).toBe('updated 2m ago')
+    // A long-backgrounded tab must not read "updated 187m ago"
+    expect(formatUpdatedAgo(now.getTime() - 187 * 60_000, now)).toBe('updated 3h ago')
   })
 
   it('is null before the first fetch resolves (dataUpdatedAt 0)', () => {
