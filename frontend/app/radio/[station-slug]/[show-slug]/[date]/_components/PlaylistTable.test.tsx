@@ -238,9 +238,28 @@ describe('PlaylistTable', () => {
       const rows = screen.getAllByRole('row').slice(1)
       expect(rows[0]).toHaveTextContent('▸ now')
       expect(rows[0]).toHaveTextContent('Neu!')
-      expect(rows[0].className).toContain('bg-primary/5')
+      expect(rows[0]).toHaveAttribute('data-live-newest')
       expect(rows[1]).toHaveTextContent('9m')
-      expect(rows[1].className).not.toContain('bg-primary/5')
+      expect(rows[1]).not.toHaveAttribute('data-live-newest')
+    })
+
+    it('drops the "▸ now" marker for a stale newest row (honest relative time)', () => {
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({
+              id: 1,
+              position: 1,
+              air_timestamp: new Date(Date.now() - 35 * 60_000).toISOString(),
+            }),
+          ]}
+        />
+      )
+      const timeCell = document.querySelector('tbody td:first-child')
+      expect(timeCell?.textContent).toBe('35m')
+      // Still marked/tinted as the newest row — only the "now" claim goes.
+      expect(screen.getAllByRole('row')[1]).toHaveAttribute('data-live-newest')
     })
 
     it('leaves older rows blank when the feed carried no timestamp', () => {
@@ -290,6 +309,25 @@ describe('PlaylistTable', () => {
       const rows = screen.getAllByRole('row').slice(1)
       expect(rows[1]).toHaveTextContent('Mother Sky')
       expect(rows[2]).toBe(comment.closest('tr'))
+    })
+
+    it("extends the newest row's tint to its dj_comment sub-row", () => {
+      render(
+        <PlaylistTable
+          live
+          plays={[
+            makePlay({ id: 1, position: 1 }),
+            makePlay({
+              id: 2,
+              position: 2,
+              artist_name: 'Neu!',
+              dj_comment: 'live in the studio',
+            }),
+          ]}
+        />
+      )
+      const commentRow = screen.getByText('live in the studio').closest('tr')
+      expect(commentRow?.className).toContain('bg-primary/5')
     })
   })
 

@@ -41,6 +41,26 @@ export function isLiveNow(
   return t >= start && t <= end
 }
 
+/**
+ * Whether the episode's air window is still ahead of or containing `now` —
+ * i.e. the page may still need to FLIP regimes (upcoming→live at starts_at,
+ * live→archive at ends_at). Drives the minute tick: without a pre-window
+ * tick, a page opened before starts_at would show "airs …" through the
+ * whole broadcast (nothing else re-renders it in production, where focus
+ * refetch is disabled). Same conservative null/NaN handling as isLiveNow.
+ */
+export function isWindowLiveOrPending(
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!startsAt || !endsAt) return false
+  const start = new Date(startsAt).getTime()
+  const end = new Date(endsAt).getTime()
+  if (isNaN(start) || isNaN(end)) return false
+  return now.getTime() <= end
+}
+
 /** Poll cadence for a live episode's playlist (the live ledger regime). */
 export const LIVE_EPISODE_POLL_MS = 60 * 1000
 

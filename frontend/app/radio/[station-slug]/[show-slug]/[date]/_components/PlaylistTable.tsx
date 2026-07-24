@@ -17,9 +17,10 @@ interface PlaylistTableProps {
   plays: RadioPlay[]
   /**
    * Live ledger regime (while the episode is ON AIR): rows render
-   * NEWEST-FIRST with relative TIME labels ("▸ now" on the newest arrival,
-   * then "2m" / "14m" back), and the newest row gets a soft primary tint.
-   * Off (default) = the archive rendering: chronological, absolute times.
+   * NEWEST-FIRST with relative TIME labels ("▸ now" on the newest arrival
+   * while its timestamp is fresh, honest relative times otherwise), and the
+   * newest row gets a soft primary tint. Off (default) = the archive
+   * rendering: chronological, absolute times.
    */
   live?: boolean
 }
@@ -41,6 +42,14 @@ function rotationTagLabel(status: string): string {
 }
 
 const BADGE_CLASSES = 'font-mono text-[10px] px-1.5 py-0'
+
+/**
+ * How old the newest row's air_timestamp may be and still read "▸ now".
+ * Past this, the marker would lie exactly when the pipeline is unhealthy
+ * (scrape lag, dead poll) — fall back to the honest relative time instead.
+ * A timestamp-less newest row keeps the marker (nothing to contradict it).
+ */
+const NEWEST_NOW_MAX_AGE_MS = 10 * 60 * 1000
 
 /**
  * The playlist page's full-width record-collector track table: TIME · ARTIST ·
@@ -74,9 +83,15 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
         <tbody>
           {ordered.map((play, index) => {
             const isNewest = live && index === 0
+            const ts = play.air_timestamp
+              ? new Date(play.air_timestamp).getTime()
+              : NaN
+            const newestIsFresh =
+              isNewest &&
+              (isNaN(ts) || now.getTime() - ts < NEWEST_NOW_MAX_AGE_MS)
             const time = !live
               ? formatPlayTime(play.air_timestamp)
-              : isNewest
+              : newestIsFresh
                 ? 'now'
                 : formatRelativeMinutes(play.air_timestamp, now)
             const matched = play.artist_id != null
@@ -84,6 +99,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
             return (
               <Fragment key={play.id}>
                 <tr
+                  data-live-newest={isNewest || undefined}
                   className={cn(
                     isNewest && 'bg-primary/5',
                     play.dj_comment && 'border-b-0!'
@@ -95,7 +111,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                       isNewest ? 'text-primary font-medium' : 'text-primary/90'
                     )}
                   >
-                    {isNewest && (
+                    {newestIsFresh && (
                       <span aria-hidden="true">{'▸'} </span>
                     )}
                     {time ?? ''}
@@ -189,7 +205,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                   </td>
                 </tr>
                 {play.dj_comment && (
-                  <tr>
+                  <tr className={cn(isNewest && 'bg-primary/5')}>
                     <td aria-hidden="true" />
                     <td colSpan={6} className="pt-0!">
                       <span className="font-mono text-xs text-muted-foreground">

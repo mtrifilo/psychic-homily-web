@@ -93,6 +93,36 @@ describe('useRadioEpisode', () => {
     }
   })
 
+  it('stops polling after a failed refetch (error-guarded wiring, PSY-1136 class)', async () => {
+    vi.useFakeTimers()
+    try {
+      const live = {
+        id: 1,
+        show_slug: 'drummer',
+        air_date: '2026-05-01',
+        starts_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        ends_at: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+      }
+      mockApiRequest.mockResolvedValueOnce(live)
+
+      renderHook(() => useRadioEpisode('drummer', '2026-05-01'), {
+        wrapper: createWrapper(),
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+
+      // Next poll fails; the interval must not keep firing afterwards.
+      mockApiRequest.mockRejectedValue(new Error('boom'))
+      await vi.advanceTimersByTimeAsync(61 * 1000)
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(3 * 61 * 1000)
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not poll an aired episode', async () => {
     vi.useFakeTimers()
     try {

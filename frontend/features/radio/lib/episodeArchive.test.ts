@@ -8,6 +8,7 @@ import {
   formatDurationMinutes,
   formatRelativeMinutes,
   formatUpdatedAgo,
+  isWindowLiveOrPending,
   liveEpisodePollMs,
   LIVE_EPISODE_POLL_MS,
   walkEpisodeNeighbors,
@@ -95,6 +96,28 @@ describe('isLiveNow', () => {
 
   it('is false for an unparseable window', () => {
     expect(isLiveNow('not-a-date', end, new Date('2026-06-09T22:00:00Z'))).toBe(false)
+  })
+})
+
+describe('isWindowLiveOrPending (PSY-1511 tick gate)', () => {
+  const start = '2026-06-09T21:00:00Z'
+  const end = '2026-06-09T23:00:00Z'
+
+  it('is true before and inside the window (the page may still flip regimes)', () => {
+    expect(isWindowLiveOrPending(start, end, new Date('2026-06-09T20:00:00Z'))).toBe(true)
+    expect(isWindowLiveOrPending(start, end, new Date('2026-06-09T22:00:00Z'))).toBe(true)
+    expect(isWindowLiveOrPending(start, end, new Date(end))).toBe(true)
+  })
+
+  it('is false past ends_at (archive pages carry no timer)', () => {
+    expect(isWindowLiveOrPending(start, end, new Date('2026-06-09T23:01:00Z'))).toBe(false)
+  })
+
+  it('is false for missing or unparseable windows', () => {
+    const now = new Date('2026-06-09T22:00:00Z')
+    expect(isWindowLiveOrPending(null, null, now)).toBe(false)
+    expect(isWindowLiveOrPending(start, null, now)).toBe(false)
+    expect(isWindowLiveOrPending('not-a-date', end, now)).toBe(false)
   })
 })
 

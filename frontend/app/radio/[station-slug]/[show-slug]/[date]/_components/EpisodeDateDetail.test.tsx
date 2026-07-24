@@ -138,6 +138,12 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
     // and the formatter reads its own clock, so pin the shape, not "40".
     expect(screen.getByText(/^updated \d+s ago$/)).toBeInTheDocument()
     expect(screen.getByText(/3 tracks so far/)).toBeInTheDocument()
+    // A live episode with no plays yet gets the live waiting copy, not the
+    // archive "No playlist data available" line under an ON AIR band.
+    expect(screen.getByText(/Waiting for the first track/)).toBeInTheDocument()
+    expect(
+      screen.queryByText('No playlist data available for this episode')
+    ).not.toBeInTheDocument()
   })
 
   it('renders the live ledger: newest-first with the ▸ now marker', () => {
@@ -196,6 +202,12 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
       screen.getByText(/ON AIR NOW — the playlist is updating live/)
     ).toBeInTheDocument()
     expect(screen.getByText('Mother Sky')).toBeInTheDocument()
+    // The poll stops on error and nothing restarts it in production — the
+    // band must say so instead of counting a stale "updated Nm ago" up.
+    expect(
+      screen.getByText('live updates paused — reload to resume')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^updated \d+/)).not.toBeInTheDocument()
   })
 
   it('still shows Not Found when the first fetch fails with no data', () => {
