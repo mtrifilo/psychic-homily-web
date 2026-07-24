@@ -594,7 +594,7 @@ func (p *KEXPProvider) FetchCurrentAirings(_ string) ([]RadioAiring, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching current broadcast: %w", err)
 	}
-	var page kexpAiringShowsResponse
+	var page kexpLiveShowsResponse
 	if err := json.Unmarshal(body, &page); err != nil {
 		return nil, fmt.Errorf("parsing current broadcast response: %w", err)
 	}
@@ -856,29 +856,18 @@ type kexpShowsResponse struct {
 	Results []kexpShow `json:"results"`
 }
 
-// kexpLiveShowsResponse is the /v2/shows/?limit=1 shape the live now-playing
-// fetch needs: the current broadcast's program reference, display name, and
-// resolved host names (kexpShow drops host_names; kexpShowListing drops
-// program_name — this carries both).
+// kexpLiveShowsResponse is the /v2/shows/?limit=1 shape shared by the live
+// now-playing fetch (program reference, display name, resolved host names —
+// kexpShow drops host_names; kexpShowListing drops program_name) and the
+// airing-feed ingestion (PSY-1509: additionally the broadcast instance's own
+// id + start instant).
 type kexpLiveShowsResponse struct {
 	Results []struct {
+		ID          int      `json:"id"`
 		Program     int      `json:"program"`
 		ProgramName string   `json:"program_name"`
 		HostNames   []string `json:"host_names"`
-	} `json:"results"`
-}
-
-// kexpAiringShowsResponse is the /v2/shows/?limit=1 shape the airing-feed
-// ingestion needs (PSY-1509): the current broadcast instance's own id plus its
-// program reference, display name, and start instant. (kexpLiveShowsResponse
-// drops the broadcast id and start_time; kexpShow drops nothing but reads the
-// legacy field set — this keeps the airing contract explicit.)
-type kexpAiringShowsResponse struct {
-	Results []struct {
-		ID          int    `json:"id"`
-		Program     int    `json:"program"`
-		ProgramName string `json:"program_name"`
-		StartTime   string `json:"start_time"`
+		StartTime   string   `json:"start_time"`
 	} `json:"results"`
 }
 

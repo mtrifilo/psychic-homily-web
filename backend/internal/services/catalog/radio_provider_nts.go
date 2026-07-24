@@ -351,13 +351,19 @@ func (p *NTSProvider) FetchCurrentAirings(channel string) ([]RadioAiring, error)
 
 		// Rerun guard: date the embedded episode by its own broadcast instant
 		// (or alias-recovered date) and skip when it's far from the live start.
-		if ownAt, dated := episodeFilterTime(RadioEpisodeImport{
+		// FAIL-CLOSED: an episode we cannot date at all cannot be verified as a
+		// first run, so it is skipped too — ingesting it could stamp a live
+		// window onto an archive episode's row, exactly the identity rewrite
+		// this guard exists to prevent (never guess).
+		ownAt, dated := episodeFilterTime(RadioEpisodeImport{
 			AirDate:  dateFromNTSAlias(det.EpisodeAlias),
 			StartsAt: ntsBroadcastPtr(det.Broadcast),
-		}); dated {
-			if diff := start.Sub(ownAt); diff > ntsAiringRerunToleranceHours*time.Hour || diff < -ntsAiringRerunToleranceHours*time.Hour {
-				return nil, nil
-			}
+		})
+		if !dated {
+			return nil, nil
+		}
+		if diff := start.Sub(ownAt); diff > ntsAiringRerunToleranceHours*time.Hour || diff < -ntsAiringRerunToleranceHours*time.Hour {
+			return nil, nil
 		}
 
 		airTime := start.Format("15:04:05")

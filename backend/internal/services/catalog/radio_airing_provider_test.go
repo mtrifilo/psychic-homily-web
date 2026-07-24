@@ -212,6 +212,48 @@ func TestNTSFetchCurrentAirings_RerunSkippedByAliasDateAlone(t *testing.T) {
 	assert.Nil(t, airings)
 }
 
+func TestNTSFetchCurrentAirings_UndateableEpisodeSkipped(t *testing.T) {
+	// FAIL-CLOSED: no broadcast field AND no alias-recoverable date — the
+	// episode cannot be verified as a first run, so it must be skipped, not
+	// ingested by default (stamping a live window under an archive episode's
+	// external id would rewrite its identity).
+	body := ntsAiringLiveFixture(
+		"2026-07-24T04:00:00+01:00", "2026-07-24T06:00:00+01:00",
+		"", "channeling-special")
+	server := newNTSAiringServer(t, body)
+	defer server.Close()
+	provider := NewNTSProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	airings, err := provider.FetchCurrentAirings("1")
+	require.NoError(t, err)
+	assert.Nil(t, airings, "an undateable episode cannot be verified as a first run — skip")
+}
+
+func TestNTSFetchCurrentAirings_RerunToleranceBoundary(t *testing.T) {
+	// Pin the 36h tolerance direction: an episode dated 35h before the live
+	// start is a first-run (page stamped the previous day), 37h is a rerun.
+	// Alias carries no date so the broadcast instant alone drives the guard.
+	newProvider := func(broadcast string) ([]RadioAiring, error) {
+		body := ntsAiringLiveFixture(
+			"2026-07-24T04:00:00+01:00", "2026-07-24T06:00:00+01:00",
+			broadcast, "channeling-special")
+		server := newNTSAiringServer(t, body)
+		defer server.Close()
+		provider := NewNTSProviderWithClient(server.Client(), server.URL)
+		defer provider.Close()
+		return provider.FetchCurrentAirings("1")
+	}
+
+	inside, err := newProvider("2026-07-22T17:00:00+01:00") // 35h before start
+	require.NoError(t, err)
+	assert.Len(t, inside, 1, "35h inside the 36h tolerance → ingested")
+
+	outside, err := newProvider("2026-07-22T15:00:00+01:00") // 37h before start
+	require.NoError(t, err)
+	assert.Nil(t, outside, "37h outside the 36h tolerance → skipped as a rerun")
+}
+
 func TestNTSFetchCurrentAirings_MissingEpisodeAliasSkipped(t *testing.T) {
 	body := ntsAiringLiveFixture(
 		"2026-07-24T04:00:00+01:00", "2026-07-24T06:00:00+01:00",
