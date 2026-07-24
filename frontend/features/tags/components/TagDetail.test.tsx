@@ -71,6 +71,17 @@ vi.mock('@/components/shared', () => ({
       <span>{currentPage}</span>
     </nav>
   ),
+  FollowButton: ({
+    entityType,
+    entityId,
+  }: {
+    entityType: string
+    entityId: number | string
+  }) => (
+    <button data-testid="follow-button">
+      Follow {entityType}/{entityId}
+    </button>
+  ),
 }))
 
 import { TagDetail } from './TagDetail'
@@ -253,6 +264,20 @@ describe('TagDetail', () => {
     expect(screen.getByTestId('notify-me-button')).toHaveTextContent(
       'Notify Punk'
     )
+  })
+
+  it('renders FollowButton ahead of Notify me for the tag id', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ id: 42, name: 'Punk' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<TagDetail slug="punk" />)
+    const follow = screen.getByTestId('follow-button')
+    expect(follow).toHaveTextContent('Follow tags/42')
+    const header = screen.getByTestId('tag-header')
+    const actions = within(header).getAllByRole('button')
+    expect(actions[0]).toBe(follow)
   })
 
   it('renders description HTML when present', () => {

@@ -27,6 +27,7 @@ const toSingularFollowType = (entityType: string) =>
     scenes: 'scene',
     labels: 'label',
     festivals: 'festival',
+    tags: 'tag',
     'radio-shows': 'radio_show',
   })[entityType] ?? entityType
 
@@ -39,6 +40,7 @@ const toLibraryCountKey = (
     scene: 'scenes',
     label: 'labels',
     festival: 'festivals',
+    tag: 'tags',
   })[toSingularFollowType(entityType)] as
     | keyof LibraryFollowingCounts
     | undefined

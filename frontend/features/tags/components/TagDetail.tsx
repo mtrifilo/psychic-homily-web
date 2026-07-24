@@ -7,7 +7,7 @@ import { ArrowLeft, Hash, Loader2, X } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Breadcrumb } from '@/components/shared'
+import { Breadcrumb, FollowButton } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useTagDetail, useTagIntersection, useSearchTags } from '../hooks'
 import {
@@ -207,6 +207,7 @@ function TagDetailContent({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            <FollowButton entityType="tags" entityId={tag.id} />
             <NotifyMeButton
               entityType="tag"
               entityId={tag.id}

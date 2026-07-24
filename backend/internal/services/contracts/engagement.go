@@ -135,6 +135,7 @@ type LibraryFollowingCounts struct {
 	Scenes    int64 `json:"scenes"`
 	Labels    int64 `json:"labels"`
 	Festivals int64 `json:"festivals"`
+	Tags      int64 `json:"tags"`
 }
 
 // LibraryFollowingEntityResponse is the non-radio entity shape returned by

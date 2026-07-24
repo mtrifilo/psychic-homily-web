@@ -13,9 +13,8 @@ interface ProfileFollowingProps {
   isOwner?: boolean
 }
 
-// Following lists artists/venues/labels/festivals. Tag-following does not
-// exist in the backend (PSY-1045 dropped the mocked TAGS row), and shows use
-// the save action rather than follow, so neither appears here.
+// Following lists artists/venues/labels/festivals/scenes/tags. Shows use the
+// save action rather than follow, so they do not appear here.
 const TYPE_ROWS: Array<{
   type: FollowingEntity['entity_type']
   label: string
@@ -26,6 +25,7 @@ const TYPE_ROWS: Array<{
   { type: 'label', label: 'Labels', href: slug => `/labels/${slug}` },
   { type: 'festival', label: 'Festivals', href: slug => `/festivals/${slug}` },
   { type: 'scene', label: 'Scenes', href: slug => `/scenes/${slug}` },
+  { type: 'tag', label: 'Tags', href: slug => `/tags/${slug}` },
 ]
 
 /**

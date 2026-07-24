@@ -45,6 +45,7 @@ const LIBRARY_TABS = [
   'scenes',
   'labels',
   'festivals',
+  'tags',
   'releases',
 ] as const
 type LibraryTab = (typeof LIBRARY_TABS)[number]
@@ -633,6 +634,11 @@ const entityTypeInfo: Record<
     label: 'Festival',
     href: slug => `/festivals/${slug}`,
   },
+  tag: {
+    plural: 'tags',
+    label: 'Tag',
+    href: slug => `/tags/${slug}`,
+  },
 }
 
 function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
@@ -788,6 +794,7 @@ const TAB_LABELS: Record<LibraryTab, string> = {
   releases: 'Releases',
   labels: 'Labels',
   festivals: 'Festivals',
+  tags: 'Tags',
 }
 
 function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
@@ -799,6 +806,7 @@ function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
     scenes: data?.scenes,
     labels: data?.labels,
     festivals: data?.festivals,
+    tags: data?.tags,
   }
 }
 
@@ -1005,6 +1013,16 @@ function ActiveLibraryContent({
                 emptyDescription="Follow festivals to get lineup and schedule updates."
                 browseHref="/festivals"
                 browseLabel="Browse festivals"
+              />
+            </TabsContent>
+
+            <TabsContent value="tags">
+              <FollowingList
+                type="tag"
+                emptyTitle="No tags followed."
+                emptyDescription="Follow tags to surface them on your profile Following row."
+                browseHref="/tags"
+                browseLabel="Browse tags"
               />
             </TabsContent>
           </Tabs>
