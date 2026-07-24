@@ -101,9 +101,12 @@ const DefaultSubstreamScheduleInterval = 24 * time.Hour
 // fix for whole broadcasts sitting invisible inside the (default 6h) station
 // sweep gap. Each boundary triggers one scoped incremental fetch for that show
 // (~2 per show per airing — see radio_slot_fetch.go for the honest cost
-// breakdown); the interval is a latency knob, not a load knob, because work is
-// driven by slot boundaries, not by ticks. RADIO_SLOT_FETCH_INTERVAL_MINUTES=0
-// disables it.
+// breakdown); scoped-fetch work is driven by slot boundaries and live windows,
+// not by ticks. The cycle ALSO polls the KEXP/NTS airing feeds every tick
+// (PSY-1509, radio_airing_ingest.go: one small time-boxed GET per NTS station,
+// two per KEXP station), so the interval is additionally a modest fixed load
+// knob (~430 tiny requests/day across both providers at the 10-min default).
+// RADIO_SLOT_FETCH_INTERVAL_MINUTES=0 disables it.
 const DefaultSlotFetchInterval = 10 * time.Minute
 
 // Transient-retry policy (PSY-1142). Two tiers per the Google SRE retry-budget
@@ -618,6 +621,19 @@ func (s *RadioFetchService) runSlotFetchCycle() {
 		from = now.Add(-2 * s.slotFetchInterval)
 	}
 	s.lastSlotFetchAt = now
+
+	// PSY-1509: ingest the provider airing feeds FIRST, so a KEXP/NTS broadcast's
+	// windowed episode row exists before the live-refresh work list below is built —
+	// a row created here is scoped-fetched on this same tick. That bounds
+	// row-creation latency to ~one slot-fetch interval (default 10 min) of the
+	// broadcast's start. Neutral by construction (no sync-run rows; see
+	// radio_airing_ingest.go) and never fatal to the tick.
+	if airing := s.radioService.IngestCurrentAirings(now); airing.RowsCreated > 0 || airing.WindowsHealed > 0 {
+		s.logger.Info("radio airing ingestion complete",
+			"stations_polled", airing.StationsPolled,
+			"rows_created", airing.RowsCreated,
+			"windows_healed", airing.WindowsHealed)
+	}
 
 	// The two work lists are independent (boundary-due shows and live-incomplete shows),
 	// so a failure in one must not starve the other — each is logged and skipped, and

@@ -301,6 +301,106 @@ func (p *NTSProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying,
 	return nil, nil // requested channel not present in the live feed
 }
 
+// ntsAiringRerunToleranceHours bounds how far the embedded episode's own air
+// date (details.broadcast, or its alias-recovered date) may sit from the live
+// window's start before the airing is treated as a REPEAT and skipped. 36h
+// accepts a first-run whose episode page was stamped on the neighboring
+// calendar day (timezone / date-only alias) while catching real reruns, whose
+// original air date is weeks-to-years old.
+const ntsAiringRerunToleranceHours = 36
+
+// FetchCurrentAirings returns the channel's currently-airing NTS broadcast as
+// a windowed episode import (PSY-1509), from the same /v2/live feed the live
+// now-playing path reads. The feed's start_timestamp/end_timestamp are the
+// airing's frozen window; the embedded episode details supply our composite
+// external id (show-alias/episode-alias — the FetchPlaylist key).
+//
+// Skipped (nil, nil) rather than guessed:
+//   - no embedded show_alias/episode_alias → no stable identity to ingest;
+//   - a REPEAT (the embedded episode's own air date sits far from the live
+//     window) → the airing is a rebroadcast of an ARCHIVE episode; creating a
+//     now-windowed row under that episode's external id would rewrite the
+//     archive episode's identity, and (show, air_date) would fabricate a new
+//     airing that never happened. Repeats keep the pre-PSY-1509 behavior (no
+//     deep-link date).
+func (p *NTSProvider) FetchCurrentAirings(channel string) ([]RadioAiring, error) {
+	body, err := radioLiveGet(p.httpClient, p.baseURL+"/v2/live", ntsUserAgent, "NTS API")
+	if err != nil {
+		return nil, fmt.Errorf("fetching live broadcasts: %w", err)
+	}
+	var live ntsLiveResponse
+	if err := json.Unmarshal(body, &live); err != nil {
+		return nil, fmt.Errorf("parsing live response: %w", err)
+	}
+
+	for _, ch := range live.Results {
+		if ch.ChannelName != channel {
+			continue
+		}
+		if ch.Now == nil {
+			return nil, nil // channel exists but reports nothing on air
+		}
+		det := ch.Now.Embeds.Details
+		if det.ShowAlias == "" || det.EpisodeAlias == "" {
+			return nil, nil // no stable episode identity — never guess
+		}
+		start, ok := parseNTSBroadcast(ch.Now.StartTimestamp)
+		if !ok {
+			return nil, nil // an airing without a start instant can't be windowed
+		}
+
+		// Rerun guard: date the embedded episode by its own broadcast instant
+		// (or alias-recovered date) and skip when it's far from the live start.
+		if ownAt, dated := episodeFilterTime(RadioEpisodeImport{
+			AirDate:  dateFromNTSAlias(det.EpisodeAlias),
+			StartsAt: ntsBroadcastPtr(det.Broadcast),
+		}); dated {
+			if diff := start.Sub(ownAt); diff > ntsAiringRerunToleranceHours*time.Hour || diff < -ntsAiringRerunToleranceHours*time.Hour {
+				return nil, nil
+			}
+		}
+
+		airTime := start.Format("15:04:05")
+		ep := RadioEpisodeImport{
+			ExternalID:     fmt.Sprintf("%s/%s", det.ShowAlias, det.EpisodeAlias),
+			ShowExternalID: det.ShowAlias,
+			AirDate:        start.Format("2006-01-02"),
+			AirTime:        &airTime,
+			StartsAt:       &start,
+		}
+		if end, ok := parseNTSBroadcast(ch.Now.EndTimestamp); ok && end.After(start) {
+			e := end
+			ep.EndsAt = &e
+			if dur := int(end.Sub(start).Minutes()); dur > 0 {
+				ep.DurationMinutes = &dur
+			}
+		}
+		if det.Name != "" {
+			title := det.Name
+			ep.Title = &title
+		}
+		if det.Mixcloud != "" {
+			mixcloud := det.Mixcloud
+			ep.ArchiveURL = &mixcloud
+		}
+		return []RadioAiring{{
+			ShowExternalID: det.ShowAlias,
+			ShowName:       det.Name,
+			Episode:        ep,
+		}}, nil
+	}
+	return nil, nil // requested channel not present in the live feed
+}
+
+// ntsBroadcastPtr parses an NTS broadcast timestamp into a *time.Time (nil when
+// absent/unparseable) — adapter for episodeFilterTime's DTO shape.
+func ntsBroadcastPtr(broadcast string) *time.Time {
+	if t, ok := parseNTSBroadcast(broadcast); ok {
+		return &t
+	}
+	return nil
+}
+
 // =============================================================================
 // Internal helpers
 // =============================================================================
@@ -507,17 +607,26 @@ type ntsEpisode struct {
 }
 
 // ntsLiveResponse matches GET /v2/live: one entry per channel, each with the
-// current (`now`) broadcast and embedded show details. Only the fields the
-// live now-playing fetch needs are mapped.
+// current (`now`) broadcast and embedded episode details. Only the fields the
+// live now-playing fetch and the airing-feed ingestion (PSY-1509) need are
+// mapped. NOTE the embedded details are the EPISODE object (episode_alias,
+// broadcast = the episode's ORIGINAL air instant, mixcloud) — for a repeat,
+// `broadcast` predates start_timestamp by weeks/years, which is exactly what
+// the rerun guard in FetchCurrentAirings keys on.
 type ntsLiveResponse struct {
 	Results []struct {
 		ChannelName string `json:"channel_name"`
 		Now         *struct {
 			BroadcastTitle string `json:"broadcast_title"`
+			StartTimestamp string `json:"start_timestamp"`
+			EndTimestamp   string `json:"end_timestamp"`
 			Embeds         struct {
 				Details struct {
-					Name      string `json:"name"`
-					ShowAlias string `json:"show_alias"`
+					Name         string `json:"name"`
+					ShowAlias    string `json:"show_alias"`
+					EpisodeAlias string `json:"episode_alias"`
+					Broadcast    string `json:"broadcast"`
+					Mixcloud     string `json:"mixcloud"`
 				} `json:"details"`
 			} `json:"embeds"`
 		} `json:"now"`

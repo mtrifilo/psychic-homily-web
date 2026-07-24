@@ -576,6 +576,152 @@ func (p *KEXPProvider) FetchLiveNowPlaying(_ string) (*RadioLiveNowPlaying, erro
 	return live, nil
 }
 
+// FetchCurrentAirings returns KEXP's currently-airing broadcast as a windowed
+// episode import (PSY-1509). KEXP is single-stream, so channel is ignored.
+//
+// Two time-boxed calls:
+//   - /v2/shows/?limit=1 — the current broadcast instance (id, program,
+//     program_name, start_time). The listing carries NO end_time (PSY-813 —
+//     verified again 2026-07-23: the field is absent from both the list and
+//     detail responses), so the end bound comes from…
+//   - /v2/timeslots/ — KEXP's weekly grid (weekday, start_time, end_time per
+//     program), from which the slot covering this broadcast yields the airing's
+//     end instant. No covering slot (a special broadcast) → EndsAt stays nil —
+//     honest degradation: the row is created but can never be "live", and the
+//     end-resolution failure never drops the airing itself.
+func (p *KEXPProvider) FetchCurrentAirings(_ string) ([]RadioAiring, error) {
+	body, err := radioLiveGet(p.httpClient, fmt.Sprintf("%s/v2/shows/?limit=1", p.baseURL), kexpUserAgent, "KEXP API")
+	if err != nil {
+		return nil, fmt.Errorf("fetching current broadcast: %w", err)
+	}
+	var page kexpAiringShowsResponse
+	if err := json.Unmarshal(body, &page); err != nil {
+		return nil, fmt.Errorf("parsing current broadcast response: %w", err)
+	}
+	if len(page.Results) == 0 {
+		return nil, nil
+	}
+	current := page.Results[0]
+	if current.ID <= 0 || current.Program <= 0 || current.StartTime == "" {
+		return nil, nil // not an identifiable airing — never guess
+	}
+	start, err := time.Parse(time.RFC3339, current.StartTime)
+	if err != nil {
+		return nil, fmt.Errorf("parsing current broadcast start_time %q: %w", current.StartTime, err)
+	}
+
+	airDate := start.Format("2006-01-02")
+	airTime := start.Format("15:04:05")
+	ep := RadioEpisodeImport{
+		ExternalID:     strconv.Itoa(current.ID),
+		ShowExternalID: strconv.Itoa(current.Program),
+		AirDate:        airDate,
+		AirTime:        &airTime,
+		StartsAt:       &start,
+	}
+	if current.ProgramName != "" {
+		title := current.ProgramName
+		ep.Title = &title
+	}
+	if end := p.resolveAiringEnd(current.Program, start); end != nil {
+		ep.EndsAt = end
+		if dur := int(end.Sub(start).Minutes()); dur > 0 {
+			ep.DurationMinutes = &dur
+		}
+	}
+	return []RadioAiring{{
+		ShowExternalID: strconv.Itoa(current.Program),
+		ShowName:       current.ProgramName,
+		Episode:        ep,
+	}}, nil
+}
+
+// kexpTimeslotStartGraceMinutes tolerates a broadcast starting slightly BEFORE
+// its grid slot (a DJ handing over a couple of minutes early). Late starts
+// (observed: Drive Time at 16:01:04 for a 16:00 slot) are covered by the slot
+// window itself.
+const kexpTimeslotStartGraceMinutes = 10
+
+// resolveAiringEnd resolves a KEXP broadcast's end instant from the /v2/timeslots/
+// weekly grid: the date-valid slot for the same program on the broadcast's local
+// weekday whose window covers the broadcast's start clock time. Best-effort —
+// any failure (fetch, parse, no covering slot) returns nil so the airing is
+// still ingested, just unbounded (never falsely live).
+func (p *KEXPProvider) resolveAiringEnd(programID int, start time.Time) *time.Time {
+	body, err := radioLiveGet(p.httpClient, fmt.Sprintf("%s/v2/timeslots/?limit=100", p.baseURL), kexpUserAgent, "KEXP API")
+	if err != nil {
+		slog.Warn("kexp: fetching timeslot grid for airing end failed", "error", err)
+		return nil
+	}
+	var page kexpTimeslotsResponse
+	if err := json.Unmarshal(body, &page); err != nil {
+		slog.Warn("kexp: parsing timeslot grid for airing end failed", "error", err)
+		return nil
+	}
+
+	// KEXP weekday convention is ISO-like: 1=Monday … 7=Sunday (verified against
+	// a known Thursday broadcast → weekday 4). Go's Weekday is 0=Sunday.
+	isoWeekday := (int(start.Weekday())+6)%7 + 1
+	startClock := start.Hour()*60 + start.Minute()
+	airDate := start.Format("2006-01-02")
+
+	for _, slot := range page.Results {
+		if slot.Program != programID || slot.Weekday != isoWeekday {
+			continue
+		}
+		// Slot validity range (start_date/end_date are dates; end_date null = open).
+		if slot.StartDate != "" && airDate < slot.StartDate {
+			continue
+		}
+		if slot.EndDate != nil && *slot.EndDate != "" && airDate > *slot.EndDate {
+			continue
+		}
+		s, sok := clockMinutes(slot.StartTime)
+		e, eok := clockMinutes(slot.EndTime)
+		if !sok || !eok {
+			continue
+		}
+		if e <= s {
+			e += 24 * 60 // slot wraps past midnight
+		}
+		// Cover the broadcast's start clock (with a small early-start grace),
+		// checking the wrapped position too for slots spanning midnight.
+		covered := clockInWindow(startClock, s-kexpTimeslotStartGraceMinutes, e) ||
+			clockInWindow(startClock+24*60, s-kexpTimeslotStartGraceMinutes, e)
+		if !covered {
+			continue
+		}
+		// End instant: the broadcast's local date at the slot's end clock, in the
+		// broadcast's own zone offset; a wrapped end lands on the next day.
+		endDay := start
+		endMins := e
+		if endMins >= 24*60 {
+			endDay = start.AddDate(0, 0, 1)
+			endMins -= 24 * 60
+		}
+		end := time.Date(endDay.Year(), endDay.Month(), endDay.Day(), endMins/60, endMins%60, 0, 0, start.Location())
+		if !end.After(start) {
+			return nil // defensive: never emit a non-forward window
+		}
+		return &end
+	}
+	return nil
+}
+
+// clockMinutes parses an "HH:MM:SS" grid clock into minutes since midnight.
+func clockMinutes(clock string) (int, bool) {
+	t, err := time.Parse("15:04:05", clock)
+	if err != nil {
+		return 0, false
+	}
+	return t.Hour()*60 + t.Minute(), true
+}
+
+// clockInWindow reports whether clock minutes c lies in [from, to).
+func clockInWindow(c, from, to int) bool {
+	return c >= from && c < to
+}
+
 // nonEmptyStrings filters empty entries (defensive against sparse host_names).
 func nonEmptyStrings(in []string) []string {
 	out := make([]string, 0, len(in))
@@ -720,6 +866,36 @@ type kexpLiveShowsResponse struct {
 		ProgramName string   `json:"program_name"`
 		HostNames   []string `json:"host_names"`
 	} `json:"results"`
+}
+
+// kexpAiringShowsResponse is the /v2/shows/?limit=1 shape the airing-feed
+// ingestion needs (PSY-1509): the current broadcast instance's own id plus its
+// program reference, display name, and start instant. (kexpLiveShowsResponse
+// drops the broadcast id and start_time; kexpShow drops nothing but reads the
+// legacy field set — this keeps the airing contract explicit.)
+type kexpAiringShowsResponse struct {
+	Results []struct {
+		ID          int    `json:"id"`
+		Program     int    `json:"program"`
+		ProgramName string `json:"program_name"`
+		StartTime   string `json:"start_time"`
+	} `json:"results"`
+}
+
+// kexpTimeslotsResponse models /v2/timeslots/ — KEXP's weekly grid, the only
+// place the API publishes an end bound for a broadcast (the /v2/shows list and
+// detail responses carry no end_time). weekday is ISO-like (1=Monday).
+type kexpTimeslotsResponse struct {
+	Results []kexpTimeslot `json:"results"`
+}
+
+type kexpTimeslot struct {
+	Program   int     `json:"program"`
+	Weekday   int     `json:"weekday"`
+	StartDate string  `json:"start_date"`
+	EndDate   *string `json:"end_date"`
+	StartTime string  `json:"start_time"`
+	EndTime   string  `json:"end_time"`
 }
 
 type kexpShow struct {
