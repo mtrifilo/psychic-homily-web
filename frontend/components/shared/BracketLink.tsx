@@ -13,7 +13,10 @@ export interface BracketLinkProps
   label: string
   /** Navigation target. When provided, renders as <Link>; otherwise as <button type="button">. */
   href?: string
-  /** Click handler (used when href is omitted). */
+  /**
+   * Click handler. Without `href`, the button's onClick; with `href`, runs
+   * alongside navigation (e.g. closing a popover before the route change).
+   */
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void
   /** Active / toggled-on state. Emphasizes the link (e.g. [Following] after a successful follow). */
   active?: boolean
@@ -30,7 +33,7 @@ export interface BracketLinkProps
  *
  * The button branch forwards a ref and spreads remaining props, so it composes as a
  * Radix `asChild` trigger (e.g. inside `<PopoverTrigger asChild>`). The <Link> branch
- * is plain navigation only — it does not receive the ref or spread props.
+ * receives `onClick` (fired alongside navigation) but not the ref or spread props.
  *
  * Note: when `href` AND `disabled` are both set, renders as a `<button disabled>` rather
  * than an `<a>` — anchors have no native disabled state, and the alternatives leak
@@ -83,6 +86,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       return (
         <Link
           href={href}
+          onClick={onClick as React.MouseEventHandler | undefined}
           className={classes}
           title={title}
           aria-label={ariaLabel ?? label}

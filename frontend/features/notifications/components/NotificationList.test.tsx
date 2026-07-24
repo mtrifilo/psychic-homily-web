@@ -99,15 +99,6 @@ describe('NotificationList', () => {
     )
   })
 
-  it('rewrites same-origin absolute deep links to relative paths (keeps client-side nav)', () => {
-    const href = `${window.location.origin}/shows/the-show?tab=comments#comment-9`
-    render(<NotificationList entries={[commentReply({ comment_url: href })]} />)
-    expect(screen.getByRole('link')).toHaveAttribute(
-      'href',
-      '/shows/the-show?tab=comments#comment-9'
-    )
-  })
-
   it('renders show-filter rows with filter_name', () => {
     render(<NotificationList entries={[showFilter()]} />)
     expect(screen.getByText('My Filter')).toBeInTheDocument()

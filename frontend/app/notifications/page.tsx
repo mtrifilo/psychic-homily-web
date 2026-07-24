@@ -22,6 +22,7 @@ import { useState } from 'react'
 import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { cn } from '@/lib/utils'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
   EarlierDivider,
@@ -92,22 +93,14 @@ export default function NotificationInboxPage() {
             label="unread"
             onClick={() => setView('unread')}
             active={view === 'unread'}
-            className={
-              view === 'unread'
-                ? 'font-mono text-xs text-primary'
-                : 'font-mono text-xs'
-            }
+            className={cn('font-mono text-xs', view === 'unread' && 'text-primary')}
             ariaLabel="Show unread notifications first"
           />
           <BracketLink
             label="all"
             onClick={() => setView('all')}
             active={view === 'all'}
-            className={
-              view === 'all'
-                ? 'font-mono text-xs text-primary'
-                : 'font-mono text-xs'
-            }
+            className={cn('font-mono text-xs', view === 'all' && 'text-primary')}
             ariaLabel="Show all notifications interleaved"
           />
         </div>
@@ -151,14 +144,20 @@ export default function NotificationInboxPage() {
         </div>
       ) : (
         <>
-          <div className="overflow-hidden rounded-lg border border-border/50 bg-card">
-            <NotificationList
-              entries={unread}
-              variant="page"
-              onItemClick={handleMarkRowRead}
-              onMarkRead={handleMarkRowRead}
-            />
-          </div>
+          {unread.length > 0 ? (
+            <div className="overflow-hidden rounded-lg border border-border/50 bg-card">
+              <NotificationList
+                entries={unread}
+                variant="page"
+                onItemClick={handleMarkRowRead}
+                onMarkRead={handleMarkRowRead}
+              />
+            </div>
+          ) : (
+            // The page-variant empty state carries its own dashed framing —
+            // render it outside the card so it isn't double-bordered.
+            <NotificationList entries={[]} variant="page" />
+          )}
           {read.length > 0 && (
             <>
               <EarlierDivider className="mb-2 mt-6" />

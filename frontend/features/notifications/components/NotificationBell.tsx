@@ -13,7 +13,6 @@
  */
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { Bell } from 'lucide-react'
 import {
   Popover,
@@ -122,14 +121,16 @@ export function NotificationBell() {
             <NotificationList entries={[]} variant="popover" />
           ) : (
             <>
-              <NotificationList
-                entries={unread}
-                variant="popover"
-                onItemClick={handleItemClick}
-              />
+              {unread.length > 0 && (
+                <NotificationList
+                  entries={unread}
+                  variant="popover"
+                  onItemClick={handleItemClick}
+                />
+              )}
               {read.length > 0 && (
                 <>
-                  {unread.length > 0 && <EarlierDivider className="px-3 pb-1 pt-2" />}
+                  <EarlierDivider className="px-3 pb-1 pt-2" />
                   <NotificationList
                     entries={read}
                     variant="popover"
@@ -142,15 +143,12 @@ export function NotificationBell() {
           )}
         </div>
         <div className="border-t border-border/50 px-3 py-2 text-center">
-          {/* Plain <Link> (not BracketLink) — BracketLink's href branch
-              doesn't forward onClick, and we need to close the popover. */}
-          <Link
+          <BracketLink
+            label={hasUnread ? `View all — ${unreadCount} unread` : 'View all'}
             href="/notifications"
             onClick={() => setOpen(false)}
-            className="font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            [ View all{hasUnread ? ` — ${unreadCount} unread` : ''} ]
-          </Link>
+            className="font-mono text-xs"
+          />
         </div>
       </PopoverContent>
     </Popover>

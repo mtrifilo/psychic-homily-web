@@ -39,28 +39,6 @@ export interface NotificationListProps {
   dimmed?: boolean
 }
 
-/**
- * Server-built deep links (`comment_url`, `request_url`) are ABSOLUTE URLs.
- * Rendered as-is in a <Link>, a same-origin absolute href triggers a full
- * browser navigation, which cancels the in-flight scoped mark-read POST
- * fired from the same click (PSY-1513: read-on-click is load-bearing now).
- * Rewriting same-origin URLs to relative paths keeps navigation client-side
- * so the mutation survives. Cross-origin URLs pass through untouched.
- */
-function toRelativeIfSameOrigin(href: string): string {
-  if (!/^https?:\/\//.test(href)) return href
-  if (typeof window === 'undefined') return href
-  try {
-    const url = new URL(href)
-    if (url.origin === window.location.origin) {
-      return url.pathname + url.search + url.hash
-    }
-  } catch {
-    // Malformed URL — let Link render it untouched.
-  }
-  return href
-}
-
 /** Split entries into unread-first groups for sectioned rendering. */
 export function partitionNotificationsByRead(entries: NotificationLogEntry[]): {
   unread: NotificationLogEntry[]
@@ -160,6 +138,12 @@ function RowMeta({
             event.stopPropagation()
             onMarkRead(entry)
           }}
+          // The button sits inside the row's <Link>; middle-clicks dispatch
+          // auxclick, whose default on the enclosing anchor opens a new tab.
+          onAuxClick={event => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
           className="cursor-pointer normal-case text-muted-foreground transition-colors hover:text-foreground"
         >
           [mark read]
@@ -181,7 +165,9 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
 
   if (isCommentNotification(entry)) {
     const isMention = entry.entity_type === NOTIFICATION_ENTITY_COMMENT_MENTION
-    const href = toRelativeIfSameOrigin(entry.comment_url ?? '#')
+    // Deep links are normalized to relative paths by the query hook
+    // (normalizeNotificationDeepLinks) so row clicks stay client-side.
+    const href = entry.comment_url ?? '#'
     const verb = isMention ? 'mentioned you' : 'replied'
     const commenter = entry.commenter_name || 'Someone'
     const entityName = entry.comment_entity_name || 'a conversation'
@@ -229,7 +215,7 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
   }
 
   if (isRequestNotification(entry)) {
-    const href = toRelativeIfSameOrigin(entry.request_url ?? '/requests')
+    const href = entry.request_url ?? '/requests'
     const requestTitle = entry.request_title || 'your request'
     return (
       <li>

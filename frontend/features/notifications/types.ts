@@ -80,6 +80,46 @@ export function isCommentNotification(entry: NotificationLogEntry): boolean {
 }
 
 /** isRequestNotification returns true for the PSY-890 request-fulfillment row. */
+/**
+ * Server-built deep links (`comment_url`, `request_url`) are ABSOLUTE URLs.
+ * Rendered as-is in a <Link>, a same-origin absolute href triggers a full
+ * browser navigation, which cancels the in-flight scoped mark-read POST
+ * fired from the same click (read-on-click is load-bearing since the
+ * PSY-1018 view-clears-count reversal). Rewriting same-origin URLs to
+ * relative paths keeps navigation client-side so the mutation survives.
+ * Cross-origin and malformed URLs pass through untouched. No-op during SSR
+ * (notification queries only run client-side).
+ */
+export function toRelativeIfSameOrigin(href: string): string {
+  if (!/^https?:\/\//.test(href)) return href
+  if (typeof window === 'undefined') return href
+  try {
+    const url = new URL(href)
+    if (url.origin === window.location.origin) {
+      return url.pathname + url.search + url.hash
+    }
+  } catch {
+    // Malformed URL — render it untouched.
+  }
+  return href
+}
+
+/** Normalize one log entry's deep links for client-side navigation. */
+export function normalizeNotificationDeepLinks(
+  entry: NotificationLogEntry
+): NotificationLogEntry {
+  const comment_url = entry.comment_url
+    ? toRelativeIfSameOrigin(entry.comment_url)
+    : entry.comment_url
+  const request_url = entry.request_url
+    ? toRelativeIfSameOrigin(entry.request_url)
+    : entry.request_url
+  if (comment_url === entry.comment_url && request_url === entry.request_url) {
+    return entry
+  }
+  return { ...entry, comment_url, request_url }
+}
+
 export function isRequestNotification(entry: NotificationLogEntry): boolean {
   return entry.entity_type === NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED
 }
