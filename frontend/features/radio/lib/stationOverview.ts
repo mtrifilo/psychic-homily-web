@@ -8,8 +8,6 @@
  * (PSY-1022) and removed (PSY-1075).
  */
 
-import type { RadioShowListItem } from '../types'
-
 /**
  * A single artist hop (name + optional graph link). `slug` is null when the
  * matching engine hasn't linked the play to a catalog artist yet — the panel
@@ -18,28 +16,6 @@ import type { RadioShowListItem } from '../types'
 export interface ArtistHop {
   name: string
   slug: string | null
-}
-
-/**
- * Pick the station's signature show. Shows have no recency field on the list
- * endpoint (they sort name-ASC), so this uses episode_count as the proxy for
- * "the station's active / signature show" — the show with the most logged
- * episodes. Ties break on the lower id (stable, deterministic). Returns null
- * for a station with no shows.
- *
- * The live on-air lines use PSY-1022's now-playing endpoint instead; this
- * heuristic survives only to anchor the Dial strip's [ live playlist ]
- * archive deep-link (useStationOverview).
- */
-export function pickNowPlayingShow(
-  shows: RadioShowListItem[] | undefined
-): RadioShowListItem | null {
-  if (!shows || shows.length === 0) return null
-  return shows.reduce((best, show) => {
-    if (show.episode_count > best.episode_count) return show
-    if (show.episode_count === best.episode_count && show.id < best.id) return show
-    return best
-  })
 }
 
 /**

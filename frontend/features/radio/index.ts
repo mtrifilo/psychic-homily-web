@@ -63,8 +63,6 @@ export {
   useReleaseRadioPlays,
   useNewReleaseRadar,
   useRadioStats,
-  // PSY-1016 (consumed by the Dial strips since PSY-1049)
-  useStationOverview,
   // PSY-1022: live now-playing (with latest-archive fallback)
   useStationNowPlaying,
   // PSY-1049
@@ -98,11 +96,9 @@ export {
 export { airDateCellText } from './components/AirDateCell'
 
 // PSY-1016: station-overview derivation helpers
-// (pickNowPlayingShow stays un-exported here — only useStationOverview
-// consumes it; PSY-1075 narrowed the public surface. formatShortAirDate and
-// the PSY-1298 viewer-local helpers stay OFF the barrel — external surfaces
-// consume the rendering via AirDateCellContent, and in-feature consumers
-// import relatively.)
+// (formatShortAirDate and the PSY-1298 viewer-local helpers stay OFF the
+// barrel — external surfaces consume the rendering via AirDateCellContent,
+// and in-feature consumers import relatively.)
 export { formatStationLocation } from './lib/stationOverview'
 export type { ArtistHop } from './lib/stationOverview'
 
