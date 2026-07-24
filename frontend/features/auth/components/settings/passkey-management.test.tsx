@@ -72,7 +72,7 @@ describe('PasskeyManagement', () => {
       expect(screen.getByText('Passkeys')).toBeInTheDocument()
     })
     expect(
-      screen.getByText(/Passkeys let you sign in securely/)
+      screen.getByText('Sign in with Touch ID, Face ID, or a security key.')
     ).toBeInTheDocument()
   })
 
