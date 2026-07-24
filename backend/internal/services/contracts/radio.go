@@ -436,12 +436,17 @@ type RadioNowPlayingResponse struct {
 	// first), from the live source when it carries a play history (KEXP), else
 	// from the fallback episode's playlist.
 	RecentArtists []RadioEpisodePreviewArtist `json:"recent_artists"`
-	// EpisodeAirDate (YYYY-MM-DD) is the air date of the archived episode the
-	// payload was derived from; nil for live payloads.
+	// EpisodeAirDate (YYYY-MM-DD) is the air date of the episode this payload
+	// deep-links to. Archive fallback: the archived episode the payload was
+	// derived from. Live (PSY-1509): present iff the matched show has an
+	// episode row whose frozen air window covers now — the currently-airing
+	// episode; nil when the show is unmatched or no covering row exists (the
+	// date is never fabricated).
 	EpisodeAirDate *string `json:"episode_air_date"`
 	// EpisodeStartsAt/EpisodeEndsAt are that episode's frozen air window
-	// (PSY-1306) — nil for live payloads and windowless episodes. The ON AIR
-	// box renders its "Latest playlist" date viewer-local from these.
+	// (PSY-1306) — nil whenever EpisodeAirDate is nil, and for windowless
+	// archive episodes. The ON AIR box renders its playlist date viewer-local
+	// from these.
 	EpisodeStartsAt *time.Time `json:"episode_starts_at"`
 	EpisodeEndsAt   *time.Time `json:"episode_ends_at"`
 }
