@@ -695,7 +695,10 @@ func timeslotAiringEnd(slot *kexpTimeslot, programID int, start time.Time) *time
 	if !sok || !eok {
 		return nil
 	}
-	if e <= s {
+	if e == s {
+		return nil // malformed zero-length slot — NOT a 24h wrap; never match it
+	}
+	if e < s {
 		e += 24 * 60 // slot wraps past midnight
 	}
 	startClock := start.Hour()*60 + start.Minute()
@@ -732,7 +735,7 @@ func timeslotAiringEnd(slot *kexpTimeslot, programID int, start time.Time) *time
 		}
 		end := time.Date(endDay.Year(), endDay.Month(), endDay.Day(), endMins/60, endMins%60, 0, 0, start.Location())
 		if !end.After(start) {
-			return nil // defensive: never emit a non-forward window
+			continue // defensive: never emit a non-forward window; the other day offset may still cover
 		}
 		return &end
 	}

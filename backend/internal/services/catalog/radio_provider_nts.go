@@ -360,25 +360,34 @@ func (p *NTSProvider) FetchCurrentAirings(channel string) ([]RadioAiring, error)
 
 		// Rerun guard, FAIL-CLOSED: only an airing verifiably identical to the
 		// embedded episode's own broadcast is ingested. Anything else — a
-		// repeat, or an episode we cannot date at all — is skipped: stamping a
-		// live window under an archive episode's external id would rewrite
-		// that episode's identity and fabricate an airing that never happened.
-		//   - broadcast instant present → it must match the live start within
+		// repeat, an episode we cannot date, or an unparseable date — is
+		// skipped: stamping a live window under an archive episode's external
+		// id would rewrite that episode's identity and fabricate an airing
+		// that never happened.
+		//   - full broadcast instant → it must match the live start within
 		//     ntsAiringBroadcastSkewTolerance (a first run IS this broadcast);
-		//   - alias date only (day granularity) → it must be the live start's
-		//     own local calendar day;
+		//   - DATE-ONLY broadcast (a real recurring NTS shape — PSY-1152) or
+		//     alias date: day granularity only, so it must be the live start's
+		//     own local calendar day — never an instant comparison against a
+		//     fabricated midnight;
 		//   - neither → unverifiable, skip.
-		// Known residual: an alias-dated same-calendar-day repeat passes (both
+		// Known residual: a day-granular same-calendar-day repeat passes (both
 		// airings share the date, so air_date at least stays right).
-		if bAt, ok := parseNTSBroadcast(det.Broadcast); ok {
-			if diff := start.Sub(bAt); diff > ntsAiringBroadcastSkewTolerance || diff < -ntsAiringBroadcastSkewTolerance {
+		startDay := start.Format("2006-01-02")
+		switch {
+		case det.Broadcast != "":
+			if bAt, err := time.Parse(time.RFC3339, det.Broadcast); err == nil {
+				if diff := start.Sub(bAt); diff > ntsAiringBroadcastSkewTolerance || diff < -ntsAiringBroadcastSkewTolerance {
+					return nil, nil
+				}
+			} else if det.Broadcast != startDay {
+				return nil, nil // date-only mismatch, or unparseable → fail closed
+			}
+		case dateFromNTSAlias(det.EpisodeAlias) != "":
+			if dateFromNTSAlias(det.EpisodeAlias) != startDay {
 				return nil, nil
 			}
-		} else if aliasDate := dateFromNTSAlias(det.EpisodeAlias); aliasDate != "" {
-			if aliasDate != start.Format("2006-01-02") {
-				return nil, nil
-			}
-		} else {
+		default:
 			return nil, nil
 		}
 
