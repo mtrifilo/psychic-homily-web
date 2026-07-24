@@ -2,17 +2,17 @@
 
 /**
  * Header bell + popover for the in-app notification surface (PSY-595).
- * Mark-read policy matches /notifications: view-clears-unread. Opening the
- * popover fires mark-all-read after a 500ms delay so the user has time to
- * register the unread state before it clears.
  *
- * PSY-1018: the unread affordance is a plain dot (not a numeric count) to match
- * the editorial top-bar design (Figma 537:91); the exact count is preserved in
- * the trigger's aria-label so screen readers still hear it.
+ * Mark-read policy (PSY-1513, reverses PSY-1018's view-clears-count):
+ * opening the popover marks NOTHING read. A row is marked read when
+ * clicked (scoped mark-read with that row's id), and the explicit
+ * [Catch up] affordance clears everything via the mark-all endpoint.
+ *
+ * The unread affordance is a numeric count badge (Figma 1132:12 State B);
+ * the count is also announced via the trigger's aria-label.
  */
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
 import { Bell } from 'lucide-react'
 import {
   Popover,
@@ -20,9 +20,15 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useUserNotifications, useMarkNotificationsRead } from '../hooks'
-import { NotificationList } from './NotificationList'
+import type { NotificationLogEntry } from '../types'
+import {
+  EarlierDivider,
+  NotificationList,
+  partitionNotificationsByRead,
+} from './NotificationList'
 
 export function NotificationBell() {
   const { isAuthenticated } = useAuthContext()
@@ -33,21 +39,18 @@ export function NotificationBell() {
 
   const unreadCount = data?.unread_count ?? 0
   const entries = data?.notifications ?? []
-
-  // Mark unread rows read once the popover opens. Run async so the user
-  // can briefly see the unread badge before it clears.
-  useEffect(() => {
-    if (!open) return
-    if (unreadCount === 0) return
-    const id = window.setTimeout(() => {
-      markRead.mutate(undefined) // no IDs = mark all
-    }, 500)
-    return () => window.clearTimeout(id)
-  }, [open, unreadCount, markRead])
+  const { unread, read } = partitionNotificationsByRead(entries)
 
   if (!isAuthenticated) return null
 
   const hasUnread = unreadCount > 0
+
+  const handleItemClick = (entry: NotificationLogEntry) => {
+    if (entry.read_at == null) {
+      markRead.mutate([entry.id])
+    }
+    setOpen(false)
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -68,12 +71,15 @@ export function NotificationBell() {
           <Bell className="h-[1.2rem] w-[1.2rem]" />
           {hasUnread && (
             <span
-              data-testid="notification-unread-dot"
-              // ring-2 ring-background carves a crisp gap so the dot reads
-              // cleanly over the bell's top-right curve.
-              className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary ring-2 ring-background"
+              data-testid="notification-unread-badge"
+              // ring-2 ring-background carves a crisp gap so the badge reads
+              // cleanly over the bell's top-right curve. Small rounded-rect
+              // (radius sm), NOT a pill — Figma 1132:12 State B.
+              className="absolute right-0 top-0 min-w-4 rounded-sm bg-primary px-1 text-center font-mono text-[10px] font-bold leading-4 text-primary-foreground ring-2 ring-background"
               aria-hidden
-            />
+            >
+              {unreadCount}
+            </span>
           )}
         </Button>
       </PopoverTrigger>
@@ -83,27 +89,66 @@ export function NotificationBell() {
         className="w-[360px] max-w-[calc(100vw-1rem)] p-0"
       >
         <div className="flex items-center justify-between border-b border-border/50 px-3 py-2.5">
-          <p className="text-sm font-semibold">Notifications</p>
-          <Link
-            href="/notifications"
-            onClick={() => setOpen(false)}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            View all
-          </Link>
+          <p className="text-sm font-semibold">
+            Notifications
+            {hasUnread && (
+              <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
+                · {unreadCount} unread
+              </span>
+            )}
+          </p>
+          {hasUnread && (
+            <BracketLink
+              label="Catch up ✓"
+              onClick={() => markRead.mutate(undefined)}
+              disabled={markRead.isPending}
+              className="font-mono text-xs"
+              ariaLabel="Catch up — mark all notifications read"
+            />
+          )}
         </div>
+        {markRead.isError && (
+          <p className="border-b border-border/50 px-3 py-2 text-xs text-destructive">
+            Couldn&apos;t mark read. Try again.
+          </p>
+        )}
         <div className="max-h-[60vh] overflow-y-auto">
           {isLoading ? (
             <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
               Loading…
             </div>
+          ) : entries.length === 0 ? (
+            <NotificationList entries={[]} variant="popover" />
           ) : (
-            <NotificationList
-              entries={entries}
-              variant="popover"
-              onItemClick={() => setOpen(false)}
-            />
+            <>
+              {unread.length > 0 && (
+                <NotificationList
+                  entries={unread}
+                  variant="popover"
+                  onItemClick={handleItemClick}
+                />
+              )}
+              {read.length > 0 && (
+                <>
+                  <EarlierDivider className="px-3 pb-1 pt-2" />
+                  <NotificationList
+                    entries={read}
+                    variant="popover"
+                    onItemClick={handleItemClick}
+                    dimmed
+                  />
+                </>
+              )}
+            </>
           )}
+        </div>
+        <div className="border-t border-border/50 px-3 py-2 text-center">
+          <BracketLink
+            label={hasUnread ? `View all — ${unreadCount} unread` : 'View all'}
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="font-mono text-xs"
+          />
         </div>
       </PopoverContent>
     </Popover>

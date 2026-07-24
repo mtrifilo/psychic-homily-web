@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { NotificationList } from './NotificationList'
+import {
+  EarlierDivider,
+  NotificationList,
+  partitionNotificationsByRead,
+} from './NotificationList'
 import type { NotificationLogEntry } from '../types'
 
 function commentReply(overrides: Partial<NotificationLogEntry> = {}): NotificationLogEntry {
@@ -142,6 +146,41 @@ describe('NotificationList', () => {
     expect(onItemClick).toHaveBeenCalledWith(entry)
   })
 
+  it('renders a [mark read] affordance on unread rows when onMarkRead is provided', async () => {
+    const onMarkRead = vi.fn()
+    const onItemClick = vi.fn()
+    const entry = commentReply()
+    const user = userEvent.setup()
+    render(
+      <NotificationList
+        entries={[entry]}
+        onItemClick={onItemClick}
+        onMarkRead={onMarkRead}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: '[mark read]' }))
+    expect(onMarkRead).toHaveBeenCalledWith(entry)
+    // stopPropagation keeps the row's navigate-click handler out of it.
+    expect(onItemClick).not.toHaveBeenCalled()
+  })
+
+  it('does not render [mark read] on read rows or without onMarkRead', () => {
+    const { rerender } = render(
+      <NotificationList
+        entries={[commentReply({ read_at: new Date().toISOString() })]}
+        onMarkRead={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('[mark read]')).not.toBeInTheDocument()
+    rerender(<NotificationList entries={[commentReply()]} />)
+    expect(screen.queryByText('[mark read]')).not.toBeInTheDocument()
+  })
+
+  it('dims rows when dimmed is set', () => {
+    render(<NotificationList entries={[showFilter()]} dimmed />)
+    expect(screen.getByRole('link')).toHaveClass('opacity-60')
+  })
+
   it('falls back to "Someone" when commenter_name is missing', () => {
     render(
       <NotificationList
@@ -149,5 +188,23 @@ describe('NotificationList', () => {
       />
     )
     expect(screen.getByText('Someone')).toBeInTheDocument()
+  })
+})
+
+describe('partitionNotificationsByRead', () => {
+  it('splits entries into unread and read groups, preserving order', () => {
+    const a = commentReply({ id: 1 })
+    const b = commentReply({ id: 2, read_at: new Date().toISOString() })
+    const c = commentMention({ id: 3 })
+    const { unread, read } = partitionNotificationsByRead([a, b, c])
+    expect(unread.map(e => e.id)).toEqual([1, 3])
+    expect(read.map(e => e.id)).toEqual([2])
+  })
+})
+
+describe('EarlierDivider', () => {
+  it('renders the EARLIER hairline label', () => {
+    render(<EarlierDivider />)
+    expect(screen.getByText('Earlier')).toBeInTheDocument()
   })
 })

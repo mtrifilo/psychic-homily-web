@@ -18,7 +18,10 @@ import type {
   NotificationListResponse,
   MarkReadResponse,
 } from '../types'
-import { FILTER_SOURCE_MANAGED } from '../types'
+import {
+  FILTER_SOURCE_MANAGED,
+  normalizeNotificationDeepLinks,
+} from '../types'
 
 // ──────────────────────────────────────────────
 // API endpoints (not in central API_ENDPOINTS yet)
@@ -220,6 +223,16 @@ export function useQuickCreateFilter() {
 /** Query key for the user's notification log (bell + inbox surfaces). */
 const NOTIFICATION_LOG_KEY = ['notifications', 'log'] as const
 
+/** Stable `select` for useUserNotifications — see normalizeNotificationDeepLinks. */
+function selectNormalizedNotifications(
+  data: NotificationListResponse
+): NotificationListResponse {
+  return {
+    ...data,
+    notifications: data.notifications.map(normalizeNotificationDeepLinks),
+  }
+}
+
 /**
  * Fetch the current user's notification log (bell + inbox).
  *
@@ -238,6 +251,10 @@ export function useUserNotifications(params?: { limit?: number; offset?: number 
   return useQuery({
     queryKey: [...NOTIFICATION_LOG_KEY, { limit, offset }] as const,
     queryFn: () => apiRequest<NotificationListResponse>(url),
+    // Deep links arrive as absolute URLs; normalize same-origin ones to
+    // relative paths so row clicks stay client-side navigations (see
+    // normalizeNotificationDeepLinks). Module-scope fn = stable select ref.
+    select: selectNormalizedNotifications,
     enabled: isAuthenticated,
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,

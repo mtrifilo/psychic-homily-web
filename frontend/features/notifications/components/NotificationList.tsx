@@ -3,7 +3,11 @@
 /**
  * Notification rows for both the bell popover (`variant="popover"`) and
  * the /notifications inbox page (`variant="page"`). Purely presentational
- * — mark-read is owned by the parent surface via `onItemClick`. PSY-595.
+ * — mark-read is owned by the parent surface via `onItemClick` (row click
+ * marks that row read) and `onMarkRead` (explicit [mark read] affordance
+ * on unread rows). Viewing a list marks nothing read; parents split
+ * unread/read groups via `partitionNotificationsByRead` and render read
+ * groups with `dimmed`.
  */
 
 import Link from 'next/link'
@@ -26,12 +30,46 @@ export interface NotificationListProps {
   variant?: Variant
   /** Optional callback fired when the user clicks a notification row. */
   onItemClick?: (entry: NotificationLogEntry) => void
+  /**
+   * Optional callback for the explicit [mark read] affordance rendered on
+   * unread rows. Marks the row read without navigating.
+   */
+  onMarkRead?: (entry: NotificationLogEntry) => void
+  /** Dim rows (used for the already-read "EARLIER" group). */
+  dimmed?: boolean
+}
+
+/** Split entries into unread-first groups for sectioned rendering. */
+export function partitionNotificationsByRead(entries: NotificationLogEntry[]): {
+  unread: NotificationLogEntry[]
+  read: NotificationLogEntry[]
+} {
+  const unread: NotificationLogEntry[] = []
+  const read: NotificationLogEntry[] = []
+  for (const entry of entries) {
+    ;(entry.read_at == null ? unread : read).push(entry)
+  }
+  return { unread, read }
+}
+
+/** Hairline "EARLIER" section label above the already-read group. */
+export function EarlierDivider({ className }: { className?: string }) {
+  return (
+    <div className={cn('flex items-center gap-2', className)}>
+      <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground/70">
+        Earlier
+      </span>
+      <span className="h-px flex-1 bg-border/50" aria-hidden />
+    </div>
+  )
 }
 
 export function NotificationList({
   entries,
   variant = 'page',
   onItemClick,
+  onMarkRead,
+  dimmed = false,
 }: NotificationListProps) {
   if (entries.length === 0) {
     return (
@@ -54,6 +92,8 @@ export function NotificationList({
           entry={entry}
           variant={variant}
           onItemClick={onItemClick}
+          onMarkRead={onMarkRead}
+          dimmed={dimmed}
         />
       ))}
     </ul>
@@ -64,14 +104,69 @@ interface RowProps {
   entry: NotificationLogEntry
   variant: Variant
   onItemClick?: (entry: NotificationLogEntry) => void
+  onMarkRead?: (entry: NotificationLogEntry) => void
+  dimmed: boolean
 }
 
-function NotificationRow({ entry, variant, onItemClick }: RowProps) {
+/**
+ * Meta line under each row: relative timestamp + optional trailing icon +
+ * the [mark read] affordance on unread rows. The affordance is a <button>
+ * inside the row's <Link>, so it must preventDefault + stopPropagation to
+ * mark read without navigating.
+ */
+function RowMeta({
+  entry,
+  onMarkRead,
+  trailingIcon,
+}: {
+  entry: NotificationLogEntry
+  onMarkRead?: (entry: NotificationLogEntry) => void
+  trailingIcon?: React.ReactNode
+}) {
+  const unread = entry.read_at == null
+  return (
+    <p className="mt-1 flex items-center gap-2 font-mono text-[11px] uppercase tracking-wide text-muted-foreground/70">
+      <span className="flex items-center gap-1">
+        {formatTimeAgo(entry.sent_at)}
+        {trailingIcon}
+      </span>
+      {unread && onMarkRead && (
+        <button
+          type="button"
+          onClick={event => {
+            event.preventDefault()
+            event.stopPropagation()
+            onMarkRead(entry)
+          }}
+          // The button sits inside the row's <Link>; middle-clicks dispatch
+          // auxclick, whose default on the enclosing anchor opens a new tab.
+          onAuxClick={event => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          className="cursor-pointer normal-case text-muted-foreground transition-colors hover:text-foreground"
+        >
+          [mark read]
+        </button>
+      )}
+    </p>
+  )
+}
+
+function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: RowProps) {
   const unread = entry.read_at == null
   const padding = variant === 'popover' ? 'px-3 py-2.5' : 'px-4 py-3'
+  const rowClasses = cn(
+    'flex items-start gap-3 transition-colors hover:bg-accent/40',
+    padding,
+    unread && 'bg-accent/20',
+    dimmed && 'opacity-60 hover:opacity-100'
+  )
 
   if (isCommentNotification(entry)) {
     const isMention = entry.entity_type === NOTIFICATION_ENTITY_COMMENT_MENTION
+    // Deep links are normalized to relative paths by the query hook
+    // (normalizeNotificationDeepLinks) so row clicks stay client-side.
     const href = entry.comment_url ?? '#'
     const verb = isMention ? 'mentioned you' : 'replied'
     const commenter = entry.commenter_name || 'Someone'
@@ -82,11 +177,7 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
         <Link
           href={href}
           onClick={() => onItemClick?.(entry)}
-          className={cn(
-            'flex items-start gap-3 transition-colors hover:bg-accent/40',
-            padding,
-            unread && 'bg-accent/20'
-          )}
+          className={rowClasses}
         >
           <div
             className={cn(
@@ -110,9 +201,7 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
                 {entry.comment_excerpt}
               </p>
             )}
-            <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-              {formatTimeAgo(entry.sent_at)}
-            </p>
+            <RowMeta entry={entry} onMarkRead={onMarkRead} />
           </div>
           {unread && (
             <span
@@ -133,11 +222,7 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
         <Link
           href={href}
           onClick={() => onItemClick?.(entry)}
-          className={cn(
-            'flex items-start gap-3 transition-colors hover:bg-accent/40',
-            padding,
-            unread && 'bg-accent/20'
-          )}
+          className={rowClasses}
         >
           <div
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
@@ -153,9 +238,7 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
             <p className="mt-0.5 text-xs text-muted-foreground">
               Review it to approve or reject.
             </p>
-            <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-              {formatTimeAgo(entry.sent_at)}
-            </p>
+            <RowMeta entry={entry} onMarkRead={onMarkRead} />
           </div>
           {unread && (
             <span
@@ -178,11 +261,7 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
       <Link
         href={showHref}
         onClick={() => onItemClick?.(entry)}
-        className={cn(
-          'flex items-start gap-3 transition-colors hover:bg-accent/40',
-          padding,
-          unread && 'bg-accent/20'
-        )}
+        className={rowClasses}
       >
         <div
           className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
@@ -205,10 +284,11 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
               <span className="font-medium">{entry.entity_type}</span>
             )}
           </p>
-          <p className="mt-1 flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-            {formatTimeAgo(entry.sent_at)}
-            <ExternalLink className="h-3 w-3" />
-          </p>
+          <RowMeta
+            entry={entry}
+            onMarkRead={onMarkRead}
+            trailingIcon={<ExternalLink className="h-3 w-3" />}
+          />
         </div>
         {unread && (
           <span

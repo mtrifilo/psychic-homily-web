@@ -8,6 +8,8 @@ import {
   NOTIFY_ENTITY_TYPES,
   formatTimeAgo,
   getFilterSummary,
+  toRelativeIfSameOrigin,
+  normalizeNotificationDeepLinks,
   type NotificationLogEntry,
   type NotificationFilter,
 } from './types'
@@ -105,6 +107,36 @@ describe('isRequestNotification', () => {
 
   it('returns false for a show-filter row', () => {
     expect(isRequestNotification(logEntry({ entity_type: 'show' }))).toBe(false)
+  })
+})
+
+describe('toRelativeIfSameOrigin', () => {
+  it('rewrites same-origin absolute URLs to path + search + hash', () => {
+    const href = `${window.location.origin}/shows/the-show?tab=comments#comment-9`
+    expect(toRelativeIfSameOrigin(href)).toBe(
+      '/shows/the-show?tab=comments#comment-9'
+    )
+  })
+
+  it('passes through cross-origin, relative, and malformed URLs', () => {
+    expect(toRelativeIfSameOrigin('https://example.com/x#y')).toBe(
+      'https://example.com/x#y'
+    )
+    expect(toRelativeIfSameOrigin('/requests')).toBe('/requests')
+    expect(toRelativeIfSameOrigin('http://')).toBe('http://')
+  })
+})
+
+describe('normalizeNotificationDeepLinks', () => {
+  it('normalizes comment_url and request_url, returning the same entry when unchanged', () => {
+    const sameOrigin = logEntry({
+      comment_url: `${window.location.origin}/venues/v#comment-3`,
+    })
+    expect(normalizeNotificationDeepLinks(sameOrigin).comment_url).toBe(
+      '/venues/v#comment-3'
+    )
+    const untouched = logEntry({ comment_url: 'https://example.com/x' })
+    expect(normalizeNotificationDeepLinks(untouched)).toBe(untouched)
   })
 })
 
