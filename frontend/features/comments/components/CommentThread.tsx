@@ -10,6 +10,8 @@ import {
   useCreateComment,
   formatCommentSubmissionError,
 } from '../hooks'
+import { COMMENTS_SECTION_ANCHOR } from '../anchors'
+import { useCommentDeepLink } from '../hooks/useCommentDeepLink'
 import { CommentForm } from './CommentForm'
 import { CommentCard } from './CommentCard'
 import type { Comment, ReplyPermission } from '../types'
@@ -43,6 +45,17 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
 
   const { data, isLoading } = useComments(entityType, entityId, sort)
   const createMutation = useCreateComment()
+
+  // PSY-1512: resolve `#comment-{id}` deep links (notification/email URLs)
+  // to a scrolled-to, briefly-highlighted comment. `linkedThread` carries a
+  // thread whose root is beyond the fetched page; `expandRootId` marks an
+  // in-page root whose replies must auto-load because the target is one.
+  const { highlightId, expandRootId, linkedThread } = useCommentDeepLink(
+    entityType,
+    entityId,
+    data?.comments,
+    isLoading
+  )
 
   const comments = data?.comments ?? []
   const total = data?.total ?? 0
@@ -81,7 +94,11 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
   }
 
   return (
-    <section className="mt-8" data-testid="comment-thread">
+    <section
+      id={COMMENTS_SECTION_ANCHOR}
+      className="mt-8 scroll-mt-20"
+      data-testid="comment-thread"
+    >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -158,7 +175,7 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
             </div>
           ))}
         </div>
-      ) : topLevel.length === 0 && !effectivePending ? (
+      ) : topLevel.length === 0 && !effectivePending && !linkedThread ? (
         <p className="text-sm text-muted-foreground py-8 text-center" data-testid="empty-state">
           No comments yet. Be the first to share your thoughts.
         </p>
@@ -176,6 +193,21 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
               />
             </div>
           )}
+          {/* PSY-1512: deep-linked thread whose root lives beyond the
+              fetched page — rendered ahead of the regular list so the
+              target comment is reachable. The hook only supplies this when
+              the root is NOT in `topLevel`, so no duplicate rendering. */}
+          {linkedThread && (
+            <div className="pt-4 first:pt-0" data-testid="deep-link-thread">
+              <CommentCard
+                comment={linkedThread.comment}
+                entityType={entityType}
+                entityId={entityId}
+                replies={linkedThread.replies}
+                highlightId={highlightId}
+              />
+            </div>
+          )}
           {topLevel.map((comment) => (
             <div key={comment.id} className="pt-4 first:pt-0">
               <CommentCard
@@ -183,6 +215,8 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
                 entityType={entityType}
                 entityId={entityId}
                 replies={repliesByParent[comment.id] ?? []}
+                highlightId={highlightId}
+                autoExpandThread={comment.id === expandRootId}
               />
             </div>
           ))}
