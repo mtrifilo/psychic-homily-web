@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { PlaylistTable } from './PlaylistTable'
 import { makeRadioPlay as makePlay } from '@/features/radio/lib/radioPlay.testutil'
 
@@ -10,71 +9,9 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-vi.mock('next/navigation', () => ({
-  usePathname: () => '/radio/kexp/el-sonido/2026-06-02',
-}))
-
-type MockAuth = {
-  user: { id: string } | null
-  isAuthenticated: boolean
-  isLoading: boolean
-  logout: () => void
-}
-
-const mockAuthContext = vi.fn<() => MockAuth>(() => ({
-  user: null,
-  isAuthenticated: false,
-  isLoading: false,
-  logout: vi.fn(),
-}))
-
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthContext(),
-}))
-
-vi.mock('@/features/auth', () => ({
-  LoginPromptDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="login-prompt">Login Prompt</div> : null,
-}))
-
-const mockOwnPending = vi.fn()
-const mockCreateMutate = vi.fn()
-
-vi.mock('@/features/radio/hooks/usePlayMatchSuggestions', () => ({
-  useOwnPlayMatchSuggestion: (...args: unknown[]) => mockOwnPending(...args),
-  useCreatePlayMatchSuggestion: () => ({
-    mutate: mockCreateMutate,
-    isPending: false,
-  }),
-}))
-
-vi.mock('@/features/artists', () => ({
-  ArtistSearch: ({
-    onSelect,
-  }: {
-    onSelect?: (artist: { id: number; name: string }) => void
-  }) => (
-    <button
-      type="button"
-      data-testid="mock-artist-search"
-      onClick={() => onSelect?.({ id: 99, name: 'CAN' })}
-    >
-      Pick CAN
-    </button>
-  ),
-}))
-
-
 describe('PlaylistTable', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: vi.fn(),
-    })
-    mockOwnPending.mockReturnValue({ data: null, isLoading: false })
   })
 
   it('renders a matched artist as a link with the filled dot', () => {
@@ -90,11 +27,12 @@ describe('PlaylistTable', () => {
     expect(screen.getAllByText('●')).toHaveLength(2)
   })
 
-  it('renders an unmatched artist as plain text with the open dot', () => {
+  it('renders an unmatched artist as plain text with the open dot and no CTA', () => {
     render(<PlaylistTable plays={[makePlay({ artist_name: 'The Tweeters' })]} />)
     const artist = screen.getByText('The Tweeters')
     expect(artist.closest('a')).toBeNull()
     expect(screen.getAllByText('○')).toHaveLength(2)
+    expect(screen.queryByText(/suggest a match/i)).not.toBeInTheDocument()
   })
 
   it('renders track, album, label, and year', () => {
@@ -277,7 +215,7 @@ describe('PlaylistTable', () => {
       expect(timeCells[1].textContent).toBe('')
     })
 
-    it('keeps the match affordances: dots, links, and suggest-a-match', () => {
+    it('keeps the match affordances: dots and links', () => {
       render(
         <PlaylistTable
           live
@@ -291,7 +229,7 @@ describe('PlaylistTable', () => {
         'href',
         '/artists/can'
       )
-      expect(screen.getByTestId('suggest-match-cta')).toBeInTheDocument()
+      expect(screen.getByText('The Tweeters').closest('a')).toBeNull()
     })
 
     it('keeps a dj_comment sub-row under its (reordered) track', () => {
@@ -329,85 +267,5 @@ describe('PlaylistTable', () => {
       const commentRow = screen.getByText('live in the studio').closest('tr')
       expect(commentRow?.className).toContain('bg-primary/5')
     })
-  })
-
-  it('shows suggest-a-match CTA on unmatched rows for guests', () => {
-    render(<PlaylistTable plays={[makePlay({ artist_name: 'The Tweeters' })]} />)
-    expect(screen.getByTestId('suggest-match-cta')).toBeInTheDocument()
-  })
-
-  it('does not show suggest-a-match on matched rows', () => {
-    render(
-      <PlaylistTable
-        plays={[makePlay({ artist_id: 5, artist_slug: 'can' })]}
-      />
-    )
-    expect(screen.queryByTestId('suggest-match-cta')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('suggest-match-pending')).not.toBeInTheDocument()
-  })
-
-  it('opens login prompt when a guest clicks suggest-a-match', async () => {
-    const user = userEvent.setup()
-    render(<PlaylistTable plays={[makePlay()]} />)
-    await user.click(screen.getByTestId('suggest-match-cta'))
-    expect(screen.getByTestId('login-prompt')).toBeInTheDocument()
-  })
-
-  it('shows suggestion pending when the caller has a pending suggestion', () => {
-    mockAuthContext.mockReturnValue({
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    })
-    mockOwnPending.mockReturnValue({
-      data: {
-        id: 10,
-        play_id: 1,
-        status: 'pending',
-        suggested_artist_name: 'CAN',
-      },
-      isLoading: false,
-    })
-
-    render(<PlaylistTable plays={[makePlay()]} />)
-    expect(screen.getByTestId('suggest-match-pending')).toHaveTextContent(
-      'suggestion pending'
-    )
-    expect(screen.queryByTestId('suggest-match-cta')).not.toBeInTheDocument()
-  })
-
-  it('does not flash suggestion pending while the mine query is loading', () => {
-    mockAuthContext.mockReturnValue({
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    })
-    mockOwnPending.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    })
-
-    render(<PlaylistTable plays={[makePlay()]} />)
-    expect(screen.queryByTestId('suggest-match-pending')).not.toBeInTheDocument()
-    expect(screen.getByTestId('suggest-match-loading')).toBeInTheDocument()
-    expect(screen.queryByTestId('suggest-match-cta')).not.toBeInTheDocument()
-  })
-
-  it('opens the picker for an authenticated user without a pending suggestion', async () => {
-    mockAuthContext.mockReturnValue({
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    })
-    mockOwnPending.mockReturnValue({ data: null, isLoading: false })
-
-    const user = userEvent.setup()
-    render(<PlaylistTable plays={[makePlay({ artist_name: 'The Tweeters' })]} />)
-    await user.click(screen.getByTestId('suggest-match-cta'))
-    expect(screen.getByText('Suggest a match')).toBeInTheDocument()
-    expect(screen.getByTestId('mock-artist-search')).toBeInTheDocument()
   })
 })

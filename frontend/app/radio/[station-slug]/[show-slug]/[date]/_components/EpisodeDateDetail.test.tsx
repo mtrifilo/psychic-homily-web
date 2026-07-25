@@ -123,9 +123,8 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
     vi.clearAllMocks()
   })
 
-  // Matched plays (artist_id set) so the table doesn't mount
-  // SuggestMatchControl, which needs the auth-context test harness — the
-  // match affordances themselves are covered in PlaylistTable.test.tsx.
+  // Matched plays (artist_id set); the match affordances themselves are
+  // covered in PlaylistTable.test.tsx.
   const playFixture = makeRadioPlay({ artist_id: 5, artist_slug: 'can' })
 
   it('shows the ON AIR band with the updated-ago aside while the episode is live', () => {

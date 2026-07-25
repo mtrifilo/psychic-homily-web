@@ -78,8 +78,6 @@ type ServiceContainer struct {
 	StreamingWorklist      *pipeline.StreamingWorklistService
 	DiscoverMusic          *pipeline.DiscoverMusicService
 	LinkSuggestion         *pipeline.LinkSuggestionService
-	// PSY-1494: community radio play match suggestions + admin review.
-	RadioPlayMatchSuggestion *catalog.RadioPlayMatchSuggestionService
 
 	// Config-only services
 	Discord            *notification.DiscordService
@@ -311,7 +309,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		// (UpdateArtist → bandcamp/spotify setters + PSY-1190 resolver), so it
 		// takes the already-constructed artist service.
 		LinkSuggestion: pipeline.NewLinkSuggestionService(database, artist),
-		RadioPlayMatchSuggestion: catalog.NewRadioPlayMatchSuggestionService(database, radioSvc),
 
 		// Config-only services
 		Discord:            discord,

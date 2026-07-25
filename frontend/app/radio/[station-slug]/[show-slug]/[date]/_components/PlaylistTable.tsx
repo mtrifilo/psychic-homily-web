@@ -11,7 +11,6 @@ import {
   getRotationStatusColor,
 } from '@/features/radio'
 import type { RadioPlay } from '@/features/radio'
-import { SuggestMatchControl } from './SuggestMatchControl'
 
 interface PlaylistTableProps {
   plays: RadioPlay[]
@@ -54,8 +53,8 @@ const NEWEST_NOW_MAX_AGE_MS = 10 * 60 * 1000
 /**
  * The playlist page's full-width record-collector track table: TIME · ARTIST ·
  * TRACK · ALBUM · LABEL · YEAR · NOTES. Matched artists (artist_id) render as
- * an orange link with a ● dot; unmatched as plain text with ○ plus a quiet
- * [suggest a match] CTA. TIME comes from air_timestamp where the feed carries
+ * an orange link with a ● dot; unmatched as plain text with a ○ dot.
+ * TIME comes from air_timestamp where the feed carries
  * one and is otherwise blank (never fabricated); position keeps the row order.
  * dj_comment renders as an indented full-width sub-row under its track.
  */
@@ -135,12 +134,6 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                         <span className="font-medium text-foreground">
                           {play.artist_name}
                         </span>
-                      )}
-                      {!matched && (
-                        <SuggestMatchControl
-                          playId={play.id}
-                          playArtistName={play.artist_name}
-                        />
                       )}
                     </span>
                   </td>
