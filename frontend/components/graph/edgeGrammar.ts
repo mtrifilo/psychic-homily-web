@@ -41,6 +41,9 @@ export const EDGE_TYPES = [
   'similar',
   'shared_bills',
   'shared_label',
+  // PSY-1530: label hub membership. A query-time projection of shared_label
+  // (no artist_relationships row), so it sits beside it in the grammar.
+  'on_label',
   'side_project',
   'member_of',
   'radio_cooccurrence',
@@ -51,6 +54,7 @@ const EDGE_LABELS: Record<string, string> = {
   similar: 'Similar',
   shared_bills: 'Shared Bills',
   shared_label: 'Shared Label',
+  on_label: 'On Label',
   side_project: 'Side Project',
   member_of: 'Member Of',
   radio_cooccurrence: 'Radio Co-occurrence',
@@ -62,6 +66,10 @@ export const EDGE_CSS_VARS: Record<string, string> = {
   similar: '--edge-similar',
   shared_bills: '--edge-shared-bills',
   shared_label: '--edge-shared-label',
+  // Deliberately the SAME token as shared_label: a spoke states the same
+  // label relationship the pairwise edge did, just hub-shaped, so the two
+  // must never drift to different hues.
+  on_label: '--edge-shared-label',
   side_project: '--edge-side-project',
   member_of: '--edge-member-of',
   radio_cooccurrence: '--edge-radio-cooccurrence',
@@ -81,6 +89,7 @@ export const FALLBACK_EDGE_COLORS: Record<string, string> = {
   similar: '#a1a1aa', //              zinc-400 (neutral)
   shared_bills: '#60a5fa', //         blue-400
   shared_label: '#c084fc', //         purple-400
+  on_label: '#c084fc', //             purple-400 (same label family)
   side_project: '#4ade80', //         green-400
   member_of: '#fbbf24', //            amber-400
   radio_cooccurrence: '#2dd4bf', //   teal-400
@@ -115,6 +124,7 @@ export function edgeColorCSS(type: string): string {
 export function edgeLineDash(type: string): number[] {
   switch (type) {
     case 'shared_label':
+    case 'on_label':
       return [5, 5]
     case 'side_project':
     case 'member_of':
@@ -158,6 +168,9 @@ export function edgeWidth(type: string, score?: number): number {
       return Math.max(1, (score ?? 0) * 3)
     case 'side_project':
     case 'member_of':
+    // on_label is membership: every roster artist is equally "on" the label,
+    // so a scaled stroke would imply a magnitude that does not exist.
+    case 'on_label':
       // Binary relationship — uniform stroke is intentional.
       return 1
     default:

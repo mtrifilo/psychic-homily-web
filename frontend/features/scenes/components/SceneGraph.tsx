@@ -52,7 +52,7 @@ import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useCo
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
-import { sceneArtistCountPhrase } from './sceneGraphCopy'
+import { sceneArtistCountPhrase, sceneLabelCountPhrase } from './sceneGraphCopy'
 import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
 
 const MIN_GRAPH_NODES = 3
@@ -244,12 +244,22 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // cap differs (sentence-cased here, mid-sentence in the aria-label). A
   // digit-leading plain count is a toUpperCase no-op.
   const artistPhrase = sentenceCase(sceneArtistCountPhrase(data.scene))
+  // PSY-1530: label hubs are a second population on the canvas, so the header
+  // names them. Null (not "0 labels") on a hub-less scene, which reads exactly
+  // as it did before hubs shipped.
+  const labelPhrase = sceneLabelCountPhrase(data.scene)
 
   const sceneHeader = (
     <div>
       <h2 className="text-lg font-semibold">Scene graph</h2>
       <p className="text-sm text-muted-foreground">
         {artistPhrase}
+        {labelPhrase && (
+          <>
+            {' · '}
+            {labelPhrase}
+          </>
+        )}
         {edgeCount > 0 && (
           <>
             {' · '}

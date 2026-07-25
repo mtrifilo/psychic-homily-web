@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { SceneGraphInfo } from '../types'
-import { sceneArtistCountPhrase } from './sceneGraphCopy'
+import { sceneArtistCountPhrase, sceneLabelCountPhrase } from './sceneGraphCopy'
 
 function scene(overrides: Partial<SceneGraphInfo>): SceneGraphInfo {
   return {
@@ -68,5 +68,34 @@ describe('sceneArtistCountPhrase (PSY-1296)', () => {
         scene({ artist_count: 0, metro_roster_total: 5, roster_truncated: true }),
       ),
     ).toBe('0 artists')
+  })
+})
+
+describe('sceneLabelCountPhrase (PSY-1530)', () => {
+  const scene = (label_count?: number) => ({
+    slug: 'austin-tx',
+    city: 'Austin',
+    state: 'TX',
+    artist_count: 38,
+    edge_count: 27,
+    metro_roster_total: 38,
+    roster_truncated: false,
+    label_count,
+  })
+
+  it('pluralizes label counts', () => {
+    expect(sceneLabelCountPhrase(scene(2))).toBe('2 labels')
+    expect(sceneLabelCountPhrase(scene(1))).toBe('1 label')
+  })
+
+  // A hub-less scene must read exactly as it did before hubs existed, so the
+  // caller has nothing to join.
+  it('returns null when the graph has no hubs', () => {
+    expect(sceneLabelCountPhrase(scene(0))).toBeNull()
+  })
+
+  // Payloads served before hubs shipped omit the field entirely.
+  it('returns null when label_count is absent', () => {
+    expect(sceneLabelCountPhrase(scene(undefined))).toBeNull()
   })
 })

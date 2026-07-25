@@ -39,13 +39,19 @@
  *   - hiddenClusterIDs filter behaviour preserved (Set passed through)
  */
 
+import { useMemo } from 'react'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
 import {
   ArtistContextPanel,
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
 import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
+import {
+  isLabelHubNode,
+  labelHubHomeCaption,
+} from '@/components/graph/labelHub'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVisibleClusters'
 // Deep import, deliberately NOT the '@/features/artists' barrel — the barrel
@@ -53,7 +59,8 @@ import { resolveNodeInVisibleClusters } from '@/components/graph/resolveNodeInVi
 // code into the scene page's graph chunk (HomeSceneGraph precedent, PSY-868).
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import type { SceneGraphResponse } from '../types'
-import { sceneArtistCountPhrase } from './sceneGraphCopy'
+import { sceneArtistCountPhrase, sceneLabelCountPhrase } from './sceneGraphCopy'
+import { SCENE_EDGE_TYPE_ON_LABEL } from '../types'
 
 interface SceneGraphVisualizationProps {
   data: SceneGraphResponse
@@ -97,23 +104,67 @@ export function SceneGraphVisualization({
       resolveNodeInVisibleClusters(selected, data.nodes, hiddenClusterIDs),
   })
 
+  // A label hub is not an artist: its panel is the shared EntityContextPanel
+  // (PSY-1473), and asking the artist-card endpoint for a hub's offset node ID
+  // would 404.
+  const selectedIsHub =
+    currentSelectedNode !== null && isLabelHubNode(currentSelectedNode)
+
   const cardQuery = useArtistGraphCard({
-    artistId: currentSelectedNode?.id ?? null,
-    enabled: currentSelectedNode !== null,
+    artistId: !selectedIsHub ? (currentSelectedNode?.id ?? null) : null,
+    enabled: currentSelectedNode !== null && !selectedIsHub,
   })
+
+  // The hub's payoff — "N artists on this label in this graph" — is derived
+  // from the rendered payload's own spokes, so the panel needs no fetch and can
+  // never disagree with what the canvas is drawing.
+  const hubRosterInGraph = useMemo(() => {
+    if (!currentSelectedNode || !selectedIsHub) return 0
+    const roster = new Set<number>()
+    for (const link of data.links) {
+      if (link.type !== SCENE_EDGE_TYPE_ON_LABEL) continue
+      if (link.source_id === currentSelectedNode.id) roster.add(link.target_id)
+      else if (link.target_id === currentSelectedNode.id)
+        roster.add(link.source_id)
+    }
+    return roster.size
+  }, [currentSelectedNode, selectedIsHub, data.links])
 
   // PSY-1296: describe a capped graph honestly — assistive tech hears the
   // exact phrase the visual header shows (shared sceneGraphCopy source), so
   // the two surfaces can't state different numbers for the same graph. The
   // trailing shared hint names the select gesture — click no longer
   // navigates, so the label must set that expectation.
-  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. ${graphSelectGestureHint}`
+  // Assistive tech hears the same populations the visual header shows (shared
+  // sceneGraphCopy source), including the label hubs.
+  const labelPhrase = sceneLabelCountPhrase(data.scene)
+  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}${labelPhrase ? `, ${labelPhrase}` : ''}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. ${graphSelectGestureHint}`
 
   return (
     <GraphPanelHost
       canvasWrapRef={canvasWrapRef}
       panel={
-        currentSelectedNode ? (
+        currentSelectedNode && selectedIsHub ? (
+          <EntityContextPanel
+            className="absolute top-2 left-2 z-40"
+            entityType="label"
+            name={currentSelectedNode.name}
+            slug={currentSelectedNode.slug}
+            // Hubs are not gated to scene-local labels, so the panel states the
+            // label's home the same way the canvas caption does.
+            meta={labelHubHomeCaption(currentSelectedNode) ?? null}
+            primary={
+              hubRosterInGraph > 0
+                ? {
+                    kind: 'emphasis',
+                    text: `${hubRosterInGraph} ${hubRosterInGraph === 1 ? 'artist' : 'artists'} on this label in this graph`,
+                  }
+                : null
+            }
+            onClose={handlePanelClose}
+            panelRef={panelRef}
+          />
+        ) : currentSelectedNode ? (
           <ArtistContextPanel
             // Top-LEFT, not HomeSceneGraph's top-right: this surface floats the
             // EdgeLegend at top-2 right-2 (inside ForceGraphView) and the

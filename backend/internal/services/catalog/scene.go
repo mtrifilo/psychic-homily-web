@@ -83,7 +83,7 @@ const usCountry = "US"
 // show contradictory scene counts. NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
 // semantics — it NULLIFs an empty-string metro into the fallback, this one
-// does not (venues get metro from the geocoder, never ''); an identity
+// does not (venues get metro from the geocoder, never ”); an identity
 // change here must be weighed against that twin, not assumed to cover it.
 const sceneGroupKeySQL = `COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(TRIM(v.state)))`
 
@@ -1228,9 +1228,36 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 		links = fetched
 	}
 
-	// 6. Build the link payload + flag cross-cluster ties.
+	// 5a. Collapse label rosters into hub nodes (PSY-1530). A label with
+	// sceneLabelHubMinRoster+ in-scene artists arrives from
+	// DeriveSharedLabels as a complete C(n,2) clique; one hub plus n
+	// membership spokes carries the same fact in a drawable shape. Hub
+	// failure is non-fatal: the scene graph still renders as pairwise edges
+	// (today's behavior) rather than 500ing on a decorative layer.
+	var labelHubs sceneLabelHubs
+	if !noEdgesByFilter && sceneEdgeTypesInclude(resolvedTypes, catalogm.RelationshipTypeSharedLabel) {
+		rosterRows, err := querySceneLabelRosters(s.db, artistIDs)
+		if err != nil {
+			slog.Error("scene graph: label roster query failed; falling back to pairwise label edges",
+				"scene", resp.Scene.Slug, "error", err)
+		} else if hubs, err := buildSceneLabelHubs(rosterRows); err != nil {
+			slog.Error("scene graph: label hubs skipped",
+				"scene", resp.Scene.Slug, "error", err)
+		} else {
+			labelHubs = hubs
+		}
+	}
+
+	// 6. Build the link payload + flag cross-cluster ties. Pairwise
+	// `shared_label` edges whose every shared label became a hub are dropped —
+	// the spokes already carry them.
 	connected := make(map[uint]bool, len(rows))
 	for _, l := range links {
+		if l.RelationshipType == catalogm.RelationshipTypeSharedLabel &&
+			labelHubs.replacesSharedLabelEdge(l.SourceArtistID, l.TargetArtistID) {
+			continue
+		}
+
 		srcCluster := clusterByArtist[l.SourceArtistID]
 		tgtCluster := clusterByArtist[l.TargetArtistID]
 
@@ -1251,6 +1278,14 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 		connected[l.SourceArtistID] = true
 		connected[l.TargetArtistID] = true
 	}
+
+	// 6a. Append the membership spokes. A roster artist reached only by a spoke
+	// is connected — it anchors to its hub, so it must not also land on the
+	// not-yet-connected shelf.
+	for _, spoke := range labelHubs.Spokes {
+		resp.Links = append(resp.Links, spoke)
+		connected[spoke.TargetID] = true
+	}
 	resp.Scene.EdgeCount = len(resp.Links)
 
 	// 7. Build node list with is_isolate set from the post-filter link set.
@@ -1269,6 +1304,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 		}
 		resp.Nodes = append(resp.Nodes, contracts.SceneGraphNode{
 			ID:                r.ArtistID,
+			EntityType:        contracts.SceneNodeKindArtist,
 			Name:              r.Name,
 			Slug:              slug,
 			City:              ncity,
@@ -1281,7 +1317,25 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 		})
 	}
 
+	// 7a. Append label hub nodes after the artists so the artist ordering the
+	// existing consumers rely on is untouched.
+	resp.Nodes = append(resp.Nodes, labelHubs.Nodes...)
+	resp.Scene.LabelCount = len(labelHubs.Nodes)
+
 	return resp, nil
+}
+
+// sceneEdgeTypesInclude reports whether a resolved edge-type set contains the
+// given type. Label hubs are a projection of `shared_label`, so hiding that
+// type via the `types` filter must hide the hubs too — otherwise filtering
+// label edges out would leave hubs floating with spokes the caller excluded.
+func sceneEdgeTypesInclude(resolved []string, want string) bool {
+	for _, t := range resolved {
+		if t == want {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveSceneEdgeTypes filters the caller's requested types against the

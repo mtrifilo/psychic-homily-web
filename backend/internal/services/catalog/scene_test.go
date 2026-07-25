@@ -78,6 +78,17 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	// Label + relationship rows reference artists, so they MUST be cleared
+	// first: this teardown ignores errors, so an FK-blocked "DELETE FROM
+	// artists" fails silently and leaks the whole roster into the next test
+	// (observed as inflated scene counts and duplicate-key creates once the
+	// label-hub tests, PSY-1530, became the first here to seed these tables).
+	// Votes go before relationships — that FK is ON DELETE NO ACTION.
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationship_votes")
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
+	_, _ = sqlDB.Exec("DELETE FROM artist_labels")
+	_, _ = sqlDB.Exec("DELETE FROM release_labels")
+	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")

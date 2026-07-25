@@ -479,3 +479,31 @@ describe('orderEdgeTypes', () => {
     expect(input).toEqual(['member_of', 'similar'])
   })
 })
+
+describe('on_label — label hub membership (PSY-1530)', () => {
+  it('shares the label-family color token with shared_label', () => {
+    // A spoke states the same label relationship the pairwise edge did, just
+    // hub-shaped; different hues would read as different facts.
+    expect(edgeColorCSS('on_label')).toBe(edgeColorCSS('shared_label'))
+  })
+
+  it('shares the shared_label dash pattern', () => {
+    expect(edgeLineDash('on_label')).toEqual(edgeLineDash('shared_label'))
+  })
+
+  it('draws a uniform stroke regardless of score', () => {
+    // Membership is binary — a scaled stroke would imply a magnitude that
+    // does not exist (unlike shared_label's roster-normalized weight).
+    expect(edgeWidth('on_label', 0.02)).toBe(edgeWidth('on_label', 1))
+    expect(edgeWidth('on_label', 1)).toBe(1)
+  })
+
+  it('is a canonical type with a readable legend label', () => {
+    expect(edgeTypeLabel('on_label')).toBe('On Label')
+    // Canonical types sort ahead of unknown ones in the legend.
+    expect(orderEdgeTypes(['played_at', 'on_label'])).toEqual([
+      'on_label',
+      'played_at',
+    ])
+  })
+})

@@ -344,3 +344,71 @@ describe('degreeMap', () => {
     expect(degrees.get(99)).toBeUndefined()
   })
 })
+
+describe('label caption (PSY-1530)', () => {
+  // Minimal ctx recording the text draws + the fonts in effect, so a caption
+  // line can be told from its label.
+  function captionCtx() {
+    const fills: Array<{ text: string; font: string }> = []
+    const ctx = {
+      font: '',
+      lineWidth: 0,
+      lineJoin: '',
+      textAlign: '',
+      textBaseline: '',
+      globalAlpha: 1,
+      fillStyle: '',
+      strokeStyle: '',
+      save() {},
+      restore() {},
+      measureText: (t: string) => ({ width: t.length * 4 }),
+      strokeText() {},
+      fillText(text: string) {
+        fills.push({ text, font: ctx.font })
+      },
+      fills,
+    }
+    return ctx
+  }
+
+  const palette = { labelText: '#111', labelHalo: '#fff' } as never
+
+  it('draws the caption under the label, smaller than the name', () => {
+    const ctx = captionCtx()
+    renderGraphLabels(ctx as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX' },
+    ])
+    const texts = ctx.fills.map(f => f.text)
+    expect(texts).toContain('12XU')
+    expect(texts).toContain('Austin, TX')
+
+    const nameSize = Number(/(\d+(?:\.\d+)?)px/.exec(
+      ctx.fills.find(f => f.text === '12XU')!.font,
+    )![1])
+    const captionSize = Number(/(\d+(?:\.\d+)?)px/.exec(
+      ctx.fills.find(f => f.text === 'Austin, TX')!.font,
+    )![1])
+    expect(captionSize).toBeLessThan(nameSize)
+  })
+
+  it('draws no caption line when none is supplied', () => {
+    const ctx = captionCtx()
+    renderGraphLabels(ctx as never, palette, [
+      { x: 0, y: 0, text: 'Borzoi', fontSize: 11 },
+    ])
+    expect(ctx.fills.map(f => f.text)).toEqual(['Borzoi'])
+  })
+
+  // The caption must be inside the collision box, or a neighbouring label can
+  // be placed on top of it.
+  it('reserves vertical space for the caption', () => {
+    const ctx = captionCtx()
+    // A second label placed just below the first: with the caption reserved,
+    // it collides and is culled; the forced hub label always survives.
+    renderGraphLabels(ctx as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX', force: true },
+      { x: 0, y: 20, text: 'Collides', fontSize: 11 },
+    ])
+    expect(ctx.fills.map(f => f.text)).not.toContain('Collides')
+  })
+})

@@ -141,6 +141,12 @@ export interface SceneGraphInfo {
   metro_roster_total: number
   /** True when metro_roster_total > artist_count. */
   roster_truncated: boolean
+  /**
+   * Label hub nodes in the response (PSY-1530). Counted apart from
+   * `artist_count` so the roster-truncation phrasing keeps describing artists
+   * only. Absent on payloads served before hubs shipped.
+   */
+  label_count?: number
 }
 
 export interface SceneGraphCluster {
@@ -155,11 +161,23 @@ export interface SceneGraphCluster {
 }
 
 export interface SceneGraphNode {
+  /**
+   * Artist ID for artist nodes; label hubs are offset into a reserved range so
+   * both kinds share one numeric node-ID space (PSY-1530). Pair with
+   * `entity_type` before treating this as a database key.
+   */
   id: number
+  /**
+   * "artist" or "label" (PSY-1530). Optional for payloads served before hubs
+   * shipped — absent means artist.
+   */
+  entity_type?: string
   name: string
   slug: string
   city?: string
   state?: string
+  /** Label hubs only: home country, for the canvas caption when city/state are unknown. */
+  country?: string
   upcoming_show_count: number
   /** Matches SceneGraphCluster.id. */
   cluster_id: string
@@ -171,6 +189,13 @@ export interface SceneGraphNode {
    * embeddable Spotify URL) — drives the canvas playable-marker ring (PSY-1379). */
   has_playable_audio: boolean
 }
+
+/**
+ * Membership edge from a label hub to one of its in-scene roster artists
+ * (PSY-1530). Built at query time — it has no `artist_relationships` row and is
+ * never a valid `types` filter value.
+ */
+export const SCENE_EDGE_TYPE_ON_LABEL = 'on_label'
 
 export interface SceneGraphLink {
   source_id: number

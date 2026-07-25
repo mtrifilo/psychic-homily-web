@@ -33,3 +33,18 @@ export function sceneArtistCountPhrase(scene: SceneGraphInfo): string {
     plural: 'artists',
   }).phrase
 }
+
+/**
+ * Label-hub count phrase, or null when the graph has no hubs (PSY-1530).
+ *
+ * Kept separate from `sceneArtistCountPhrase` rather than folded into it: the
+ * artist phrase is the one the truncation flag is defined against, and hubs are
+ * never truncated (they are derived from the shipped artist set, not capped
+ * independently). Callers join the two, so a hub-less scene reads exactly as it
+ * did before hubs existed.
+ */
+export function sceneLabelCountPhrase(scene: SceneGraphInfo): string | null {
+  const count = scene.label_count ?? 0
+  if (count <= 0) return null
+  return `${count} ${count === 1 ? 'label' : 'labels'}`
+}
