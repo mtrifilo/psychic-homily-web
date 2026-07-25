@@ -2,6 +2,7 @@ import type {
   SceneGraphLink,
   SceneGraphNode,
 } from '@/features/scenes/types'
+import { isLabelHubNode } from '@/components/graph/labelHub'
 
 export const HOME_GRAPH_MAX_NODES = 20
 
@@ -41,6 +42,12 @@ export function buildHomeSceneGraphMap(
   }
 
   const rankedNodes = nodes
+    // Label hubs (PSY-1530) ride along, per the ticket's locked decision that
+    // the teaser inherits them. Filtering them out is NOT a safe simplification:
+    // the backend replaces each roster's pairwise clique with hub spokes, so
+    // dropping hubs drops those spokes too and a label-dominated scene collapses
+    // to almost nothing (Austin: 300 of 302 edges are one label). The hub is the
+    // connectivity on those scenes.
     .filter(node => !node.is_isolate && (degrees.get(node.id) ?? 0) > 0)
     .map(node => ({
       node,

@@ -72,3 +72,44 @@ export function drawPlayableRing(
   ctx.strokeStyle = PLAYABLE_RING_COLOR
   ctx.stroke()
 }
+
+/**
+ * Label hub marker: a rounded square (PSY-1530, Figma node 1137:2).
+ *
+ * Shape — not hue — is what separates a hub from an artist at a glance: the
+ * fill is the label family's own `--chart-6` token (single-sourced from
+ * egoPalette's locked mapping, so the app keeps one color language), and a
+ * cluster artist can legitimately carry that same hue. A square among circles
+ * reads instantly at any zoom, including the far-out fitted view where a
+ * hue difference washes out.
+ *
+ * Drawn filled + stroked like the node circles (the caller owns globalAlpha so
+ * hover-focus dim multiplies through identically).
+ */
+const LABEL_HUB_CORNER_RATIO = 0.28
+
+export function drawLabelHubMarker(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  /** Half-extent — the square's "radius", matched to the node radius scale. */
+  half: number,
+  fill: string,
+  stroke: string,
+): void {
+  const radius = half * 2 * LABEL_HUB_CORNER_RATIO
+  ctx.beginPath()
+  // roundRect is available in every browser target this canvas already
+  // requires; the manual arc fallback keeps jsdom-based tests (which stub a
+  // partial 2D context) from throwing on an unimplemented method.
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x - half, y - half, half * 2, half * 2, radius)
+  } else {
+    ctx.rect(x - half, y - half, half * 2, half * 2)
+  }
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.lineWidth = 1
+  ctx.strokeStyle = stroke
+  ctx.stroke()
+}

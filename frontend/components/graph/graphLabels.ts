@@ -204,6 +204,29 @@ export interface GraphLabelSpec {
   priority?: number
   /** Always draw + always reserve the box, even on collision (the center node). */
   force?: boolean
+  /**
+   * Optional second line under `text`, drawn smaller and dimmer — the label
+   * hub's home city (PSY-1530), so an out-of-scene anchor reads as out-of-scene
+   * on the canvas rather than only in its panel. Included in the collision box,
+   * so a caption can never overlap a neighbouring label.
+   */
+  caption?: string
+}
+
+/** Caption line size relative to its label, and the gap above it. */
+const CAPTION_FONT_RATIO = 0.62
+const CAPTION_GAP = 1.5
+/** Caption ink relative to the label's — dimmer, so the name still leads. */
+const CAPTION_ALPHA = 0.7
+
+function captionFontSize(spec: GraphLabelSpec): number {
+  return Math.max(6, Math.round(spec.fontSize * CAPTION_FONT_RATIO * 10) / 10)
+}
+
+/** Vertical space a spec's caption adds below the label glyph. */
+function captionExtraHeight(spec: GraphLabelSpec): number {
+  if (!spec.caption || spec.caption.trim() === '') return 0
+  return CAPTION_GAP + captionFontSize(spec) * LABEL_HEIGHT_FACTOR
 }
 
 interface LabelBox {
@@ -234,13 +257,28 @@ function measureLabelBox(
   ctx: CanvasRenderingContext2D,
   spec: GraphLabelSpec,
 ): LabelBox {
-  const halfWidth = ctx.measureText(spec.text).width / 2 + LABEL_PADDING
+  // The caption is NOT always narrower than the name — "12XU" captioned
+  // "Austin, TX" is wider — so the box must bound whichever line is widest, or
+  // a neighbouring label can be drawn over the caption. Measuring the caption
+  // needs its own font, so save/restore the caller's.
+  let widest = ctx.measureText(spec.text).width
+  if (spec.caption && spec.caption.trim() !== '') {
+    const font = ctx.font
+    ctx.font = `400 ${captionFontSize(spec)}px sans-serif`
+    widest = Math.max(widest, ctx.measureText(spec.caption).width)
+    ctx.font = font
+  }
+  const halfWidth = widest / 2 + LABEL_PADDING
   return {
     x0: spec.x - halfWidth,
     // The halo stroke straddles the glyph top, so include its overhang.
     y0: spec.y - LABEL_PADDING - spec.fontSize / 8,
     x1: spec.x + halfWidth,
-    y1: spec.y + spec.fontSize * LABEL_HEIGHT_FACTOR + LABEL_PADDING,
+    y1:
+      spec.y +
+      spec.fontSize * LABEL_HEIGHT_FACTOR +
+      captionExtraHeight(spec) +
+      LABEL_PADDING,
   }
 }
 
@@ -328,6 +366,23 @@ export function renderGraphLabels(
     ctx.strokeText(spec.text, spec.x, spec.y)
     ctx.fillStyle = palette.labelText
     ctx.fillText(spec.text, spec.x, spec.y)
+
+    if (spec.caption && spec.caption.trim() !== '') {
+      const size = captionFontSize(spec)
+      const captionY =
+        spec.y + spec.fontSize * LABEL_HEIGHT_FACTOR + CAPTION_GAP
+      // Same halo recipe as the name — a caption over a hull or an edge needs
+      // the backdrop just as much, and it is smaller (so less forgiving).
+      ctx.font = `400 ${size}px sans-serif`
+      ctx.lineWidth = size / 4
+      ctx.globalAlpha = CAPTION_ALPHA
+      ctx.strokeStyle = palette.labelHalo
+      ctx.strokeText(spec.caption, spec.x, captionY)
+      ctx.fillStyle = palette.labelText
+      ctx.fillText(spec.caption, spec.x, captionY)
+      ctx.globalAlpha = 1
+    }
+
     placed.push(box)
   }
 

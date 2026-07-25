@@ -110,3 +110,47 @@ describe('buildHomeSceneGraphMap', () => {
     expect(map.nodes.every(item => incidentIds.has(item.id))).toBe(true)
   })
 })
+
+describe('buildHomeSceneGraphMap — label hubs (PSY-1530)', () => {
+  // The teaser INHERITS hubs (locked decision). Excluding them is not a safe
+  // simplification: the backend replaces each roster's pairwise clique with hub
+  // spokes, so dropping hubs drops that connectivity too.
+  const hub = node(2_000_000_007, {
+    name: '12XU',
+    slug: '12xu',
+    entity_type: 'label',
+    cluster_id: '',
+  })
+  const spoke = (artistId: number): SceneGraphLink => ({
+    source_id: 2_000_000_007,
+    target_id: artistId,
+    type: 'on_label',
+    score: 1,
+    is_cross_cluster: false,
+  })
+
+  it('includes label hubs in the teaser node set', () => {
+    const map = buildHomeSceneGraphMap(
+      [node(1), node(2), node(3), hub],
+      [spoke(1), spoke(2), spoke(3)],
+    )
+    expect(map.nodes.map(n => n.id)).toContain(2_000_000_007)
+  })
+
+  // The regression this guards: on a label-dominated scene (Austin is 300 of
+  // 302 edges from one label) the ONLY connectivity is the hub's spokes, so
+  // dropping hubs would collapse the map to nothing.
+  it('does not collapse when a label carries all the connectivity', () => {
+    const artists = [node(1), node(2), node(3), node(4), node(5)]
+    const map = buildHomeSceneGraphMap(
+      [...artists, hub],
+      artists.map(a => spoke(a.id)),
+    )
+    expect(map.nodes.length).toBeGreaterThanOrEqual(artists.length)
+    expect(map.links.length).toBeGreaterThan(0)
+    // Every roster artist reaches the map through its spoke.
+    for (const a of artists) {
+      expect(map.nodes.map(n => n.id)).toContain(a.id)
+    }
+  })
+})

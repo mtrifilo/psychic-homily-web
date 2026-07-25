@@ -34,9 +34,18 @@ import Link from 'next/link'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import {
   ArtistContextPanel,
-  graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
+import {
+  EntityContextPanel,
+  graphEntitySelectGestureHint,
+} from '@/components/graph/EntityContextPanel'
 import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
+import {
+  isLabelHubNode,
+  LABEL_HUB_ENTITY_TYPE,
+  LABEL_HUB_SPOKE_EDGE_TYPE,
+  labelHubHomeCaption,
+} from '@/components/graph/labelHub'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { EdgeSwatch } from '@/components/graph/EdgeLegend'
 import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
@@ -291,10 +300,38 @@ function HomeSceneGraphSection() {
     [graphMap.links]
   )
 
+  // A label hub is not an artist (PSY-1530): its panel is the shared
+  // EntityContextPanel, and asking the artist-card endpoint for a hub's
+  // offset node id would 404.
+  const selectedIsHub =
+    currentSelectedNode !== null && isLabelHubNode(currentSelectedNode)
+
   const cardQuery = useArtistGraphCard({
-    artistId: currentSelectedNode?.id ?? null,
-    enabled: currentSelectedNode !== null,
+    artistId: !selectedIsHub ? (currentSelectedNode?.id ?? null) : null,
+    enabled: currentSelectedNode !== null && !selectedIsHub,
   })
+
+  // "N artists on this label" over the teaser's OWN selected spokes — the
+  // teaser caps at HOME_GRAPH_MAX_NODES, so this is deliberately the count in
+  // the map, not the scene's full roster.
+  const hubRosterInGraph = useMemo(() => {
+    if (!currentSelectedNode || !selectedIsHub) return 0
+    const roster = new Set<number>()
+    for (const link of graphMap.links) {
+      if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) continue
+      if (link.source_id === currentSelectedNode.id) roster.add(link.target_id)
+      else if (link.target_id === currentSelectedNode.id)
+        roster.add(link.source_id)
+    }
+    return roster.size
+  }, [currentSelectedNode, selectedIsHub, graphMap.links])
+
+  // Artist-only count for the caption/aria: hubs are a second population, and
+  // calling a label an artist would be a false claim.
+  const connectedArtistCount = useMemo(
+    () => graphMap.nodes.filter(node => !isLabelHubNode(node)).length,
+    [graphMap.nodes],
+  )
 
   const handleSurprise = useCallback(() => {
     const next = pickSurpriseScene(scenes, scene?.slug ?? null)
@@ -357,7 +394,7 @@ function HomeSceneGraphSection() {
 
       {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
         <p className="text-xs text-muted-foreground">
-          The {connectedNodes.length} most connected artists playing or tied to{' '}
+          The {connectedArtistCount} most connected artists playing or tied to{' '}
           {scene.city} this month — every name is clickable.
         </p>
       )}
@@ -397,7 +434,25 @@ function HomeSceneGraphSection() {
               <GraphPanelHost
                 canvasWrapRef={canvasWrapRef}
                 panel={
-                  currentSelectedNode ? (
+                  currentSelectedNode && selectedIsHub ? (
+                    <EntityContextPanel
+                      className="absolute top-2 right-2 z-40"
+                      entityType={LABEL_HUB_ENTITY_TYPE}
+                      name={currentSelectedNode.name}
+                      slug={currentSelectedNode.slug}
+                      meta={labelHubHomeCaption(currentSelectedNode) ?? null}
+                      primary={
+                        hubRosterInGraph > 0
+                          ? {
+                              kind: 'emphasis',
+                              text: `${hubRosterInGraph} ${hubRosterInGraph === 1 ? 'artist' : 'artists'} on this label in this map`,
+                            }
+                          : null
+                      }
+                      onClose={handlePanelClose}
+                      panelRef={panelRef}
+                    />
+                  ) : currentSelectedNode ? (
                     <ArtistContextPanel
                       className="absolute top-2 right-2 z-40"
                       artistName={currentSelectedNode.name}
@@ -435,7 +490,7 @@ function HomeSceneGraphSection() {
                   // filtered out above) — the caption promises "lines connect
                   // artists", so the label must not overstate. Always plural:
                   // this branch requires >= MIN_CONNECTED_NODES (3).
-                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedNodes.length} connected artists. ${graphSelectGestureHint}`}
+                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedArtistCount} connected artists. ${graphEntitySelectGestureHint}`}
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handleBackgroundClick}
                   // Pin the focus-dim to the selection (PSY-1478) —

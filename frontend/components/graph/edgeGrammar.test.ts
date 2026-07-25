@@ -3,6 +3,7 @@ import {
   EDGE_TYPES,
   FALLBACK_EDGE_COLORS,
   buildLinkLabel,
+  buildLinkLabelText,
   edgeColorCSS,
   edgeLineDash,
   edgeTypeLabel,
@@ -477,5 +478,58 @@ describe('orderEdgeTypes', () => {
     const input = ['member_of', 'similar']
     orderEdgeTypes(input)
     expect(input).toEqual(['member_of', 'similar'])
+  })
+})
+
+describe('on_label — label hub membership (PSY-1530)', () => {
+  it('shares the label-family color token with shared_label', () => {
+    // A spoke states the same label relationship the pairwise edge did, just
+    // hub-shaped; different hues would read as different facts.
+    expect(edgeColorCSS('on_label')).toBe(edgeColorCSS('shared_label'))
+  })
+
+  it('shares the shared_label dash pattern', () => {
+    expect(edgeLineDash('on_label')).toEqual(edgeLineDash('shared_label'))
+  })
+
+  it('draws a uniform stroke regardless of score', () => {
+    // Membership is binary — a scaled stroke would imply a magnitude that
+    // does not exist (unlike shared_label's roster-normalized weight).
+    expect(edgeWidth('on_label', 0.02)).toBe(edgeWidth('on_label', 1))
+    expect(edgeWidth('on_label', 1)).toBe(1)
+  })
+
+  it('is a canonical type with a readable legend label', () => {
+    expect(edgeTypeLabel('on_label')).toBe('On Label')
+    // Canonical types sort ahead of unknown ones in the legend.
+    expect(orderEdgeTypes(['played_at', 'on_label'])).toEqual([
+      'on_label',
+      'played_at',
+    ])
+  })
+})
+
+describe('on_label tooltip (PSY-1530)', () => {
+  it('names the label, preserving what the replaced pairwise edge said', () => {
+    expect(
+      buildLinkLabelText({ type: 'on_label', detail: { label_name: '12XU' } }),
+    ).toBe('On 12XU')
+  })
+
+  it('falls back to the bare type when the label name is missing', () => {
+    expect(buildLinkLabelText({ type: 'on_label' })).toBe('On label')
+  })
+
+  // buildLinkLabelText is the raw copy (React escapes it in the panel);
+  // buildLinkLabel is the canvas tooltip's trust boundary, since force-graph
+  // renders string labels as HTML. A community-contributed label name reaches
+  // both, so pin the escaping one.
+  it('escapes a hostile label name at the canvas tooltip sink', () => {
+    const out = buildLinkLabel({
+      type: 'on_label',
+      detail: { label_name: '<img onerror=alert(1)>' },
+    })
+    expect(out).not.toContain('<img')
+    expect(out).toContain('&lt;img')
   })
 })

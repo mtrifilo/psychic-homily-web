@@ -344,3 +344,94 @@ describe('degreeMap', () => {
     expect(degrees.get(99)).toBeUndefined()
   })
 })
+
+describe('label caption (PSY-1530)', () => {
+  // Minimal ctx recording the text draws + the fonts in effect, so a caption
+  // line can be told from its label.
+  function captionCtx() {
+    const fills: Array<{ text: string; font: string }> = []
+    const ctx = {
+      font: '',
+      lineWidth: 0,
+      lineJoin: '',
+      textAlign: '',
+      textBaseline: '',
+      globalAlpha: 1,
+      fillStyle: '',
+      strokeStyle: '',
+      save() {},
+      restore() {},
+      measureText: (t: string) => ({ width: t.length * 4 }),
+      strokeText() {},
+      fillText(text: string) {
+        fills.push({ text, font: ctx.font })
+      },
+      fills,
+    }
+    return ctx
+  }
+
+  const palette = { labelText: '#111', labelHalo: '#fff' } as never
+
+  it('draws the caption under the label, smaller than the name', () => {
+    const ctx = captionCtx()
+    renderGraphLabels(ctx as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX' },
+    ])
+    const texts = ctx.fills.map(f => f.text)
+    expect(texts).toContain('12XU')
+    expect(texts).toContain('Austin, TX')
+
+    const nameSize = Number(/(\d+(?:\.\d+)?)px/.exec(
+      ctx.fills.find(f => f.text === '12XU')!.font,
+    )![1])
+    const captionSize = Number(/(\d+(?:\.\d+)?)px/.exec(
+      ctx.fills.find(f => f.text === 'Austin, TX')!.font,
+    )![1])
+    expect(captionSize).toBeLessThan(nameSize)
+  })
+
+  it('draws no caption line when none is supplied', () => {
+    const ctx = captionCtx()
+    renderGraphLabels(ctx as never, palette, [
+      { x: 0, y: 0, text: 'Borzoi', fontSize: 11 },
+    ])
+    expect(ctx.fills.map(f => f.text)).toEqual(['Borzoi'])
+  })
+
+  // The caption must be inside the collision box, or a neighbouring label can
+  // be placed on top of it.
+  it('reserves vertical space for the caption', () => {
+    // y=25 sits BELOW the caption-less box (a 14px label ends at ~18.5) but
+    // inside the caption-extended one (~30.9). So this collides only because
+    // the caption is reserved — neutering the reservation makes it pass, which
+    // is what a vacuous version of this test failed to catch.
+    const withCaption = captionCtx()
+    renderGraphLabels(withCaption as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX', force: true },
+      { x: 0, y: 25, text: 'Collides', fontSize: 11 },
+    ])
+    expect(withCaption.fills.map(f => f.text)).not.toContain('Collides')
+
+    // Control: same geometry without a caption leaves room, so the neighbour
+    // draws. This pins the reservation as the cause.
+    const noCaption = captionCtx()
+    renderGraphLabels(noCaption as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, force: true },
+      { x: 0, y: 25, text: 'Collides', fontSize: 11 },
+    ])
+    expect(noCaption.fills.map(f => f.text)).toContain('Collides')
+  })
+
+  // The caption can be WIDER than the name ("12XU" / "Austin, TX" — the
+  // flagship case), so the collision box must bound the caption too.
+  it('reserves horizontal space for a caption wider than its name', () => {
+    const wide = captionCtx()
+    renderGraphLabels(wide as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX', force: true },
+      // Offset horizontally past the short name's box but inside the caption's.
+      { x: 20, y: 0, text: 'Neighbour', fontSize: 11 },
+    ])
+    expect(wide.fills.map(f => f.text)).not.toContain('Neighbour')
+  })
+})

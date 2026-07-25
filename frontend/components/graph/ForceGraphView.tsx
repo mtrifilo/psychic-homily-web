@@ -66,7 +66,20 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
-import { drawPlayableRing, drawUpcomingShowDot } from './graphMarkers'
+import {
+  drawLabelHubMarker,
+  drawPlayableRing,
+  drawUpcomingShowDot,
+} from './graphMarkers'
+import { egoFamilyFill } from './egoPalette'
+import {
+  graphClusterIdForNode,
+  isLabelHubNode,
+  LABEL_HUB_HALF_EXTENT,
+  LABEL_HUB_SPOKE_EDGE_TYPE,
+  labelHubHomeCaption,
+  spokeRestLength,
+} from './labelHub'
 import {
   LABEL_MIN_SCALE,
   degreeMap,
@@ -147,6 +160,17 @@ export interface GraphNode {
   /** True when selecting this node opens a playable embed — drives the canvas
    * playable-marker ring (PSY-1379). Mirrors the backend SceneGraphNode flag. */
   has_playable_audio?: boolean
+  /**
+   * Node kind for mixed-type payloads. Absent or "artist" renders the artist
+   * circle; LABEL_HUB_ENTITY_TYPE renders the label hub marker (PSY-1530).
+   * Mirrors the backend `entity_type` discriminator.
+   */
+  entity_type?: string
+  /**
+   * Country for a label hub's home caption, used when city/state are unknown
+   * (some labels are only known at country granularity).
+   */
+  country?: string
 }
 
 /**
@@ -178,6 +202,8 @@ const FORCE_Y_STRENGTH = 0.15
 const RECENTER_STRENGTH = 0.05
 const LINK_STRENGTH_INTRA = 0.7
 const LINK_STRENGTH_CROSS = 0.1
+/** d3-force's own default link distance, kept explicit for non-spoke links. */
+const DEFAULT_LINK_DISTANCE = 30
 const CHARGE_STRENGTH = -120
 const NODE_RADIUS = 8
 const ISOLATE_RADIUS = 5
@@ -559,8 +585,10 @@ export function ForceGraphView({
     const nodeKept = new Set<number>()
     const renderNodes: RenderNode[] = []
     for (const n of nodes) {
-      const clusterID = n.cluster_id || OTHER_CLUSTER_ID
-      if (hiddenClusterIDs && hiddenClusterIDs.has(clusterID)) continue
+      // Label hubs resolve to NO cluster — rationale in graphClusterIdForNode.
+      const clusterID = graphClusterIdForNode(n, OTHER_CLUSTER_ID)
+      if (clusterID && hiddenClusterIDs && hiddenClusterIDs.has(clusterID))
+        continue
       nodeKept.add(n.id)
       renderNodes.push({
         ...n,
@@ -594,7 +622,34 @@ export function ForceGraphView({
         detail: l.detail as Record<string, unknown> | undefined,
       })
     }
-    return { nodes: renderNodes, links: renderLinks, edgeTypeCounts }
+    // A hub is a PROJECTION of its spokes, not a scope member like an artist:
+    // the backend omits it entirely when the label edge type is filtered out
+    // server-side, and the same must hold for client-side filtering. Without
+    // this, hiding/soloing an edge type (or hiding the clusters its whole
+    // roster sits in) leaves a big always-labeled square anchoring nothing —
+    // with no link force, no centroid (its cluster is ''), no isolate shelf,
+    // and no center force — so charge alone flings it off and inflates the
+    // fitted bbox. "Nodes are NOT dropped when their last edge hides" was
+    // written for artists, whose membership is node-level information.
+    const spokeCounts = new Map<number, number>()
+    for (const link of renderLinks) {
+      if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) continue
+      const s = typeof link.source === 'object' ? link.source.id : link.source
+      const t = typeof link.target === 'object' ? link.target.id : link.target
+      spokeCounts.set(s, (spokeCounts.get(s) ?? 0) + 1)
+      spokeCounts.set(t, (spokeCounts.get(t) ?? 0) + 1)
+    }
+    const visibleNodes = renderNodes.filter(
+      node => !isLabelHubNode(node) || (spokeCounts.get(node.id) ?? 0) > 0
+    )
+    const visibleIds = new Set(visibleNodes.map(node => node.id))
+    const visibleLinks = renderLinks.filter(link => {
+      const s = typeof link.source === 'object' ? link.source.id : link.source
+      const t = typeof link.target === 'object' ? link.target.id : link.target
+      return visibleIds.has(s) && visibleIds.has(t)
+    })
+
+    return { nodes: visibleNodes, links: visibleLinks, edgeTypeCounts }
   }, [nodes, links, hiddenClusterIDs, hiddenEdgeTypes, soloEdgeType])
 
   // Cluster centroids steer non-isolate nodes via forceX/forceY; the isolate
@@ -719,10 +774,43 @@ export function ForceGraphView({
       }
     })
 
+    const hubNodeIds = new Set(
+      renderData.nodes.filter(isLabelHubNode).map(node => node.id)
+    )
+    // Spoke length must scale with the HUB's roster, not with whatever else its
+    // artist endpoint happens to be connected to — an artist with many co-bills
+    // would otherwise get a much longer spoke than its roster siblings and skew
+    // the ring, encoding a magnitude that membership does not have. So count
+    // spokes per hub over the RENDERED links (edge-type toggles included).
+    const spokeCountByHub = new Map<number, number>()
+    for (const link of renderData.links) {
+      if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) continue
+      const hubId = hubNodeIds.has(endpointId(link.source))
+        ? endpointId(link.source)
+        : endpointId(link.target)
+      spokeCountByHub.set(hubId, (spokeCountByHub.get(hubId) ?? 0) + 1)
+    }
+
     const linkForce = fg.d3Force('link')
     if (linkForce && typeof linkForce.strength === 'function') {
       linkForce.strength((link: RenderLink) => {
         return link.is_cross_cluster ? LINK_STRENGTH_CROSS : LINK_STRENGTH_INTRA
+      })
+    }
+    // Label-hub spokes need a longer rest length than d3's ~30px default
+    // (PSY-1530): a roster all sitting one default link from its hub packs the
+    // ring tight enough that the names collide — the readability problem hubs
+    // exist to solve. Scale with roster size, since ring circumference grows
+    // with the number of artists on it, and clamp so a 3-artist label stays
+    // compact and a 25-artist one stays on screen. Set here, before warmup,
+    // because the link force caches distance at initialize (PSY-1275).
+    if (linkForce && typeof linkForce.distance === 'function') {
+      linkForce.distance((link: RenderLink) => {
+        if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) return DEFAULT_LINK_DISTANCE
+        const hubId = hubNodeIds.has(endpointId(link.source))
+          ? endpointId(link.source)
+          : endpointId(link.target)
+        return spokeRestLength(spokeCountByHub.get(hubId) ?? 0)
       })
     }
 
@@ -991,6 +1079,12 @@ export function ForceGraphView({
   const handleLinkClick = useCallback(
     (link: RenderLink) => {
       if (!showConnectionPanel || !link.type) return
+      // A label-hub spoke has no artist PAIR to explain (PSY-1530): the panel
+      // renders both endpoints as /artists/{slug} links and its provenance
+      // query asks for an artist-to-artist relationship, so a hub endpoint
+      // would link to a 404 and fetch with a label id in an artist slot. The
+      // membership is already fully stated by the hub's own panel.
+      if (link.type === LABEL_HUB_SPOKE_EDGE_TYPE) return
       connectionInspect.open(endpointId(link.source), endpointId(link.target))
       onConnectionInspectOpen?.()
     },
@@ -1139,9 +1233,18 @@ export function ForceGraphView({
     (node: RenderNode, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
+      const isHub = isLabelHubNode(node)
       const cluster = clustersByID.get(node.cluster_id)
-      const fill = clusterColor(palette, cluster?.color_index ?? -1)
-      const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+      // A hub has no cluster, so it takes the label family's own chart token
+      // (the locked ego mapping) instead of a cluster hue.
+      const fill = isHub
+        ? egoFamilyFill(palette, 'label')
+        : clusterColor(palette, cluster?.color_index ?? -1)
+      const radius = isHub
+        ? LABEL_HUB_HALF_EXTENT
+        : node.is_isolate
+          ? ISOLATE_RADIUS
+          : NODE_RADIUS
 
       // Hover-focus (PSY-1225): dim nodes outside the foreground set. globalAlpha multiplies
       // every fill/stroke below (incl. the show indicator); reset to 1 at the end so the next
@@ -1154,13 +1257,19 @@ export function ForceGraphView({
       ctx.globalAlpha =
         focusedIds != null && !focusedIds.has(node.id) ? BACKGROUND_ALPHA : 1
 
-      ctx.beginPath()
-      ctx.arc(x, y, radius, 0, Math.PI * 2)
-      ctx.fillStyle = withHexAlpha(fill, 'B3') // ≈ 70% alpha
-      ctx.fill()
-      ctx.lineWidth = 1
-      ctx.strokeStyle = node.is_isolate ? 'rgba(148, 163, 184, 0.5)' : fill
-      ctx.stroke()
+      if (isHub) {
+        // Opaque fill (vs the artists' ~70%): the hub is the anchor its roster
+        // orbits, and its own spokes converge under it.
+        drawLabelHubMarker(ctx, x, y, radius, fill, palette.labelHalo)
+      } else {
+        ctx.beginPath()
+        ctx.arc(x, y, radius, 0, Math.PI * 2)
+        ctx.fillStyle = withHexAlpha(fill, 'B3') // ≈ 70% alpha
+        ctx.fill()
+        ctx.lineWidth = 1
+        ctx.strokeStyle = node.is_isolate ? 'rgba(148, 163, 184, 0.5)' : fill
+        ctx.stroke()
+      }
 
       // PSY-1379: playable-audio marker — a ring hugging the node so playability
       // is scannable at a glance (selecting the node opens a MusicEmbed). Drawn
@@ -1204,7 +1313,12 @@ export function ForceGraphView({
 
   const labelSpecForNode = useCallback(
     (node: RenderNode, globalScale: number): GraphLabelSpec => {
-      const radius = node.is_isolate ? ISOLATE_RADIUS : NODE_RADIUS
+      const isHub = isLabelHubNode(node)
+      const radius = isHub
+        ? LABEL_HUB_HALF_EXTENT
+        : node.is_isolate
+          ? ISOLATE_RADIUS
+          : NODE_RADIUS
       const labelStyle =
         nodeLabelStyles.get(node.id) ?? tierStylesById?.get(node.id)
       return {
@@ -1222,8 +1336,17 @@ export function ForceGraphView({
         // treatment either way. (Below the zoom gate a HOVERED node is still
         // named by the DOM tooltip; a pinned one is named by its context
         // panel instead.)
-        force: forceNodeLabels || node.id === focusAnchorId,
+        // A hub's name IS the scene fact it exists to state ("25 artists are
+        // on 12XU"), so it is always drawn — never culled by a neighbour's
+        // label. Its degree also makes it a top-tier label on the tercile
+        // ladder, so the two mechanisms agree rather than fight.
+        force: forceNodeLabels || node.id === focusAnchorId || isHub,
         priority: degreeById.get(node.id) ?? 0,
+        // Home caption, hubs only: hubs are NOT gated to scene-local labels
+        // (locked decision — a metro gate would strip NYC to two edges and
+        // misfire on labels with no city on file), so the canvas has to say
+        // where an anchor is actually from.
+        caption: isHub ? labelHubHomeCaption(node) : undefined,
       }
     },
     [degreeById, forceNodeLabels, focusAnchorId, nodeLabelStyles, tierStylesById],
@@ -1545,13 +1668,26 @@ export function ForceGraphView({
           ctx: CanvasRenderingContext2D
         ) => {
           ctx.beginPath()
-          ctx.arc(
-            node.x ?? 0,
-            node.y ?? 0,
-            node.is_isolate ? 8 : 11,
-            0,
-            Math.PI * 2
-          )
+          if (isLabelHubNode(node)) {
+            // Match the hub's SQUARE geometry: an inscribed circle leaves the
+            // corners unhoverable/unclickable, and deriving the size from the
+            // shared half-extent keeps hit area and paint from drifting.
+            const half = LABEL_HUB_HALF_EXTENT
+            ctx.rect(
+              (node.x ?? 0) - half,
+              (node.y ?? 0) - half,
+              half * 2,
+              half * 2
+            )
+          } else {
+            ctx.arc(
+              node.x ?? 0,
+              node.y ?? 0,
+              node.is_isolate ? 8 : 11,
+              0,
+              Math.PI * 2
+            )
+          }
           ctx.fillStyle = color
           ctx.fill()
 
@@ -1663,7 +1799,14 @@ export function ForceGraphView({
       {showAccessibleNodeControls && (
         <ul
           className="pointer-events-none absolute bottom-2 left-2 z-50 flex max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-wrap gap-1 overflow-auto rounded-md border border-border bg-background/95 p-2 opacity-0 shadow-lg transition-opacity focus-within:pointer-events-auto focus-within:opacity-100"
-          aria-label="Artists in this graph"
+          // "Artists" would be a false population claim once label hubs are
+          // present (PSY-1530); each hub button also names its own kind, so a
+          // screen-reader user can tell a label from a band.
+          aria-label={
+            renderData.nodes.some(isLabelHubNode)
+              ? 'Artists and labels in this graph'
+              : 'Artists in this graph'
+          }
         >
           {renderData.nodes.map(node => (
             <li key={node.id}>
@@ -1672,7 +1815,7 @@ export function ForceGraphView({
                 className="rounded-sm px-2 py-1 text-xs text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => handleNodeClickInternal(node)}
               >
-                {node.name}
+                {isLabelHubNode(node) ? `${node.name} (label)` : node.name}
               </button>
             </li>
           ))}

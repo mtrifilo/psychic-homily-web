@@ -804,6 +804,10 @@ type SceneGraphInfo struct {
 	EdgeCount        int    `json:"edge_count"`         // total edges in the response (post type-filter)
 	MetroRosterTotal int    `json:"metro_roster_total"` // full based-in metro roster before top-N cap
 	RosterTruncated  bool   `json:"roster_truncated"`   // true when metro_roster_total > artist_count
+	// LabelCount is the number of label hub nodes in the response. Counted
+	// separately from ArtistCount so the roster-truncation phrasing keeps
+	// describing artists only, and the header can name both populations.
+	LabelCount int `json:"label_count"`
 }
 
 // SceneGraphCluster groups artists in the scene. v1 cluster signal is the
@@ -816,16 +820,49 @@ type SceneGraphCluster struct {
 	ColorIndex int    `json:"color_index"` // 0-7 = Okabe-Ito index; -1 = "other" (grey)
 }
 
-// SceneGraphNode represents an artist in the scene graph.
+// Scene graph node kinds. The scene graph is artist-centric, plus label hub
+// nodes that stand in for a roster (see SceneEdgeTypeOnLabel). Every node
+// carries its kind explicitly so consumers branch on a present field rather
+// than inferring from a missing one.
+const (
+	SceneNodeKindArtist = "artist"
+	SceneNodeKindLabel  = "label"
+)
+
+// SceneEdgeTypeOnLabel is the membership edge between a label hub node and one
+// of its in-scene roster artists. It replaces the C(n,2) pairwise
+// `shared_label` clique a roster would otherwise contribute: n spokes carry the
+// same fact ("these artists share this label") in a shape the layout can draw.
+//
+// Unlike the stored relationship types this is built at query time and has no
+// row in `artist_relationships`, so it is never a valid `types` filter value —
+// it is emitted with the label hubs or not at all.
+const SceneEdgeTypeOnLabel = "on_label"
+
+// SceneGraphNode represents one node in the scene graph: an artist, or a label
+// hub standing in for its in-scene roster.
 type SceneGraphNode struct {
-	ID                uint   `json:"id"`
-	Name              string `json:"name"`
-	Slug              string `json:"slug"`
-	City              string `json:"city,omitempty"`
-	State             string `json:"state,omitempty"`
+	// ID is the artist ID for artist nodes. Label hubs are offset into a
+	// reserved range so both kinds can share this single numeric node-ID space
+	// (see sceneLabelNodeIDOffset) — pair it with EntityType before treating it
+	// as a database key.
+	ID uint `json:"id"`
+	// EntityType is one of the SceneNodeKind* constants. Always populated.
+	EntityType string `json:"entity_type"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+	City       string `json:"city,omitempty"`
+	State      string `json:"state,omitempty"`
+	// Country is populated for label hubs, whose home is captioned on the
+	// canvas and can be known at country granularity only. Artist nodes carry
+	// city/state and leave this empty.
+	Country           string `json:"country,omitempty"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
-	ClusterID         string `json:"cluster_id"` // matches SceneGraphCluster.ID; "other" for tail
-	IsIsolate         bool   `json:"is_isolate"` // true when the artist has no in-scene edges (post type-filter)
+	// ClusterID matches SceneGraphCluster.ID; "other" for the tail. Empty on
+	// label hubs — clusters describe where artists play, so a hub joins no
+	// cluster, no hull, and no cluster-legend count.
+	ClusterID string `json:"cluster_id"`
+	IsIsolate bool   `json:"is_isolate"` // true when the artist has no in-scene edges (post type-filter)
 	// NextShow summarizes the artist's soonest upcoming approved show so graph
 	// consumers can render a date/venue chip without a per-node graph-card
 	// fetch (PSY-1449). Reuses the graph-card's next-show type so the two
