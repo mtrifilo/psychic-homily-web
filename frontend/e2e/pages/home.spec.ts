@@ -133,7 +133,7 @@ test.describe('Homepage', () => {
       page.getByRole('contentinfo').getByRole('navigation', { name: 'Discover' })
     ).toBeVisible()
     await expect(
-      page.getByText('Made by the scene, for the scene.')
+      page.getByRole('contentinfo').getByText('Your music knowledge graph.')
     ).toBeVisible()
   })
 })

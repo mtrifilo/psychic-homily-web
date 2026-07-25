@@ -78,8 +78,7 @@ export default function Footer() {
               </span>
             </div>
             <p className="text-[13px] text-muted-foreground">
-              Live shows + the knowledge graph. The underground, mapped — link by
-              link.
+              Your music knowledge graph.
             </p>
           </div>
 
@@ -148,7 +147,6 @@ export default function Footer() {
 
         <div className="mt-8 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>&copy; {currentYear} Psychic Homily</p>
-          <p>Made by the scene, for the scene.</p>
         </div>
       </div>
     </footer>

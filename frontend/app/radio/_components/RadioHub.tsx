@@ -49,8 +49,7 @@ export default function RadioHub() {
         <header className="mb-8">
           <h1 className="text-3xl font-bold">Radio</h1>
           <p className="mt-1.5 text-muted-foreground">
-            Independent radio, wired into the knowledge graph — every playlist
-            links into artists, releases, and labels.
+            Freeform radio stations, shows, and playlists updated in real-time.
           </p>
           {stats && (
             <p className="mt-2 font-mono text-xs text-muted-foreground">

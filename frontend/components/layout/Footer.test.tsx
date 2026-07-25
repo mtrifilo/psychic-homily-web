@@ -36,12 +36,10 @@ describe('Footer', () => {
     expect(footer).toBeInTheDocument()
   })
 
-  it('renders the brand wordmark and sign-off (PSY-389 editorial footer)', () => {
+  it('renders the brand wordmark and tagline (PSY-389 editorial footer)', () => {
     render(<Footer />)
     expect(screen.getByText('PSYCHIC HOMILY')).toBeInTheDocument()
-    expect(
-      screen.getByText('Made by the scene, for the scene.')
-    ).toBeInTheDocument()
+    expect(screen.getByText('Your music knowledge graph.')).toBeInTheDocument()
   })
 
   it('renders the four labelled link columns (PSY-389)', () => {
