@@ -264,6 +264,20 @@ func (s *RadioService) buildLiveNowPlayingResponse(stationID uint, live *RadioLi
 		Show:     s.matchStationShow(stationID, live.ShowExternalID, live.ShowName),
 	}
 
+	// PSY-1509: a live payload is deep-linkable when the matched show has an
+	// episode row whose frozen air window covers now (the airing-feed ingestion
+	// creates those for KEXP/NTS at airtime; WFMU's are schedule-stamped). No
+	// covering row → the three fields stay nil — the air date is NEVER
+	// fabricated from the provider payload or the clock.
+	if resp.Show != nil {
+		if ep := s.coveringLiveEpisode(resp.Show.ID); ep != nil {
+			airDate := normalizeDate(ep.AirDate)
+			resp.EpisodeAirDate = &airDate
+			resp.EpisodeStartsAt = ep.StartsAt
+			resp.EpisodeEndsAt = ep.EndsAt
+		}
+	}
+
 	currentArtist := ""
 	if live.CurrentTrack != nil {
 		resp.CurrentTrack = s.buildLiveTrack(live.CurrentTrack)
@@ -277,6 +291,30 @@ func (s *RadioService) buildLiveNowPlayingResponse(stationID uint, live *RadioLi
 		resp.RecentArtists = s.archiveRecentArtistsForLive(stationID, resp.Show, currentArtist)
 	}
 	return resp
+}
+
+// coveringLiveEpisode returns the show's episode whose frozen air window covers
+// now — the airing episode a live payload deep-links to (PSY-1509) — or nil
+// when no such row exists. Requires BOTH bounds: an end-less row can't attest
+// that the broadcast is still in flight. On overlap (shouldn't happen for one
+// show) the latest-starting row wins. Lookup errors log and return nil — the
+// date is decoration on the live payload, never a reason to fail it.
+func (s *RadioService) coveringLiveEpisode(showID uint) *catalogm.RadioEpisode {
+	now := time.Now()
+	var episodes []catalogm.RadioEpisode
+	err := s.db.
+		Where("show_id = ? AND starts_at IS NOT NULL AND ends_at IS NOT NULL AND starts_at <= ? AND ends_at >= ?", showID, now, now).
+		Order("starts_at DESC").
+		Limit(1).
+		Find(&episodes).Error
+	if err != nil {
+		slog.Warn("radio now-playing: covering live episode lookup failed", "show_id", showID, "error", err)
+		return nil
+	}
+	if len(episodes) == 0 {
+		return nil
+	}
+	return &episodes[0]
 }
 
 // matchStationShow resolves a live show to our radio_shows row, scoped to the

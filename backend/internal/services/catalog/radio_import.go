@@ -1406,12 +1406,31 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return nil, fmt.Errorf("checking existing episode: %w", err)
 	}
 
+	episode, err := s.createEpisodeFromImport(showID, ep, now)
+	if err != nil {
+		return nil, err
+	}
+	if episode == nil {
+		return &contracts.EpisodeImportResult{}, nil // undateable episode — skipped
+	}
+
+	return s.fetchImportAndRecordPlaylist(episode, ep.ExternalID, provider, now)
+}
+
+// createEpisodeFromImport validates and creates a brand-new episode row from an
+// import DTO — the frozen air window, computed status, and the dormant-show
+// reactivation — WITHOUT fetching its playlist. Split out of importEpisode
+// (which follows it with the playlist fetch) so the airing-feed ingestion
+// (PSY-1509) can create a windowed row at airtime and leave playlist growth to
+// the live-refresh scoped fetch. Returns (nil, nil) for an episode with no
+// recoverable air date — skipped, not an error.
+func (s *RadioService) createEpisodeFromImport(showID uint, ep RadioEpisodeImport, now time.Time) (*catalogm.RadioEpisode, error) {
 	// air_date is NOT NULL; an episode with no recoverable date (no broadcast
 	// and no parseable alias date) can't be stored. Skip it rather than fail the
 	// whole import batch on a date NOT NULL violation — same posture as the
-	// dedup skip above.
+	// dedup skip in importEpisode.
 	if ep.AirDate == "" {
-		return &contracts.EpisodeImportResult{}, nil
+		return nil, nil
 	}
 
 	// PSY-1350: reject an air_date implausibly far in the future — an upstream
@@ -1476,7 +1495,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	// retired is manual-only and intentionally NOT auto-reactivated).
 	s.reactivateShowIfDormant(showID, now)
 
-	return s.fetchImportAndRecordPlaylist(episode, ep.ExternalID, provider, now)
+	return episode, nil
 }
 
 // reactivateShowIfDormant flips a show 'dormant' → 'active' when a new episode lands

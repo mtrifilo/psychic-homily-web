@@ -196,12 +196,15 @@ func (s *RadioSyncSuite) TestScopedFetch_BreakerNeutral() {
 	s.Equal(5, snap.failures)
 }
 
-// TestShowsWithLiveIncompleteEpisodes (PSY-1370): the live-refresh work list — shows
-// with an episode airing right now and still incomplete — mirrors the boundary work
-// list's population (active SCHEDULE-BEARING shows with an external id on active,
-// automated stations) and excludes every non-live / complete / windowless / non-
-// automated / schedule-less case. The schedule filter is the deliberate scope decision
-// that keeps KEXP/NTS (no stored schedule) off this fast ticker.
+// TestShowsWithLiveIncompleteEpisodes (PSY-1370, eligibility re-keyed by PSY-1509):
+// the live-refresh work list — shows with an episode airing right now and still
+// incomplete — mirrors the boundary work list's population (active shows with an
+// external id on active, automated stations) WITHOUT the stored-schedule gate:
+// eligibility keys on the live windowed EPISODE, so a schedule-less KEXP/NTS show
+// whose row was created by the airing-feed ingestion is refreshed too. Every
+// non-live / complete / windowless / non-automated case stays excluded — the
+// episode-side bounds are what keep a 24/7 station off the ticker between real
+// ingested air windows.
 func (s *RadioSyncSuite) TestShowsWithLiveIncompleteEpisodes() {
 	now := time.Date(2026, 7, 6, 20, 0, 0, 0, time.UTC)
 	liveS, liveE := now.Add(-30*time.Minute), now.Add(30*time.Minute) // now inside → live
@@ -229,7 +232,9 @@ func (s *RadioSyncSuite) TestShowsWithLiveIncompleteEpisodes() {
 	boundS := now.Add(-1 * time.Hour)
 	s.seedEpisodeFor(liveBoundary.ID, "lb-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &boundS, &now, now)
 
-	// LIVE + incomplete but NO schedule → EXCLUDED (the KEXP/NTS-class scope guard).
+	// LIVE + incomplete with NO stored schedule → INCLUDED (PSY-1509: the KEXP/NTS
+	// class — the airing-feed ingestion creates the windowed row, and eligibility
+	// keys on that row, not the show's schedule).
 	liveNoSched := s.seedActiveShow(st.ID, "live-no-schedule", nil)
 	s.seedEpisodeFor(liveNoSched.ID, "lns-1", "2026-07-06", catalogm.RadioPlaylistStatePending, 0, &liveS, &liveE, now)
 
@@ -268,8 +273,8 @@ func (s *RadioSyncSuite) TestShowsWithLiveIncompleteEpisodes() {
 	got, err := s.svc.ShowsWithLiveIncompleteEpisodes(now)
 	s.Require().NoError(err)
 	s.Require().Len(got, 1, "only the automated station contributes")
-	s.ElementsMatch([]uint{livePending.ID, livePartial.ID, liveBoundary.ID}, got[st.ID],
-		"exactly the live+incomplete+schedule-bearing shows with a fetchable identity are due")
+	s.ElementsMatch([]uint{livePending.ID, livePartial.ID, liveBoundary.ID, liveNoSched.ID}, got[st.ID],
+		"exactly the live+incomplete shows with a fetchable identity are due — schedule-less included (PSY-1509)")
 }
 
 // TestSlotFetchCycle_LiveRefresh_EndToEnd (PSY-1370) drives the real runSlotFetchCycle

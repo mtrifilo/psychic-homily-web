@@ -171,6 +171,41 @@ type RadioLiveProvider interface {
 	FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error)
 }
 
+// RadioAiring is one currently-airing broadcast reported by a provider's
+// airing feed (PSY-1509). Episode carries the airing as a windowed episode
+// import — the provider's own instants, never synthesized — so the ingestion
+// path can create/heal the episode row through the same machinery the listing
+// fetch uses. ShowExternalID/ShowName identify the airing show for matching
+// against existing radio_shows rows (airing feeds must never mint new shows).
+type RadioAiring struct {
+	// ShowExternalID matches radio_shows.external_id (KEXP program id, NTS
+	// show alias) — the primary match key.
+	ShowExternalID string
+	// ShowName is the provider-reported show name — the exact-name fallback
+	// match key when the external id finds nothing.
+	ShowName string
+	// Episode is the airing as a windowed episode import. StartsAt is always
+	// set (an airing without a start instant is not reported); EndsAt is set
+	// when the provider publishes an end bound (NTS end_timestamp, KEXP
+	// timeslot grid) and nil otherwise — never fabricated.
+	Episode RadioEpisodeImport
+}
+
+// RadioAiringLister is the optional airing-feed extension of a radio provider
+// (PSY-1509): providers whose API reports what is airing RIGHT NOW as concrete
+// instances (KEXP /v2/shows + /v2/timeslots, NTS /v2/live) implement it so the
+// slot-fetch cycle can create the airing's windowed episode row at airtime —
+// the KEXP/NTS analog of what the WFMU schedule scrape derives from stored
+// weekly grids. channel has FetchLiveNowPlaying's semantics (multi-stream
+// selection; single-stream providers ignore it). Implementations must
+// time-box their HTTP calls (radioLiveGet) — the caller is a fast ticker.
+type RadioAiringLister interface {
+	// FetchCurrentAirings returns the channel's currently-airing broadcasts
+	// (typically zero or one), or (nil, nil) when nothing is on air or the
+	// airing cannot be identified precisely enough to ingest.
+	FetchCurrentAirings(channel string) ([]RadioAiring, error)
+}
+
 // RadioLiveNowPlaying is what a live adapter reports for one channel.
 type RadioLiveNowPlaying struct {
 	// ShowName is the provider-reported name of the show on air (required).
