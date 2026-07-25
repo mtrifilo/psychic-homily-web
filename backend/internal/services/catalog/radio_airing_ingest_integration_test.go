@@ -10,6 +10,16 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
+// airingTestNow is the fixture clock for these tests, truncated to Postgres
+// timestamptz precision (µs): the assertions and healAiringWindow's own
+// start-match compare fixture instants with time.Equal after a DB round-trip,
+// and Linux clocks carry nanoseconds that Postgres drops (macOS clocks are µs,
+// hiding this locally — the same CI-only failure mode documented on
+// radio_now_playing_test.go's createEpisode helper).
+func airingTestNow() time.Time {
+	return time.Now().UTC().Truncate(time.Microsecond)
+}
+
 // mockAiringProvider is a mockPlaylistProvider that also implements
 // RadioAiringLister, mirroring the real KEXP/NTS providers' capability set.
 type mockAiringProvider struct {
@@ -57,7 +67,7 @@ func airingFor(showExt, epExt, showName string, starts, ends time.Time) RadioAir
 // pending); re-ingesting the same airing is a no-op — episode identity is
 // (show, external_id).
 func (s *RadioSyncSuite) TestIngestCurrentAirings_CreatesWindowedRowIdempotently() {
-	now := time.Now()
+	now := airingTestNow()
 	starts, ends := now.Add(-30*time.Minute), now.Add(90*time.Minute)
 
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
@@ -103,7 +113,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_CreatesWindowedRowIdempotently
 // the airing feed, flips live, and reopens to partial so the live refresh +
 // final post-air fetch run at the right phase.
 func (s *RadioSyncSuite) TestIngestCurrentAirings_HealsEndlessRowAndReopensPlaylist() {
-	now := time.Now()
+	now := airingTestNow()
 	starts, ends := now.Add(-30*time.Minute), now.Add(90*time.Minute)
 
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
@@ -135,7 +145,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_HealsEndlessRowAndReopensPlayl
 // whose stored start does NOT match the feed's start is a different broadcast
 // (or drifted data) — the frozen window must not be touched.
 func (s *RadioSyncSuite) TestIngestCurrentAirings_DisagreeingStartNeverHeals() {
-	now := time.Now()
+	now := airingTestNow()
 	feedStarts, feedEnds := now.Add(-30*time.Minute), now.Add(90*time.Minute)
 	storedStarts := feedStarts.Add(-15 * time.Minute) // disagrees with the feed
 
@@ -162,7 +172,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_DisagreeingStartNeverHeals() {
 // breaker PAST its cooldown (gateTrial) does not block the airing poll, and the
 // poll never mutates breaker state — it is not the half-open trial.
 func (s *RadioSyncSuite) TestIngestCurrentAirings_TrialBreakerPollsWithoutMutatingBreaker() {
-	now := time.Now()
+	now := airingTestNow()
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
 	s.seedActiveShow(st.ID, "37", nil)
 	tripped := now.Add(-45 * time.Minute) // past the 30-min cooldown → gateTrial
@@ -194,7 +204,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_TrialBreakerPollsWithoutMutati
 // TestIngestCurrentAirings_AmbiguousNameMatchSkipped: an airing whose external
 // id matches nothing and whose name matches TWO shows must not guess.
 func (s *RadioSyncSuite) TestIngestCurrentAirings_AmbiguousNameMatchSkipped() {
-	now := time.Now()
+	now := airingTestNow()
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
 	s.seedActiveShow(st.ID, "dup-a", nil)
 	s.seedActiveShow(st.ID, "dup-b", nil)
@@ -219,7 +229,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_AmbiguousNameMatchSkipped() {
 // existing show creates neither an episode nor a show — airing feeds never mint
 // radio_shows.
 func (s *RadioSyncSuite) TestIngestCurrentAirings_UnmatchedAiringCreatesNothing() {
-	now := time.Now()
+	now := airingTestNow()
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
 	s.seedActiveShow(st.ID, "37", nil)
 
@@ -243,7 +253,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_UnmatchedAiringCreatesNothing(
 // TestIngestCurrentAirings_BlockedBreakerSkipsStation: an open, in-cooldown
 // breaker keeps the airing poll off the station entirely.
 func (s *RadioSyncSuite) TestIngestCurrentAirings_BlockedBreakerSkipsStation() {
-	now := time.Now()
+	now := airingTestNow()
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
 	s.seedActiveShow(st.ID, "37", nil)
 	tripped := now.Add(-time.Minute) // within the 30-min cooldown → gateBlocked
@@ -270,7 +280,7 @@ func (s *RadioSyncSuite) TestIngestCurrentAirings_BlockedBreakerSkipsStation() {
 // list in the SAME tick — the acceptance bound (row + growing playlist within
 // one slot-fetch interval of broadcast start).
 func (s *RadioSyncSuite) TestSlotFetchCycle_AiringIngestion_EndToEnd() {
-	now := time.Now()
+	now := airingTestNow()
 	starts, ends := now.Add(-30*time.Minute), now.Add(90*time.Minute)
 	airDate := starts.Format("2006-01-02")
 	showExt, epExt := "37", "67334"
