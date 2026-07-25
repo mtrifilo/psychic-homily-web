@@ -116,20 +116,34 @@ export function SceneGraphVisualization({
     enabled: currentSelectedNode !== null && !selectedIsHub,
   })
 
-  // The hub's payoff — "N artists on this label in this graph" — is derived
-  // from the rendered payload's own spokes, so the panel needs no fetch and can
-  // never disagree with what the canvas is drawing.
+  // The hub's payoff — "N artists on this label in this scene" — comes from the
+  // payload's own spokes, so the panel needs no fetch. Roster artists in a
+  // hidden cluster are excluded, because those spokes are culled from the
+  // canvas too and a visibly-smaller star must not be captioned with a bigger
+  // number. NOT canvas-exact: ForceGraphView owns edge-type hide/solo state
+  // internally, so hiding the "On Label" type leaves this count unchanged
+  // (the hub itself then leaves the canvas). Hence "in this scene", not "in
+  // this graph" — the number describes the scene's roster, not a filtered view.
   const hubRosterInGraph = useMemo(() => {
     if (!currentSelectedNode || !selectedIsHub) return 0
+    const visibleArtistIds = new Set(
+      data.nodes
+        .filter(node => !hiddenClusterIDs.has(node.cluster_id || 'other'))
+        .map(node => node.id),
+    )
     const roster = new Set<number>()
     for (const link of data.links) {
       if (link.type !== SCENE_EDGE_TYPE_ON_LABEL) continue
-      if (link.source_id === currentSelectedNode.id) roster.add(link.target_id)
-      else if (link.target_id === currentSelectedNode.id)
-        roster.add(link.source_id)
+      const other =
+        link.source_id === currentSelectedNode.id
+          ? link.target_id
+          : link.target_id === currentSelectedNode.id
+            ? link.source_id
+            : null
+      if (other !== null && visibleArtistIds.has(other)) roster.add(other)
     }
     return roster.size
-  }, [currentSelectedNode, selectedIsHub, data.links])
+  }, [currentSelectedNode, selectedIsHub, data.links, data.nodes, hiddenClusterIDs])
 
   // PSY-1296: describe a capped graph honestly — assistive tech hears the
   // exact phrase the visual header shows (shared sceneGraphCopy source), so
@@ -158,7 +172,7 @@ export function SceneGraphVisualization({
               hubRosterInGraph > 0
                 ? {
                     kind: 'emphasis',
-                    text: `${hubRosterInGraph} ${hubRosterInGraph === 1 ? 'artist' : 'artists'} on this label in this graph`,
+                    text: `${hubRosterInGraph} ${hubRosterInGraph === 1 ? 'artist' : 'artists'} on this label in this scene`,
                   }
                 : null
             }

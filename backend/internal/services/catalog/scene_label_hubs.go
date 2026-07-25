@@ -110,11 +110,24 @@ func querySceneLabelRosters(db *gorm.DB, artistIDs []uint) ([]sceneLabelRosterRo
 // (rather than degrading silently) when an artist ID reaches
 // sceneLabelNodeIDOffset, because past that point a hub node ID could collide
 // with an artist node ID and the canvas would merge two unrelated entities.
-func buildSceneLabelHubs(rosterRows []sceneLabelRosterRow) (sceneLabelHubs, error) {
+func buildSceneLabelHubs(rosterRows []sceneLabelRosterRow, artistIDs []uint) (sceneLabelHubs, error) {
 	out := sceneLabelHubs{
 		labelsByArtist: make(map[uint]map[uint]struct{}),
 		hubbedLabels:   make(map[uint]struct{}),
 	}
+	// Check the WHOLE in-scene artist set, not just artists that happen to have
+	// label rows: a colliding artist with no label memberships would never
+	// appear in rosterRows, so a roster-only check would let hubs mint IDs in
+	// the colliding range while claiming to refuse.
+	for _, id := range artistIDs {
+		if id >= sceneLabelNodeIDOffset {
+			return sceneLabelHubs{}, fmt.Errorf(
+				"artist id %d has reached the label-hub node id offset %d; refusing to emit label hubs",
+				id, sceneLabelNodeIDOffset,
+			)
+		}
+	}
+
 	if len(rosterRows) == 0 {
 		return out, nil
 	}

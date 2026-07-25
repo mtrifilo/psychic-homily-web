@@ -52,7 +52,7 @@ func TestBuildSceneLabelHubs_ThresholdBoundary(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			hubs, err := buildSceneLabelHubs(tc.rows)
+			hubs, err := buildSceneLabelHubs(tc.rows, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -80,7 +80,7 @@ func TestBuildSceneLabelHubs_CollapsesCliqueToSpokes(t *testing.T) {
 		rows = append(rows, rosterRow(7, "12XU", 100+i))
 	}
 
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestBuildSceneLabelHubs_HubNodeShape(t *testing.T) {
 		{LabelID: 7, Name: "12XU", Slug: &slug, City: &city, State: &state, Country: &country, ArtistID: 12},
 	}
 
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestBuildSceneLabelHubs_RefusesOffsetCollision(t *testing.T) {
 		rosterRow(1, "Big Records", sceneLabelNodeIDOffset+2),
 	}
 
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err == nil {
 		t.Fatal("expected an error when an artist id reaches the hub offset")
 	}
@@ -177,7 +177,7 @@ func TestReplacesSharedLabelEdge(t *testing.T) {
 		rosterRow(2, "Small Records", 10),
 		rosterRow(2, "Small Records", 30),
 	}
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestReplacesSharedLabelEdge_MixedHubbedAndSmallLabel(t *testing.T) {
 		rosterRow(2, "Small Records", 10),
 		rosterRow(2, "Small Records", 11),
 	}
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestBuildSceneLabelHubs_MultiLabelArtistGetsSpokePerHub(t *testing.T) {
 		rosterRow(2, "Beta Records", 20),
 		rosterRow(2, "Beta Records", 21),
 	}
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestBuildSceneLabelHubs_MultiLabelArtistGetsSpokePerHub(t *testing.T) {
 }
 
 func TestBuildSceneLabelHubs_EmptyInput(t *testing.T) {
-	hubs, err := buildSceneLabelHubs(nil)
+	hubs, err := buildSceneLabelHubs(nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestReplacesSharedLabelEdge_SlugLessLabelKeepsEdge(t *testing.T) {
 		slugless(2, "Unlinkable Records", 11),
 	}
 
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestBuildSceneLabelHubs_SlugLessLabelNeverHubs(t *testing.T) {
 		{LabelID: 5, Name: "No Slug Records", Slug: nil, ArtistID: 11},
 		{LabelID: 5, Name: "No Slug Records", Slug: nil, ArtistID: 12},
 	}
-	hubs, err := buildSceneLabelHubs(rows)
+	hubs, err := buildSceneLabelHubs(rows, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -319,5 +319,26 @@ func TestBuildSceneLabelHubs_SlugLessLabelNeverHubs(t *testing.T) {
 	}
 	if hubs.replacesSharedLabelEdge(10, 11) {
 		t.Error("with no hub, the pairwise edge must survive")
+	}
+}
+
+// The offset guard must cover every in-scene artist, not only those carrying
+// label rows: an artist with no label memberships never reaches rosterRows, so
+// a roster-only check would let hubs mint IDs in the colliding range.
+func TestBuildSceneLabelHubs_RefusesCollisionFromArtistWithoutLabels(t *testing.T) {
+	rows := []sceneLabelRosterRow{
+		rosterRow(1, "Normal Records", 10),
+		rosterRow(1, "Normal Records", 11),
+		rosterRow(1, "Normal Records", 12),
+	}
+	// This artist is in the scene but has no artist_labels rows.
+	artistIDs := []uint{10, 11, 12, sceneLabelNodeIDOffset + 5}
+
+	hubs, err := buildSceneLabelHubs(rows, artistIDs)
+	if err == nil {
+		t.Fatal("expected refusal when any in-scene artist reaches the offset")
+	}
+	if len(hubs.Nodes) != 0 || len(hubs.Spokes) != 0 {
+		t.Errorf("expected no hubs on collision, got %d nodes / %d spokes", len(hubs.Nodes), len(hubs.Spokes))
 	}
 }

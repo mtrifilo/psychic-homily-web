@@ -1244,7 +1244,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 		if err != nil {
 			slog.Error("scene graph: label roster query failed; falling back to pairwise label edges",
 				"scene", resp.Scene.Slug, "error", err)
-		} else if hubs, err := buildSceneLabelHubs(rosterRows); err != nil {
+		} else if hubs, err := buildSceneLabelHubs(rosterRows, artistIDs); err != nil {
 			slog.Error("scene graph: label hubs skipped",
 				"scene", resp.Scene.Slug, "error", err)
 		} else {

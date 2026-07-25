@@ -501,9 +501,9 @@ describe('SceneGraphVisualization — label hub selection (PSY-1530)', () => {
     )
   })
 
-  it('states the in-graph roster size from the rendered spokes', () => {
+  it('states the roster size from the payload spokes, excluding hidden clusters', () => {
     renderAndSelectHub()
-    expect(screen.getByText(/2 artists on this label in this graph/i)).toBeInTheDocument()
+    expect(screen.getByText(/2 artists on this label in this scene/i)).toBeInTheDocument()
   })
 
   it('captions the hub with its home, since hubs are not scene-local', () => {

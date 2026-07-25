@@ -3,6 +3,7 @@ import {
   EDGE_TYPES,
   FALLBACK_EDGE_COLORS,
   buildLinkLabel,
+  buildLinkLabelText,
   edgeColorCSS,
   edgeLineDash,
   edgeTypeLabel,
@@ -505,5 +506,30 @@ describe('on_label — label hub membership (PSY-1530)', () => {
       'on_label',
       'played_at',
     ])
+  })
+})
+
+describe('on_label tooltip (PSY-1530)', () => {
+  it('names the label, preserving what the replaced pairwise edge said', () => {
+    expect(
+      buildLinkLabelText({ type: 'on_label', detail: { label_name: '12XU' } }),
+    ).toBe('On 12XU')
+  })
+
+  it('falls back to the bare type when the label name is missing', () => {
+    expect(buildLinkLabelText({ type: 'on_label' })).toBe('On label')
+  })
+
+  // buildLinkLabelText is the raw copy (React escapes it in the panel);
+  // buildLinkLabel is the canvas tooltip's trust boundary, since force-graph
+  // renders string labels as HTML. A community-contributed label name reaches
+  // both, so pin the escaping one.
+  it('escapes a hostile label name at the canvas tooltip sink', () => {
+    const out = buildLinkLabel({
+      type: 'on_label',
+      detail: { label_name: '<img onerror=alert(1)>' },
+    })
+    expect(out).not.toContain('<img')
+    expect(out).toContain('&lt;img')
   })
 })

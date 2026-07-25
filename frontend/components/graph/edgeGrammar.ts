@@ -313,6 +313,14 @@ export function buildLinkLabelText(link: EdgeTooltipLink): string {
       }
       return 'Shared label'
     }
+    case 'on_label': {
+      // The spoke replaced a pairwise `shared_label` edge whose tooltip named
+      // the label ("Both on 12XU"); without this the hover falls through to the
+      // bare type name and that information is lost — a spoke's far end can be
+      // off-screen at zoom, so the edge itself has to say it.
+      const labelName = detailString(detail, 'label_name')
+      return labelName ? `On ${labelName}` : 'On label'
+    }
     case 'radio_cooccurrence': {
       const coCount = detailNumber(detail, 'co_occurrence_count')
       const stationCount = detailNumber(detail, 'station_count')

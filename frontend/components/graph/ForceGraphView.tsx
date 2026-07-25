@@ -622,7 +622,34 @@ export function ForceGraphView({
         detail: l.detail as Record<string, unknown> | undefined,
       })
     }
-    return { nodes: renderNodes, links: renderLinks, edgeTypeCounts }
+    // A hub is a PROJECTION of its spokes, not a scope member like an artist:
+    // the backend omits it entirely when the label edge type is filtered out
+    // server-side, and the same must hold for client-side filtering. Without
+    // this, hiding/soloing an edge type (or hiding the clusters its whole
+    // roster sits in) leaves a big always-labeled square anchoring nothing —
+    // with no link force, no centroid (its cluster is ''), no isolate shelf,
+    // and no center force — so charge alone flings it off and inflates the
+    // fitted bbox. "Nodes are NOT dropped when their last edge hides" was
+    // written for artists, whose membership is node-level information.
+    const spokeCounts = new Map<number, number>()
+    for (const link of renderLinks) {
+      if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) continue
+      const s = typeof link.source === 'object' ? link.source.id : link.source
+      const t = typeof link.target === 'object' ? link.target.id : link.target
+      spokeCounts.set(s, (spokeCounts.get(s) ?? 0) + 1)
+      spokeCounts.set(t, (spokeCounts.get(t) ?? 0) + 1)
+    }
+    const visibleNodes = renderNodes.filter(
+      node => !isLabelHubNode(node) || (spokeCounts.get(node.id) ?? 0) > 0
+    )
+    const visibleIds = new Set(visibleNodes.map(node => node.id))
+    const visibleLinks = renderLinks.filter(link => {
+      const s = typeof link.source === 'object' ? link.source.id : link.source
+      const t = typeof link.target === 'object' ? link.target.id : link.target
+      return visibleIds.has(s) && visibleIds.has(t)
+    })
+
+    return { nodes: visibleNodes, links: visibleLinks, edgeTypeCounts }
   }, [nodes, links, hiddenClusterIDs, hiddenEdgeTypes, soloEdgeType])
 
   // Cluster centroids steer non-isolate nodes via forceX/forceY; the isolate
@@ -747,9 +774,22 @@ export function ForceGraphView({
       }
     })
 
-    // Degree over the RENDERED links, so a hub's spoke length reflects the
-    // roster actually on screen (edge-type toggles included).
-    const degreeForSpokeLayout = degreeMap(renderData.links)
+    const hubNodeIds = new Set(
+      renderData.nodes.filter(isLabelHubNode).map(node => node.id)
+    )
+    // Spoke length must scale with the HUB's roster, not with whatever else its
+    // artist endpoint happens to be connected to — an artist with many co-bills
+    // would otherwise get a much longer spoke than its roster siblings and skew
+    // the ring, encoding a magnitude that membership does not have. So count
+    // spokes per hub over the RENDERED links (edge-type toggles included).
+    const spokeCountByHub = new Map<number, number>()
+    for (const link of renderData.links) {
+      if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) continue
+      const hubId = hubNodeIds.has(endpointId(link.source))
+        ? endpointId(link.source)
+        : endpointId(link.target)
+      spokeCountByHub.set(hubId, (spokeCountByHub.get(hubId) ?? 0) + 1)
+    }
 
     const linkForce = fg.d3Force('link')
     if (linkForce && typeof linkForce.strength === 'function') {
@@ -765,16 +805,13 @@ export function ForceGraphView({
     // compact and a 25-artist one stays on screen. Set here, before warmup,
     // because the link force caches distance at initialize (PSY-1275).
     if (linkForce && typeof linkForce.distance === 'function') {
-      linkForce.distance((link: RenderLink) =>
-        link.type === LABEL_HUB_SPOKE_EDGE_TYPE
-          ? spokeRestLength(
-              Math.max(
-                degreeForSpokeLayout.get(endpointId(link.source)) ?? 0,
-                degreeForSpokeLayout.get(endpointId(link.target)) ?? 0
-              )
-            )
-          : DEFAULT_LINK_DISTANCE
-      )
+      linkForce.distance((link: RenderLink) => {
+        if (link.type !== LABEL_HUB_SPOKE_EDGE_TYPE) return DEFAULT_LINK_DISTANCE
+        const hubId = hubNodeIds.has(endpointId(link.source))
+          ? endpointId(link.source)
+          : endpointId(link.target)
+        return spokeRestLength(spokeCountByHub.get(hubId) ?? 0)
+      })
     }
 
     const chargeForce = fg.d3Force('charge')

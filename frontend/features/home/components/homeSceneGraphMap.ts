@@ -42,20 +42,13 @@ export function buildHomeSceneGraphMap(
   }
 
   const rankedNodes = nodes
-    .filter(
-      node =>
-        // Label hubs (PSY-1530) are excluded from the teaser. This surface is
-        // the Embed-class "map of names" whose approved design (Teaser v2) is
-        // artist-only: its context panel is ArtistContextPanel and its copy
-        // says "the most connected artists". A hub's degree is its whole
-        // roster, so it would rank FIRST and take the largest name tier —
-        // undesigned UI on a design-locked surface, with a panel that would
-        // fetch an artist card for a label id. Putting hubs here needs a
-        // teaser mock first (see the ticket's deferred note).
-        !isLabelHubNode(node) &&
-        !node.is_isolate &&
-        (degrees.get(node.id) ?? 0) > 0,
-    )
+    // Label hubs (PSY-1530) ride along, per the ticket's locked decision that
+    // the teaser inherits them. Filtering them out is NOT a safe simplification:
+    // the backend replaces each roster's pairwise clique with hub spokes, so
+    // dropping hubs drops those spokes too and a label-dominated scene collapses
+    // to almost nothing (Austin: 300 of 302 edges are one label). The hub is the
+    // connectivity on those scenes.
+    .filter(node => !node.is_isolate && (degrees.get(node.id) ?? 0) > 0)
     .map(node => ({
       node,
       degree: degrees.get(node.id) ?? 0,
