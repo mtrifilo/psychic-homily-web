@@ -98,7 +98,6 @@ import {
   type UnmatchedPlayGroup,
   type SuggestedMatch,
 } from '@/lib/hooks/admin/useAdminRadio'
-import { CommunityMatchSuggestionsQueue } from './CommunityMatchSuggestionsQueue'
 
 // ============================================================================
 // Constants
@@ -2091,8 +2090,6 @@ function RadioMatchingTab() {
           <div className="text-2xl font-bold">{matchRate}%</div>
         </div>
       </div>
-
-      <CommunityMatchSuggestionsQueue />
 
       {/* Unmatched Plays */}
       <div>

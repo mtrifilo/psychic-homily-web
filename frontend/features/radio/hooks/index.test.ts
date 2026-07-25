@@ -17,7 +17,5 @@ describe('radio hooks barrel', () => {
     expect(typeof hooks.useReleaseRadioPlays).toBe('function')
     expect(typeof hooks.useNewReleaseRadar).toBe('function')
     expect(typeof hooks.useRadioStats).toBe('function')
-    expect(typeof hooks.useOwnPlayMatchSuggestion).toBe('function')
-    expect(typeof hooks.useCreatePlayMatchSuggestion).toBe('function')
   })
 })
