@@ -84,7 +84,7 @@ const usCountry = "US"
 // show contradictory scene counts. NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
 // semantics — it NULLIFs an empty-string metro into the fallback, this one
-// does not (venues get metro from the geocoder, never ”); an identity
+// does not (venues get metro from the geocoder, never ''); an identity
 // change here must be weighed against that twin, not assumed to cover it.
 const sceneGroupKeySQL = `COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(TRIM(v.state)))`
 

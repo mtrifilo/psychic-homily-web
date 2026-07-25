@@ -501,9 +501,26 @@ describe('SceneGraphVisualization — label hub selection (PSY-1530)', () => {
     )
   })
 
-  it('states the roster size from the payload spokes, excluding hidden clusters', () => {
+  it('states the roster size from the payload spokes', () => {
     renderAndSelectHub()
     expect(screen.getByText(/2 artists on this label in this scene/i)).toBeInTheDocument()
+  })
+
+  // A hidden cluster's spokes are culled from the canvas, so a visibly smaller
+  // star must not be captioned with the full roster count.
+  it('excludes roster artists in hidden clusters from the count', () => {
+    render(
+      <SceneGraphVisualization
+        data={hubData}
+        containerWidth={900}
+        hiddenClusterIDs={new Set(['v_1'])}
+      />,
+    )
+    fireEvent.click(screen.getByText('node-12xu'))
+    // Both roster artists sit in cluster v_1, so none remain visible.
+    expect(
+      screen.queryByText(/artists on this label in this scene/i),
+    ).not.toBeInTheDocument()
   })
 
   it('captions the hub with its home, since hubs are not scene-local', () => {
