@@ -81,9 +81,14 @@ type sceneLabelRosterRow struct {
 // global roster (a label with 40 artists worldwide and 2 in this metro is a
 // 2-artist overlap here).
 //
-// Slug-less labels are excluded in SQL: a hub's payoff is opening the label's
-// page, and an unlinkable hub would occupy the canvas promising a click it
-// cannot honor (same rule as the provenance endpoint's entity rows).
+// Slug-less labels ARE returned, even though they can never become hubs (a
+// hub's payoff is opening the label's page, and an unlinkable hub would occupy
+// the canvas promising a click it cannot honor). They must stay visible to
+// replacesSharedLabelEdge: DeriveSharedLabels derives edges from all of
+// artist_labels, so a pair sharing an un-hubbable label needs its pairwise edge
+// kept — filtering them out here would silently delete the only evidence of
+// that relationship, the exact outcome the below-threshold keep-rule exists to
+// prevent.
 func querySceneLabelRosters(db *gorm.DB, artistIDs []uint) ([]sceneLabelRosterRow, error) {
 	if len(artistIDs) == 0 {
 		return nil, nil
@@ -93,7 +98,6 @@ func querySceneLabelRosters(db *gorm.DB, artistIDs []uint) ([]sceneLabelRosterRo
 		Select("l.id AS label_id, l.name, l.slug, l.city, l.state, l.country, al.artist_id").
 		Joins("JOIN labels l ON l.id = al.label_id").
 		Where("al.artist_id IN ?", artistIDs).
-		Where("l.slug IS NOT NULL AND l.slug <> ''").
 		Order("l.name ASC, l.id ASC, al.artist_id ASC").
 		Scan(&rows).Error
 	if err != nil {
@@ -126,13 +130,12 @@ func buildSceneLabelHubs(rosterRows []sceneLabelRosterRow) (sceneLabelHubs, erro
 
 	for _, r := range rosterRows {
 		if r.ArtistID >= sceneLabelNodeIDOffset {
-			return sceneLabelHubs{
-					labelsByArtist: make(map[uint]map[uint]struct{}),
-					hubbedLabels:   make(map[uint]struct{}),
-				}, fmt.Errorf(
-					"artist id %d has reached the label-hub node id offset %d; refusing to emit label hubs",
-					r.ArtistID, sceneLabelNodeIDOffset,
-				)
+			// Zero value fails closed: replacesSharedLabelEdge guards on an
+			// empty hubbedLabels set, so no edge is claimed as replaced.
+			return sceneLabelHubs{}, fmt.Errorf(
+				"artist id %d has reached the label-hub node id offset %d; refusing to emit label hubs",
+				r.ArtistID, sceneLabelNodeIDOffset,
+			)
 		}
 
 		if out.labelsByArtist[r.ArtistID] == nil {
@@ -152,6 +155,12 @@ func buildSceneLabelHubs(rosterRows []sceneLabelRosterRow) (sceneLabelHubs, erro
 	for _, labelID := range order {
 		entry := byLabel[labelID]
 		if len(entry.artists) < sceneLabelHubMinRoster {
+			continue
+		}
+		// An unlinkable label cannot be a hub — its panel's payoff is opening
+		// the label page. Its roster keeps the pairwise edges instead, and it
+		// stays in labelsByArtist so the drop rule still sees it.
+		if derefString(entry.row.Slug) == "" {
 			continue
 		}
 		out.hubbedLabels[labelID] = struct{}{}

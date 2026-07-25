@@ -269,15 +269,55 @@ func TestBuildSceneLabelHubs_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestSceneEdgeTypesInclude(t *testing.T) {
-	resolved := []string{"member_of", "shared_bills", "shared_label"}
-	if !sceneEdgeTypesInclude(resolved, "shared_label") {
-		t.Error("shared_label should be found")
+// A pair sharing a hubbed label AND a slug-less (un-hubbable) label must keep
+// its pairwise edge: no hub represents the slug-less label, so dropping the
+// edge would delete the only evidence of that relationship. Regression test for
+// the roster query's original slug filter, which hid slug-less labels from the
+// drop rule entirely.
+func TestReplacesSharedLabelEdge_SlugLessLabelKeepsEdge(t *testing.T) {
+	slugless := func(labelID uint, name string, artistID uint) sceneLabelRosterRow {
+		return sceneLabelRosterRow{LabelID: labelID, Name: name, Slug: nil, ArtistID: artistID}
 	}
-	if sceneEdgeTypesInclude(resolved, "side_project") {
-		t.Error("side_project should not be found")
+	rows := []sceneLabelRosterRow{
+		rosterRow(1, "Hubbed Records", 10),
+		rosterRow(1, "Hubbed Records", 11),
+		rosterRow(1, "Hubbed Records", 12),
+		// Artists 10 and 11 also share an unlinkable label.
+		slugless(2, "Unlinkable Records", 10),
+		slugless(2, "Unlinkable Records", 11),
 	}
-	if sceneEdgeTypesInclude(nil, "shared_label") {
-		t.Error("empty set contains nothing")
+
+	hubs, err := buildSceneLabelHubs(rows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hubs.Nodes) != 1 {
+		t.Fatalf("only the slugged label may hub: got %d hubs", len(hubs.Nodes))
+	}
+	if hubs.replacesSharedLabelEdge(10, 11) {
+		t.Error("pair also sharing a slug-less label must keep its pairwise edge")
+	}
+	if !hubs.replacesSharedLabelEdge(11, 12) {
+		t.Error("pair sharing only the hubbed label should still be replaced")
+	}
+}
+
+// A slug-less label with a 3+ roster must not hub at all (it would promise a
+// click it cannot honor), and its roster keeps pairwise edges.
+func TestBuildSceneLabelHubs_SlugLessLabelNeverHubs(t *testing.T) {
+	rows := []sceneLabelRosterRow{
+		{LabelID: 5, Name: "No Slug Records", Slug: nil, ArtistID: 10},
+		{LabelID: 5, Name: "No Slug Records", Slug: nil, ArtistID: 11},
+		{LabelID: 5, Name: "No Slug Records", Slug: nil, ArtistID: 12},
+	}
+	hubs, err := buildSceneLabelHubs(rows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hubs.Nodes) != 0 || len(hubs.Spokes) != 0 {
+		t.Errorf("slug-less label must not hub: got %d nodes / %d spokes", len(hubs.Nodes), len(hubs.Spokes))
+	}
+	if hubs.replacesSharedLabelEdge(10, 11) {
+		t.Error("with no hub, the pairwise edge must survive")
 	}
 }

@@ -402,13 +402,36 @@ describe('label caption (PSY-1530)', () => {
   // The caption must be inside the collision box, or a neighbouring label can
   // be placed on top of it.
   it('reserves vertical space for the caption', () => {
-    const ctx = captionCtx()
-    // A second label placed just below the first: with the caption reserved,
-    // it collides and is culled; the forced hub label always survives.
-    renderGraphLabels(ctx as never, palette, [
+    // y=25 sits BELOW the caption-less box (a 14px label ends at ~18.5) but
+    // inside the caption-extended one (~30.9). So this collides only because
+    // the caption is reserved — neutering the reservation makes it pass, which
+    // is what a vacuous version of this test failed to catch.
+    const withCaption = captionCtx()
+    renderGraphLabels(withCaption as never, palette, [
       { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX', force: true },
-      { x: 0, y: 20, text: 'Collides', fontSize: 11 },
+      { x: 0, y: 25, text: 'Collides', fontSize: 11 },
     ])
-    expect(ctx.fills.map(f => f.text)).not.toContain('Collides')
+    expect(withCaption.fills.map(f => f.text)).not.toContain('Collides')
+
+    // Control: same geometry without a caption leaves room, so the neighbour
+    // draws. This pins the reservation as the cause.
+    const noCaption = captionCtx()
+    renderGraphLabels(noCaption as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, force: true },
+      { x: 0, y: 25, text: 'Collides', fontSize: 11 },
+    ])
+    expect(noCaption.fills.map(f => f.text)).toContain('Collides')
+  })
+
+  // The caption can be WIDER than the name ("12XU" / "Austin, TX" — the
+  // flagship case), so the collision box must bound the caption too.
+  it('reserves horizontal space for a caption wider than its name', () => {
+    const wide = captionCtx()
+    renderGraphLabels(wide as never, palette, [
+      { x: 0, y: 0, text: '12XU', fontSize: 14, caption: 'Austin, TX', force: true },
+      // Offset horizontally past the short name's box but inside the caption's.
+      { x: 20, y: 0, text: 'Neighbour', fontSize: 11 },
+    ])
+    expect(wide.fills.map(f => f.text)).not.toContain('Neighbour')
   })
 })

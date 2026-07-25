@@ -86,7 +86,7 @@ export function drawPlayableRing(
  * Drawn filled + stroked like the node circles (the caller owns globalAlpha so
  * hover-focus dim multiplies through identically).
  */
-export const LABEL_HUB_CORNER_RATIO = 0.28
+const LABEL_HUB_CORNER_RATIO = 0.28
 
 export function drawLabelHubMarker(
   ctx: CanvasRenderingContext2D,

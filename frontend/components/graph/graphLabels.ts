@@ -257,9 +257,18 @@ function measureLabelBox(
   ctx: CanvasRenderingContext2D,
   spec: GraphLabelSpec,
 ): LabelBox {
-  // The caption is narrower than the name in every real case (a city vs a band
-  // name), so the name's width bounds the pair; only the height grows.
-  const halfWidth = ctx.measureText(spec.text).width / 2 + LABEL_PADDING
+  // The caption is NOT always narrower than the name — "12XU" captioned
+  // "Austin, TX" is wider — so the box must bound whichever line is widest, or
+  // a neighbouring label can be drawn over the caption. Measuring the caption
+  // needs its own font, so save/restore the caller's.
+  let widest = ctx.measureText(spec.text).width
+  if (spec.caption && spec.caption.trim() !== '') {
+    const font = ctx.font
+    ctx.font = `400 ${captionFontSize(spec)}px sans-serif`
+    widest = Math.max(widest, ctx.measureText(spec.caption).width)
+    ctx.font = font
+  }
+  const halfWidth = widest / 2 + LABEL_PADDING
   return {
     x0: spec.x - halfWidth,
     // The halo stroke straddles the glyph top, so include its overhang.

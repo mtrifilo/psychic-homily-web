@@ -27,6 +27,12 @@ import { formatLocation } from '@/lib/formatLocation'
 export const LABEL_HUB_ENTITY_TYPE = 'label'
 
 /**
+ * The membership edge type between a hub and one of its roster artists.
+ * Mirrors the backend `SceneEdgeTypeOnLabel`.
+ */
+export const LABEL_HUB_SPOKE_EDGE_TYPE = 'on_label'
+
+/**
  * True when a node should render as a label hub rather than an artist circle.
  * Typed structurally so this module stays free of graph-component imports.
  */
@@ -76,4 +82,25 @@ export function labelHubHomeCaption(node: {
 }): string | undefined {
   const formatted = formatLocation(node)
   return formatted === 'Location Unknown' ? undefined : formatted
+}
+
+/** Ring-radius bounds for a hub's roster, in graph units. */
+export const SPOKE_REST_LENGTH_MIN = 60
+export const SPOKE_REST_LENGTH_MAX = 170
+
+/**
+ * Rest length for a hub's membership spokes, given the hub's roster size.
+ *
+ * d3's ~30px default packs a roster onto a ring too small for its own labels —
+ * the crowding hubs exist to remove. Ring circumference grows linearly with the
+ * number of artists on it (2·pi·r >= n · spacing), so the radius scales with n
+ * and is clamped: small rosters stay compact instead of flying apart, and a big
+ * one stays inside the fitted viewport.
+ */
+export function spokeRestLength(rosterSize: number): number {
+  const perArtist = 7
+  return Math.min(
+    SPOKE_REST_LENGTH_MAX,
+    Math.max(SPOKE_REST_LENGTH_MIN, rosterSize * perArtist),
+  )
 }

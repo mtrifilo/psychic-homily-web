@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1235,7 +1236,10 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	// failure is non-fatal: the scene graph still renders as pairwise edges
 	// (today's behavior) rather than 500ing on a decorative layer.
 	var labelHubs sceneLabelHubs
-	if !noEdgesByFilter && sceneEdgeTypesInclude(resolvedTypes, catalogm.RelationshipTypeSharedLabel) {
+	// Hubs are a projection of shared_label, so a filter that excludes that
+	// type must exclude the hubs too — otherwise a caller who asked not to see
+	// label edges still gets hubs whose spokes they excluded.
+	if !noEdgesByFilter && slices.Contains(resolvedTypes, catalogm.RelationshipTypeSharedLabel) {
 		rosterRows, err := querySceneLabelRosters(s.db, artistIDs)
 		if err != nil {
 			slog.Error("scene graph: label roster query failed; falling back to pairwise label edges",
@@ -1323,19 +1327,6 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	resp.Scene.LabelCount = len(labelHubs.Nodes)
 
 	return resp, nil
-}
-
-// sceneEdgeTypesInclude reports whether a resolved edge-type set contains the
-// given type. Label hubs are a projection of `shared_label`, so hiding that
-// type via the `types` filter must hide the hubs too — otherwise filtering
-// label edges out would leave hubs floating with spokes the caller excluded.
-func sceneEdgeTypesInclude(resolved []string, want string) bool {
-	for _, t := range resolved {
-		if t == want {
-			return true
-		}
-	}
-	return false
 }
 
 // resolveSceneEdgeTypes filters the caller's requested types against the

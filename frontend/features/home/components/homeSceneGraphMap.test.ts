@@ -110,3 +110,42 @@ describe('buildHomeSceneGraphMap', () => {
     expect(map.nodes.every(item => incidentIds.has(item.id))).toBe(true)
   })
 })
+
+describe('buildHomeSceneGraphMap — label hubs (PSY-1530)', () => {
+  // The teaser is the Embed-class artist "map of names": its panel is
+  // ArtistContextPanel and its copy counts artists. A hub's degree is its whole
+  // roster, so without this filter it would rank FIRST and take the largest
+  // name tier — and its click would fetch an artist card for a label id.
+  const hub = node(2_000_000_007, {
+    name: '12XU',
+    slug: '12xu',
+    entity_type: 'label',
+    cluster_id: '',
+  })
+  const artists = [node(1), node(2), node(3)]
+  const links: SceneGraphLink[] = [
+    { source_id: 1, target_id: 2, type: 'shared_bills', score: 1, is_cross_cluster: false },
+    // Spokes give the hub the highest degree in the payload.
+    { source_id: 2_000_000_007, target_id: 1, type: 'on_label', score: 1, is_cross_cluster: false },
+    { source_id: 2_000_000_007, target_id: 2, type: 'on_label', score: 1, is_cross_cluster: false },
+    { source_id: 2_000_000_007, target_id: 3, type: 'on_label', score: 1, is_cross_cluster: false },
+  ]
+
+  it('excludes label hubs from the teaser node set', () => {
+    const map = buildHomeSceneGraphMap([...artists, hub], links)
+    const ids = map.nodes.map(n => n.id)
+    expect(ids).not.toContain(2_000_000_007)
+  })
+
+  it('still includes the roster artists the spokes connected', () => {
+    const map = buildHomeSceneGraphMap([...artists, hub], links)
+    const ids = map.nodes.map(n => n.id)
+    expect(ids).toContain(1)
+    expect(ids).toContain(2)
+  })
+
+  it('never gives a hub the top label tier', () => {
+    const map = buildHomeSceneGraphMap([...artists, hub], links)
+    expect(map.labelStyles.has(2_000_000_007)).toBe(false)
+  })
+})

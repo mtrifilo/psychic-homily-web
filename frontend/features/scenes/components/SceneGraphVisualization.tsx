@@ -42,14 +42,15 @@
 import { useMemo } from 'react'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
+import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 import {
-  ArtistContextPanel,
-  graphSelectGestureHint,
-} from '@/components/graph/ArtistContextPanel'
-import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
+  EntityContextPanel,
+  graphEntitySelectGestureHint,
+} from '@/components/graph/EntityContextPanel'
 import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
 import {
   isLabelHubNode,
+  LABEL_HUB_ENTITY_TYPE,
   labelHubHomeCaption,
 } from '@/components/graph/labelHub'
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
@@ -138,7 +139,7 @@ export function SceneGraphVisualization({
   // Assistive tech hears the same populations the visual header shows (shared
   // sceneGraphCopy source), including the label hubs.
   const labelPhrase = sceneLabelCountPhrase(data.scene)
-  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}${labelPhrase ? `, ${labelPhrase}` : ''}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. ${graphSelectGestureHint}`
+  const ariaLabel = `Scene relationship graph for ${data.scene.city}, ${data.scene.state}: ${sceneArtistCountPhrase(data.scene)}${labelPhrase ? `, ${labelPhrase}` : ''}, ${data.scene.edge_count} ${data.scene.edge_count === 1 ? 'connection' : 'connections'}. ${graphEntitySelectGestureHint}`
 
   return (
     <GraphPanelHost
@@ -147,7 +148,7 @@ export function SceneGraphVisualization({
         currentSelectedNode && selectedIsHub ? (
           <EntityContextPanel
             className="absolute top-2 left-2 z-40"
-            entityType="label"
+            entityType={LABEL_HUB_ENTITY_TYPE}
             name={currentSelectedNode.name}
             slug={currentSelectedNode.slug}
             // Hubs are not gated to scene-local labels, so the panel states the

@@ -5,6 +5,10 @@ import {
   labelHubHomeCaption,
   LABEL_HUB_ENTITY_TYPE,
   LABEL_HUB_HALF_EXTENT,
+  LABEL_HUB_SPOKE_EDGE_TYPE,
+  spokeRestLength,
+  SPOKE_REST_LENGTH_MAX,
+  SPOKE_REST_LENGTH_MIN,
 } from './labelHub'
 
 describe('isLabelHubNode', () => {
@@ -59,5 +63,29 @@ describe('LABEL_HUB_HALF_EXTENT', () => {
   // circles (NODE_RADIUS 8) it gathers.
   it('is larger than the artist node radius', () => {
     expect(LABEL_HUB_HALF_EXTENT).toBeGreaterThan(8)
+  })
+})
+
+describe('spokeRestLength', () => {
+  // d3's ~30px default packs a roster onto a ring too small for its own
+  // labels — the crowding hubs exist to remove.
+  it('is well above the d3 default link distance', () => {
+    expect(spokeRestLength(3)).toBeGreaterThan(30)
+  })
+
+  it('grows with roster size, since ring circumference does', () => {
+    expect(spokeRestLength(25)).toBeGreaterThan(spokeRestLength(6))
+  })
+
+  it('clamps both ends so small rosters stay compact and big ones stay on screen', () => {
+    expect(spokeRestLength(1)).toBe(SPOKE_REST_LENGTH_MIN)
+    expect(spokeRestLength(500)).toBe(SPOKE_REST_LENGTH_MAX)
+    expect(spokeRestLength(0)).toBe(SPOKE_REST_LENGTH_MIN)
+  })
+})
+
+describe('LABEL_HUB_SPOKE_EDGE_TYPE', () => {
+  it('matches the backend on_label edge type', () => {
+    expect(LABEL_HUB_SPOKE_EDGE_TYPE).toBe('on_label')
   })
 })

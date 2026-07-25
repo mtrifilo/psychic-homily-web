@@ -13,6 +13,7 @@
  * ForceGraphView statically should import this helper.
  */
 
+import { graphClusterIdForNode } from './labelHub'
 import { OTHER_CLUSTER_ID } from './ForceGraphView'
 import type { GraphNode } from './ForceGraphView'
 
@@ -25,7 +26,10 @@ export function resolveNodeInVisibleClusters<TNode extends GraphNode>(
     nodes.find(
       node =>
         node.id === selected.id &&
-        !hiddenClusterIDs.has(node.cluster_id || OTHER_CLUSTER_ID),
+        // Use the SAME rule the canvas cull uses, or the two drift: a label
+        // hub's empty cluster_id would fall back to "other" here, so hiding
+        // that cluster would leave the hub drawn but unselectable (PSY-1530).
+        !hiddenClusterIDs.has(graphClusterIdForNode(node, OTHER_CLUSTER_ID)),
     ) ?? null
   )
 }

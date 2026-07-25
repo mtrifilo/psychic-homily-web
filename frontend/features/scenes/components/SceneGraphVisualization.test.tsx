@@ -74,7 +74,7 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
 }))
 
 import { SceneGraphVisualization } from './SceneGraphVisualization'
-import { graphSelectGestureHint } from '@/components/graph/ArtistContextPanel'
+import { graphEntitySelectGestureHint } from '@/components/graph/EntityContextPanel'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
 
 const data: SceneGraphResponse = {
@@ -105,8 +105,11 @@ const data: SceneGraphResponse = {
   links: [],
 }
 
-// The shared select-gesture sentence appended to every scene aria-label.
-const SELECT_HINT = ` ${graphSelectGestureHint}`
+// The shared select-gesture sentence appended to every scene aria-label. The
+// scene canvas is mixed-entity since PSY-1530 (artists + label hubs), so it
+// uses the entity-phrased hint — promising "that artist's details" would be
+// wrong for a click that opens a label.
+const SELECT_HINT = ` ${graphEntitySelectGestureHint}`
 
 describe('SceneGraphVisualization', () => {
   beforeEach(() => {
@@ -423,5 +426,102 @@ describe('SceneGraphVisualization', () => {
     expect(
       screen.queryByRole('region', { name: 'About Gatecreeper' })
     ).toBeNull()
+  })
+})
+
+// PSY-1530: label hubs are a second node kind on this canvas. Selecting one
+// must open the shared EntityContextPanel (not the artist panel), and must NOT
+// ask the artist-card endpoint for a hub's offset node id.
+describe('SceneGraphVisualization — label hub selection (PSY-1530)', () => {
+  const HUB_ID = 2_000_000_007
+
+  const hubData: SceneGraphResponse = {
+    ...data,
+    scene: { ...data.scene, artist_count: 2, edge_count: 2, label_count: 1 },
+    nodes: [
+      ...data.nodes,
+      {
+        id: 2,
+        name: 'Borzoi',
+        slug: 'borzoi',
+        upcoming_show_count: 0,
+        cluster_id: 'v_1',
+        is_isolate: false,
+        has_playable_audio: false,
+      },
+      {
+        id: HUB_ID,
+        entity_type: 'label',
+        name: '12XU',
+        slug: '12xu',
+        city: 'Austin',
+        state: 'TX',
+        country: 'US',
+        upcoming_show_count: 0,
+        cluster_id: '',
+        is_isolate: false,
+        has_playable_audio: false,
+      },
+    ],
+    links: [
+      { source_id: HUB_ID, target_id: 1, type: 'on_label', score: 1, is_cross_cluster: false },
+      { source_id: HUB_ID, target_id: 2, type: 'on_label', score: 1, is_cross_cluster: false },
+    ],
+  }
+
+  const renderAndSelectHub = () => {
+    render(
+      <SceneGraphVisualization
+        data={hubData}
+        containerWidth={900}
+        hiddenClusterIDs={new Set()}
+      />,
+    )
+    fireEvent.click(screen.getByText('node-12xu'))
+  }
+
+  it('opens the label entity panel, not the artist panel', () => {
+    renderAndSelectHub()
+    expect(screen.getByText('12XU')).toBeInTheDocument()
+    // The panel uppercases the type tag in JS, not CSS.
+    expect(screen.getByText('LABEL')).toBeInTheDocument()
+    // "Open page →" must target the label route, never /artists/12xu.
+    const link = screen.getByRole('link', { name: /open page/i })
+    expect(link).toHaveAttribute('href', '/labels/12xu')
+  })
+
+  it('does not fetch an artist card for a hub node id', () => {
+    renderAndSelectHub()
+    // The offset hub id is not an artist id — this call would 404.
+    expect(useArtistGraphCard).not.toHaveBeenCalledWith(
+      expect.objectContaining({ artistId: HUB_ID, enabled: true }),
+    )
+    expect(useArtistGraphCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ artistId: null, enabled: false }),
+    )
+  })
+
+  it('states the in-graph roster size from the rendered spokes', () => {
+    renderAndSelectHub()
+    expect(screen.getByText(/2 artists on this label in this graph/i)).toBeInTheDocument()
+  })
+
+  it('captions the hub with its home, since hubs are not scene-local', () => {
+    renderAndSelectHub()
+    expect(screen.getByText('Austin, TX')).toBeInTheDocument()
+  })
+
+  it('still opens the artist panel for artist nodes', () => {
+    render(
+      <SceneGraphVisualization
+        data={hubData}
+        containerWidth={900}
+        hiddenClusterIDs={new Set()}
+      />,
+    )
+    fireEvent.click(screen.getByText('node-borzoi'))
+    expect(useArtistGraphCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ artistId: 2, enabled: true }),
+    )
   })
 })

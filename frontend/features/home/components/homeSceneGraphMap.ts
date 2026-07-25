@@ -2,6 +2,7 @@ import type {
   SceneGraphLink,
   SceneGraphNode,
 } from '@/features/scenes/types'
+import { isLabelHubNode } from '@/components/graph/labelHub'
 
 export const HOME_GRAPH_MAX_NODES = 20
 
@@ -41,7 +42,20 @@ export function buildHomeSceneGraphMap(
   }
 
   const rankedNodes = nodes
-    .filter(node => !node.is_isolate && (degrees.get(node.id) ?? 0) > 0)
+    .filter(
+      node =>
+        // Label hubs (PSY-1530) are excluded from the teaser. This surface is
+        // the Embed-class "map of names" whose approved design (Teaser v2) is
+        // artist-only: its context panel is ArtistContextPanel and its copy
+        // says "the most connected artists". A hub's degree is its whole
+        // roster, so it would rank FIRST and take the largest name tier —
+        // undesigned UI on a design-locked surface, with a panel that would
+        // fetch an artist card for a label id. Putting hubs here needs a
+        // teaser mock first (see the ticket's deferred note).
+        !isLabelHubNode(node) &&
+        !node.is_isolate &&
+        (degrees.get(node.id) ?? 0) > 0,
+    )
     .map(node => ({
       node,
       degree: degrees.get(node.id) ?? 0,
