@@ -80,6 +80,11 @@ postgres-data/
 # responses; adapter tests parse these instead of hitting live APIs.
 !backend/internal/services/catalog/testdata/*.json
 
+# PH-branded MapLibre basemap style (PSY-1543): source, not a credential —
+# phBasemap.ts imports it at build time, so it MUST be tracked or the build
+# breaks for everyone but the author.
+!frontend/features/scenes/basemap/*.json
+
 # Backup files
 *.backup
 *.bak
