@@ -249,17 +249,21 @@
  * the Atlas dark palette. The control carries the REQUIRED OpenStreetMap
  * credit (plus OpenFreeMap and NASA GIBS), so keep it legible: muted at
  * rest, readable on hover. The Atlas surface is deliberately dark in both
- * app themes, so these values are static rather than token-driven. */
-.maplibregl-ctrl-attrib {
+ * app themes, so these values are static rather than token-driven.
+ * Selectors are .maplibregl-map-prefixed to out-specify maplibre-gl.css's
+ * own `.maplibregl-ctrl.maplibregl-ctrl-attrib` rules — that stylesheet is
+ * lazy-loaded with the GlobeCanvas chunk AFTER this file, so equal
+ * specificity would lose on order. */
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
   background: rgba(13, 8, 5, 0.72);
   color: #9c8c7c;
   font-size: 11px;
 }
-.maplibregl-ctrl-attrib a {
+.maplibregl-map .maplibregl-ctrl-attrib a {
   color: #b3a292;
   text-decoration: none;
 }
-.maplibregl-ctrl-attrib a:hover {
+.maplibregl-map .maplibregl-ctrl-attrib a:hover {
   color: #eee7d9;
   text-decoration: underline;
 }
