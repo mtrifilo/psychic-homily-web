@@ -79,6 +79,9 @@ vi.mock('./ArtistGraph', () => ({
 }))
 
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+// The REAL constant (not a literal) — a rename that missed one side would
+// otherwise still pass.
+import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
 
 // ResizeObserver mock — the Dialog measures its content via ResizeObserver.
 // Shared immediate shim (PSY-1305).
@@ -118,6 +121,19 @@ describe('ArtistSimilarSidebar', () => {
       <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
     )
     expect(container.firstChild).toBeNull()
+  })
+
+  it('carries the anchor id the Connections section mobile teaser links to', () => {
+    // The inline Connections map hides its canvas below 640px and offers a
+    // teaser linking to `#${SIMILAR_ARTISTS_ANCHOR}` instead. That link is
+    // only reachable because this section is the anchor target — assert the
+    // two halves of the contract meet (SceneDetail/SceneGraph precedent).
+    const { container } = renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    expect(
+      container.querySelector(`#${SIMILAR_ARTISTS_ANCHOR}`)
+    ).toBeInTheDocument()
   })
 
   it('renders the Similar artists section header', () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useEffect, useState, type ComponentType, type MutableRefObject } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useState, type ComponentType, type Ref } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
@@ -56,7 +56,9 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   loading: () => graphSkeleton,
 }) as unknown as ComponentType<
   ForceGraphProps<GraphNode, GraphLink> & {
-    ref?: MutableRefObject<ForceGraphMethods<GraphNode, GraphLink> | undefined>
+    // A callback ref, not a ref object: the host needs to know WHEN the lazy
+    // canvas attaches, not just reach it later (see `attachGraphRef`).
+    ref?: Ref<ForceGraphMethods<GraphNode, GraphLink> | null>
   }
 >
 
@@ -111,6 +113,27 @@ interface ArtistGraphBaseProps {
   data: ArtistGraphData
   activeTypes: Set<string>
   containerWidth: number
+  /**
+   * Explicit canvas height for Section-class hosts (the inline artist-page
+   * Connections section budgets a shorter box than the dialog). Omitted →
+   * the dialog's responsive default (350px under 768px width, 500px above).
+   */
+  height?: number
+  /**
+   * PSY-1447 pre-settle grammar for Section-class hosts: re-frame the
+   * viewport INSTANTLY instead of tweening. The ego layout is fully pinned
+   * (egoRingLayout), so the nodes never move — the only motion at mount is
+   * the camera, and on an inline page section a 500ms zoom tween reads as
+   * the surface snapping into place after the reader has already looked at
+   * it. The dialog keeps the tween: it opens over a backdrop, where the
+   * camera move reads as the modal's own entrance.
+   *
+   * The 250ms scheduling delay stays in BOTH modes — it is not a settle
+   * wait but the backstop for the `next/dynamic` canvas chunk (the ref is
+   * still undefined on the first mount pass, and the re-frame effect does
+   * not re-run when the chunk lands).
+   */
+  instantFit?: boolean
   /**
    * PSY-361: Re-center handler. Now fired from the node tooltip's "Center on
    * this artist" action (PSY-1259 moved the node CLICK to expand). The parent
@@ -350,6 +373,8 @@ export function ArtistGraphVisualization({
   data,
   activeTypes,
   containerWidth,
+  height,
+  instantFit = false,
   onRecenter,
   onExpand,
   onSelect,
@@ -368,6 +393,28 @@ export function ArtistGraphVisualization({
   focusNodeId = null,
 }: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
+  // ForceGraph2D is a next/dynamic(ssr:false) component, so the FIRST client
+  // render of any host paints the loading fallback and `graphRef.current` is
+  // still null when the re-frame effects below run. Those effects key on the
+  // data, not on the canvas, so a bail-on-null would be permanent: the graph
+  // would never be framed at all on that host. Flipping this state when the
+  // canvas attaches gives the effects a dependency that actually changes when
+  // the ref becomes usable.
+  //
+  // The dialog masked this: it mounts its canvas only on open, by which point
+  // the chunk is in the module cache and the dynamic component renders
+  // synchronously — so the ref IS set and the fit runs. The inline artist-page
+  // section mounts the canvas cold on page load, where it never did (PSY-1548:
+  // the ego ring rendered at the engine's own scale and overflowed the shorter
+  // Section box, clipping the top and bottom labels).
+  const [canvasReady, setCanvasReady] = useState(false)
+  const attachGraphRef = useCallback(
+    (instance: ForceGraphMethods<GraphNode, GraphLink> | null) => {
+      graphRef.current = instance
+      setCanvasReady(instance !== null)
+    },
+    []
+  )
   const containerRef = useRef<HTMLDivElement>(null)
   const palette = useGraphPalette()
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
@@ -424,13 +471,19 @@ export function ArtistGraphVisualization({
   }, [data.center.id, cancelDismiss])
   const reducedMotion = useReducedMotion()
 
-  const graphHeight = containerWidth < 768 ? 350 : 500
+  const graphHeight = height ?? (containerWidth < 768 ? 350 : 500)
 
   // zoomToFit padding (px). PSY-1275 bumped desktop 40→70 to leave room for the labels that hang
-  // below the outer-ring nodes — but the mobile canvas is only 350px tall, where 70px top+bottom
-  // would eat 40% of the height and over-shrink the ring (clipping labels under the LABEL_MIN_SCALE
-  // cull), so mobile keeps the original 40px. Tied to the same 768px breakpoint as graphHeight.
-  const zoomToFitPadding = containerWidth < 768 ? 40 : 70
+  // below the outer-ring nodes — but a short canvas can't afford it: 70px top+bottom would eat
+  // ~40% of the height and over-shrink the ring (clipping labels under the LABEL_MIN_SCALE cull).
+  //
+  // Keyed on the canvas HEIGHT, which is what the padding actually competes with. This is
+  // behaviour-identical to the old `containerWidth < 768` form for the dialog (whose height IS
+  // that breakpoint: 350 → 40, 500 → 70) and additionally covers the Section-class hosts, which
+  // set an explicit short `height` at any width — the inline Connections map is 360px tall in a
+  // main column that measures ~768px at the widest, i.e. exactly the case the width form got
+  // wrong.
+  const zoomToFitPadding = graphHeight < 400 ? 40 : 70
 
   // Build graph data from API response
   const graphData = useMemo(() => {
@@ -678,21 +731,28 @@ export function ArtistGraphVisualization({
     connectionInspect.pair,
   ])
 
+  // Re-frame duration: tweened in the dialog, instant for Section-class hosts
+  // (see `instantFit`). Both paths keep the 250ms scheduling delay below.
+  const zoomToFitDuration = instantFit ? 0 : 500
+
   // PSY-361: re-frame the viewport after each new center's data lands so
   // the layout is properly centered + scaled. The 500ms transition is smooth without being
   // sluggish; zoomToFitPadding (PSY-1275) leaves room for the labels below the outer-ring nodes.
   // Keyed on `data.center.id` so this fires once per re-center, not on
   // every filter toggle (filter changes preserve framing intentionally).
+  // `canvasReady` is the dependency that makes this fire on a cold mount — see
+  // `attachGraphRef`. Without it the effect runs once against a null ref and
+  // the graph is never framed.
   useEffect(() => {
-    if (!graphRef.current) return
+    if (!canvasReady) return
     // Wait for the simulation to seat the nodes before measuring; without
     // a delay the bounding box is computed before forces have moved
     // anything, so the zoom-to-fit fires on stale positions.
     const timer = setTimeout(() => {
-      graphRef.current?.zoomToFit(500, zoomToFitPadding)
+      graphRef.current?.zoomToFit(zoomToFitDuration, zoomToFitPadding)
     }, 250)
     return () => clearTimeout(timer)
-  }, [data.center.id, zoomToFitPadding])
+  }, [data.center.id, zoomToFitPadding, zoomToFitDuration, canvasReady])
 
   // PSY-1259: re-frame after an expand/collapse so the newly-revealed outer ring fits in view
   // (an expand grows the graph past the current viewport otherwise) and a collapse re-tightens.
@@ -700,12 +760,12 @@ export function ArtistGraphVisualization({
   // keep their framing, as above). Same 250ms settle delay + 500ms ease as the re-center reframe.
   // On the empty initial set this is a harmless no-op duplicate of the center reframe.
   useEffect(() => {
-    if (!graphRef.current) return
+    if (!canvasReady) return
     const timer = setTimeout(() => {
-      graphRef.current?.zoomToFit(500, zoomToFitPadding)
+      graphRef.current?.zoomToFit(zoomToFitDuration, zoomToFitPadding)
     }, 250)
     return () => clearTimeout(timer)
-  }, [expandedIds, zoomToFitPadding])
+  }, [expandedIds, zoomToFitPadding, zoomToFitDuration, canvasReady])
 
   // PSY-1259: clicking a non-center node EXPANDS it (fetch + merge its neighbors) — or
   // collapses it if already expanded; the parent decides which from expandedIds. Re-center
@@ -1169,7 +1229,7 @@ export function ArtistGraphVisualization({
       className="relative rounded-lg border border-border/50 overflow-hidden bg-background"
     >
       <ForceGraph2D
-        ref={graphRef}
+        ref={attachGraphRef}
         graphData={graphData}
         width={containerWidth}
         height={graphHeight}
