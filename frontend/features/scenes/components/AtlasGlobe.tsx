@@ -12,13 +12,29 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import * as Sentry from '@sentry/nextjs'
 import type { GeoLocation } from '@/lib/geo-default'
-import { useScenes } from '../hooks'
+import { useScenes, useSceneDetail } from '../hooks'
+import { useVenues } from '@/features/venues/hooks'
+import type { VenueWithShowCount } from '@/features/venues/types'
 import type { SceneListItem } from '../types'
 import {
   isPlaceableScene,
+  type CameraSettle,
   type GlobePov,
   type PlaceableScene,
+  type VenuePin,
 } from './globeTypes'
+import {
+  CITY_RAIL_WIDTH_PX,
+  CITY_VENUE_FETCH_LIMIT,
+  CITY_VIEW_MIN_VIEWPORT_PX,
+  NO_CITY_VENUE_FILTERS,
+  filterCityVenues,
+  formatNextShowDate,
+  resolveCityScene,
+  venuePinPosition,
+  type CityVenueFilters,
+} from '../cityView'
+import { VenueRail } from './VenueRail'
 import { pickDriftScene } from './drift'
 import { AtlasSearch } from './AtlasSearch'
 import { GenreLegend } from './GenreLegend'
@@ -35,6 +51,10 @@ const DEFAULT_POV: GlobePov = { lat: 39.5, lng: -98.35, altitude: 1.8 }
 const GEO_TIMEOUT_MS = 700
 // Stable empty reference so an undefined scenes response doesn't churn memo deps.
 const EMPTY_SCENES: SceneListItem[] = []
+// Same, for the city-view venue list — an undefined response must not churn the
+// pin/filter memos on every render (the identity-churn class of bug PSY-1538
+// shipped a HIGH for).
+const EMPTY_VENUES: VenueWithShowCount[] = []
 
 function GlobeSkeleton() {
   return <div className="h-full w-full animate-pulse bg-muted/10" aria-hidden="true" />
@@ -119,6 +139,122 @@ export function AtlasGlobe() {
   // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
   const flyToRef = useRef<((scene: PlaceableScene) => void) | null>(null)
+
+  // ── City view (PSY-1539) ──────────────────────────────────────────────────
+  // The camera decides which city (if any) owns the screen. GlobeCanvas
+  // reports only on SETTLE, so this state changes a handful of times per
+  // journey, not per frame.
+  const [camera, setCamera] = useState<CameraSettle | null>(null)
+  const handleCameraSettle = useCallback((next: CameraSettle) => {
+    setCamera((prev) =>
+      prev && prev.lng === next.lng && prev.lat === next.lat && prev.zoom === next.zoom
+        ? prev
+        : next,
+    )
+  }, [])
+
+  const cityScene = useMemo(
+    () => (camera ? resolveCityScene(placeable, camera) : null),
+    [placeable, camera],
+  )
+  const citySlug = cityScene?.slug ?? null
+
+  // Filters and the open-venue seam belong to ONE city. Reset them during
+  // render when the camera hands off to another city — React's
+  // adjust-state-during-render pattern, deliberately not a useEffect (a
+  // prop-derived reset in an effect renders one frame of the previous city's
+  // filters against the new city's venues).
+  const [filters, setFilters] = useState<CityVenueFilters>(NO_CITY_VENUE_FILTERS)
+  const [selectedVenueId, setSelectedVenueId] = useState<number | null>(null)
+  const [filtersCitySlug, setFiltersCitySlug] = useState<string | null>(null)
+  if (citySlug !== filtersCitySlug) {
+    setFiltersCitySlug(citySlug)
+    setFilters(NO_CITY_VENUE_FILTERS)
+    setSelectedVenueId(null)
+  }
+  // INVARIANT: a scene preview and city view never coexist. City view hides
+  // the globe chrome the panel lives in, which UNMOUNTS the panel without
+  // calling onClose — so without this the stale `selected` would pop the
+  // panel back open, unrequested and stealing focus, the moment the camera
+  // zoomed back out. Closing it on entry is also the honest reading: you
+  // stopped previewing the metro and started exploring inside it.
+  if (cityScene !== null && selected !== null) {
+    setSelected(null)
+  }
+
+  // City-scoped, never bounding-box scoped (explicitly deferred): the rail
+  // lists the venues of the scene's principal city. A metro-member city's
+  // venues (a Tempe room under the Phoenix scene) are therefore NOT listed —
+  // the venues endpoint filters on the literal city, and widening that to a
+  // metro's member cities is its own change.
+  //
+  // Gated on there BEING a city: with city/state undefined this hook asks for
+  // an unscoped page of the whole venue catalogue, which the globe view has no
+  // use for and which carries the rail's extra aggregations.
+  const {
+    data: cityVenueData,
+    isFetching: venuesFetching,
+    isPlaceholderData,
+  } = useVenues({
+    city: cityScene?.city,
+    state: cityScene?.state,
+    limit: CITY_VENUE_FETCH_LIMIT,
+    includeRail: true,
+    enabled: cityScene !== null,
+  })
+  // isPlaceholderData is the guard that matters here. The hook keeps previous
+  // data across a key change, which is right for a paginated browse page and
+  // WRONG across a city hand-off: without this check the rail and the pins
+  // would show the PREVIOUS city's venues, unlabelled as stale, until the new
+  // fetch lands. Treat carried-over data as no data for this city.
+  const cityVenues =
+    cityScene && !isPlaceholderData
+      ? (cityVenueData?.venues ?? EMPTY_VENUES)
+      : EMPTY_VENUES
+  const venuesLoading = venuesFetching || isPlaceholderData
+
+  // "N local artists" is genuinely a scene-level stat (the metro roster), so
+  // it comes from the scene detail endpoint rather than being derived from a
+  // city-scoped venue list.
+  const { data: sceneDetail } = useSceneDetail(citySlug ?? '')
+
+  const filteredVenues = useMemo(
+    () => filterCityVenues(cityVenues, filters),
+    [cityVenues, filters],
+  )
+
+  // The pin view model. Built from the SAME filtered array the rail lists, so
+  // map and rail cannot show different sets of venues.
+  const venuePins = useMemo<VenuePin[]>(() => {
+    const pins: VenuePin[] = []
+    for (const venue of filteredVenues) {
+      const position = venuePinPosition(venue)
+      if (!position) continue // no coordinates at all — lists, doesn't pin
+      const nextDate = formatNextShowDate(venue.next_show_date)
+      pins.push({
+        id: venue.id,
+        name: venue.name,
+        lng: position.lng,
+        lat: position.lat,
+        upcomingShowCount: venue.upcoming_show_count,
+        nextShowLabel: nextDate ? `next ${nextDate}` : '',
+      })
+    }
+    return pins
+  }, [filteredVenues])
+
+  // The venue panel seam. PSY-1540 owns what opens; here selecting a venue
+  // marks it in both the rail and the map so the two stay legibly in sync.
+  const handleVenueSelect = useCallback((venueId: number) => {
+    setSelectedVenueId((prev) => (prev === venueId ? null : venueId))
+  }, [])
+
+  // "← globe": fly back out to the globe's landing altitude over the city you
+  // were in, which drops the camera below the city-view threshold and hands
+  // the screen back to the scene dots.
+  const handleBackToGlobe = useCallback(() => {
+    if (cityScene) flyToRef.current?.(cityScene)
+  }, [cityScene])
 
   // PSY-1313: the search trigger doubles as the preview panel's focus-return
   // target — it's the page's keyboard entry point into scenes, so closing the
@@ -236,55 +372,99 @@ export function AtlasGlobe() {
       />
     )
   } else if (size !== null && placeable.length > 0 && pov !== null) {
+    // The rail sits BESIDE the map (never over it — the map's bottom-left
+    // attribution is a licensing requirement), so opening it narrows the
+    // canvas by exactly the rail's width. Below CITY_VIEW_MIN_VIEWPORT_PX
+    // that would leave a uselessly thin map, so city view stays map-only:
+    // pins and status chip, no rail.
+    const railOpen =
+      cityScene !== null && size.width >= CITY_VIEW_MIN_VIEWPORT_PX
+    const canvasWidth = railOpen ? size.width - CITY_RAIL_WIDTH_PX : size.width
+    // The globe's own chrome is a globe-scale toolkit — Drift lands you in
+    // another metro, the genre key explains dot tints that aren't drawn at
+    // street zoom. City view replaces it with the rail.
+    const globeChromeVisible = cityScene === null
+
     content = (
-      <>
-        <GlobeCanvas
-          width={size.width}
-          height={size.height}
-          scenes={placeable}
-          pov={pov}
-          onSelect={setSelected}
-          selected={selected}
-          flyToRef={flyToRef}
-          followedSlugs={followedSlugs}
-        />
-        <button
-          type="button"
-          onClick={handleDrift}
-          aria-label="Drift to a random scene"
-          className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary"
-        >
-          Drift
-        </button>
-        <AtlasSearch
-          scenes={allScenes}
-          onPick={handleSearchPick}
-          triggerRef={searchTriggerRef}
-        />
-        <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
-        {/* Genre color key (PSY-1315). Hidden while a preview is open — that
-            docks the right edge, and you're reading one scene, not scanning. */}
-        {!selected && <GenreLegend open={legendOpen} onToggle={toggleLegend} />}
-        {unplaceableCount > 0 && (
-          <Link
-            href="/scenes"
-            /* bottom-11, not bottom-4: the map's attribution control (PSY-1543,
-               a license requirement) is docked bottom-left, and this link must
-               clear its ~30px strip rather than sit on the OSM credit. */
-            className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
-          >
-            {unplaceableCount} more {unplaceableCount === 1 ? 'scene' : 'scenes'}{' '}
-            not on the map · View all →
-          </Link>
-        )}
-        {selected && (
-          <ScenePreviewPanel
-            scene={selected}
-            onClose={closePreview}
-            returnFocusTo={searchTriggerRef}
+      <div className="flex h-full w-full">
+        {railOpen && cityScene && (
+          <VenueRail
+            cityLabel={`${cityScene.city}, ${cityScene.state}`}
+            venues={filteredVenues}
+            allVenues={cityVenues}
+            localArtistCount={sceneDetail?.stats.artist_count}
+            totalVenueCount={cityVenueData?.total}
+            loading={venuesLoading}
+            filters={filters}
+            onFiltersChange={setFilters}
+            selectedVenueId={selectedVenueId}
+            onVenueSelect={handleVenueSelect}
+            onBackToGlobe={handleBackToGlobe}
           />
         )}
-      </>
+        <div className="relative min-w-0 flex-1">
+          <GlobeCanvas
+            width={canvasWidth}
+            height={size.height}
+            scenes={placeable}
+            pov={pov}
+            onSelect={setSelected}
+            selected={selected}
+            flyToRef={flyToRef}
+            followedSlugs={followedSlugs}
+            venues={venuePins}
+            selectedVenueId={selectedVenueId}
+            onVenueSelect={handleVenueSelect}
+            cityLabel={
+              cityScene ? `${cityScene.city}, ${cityScene.state}` : null
+            }
+            onCameraSettle={handleCameraSettle}
+          />
+          {globeChromeVisible && (
+            <>
+              <button
+                type="button"
+                onClick={handleDrift}
+                aria-label="Drift to a random scene"
+                className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary"
+              >
+                Drift
+              </button>
+              <AtlasSearch
+                scenes={allScenes}
+                onPick={handleSearchPick}
+                triggerRef={searchTriggerRef}
+              />
+              <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
+              {/* Genre color key (PSY-1315). Hidden while a preview is open — that
+                  docks the right edge, and you're reading one scene, not scanning. */}
+              {!selected && (
+                <GenreLegend open={legendOpen} onToggle={toggleLegend} />
+              )}
+              {unplaceableCount > 0 && (
+                <Link
+                  href="/scenes"
+                  /* bottom-11, not bottom-4: the map's attribution control (PSY-1543,
+                     a license requirement) is docked bottom-left, and this link must
+                     clear its ~30px strip rather than sit on the OSM credit. */
+                  className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  {unplaceableCount} more{' '}
+                  {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·
+                  View all →
+                </Link>
+              )}
+              {selected && (
+                <ScenePreviewPanel
+                  scene={selected}
+                  onClose={closePreview}
+                  returnFocusTo={searchTriggerRef}
+                />
+              )}
+            </>
+          )}
+        </div>
+      </div>
     )
   } else if (size !== null && !isLoading && placeable.length === 0) {
     content = (

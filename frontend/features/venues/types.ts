@@ -17,6 +17,24 @@ export interface Venue {
   state: string
   /** IANA timezone resolved from the venue's location (PSY-985). Null until backfilled. */
   timezone?: string | null
+  /**
+   * City-centroid coordinates, geocoded offline from city/state. Present for
+   * every venue the geocoder recognizes — this is the coarse position, and the
+   * ONLY position an unverified venue ever has on a map.
+   */
+  latitude?: number | null
+  longitude?: number | null
+  /**
+   * Street-precise coordinates (PSY-1536). Served ONLY for verified venues
+   * whose geocode still matches their current address — the API omits them for
+   * everyone else, which is the privacy gate protecting DIY and house venues
+   * from being street-mapped before human review. Absent means "pin at the
+   * centroid", never "look the address up some other way".
+   */
+  street_latitude?: number | null
+  street_longitude?: number | null
+  /** How the street geocode was resolved: rooftop | interpolated | city. */
+  geocode_precision?: string | null
   zipcode?: string | null
   description?: string | null
   /** Optional venue photo URL (PSY-521). */
@@ -43,10 +61,24 @@ export interface VenueSearchResponse {
 }
 
 /**
- * Venue with upcoming show count for the venues list
+ * Venue with upcoming show count for the venues list.
+ *
+ * The fields below `upcoming_show_count` are the Atlas city-view rail's row
+ * payload (PSY-1539). All optional: the backend fills them best-effort, and a
+ * venue with nothing booked legitimately has none of them.
  */
 export interface VenueWithShowCount extends Venue {
   upcoming_show_count: number
+  /** The <=7-day slice of `upcoming_show_count`. Drives the "This week" chip. */
+  shows_this_week?: number
+  /** Soonest upcoming show, `YYYY-MM-DD`, ALREADY in the venue's timezone. */
+  next_show_date?: string
+  /** That show's own title — empty for most shows; fall back to the artists. */
+  next_show_title?: string
+  /** That show's bill in position order (the title fallback). */
+  next_show_artists?: string[]
+  /** Dominant genre-family key, matching `GENRE_FAMILIES`. */
+  dominant_genre?: string
 }
 
 /**

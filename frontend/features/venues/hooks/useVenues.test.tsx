@@ -116,6 +116,43 @@ describe('useVenues', () => {
       expect(calledUrl).toContain('limit=10')
     })
 
+    // PSY-1539: the Atlas rail fields cost three extra server-side
+    // aggregations, so they are opt-in — the browse page must not ask for them.
+    it('does not request the Atlas rail fields by default', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(() => useVenues(), {
+        wrapper: createWrapper(),
+      })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).not.toContain('include_rail')
+    })
+
+    it('requests the Atlas rail fields when asked', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useVenues({ city: 'Austin', state: 'TX', includeRail: true }),
+        { wrapper: createWrapper() },
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).toContain('include_rail=true')
+    })
+
+    // An unscoped GET /venues is a whole-catalogue page, not a cheap no-op —
+    // the Atlas globe view has long stretches with no city resolved yet.
+    it('makes no request while disabled', async () => {
+      mockApiRequest.mockResolvedValue({ venues: [], total: 0 })
+
+      const { result } = renderHook(() => useVenues({ enabled: false }), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.fetchStatus).toBe('idle'))
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
   })
 
   describe('useVenue (detail)', () => {

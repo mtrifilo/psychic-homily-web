@@ -7,9 +7,20 @@ import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
-import type { GlobePov, PlaceableScene } from './globeTypes'
+import type {
+  CameraSettle,
+  GlobePov,
+  PlaceableScene,
+  VenuePin,
+} from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
+  CITY_VIEW_MIN_ZOOM,
+  labelledVenuePinIds,
+  venuePinRadiusPx,
+} from '../cityView'
+import {
+  DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
   DOT_HOVER_RADIUS_SCALE,
@@ -66,6 +77,30 @@ interface GlobeCanvasProps {
   flyToRef?: React.MutableRefObject<((scene: PlaceableScene) => void) | null>
   /** Slugs of scenes the viewer follows (PSY-1340) — tinted DOT_COLOR_FOLLOWED. */
   followedSlugs?: ReadonlySet<string> | null
+  /**
+   * City view (PSY-1539): the venues to pin, ALREADY positioned and ALREADY
+   * filtered by the rail. The canvas draws exactly this array — it is the same
+   * array the rail lists, which is what keeps map and rail in sync by
+   * construction rather than by two parallel filter passes.
+   */
+  venues?: readonly VenuePin[]
+  /** The venue whose panel seam is open — its pin stays visually distinct. */
+  selectedVenueId?: number | null
+  /** Pin click. AtlasGlobe owns what opens; the canvas only reports the hit. */
+  onVenueSelect?: (venueId: number) => void
+  /**
+   * "AUSTIN, TX" for the status chip, and the flag that city view is engaged:
+   * non-null suppresses the globe-scale scene labels, which at street zoom
+   * would stamp a city name over the venue layer.
+   */
+  cityLabel?: string | null
+  /**
+   * Camera position after a movement settles (moveend/zoomend), plus once on
+   * style load so a restored street-zoom camera re-engages city view on
+   * nav-back. Settle-only, never per-frame: AtlasGlobe turns this into React
+   * state.
+   */
+  onCameraSettle?: (camera: CameraSettle) => void
 }
 
 // NASA GIBS Black Marble (VIIRS 2016 composite) — the night-earth raster the
@@ -125,6 +160,15 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [],
 }
+
+// Stable empty default for the `venues` prop, so a caller that omits it can't
+// churn the venue-layer memo on every render.
+const EMPTY_VENUES: readonly VenuePin[] = []
+
+// City-view venue pins (PSY-1539). They reuse the globe dots' affordance ramp
+// (selected > hovered > base) rather than introducing a second one, so the
+// same colors mean the same things on both halves of the Atlas.
+const VENUE_PIN_STROKE = 'rgba(23,16,11,0.85)'
 
 // Camera saved across map teardowns. Module scope (not a ref) on purpose: it
 // survives not only Cache Components' hide but also REAL unmounts of this
@@ -187,10 +231,23 @@ export default function GlobeCanvas({
   selected = null,
   flyToRef,
   followedSlugs = null,
+  venues = EMPTY_VENUES,
+  selectedVenueId = null,
+  onVenueSelect,
+  cityLabel = null,
+  onCameraSettle,
 }: GlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const haloRef = useRef<HTMLDivElement | null>(null)
+  const statusChipRef = useRef<HTMLDivElement | null>(null)
+  const venueTooltipRef = useRef<HTMLDivElement | null>(null)
+  const venueTooltipNameRef = useRef<HTMLDivElement | null>(null)
+  const venueTooltipMetaRef = useRef<HTMLDivElement | null>(null)
+  // Filled by the map effect (closes over that map), nulled in its cleanup —
+  // callers must stay null-safe, same contract as flyToRef.
+  const redrawStatusChipRef = useRef<(() => void) | null>(null)
+  const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
@@ -206,6 +263,25 @@ export default function GlobeCanvas({
   useEffect(() => {
     onSelectRef.current = onSelect
   }, [onSelect])
+
+  // Same treatment for the city-view callbacks. These MUST stay out of the
+  // map-creation effect's deps: PSY-1538 shipped a HIGH where an object whose
+  // identity churned per nav-back rebuilt the entire map, invisible locally
+  // because the churning value happened to be constant in dev.
+  const onVenueSelectRef = useRef(onVenueSelect)
+  useEffect(() => {
+    onVenueSelectRef.current = onVenueSelect
+  }, [onVenueSelect])
+  const onCameraSettleRef = useRef(onCameraSettle)
+  useEffect(() => {
+    onCameraSettleRef.current = onCameraSettle
+  }, [onCameraSettle])
+  // The status chip is painted imperatively (see the map effect), so the label
+  // rides a ref rather than re-entering the effect's deps.
+  const cityLabelRef = useRef(cityLabel)
+  useEffect(() => {
+    cityLabelRef.current = cityLabel
+  }, [cityLabel])
 
   // PSY-1223 zoom-gated labels: the discrete threshold, from the calibrated
   // bands (globeScale owns the zoom translation). Seeded from the camera the
@@ -271,6 +347,125 @@ export default function GlobeCanvas({
     src?.setData(sceneFeatures)
   }, [mapReady, sceneFeatures])
 
+  // ── City-view venue pins (PSY-1539) ───────────────────────────────────────
+  // Same division of labour as the scene dots: slow-changing state is baked
+  // into feature properties, hover rides feature-state so a mousemove never
+  // rebuilds the source.
+  const venueFeatures = useMemo<GeoJSON.FeatureCollection>(
+    () => ({
+      type: 'FeatureCollection',
+      features: venues.map((v) => ({
+        type: 'Feature',
+        properties: {
+          id: v.id,
+          color:
+            v.id === selectedVenueId ? DOT_COLOR_SELECTED : DOT_COLOR_BASE,
+          radiusPx: venuePinRadiusPx(v.upcomingShowCount),
+          isSelected: v.id === selectedVenueId,
+        },
+        geometry: { type: 'Point', coordinates: [v.lng, v.lat] },
+      })),
+    }),
+    [venues, selectedVenueId],
+  )
+
+  useEffect(() => {
+    const src = mapReady?.getSource('venues') as
+      | maplibregl.GeoJSONSource
+      | undefined
+    src?.setData(venueFeatures)
+    // A rail filter chip is a DOM click, not a map pointer event, so it can
+    // delete the pin under the cursor without any mousemove/mouseleave firing.
+    // Without this the tooltip would keep describing a venue that is no longer
+    // on the map, over a pointer cursor pointing at nothing, until the user
+    // happened to move the mouse. Clear the hover whenever the pin set changes.
+    clearVenueHoverRef.current?.()
+  }, [mapReady, venueFeatures])
+
+  // Live id → pin lookup for the map handlers (feature properties carry only
+  // the id, same contract the scene dots use with their slug).
+  const venuesByIdRef = useRef<ReadonlyMap<number, VenuePin>>(new Map())
+  useEffect(() => {
+    venuesByIdRef.current = new Map(venues.map((v) => [v.id, v]))
+  }, [venues])
+
+  // Venue name labels, as DOM markers for the same reasons the scene labels
+  // are: app font, no glyph-server dependency. Anchored below the pin so the
+  // name never covers the mark it belongs to.
+  const labelledVenueIds = useMemo(
+    () => labelledVenuePinIds(venues),
+    [venues],
+  )
+  useEffect(() => {
+    if (!mapReady || venues.length === 0) return
+    const markers = venues.filter((v) => labelledVenueIds.has(v.id)).map((v) => {
+      const el = document.createElement('div')
+      el.textContent = v.name
+      el.style.cssText = [
+        'pointer-events: none',
+        'user-select: none',
+        'white-space: nowrap',
+        `color: ${DOT_COLOR_SELECTED}`,
+        'font-size: 12px',
+        'font-weight: 500',
+        'letter-spacing: 0.01em',
+        'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
+      ].join(';')
+      return new maplibregl.Marker({
+        element: el,
+        anchor: 'top',
+        offset: [0, Math.ceil(venuePinRadiusPx(v.upcomingShowCount)) + 3],
+      })
+        .setLngLat([v.lng, v.lat])
+        .addTo(mapReady)
+    })
+    return () => {
+      for (const m of markers) m.remove()
+    }
+  }, [mapReady, venues, labelledVenueIds])
+
+  // Zoom controls, mounted only while city view is engaged — the mock's
+  // street view has them, the globe deliberately stays chrome-free (and
+  // GenreLegend owns bottom-right there). Plain add/remove, no guard ref.
+  const cityViewActive = cityLabel !== null
+  useEffect(() => {
+    if (!mapReady || !cityViewActive) return
+    // showCompass:false — rotation is disabled on every input path, so a
+    // compass would be a control that can never do anything.
+    const control = new maplibregl.NavigationControl({ showCompass: false })
+    mapReady.addControl(control, 'bottom-right')
+    return () => {
+      mapReady.removeControl(control)
+    }
+  }, [mapReady, cityViewActive])
+
+  // Repaint the status chip when its inputs change with the camera at rest.
+  useEffect(() => {
+    redrawStatusChipRef.current?.()
+  }, [mapReady, cityLabel, venues])
+
+  // ── Scene-mark handoff ────────────────────────────────────────────────────
+  // Scene dots are a GLOBE-scale abstraction: at street zoom the city is a
+  // rail of venues, not one aggregate dot sitting on top of the
+  // centroid-pinned venues underneath it.
+  //
+  // The handoff is driven by cityViewActive — React state that lands on camera
+  // SETTLE — rather than by a zoom-keyed maxzoom on the layers. A zoom key is
+  // evaluated by the GL renderer every frame, so a continuous pinch or wheel
+  // zoom through the threshold would blank the scene dots mid-gesture while
+  // the venue pins were still waiting on React, leaving one empty frame-run
+  // with neither layer drawn. Tying both sides to the same state means the
+  // dots hand over exactly when the rail appears.
+  useEffect(() => {
+    if (!mapReady) return
+    const visibility = cityViewActive ? 'none' : 'visible'
+    for (const layer of ['scene-dots', 'scene-rings']) {
+      if (mapReady.getLayer(layer)) {
+        mapReady.setLayoutProperty(layer, 'visibility', visibility)
+      }
+    }
+  }, [mapReady, cityViewActive])
+
   // PSY-1309 pulse rings. prefers-reduced-motion suppresses the animation
   // entirely (no ring features, no rAF loop) rather than freezing a ring frame.
   const pulseScenes = useMemo(() => {
@@ -329,8 +524,12 @@ export default function GlobeCanvas({
   // font with no glyph-server dependency, and MapLibre's globe pipeline
   // fades markers occluded behind the horizon. pointer-events: none so labels
   // never swallow globe drags or dot clicks.
+  //
+  // Suppressed entirely once city view engages (PSY-1539): at street zoom the
+  // label gate is "label everything", which would stamp every scene name over
+  // the venue layer — and the basemap already labels the city itself.
   useEffect(() => {
-    if (!mapReady) return
+    if (!mapReady || cityViewActive) return
     const markers = labelScenes.map((s) => {
       const el = document.createElement('div')
       el.textContent = s.city
@@ -359,7 +558,7 @@ export default function GlobeCanvas({
     return () => {
       for (const m of markers) m.remove()
     }
-  }, [mapReady, labelScenes])
+  }, [mapReady, labelScenes, cityViewActive])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so
@@ -457,6 +656,10 @@ export default function GlobeCanvas({
           // (set in handleMove below) sticks across setData refreshes.
           scenes: { type: 'geojson', data: EMPTY_FC, promoteId: 'slug' },
           'scene-rings': { type: 'geojson', data: EMPTY_FC },
+          // City-view venue pins (PSY-1539). promoteId for the same reason
+          // the scenes source has one: hover feature-state must survive the
+          // setData refresh that a filter change causes.
+          venues: { type: 'geojson', data: EMPTY_FC, promoteId: 'id' },
         },
         layers: [
           // Street basemap under the raster: at globe zooms the opaque Black
@@ -531,6 +734,44 @@ export default function GlobeCanvas({
               ],
               'circle-stroke-width': 1,
               'circle-stroke-color': 'rgba(255,230,194,0.35)',
+            },
+          },
+          {
+            // Venue pins, ABOVE the scene marks so the two never fight during
+            // the handoff. The scene marks hand off on React state (see the
+            // handoff effect); this minzoom is the pins' own floor, and it
+            // earns its keep on the way OUT: zooming back to the globe, it
+            // stops a not-yet-cleared pin set from painting city venues over
+            // the earth in the frames before React settles.
+            id: 'venue-pins',
+            type: 'circle',
+            source: 'venues',
+            minzoom: CITY_VIEW_MIN_ZOOM,
+            paint: {
+              'circle-radius': [
+                '*',
+                ['get', 'radiusPx'],
+                [
+                  'case',
+                  ['boolean', ['feature-state', 'hover'], false],
+                  DOT_HOVER_RADIUS_SCALE,
+                  1,
+                ],
+              ],
+              'circle-color': [
+                'case',
+                [
+                  'all',
+                  ['boolean', ['feature-state', 'hover'], false],
+                  ['!', ['get', 'isSelected']],
+                ],
+                DOT_COLOR_HOVERED,
+                ['get', 'color'],
+              ],
+              // A dark rim, not the globe dots' cream one: on a street basemap
+              // a light halo reads as a second mark rather than an outline.
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': VENUE_PIN_STROKE,
             },
           },
         ],
@@ -703,6 +944,140 @@ export default function GlobeCanvas({
     map.on('mouseleave', 'scene-dots', handleLeave)
     map.on('click', 'scene-dots', handleClick)
 
+    // ── City view: pins, tooltip, status chip, camera reporting ────────────
+    // All imperative, for the same reason the scene handlers are: hovering a
+    // pin or nudging the camera must not re-render React.
+    let hoveredVenueId: number | null = null
+    const setVenueHoverState = (id: number | null) => {
+      if (id === hoveredVenueId) return
+      if (hoveredVenueId !== null) {
+        map.removeFeatureState({ source: 'venues', id: hoveredVenueId }, 'hover')
+      }
+      if (id !== null) {
+        map.setFeatureState({ source: 'venues', id }, { hover: true })
+      }
+      hoveredVenueId = id
+    }
+
+    const pickTopVenue = (
+      features: maplibregl.MapGeoJSONFeature[] | undefined,
+    ): number | null => {
+      if (!features || features.length === 0) return null
+      const id = features[0].properties?.id
+      return typeof id === 'number' ? id : null
+    }
+
+    const hideVenueTooltip = () => {
+      if (venueTooltipRef.current) {
+        venueTooltipRef.current.style.display = 'none'
+      }
+    }
+
+    const handleVenueMove = (
+      e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
+    ) => {
+      const id = pickTopVenue(e.features)
+      setVenueHoverState(id)
+      map.getCanvas().style.cursor = id !== null ? 'pointer' : ''
+      const tooltip = venueTooltipRef.current
+      const venue = id !== null ? venuesByIdRef.current.get(id) : undefined
+      if (!tooltip || !venue) {
+        hideVenueTooltip()
+        return
+      }
+      // textContent, not innerHTML — venue names are contributor-editable.
+      if (venueTooltipNameRef.current) {
+        venueTooltipNameRef.current.textContent = venue.name
+      }
+      if (venueTooltipMetaRef.current) {
+        const count = `${venue.upcomingShowCount} upcoming`
+        venueTooltipMetaRef.current.textContent = venue.nextShowLabel
+          ? `${count} · ${venue.nextShowLabel}`
+          : count
+      }
+      tooltip.style.display = 'block'
+      // Same edge-flip as the scene tooltip so a pin near the frame edge
+      // doesn't get its tooltip clipped by the overflow-hidden wrap.
+      const bounds = map.getContainer().getBoundingClientRect()
+      const flipX = e.point.x + 12 + tooltip.offsetWidth > bounds.width
+      const flipY = e.point.y + 12 + tooltip.offsetHeight > bounds.height
+      tooltip.style.left = `${flipX ? e.point.x - 12 - tooltip.offsetWidth : e.point.x + 12}px`
+      tooltip.style.top = `${flipY ? e.point.y - 12 - tooltip.offsetHeight : e.point.y + 12}px`
+    }
+    const handleVenueLeave = () => {
+      setVenueHoverState(null)
+      map.getCanvas().style.cursor = ''
+      hideVenueTooltip()
+    }
+    const handleVenueClick = (
+      e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
+    ) => {
+      const id = pickTopVenue(e.features)
+      if (id !== null) onVenueSelectRef.current?.(id)
+    }
+    map.on('mousemove', 'venue-pins', handleVenueMove)
+    map.on('mouseleave', 'venue-pins', handleVenueLeave)
+    map.on('click', 'venue-pins', handleVenueClick)
+    // Seam for the non-pointer paths that can invalidate a hover (a rail
+    // filter deleting the hovered pin). One function owns the teardown.
+    clearVenueHoverRef.current = handleVenueLeave
+    // A stationary pointer with a moving camera would strand a hovered pin +
+    // floating tooltip — same guard the scene layer needs.
+    map.on('movestart', handleVenueLeave)
+
+    // Status chip: city, live zoom, and how many pins are actually in frame.
+    // Painted from the map's own state on every move, never from React —
+    // a per-frame setState here would re-render the whole Atlas while panning.
+    const updateStatusChip = () => {
+      const chip = statusChipRef.current
+      if (!chip) return
+      const label = cityLabelRef.current
+      if (!label) {
+        chip.style.display = 'none'
+        return
+      }
+      const bounds = map.getBounds()
+      let inView = 0
+      for (const v of venuesByIdRef.current.values()) {
+        if (bounds.contains([v.lng, v.lat])) inView++
+      }
+      chip.textContent = `${label.toUpperCase()} · z${map.getZoom().toFixed(1)} · ${inView} ${
+        inView === 1 ? 'venue' : 'venues'
+      } in view`
+      chip.style.display = 'block'
+    }
+
+    // Camera reporting for the city-view resolver. Settle events only
+    // (moveend/zoomend), plus one shot on style load so a saved street-zoom
+    // camera re-engages city view after a nav-away/back.
+    const reportCamera = () => {
+      const center = map.getCenter()
+      onCameraSettleRef.current?.({
+        lng: center.lng,
+        lat: center.lat,
+        zoom: map.getZoom(),
+      })
+    }
+    map.on('moveend', reportCamera)
+    map.on('zoomend', reportCamera)
+    map.on('move', updateStatusChip)
+    // The chip also has to repaint when the label or the pin set changes with
+    // the camera standing still (a filter chip, a city hand-off). Exposed as a
+    // seam rather than duplicating the paint: one function owns the text.
+    redrawStatusChipRef.current = updateStatusChip
+
+    // One-shot on style load. Registered HERE, below the two functions it
+    // calls, rather than folded into the style.load handler above: that one is
+    // declared before them, and reading a `const` from an earlier closure is a
+    // temporal-dead-zone trap waiting for the day the event fires synchronously.
+    // A saved camera (module-scope savedCamera) can reopen the map already at
+    // street zoom, and without this shot no settle event would ever fire to
+    // re-engage city view.
+    map.once('style.load', () => {
+      reportCamera()
+      updateStatusChip()
+    })
+
     return () => {
       // Save the camera so nav-back reopens where the user left off — the
       // map itself is NOT reused (fresh instance every show; see doc above).
@@ -715,6 +1090,8 @@ export default function GlobeCanvas({
         w.__atlasMapLoaded = false
       }
       if (flyToRef) flyToRef.current = null
+      redrawStatusChipRef.current = null
+      clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       map.remove()
     }
@@ -754,6 +1131,43 @@ export default function GlobeCanvas({
         className="pointer-events-none absolute z-10 rounded border border-border bg-background/90 px-2 py-1 text-xs text-foreground backdrop-blur"
         style={{ display: 'none' }}
       />
+      {/* City-view status chip (PSY-1539). Top-LEFT of the map pane, which the
+          rail sits beside rather than over, so it never collides with the
+          bottom-left attribution control.
+          The live region is the always-rendered WRAPPER, not the pill: a
+          region that appears at the same moment its text does may never be
+          tracked, so the announcement is lost. The pill inside is what
+          shows and hides. */}
+      <div
+        aria-live="polite"
+        className="pointer-events-none absolute left-4 top-4 z-10"
+      >
+        <div
+          ref={statusChipRef}
+          data-testid="atlas-status-chip"
+          className="rounded border border-border bg-background/90 px-2.5 py-1 font-mono text-[11px] tracking-wide text-muted-foreground backdrop-blur"
+          style={{ display: 'none' }}
+        />
+      </div>
+      {/* Venue hover tooltip. Three fixed lines populated by textContent —
+          the name is contributor-editable, so no innerHTML anywhere here. */}
+      <div
+        ref={venueTooltipRef}
+        data-testid="atlas-venue-tooltip"
+        className="pointer-events-none absolute z-10 rounded border border-border bg-background/95 px-2.5 py-1.5 backdrop-blur"
+        style={{ display: 'none' }}
+      >
+        <div ref={venueTooltipNameRef} className="text-sm text-foreground" />
+        {/* No "click for shows →" line yet. The mock draws one, but it
+            describes the finished feature across boards 01 AND 02: clicking a
+            pin today opens the selection seam, and the venue panel that would
+            actually show the shows is PSY-1540. A live CTA promising a payload
+            that does not exist is worse than no CTA. */}
+        <div
+          ref={venueTooltipMetaRef}
+          className="font-mono text-[11px] text-muted-foreground"
+        />
+      </div>
     </div>
   )
 }

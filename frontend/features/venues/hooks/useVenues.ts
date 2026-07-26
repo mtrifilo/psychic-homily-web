@@ -32,13 +32,36 @@ interface UseVenuesOptions {
   tags?: string[]
   /** Set to 'any' to switch the tag filter to OR semantics. */
   tagMatch?: 'all' | 'any'
+  /**
+   * Ask the API for the Atlas city-view rail fields (next show, this-week
+   * slice, dominant genre). Off by default — they cost three extra batched
+   * aggregations server-side, and only the rail renders them.
+   */
+  includeRail?: boolean
+  /**
+   * Gate the request. Defaults to true (every existing caller wants the
+   * fetch immediately). Set false when the scope isn't resolved yet — an
+   * unscoped GET /venues is a whole-catalogue page, not a cheap no-op, and
+   * the Atlas city view (PSY-1539) has long stretches with no active city.
+   */
+  enabled?: boolean
 }
 
 /**
  * Hook to fetch list of venues with show counts
  */
 export const useVenues = (options: UseVenuesOptions = {}) => {
-  const { state, city, cities, limit = 50, offset = 0, tags, tagMatch } = options
+  const {
+    state,
+    city,
+    cities,
+    limit = 50,
+    offset = 0,
+    tags,
+    tagMatch,
+    includeRail = false,
+    enabled = true,
+  } = options
 
   // Build query params
   const params = new URLSearchParams()
@@ -54,6 +77,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
     params.set('tags', tags.join(','))
     if (tagMatch === 'any') params.set('tag_match', 'any')
   }
+  if (includeRail) params.set('include_rail', 'true')
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -69,12 +93,16 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
       offset,
       tags: tags && tags.length > 0 ? tags : undefined,
       tagMatch: tagMatch === 'any' ? 'any' : undefined,
+      // Part of the key: the same city with and without the rail fields are
+      // two different payloads and must not share a cache entry.
+      includeRail: includeRail || undefined,
     }),
     queryFn: async (): Promise<VenuesListResponse> => {
       return apiRequest<VenuesListResponse>(endpoint, {
         method: 'GET',
       })
     },
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousData, // Keep old data visible while fetching
   })
