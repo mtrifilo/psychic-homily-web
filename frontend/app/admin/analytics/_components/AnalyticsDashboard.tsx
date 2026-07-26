@@ -158,6 +158,12 @@ function mergeMonthlyData(
 ): Record<string, string | number>[] {
   const monthMap = new Map<string, Record<string, string | number>>()
   for (const [key, data] of Object.entries(series)) {
+    // A series can be absent when the API contract drifts from this hand-written
+    // type (it did: the UI read `collection_items` while the wire sends
+    // `crate_items`). `for...of undefined` throws, and because the whole admin
+    // console sits behind one error boundary, a single renamed field took down
+    // every tab. Skip unusable series so the rest of the dashboard still renders.
+    if (!Array.isArray(data)) continue
     for (const item of data) {
       if (!monthMap.has(item.month)) {
         monthMap.set(item.month, { month: formatMonth(item.month) })
@@ -358,7 +364,10 @@ function EngagementSection({ months }: { months: MonthRange }) {
   const curationData = mergeMonthlyData({
     tags_added: data.tags_added,
     tag_votes: data.tag_votes,
-    collection_items: data.collection_items,
+    // Wire field is `crate_items` (legacy naming); the chart series, colour key
+    // and legend all use the product term. Mapped here so the legacy name stops
+    // at the boundary.
+    collection_items: data.crate_items,
   })
 
   // Group 2: Requests & voting
