@@ -57,9 +57,10 @@ interface GlobeCanvasProps {
   /**
    * Imperative fly-the-camera seam (PSY-1308 Drift; reused by scene search).
    * A plain ref rather than forwardRef because ref-forwarding through
-   * next/dynamic is unreliable (PSY-1211) — GlobeCanvas fills it with a
-   * function that reads the live map ref LAZILY, so it stays valid across a
-   * hide/show remount (fresh map instance under the same ref).
+   * next/dynamic is unreliable (PSY-1211). Filled inside the map-creation
+   * effect (closes over that map instance) and NULLED in its cleanup, so it
+   * is empty while the page is hidden or the map is torn down — callers must
+   * stay null-safe (AtlasGlobe's `flyToRef.current?.(…)` calls are).
    */
   flyToRef?: React.MutableRefObject<((scene: PlaceableScene) => void) | null>
   /** Slugs of scenes the viewer follows (PSY-1340) — tinted DOT_COLOR_FOLLOWED. */
@@ -340,6 +341,12 @@ export default function GlobeCanvas({
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so
   // on unmount/hide the marker + rAF cleanups above run BEFORE map.remove().
+  //
+  // INVARIANT: this effect's deps must be identity-stable for the component's
+  // lifetime (pov — first-resolution-wins in AtlasGlobe; flyToRef — a stable
+  // ref container). A deps-change re-run would remove the map while the
+  // sibling effects above still hold it until the next commit (the ordering
+  // guarantee only covers unmount/hide, where all cleanups run together).
   //
   // Plain create/remove — no init guard, no key-bump heal (see component doc).
   useEffect(() => {
