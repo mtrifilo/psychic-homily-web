@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"log/slog"
+	"testing"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -67,7 +68,9 @@ func recentSundayBackfillFixture(etNow time.Time) (airDate string, episodeNow ti
 	if etNow.Weekday() == time.Sunday && etNow.Hour() >= 6 {
 		day = time.Date(etNow.Year(), etNow.Month(), etNow.Day(), 0, 0, 0, 0, ny)
 	} else {
-		for i := 1; i <= 6; i++ {
+		// From a Sunday before 6am ET the previous Sunday is a full 7 days
+		// back, so the lookback must cover 7 days, not 6.
+		for i := 1; i <= 7; i++ {
 			d := etNow.AddDate(0, 0, -i)
 			if d.Weekday() == time.Sunday {
 				day = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, ny)
@@ -76,11 +79,63 @@ func recentSundayBackfillFixture(etNow time.Time) (airDate string, episodeNow ti
 		}
 	}
 	if day.IsZero() {
-		panic("recentSundayBackfillFixture: no Sunday within 6 days")
+		panic("recentSundayBackfillFixture: no Sunday within 7 days")
 	}
 	// Noon ET — well after the 3–6am slot used by the F4 schedule shape.
 	episodeNow = time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, ny)
 	return day.Format("2006-01-02"), episodeNow
+}
+
+// recentSundayBackfillFixture is a pure function of etNow, so every branch is
+// covered with a fake clock instead of waiting for a real Sunday. The Sunday
+// 01:00 ET case is the regression: before the 7-day loop bound, the fixture
+// panicked every Sunday 00:00-05:59 ET (04:00-09:59 UTC in CI).
+func TestRecentSundayBackfillFixture(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name        string
+		etNow       time.Time
+		wantAirDate string
+	}{
+		{"sunday before 6am picks last sunday", time.Date(2026, 7, 26, 1, 0, 0, 0, ny), "2026-07-19"},
+		{"sunday at 6am picks today", time.Date(2026, 7, 26, 6, 0, 0, 0, ny), "2026-07-26"},
+		{"saturday noon picks last sunday", time.Date(2026, 7, 25, 12, 0, 0, 0, ny), "2026-07-19"},
+		{"wednesday noon picks last sunday", time.Date(2026, 7, 22, 12, 0, 0, 0, ny), "2026-07-19"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			airDate, episodeNow := recentSundayBackfillFixture(tc.etNow)
+			if airDate != tc.wantAirDate {
+				t.Errorf("airDate = %s, want %s", airDate, tc.wantAirDate)
+			}
+
+			day, err := time.ParseInLocation("2006-01-02", airDate, ny)
+			if err != nil {
+				t.Fatalf("airDate %q does not parse: %v", airDate, err)
+			}
+			if day.Weekday() != time.Sunday {
+				t.Errorf("airDate %s is a %s, want Sunday", airDate, day.Weekday())
+			}
+			if day.After(tc.etNow) {
+				t.Errorf("airDate %s is in the future of etNow %s", airDate, tc.etNow)
+			}
+			wantEpisodeNow := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, ny)
+			if !episodeNow.Equal(wantEpisodeNow) {
+				t.Errorf("episodeNow = %s, want noon ET %s", episodeNow, wantEpisodeNow)
+			}
+			// The backfill lookback is measured against episode air times, not
+			// the date's midnight: from Sunday 01:00 ET, last Sunday's noon
+			// slot is ~6d13h back (inside the window) even though its midnight
+			// is 7d1h back.
+			if episodeNow.Before(tc.etNow.AddDate(0, 0, -7)) {
+				t.Errorf("episode slot %s is more than 7 days before etNow %s", episodeNow, tc.etNow)
+			}
+		})
+	}
 }
 
 // recordPlaylistOutcome on an aired episode that returned plays settles it to
