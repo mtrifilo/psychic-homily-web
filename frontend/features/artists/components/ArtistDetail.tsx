@@ -339,6 +339,19 @@ function ArtistSidebar({
       {/* Chart rank — self-hides when unranked (PSY-1420 / Figma 996:16) */}
       <EntityChartRankBadge entityType="artist" entityId={artist.id} />
 
+      {/* Links and As heard on sit ABOVE Similar artists: both are short,
+          fixed-height blocks, while Similar artists is unbounded and pushes
+          them off-screen on well-connected artists. */}
+      {hasSocialLinks && (
+        <section>
+          <SectionHeader title="Links" />
+          <SocialLinks social={artist.social} />
+        </section>
+      )}
+
+      {/* As heard on (radio) — self-hides when empty */}
+      <AsHeardOn entityType="artist" entitySlug={artist.slug} />
+
       {/* Similar artists — dense list + [Explore graph] affordance (opens
           the page-level Dialog). Self-hides when there are no relationships
           AND the viewer can't contribute. */}
@@ -389,21 +402,10 @@ function ArtistSidebar({
         </section>
       )}
 
-      {/* Links */}
-      {hasSocialLinks && (
-        <section>
-          <SectionHeader title="Links" />
-          <SocialLinks social={artist.social} />
-        </section>
-      )}
-
       {/* Also on this label */}
       {!labelsLoading && labels.length > 0 && (
         <AlsoOnThisLabel labels={labels} currentArtistId={artist.id} />
       )}
-
-      {/* As heard on (radio) — self-hides when empty */}
-      <AsHeardOn entityType="artist" entitySlug={artist.slug} />
 
       {/* In collections — self-hides when empty */}
       <EntityCollections entityType="artist" entityId={artist.id} />

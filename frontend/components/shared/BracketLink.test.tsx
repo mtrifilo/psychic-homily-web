@@ -49,6 +49,27 @@ describe('BracketLink', () => {
     expect(button.className).toContain('text-destructive')
   })
 
+  describe('pointer cursor', () => {
+    // Tailwind preflight resets <button> to `cursor: default`, so the button
+    // branch needs an explicit cursor-pointer to read as interactive.
+    it('applies cursor-pointer on the button branch', () => {
+      render(<BracketLink label="Follow" onClick={vi.fn()} />)
+      expect(screen.getByRole('button').className).toContain('cursor-pointer')
+    })
+
+    it('applies cursor-pointer on the link branch', () => {
+      render(<BracketLink label="View history" href="/artists/x/history" />)
+      expect(screen.getByRole('link').className).toContain('cursor-pointer')
+    })
+
+    it('lets cursor-not-allowed win over cursor-pointer when disabled', () => {
+      render(<BracketLink label="Follow" onClick={vi.fn()} disabled />)
+      const className = screen.getByRole('button').className
+      expect(className).toContain('cursor-not-allowed')
+      expect(className).not.toContain('cursor-pointer')
+    })
+  })
+
   it('is disabled when disabled prop is set', () => {
     const onClick = vi.fn()
     render(<BracketLink label="Follow" onClick={onClick} disabled />)
