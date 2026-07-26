@@ -15,7 +15,13 @@ test.describe('Homepage', () => {
     await expect(
       page.getByRole('heading', { name: 'Psychic Homily', level: 1 })
     ).toBeVisible()
-    await expect(page.getByText('Your music knowledge graph.')).toBeVisible()
+    // Scope to <main>: the footer brand column carries this same tagline
+    // (PSY-1533), so an unscoped match resolves to two elements and
+    // strict-mode-violates. The footer is a sibling of <main> in the root
+    // layout, so this isolates the hero copy.
+    await expect(
+      page.getByRole('main').getByText('Your music knowledge graph.')
+    ).toBeVisible()
 
     // Current stats band (PSY-1431) — global stats under the hero.
     await expect(
