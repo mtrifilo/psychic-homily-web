@@ -14,12 +14,18 @@ const (
 	// CodeFestivalArtistNotInLineup indicates the artist is not part of the
 	// festival lineup (update/remove target missing).
 	CodeFestivalArtistNotInLineup = "FESTIVAL_ARTIST_NOT_IN_LINEUP"
+	// CodeFestivalArtistAlreadyInLineup indicates a duplicate add against
+	// UNIQUE(festival_id, artist_id) — must surface as 409, not 500 (PSY-1571).
+	CodeFestivalArtistAlreadyInLineup = "FESTIVAL_ARTIST_ALREADY_IN_LINEUP"
 	// CodeFestivalVenueNotFound indicates the venue being added to a festival
 	// does not exist.
 	CodeFestivalVenueNotFound = "FESTIVAL_VENUE_NOT_FOUND"
 	// CodeFestivalVenueNotInFestival indicates the venue is not associated with
 	// the festival (remove target missing).
 	CodeFestivalVenueNotInFestival = "FESTIVAL_VENUE_NOT_IN_FESTIVAL"
+	// CodeFestivalVenueAlreadyInFestival indicates a duplicate add against
+	// UNIQUE(festival_id, venue_id) — must surface as 409, not 500 (PSY-1571).
+	CodeFestivalVenueAlreadyInFestival = "FESTIVAL_VENUE_ALREADY_IN_FESTIVAL"
 )
 
 // FestivalError represents a festival-related error with additional context.
@@ -77,6 +83,14 @@ func ErrFestivalArtistNotInLineup() *FestivalError {
 	}
 }
 
+// ErrFestivalArtistAlreadyInLineup creates a duplicate lineup-link error.
+func ErrFestivalArtistAlreadyInLineup() *FestivalError {
+	return &FestivalError{
+		Code:    CodeFestivalArtistAlreadyInLineup,
+		Message: "artist already in festival lineup",
+	}
+}
+
 // ErrFestivalVenueNotFound creates a festival-venue-not-found error.
 func ErrFestivalVenueNotFound() *FestivalError {
 	return &FestivalError{
@@ -90,5 +104,13 @@ func ErrFestivalVenueNotInFestival() *FestivalError {
 	return &FestivalError{
 		Code:    CodeFestivalVenueNotInFestival,
 		Message: "venue not found in festival",
+	}
+}
+
+// ErrFestivalVenueAlreadyInFestival creates a duplicate festival-venue-link error.
+func ErrFestivalVenueAlreadyInFestival() *FestivalError {
+	return &FestivalError{
+		Code:    CodeFestivalVenueAlreadyInFestival,
+		Message: "venue already linked to festival",
 	}
 }
