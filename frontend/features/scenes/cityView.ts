@@ -138,6 +138,31 @@ export function venuePinPosition(
   return null
 }
 
+// ── Pin size ──────────────────────────────────────────────────────────────
+// Same shape as the globe's dot scale (sqrt, capped) for the same reason: a
+// 40-show venue must read as busier than a 4-show one without ballooning over
+// its neighbours on a street map, where venues sit blocks apart. Bigger than
+// the globe dots in absolute px because a city map has far fewer marks
+// competing for the frame. Retune HERE, not inline in the canvas.
+export const VENUE_PIN_BASE_RADIUS_PX = 5
+export const VENUE_PIN_VARIABLE_MAX_PX = 6
+// Every venue at or above this count draws the same max pin.
+export const VENUE_PIN_CAP_COUNT = 20
+
+/** Pin radius in CSS px for a venue's upcoming-show count. */
+export function venuePinRadiusPx(upcomingShowCount: number): number {
+  // Non-finite guard, matching sceneDotRadius: a NaN radius poisons the layer.
+  const count = Number.isFinite(upcomingShowCount)
+    ? Math.max(0, upcomingShowCount)
+    : 0
+  const variable =
+    (Math.sqrt(count) / Math.sqrt(VENUE_PIN_CAP_COUNT)) *
+    VENUE_PIN_VARIABLE_MAX_PX
+  return (
+    VENUE_PIN_BASE_RADIUS_PX + Math.min(variable, VENUE_PIN_VARIABLE_MAX_PX)
+  )
+}
+
 // ── Filters ───────────────────────────────────────────────────────────────
 
 export interface CityVenueFilters {

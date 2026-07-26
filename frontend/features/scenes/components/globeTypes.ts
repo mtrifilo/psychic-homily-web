@@ -35,3 +35,35 @@ export interface GlobePov {
   lng: number
   altitude: number
 }
+
+/**
+ * One venue pin on the city view (PSY-1539) — a flat VIEW MODEL, already
+ * positioned and already worded.
+ *
+ * GlobeCanvas deliberately takes this rather than a venue API row: the canvas
+ * must not know how a pin position is chosen (that is the PSY-1536 privacy
+ * gate, decided in cityView.venuePinPosition) nor how a date is worded. It
+ * only draws what it is handed.
+ */
+export interface VenuePin {
+  id: number
+  name: string
+  lng: number
+  lat: number
+  upcomingShowCount: number
+  /** Preformatted tooltip line, e.g. "next Fri, Jul 31". '' when nothing booked. */
+  nextShowLabel: string
+  /**
+   * Whether this pin is the venue's real street position or its city
+   * centroid. Carried for the verification harness and future affordances;
+   * the gate itself is already enforced upstream.
+   */
+  precision: 'street' | 'centroid'
+}
+
+/** Camera state reported by GlobeCanvas once a movement settles. */
+export interface CameraSettle {
+  lng: number
+  lat: number
+  zoom: number
+}
