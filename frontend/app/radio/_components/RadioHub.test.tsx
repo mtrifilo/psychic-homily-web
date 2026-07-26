@@ -100,7 +100,11 @@ describe('RadioHub', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Radio' })
     ).toBeInTheDocument()
-    expect(screen.getByText(/wired into the knowledge graph/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Freeform radio stations, shows, and playlists updated in real-time.'
+      )
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
         '6 stations · 2,341 shows · 1,725 playlists · 19,071 plays tracked'
