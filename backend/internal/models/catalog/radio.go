@@ -105,15 +105,22 @@ const RadioBackfillMaxAttempts = 5
 // windowless episode may have its playlist give-up re-opened (PSY-1558). Past it the
 // episode keeps its terminal 'unavailable' and is never re-fetched again.
 //
-// Without a bound the re-open is unconditional, so RadioBackfillMaxAttempts has never
-// actually terminated anything for windowless episodes: the sweep re-opens the row to
-// (pending, 0), the fetch finds no playlist upstream, the attempt counter burns back to
-// the cap, and the next cycle re-opens it again — forever. On production that was 269
-// zero-yield backfill runs a day across 23 episodes, one of them re-tried 105 times.
+// Before this bound the re-open was unconditional, so RadioBackfillMaxAttempts never
+// terminated anything for windowless episodes: the sweep re-opened the row to
+// (pending, 0), the fetch found no playlist upstream, the attempt counter burned back
+// to the cap, and the next cycle re-opened it again — forever. On production that was
+// 269 zero-yield backfill runs a day across 23 episodes, one re-tried 105 times.
 //
 // Three days is the give-up point: an upstream tracklist that has not been published
 // three days after air was never logged (NTS publish lag is 0–2 days per PSY-1556), so
 // past the window the empty playlist is a permanent condition, not a transient one.
+//
+// Accepted narrowing: past the window the backfill sweep no longer re-lists the show,
+// so a schedule correction landing >3 days after air can't trigger the PSY-1287 window
+// heal through THIS path. The heal itself is unaffected — NormalizeWindowHealPlaylistState
+// runs on any re-list — but it then depends on an ordinary scheduled sync re-listing that
+// episode. Judged worth it: PSY-1287's WFMU off-by-one is fixed and its backlog was
+// cleared by a one-time migration, so this only costs a late correction on a new show.
 const RadioStrandedWindowlessReopenWindow = 3 * 24 * time.Hour
 
 // ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
