@@ -9,10 +9,13 @@ import {
   labelDeclutterRadiusKm,
   DOT_COLOR_FOLLOWED,
   labelMinCountForAltitude,
+  labelMinCountForZoom,
   altitudeForZoom,
+  globeScreenRadiusPx,
   sceneDotColor,
   sceneDotRadius,
   sceneDotRadiusPx,
+  sceneDotSortKey,
   sceneLabelSize,
   sceneLabelSizePx,
   visibleLabelScenes,
@@ -69,6 +72,49 @@ describe('sceneDotRadius', () => {
     // NOT propagate a NaN radius into the merged three.js point geometry.
     expect(sceneDotRadius(NaN)).toBeCloseTo(0.28, 5)
     expect(sceneDotRadius(undefined as unknown as number)).toBeCloseTo(0.28, 5)
+  })
+})
+
+describe('sceneDotSortKey (PSY-1324 stacking, MapLibre circle-sort-key)', () => {
+  it('strictly decreases with count so smaller dots always draw on top', () => {
+    expect(sceneDotSortKey(0)).toBeGreaterThan(sceneDotSortKey(10))
+    expect(sceneDotSortKey(10)).toBeGreaterThan(sceneDotSortKey(283))
+  })
+
+  it('still orders CAPPED dense scenes by count (the co-dense-neighbors case)', () => {
+    // Keyed to the raw count, not the capped radius: two adjacent metros both
+    // past the radius cap render equal-size dots but must still stack.
+    expect(sceneDotRadius(50)).toBeCloseTo(sceneDotRadius(283), 5)
+    expect(sceneDotSortKey(50)).toBeGreaterThan(sceneDotSortKey(283))
+    expect(sceneDotSortKey(283)).toBeGreaterThan(sceneDotSortKey(10_000))
+  })
+
+  it('guards non-finite counts (sorts them with count-0 scenes)', () => {
+    expect(sceneDotSortKey(NaN)).toBe(0)
+    expect(sceneDotSortKey(undefined as unknown as number)).toBe(0)
+    expect(sceneDotSortKey(Infinity)).toBe(0)
+  })
+})
+
+describe('labelMinCountForZoom (PSY-1538)', () => {
+  it('composes the calibrated altitude bands over the zoom translation', () => {
+    for (const z of [1, 2.4, 3.0, 3.5, 4.5, 7]) {
+      expect(labelMinCountForZoom(z)).toBe(
+        labelMinCountForAltitude(altitudeForZoom(z)),
+      )
+    }
+  })
+})
+
+describe('globeScreenRadiusPx (PSY-1538)', () => {
+  it('derives from the 512px world size: radius = 512·2^z / 2π', () => {
+    expect(globeScreenRadiusPx(0)).toBeCloseTo(512 / (2 * Math.PI), 6)
+    // Each zoom level doubles the globe's screen radius.
+    expect(globeScreenRadiusPx(3) / globeScreenRadiusPx(2)).toBeCloseTo(2, 8)
+  })
+
+  it('guards non-finite zoom', () => {
+    expect(Number.isFinite(globeScreenRadiusPx(NaN))).toBe(true)
   })
 })
 

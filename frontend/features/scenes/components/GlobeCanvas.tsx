@@ -9,12 +9,15 @@ import { useGraphPalette } from '@/components/graph/graphPalette'
 import type { GlobePov, PlaceableScene } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
+  DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
   DOT_HOVER_RADIUS_SCALE,
-  altitudeForZoom,
+  globeScreenRadiusPx,
   labelMinCountForAltitude,
+  labelMinCountForZoom,
   sceneDotColor,
   sceneDotRadiusPx,
+  sceneDotSortKey,
   sceneLabelSizePx,
   visibleLabelScenes,
   zoomForAltitude,
@@ -103,12 +106,15 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
   features: [],
 }
 
-// Camera saved across hide/show cycles (module scope survives Cache
-// Components' hide, which tears the map down via the cleanup below). This is
-// deliberately a DATA cache, not an init guard: the map is still created
-// fresh on every show — the one pattern PSY-1284 proved fatal was a guard ref
-// that survives hide and skips re-init. Without this, nav-away/back would
-// reset the camera to the initial POV (the map instance is new each show).
+// Camera saved across map teardowns. Module scope (not a ref) on purpose: it
+// survives not only Cache Components' hide but also REAL unmounts of this
+// component — e.g. the <640px mobile-gate flip, which unmounts the canvas
+// entirely. Single-instance surface (one Atlas globe per app), so shared
+// module state is safe. This is deliberately a DATA cache, not an init
+// guard: the map is still created fresh on every show — the one pattern
+// PSY-1284 proved fatal was a guard ref that survives hide and skips
+// re-init. Without this, nav-away/back would reset the camera to the
+// initial POV (the map instance is new each show).
 let savedCamera: { center: [number, number]; zoom: number } | null = null
 
 // Deterministic starfield background (data-URI SVG, module scope — client-only
@@ -134,12 +140,6 @@ function buildStarfieldDataUri(): string {
 }
 const STARFIELD_BG = buildStarfieldDataUri()
 
-// The globe's screen radius in CSS px at a zoom: the equator maps to
-// worldSize = 512·2^zoom px of circumference.
-function globeScreenRadiusPx(zoom: number): number {
-  return (512 * 2 ** zoom) / (2 * Math.PI)
-}
-
 /**
  * The MapLibre globe canvas (PSY-1538), isolated in its own client module so
  * AtlasGlobe can dynamic-import it with `ssr:false`: maplibre-gl is ~900 kB
@@ -156,7 +156,7 @@ function globeScreenRadiusPx(zoom: number): number {
  * Dots are city-aggregated (one per scene), sized by upcoming-show count with
  * a capped sqrt scale; labels are zoom-gated + proximity-decluttered DOM
  * markers (globeScale.ts owns all calibration, translated from the legacy
- * altitude bands via altitudeForZoom).
+ * altitude bands via labelMinCountForZoom).
  */
 export default function GlobeCanvas({
   width,
@@ -171,15 +171,10 @@ export default function GlobeCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const haloRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<maplibregl.Map | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
 
-  // Hover affordance (PSY-1312): state (not a ref) so the dot-color memo below
-  // re-evaluates. mousemove only calls setHoveredSlug on enter/leave, not
-  // per-move, so this doesn't churn renders.
-  const [hoveredSlug, setHoveredSlug] = useState<string | null>(null)
   const selectedSlug = selected?.slug ?? null
 
   // Resolved theme palette for the dominant-genre dot tint (PSY-1315).
@@ -192,14 +187,14 @@ export default function GlobeCanvas({
     onSelectRef.current = onSelect
   }, [onSelect])
 
-  // PSY-1223 zoom-gated labels: the discrete threshold, derived from zoom via
-  // the altitude translation so the calibrated bands + declutter map are
-  // reused verbatim. Seeded from the camera the map will actually open on
-  // (saved camera from a previous show, else the resolved POV).
+  // PSY-1223 zoom-gated labels: the discrete threshold, from the calibrated
+  // bands (globeScale owns the zoom translation). Seeded from the camera the
+  // map will actually open on (saved camera from a previous show, else the
+  // resolved POV — already in the altitude units the bands were tuned in).
   const [labelMinCount, setLabelMinCount] = useState(() =>
-    labelMinCountForAltitude(
-      altitudeForZoom(savedCamera?.zoom ?? zoomForAltitude(pov.altitude)),
-    ),
+    savedCamera
+      ? labelMinCountForZoom(savedCamera.zoom)
+      : labelMinCountForAltitude(pov.altitude),
   )
 
   const labelScenes = useMemo(
@@ -207,46 +202,37 @@ export default function GlobeCanvas({
     [scenes, labelMinCount],
   )
 
-  // Scenes by slug for click-event lookup (feature properties only carry the slug).
-  const scenesBySlug = useMemo(
-    () => new Map(scenes.map((s) => [s.slug, s])),
-    [scenes],
-  )
-  // Live lookup for the map handlers (they're bound once per map instance).
-  const scenesBySlugRef = useRef(scenesBySlug)
+  // Live slug → scene lookup for the map handlers (bound once per map
+  // instance; feature properties only carry the slug).
+  const scenesBySlugRef = useRef<ReadonlyMap<string, PlaceableScene>>(new Map())
   useEffect(() => {
-    scenesBySlugRef.current = scenesBySlug
-  }, [scenesBySlug])
+    scenesBySlugRef.current = new Map(scenes.map((s) => [s.slug, s]))
+  }, [scenes])
 
   // Dot layer data. Color precedence (selected > hovered > followed > genre
-  // tint > base) and the capped sqrt radius live in globeScale; this just
-  // bakes them into feature properties. One dot per scene, so a setData on
-  // hover/selection change is cheap.
+  // tint > base) and the capped sqrt radius live in globeScale; this bakes
+  // the SLOW-CHANGING states into feature properties. Hover is deliberately
+  // NOT baked here: it rides feature-state (see the paint expressions), so a
+  // hover enter/leave never rebuilds the source or re-renders React —
+  // setData round-trips the whole collection through the worker.
   const sceneFeatures = useMemo<GeoJSON.FeatureCollection>(
     () => ({
       type: 'FeatureCollection',
       features: scenes.map((s) => {
         const genreBase = genreFamilyColor(palette, s.dominant_genre)
-        const base = sceneDotRadiusPx(s.upcoming_show_count)
         return {
           type: 'Feature',
           properties: {
             slug: s.slug,
-            color: sceneDotColor(
-              s.slug,
-              hoveredSlug,
-              selectedSlug,
-              followedSlugs,
-              genreBase,
-            ),
-            radiusPx: s.slug === hoveredSlug ? base * DOT_HOVER_RADIUS_SCALE : base,
+            color: sceneDotColor(s.slug, null, selectedSlug, followedSlugs, genreBase),
+            radiusPx: sceneDotRadiusPx(s.upcoming_show_count),
+            // The hover color must not override the selected cream — the
+            // paint expression checks this flag (selected > hovered).
+            isSelected: s.slug === selectedSlug,
             // Smaller dots draw ABOVE larger ones so a dense metro can't
-            // swallow its neighbour — the PSY-1324 altitude-stacking
-            // semantics, ported to circle-sort-key (higher key = on top).
-            sortKey: Number.isFinite(s.upcoming_show_count)
-              ? -s.upcoming_show_count
-              : 0,
-            count: s.upcoming_show_count,
+            // swallow its neighbour — PSY-1324 stacking as circle-sort-key
+            // (globeScale owns the rule; hit-testing compares the same key).
+            sortKey: sceneDotSortKey(s.upcoming_show_count),
           },
           geometry: {
             type: 'Point',
@@ -255,7 +241,7 @@ export default function GlobeCanvas({
         }
       }),
     }),
-    [scenes, hoveredSlug, selectedSlug, followedSlugs, palette],
+    [scenes, selectedSlug, followedSlugs, palette],
   )
 
   useEffect(() => {
@@ -295,13 +281,21 @@ export default function GlobeCanvas({
     // profile as the shipped globe's ring shader. NOTE for any harness: gate
     // readiness on the FIRST `idle`, because this loop means idle never
     // settles afterwards.
+    // validate:false — these are trusted constants; skip per-frame style
+    // validation on the animation hot path.
     let raf = requestAnimationFrame(function tick(now: number) {
       const t = (now % RING_PERIOD_MS) / RING_PERIOD_MS
-      mapReady.setPaintProperty('scene-rings', 'circle-radius', RING_MAX_RADIUS_PX * t)
+      mapReady.setPaintProperty(
+        'scene-rings',
+        'circle-radius',
+        RING_MAX_RADIUS_PX * t,
+        { validate: false },
+      )
       mapReady.setPaintProperty(
         'scene-rings',
         'circle-stroke-opacity',
         RING_MAX_OPACITY * (1 - t),
+        { validate: false },
       )
       raf = requestAnimationFrame(tick)
     })
@@ -342,24 +336,6 @@ export default function GlobeCanvas({
       for (const m of markers) m.remove()
     }
   }, [mapReady, labelScenes])
-
-  // Fill the parent's fly-to seam (PSY-1308). Reads mapRef at call time —
-  // never captured — so it aims whichever map instance is live. MapLibre
-  // honors prefers-reduced-motion natively (respectPrefersReducedMotion
-  // defaults true), degrading the flight to a jump cut.
-  useEffect(() => {
-    if (!flyToRef) return
-    flyToRef.current = (scene: PlaceableScene) => {
-      mapRef.current?.flyTo({
-        center: [scene.longitude, scene.latitude],
-        zoom: zoomForAltitude(FLY_TO_ALTITUDE),
-        duration: FLY_TO_MS,
-      })
-    }
-    return () => {
-      flyToRef.current = null
-    }
-  }, [flyToRef])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so
@@ -412,7 +388,9 @@ export default function GlobeCanvas({
             maxzoom: 8,
             attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
           },
-          scenes: { type: 'geojson', data: EMPTY_FC },
+          // promoteId: features are keyed by slug so the hover feature-state
+          // (set in handleMove below) sticks across setData refreshes.
+          scenes: { type: 'geojson', data: EMPTY_FC, promoteId: 'slug' },
           'scene-rings': { type: 'geojson', data: EMPTY_FC },
         },
         layers: [
@@ -438,9 +416,32 @@ export default function GlobeCanvas({
             layout: {
               'circle-sort-key': ['get', 'sortKey'],
             },
+            // Hover rides feature-state so enter/leave never rebuilds the
+            // source (see the sceneFeatures doc). Precedence: the selected
+            // cream must not be overridden by hover (selected > hovered —
+            // sceneDotColor's contract), hence the isSelected guard; the
+            // radius bump applies regardless, matching the old canvas.
             paint: {
-              'circle-radius': ['get', 'radiusPx'],
-              'circle-color': ['get', 'color'],
+              'circle-radius': [
+                '*',
+                ['get', 'radiusPx'],
+                [
+                  'case',
+                  ['boolean', ['feature-state', 'hover'], false],
+                  DOT_HOVER_RADIUS_SCALE,
+                  1,
+                ],
+              ],
+              'circle-color': [
+                'case',
+                [
+                  'all',
+                  ['boolean', ['feature-state', 'hover'], false],
+                  ['!', ['get', 'isSelected']],
+                ],
+                DOT_COLOR_HOVERED,
+                ['get', 'color'],
+              ],
               'circle-stroke-width': 1,
               'circle-stroke-color': 'rgba(255,230,194,0.35)',
             },
@@ -448,7 +449,20 @@ export default function GlobeCanvas({
         ],
       },
     })
-    mapRef.current = map
+    // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
+    // Closes over THIS map; nulled in cleanup, so after a hide/show cycle
+    // the seam always points at the live instance. MapLibre honors
+    // prefers-reduced-motion natively (respectPrefersReducedMotion defaults
+    // true), degrading the flight to a jump cut.
+    if (flyToRef) {
+      flyToRef.current = (scene: PlaceableScene) => {
+        map.flyTo({
+          center: [scene.longitude, scene.latitude],
+          zoom: zoomForAltitude(FLY_TO_ALTITUDE),
+          duration: FLY_TO_MS,
+        })
+      }
+    }
 
     // Verification seam for the browser-automation aliveness harness
     // (getCenter drag assertions + readiness gate). Gated on 'load', NOT
@@ -481,36 +495,51 @@ export default function GlobeCanvas({
     // Zoom drives the discrete label threshold; only threshold CROSSINGS
     // change state (and thus label markers) — micro-zooms are free.
     const handleZoom = () => {
-      const next = labelMinCountForAltitude(altitudeForZoom(map.getZoom()))
+      const next = labelMinCountForZoom(map.getZoom())
       setLabelMinCount((prev) => (prev === next ? prev : next))
       updateHalo()
     }
     map.on('zoom', handleZoom)
 
-    // Hover: pointer cursor + tooltip + dot highlight. Tooltip position/text
-    // are written imperatively so mousemove never re-renders React.
+    // Hover: pointer cursor + tooltip + dot highlight, all imperative —
+    // mousemove never re-renders React. The highlight itself is a
+    // feature-state flag consumed by the paint expressions above.
     const pickTopScene = (
       features: maplibregl.MapGeoJSONFeature[] | undefined,
     ): string | null => {
       if (!features || features.length === 0) return null
-      // Smallest count wins a stacked hit — matches the sort-key draw order
-      // (the smaller dot is the one visibly on top).
+      // Highest sort key wins a stacked hit — the SAME key that decides draw
+      // order (globeScale.sceneDotSortKey), so the dot you see on top is the
+      // dot the pointer selects.
       let best: maplibregl.MapGeoJSONFeature = features[0]
       for (const f of features) {
-        const c = Number(f.properties?.count)
-        const bc = Number(best.properties?.count)
-        if (Number.isFinite(c) && (!Number.isFinite(bc) || c < bc)) best = f
+        if (Number(f.properties?.sortKey) > Number(best.properties?.sortKey)) {
+          best = f
+        }
       }
       return typeof best.properties?.slug === 'string'
         ? best.properties.slug
         : null
     }
 
+    // Tracked per map instance (fresh map each show → no stale hover).
+    let hoveredSlug: string | null = null
+    const setHoverState = (slug: string | null) => {
+      if (slug === hoveredSlug) return
+      if (hoveredSlug !== null) {
+        map.removeFeatureState({ source: 'scenes', id: hoveredSlug }, 'hover')
+      }
+      if (slug !== null) {
+        map.setFeatureState({ source: 'scenes', id: slug }, { hover: true })
+      }
+      hoveredSlug = slug
+    }
+
     const handleMove = (
       e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
       const slug = pickTopScene(e.features)
-      setHoveredSlug((prev) => (prev === slug ? prev : slug))
+      setHoverState(slug)
       map.getCanvas().style.cursor = slug ? 'pointer' : ''
       const tooltip = tooltipRef.current
       if (!tooltip) return
@@ -529,7 +558,7 @@ export default function GlobeCanvas({
       tooltip.style.top = `${e.point.y + 12}px`
     }
     const handleLeave = () => {
-      setHoveredSlug(null)
+      setHoverState(null)
       map.getCanvas().style.cursor = ''
       if (tooltipRef.current) tooltipRef.current.style.display = 'none'
     }
@@ -555,14 +584,15 @@ export default function GlobeCanvas({
         w.__atlasMap = null
         w.__atlasMapLoaded = false
       }
-      mapRef.current = null
+      if (flyToRef) flyToRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       map.remove()
     }
-    // pov is resolved once before this canvas mounts and stable for its
-    // lifetime (see the prop doc); everything else this effect reads is a ref
-    // or setter, so the camera never re-aims on data re-renders.
-  }, [pov])
+    // pov is resolved once before this canvas mounts, and flyToRef is a
+    // stable ref container from AtlasGlobe — both are identity-stable for
+    // the canvas's lifetime; everything else this effect reads is a ref or
+    // setter, so the camera never re-aims on data re-renders.
+  }, [pov, flyToRef])
 
   return (
     <div
