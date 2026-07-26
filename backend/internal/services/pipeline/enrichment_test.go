@@ -219,19 +219,25 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 
 	ctx := context.Background()
 
-	start := time.Now()
+	// t0 anchors the spacing assertion to the SAME origin the throttle's timer
+	// derives from. The second call cannot return before lastReq+rateLimit, and
+	// the first call sets lastReq at or after t0, so time.Since(t0) >= rateLimit
+	// holds unconditionally. Re-anchoring the stopwatch AFTER the first call
+	// would not: the throttle sets lastReq at the END of call 1, so any wall time
+	// spent between that write and the re-anchor is silently subtracted from the
+	// measured wait, and the assertion would then pass only when timer overshoot
+	// happened to exceed that bookkeeping gap (PSY-1559).
+	t0 := time.Now()
+
+	firstStart := time.Now()
 	assert.NoError(t, c.throttle(ctx)) // first slot is free
-	firstElapsed := time.Since(start)
+	firstElapsed := time.Since(firstStart)
 	assert.Less(t, firstElapsed, c.rateLimit,
 		"first throttle should not block (lastReq is zero)")
 
-	start = time.Now()
 	assert.NoError(t, c.throttle(ctx)) // second must wait one interval
-	secondElapsed := time.Since(start)
-	// secondElapsed >= rateLimit is the robust direction: time.Timer can only
-	// fire late, never early, so this lower bound holds regardless of jitter.
-	assert.GreaterOrEqual(t, secondElapsed, c.rateLimit,
-		"second throttle must block for at least one rateLimit interval")
+	assert.GreaterOrEqual(t, time.Since(t0), c.rateLimit,
+		"two successive throttles must span at least one rateLimit interval")
 }
 
 // TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts the
