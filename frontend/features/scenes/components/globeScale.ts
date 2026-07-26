@@ -2,9 +2,12 @@
  * Pure dot-size, label-size, and label-visibility scaling for the Atlas globe
  * (PSY-1223).
  *
- * Kept free of react-globe.gl (like globeTypes.ts) so it unit-tests without
- * loading three.js. GlobeCanvas binds these to the <Globe> props; the scaling
- * decisions live here, in one tunable place, instead of inline in the JSX.
+ * Kept free of the rendering library (like globeTypes.ts) so it unit-tests
+ * without loading WebGL. GlobeCanvas binds these to its MapLibre layers; the
+ * scaling decisions live here, in one tunable place, instead of inline in the
+ * canvas. Sizes were calibrated in the original react-globe.gl units; the
+ * MapLibre port converts at the edge (zoomForAltitude / *_Px below) rather
+ * than re-deriving the calibration.
  *
  * Two problems this solves on the shipped globe (PSY-1213):
  *   1. Dot/label size scaled by `sqrt(count)` UNCAPPED, so very dense scenes
@@ -20,7 +23,8 @@ import { haversineDistanceKm } from '@/lib/haversine'
 // ── Dot radius ────────────────────────────────────────────────────────────
 // sqrt scale (so dense scenes don't dwarf small ones) with the high end CAPPED
 // so a 283-show scene doesn't render a giant dot that swallows its neighbours.
-// `count` is upcoming_show_count; radius is in react-globe.gl globe-radius units.
+// `count` is upcoming_show_count; radius is in legacy globe-radius units —
+// the canvas consumes the px conversion (sceneDotRadiusPx) below.
 const DOT_BASE_RADIUS = 0.28
 // Every scene at/above this count renders the SAME max dot ON PURPOSE: past it
 // the dot would balloon over its neighbours (the bug this fixes). Finer
@@ -105,37 +109,12 @@ export function sceneLabelSizePx(upcomingShowCount: number): number {
   return sceneLabelSize(upcomingShowCount) * LABEL_PX_PER_SIZE_UNIT
 }
 
-// ── Dot altitude: smaller dots stack ABOVE larger ones (PSY-1324) ─────────
-// react-globe.gl points are depth-tested 3D cylinders, so pointsData order does
-// NOT decide which overlapping dot is visible — equal-height cylinders leave the
-// larger disc covering the smaller one entirely (Chicago swallowing Milwaukee).
-// Making cylinder height a strictly DECREASING function of count guarantees a
-// less-dense neighbor's top face renders above a denser dot's, so it always
-// peeks out of the overlap instead of disappearing.
-//
-// The offset is keyed to the RAW count, not the capped radius: radius saturates
-// at DOT_CAP_COUNT, and a radius-derived offset would hand every capped pair
-// (two co-dense adjacent metros — the likeliest overlaps as the catalog goes
-// global) identical altitudes, resurrecting the z-fight exactly where it
-// matters. With the count curve, ties need EXACTLY equal counts — and an
-// equal-count pair is also equal-size, so neither dot dominates the other
-// (the pre-fix status quo, not a regression).
-//
-// Range: base + (0, DOT_STACK_MAX] = (0.008, 0.016] — every dot stays above the
-// PSY-1309 pulse rings (RING_ALTITUDE) and the whole band is far too small to
-// read as "floating". The sqrt curve keeps neighboring dense counts ~1e-4
-// globe-units apart, comfortably outside depth-buffer precision.
-const DOT_BASE_ALTITUDE = 0.008
-const DOT_STACK_MAX = 0.008
-// The pulse rings' altitude (GlobeCanvas binds ringAltitude to this) — exported
-// so the dots-above-rings invariant is structural, not comment-enforced.
-export const RING_ALTITUDE = 0.006
-
-export function sceneDotAltitude(upcomingShowCount: number): number {
-  // Non-finite guard — see sceneDotRadius.
-  const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
-  return DOT_BASE_ALTITUDE + DOT_STACK_MAX / (1 + Math.sqrt(count) / DOT_SQRT_DIVISOR)
-}
+// The PSY-1324 smaller-dots-above-larger stacking (formerly sceneDotAltitude,
+// a 3D cylinder-height trick against depth-tested three.js cylinders) is now
+// expressed structurally in GlobeCanvas: the MapLibre dots layer sorts by
+// inverse count (circle-sort-key ⇒ smaller dots draw on top, so Chicago can't
+// swallow Milwaukee), and the pulse-rings layer sits below the dots layer, so
+// a ring never covers a dot.
 
 // ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────
 // Uniform orange gave the dots no affordance feedback: nothing signalled

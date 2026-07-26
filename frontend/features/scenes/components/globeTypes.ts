@@ -1,9 +1,9 @@
 import type { SceneListItem } from '../types'
 
 /**
- * Atlas globe types + guard, kept in their own module (no react-globe.gl import)
- * so AtlasGlobe and its tests can use them without pulling in three.js — only
- * GlobeCanvas (dynamic-imported, ssr:false) actually loads the WebGL library.
+ * Atlas globe types + guard, kept in their own module (no maplibre-gl import)
+ * so AtlasGlobe and its tests can use them without pulling in the WebGL map —
+ * only GlobeCanvas (dynamic-imported, ssr:false) actually loads the library.
  */
 
 /** A scene with resolved coordinates — the only kind the globe can plot. */
