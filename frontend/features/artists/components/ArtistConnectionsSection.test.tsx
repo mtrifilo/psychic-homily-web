@@ -243,6 +243,10 @@ describe('ArtistConnectionsSection', () => {
     expect(screen.queryByTestId('connections-canvas')).not.toBeInTheDocument()
     const link = screen.getByRole('link', { name: /see similar artists/i })
     expect(link).toHaveAttribute('href', `#${SIMILAR_ARTISTS_ANCHOR}`)
+    // Copy points at the [Expand] affordance, which does render a canvas on mobile.
+    expect(
+      screen.getByText(/Best on a larger screen, or open the full map\./)
+    ).toBeInTheDocument()
     // The count line still discloses scale on mobile.
     expect(screen.getByText(/Top 14 of 16 connected artists/)).toBeInTheDocument()
   })

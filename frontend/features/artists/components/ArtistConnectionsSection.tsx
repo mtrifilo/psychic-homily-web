@@ -227,7 +227,7 @@ export function ArtistConnectionsSection({
       {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
         <GraphStateCard
           className={GRAPH_TEASER_HEIGHT_CLASS}
-          message={`Who ${artistName} plays with, shares labels with, and gets radio play alongside — mapped. Needs a larger screen.`}
+          message={`Who ${artistName} plays with, shares labels with, and gets radio play alongside — mapped. Best on a larger screen, or open the full map.`}
           linkHref={`#${SIMILAR_ARTISTS_ANCHOR}`}
           linkLabel="See similar artists →"
         />
