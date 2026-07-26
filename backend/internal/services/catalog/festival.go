@@ -622,6 +622,8 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	}
 
 	if err := s.db.Create(fa).Error; err != nil {
+		// Race fallback: another writer can insert between the pre-check and
+		// Create; TranslateError maps the unique violation to ErrDuplicatedKey.
 		if shared.IsDuplicateKey(err) {
 			return nil, apperrors.ErrFestivalArtistAlreadyInLineup()
 		}
@@ -836,6 +838,8 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	}
 
 	if err := s.db.Create(fv).Error; err != nil {
+		// Race fallback: another writer can insert between the pre-check and
+		// Create; TranslateError maps the unique violation to ErrDuplicatedKey.
 		if shared.IsDuplicateKey(err) {
 			return nil, apperrors.ErrFestivalVenueAlreadyInFestival()
 		}
