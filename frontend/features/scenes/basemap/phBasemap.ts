@@ -43,7 +43,12 @@ export function phBasemapFragment(
   fadeStart: number,
   fadeEnd: number,
 ): BasemapFragment {
-  const layers = style.layers.map((layer) =>
+  // Deep-clone before handing anything to MapLibre: the JSON import is a
+  // module singleton, and Atlas creates a FRESH map on every show (Cache
+  // Components hide/show) — sharing mutable sub-objects across map
+  // instances would let any in-place edit leak between mounts.
+  const cloned = structuredClone(style)
+  const layers = cloned.layers.map((layer) =>
     layer.type === 'background'
       ? {
           ...layer,
@@ -62,5 +67,5 @@ export function phBasemapFragment(
         }
       : layer,
   ) as LayerSpecification[]
-  return { glyphs: style.glyphs as string, sources: style.sources, layers }
+  return { glyphs: cloned.glyphs as string, sources: cloned.sources, layers }
 }
