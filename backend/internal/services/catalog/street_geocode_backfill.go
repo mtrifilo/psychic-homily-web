@@ -105,7 +105,7 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 	}
 
 	var venues []catalogm.Venue
-	if err := db.Order("id").Find(&venues).Error; err != nil {
+	if err := db.WithContext(ctx).Order("id").Find(&venues).Error; err != nil {
 		return nil, fmt.Errorf("load venues: %w", err)
 	}
 
