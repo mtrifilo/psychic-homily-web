@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'May 31, 2026'
+  const lastUpdated = 'July 26, 2026'
   const effectiveDate = 'February 15, 2026'
 
   return (
@@ -119,12 +119,21 @@ export default function PrivacyPolicyPage() {
               <li><strong>SoundCloud:</strong> Embedded players may set cookies and collect data per <Link href="https://soundcloud.com/pages/privacy" className="underline hover:text-muted-foreground">SoundCloud&apos;s Privacy Policy</Link></li>
             </ul>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">4.4 Discord Notifications</h3>
+            <h3 className="text-lg font-medium mt-4 mb-2">4.4 Map Tiles</h3>
+            <p className="text-foreground/90 leading-relaxed mb-2">
+              The Atlas map loads its imagery directly from third-party tile providers as you pan and zoom. This means those providers receive requests for the specific map areas you look at, along with your IP address and standard browser headers. No account identifier is included in these requests, and they are sent whether or not you are signed in.
+            </p>
+            <ul className="list-disc pl-6 space-y-2 text-foreground/90">
+              <li><strong>OpenFreeMap:</strong> Street-level map tiles and label fonts, built from OpenStreetMap data. OpenFreeMap states that it does not log tile requests. <Link href="https://openfreemap.org" className="underline hover:text-muted-foreground">OpenFreeMap</Link></li>
+              <li><strong>NASA GIBS:</strong> The night-lights satellite imagery shown at globe zoom levels, served by NASA&apos;s Global Imagery Browse Services. <Link href="https://www.earthdata.nasa.gov/privacy" className="underline hover:text-muted-foreground">NASA Earthdata Privacy Policy</Link></li>
+            </ul>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">4.5 Discord Notifications</h3>
             <p className="text-foreground/90 leading-relaxed">
               I use Discord webhooks to send notifications about new show submissions. No personal user data is shared with Discord users beyond what you include in public submissions.
             </p>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">4.5 I Do NOT Sell Your Data</h3>
+            <h3 className="text-lg font-medium mt-4 mb-2">4.6 I Do NOT Sell Your Data</h3>
             <p className="text-foreground/90 leading-relaxed">
               I do not sell, rent, or trade your personal information to third parties for their marketing purposes. I do not share your data with data brokers.
             </p>

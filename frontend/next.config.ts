@@ -171,7 +171,10 @@ const nextConfig: NextConfig = {
               // fetch(), NOT <img>, so the tile host belongs in connect-src —
               // the img-src https: wildcard above does not cover it
               // (verified in the MapLibre spike).
-              "connect-src 'self' https://api.psychichomily.com https://stage.api.psychichomily.com https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com https://gibs.earthdata.nasa.gov",
+              // tiles.openfreemap.org: the Atlas street basemap (PSY-1543) —
+              // TileJSON, vector tiles, and glyph PBFs all come from this one
+              // host, and all via fetch() (glyphs too), so connect-src again.
+              "connect-src 'self' https://api.psychichomily.com https://stage.api.psychichomily.com https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com https://gibs.earthdata.nasa.gov https://tiles.openfreemap.org",
               "frame-src https://open.spotify.com https://bandcamp.com https://w.soundcloud.com https://vercel.live https://maps.google.com https://www.google.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",

@@ -268,7 +268,10 @@ export function AtlasGlobe() {
         {unplaceableCount > 0 && (
           <Link
             href="/scenes"
-            className="absolute bottom-4 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
+            /* bottom-11, not bottom-4: the map's attribution control (PSY-1543,
+               a license requirement) is docked bottom-left, and this link must
+               clear its ~30px strip rather than sit on the OSM credit. */
+            className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
           >
             {unplaceableCount} more {unplaceableCount === 1 ? 'scene' : 'scenes'}{' '}
             not on the map · View all →

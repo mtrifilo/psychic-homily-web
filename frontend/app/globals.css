@@ -244,3 +244,35 @@
   max-width: 100%;
   border-radius: 0.5rem;
 }
+
+/* PSY-1543: Atlas map attribution — restyle MapLibre's default white pill to
+ * the Atlas dark palette. The control carries the REQUIRED OpenStreetMap
+ * credit (plus OpenFreeMap and NASA GIBS), so keep it legible: muted at
+ * rest, readable on hover. The Atlas surface is deliberately dark in both
+ * app themes, so these values are static rather than token-driven.
+ * Selectors are .maplibregl-map-prefixed to out-specify maplibre-gl.css's
+ * own `.maplibregl-ctrl.maplibregl-ctrl-attrib` rules — that stylesheet is
+ * lazy-loaded with the GlobeCanvas chunk AFTER this file, so equal
+ * specificity would lose on order. */
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  /* 0.85, not 0.72: the pill sits over a surface whose brightness varies a
+   * lot (Black Marble city lights at globe zoom, water/building fills at
+   * street zoom). At 0.72 enough of that showed through to move the
+   * effective background — and the contrast ratio of the credit text with
+   * it — unpredictably. This keeps the required OSM credit legible over
+   * every part of the map. */
+  background: rgba(13, 8, 5, 0.85);
+  color: #9c8c7c;
+  font-size: 11px;
+  /* Wrap rather than run along the bottom edge into the Drift button
+   * (bottom-center) if a future source adds another credit string. */
+  max-width: min(38vw, 420px);
+}
+.maplibregl-map .maplibregl-ctrl-attrib a {
+  color: #b3a292;
+  text-decoration: none;
+}
+.maplibregl-map .maplibregl-ctrl-attrib a:hover {
+  color: #eee7d9;
+  text-decoration: underline;
+}
