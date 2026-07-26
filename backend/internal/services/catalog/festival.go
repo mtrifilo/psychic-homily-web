@@ -595,6 +595,16 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
+	// Reject a duplicate lineup link up front so callers get a typed 409
+	// instead of a raw UNIQUE(festival_id, artist_id) violation → 500 (PSY-1571).
+	var existingFA catalogm.FestivalArtist
+	err := s.db.Where("festival_id = ? AND artist_id = ?", festivalID, req.ArtistID).First(&existingFA).Error
+	if err == nil {
+		return nil, apperrors.ErrFestivalArtistAlreadyInLineup()
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to check existing festival artist: %w", err)
+	}
+
 	billingTier := catalogm.BillingTier(req.BillingTier)
 	if billingTier == "" {
 		billingTier = catalogm.BillingTierMidCard
@@ -612,6 +622,11 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	}
 
 	if err := s.db.Create(fa).Error; err != nil {
+		// Race fallback: another writer can insert between the pre-check and
+		// Create; TranslateError maps the unique violation to ErrDuplicatedKey.
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrFestivalArtistAlreadyInLineup()
+		}
 		return nil, fmt.Errorf("failed to add artist to festival: %w", err)
 	}
 
@@ -806,6 +821,16 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
 
+	// Reject a duplicate venue link up front so callers get a typed 409 instead
+	// of a raw UNIQUE(festival_id, venue_id) violation → 500 (PSY-1571).
+	var existingFV catalogm.FestivalVenue
+	err := s.db.Where("festival_id = ? AND venue_id = ?", festivalID, req.VenueID).First(&existingFV).Error
+	if err == nil {
+		return nil, apperrors.ErrFestivalVenueAlreadyInFestival()
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to check existing festival venue: %w", err)
+	}
+
 	fv := &catalogm.FestivalVenue{
 		FestivalID: festivalID,
 		VenueID:    req.VenueID,
@@ -813,6 +838,11 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	}
 
 	if err := s.db.Create(fv).Error; err != nil {
+		// Race fallback: another writer can insert between the pre-check and
+		// Create; TranslateError maps the unique violation to ErrDuplicatedKey.
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrFestivalVenueAlreadyInFestival()
+		}
 		return nil, fmt.Errorf("failed to add venue to festival: %w", err)
 	}
 

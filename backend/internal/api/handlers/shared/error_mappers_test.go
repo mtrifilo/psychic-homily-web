@@ -289,6 +289,8 @@ func TestMapFestivalError_CodeToStatus(t *testing.T) {
 		{"venue not found", apperrors.ErrFestivalVenueNotFound(), 404},
 		{"venue not in festival", apperrors.ErrFestivalVenueNotInFestival(), 404},
 		{"exists", apperrors.ErrFestivalExists("M3F 2026"), 409},
+		{"artist already in lineup", apperrors.ErrFestivalArtistAlreadyInLineup(), 409},
+		{"venue already in festival", apperrors.ErrFestivalVenueAlreadyInFestival(), 409},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -226,7 +226,8 @@ func MapReleaseError(err error) error {
 // Returns nil if err is not a *apperrors.FestivalError.
 //
 // Festival/artist/venue not-found (and not-in-lineup / not-in-festival) all
-// map to 404; an already-exists festival → 409.
+// map to 404; already-exists festival / already-in-lineup artist / already-
+// linked venue → 409.
 func MapFestivalError(err error) error {
 	var festivalErr *apperrors.FestivalError
 	if errors.As(err, &festivalErr) {
@@ -237,7 +238,9 @@ func MapFestivalError(err error) error {
 			apperrors.CodeFestivalVenueNotFound,
 			apperrors.CodeFestivalVenueNotInFestival:
 			return huma.Error404NotFound(festivalErr.Message)
-		case apperrors.CodeFestivalExists:
+		case apperrors.CodeFestivalExists,
+			apperrors.CodeFestivalArtistAlreadyInLineup,
+			apperrors.CodeFestivalVenueAlreadyInFestival:
 			return huma.Error409Conflict(festivalErr.Message)
 		}
 	}

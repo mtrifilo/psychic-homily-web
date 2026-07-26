@@ -627,6 +627,28 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_ArtistNo
 	suite.Contains(err.Error(), "artist not found")
 }
 
+// Re-adding an artist already on the lineup must return a typed
+// FESTIVAL_ARTIST_ALREADY_IN_LINEUP error (→ 409), not a raw unique-constraint
+// violation (→ 500). PSY-1571.
+func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_DuplicateConflict() {
+	festival := suite.createBasicFestival("Dup Lineup Festival")
+	artist := suite.createTestArtistForFestival("Already Booked")
+
+	_, err := suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+		ArtistID: artist.ID, BillingTier: "mid_card",
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+		ArtistID: artist.ID, BillingTier: "headliner",
+	})
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	var festErr *apperrors.FestivalError
+	suite.ErrorAs(err, &festErr)
+	suite.Equal(apperrors.CodeFestivalArtistAlreadyInLineup, festErr.Code)
+}
+
 func (suite *FestivalServiceIntegrationTestSuite) TestGetFestivalArtists_OrderedByBillingTier() {
 	festival := suite.createBasicFestival("Ordered Lineup Festival")
 	headliner := suite.createTestArtistForFestival("Headliner")
@@ -791,6 +813,28 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_VenueNotF
 	suite.Require().Error(err)
 	suite.Nil(resp)
 	suite.Contains(err.Error(), "venue not found")
+}
+
+// Re-adding a venue already linked must return a typed
+// FESTIVAL_VENUE_ALREADY_IN_FESTIVAL error (→ 409), not a raw unique-constraint
+// violation (→ 500). PSY-1571.
+func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_DuplicateConflict() {
+	festival := suite.createBasicFestival("Dup Venue Festival")
+	venue := suite.createTestVenue("Already Linked Park", "Phoenix", "AZ")
+
+	_, err := suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+		VenueID: venue.ID, IsPrimary: true,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+		VenueID: venue.ID, IsPrimary: false,
+	})
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	var festErr *apperrors.FestivalError
+	suite.ErrorAs(err, &festErr)
+	suite.Equal(apperrors.CodeFestivalVenueAlreadyInFestival, festErr.Code)
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestRemoveFestivalVenue_Success() {
