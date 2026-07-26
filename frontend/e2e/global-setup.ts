@@ -9,6 +9,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as net from 'net'
 import * as http from 'http'
+import pLimit from 'p-limit'
 
 const BACKEND_DIR = path.resolve(__dirname, '../../backend')
 const PID_FILE = path.resolve(__dirname, '.backend-pid')
@@ -226,43 +227,34 @@ function startBackend(): ChildProcess {
 // requests, so concurrent loads contend for it instead of overlapping. Since
 // page.goto's default navigation timeout is 30s, a loaded machine (several
 // dispatch stacks running at once) pushed the burst past that limit and failed
-// global-setup outright, taking every spec in the run down with it.
+// global-setup outright.
 //
 // Warming /auth first was measured too and is NOT sufficient on its own — it
 // removes only the one-time compile (~1.6-2.9s), not the per-request
 // contention. Bounding concurrency is what keeps the tail in check.
 const AUTH_CAPTURE_CONCURRENCY = 2
 
-/** Runs `tasks` with at most `limit` of them in flight at a time. */
-async function runWithConcurrency(
-  tasks: Array<() => Promise<void>>,
-  limit: number
-): Promise<void> {
-  let nextIndex = 0
-  const workers = Array.from(
-    { length: Math.min(limit, tasks.length) },
-    async () => {
-      while (true) {
-        const index = nextIndex++
-        if (index >= tasks.length) return
-        await tasks[index]()
-      }
-    }
-  )
-  await Promise.all(workers)
+// Budget for loading /auth during setup. Both the navigation and the form wait
+// that follows it must use this: they cover one continuous stretch of
+// dev-server compilation plus contention, so letting them drift apart would
+// just move the failure from one line to the next.
+const AUTH_PAGE_TIMEOUT_MS = 60_000
+
+type SeededLogin = {
+  email: string
+  password: string
+  authFile: string
 }
 
 async function captureStorageState(
   browser: Browser,
-  email: string,
-  password: string,
-  authFileName: string
+  login: SeededLogin
 ): Promise<void> {
   const context = await browser.newContext()
   try {
     const page = await context.newPage()
-    await loginAs(page, email, password)
-    await context.storageState({ path: path.join(AUTH_DIR, authFileName) })
+    await loginAs(page, login.email, login.password)
+    await context.storageState({ path: path.join(AUTH_DIR, login.authFile) })
   } finally {
     await context.close()
   }
@@ -272,35 +264,30 @@ async function captureAuthState() {
   log(`Capturing auth state for ${USER_COUNT} regular users + 1 admin...`)
   fs.mkdirSync(AUTH_DIR, { recursive: true })
 
+  const logins: SeededLogin[] = [
+    ...Array.from({ length: USER_COUNT }, (_, i) => ({
+      email: userEmailForWorker(i),
+      password: TEST_PASSWORD,
+      authFile: userAuthFileForWorker(i),
+    })),
+    {
+      email: TEST_ADMIN.email,
+      password: TEST_ADMIN.password,
+      authFile: 'admin.json',
+    },
+  ]
+
   const browser = await chromium.launch()
 
   // Still parallel — global-setup overhead has to stay within budget, and
   // serial would scale linearly with user count — but capped (see
-  // AUTH_CAPTURE_CONCURRENCY) so the dev server isn't thrashed.
-  const captureTasks: Array<() => Promise<void>> = []
-
-  for (let i = 0; i < USER_COUNT; i++) {
-    captureTasks.push(() =>
-      captureStorageState(
-        browser,
-        userEmailForWorker(i),
-        TEST_PASSWORD,
-        userAuthFileForWorker(i)
-      )
-    )
-  }
-
-  captureTasks.push(() =>
-    captureStorageState(
-      browser,
-      TEST_ADMIN.email,
-      TEST_ADMIN.password,
-      'admin.json'
-    )
-  )
+  // AUTH_CAPTURE_CONCURRENCY).
+  const limit = pLimit(AUTH_CAPTURE_CONCURRENCY)
 
   try {
-    await runWithConcurrency(captureTasks, AUTH_CAPTURE_CONCURRENCY)
+    await Promise.all(
+      logins.map((login) => limit(() => captureStorageState(browser, login)))
+    )
   } finally {
     await browser.close()
   }
@@ -309,14 +296,17 @@ async function captureAuthState() {
 
 async function loginAs(page: Page, email: string, password: string) {
   // PSY-1557: navigating here can be far slower than Playwright's 30s default
-  // — dev-server compilation plus contention from the other captures. The form
-  // wait below already budgets 60s for exactly those reasons; the navigation
-  // that precedes it needs the same budget, otherwise a loaded machine turns a
-  // merely-slow setup into a hard global-setup failure.
-  await page.goto('http://localhost:3000/auth', { timeout: 60_000 })
+  // — dev-server compilation plus contention from the other captures. Without
+  // an explicit budget a loaded machine turns a merely-slow setup into a hard
+  // global-setup failure.
+  await page.goto('http://localhost:3000/auth', {
+    timeout: AUTH_PAGE_TIMEOUT_MS,
+  })
 
   // Wait for login form to render (handles dev compilation + React hydration + auth check)
-  await page.locator('#email').waitFor({ state: 'visible', timeout: 60_000 })
+  await page
+    .locator('#email')
+    .waitFor({ state: 'visible', timeout: AUTH_PAGE_TIMEOUT_MS })
 
   // Fill login form — use ID selectors for reliability during setup
   await page.locator('#email').fill(email)
