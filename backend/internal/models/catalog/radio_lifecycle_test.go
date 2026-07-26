@@ -288,20 +288,72 @@ func TestNormalizeWindowHealPlaylistState(t *testing.T) {
 	}
 }
 
-// TestNormalizeStrandedWindowlessPlaylistState pins PSY-1287 candidate reopening.
+// TestNormalizeStrandedWindowlessPlaylistState pins PSY-1287 candidate reopening and
+// the PSY-1558 bound that terminates it: past RadioStrandedWindowlessReopenWindow from
+// the air date, a stranded windowless give-up is final and stops being re-fetched.
 func TestNormalizeStrandedWindowlessPlaylistState(t *testing.T) {
 	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
+	airDate := time.Date(2026, 6, 28, 0, 0, 0, 0, time.UTC)
 	start := time.Date(2026, 6, 28, 9, 0, 0, 0, time.UTC)
 	ptr := func(tm time.Time) *time.Time { return &tm }
 
-	gotState, gotAttempts := NormalizeStrandedWindowlessPlaylistState(nil, RadioPlaylistStateUnavailable, 5, 0, now)
-	if gotState != RadioPlaylistStatePending || gotAttempts != 0 {
-		t.Errorf("windowless unavailable → (%q,%d), want (pending,0)", gotState, gotAttempts)
+	cases := []struct {
+		name         string
+		airDate      time.Time
+		starts       *time.Time
+		state        string
+		attempts     int
+		playCount    int
+		wantState    string
+		wantAttempts int
+	}{
+		{
+			name:    "windowless unavailable inside window reopens",
+			airDate: airDate, state: RadioPlaylistStateUnavailable, attempts: 5,
+			wantState: RadioPlaylistStatePending, wantAttempts: 0,
+		},
+		{
+			name:    "windowed row untouched",
+			airDate: airDate, starts: ptr(start), state: RadioPlaylistStateUnavailable, attempts: 5,
+			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
+		},
+		{
+			// A tracklist published late (NTS lag is 0-2 days, PSY-1556) is still caught.
+			name:    "at the window edge still reopens",
+			airDate: now.Add(-RadioStrandedWindowlessReopenWindow), state: RadioPlaylistStateUnavailable, attempts: 5,
+			wantState: RadioPlaylistStatePending, wantAttempts: 0,
+		},
+		{
+			// The PSY-1558 loop: before this bound existed, this row reopened forever.
+			name:    "past the window the give-up is final",
+			airDate: now.Add(-RadioStrandedWindowlessReopenWindow - time.Second), state: RadioPlaylistStateUnavailable, attempts: 5,
+			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
+		},
+		{
+			name:  "unknown air date fails closed",
+			state: RadioPlaylistStateUnavailable, attempts: 5,
+			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
+		},
+		{
+			name:    "windowless row with real plays untouched",
+			airDate: airDate, state: RadioPlaylistStateUnavailable, attempts: 5, playCount: 12,
+			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
+		},
+		{
+			name:    "non-terminal state untouched",
+			airDate: airDate, state: RadioPlaylistStatePending, attempts: 2,
+			wantState: RadioPlaylistStatePending, wantAttempts: 2,
+		},
 	}
 
-	unchState, unchAttempts := NormalizeStrandedWindowlessPlaylistState(ptr(start), RadioPlaylistStateUnavailable, 5, 0, now)
-	if unchState != RadioPlaylistStateUnavailable || unchAttempts != 5 {
-		t.Errorf("windowed row untouched → (%q,%d)", unchState, unchAttempts)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotState, gotAttempts := NormalizeStrandedWindowlessPlaylistState(
+				tc.airDate, tc.starts, tc.state, tc.attempts, tc.playCount, now)
+			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
+				t.Errorf("got (%q,%d), want (%q,%d)", gotState, gotAttempts, tc.wantState, tc.wantAttempts)
+			}
+		})
 	}
 }
 

@@ -1012,6 +1012,10 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 			"radio_episodes.starts_at, radio_episodes.ends_at, radio_episodes.playlist_state, "+
 			"radio_episodes.playlist_fetch_attempts, radio_episodes.play_count").
 		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
+		// Branch 1 is the ordinary "still incomplete, attempts left" case. Branch 2
+		// deliberately ignores the attempt cap so an already-terminal windowless
+		// give-up can be re-considered; what bounds THAT branch is the reopen window
+		// in NormalizeStrandedWindowlessPlaylistState, applied per row below — not SQL.
 		Where(`(
 			(radio_episodes.playlist_state IN ? AND radio_episodes.playlist_fetch_attempts < ?)
 			OR (radio_episodes.playlist_state = ? AND radio_episodes.starts_at IS NULL AND radio_episodes.play_count = 0)
@@ -1024,18 +1028,18 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 
 	byShow := make(map[uint]*BackfillCandidate)
 	for _, r := range rows {
-		state, attempts := r.PlaylistState, r.PlaylistFetchAttempts
-		if normState, normAttempts := catalogm.NormalizeStrandedWindowlessPlaylistState(
-			r.StartsAt, r.PlaylistState, r.PlaylistFetchAttempts, r.PlayCount, now,
-		); normState != state || normAttempts != attempts {
-			state, attempts = normState, normAttempts
-		}
-		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, state, attempts, maxAttempts, now) {
-			continue
-		}
+		// Parsed first: air_date both bounds the stranded re-open (PSY-1558) and forms
+		// the per-show re-list window below. An unparseable one can do neither, and the
+		// episode wouldn't be re-listed anyway.
 		d, perr := parseImportDate(r.AirDate)
 		if perr != nil {
-			continue // unparseable air_date can't bound a window; it won't be re-listed anyway
+			continue
+		}
+		state, attempts := catalogm.NormalizeStrandedWindowlessPlaylistState(
+			d, r.StartsAt, r.PlaylistState, r.PlaylistFetchAttempts, r.PlayCount, now,
+		)
+		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, state, attempts, maxAttempts, now) {
+			continue
 		}
 		c, ok := byShow[r.ShowID]
 		if !ok {

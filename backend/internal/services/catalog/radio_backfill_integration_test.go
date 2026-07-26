@@ -270,6 +270,23 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_IncludesStrandedWindowlessUn
 	s.Equal(show.ID, candidates[0].ShowID)
 }
 
+// PSY-1558: the same stranded windowless episode stops being a candidate once its
+// reopen window closes — the production loop, where an episode whose playlist was
+// never published upstream sat inside the 7-day lookback being re-selected forever.
+func (s *RadioSyncSuite) TestListBackfillCandidates_ExcludesStrandedWindowlessPastReopenWindow() {
+	now := time.Now()
+	staleAir := now.Add(-catalogm.RadioStrandedWindowlessReopenWindow - 24*time.Hour)
+
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Stale Stranded", "stale-stranded", "ext-stale")
+	s.seedEpisodeFor(show.ID, "ep-stale-stranded", staleAir.Format("2006-01-02"),
+		catalogm.RadioPlaylistStateUnavailable, catalogm.RadioBackfillMaxAttempts, nil, nil, now)
+
+	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, catalogm.RadioBackfillMaxAttempts, now)
+	s.Require().NoError(err)
+	s.Empty(candidates, "a stranded windowless give-up past its reopen window is final")
+}
+
 // End-to-end PSY-1287 (F4 shape): windowless + unavailable after a false give-up,
 // corrected Sunday schedule → backfill heals the window and imports the playlist.
 func (s *RadioSyncSuite) TestBackfillCycle_HealsWindowlessUnavailableAfterScheduleFix() {
