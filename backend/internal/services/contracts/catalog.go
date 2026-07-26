@@ -417,9 +417,39 @@ type VenueDetailResponse struct {
 }
 
 // VenueWithShowCountResponse includes upcoming show count for a venue.
+//
+// The fields below UpcomingShowCount are the Atlas city-view venue rail's
+// row payload: enough to render "NEXT <date> · <bill> · <genre family>"
+// without a per-venue follow-up request. They are batched over the returned
+// PAGE of venues (never per-venue), and every one of them is best-effort —
+// an aggregation failure logs and leaves the field empty rather than failing
+// the list, because a venue row without its meta line still lists.
 type VenueWithShowCountResponse struct {
 	VenueDetailResponse
 	UpcomingShowCount int `json:"upcoming_show_count"`
+	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount — same
+	// definition SceneListResponse.ShowsThisWeek uses at scene scope. Drives
+	// the rail's "This week" filter chip and its header stat.
+	ShowsThisWeek int `json:"shows_this_week"`
+	// NextShowDate is the soonest upcoming approved show's date as an ISO
+	// YYYY-MM-DD string, rendered in the VENUE's timezone (not UTC, not the
+	// viewer's): a 9pm Friday show in Austin must not read as Saturday
+	// because the row was serialized from a UTC timestamp. Empty when the
+	// venue has no upcoming show.
+	NextShowDate string `json:"next_show_date,omitempty"`
+	// NextShowTitle is that show's own title, which is EMPTY for most shows —
+	// the app composes display names from the bill everywhere else. Clients
+	// must fall back to NextShowArtists (same contract as SceneShowSummary).
+	NextShowTitle string `json:"next_show_title,omitempty"`
+	// NextShowArtists is that show's bill in position order, so a titleless
+	// show still carries band names (the PSY-1325 rationale, at venue scope).
+	NextShowArtists []string `json:"next_show_artists,omitempty"`
+	// DominantGenre is the venue's dominant genre-family key, or "" when no
+	// family holds a confident share. Same rule and same family keys as
+	// SceneListResponse.DominantGenre (one shared dominantGenreFamily), over
+	// the venue's own booking mass. See venueDominantGenres for why the mass
+	// is the venue's whole approved history rather than the upcoming slice.
+	DominantGenre string `json:"dominant_genre,omitempty"`
 }
 
 // VenueListFilters contains filter options for listing venues
