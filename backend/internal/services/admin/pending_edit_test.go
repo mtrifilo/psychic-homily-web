@@ -535,6 +535,47 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueLoc
 	s.Require().NotNil(updated.Longitude)
 }
 
+// TestApprovePendingEdit_VenueAddressChangeClearsStreetGeocode verifies
+// PSY-1536: the contribution path doesn't call Nominatim inline, so approving
+// an edit that changes any address-key component must CLEAR the street-level
+// geocode fields — coordinates for the OLD address must never survive under
+// the new one (the backfill CLI re-resolves them later).
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAddressChangeClearsStreetGeocode() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Street Geo Venue")
+
+	// Stamp an existing street geocode for the current address.
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).Updates(map[string]interface{}{
+		"address":           "130 N Central Ave",
+		"street_latitude":   33.448227,
+		"street_longitude":  -112.073069,
+		"geocode_precision": "rooftop",
+		"geocoded_address":  "130 N Central Ave, Phoenix, AZ",
+	}).Error)
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "address", NewValue: "308 N 2nd Ave"},
+		},
+		Summary: "fix street address",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updated catalogm.Venue
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Require().NotNil(updated.Address)
+	s.Equal("308 N 2nd Ave", *updated.Address)
+	s.Nil(updated.StreetLatitude, "old address's street latitude must be cleared")
+	s.Nil(updated.StreetLongitude, "old address's street longitude must be cleared")
+	s.Nil(updated.GeocodePrecision)
+	s.Nil(updated.GeocodedAddress)
+}
+
 // mockBandcampFiller records FillProfileResolvedEmbedFromBandcamp calls so a test
 // can assert the pending-edit approval flow invokes the PSY-1190 resolver on a
 // `bandcamp` edit (and only then). It implements

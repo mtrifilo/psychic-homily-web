@@ -28,12 +28,28 @@ type Venue struct {
 	// Metro is the US Census CBSA code the venue's (city, state, country) rolls up
 	// to, set alongside the geocoding in applyGeocoding. DERIVED; NULL on a miss.
 	// Internal grouping key, not exposed in the API. (PSY-1255 step B)
-	Metro       *string `json:"-" gorm:"column:metro;size:10"`
-	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
-	ImageURL    *string `json:"image_url,omitempty" gorm:"column:image_url"`
-	Social      Social  `gorm:"embedded"`
-	Verified    bool
-	SubmittedBy *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
+	Metro *string `json:"-" gorm:"column:metro;size:10"`
+	// Street-level geocoding (PSY-1536): coordinates of Address resolved via
+	// Nominatim (network, applyStreetGeocoding + the geocode-venue-addresses
+	// backfill CLI). Distinct from the centroid Latitude/Longitude above, which
+	// stay untouched. GeocodePrecision is rooftop|interpolated|city.
+	// GeocodedAddress is the exact address key that was last geocoded — set on
+	// a hit AND on a clean miss (miss memo: key present, coords NULL), so
+	// writers skip re-querying an unchanged address. Street coords are served
+	// ONLY for verified venues whose stored key still matches the current
+	// address AND whose coords are present (streetGeocodeFresh, see
+	// buildVenueResponse). All four fields are json:"-" like Metro: the gated
+	// contracts.VenueDetailResponse is the ONLY sanctioned serialization — a
+	// raw-model marshal must never leak an unverified venue's street position.
+	StreetLatitude   *float64 `json:"-" gorm:"column:street_latitude;type:numeric(9,6)"`
+	StreetLongitude  *float64 `json:"-" gorm:"column:street_longitude;type:numeric(9,6)"`
+	GeocodePrecision *string  `json:"-" gorm:"column:geocode_precision;size:20"`
+	GeocodedAddress  *string  `json:"-" gorm:"column:geocoded_address"`
+	Description      *string  `json:"description,omitempty" gorm:"column:description;type:text"`
+	ImageURL         *string  `json:"image_url,omitempty" gorm:"column:image_url"`
+	Social           Social   `gorm:"embedded"`
+	Verified         bool
+	SubmittedBy      *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

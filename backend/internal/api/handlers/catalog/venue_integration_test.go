@@ -120,6 +120,52 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenue_NotFound() {
 	s.Error(err)
 }
 
+// --- Street-coordinate privacy gate (PSY-1536) ---
+
+// seedStreetGeocode stamps a street-level geocode onto a venue directly in the
+// DB, with geocoded_address matching the address so the geocode reads as
+// FRESH — isolating the tests below to the verified/unverified privacy gate.
+func (s *VenueHandlerIntegrationSuite) seedStreetGeocode(venueID uint, address, key string) {
+	s.Require().NoError(s.deps.DB.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
+		"address":           address,
+		"street_latitude":   33.448227,
+		"street_longitude":  -112.073069,
+		"geocode_precision": "rooftop",
+		"geocoded_address":  key,
+	}).Error)
+}
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenue_UnverifiedNeverExposesStreetCoords() {
+	venue := testhelpers.CreateUnverifiedVenue(s.deps.DB, "House Venue", "Phoenix", "AZ")
+	s.seedStreetGeocode(venue.ID, "1234 Secret House St", "1234 Secret House St, Phoenix, AZ")
+
+	req := &GetVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
+	resp, err := s.handler.GetVenueHandler(s.deps.Ctx, req)
+	s.Require().NoError(err)
+	// Street-precise coordinates would map a DIY/house venue before human
+	// review — they must be absent from the API response, exactly like the
+	// existing address/zipcode redaction.
+	s.Nil(resp.Body.StreetLatitude, "unverified venue must not expose street latitude")
+	s.Nil(resp.Body.StreetLongitude, "unverified venue must not expose street longitude")
+	s.Nil(resp.Body.GeocodePrecision, "unverified venue must not expose geocode precision")
+	s.Nil(resp.Body.Address, "existing address redaction must still hold")
+}
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenue_VerifiedExposesFreshStreetCoords() {
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Public Club", "Phoenix", "AZ")
+	s.seedStreetGeocode(venue.ID, "130 N Central Ave", "130 N Central Ave, Phoenix, AZ")
+
+	req := &GetVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
+	resp, err := s.handler.GetVenueHandler(s.deps.Ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.StreetLatitude)
+	s.InDelta(33.448227, *resp.Body.StreetLatitude, 1e-6)
+	s.Require().NotNil(resp.Body.StreetLongitude)
+	s.InDelta(-112.073069, *resp.Body.StreetLongitude, 1e-6)
+	s.Require().NotNil(resp.Body.GeocodePrecision)
+	s.Equal("rooftop", *resp.Body.GeocodePrecision)
+}
+
 // --- GetVenueShowsHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_Success() {
