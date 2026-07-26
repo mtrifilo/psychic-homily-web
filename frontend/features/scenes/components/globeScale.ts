@@ -109,12 +109,37 @@ export function sceneLabelSizePx(upcomingShowCount: number): number {
   return sceneLabelSize(upcomingShowCount) * LABEL_PX_PER_SIZE_UNIT
 }
 
-// The PSY-1324 smaller-dots-above-larger stacking (formerly sceneDotAltitude,
-// a 3D cylinder-height trick against depth-tested three.js cylinders) is now
-// expressed structurally in GlobeCanvas: the MapLibre dots layer sorts by
-// inverse count (circle-sort-key ⇒ smaller dots draw on top, so Chicago can't
-// swallow Milwaukee), and the pulse-rings layer sits below the dots layer, so
-// a ring never covers a dot.
+// ── Dot stacking: smaller dots draw ABOVE larger ones (PSY-1324) ──────────
+// Formerly sceneDotAltitude, a 3D cylinder-height trick against depth-tested
+// three.js cylinders. In MapLibre the same invariant is a circle-sort-key:
+// higher key renders on top, so the key must strictly DECREASE with count —
+// Chicago's capped disc can never swallow Milwaukee's dot. Keyed to the RAW
+// count, not the capped radius, so two co-dense capped metros still order
+// (only an exact-count tie draws unordered — an equal-size pair, so neither
+// dominates). GlobeCanvas uses the same key for hit-test tie-breaks, so the
+// dot you SEE on top is the dot a click selects.
+export function sceneDotSortKey(upcomingShowCount: number): number {
+  // Non-finite guard — see sceneDotRadius; 0 sorts a malformed count with
+  // count-0 scenes rather than poisoning the layer sort.
+  return Number.isFinite(upcomingShowCount) ? -upcomingShowCount : 0
+}
+
+// The label gate composed for MapLibre: translate map zoom back to the legacy
+// altitude the bands were calibrated in, then apply the gate. Lives here so
+// the canvas never needs to know about the unit translation.
+export function labelMinCountForZoom(zoom: number): number {
+  return labelMinCountForAltitude(altitudeForZoom(zoom))
+}
+
+// The globe's screen radius in CSS px at a MapLibre zoom: the equator maps to
+// worldSize = TILE_WORLD_SIZE_PX·2^zoom px of circumference. Same projection
+// constant the ALTITUDE_AT_ZOOM_ZERO derivation above is calibrated against.
+const TILE_WORLD_SIZE_PX = 512
+
+export function globeScreenRadiusPx(zoom: number): number {
+  const z = Number.isFinite(zoom) ? zoom : 0
+  return (TILE_WORLD_SIZE_PX * 2 ** z) / (2 * Math.PI)
+}
 
 // ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────
 // Uniform orange gave the dots no affordance feedback: nothing signalled
@@ -131,8 +156,8 @@ export const DOT_COLOR_SELECTED = '#ffe6c2'
 // step of the base orange — so the followed set reads at continental zoom
 // without colliding with the hover/selected affordance ramp.
 export const DOT_COLOR_FOLLOWED = '#7ee8fa'
-// Radius bump on hover — kept small so the merged point geometry rebuild (the
-// accessors re-evaluate on hover change) never visibly pops neighbours.
+// Radius bump on hover — kept small so the highlighted dot never visibly
+// pops over its neighbours (applied via a feature-state paint expression).
 export const DOT_HOVER_RADIUS_SCALE = 1.2
 
 // Precedence: selected > hovered > followed > base — the transient affordance
