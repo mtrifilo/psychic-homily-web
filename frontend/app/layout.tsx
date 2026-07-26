@@ -47,7 +47,7 @@ import {
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
-import { Analytics } from '@vercel/analytics/react'
+import InternalTrafficAnalytics from '@/components/analytics/InternalTrafficAnalytics'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
 export const viewport: Viewport = {
@@ -118,7 +118,7 @@ export default function RootLayout({
                   </AuthHydrator>
                 </Suspense>
                 <CookieConsentBanner />
-                <Analytics />
+                <InternalTrafficAnalytics />
                 <SpeedInsights />
               </PostHogProvider>
             </CookieConsentProvider>
