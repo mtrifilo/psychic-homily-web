@@ -75,7 +75,11 @@ const mockEngagementData = {
   bookmarks: [{ month: '2025-10', count: 30 }],
   tags_added: [{ month: '2025-10', count: 20 }],
   tag_votes: [{ month: '2025-10', count: 50 }],
-  collection_items: [{ month: '2025-10', count: 10 }], // API field name; displayed as "Collection Items"
+  // Real wire field name — verified against GET /admin/analytics/engagement.
+  // This mock previously said `collection_items`, which the API has never sent;
+  // the wrong name passed both tsc (the interface is hand-written) and this
+  // test, and took the admin console down in production.
+  crate_items: [{ month: '2025-10', count: 10 }],
   requests: [{ month: '2025-10', count: 5 }],
   request_votes: [{ month: '2025-10', count: 15 }],
   revisions: [{ month: '2025-10', count: 8 }],
@@ -211,6 +215,38 @@ describe('AnalyticsDashboard', () => {
     expect(screen.getByText('Content Curation')).toBeInTheDocument()
     expect(screen.getByText('Requests & Voting')).toBeInTheDocument()
     expect(screen.getByText('Social Engagement')).toBeInTheDocument()
+  })
+
+  // Regression: the engagement view read `data.collection_items`, a field the
+  // API has never sent (the wire name is `crate_items`). That made the series
+  // `undefined`, `for...of` threw, and the shared error boundary replaced the
+  // ENTIRE admin console with "Something went wrong" — in production.
+  it('renders the engagement view against the real wire field name', () => {
+    renderWithProviders(<AnalyticsDashboard />)
+
+    expect(() =>
+      fireEvent.click(screen.getByRole('button', { name: /Engagement/i }))
+    ).not.toThrow()
+    expect(screen.getByText('Content Curation')).toBeInTheDocument()
+  })
+
+  // A series the API stops sending must degrade to a missing line, never take
+  // the dashboard down with it.
+  it('survives an engagement series going missing entirely', () => {
+    const withoutSeries = { ...mockEngagementData }
+    delete (withoutSeries as Partial<typeof mockEngagementData>).crate_items
+    mockUseEngagementMetrics.mockReturnValue({
+      data: withoutSeries,
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<AnalyticsDashboard />)
+
+    expect(() =>
+      fireEvent.click(screen.getByRole('button', { name: /Engagement/i }))
+    ).not.toThrow()
+    expect(screen.getByText('Content Curation')).toBeInTheDocument()
   })
 
   it('switches to community health view on click', () => {

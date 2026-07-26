@@ -24,7 +24,14 @@ export interface EngagementMetrics {
   bookmarks: MonthlyCount[]
   tags_added: MonthlyCount[]
   tag_votes: MonthlyCount[]
-  collection_items: MonthlyCount[] // backend API field; displayed as "Collection Items"
+  /**
+   * Collection-item additions. The wire field is `crate_items` — legacy
+   * vocabulary from when collections were "crates" (the Go field is already
+   * `CollectionItems`; only its json tag kept the old name). Callers should map
+   * this to `collection_items` at the boundary rather than spreading the legacy
+   * name through the UI.
+   */
+  crate_items: MonthlyCount[]
   requests: MonthlyCount[]
   request_votes: MonthlyCount[]
   revisions: MonthlyCount[]
