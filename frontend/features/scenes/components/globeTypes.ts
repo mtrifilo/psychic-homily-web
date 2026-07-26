@@ -1,9 +1,9 @@
 import type { SceneListItem } from '../types'
 
 /**
- * Atlas globe types + guard, kept in their own module (no react-globe.gl import)
- * so AtlasGlobe and its tests can use them without pulling in three.js — only
- * GlobeCanvas (dynamic-imported, ssr:false) actually loads the WebGL library.
+ * Atlas globe types + guard, kept in their own module (no maplibre-gl import)
+ * so AtlasGlobe and its tests can use them without pulling in the WebGL map —
+ * only GlobeCanvas (dynamic-imported, ssr:false) actually loads the library.
  */
 
 /** A scene with resolved coordinates — the only kind the globe can plot. */
@@ -22,7 +22,14 @@ export function isPlaceableScene(s: SceneListItem): s is PlaceableScene {
   )
 }
 
-/** Camera focus for the globe (re-applied when it changes). */
+/**
+ * Initial camera focus for the globe. Resolved ONCE by AtlasGlobe
+ * (first-resolution-wins) and identity-stable for the canvas's lifetime —
+ * GlobeCanvas aims the map at it only at construction (a saved camera from a
+ * previous show takes precedence), and its map-creation effect depends on
+ * this identity, so a NEW pov object tears the map down and rebuilds it.
+ * Post-mount camera moves go through the flyToRef seam, never through pov.
+ */
 export interface GlobePov {
   lat: number
   lng: number

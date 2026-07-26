@@ -2,9 +2,12 @@
  * Pure dot-size, label-size, and label-visibility scaling for the Atlas globe
  * (PSY-1223).
  *
- * Kept free of react-globe.gl (like globeTypes.ts) so it unit-tests without
- * loading three.js. GlobeCanvas binds these to the <Globe> props; the scaling
- * decisions live here, in one tunable place, instead of inline in the JSX.
+ * Kept free of the rendering library (like globeTypes.ts) so it unit-tests
+ * without loading WebGL. GlobeCanvas binds these to its MapLibre layers; the
+ * scaling decisions live here, in one tunable place, instead of inline in the
+ * canvas. Sizes were calibrated in the original react-globe.gl units; the
+ * MapLibre port converts at the edge (zoomForAltitude / *_Px below) rather
+ * than re-deriving the calibration.
  *
  * Two problems this solves on the shipped globe (PSY-1213):
  *   1. Dot/label size scaled by `sqrt(count)` UNCAPPED, so very dense scenes
@@ -20,7 +23,8 @@ import { haversineDistanceKm } from '@/lib/haversine'
 // ── Dot radius ────────────────────────────────────────────────────────────
 // sqrt scale (so dense scenes don't dwarf small ones) with the high end CAPPED
 // so a 283-show scene doesn't render a giant dot that swallows its neighbours.
-// `count` is upcoming_show_count; radius is in react-globe.gl globe-radius units.
+// `count` is upcoming_show_count; radius is in legacy globe-radius units —
+// the canvas consumes the px conversion (sceneDotRadiusPx) below.
 const DOT_BASE_RADIUS = 0.28
 // Every scene at/above this count renders the SAME max dot ON PURPOSE: past it
 // the dot would balloon over its neighbours (the bug this fixes). Finer
@@ -41,41 +45,109 @@ const DOT_SQRT_DIVISOR = Math.sqrt(DOT_CAP_COUNT) / DOT_VARIABLE_MAX
 export function sceneDotRadius(upcomingShowCount: number): number {
   // Non-finite guard: the type says `number`, but sibling fields (latitude/longitude)
   // are `number | null` from the API, so don't trust it blindly. A NaN radius would
-  // poison the MERGED three.js point geometry (NaN bounding sphere) for the whole layer.
+  // poison the rendered layer (historically the merged three.js point geometry;
+  // today a NaN circle-radius feature in the MapLibre dots layer).
   const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
   return DOT_BASE_RADIUS + Math.min(Math.sqrt(count) / DOT_SQRT_DIVISOR, DOT_VARIABLE_MAX)
 }
 
-// ── Dot altitude: smaller dots stack ABOVE larger ones (PSY-1324) ─────────
-// react-globe.gl points are depth-tested 3D cylinders, so pointsData order does
-// NOT decide which overlapping dot is visible — equal-height cylinders leave the
-// larger disc covering the smaller one entirely (Chicago swallowing Milwaukee).
-// Making cylinder height a strictly DECREASING function of count guarantees a
-// less-dense neighbor's top face renders above a denser dot's, so it always
-// peeks out of the overlap instead of disappearing.
+// ── MapLibre zoom ⇄ legacy globe altitude (PSY-1538) ──────────────────────
+// The label gate (labelMinCountForAltitude), the declutter calibration keyed on
+// its thresholds, and the POV contract (GlobePov.altitude) were all calibrated
+// in react-globe.gl camera-altitude units (globe radii above the surface). The
+// MapLibre port keeps that calibration by converting between the two scales
+// instead of re-deriving the bands.
 //
-// The offset is keyed to the RAW count, not the capped radius: radius saturates
-// at DOT_CAP_COUNT, and a radius-derived offset would hand every capped pair
-// (two co-dense adjacent metros — the likeliest overlaps as the catalog goes
-// global) identical altitudes, resurrecting the z-fight exactly where it
-// matters. With the count curve, ties need EXACTLY equal counts — and an
-// equal-count pair is also equal-size, so neither dot dominates the other
-// (the pre-fix status quo, not a regression).
+// Derivation (ground span per screen height, the quantity labels care about):
+//   react-globe.gl: fov 50° ⇒ span ≈ altitude · 2·tan(25°) · R_earth
+//                                  ≈ altitude · 5941 km
+//   MapLibre:       span ≈ H_px · C_equator · cos(lat) / (512 · 2^zoom)
+// Calibrated at the surface the bands were tuned on — a ~900 px-tall desktop
+// viewport centered on North America (lat ≈ 39°) — the two are equal when
+//   2^zoom = 9.214 / altitude
+// i.e. altitude 1.8 (default POV) ⇔ z≈2.36, 1.6 (geo POV) ⇔ z≈2.53,
+// 1.5 (continental band edge) ⇔ z≈2.62, 1.0 (multi-region edge / fly-to
+// landing) ⇔ z≈3.20, 0.6 (metro-cluster edge) ⇔ z≈3.94.
 //
-// Range: base + (0, DOT_STACK_MAX] = (0.008, 0.016] — every dot stays above the
-// PSY-1309 pulse rings (RING_ALTITUDE) and the whole band is far too small to
-// read as "floating". The sqrt curve keeps neighboring dense counts ~1e-4
-// globe-units apart, comfortably outside depth-buffer precision.
-const DOT_BASE_ALTITUDE = 0.008
-const DOT_STACK_MAX = 0.008
-// The pulse rings' altitude (GlobeCanvas binds ringAltitude to this) — exported
-// so the dots-above-rings invariant is structural, not comment-enforced.
-export const RING_ALTITUDE = 0.006
+// The constant bakes in that calibration viewport on purpose: making it
+// viewport/latitude-dependent would move the label bands per resize/pan and
+// defeat the memoize-on-discrete-threshold churn avoidance (see the label-gate
+// doc below). Approximate correspondence is all the bands need.
+const ALTITUDE_AT_ZOOM_ZERO = 9.214
 
-export function sceneDotAltitude(upcomingShowCount: number): number {
-  // Non-finite guard — see sceneDotRadius.
-  const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
-  return DOT_BASE_ALTITUDE + DOT_STACK_MAX / (1 + Math.sqrt(count) / DOT_SQRT_DIVISOR)
+/** MapLibre zoom whose ground scale matches the legacy globe altitude. */
+export function zoomForAltitude(altitude: number): number {
+  // Guard: altitude ≤ 0 (or non-finite) has no zoom equivalent — clamp to the
+  // smallest calibrated camera height rather than returning Infinity/NaN.
+  const a = Number.isFinite(altitude) && altitude > 0 ? altitude : 0.1
+  return Math.log2(ALTITUDE_AT_ZOOM_ZERO / a)
+}
+
+/** Inverse of zoomForAltitude — feeds labelMinCountForAltitude from map zoom. */
+export function altitudeForZoom(zoom: number): number {
+  const z = Number.isFinite(zoom) ? zoom : 0
+  return ALTITUDE_AT_ZOOM_ZERO / 2 ** z
+}
+
+// ── Globe-unit → CSS-pixel scales (PSY-1538) ──────────────────────────────
+// react-globe.gl sized dots/labels in angular globe units; MapLibre circle and
+// DOM-marker labels take CSS pixels. One knob each, calibrated so the default
+// continental POV renders the same visual weight as the shipped globe
+// (0.28–0.5 unit dots ⇔ ~3.4–6 px radius; 0.5–0.85 unit labels ⇔ ~11–19 px
+// text). The sqrt/cap COUNT curve is shared with the unit functions above,
+// so it can't drift between layers.
+//
+// DELIBERATE semantic change vs the shipped globe: angular sizing grew
+// on-screen as the camera descended; these px sizes are ZOOM-CONSTANT, so
+// the calibration match is exact only at the default POV and dots read
+// relatively smaller (but never blurrier or overlapping) at fly-to/metro
+// zooms. Chosen because constant px stays legible at the deeper zooms this
+// port unlocks (z→9, PSY-1539 street level next); if zoom growth is wanted
+// later, interpolate the radius on ['zoom'] in the canvas — don't bend
+// these knobs.
+const DOT_PX_PER_RADIUS_UNIT = 12
+const LABEL_PX_PER_SIZE_UNIT = 22
+
+/** Dot radius in CSS px for the MapLibre circle layer. */
+export function sceneDotRadiusPx(upcomingShowCount: number): number {
+  return sceneDotRadius(upcomingShowCount) * DOT_PX_PER_RADIUS_UNIT
+}
+
+/** Label text size in CSS px for the DOM label markers. */
+export function sceneLabelSizePx(upcomingShowCount: number): number {
+  return sceneLabelSize(upcomingShowCount) * LABEL_PX_PER_SIZE_UNIT
+}
+
+// ── Dot stacking: smaller dots draw ABOVE larger ones (PSY-1324) ──────────
+// Formerly sceneDotAltitude, a 3D cylinder-height trick against depth-tested
+// three.js cylinders. In MapLibre the same invariant is a circle-sort-key:
+// higher key renders on top, so the key must strictly DECREASE with count —
+// Chicago's capped disc can never swallow Milwaukee's dot. Keyed to the RAW
+// count, not the capped radius, so two co-dense capped metros still order
+// (only an exact-count tie draws unordered — an equal-size pair, so neither
+// dominates). GlobeCanvas uses the same key for hit-test tie-breaks, so the
+// dot you SEE on top is the dot a click selects.
+export function sceneDotSortKey(upcomingShowCount: number): number {
+  // Non-finite guard — see sceneDotRadius; 0 sorts a malformed count with
+  // count-0 scenes rather than poisoning the layer sort.
+  return Number.isFinite(upcomingShowCount) ? -upcomingShowCount : 0
+}
+
+// The label gate composed for MapLibre: translate map zoom back to the legacy
+// altitude the bands were calibrated in, then apply the gate. Lives here so
+// the canvas never needs to know about the unit translation.
+export function labelMinCountForZoom(zoom: number): number {
+  return labelMinCountForAltitude(altitudeForZoom(zoom))
+}
+
+// The globe's screen radius in CSS px at a MapLibre zoom: the equator maps to
+// worldSize = TILE_WORLD_SIZE_PX·2^zoom px of circumference. Same projection
+// constant the ALTITUDE_AT_ZOOM_ZERO derivation above is calibrated against.
+const TILE_WORLD_SIZE_PX = 512
+
+export function globeScreenRadiusPx(zoom: number): number {
+  const z = Number.isFinite(zoom) ? zoom : 0
+  return (TILE_WORLD_SIZE_PX * 2 ** z) / (2 * Math.PI)
 }
 
 // ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────
@@ -93,8 +165,8 @@ export const DOT_COLOR_SELECTED = '#ffe6c2'
 // step of the base orange — so the followed set reads at continental zoom
 // without colliding with the hover/selected affordance ramp.
 export const DOT_COLOR_FOLLOWED = '#7ee8fa'
-// Radius bump on hover — kept small so the merged point geometry rebuild (the
-// accessors re-evaluate on hover change) never visibly pops neighbours.
+// Radius bump on hover — kept small so the highlighted dot never visibly
+// pops over its neighbours (applied via a feature-state paint expression).
 export const DOT_HOVER_RADIUS_SCALE = 1.2
 
 // Precedence: selected > hovered > followed > base — the transient affordance

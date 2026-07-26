@@ -9,12 +9,17 @@ import {
   labelDeclutterRadiusKm,
   DOT_COLOR_FOLLOWED,
   labelMinCountForAltitude,
-  RING_ALTITUDE,
-  sceneDotAltitude,
+  labelMinCountForZoom,
+  altitudeForZoom,
+  globeScreenRadiusPx,
   sceneDotColor,
   sceneDotRadius,
+  sceneDotRadiusPx,
+  sceneDotSortKey,
   sceneLabelSize,
+  sceneLabelSizePx,
   visibleLabelScenes,
+  zoomForAltitude,
 } from './globeScale'
 
 // PSY-1223: the globe's dot/label sizes were an UNCAPPED sqrt(count), so very
@@ -70,36 +75,46 @@ describe('sceneDotRadius', () => {
   })
 })
 
-describe('sceneDotAltitude', () => {
-  it('gives less-dense dots a taller cylinder so they stack above denser ones', () => {
-    // The PSY-1324 occlusion fix: depth-tested cylinders mean equal heights let
-    // the larger disc swallow a smaller neighbor; inverse-count height makes
-    // the less-dense dot's top face always render above the denser one's.
-    expect(sceneDotAltitude(0)).toBeGreaterThan(sceneDotAltitude(10))
-    expect(sceneDotAltitude(10)).toBeGreaterThan(sceneDotAltitude(283))
+describe('sceneDotSortKey (PSY-1324 stacking, MapLibre circle-sort-key)', () => {
+  it('strictly decreases with count so smaller dots always draw on top', () => {
+    expect(sceneDotSortKey(0)).toBeGreaterThan(sceneDotSortKey(10))
+    expect(sceneDotSortKey(10)).toBeGreaterThan(sceneDotSortKey(283))
   })
 
   it('still orders CAPPED dense scenes by count (the co-dense-neighbors case)', () => {
-    // The offset is keyed to the raw count, not the capped radius: two adjacent
-    // metros both past DOT_CAP_COUNT render equal-size dots, and a radius-keyed
-    // offset would z-fight them. 50 and 283 are both capped yet must stack.
+    // Keyed to the raw count, not the capped radius: two adjacent metros both
+    // past the radius cap render equal-size dots but must still stack.
     expect(sceneDotRadius(50)).toBeCloseTo(sceneDotRadius(283), 5)
-    expect(sceneDotAltitude(50)).toBeGreaterThan(sceneDotAltitude(283))
-    expect(sceneDotAltitude(283)).toBeGreaterThan(sceneDotAltitude(10_000))
+    expect(sceneDotSortKey(50)).toBeGreaterThan(sceneDotSortKey(283))
+    expect(sceneDotSortKey(283)).toBeGreaterThan(sceneDotSortKey(10_000))
   })
 
-  it('keeps the whole range subtle and above the pulse rings', () => {
-    // Range = base 0.008 + (0, 0.008] — max at count 0.
-    expect(sceneDotAltitude(0)).toBeCloseTo(0.016, 5)
-    for (const c of [0, 5, 49, 283, 10_000, NaN]) {
-      // Structural invariant: GlobeCanvas binds ringAltitude to RING_ALTITUDE.
-      expect(sceneDotAltitude(c)).toBeGreaterThan(RING_ALTITUDE)
+  it('guards non-finite counts (sorts them with count-0 scenes)', () => {
+    expect(sceneDotSortKey(NaN)).toBe(0)
+    expect(sceneDotSortKey(undefined as unknown as number)).toBe(0)
+    expect(sceneDotSortKey(Infinity)).toBe(0)
+  })
+})
+
+describe('labelMinCountForZoom (PSY-1538)', () => {
+  it('composes the calibrated altitude bands over the zoom translation', () => {
+    for (const z of [1, 2.4, 3.0, 3.5, 4.5, 7]) {
+      expect(labelMinCountForZoom(z)).toBe(
+        labelMinCountForAltitude(altitudeForZoom(z)),
+      )
     }
   })
+})
 
-  it('treats non-finite counts like zero (inherits the radius guard)', () => {
-    expect(sceneDotAltitude(NaN)).toBeCloseTo(sceneDotAltitude(0), 5)
-    expect(sceneDotAltitude(undefined as unknown as number)).toBeCloseTo(sceneDotAltitude(0), 5)
+describe('globeScreenRadiusPx (PSY-1538)', () => {
+  it('derives from the 512px world size: radius = 512·2^z / 2π', () => {
+    expect(globeScreenRadiusPx(0)).toBeCloseTo(512 / (2 * Math.PI), 6)
+    // Each zoom level doubles the globe's screen radius.
+    expect(globeScreenRadiusPx(3) / globeScreenRadiusPx(2)).toBeCloseTo(2, 8)
+  })
+
+  it('guards non-finite zoom', () => {
+    expect(Number.isFinite(globeScreenRadiusPx(NaN))).toBe(true)
   })
 })
 
@@ -157,6 +172,71 @@ describe('labelMinCountForAltitude', () => {
       expect(min).toBeGreaterThanOrEqual(prev)
       prev = min
     }
+  })
+})
+
+describe('zoomForAltitude / altitudeForZoom (PSY-1538 MapLibre port)', () => {
+  it('round-trips: altitudeForZoom inverts zoomForAltitude', () => {
+    for (const alt of [0.2, 0.6, 1.0, 1.5, 1.8, 2.5]) {
+      expect(altitudeForZoom(zoomForAltitude(alt))).toBeCloseTo(alt, 8)
+    }
+  })
+
+  it('maps the calibrated POVs and band edges to the documented zooms', () => {
+    // The mapping the port chose (see the globeScale.ts derivation): the label
+    // bands calibrated in altitude translate to these MapLibre zoom edges.
+    expect(zoomForAltitude(1.8)).toBeCloseTo(2.36, 2) // default POV
+    expect(zoomForAltitude(1.6)).toBeCloseTo(2.53, 2) // geo-resolved POV
+    expect(zoomForAltitude(1.5)).toBeCloseTo(2.62, 2) // continental band edge
+    expect(zoomForAltitude(1.0)).toBeCloseTo(3.2, 2) // multi-region edge / fly-to
+    expect(zoomForAltitude(0.6)).toBeCloseTo(3.94, 2) // metro-cluster edge
+  })
+
+  it('zooming in (higher zoom) lowers the label threshold, preserving the band order', () => {
+    // The composition the canvas uses: labelMinCountForAltitude(altitudeForZoom(z)).
+    expect(labelMinCountForAltitude(altitudeForZoom(2.4))).toBe(120)
+    expect(labelMinCountForAltitude(altitudeForZoom(3.0))).toBe(40)
+    expect(labelMinCountForAltitude(altitudeForZoom(3.5))).toBe(10)
+    expect(labelMinCountForAltitude(altitudeForZoom(4.5))).toBe(0)
+  })
+
+  it('is monotonic: more zoom never raises the threshold', () => {
+    let prev = Infinity
+    for (let z = 0; z <= 8; z += 0.25) {
+      const min = labelMinCountForAltitude(altitudeForZoom(z))
+      expect(min).toBeLessThanOrEqual(prev)
+      prev = min
+    }
+  })
+
+  it('guards degenerate altitudes instead of returning Infinity/NaN', () => {
+    expect(Number.isFinite(zoomForAltitude(0))).toBe(true)
+    expect(Number.isFinite(zoomForAltitude(-1))).toBe(true)
+    expect(Number.isFinite(zoomForAltitude(NaN))).toBe(true)
+    expect(Number.isFinite(altitudeForZoom(NaN))).toBe(true)
+  })
+})
+
+describe('sceneDotRadiusPx / sceneLabelSizePx (PSY-1538)', () => {
+  it('are pure px rescalings of the calibrated unit curves (cap + sqrt preserved)', () => {
+    // Same curve, one linear knob — ratios must match exactly.
+    expect(sceneDotRadiusPx(283) / sceneDotRadiusPx(0)).toBeCloseTo(
+      sceneDotRadius(283) / sceneDotRadius(0),
+      8,
+    )
+    expect(sceneLabelSizePx(283) / sceneLabelSizePx(0)).toBeCloseTo(
+      sceneLabelSize(283) / sceneLabelSize(0),
+      8,
+    )
+    // Caps survive the conversion.
+    expect(sceneDotRadiusPx(10_000)).toBeCloseTo(sceneDotRadiusPx(50), 5)
+  })
+
+  it('lands in the calibrated px ranges (≈3.4–6 px dots, ≈11–19 px labels)', () => {
+    expect(sceneDotRadiusPx(0)).toBeGreaterThan(3)
+    expect(sceneDotRadiusPx(283)).toBeLessThanOrEqual(6)
+    expect(sceneLabelSizePx(0)).toBeGreaterThanOrEqual(11)
+    expect(sceneLabelSizePx(283)).toBeLessThan(19)
   })
 })
 
