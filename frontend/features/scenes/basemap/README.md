@@ -25,12 +25,15 @@ style file they describe.
   icons, no house numbers, no 3D buildings, no sprite at all — streets are
   muted browns on the app's `#0d0805` background so the orange scene/venue
   markers stay the loudest thing on the map.
-- **Palette**: anchored to the `.dark` tokens in `frontend/app/globals.css`
-  (`--background #0d0805`, `--card #17100b`, `--border #221b15`,
-  `--muted-foreground #9c8c7c`, `--foreground #eee7d9`). Road fills are
-  interpolations within that warm-dark family; water is the one deliberate
-  departure (near-black desaturated blue `#090c12`) so coastlines read
-  against the warm land.
+- **Palette**: anchored to the `.dark` tokens in `frontend/app/globals.css` —
+  `--background #0d0805`, `--card #17100b`, `--border #221b15`,
+  `--foreground #eee7d9`. Road fills are interpolations within that warm-dark
+  family; water is the one deliberate departure (near-black desaturated blue
+  `#090c12`) so coastlines read against the warm land. `--muted-foreground
+  #9c8c7c` is used by the attribution restyle in `globals.css`, not by the
+  style itself. Nothing reads these tokens at runtime — the style is a
+  hand-copied snapshot — so `phDarkBasemap.test.ts` pins each anchor against
+  `globals.css` and fails if a theme repaint moves one.
 - **Fonts**: OpenFreeMap's glyph server serves a fixed set; only
   `Noto Sans Regular/Bold/Italic` are available (verified by HTTP probe —
   `Space Mono`, `Roboto Mono`, etc. 404). The PH type direction
@@ -60,11 +63,30 @@ changes its schema or endpoints:
    (MapLibre fetches tiles AND glyphs via `fetch()` — connect-src, never
    img-src).
 
+   **Check the RESOLVED tile host, not just the TileJSON host.** The style
+   declares `https://tiles.openfreemap.org/planet`; the tiles it actually
+   fetches come from the `tiles` array inside that TileJSON response. Those
+   point at the same host today (verified 2026-07-26), and
+   `phDarkBasemap.test.ts` can only check the DECLARED host — it does no
+   network I/O, deliberately, so the suite stays offline-safe. If OpenFreeMap
+   ever moves delivery to a CDN subdomain, CSP would block tiles in
+   production with nothing failing in CI. Re-check by hand whenever the
+   provider changes anything:
+
+   ```
+   curl -s https://tiles.openfreemap.org/planet | head -c 200
+   ```
+
 ## Attribution requirements
 
 - **OpenStreetMap (required, ODbL)**: the `openmaptiles` source carries
   `© OpenStreetMap contributors`; GlobeCanvas renders it via a non-compact
-  `AttributionControl` (always visible, per OSM's attribution guidance).
+  `AttributionControl` (always visible, per OSM's attribution guidance),
+  docked **bottom-left**. Not MapLibre's bottom-right default: the Atlas
+  chrome docks `GenreLegend` there at `z-10` (the control's own stacking
+  context tops out at `z-index: 2`) and `ScenePreviewPanel` covers the whole
+  right edge whenever a scene is selected — either one hides the required
+  credit. Don't move it back without re-checking both.
 - **OpenFreeMap (requested)**: included in the same source attribution.
 - **NASA GIBS (requested)**: carried by the `nightEarth` source in
   GlobeCanvas ("Imagery courtesy NASA GIBS"); shown by the same control.

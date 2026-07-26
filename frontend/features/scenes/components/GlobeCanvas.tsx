@@ -548,7 +548,19 @@ export default function GlobeCanvas({
     // strings come from the sources above (OpenFreeMap/OSM + NASA GIBS);
     // the dark restyle of MapLibre's default white pill lives in
     // globals.css (.maplibregl-ctrl-attrib).
-    map.addControl(new maplibregl.AttributionControl({ compact: false }))
+    //
+    // BOTTOM-LEFT, not MapLibre's bottom-right default: the Atlas chrome
+    // owns bottom-right twice over — GenreLegend sits there at z-10 (the
+    // control's own stacking context tops out at z-index 2, so the legend
+    // wins), and ScenePreviewPanel docks the entire right edge full-height
+    // whenever a scene is selected, which would hide the required credit
+    // outright. Bottom-left is the one corner nothing else docks to; the
+    // "N more scenes" link that shares it is offset above the strip in
+    // AtlasGlobe.
+    map.addControl(
+      new maplibregl.AttributionControl({ compact: false }),
+      'bottom-left',
+    )
 
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
     // Closes over THIS map; nulled in cleanup, so after a hide/show cycle

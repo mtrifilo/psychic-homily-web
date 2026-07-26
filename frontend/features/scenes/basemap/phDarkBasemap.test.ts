@@ -137,6 +137,80 @@ describe('ph-dark-basemap.json', () => {
     }
   })
 
+  // The crossfade range GlobeCanvas drives the handoff over. Any layer that
+  // switches on strictly INSIDE it appears while the Black Marble raster is
+  // still partly opaque, and MapLibre's `minzoom` is a hard cutoff with no
+  // fade of its own — so such a layer must ramp its own opacity or it hard-
+  // pops mid-transition (the "no pop" acceptance criterion).
+  const FADE_START = 5.5
+  const FADE_END = 7
+  const OPACITY_PROP: Record<string, string> = {
+    line: 'line-opacity',
+    fill: 'fill-opacity',
+    symbol: 'text-opacity',
+    raster: 'raster-opacity',
+    background: 'background-opacity',
+  }
+
+  it('fades in (never hard-pops) every layer that appears mid-crossfade', () => {
+    for (const layer of style.layers) {
+      const minzoom = layer.minzoom ?? 0
+      if (minzoom <= FADE_START || minzoom >= FADE_END) continue
+      const prop = OPACITY_PROP[layer.type]
+      const paint = layer.paint as Record<string, unknown> | undefined
+      const opacity = prop ? paint?.[prop] : undefined
+      expect(
+        Array.isArray(opacity) && opacity[0] === 'interpolate',
+        `${layer.id} switches on at zoom ${minzoom}, inside the [${FADE_START}, ${FADE_END}] crossfade, so it needs a zoom-interpolated ${prop} instead of a hard minzoom cutoff`,
+      ).toBe(true)
+      // Resolve at the same zoom as the rest of the descent, not later.
+      const stops = opacity as unknown[]
+      expect(stops[stops.length - 2]).toBe(FADE_END)
+      expect(stops[stops.length - 1]).toBe(1)
+    }
+  })
+
+  // The style is anchored to the app's `.dark` tokens (README.md "Palette").
+  // Nothing at runtime reads those tokens — the style JSON is a hand-copied
+  // snapshot of them — so a future dark-theme repaint would leave the map
+  // silently stale with CI green. These are the anchors the style actually
+  // paints with; water is deliberately NOT in the list (a documented
+  // departure from the token palette, not a copy of it), and
+  // --muted-foreground is checked separately below because it is used by the
+  // attribution CSS rather than by the style.
+  const PALETTE_ANCHORS: Record<string, string> = {
+    '--background': '#0d0805',
+    '--foreground': '#eee7d9',
+    '--card': '#17100b',
+    '--border': '#221b15',
+  }
+
+  it('keeps its palette anchored to the .dark tokens in globals.css', () => {
+    const css = readFileSync(path.join(FRONTEND_ROOT, 'app/globals.css'), 'utf8')
+    const darkBlock = css.slice(css.indexOf('.dark {'))
+    const raw = readFileSync(STYLE_PATH, 'utf8').toLowerCase()
+    for (const [token, hex] of Object.entries(PALETTE_ANCHORS)) {
+      expect(
+        darkBlock,
+        `${token} moved in globals.css — re-derive the basemap palette (see basemap/README.md) and update this guard`,
+      ).toContain(`${token}: ${hex};`)
+      expect(raw, `${hex} (${token}) is no longer used by the style`).toContain(
+        hex,
+      )
+    }
+  })
+
+  it('keeps the attribution restyle anchored to the same dark tokens', () => {
+    const css = readFileSync(path.join(FRONTEND_ROOT, 'app/globals.css'), 'utf8')
+    const darkBlock = css.slice(css.indexOf('.dark {'))
+    // The map's chrome is deliberately static (the Atlas surface stays dark
+    // in both app themes), so these hexes are literals in the stylesheet and
+    // drift from the tokens they were picked from just as silently.
+    expect(darkBlock).toContain('--muted-foreground: #9c8c7c;')
+    const attrib = css.slice(css.indexOf('.maplibregl-ctrl-attrib'))
+    expect(attrib).toContain('#9c8c7c')
+  })
+
   it('credits OpenStreetMap on the vector source (ODbL requirement)', () => {
     const omt = style.sources.openmaptiles
     expect(omt).toBeDefined()

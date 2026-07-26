@@ -297,7 +297,8 @@
       "paint": {
         "line-color": "#292017",
         "line-width": 0.8,
-        "line-dasharray": [3, 2]
+        "line-dasharray": [3, 2],
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0, 7, 1]
       }
     },
     {
@@ -523,7 +524,8 @@
       "paint": {
         "text-color": "#eee7d9",
         "text-halo-color": "#0d0805",
-        "text-halo-width": 1.5
+        "text-halo-width": 1.5,
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 6.5, 0, 7, 1]
       }
     }
   ]

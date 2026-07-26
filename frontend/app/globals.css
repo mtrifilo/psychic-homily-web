@@ -255,9 +255,18 @@
  * lazy-loaded with the GlobeCanvas chunk AFTER this file, so equal
  * specificity would lose on order. */
 .maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
-  background: rgba(13, 8, 5, 0.72);
+  /* 0.85, not 0.72: the pill sits over a surface whose brightness varies a
+   * lot (Black Marble city lights at globe zoom, water/building fills at
+   * street zoom). At 0.72 enough of that showed through to move the
+   * effective background — and the contrast ratio of the credit text with
+   * it — unpredictably. This keeps the required OSM credit legible over
+   * every part of the map. */
+  background: rgba(13, 8, 5, 0.85);
   color: #9c8c7c;
   font-size: 11px;
+  /* Wrap rather than run along the bottom edge into the Drift button
+   * (bottom-center) if a future source adds another credit string. */
+  max-width: min(38vw, 420px);
 }
 .maplibregl-map .maplibregl-ctrl-attrib a {
   color: #b3a292;
