@@ -282,11 +282,10 @@ func NormalizeWindowHealPlaylistState(hadWindow bool, startsAt *time.Time, playl
 // can heal the window from a corrected schedule. A windowless episode with real plays is
 // left untouched, and so is one whose reopen window has closed — that give-up is final.
 //
-// The window is what terminates the re-open (PSY-1558). The original guard here —
-// ComputeEpisodeStatus(nil, nil, pending, now) != aired — could never fire, because a
-// windowless episode is classified aired unconditionally; it read as a bound but was
-// inoperative, which is how the re-open ran forever. airDate is the episode's air_date;
-// a zero value fails closed (no re-open) since an unknown air date cannot be bounded.
+// The window is the SOLE terminator here, and it replaced a guard that read as a bound
+// but could never fire — see RadioStrandedWindowlessReopenWindow (PSY-1558) before
+// loosening it. airDate is the episode's air_date; a zero value fails closed, since an
+// unknown air date cannot be bounded.
 func NormalizeStrandedWindowlessPlaylistState(airDate time.Time, startsAt *time.Time, playlistState string, attempts, playCount int, now time.Time) (state string, newAttempts int) {
 	if startsAt != nil || playCount != 0 {
 		return playlistState, attempts

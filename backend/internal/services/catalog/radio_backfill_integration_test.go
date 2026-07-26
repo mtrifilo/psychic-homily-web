@@ -271,9 +271,8 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_IncludesStrandedWindowlessUn
 }
 
 // PSY-1558: the same stranded windowless episode stops being a candidate once its
-// reopen window closes. This is the production loop — an episode whose playlist was
-// never published upstream sat inside the 7-day lookback being re-selected on every
-// cycle, ~12 times a day, indefinitely (one real episode was retried 105 times).
+// reopen window closes — the production loop, where an episode whose playlist was
+// never published upstream sat inside the 7-day lookback being re-selected forever.
 func (s *RadioSyncSuite) TestListBackfillCandidates_ExcludesStrandedWindowlessPastReopenWindow() {
 	now := time.Now()
 	staleAir := now.Add(-catalogm.RadioStrandedWindowlessReopenWindow - 24*time.Hour)
