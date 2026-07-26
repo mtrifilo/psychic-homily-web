@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -207,31 +208,56 @@ func TestMusicBrainzClient_DefaultsWhenNotInjected(t *testing.T) {
 // shared instance after PSY-1208). throttle() is exercised directly so the test
 // needs no network I/O: the first call returns immediately (zero-value lastReq),
 // the second must block until at least one rateLimit interval has elapsed.
+// Scope: SEQUENTIAL callers only. The process-wide guarantee under CONCURRENT
+// callers (discovery + enrichment contending on c.mu) is not covered here.
 func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	c := NewMusicBrainzClient()
 	// Shorten the interval so the test stays fast while still proving the
 	// throttle blocks for ~one interval; the production interval is mbRateLimit.
-	// 200ms (not, say, 50ms) gives the first-call lower-bound assertion below
-	// generous margin: the first throttle does only a lock + time.Now(), so the
-	// "< rateLimit" check would only flake if a loaded/GC-starved CI box stalled
-	// that for >200ms — far less likely than a tighter window.
+	// 200ms (not, say, 50ms) leaves the first-call "< rateLimit" check generous
+	// margin: that call does only a lock plus time.Now(), so it flakes only if
+	// the box stalls >200ms between the anchor and the check.
 	c.rateLimit = 200 * time.Millisecond
 
 	ctx := context.Background()
 
 	start := time.Now()
-	assert.NoError(t, c.throttle(ctx)) // first slot is free
-	firstElapsed := time.Since(start)
-	assert.Less(t, firstElapsed, c.rateLimit,
+	require.NoError(t, c.throttle(ctx)) // first slot is free
+	assert.Less(t, time.Since(start), c.rateLimit,
 		"first throttle should not block (lastReq is zero)")
 
-	start = time.Now()
-	assert.NoError(t, c.throttle(ctx)) // second must wait one interval
-	secondElapsed := time.Since(start)
-	// secondElapsed >= rateLimit is the robust direction: time.Timer can only
-	// fire late, never early, so this lower bound holds regardless of jitter.
-	assert.GreaterOrEqual(t, secondElapsed, c.rateLimit,
-		"second throttle must block for at least one rateLimit interval")
+	// firstSlot is the throttle's OWN record of the slot it just handed out, and
+	// it anchors both assertions below. Everything the throttle promises is
+	// relative to it: call 2 builds its timer from lastReq, so it cannot fire
+	// before firstSlot+rateLimit, and Go timers only ever fire late — the bound
+	// is sound by construction, not by margin. Restarting a stopwatch here
+	// instead would anchor strictly later than firstSlot, silently subtracting
+	// the difference from the measured wait; that gap was the original flake.
+	// The anchor assumes lastReq records the wall-clock time of the COMPLETED
+	// request; a throttle reformulated to store the next allowed slot instead
+	// must re-derive it. Both guards below pin the anchor to real time taken by
+	// the test, so a throttle that writes a synthetic lastReq cannot make the
+	// bounds vacuous. Unsynchronized reads are safe: this test is single-threaded.
+	firstSlot := c.lastReq
+	require.False(t, firstSlot.IsZero(), "anchor must be a real slot")
+	require.False(t, firstSlot.Before(start),
+		"slot record must be real wall time, not a synthetic slot")
+
+	require.NoError(t, c.throttle(ctx)) // second must wait one interval
+
+	// Both assertions are load-bearing; each catches a regression the other
+	// misses, and both were confirmed by mutating throttle():
+	//   - Wall time proves the call actually BLOCKED. Without it, a throttle
+	//     that advances lastReq to the next slot without sleeping passes in
+	//     0.00s — every value it compares is one the throttle wrote itself.
+	//   - The slot gap proves the wait is measured from the PREVIOUS slot.
+	//     Without it, a throttle that records lastReq BEFORE waiting rather than
+	//     after still blocks the full interval here, so wall time is satisfied,
+	//     while its slots drift closer together under sustained load.
+	assert.GreaterOrEqual(t, time.Since(firstSlot), c.rateLimit,
+		"second throttle must actually block until the slot opens")
+	assert.GreaterOrEqual(t, c.lastReq.Sub(firstSlot), c.rateLimit,
+		"successive throttle slots must be spaced at least one rateLimit apart")
 }
 
 // TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts the
