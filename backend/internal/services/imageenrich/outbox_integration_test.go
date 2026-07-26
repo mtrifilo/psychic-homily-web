@@ -226,6 +226,33 @@ func (s *ImageEnrichOutboxTestSuite) TestPruneRemovesAgedTerminalRows() {
 
 // TestCanceledEnrichRequeuesWithoutBurningAttempt: a shutdown/cancellation mid-job
 // requeues the row to pending and does NOT count as a provider attempt.
+// TestSlowEnrichStillFinalizes pins PSY-1569: the finalize budget covers the
+// finalize WRITES, not the enrichment. Built before enrich (as it originally was),
+// a batch of provider lookups outruns it and every finalize dies with "context
+// deadline exceeded" — the row strands in `processing` and reclaimStale burns it to
+// `failed`. On production that stranded 1017 of 1359 rows for work that succeeded.
+//
+// The enricher here succeeds but takes longer than the budget, so the ONLY way this
+// row reaches `done` is a budget whose clock starts after enrich returns.
+func (s *ImageEnrichOutboxTestSuite) TestSlowEnrichStillFinalizes() {
+	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
+
+	p, engine := s.newPoller(50)
+	p.finalizeBudget = 50 * time.Millisecond
+	engine.EnrichPhotos = func(_ context.Context, _ []uint) error {
+		time.Sleep(2 * p.finalizeBudget) // enrichment outlasts the finalize budget
+		return nil
+	}
+
+	p.RunNow(context.Background())
+
+	j := s.reload(job.ID)
+	s.Equal(catalogm.ImageEnrichStatusDone, j.Status,
+		"a successful but slow enrich must still finalize; stuck in `processing` means the budget started too early")
+	s.Nil(j.LastError, "success carries no error")
+	s.NotNil(j.ProcessedAt, "markDone stamps processed_at")
+}
+
 func (s *ImageEnrichOutboxTestSuite) TestCanceledEnrichRequeuesWithoutBurningAttempt() {
 	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
 
