@@ -47,6 +47,7 @@
     "dompurify": "^3.4.5",
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.554.0",
+    "maplibre-gl": "6.0.0",
     "marked": "^18.0.2",
     "next": "^16.1.4",
     "next-mdx-remote": "^6.0.0",
