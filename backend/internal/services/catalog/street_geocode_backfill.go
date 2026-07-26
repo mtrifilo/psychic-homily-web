@@ -85,7 +85,14 @@ type StreetGeocodeReport struct {
 // coordinates for those whose address key doesn't match their stored geocode.
 // Idempotent: a second run over unchanged data performs no lookups and no
 // writes.
-func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts StreetGeocodeOptions) (*StreetGeocodeReport, error) {
+//
+// ctx cancellation stops the run between venues (and aborts an in-flight
+// lookup — the Nominatim client is context-aware down to its limiter wait),
+// returning the PARTIAL report alongside ctx.Err() so a caller shutting down
+// mid-run can still log what was accomplished. The scheduled sweep
+// (StreetGeocodeSweep) relies on this so server shutdown never waits behind
+// a slow Nominatim round trip.
+func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.AddressGeocoder, opts StreetGeocodeOptions) (*StreetGeocodeReport, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -105,6 +112,12 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 	report := &StreetGeocodeReport{PrecisionCounts: make(map[string]int)}
 	geocoded := 0
 	for i := range venues {
+		// Between-venue cancellation gate: without it, a canceled ctx would
+		// fail every remaining lookup instantly and flood report.Errors with
+		// one context error per venue instead of stopping.
+		if err := ctx.Err(); err != nil {
+			return report, fmt.Errorf("backfill canceled after %d of %d venues: %w", report.Scanned, len(venues), err)
+		}
 		v := &venues[i]
 		report.Scanned++
 		q := streetGeocodeQuery(v)
@@ -145,7 +158,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		}
 		geocoded++
 
-		res, ok, err := geocodeWithTimeout(ag, q, timeout)
+		res, ok, err := geocodeWithTimeout(ctx, ag, q, timeout)
 		if err != nil {
 			c := change(v, StreetGeocodeError, key)
 			c.Err = err.Error()
@@ -196,8 +209,11 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 	return report, nil
 }
 
-func geocodeWithTimeout(ag geo.AddressGeocoder, q geo.AddressQuery, timeout time.Duration) (geo.AddressResult, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// geocodeWithTimeout bounds a single venue's lookup (limiter wait + retries
+// included) while inheriting the run ctx, so a canceled run aborts the
+// in-flight lookup immediately rather than riding out the per-venue timeout.
+func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, timeout time.Duration) (geo.AddressResult, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return ag.GeocodeAddress(ctx, q)
 }

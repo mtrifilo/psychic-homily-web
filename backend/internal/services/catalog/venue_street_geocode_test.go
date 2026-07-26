@@ -294,7 +294,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_DryRunGeocodesButWri
 	seeded := suite.seedVenueRow("Backfill Dry", "130 N Central Ave")
 	stub := hitStub(33.448227, -112.073069, geo.PrecisionRooftop)
 
-	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{DryRun: true})
+	report, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{DryRun: true})
 	suite.Require().NoError(err)
 	suite.Equal(1, report.Scanned)
 	suite.Equal(1, report.Set)
@@ -313,7 +313,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_ConfirmWritesAndSeco
 	seeded := suite.seedVenueRow("Backfill Live", "130 N Central Ave")
 	stub := hitStub(33.448227, -112.073069, geo.PrecisionRooftop)
 
-	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	report, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report.Set)
 
@@ -324,7 +324,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_ConfirmWritesAndSeco
 	suite.Equal("130 N Central Ave, Phoenix, AZ", *v.GeocodedAddress)
 
 	// Idempotent: a clean second run makes no network calls and no changes.
-	report2, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	report2, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report2.Unchanged)
 	suite.Equal(0, report2.Set)
@@ -341,7 +341,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_MissClearsStaleGeoco
 	}).Error)
 
 	stub := &stubAddressGeocoder{ok: false}
-	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	report, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report.Missed)
 	suite.Equal(1, report.Cleared, "clearing stale coords on a miss must be disclosed in the report")
@@ -358,7 +358,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_MissClearsStaleGeoco
 
 	// A second run must not re-query the recorded miss — this is what lets
 	// --limit runs progress past permanently unresolvable addresses.
-	report2, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	report2, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report2.Unchanged)
 	suite.Equal(0, report2.Missed)
@@ -373,7 +373,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_AddressRemovedCleare
 	}).Error)
 
 	stub := hitStub(1, 2, geo.PrecisionRooftop)
-	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	report, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report.Cleared)
 	suite.Equal(0, stub.calls, "an address-less venue must not hit the network")
@@ -389,7 +389,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_LimitCapsNetworkCall
 	suite.seedVenueRow("Limit C", "300 Third St")
 
 	stub := hitStub(33.0, -112.0, geo.PrecisionRooftop)
-	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{Limit: 2})
+	report, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{Limit: 2})
 	suite.Require().NoError(err)
 	suite.Equal(2, stub.calls)
 	suite.Equal(2, report.Set)
@@ -400,7 +400,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_ErrorReportedRowLeft
 	seeded := suite.seedVenueRow("Backfill Error", "130 N Central Ave")
 	stub := &stubAddressGeocoder{err: errors.New("nominatim: status 503")}
 
-	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	report, err := BackfillVenueStreetGeocodes(context.Background(), suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err, "per-row errors must not abort the run")
 	suite.Require().Len(report.Errors, 1)
 	suite.Require().Len(report.Changes, 1)

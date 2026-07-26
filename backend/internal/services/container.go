@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/enrich"
 	exploresvc "psychic-homily-backend/internal/services/explore"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/imageenrich"
 	"psychic-homily-backend/internal/services/mbadapter"
 	"psychic-homily-backend/internal/services/notification"
@@ -104,6 +105,7 @@ type ServiceContainer struct {
 	ArtistDiscographySweep *discography.ArtistDiscographySweep
 	ArtistLinksSweep       *enrich.ArtistLinksSweep
 	ReleaseLinksSweep      *enrich.ReleaseLinksSweep
+	StreetGeocodeSweep     *catalog.StreetGeocodeSweep
 	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
 	AutoPromotion          *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
@@ -226,6 +228,12 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	entityRequestSvc := community.NewEntityRequestService(database)
 	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc, festivalSvc, showSvc)
 
+	// PSY-1544: scheduled street-geocode reconciler. MUST take the SAME
+	// geo.DefaultNominatim() singleton the venue service's inline geocoding
+	// uses (NewVenueService wires it) — the OSM 1 req/s budget lives on the
+	// client, so a second instance would double the process's request rate.
+	streetGeocodeSweep := catalog.NewStreetGeocodeSweep(database, geo.DefaultNominatim())
+
 	// PSY-1316: release-links sweep (Phase A). Same shared mbClient (PSY-1208);
 	// auto-applies fill-when-empty via ReleaseService.AddExternalLinkWithSource
 	// (source=mb_backfill).
@@ -336,6 +344,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ArtistDiscographySweep: artistDiscographySweep,
 		ArtistLinksSweep:       artistLinksSweep,
 		ReleaseLinksSweep:      releaseLinksSweep,
+		StreetGeocodeSweep:     streetGeocodeSweep,
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),

@@ -28,6 +28,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -76,7 +77,7 @@ func main() {
 	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n\n",
 		os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
 
-	report, err := catalog.BackfillVenueStreetGeocodes(database, geo.DefaultNominatim(), catalog.StreetGeocodeOptions{
+	report, err := catalog.BackfillVenueStreetGeocodes(context.Background(), database, geo.DefaultNominatim(), catalog.StreetGeocodeOptions{
 		DryRun: !confirm,
 		Limit:  limit,
 	})
