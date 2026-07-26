@@ -166,7 +166,12 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: blob: https:",
               "font-src 'self'",
               "worker-src 'self' blob:",
-              "connect-src 'self' https://api.psychichomily.com https://stage.api.psychichomily.com https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com",
+              // gibs.earthdata.nasa.gov: the Atlas globe's night-earth raster
+              // tiles (NASA GIBS Black Marble). MapLibre fetches tiles via
+              // fetch(), NOT <img>, so the tile host belongs in connect-src —
+              // the img-src https: wildcard above does not cover it
+              // (verified in the MapLibre spike).
+              "connect-src 'self' https://api.psychichomily.com https://stage.api.psychichomily.com https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com https://gibs.earthdata.nasa.gov",
               "frame-src https://open.spotify.com https://bandcamp.com https://w.soundcloud.com https://vercel.live https://maps.google.com https://www.google.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",
