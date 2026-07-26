@@ -107,14 +107,12 @@ export function VenueRail({
           </FilterChip>
 
           {/* A native select styled as a chip: the menu is a list of the
-              families actually present, so every option leads somewhere. */}
+              families actually present, so every option leads somewhere.
+              The select comes FIRST in the DOM (and sits on top via z-10) so
+              the visible chip can be its Tailwind `peer` — the select itself
+              is transparent, so its own focus ring is invisible and a
+              keyboard user would otherwise get no focus indicator at all. */}
           <span className="relative inline-flex">
-            <span
-              aria-hidden="true"
-              className={chipClass(filters.genreFamily !== null)}
-            >
-              {activeGenreLabel} ⌄
-            </span>
             <select
               aria-label="Filter venues by genre"
               value={filters.genreFamily ?? ''}
@@ -124,7 +122,7 @@ export function VenueRail({
                   genreFamily: e.target.value === '' ? null : e.target.value,
                 })
               }
-              className="absolute inset-0 cursor-pointer opacity-0"
+              className="peer absolute inset-0 z-10 cursor-pointer opacity-0"
             >
               <option value="">All genres</option>
               {genreFamilies.map((f) => (
@@ -133,6 +131,12 @@ export function VenueRail({
                 </option>
               ))}
             </select>
+            <span
+              aria-hidden="true"
+              className={`${chipClass(filters.genreFamily !== null)} peer-focus-visible:ring-2 peer-focus-visible:ring-ring`}
+            >
+              {activeGenreLabel} ⌄
+            </span>
           </span>
 
           {/* Disabled placeholders, exactly as the mock draws them. "All ages"
@@ -183,7 +187,10 @@ export function VenueRail({
           data-testid="rail-provenance"
           className="font-mono text-[11px] leading-4 text-muted-foreground"
         >
-          <span className="text-muted-foreground/70">DATA</span>{' '}
+          {/* Full-strength muted, not a dimmed variant: at 11px an opacity
+              step lands under the 4.5:1 contrast floor. The line's hierarchy
+              comes from the VALUE being brighter, not the label dimmer. */}
+          <span className="text-muted-foreground">DATA</span>{' '}
           {updatedAt ? `updated ${formatTimeAgo(updatedAt)}` : 'no update recorded'}
         </p>
         <button
@@ -270,15 +277,17 @@ function VenueRow({
       </div>
       {nextDate ? (
         <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
-          <span className="text-muted-foreground/70">NEXT</span>{' '}
+          {/* See the DATA label: full-strength muted for contrast; the date
+              carries the emphasis by being brighter. */}
+          <span className="text-muted-foreground">NEXT</span>{' '}
           <span className="text-foreground/70">{nextDate}</span>
           {bill && <> · {bill}</>}
           {genre && <> · {genre}</>}
         </p>
       ) : (
-        <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground/70">
+        <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
           nothing on the calendar
-          {genre && <span className="text-muted-foreground"> · {genre}</span>}
+          {genre && <> · {genre}</>}
         </p>
       )}
     </button>

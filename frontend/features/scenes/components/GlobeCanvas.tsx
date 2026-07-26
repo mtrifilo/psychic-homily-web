@@ -1105,15 +1105,22 @@ export default function GlobeCanvas({
       />
       {/* City-view status chip (PSY-1539). Top-LEFT of the map pane, which the
           rail sits beside rather than over, so it never collides with the
-          bottom-left attribution control. aria-live so a screen-reader user
-          hears the city hand-off the sighted user sees. */}
+          bottom-left attribution control.
+          The live region is the always-rendered WRAPPER, not the pill: a
+          region that appears at the same moment its text does may never be
+          tracked, so the announcement is lost. The pill inside is what
+          shows and hides. */}
       <div
-        ref={statusChipRef}
-        data-testid="atlas-status-chip"
         aria-live="polite"
-        className="pointer-events-none absolute left-4 top-4 z-10 rounded border border-border bg-background/90 px-2.5 py-1 font-mono text-[11px] tracking-wide text-muted-foreground backdrop-blur"
-        style={{ display: 'none' }}
-      />
+        className="pointer-events-none absolute left-4 top-4 z-10"
+      >
+        <div
+          ref={statusChipRef}
+          data-testid="atlas-status-chip"
+          className="rounded border border-border bg-background/90 px-2.5 py-1 font-mono text-[11px] tracking-wide text-muted-foreground backdrop-blur"
+          style={{ display: 'none' }}
+        />
+      </div>
       {/* Venue hover tooltip. Three fixed lines populated by textContent —
           the name is contributor-editable, so no innerHTML anywhere here. */}
       <div

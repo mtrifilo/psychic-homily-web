@@ -464,6 +464,12 @@ type VenueListFilters struct {
 	// TagMatchAny switches the tag filter to OR semantics. When false
 	// (default) the venues must have every tag in TagSlugs (AND).
 	TagMatchAny bool
+	// IncludeRailFields opts in to the Atlas city-view payload
+	// (VenueWithShowCountResponse's next-show / this-week / dominant-genre
+	// fields). OFF by default and deliberately explicit: filling it costs
+	// three extra batched aggregations, and the venue browse page — the
+	// endpoint's other caller — renders none of those fields.
+	IncludeRailFields bool
 }
 
 // VenueShowResponse represents a show in the venue shows endpoint

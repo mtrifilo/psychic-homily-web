@@ -91,7 +91,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NextS
 	suite.createRailShow(venue.ID, user.ID, "Last month", now.AddDate(0, 0, -10), "Old Band")
 
 	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
-		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
 	got := suite.findVenueResponse(venues, "Rail Next Show")
@@ -115,7 +115,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ThisW
 	suite.createRailShow(venue.ID, user.ID, "In three weeks", now.AddDate(0, 0, 21))
 
 	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
-		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
 	got := suite.findVenueResponse(venues, "Rail This Week")
@@ -129,7 +129,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NoUpc
 	suite.createTestVenue("Rail Quiet Venue", "Austin", "TX", true)
 
 	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
-		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
 	got := suite.findVenueResponse(venues, "Rail Quiet Venue")
@@ -138,6 +138,52 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NoUpc
 	suite.Equal("", got.NextShowDate)
 	suite.Empty(got.NextShowArtists)
 	suite.Equal("", got.DominantGenre)
+}
+
+// TestGetVenuesWithShowCounts_RailFieldsAreOptIn pins the cost gate: the venue
+// browse page calls this same method and renders none of the rail fields, so
+// without the opt-in it must not pay for the three aggregations that fill them.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailFieldsAreOptIn() {
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Rail Opt In", "Austin", "TX", true)
+	suite.createRailShow(venue.ID, user.ID, "Soon", time.Now().UTC().AddDate(0, 0, 2), "A Band")
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+	suite.Require().NoError(err)
+
+	got := suite.findVenueResponse(venues, "Rail Opt In")
+	suite.Equal(1, got.UpcomingShowCount, "the count itself is not part of the opt-in")
+	suite.Equal(0, got.ShowsThisWeek)
+	suite.Equal("", got.NextShowDate)
+	suite.Empty(got.NextShowArtists)
+	suite.Equal("", got.DominantGenre)
+}
+
+// TestGetVenuesWithShowCounts_DominantGenreIgnoresAncientHistory pins the genre
+// window: a venue whose only tagged bookings predate it reads as untinted, so
+// the rail describes what a venue books NOW.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_DominantGenreIgnoresAncientHistory() {
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Rail Ancient Venue", "Austin", "TX", true)
+	punkTag := suite.createGenreTag("rail-ancient-punk", "punk")
+	longAgo := time.Now().UTC().AddDate(0, -(venueGenreWindowMonths + 6), 0)
+
+	for i := 0; i < 6; i++ {
+		show := suite.createRailShow(venue.ID, user.ID, "", longAgo.AddDate(0, 0, i),
+			fmt.Sprintf("Rail Ancient Band %d", i))
+		var artistID uint
+		suite.Require().NoError(suite.db.Raw(
+			`SELECT artist_id FROM show_artists WHERE show_id = ?`, show.ID).Scan(&artistID).Error)
+		suite.tagArtist(artistID, punkTag, user.ID)
+	}
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
+	suite.Require().NoError(err)
+
+	got := suite.findVenueResponse(venues, "Rail Ancient Venue")
+	suite.Equal("", got.DominantGenre, "bookings outside the window must not tint the rail")
 }
 
 // TestGetVenuesWithShowCounts_DominantGenre proves the rail's genre column uses
@@ -159,7 +205,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Domin
 	}
 
 	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
-		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
 	got := suite.findVenueResponse(venues, "Rail Punk Venue")
@@ -182,7 +228,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Domin
 	suite.tagArtist(artistID, punkTag, user.ID)
 
 	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
-		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
 	got := suite.findVenueResponse(venues, "Rail Thin Venue")
@@ -207,7 +253,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Unver
 		Updates(map[string]any{"street_latitude": lat, "street_longitude": lng}).Error)
 
 	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
-		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
 	for _, v := range venues {

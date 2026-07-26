@@ -67,6 +67,9 @@ type ListVenuesRequest struct {
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+	// Opt-in because filling these fields costs three extra batched
+	// aggregations per page. Only the Atlas city-view rail renders them.
+	IncludeRail bool `query:"include_rail" doc:"Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre"`
 }
 
 // ListVenuesResponse represents the response for the list venues endpoint
@@ -109,6 +112,7 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 		filters.TagSlugs = tf.TagSlugs
 		filters.TagMatchAny = tf.MatchAny
 	}
+	filters.IncludeRailFields = req.IncludeRail
 
 	limit := req.Limit
 	if limit == 0 {

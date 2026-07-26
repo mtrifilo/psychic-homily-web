@@ -135,20 +135,31 @@ func (s *VenueService) venueNextShows(venueIDs []uint, now time.Time) (map[uint]
 	return out, nil
 }
 
+// venueGenreWindowMonths bounds how far back the dominant-genre mass reaches.
+//
+// The window exists for two reasons at once. It answers the question the rail
+// actually asks — "what does this venue book?", present tense, not what it
+// booked when it had a different owner — and it caps the query: an all-time
+// mass would grow without limit as the catalogue ages, on a join across a
+// whole city's venues (a code-review finding). Two years is wide enough to
+// clear the confident-dominance floor that an upcoming-only slice would miss
+// on most venues, and narrow enough that a venue that changed its booking
+// identity reads as what it is now.
+//
+// Consequence to know about: the venue page's own genre profile
+// (GetVenueGenreProfile) has no window, so a venue with a long and changed
+// history can show a different top genre there than the family the rail
+// tints. That is two questions at two time scales, not a bug.
+const venueGenreWindowMonths = 24
+
 // venueDominantGenres returns, per venue ID, the genre family that confidently
-// dominates the venue's bookings — or no entry when none does.
+// dominates the venue's recent bookings — or no entry when none does.
 //
 // The dominance RULE is shared with scenes verbatim (dominantGenreFamily): one
 // confident-share test, one set of family keys, one place to retune. Only the
-// MASS differs, and deliberately: it is every artist the venue has ever hosted
-// on an approved show, exactly the mass GetVenueGenreProfile already reports on
-// the venue page. Two reasons over the upcoming-only slice — (a) most venues
-// have fewer distinct tagged artists on their upcoming bills than the
-// confident-dominance floor requires, so an upcoming-only mass would leave the
-// rail's genre column blank on most rows, and (b) scoping it to the same mass
-// the venue page uses means the rail and the venue's own genre profile can
-// never disagree about what the venue books.
-func (s *VenueService) venueDominantGenres(venueIDs []uint) (map[uint]string, error) {
+// MASS is venue-scoped: the distinct tagged artists on the venue's approved
+// shows within venueGenreWindowMonths, upcoming ones included.
+func (s *VenueService) venueDominantGenres(venueIDs []uint, now time.Time) (map[uint]string, error) {
 	type row struct {
 		VenueID uint   `gorm:"column:venue_id"`
 		Slug    string `gorm:"column:slug"`
@@ -162,9 +173,9 @@ func (s *VenueService) venueDominantGenres(venueIDs []uint) (map[uint]string, er
 		JOIN shows s ON s.id = sa.show_id
 		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
 		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
-		WHERE sv.venue_id IN ? AND s.status = ?
+		WHERE sv.venue_id IN ? AND s.status = ? AND s.event_date >= ?
 		GROUP BY sv.venue_id, t.slug
-	`, venueIDs, catalogm.ShowStatusApproved).Scan(&rows).Error
+	`, venueIDs, catalogm.ShowStatusApproved, now.AddDate(0, -venueGenreWindowMonths, 0)).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to aggregate venue genres: %w", err)
 	}
@@ -217,7 +228,7 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 		slog.Default().Error("venue next-show lookup failed; rail renders without next dates", "error", err)
 		nextShows = nil
 	}
-	genres, err := s.venueDominantGenres(venueIDs)
+	genres, err := s.venueDominantGenres(venueIDs, now)
 	if err != nil {
 		slog.Default().Error("venue genre aggregation failed; rail renders untinted", "error", err)
 		genres = nil

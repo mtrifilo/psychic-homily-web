@@ -178,14 +178,31 @@ export function AtlasGlobe() {
   // venues (a Tempe room under the Phoenix scene) are therefore NOT listed —
   // the venues endpoint filters on the literal city, and widening that to a
   // metro's member cities is its own change.
-  const { data: cityVenueData, isLoading: venuesLoading } = useVenues({
+  //
+  // Gated on there BEING a city: with city/state undefined this hook asks for
+  // an unscoped page of the whole venue catalogue, which the globe view has no
+  // use for and which carries the rail's extra aggregations.
+  const {
+    data: cityVenueData,
+    isFetching: venuesFetching,
+    isPlaceholderData,
+  } = useVenues({
     city: cityScene?.city,
     state: cityScene?.state,
     limit: CITY_VENUE_FETCH_LIMIT,
+    includeRail: true,
+    enabled: cityScene !== null,
   })
-  const cityVenues = cityScene
-    ? (cityVenueData?.venues ?? EMPTY_VENUES)
-    : EMPTY_VENUES
+  // isPlaceholderData is the guard that matters here. The hook keeps previous
+  // data across a key change, which is right for a paginated browse page and
+  // WRONG across a city hand-off: without this check the rail and the pins
+  // would show the PREVIOUS city's venues, unlabelled as stale, until the new
+  // fetch lands. Treat carried-over data as no data for this city.
+  const cityVenues =
+    cityScene && !isPlaceholderData
+      ? (cityVenueData?.venues ?? EMPTY_VENUES)
+      : EMPTY_VENUES
+  const venuesLoading = venuesFetching || isPlaceholderData
 
   // "N local artists" is genuinely a scene-level stat (the metro roster), so
   // it comes from the scene detail endpoint rather than being derived from a
