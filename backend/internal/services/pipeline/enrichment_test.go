@@ -233,9 +233,15 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	// is sound by construction, not by margin. Restarting a stopwatch here
 	// instead would anchor strictly later than firstSlot, silently subtracting
 	// the difference from the measured wait; that gap was the original flake.
-	// Unsynchronized reads are safe: this test is single-threaded.
+	// The anchor assumes lastReq records the wall-clock time of the COMPLETED
+	// request; a throttle reformulated to store the next allowed slot instead
+	// must re-derive it. Both guards below pin the anchor to real time taken by
+	// the test, so a throttle that writes a synthetic lastReq cannot make the
+	// bounds vacuous. Unsynchronized reads are safe: this test is single-threaded.
 	firstSlot := c.lastReq
 	require.False(t, firstSlot.IsZero(), "anchor must be a real slot")
+	require.False(t, firstSlot.Before(start),
+		"slot record must be real wall time, not a synthetic slot")
 
 	require.NoError(t, c.throttle(ctx)) // second must wait one interval
 
