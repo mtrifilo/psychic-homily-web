@@ -43,6 +43,15 @@ func NewVenueService(database *gorm.DB) *VenueService {
 	}
 }
 
+// WithAddressGeocoder overrides the network street-address geocoder; nil
+// disables inline street geocoding entirely. For tests and tools that must
+// never reach the public Nominatim API (the default constructor wires the
+// live client).
+func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService {
+	s.addressGeocoder = ag
+	return s
+}
+
 // applyGeocoding resolves and sets latitude/longitude/timezone AND the CBSA metro
 // on a venue from its city/state/country via the offline geocoder (in-memory, no
 // network, never errors). A miss leaves the fields nil so display falls back to
@@ -74,23 +83,42 @@ func streetGeocodeQuery(v *catalogm.Venue) geo.AddressQuery {
 	}
 }
 
-// streetGeocodeFresh reports whether the venue's stored street geocode was
-// produced from its CURRENT address key. False means either no geocode exists
-// or the address changed through a path that doesn't re-geocode inline (e.g. a
-// contribution edit) — stale coordinates must never be served.
+// Two DISTINCT predicates govern the street-geocode columns — don't conflate
+// them:
+//
+//   - streetGeocodeAttempted: "this exact address key was already looked up"
+//     (hit OR recorded miss). Writers use it to skip redundant network calls;
+//     a clean miss records the key with NULL coords (miss memo) so unresolvable
+//     addresses aren't re-queried forever.
+//   - streetGeocodeFresh: "there is a servable HIT for the current key" —
+//     attempted AND coordinates present. The API read gate uses this; a miss
+//     memo or a stale key never serves coordinates.
+
+// streetGeocodeAttempted reports whether the venue's CURRENT address key has
+// already been geocoded (successfully or as a recorded miss).
+func streetGeocodeAttempted(v *catalogm.Venue) bool {
+	return v.GeocodedAddress != nil && *v.GeocodedAddress == streetGeocodeQuery(v).Key()
+}
+
+// streetGeocodeFresh reports whether the venue's stored street coordinates
+// were produced from its CURRENT address key. False means no servable geocode
+// exists — never looked up, a recorded miss, or the address changed through a
+// path that doesn't re-geocode inline (e.g. a contribution edit). Stale
+// coordinates must never be served.
 func streetGeocodeFresh(v *catalogm.Venue) bool {
-	return v.GeocodedAddress != nil &&
-		v.StreetLatitude != nil && v.StreetLongitude != nil &&
-		*v.GeocodedAddress == streetGeocodeQuery(v).Key()
+	return streetGeocodeAttempted(v) &&
+		v.StreetLatitude != nil && v.StreetLongitude != nil
 }
 
 // applyStreetGeocoding resolves and sets the venue's street-level coordinate
 // fields from its address via the network AddressGeocoder (PSY-1536).
 // Log-and-continue by contract: a failure or miss must NEVER block or fail the
-// venue write — the street fields are simply left NULL (never stale: they are
-// cleared before the lookup) and the geocode-venue-addresses backfill CLI
-// retries later. An unchanged address key short-circuits without a network
-// call.
+// venue write — the coordinates are simply left NULL (never stale: they are
+// cleared before the lookup). A transport/service error leaves the key NULL
+// too, so a later run (or the manually-run geocode-venue-addresses backfill)
+// retries; a CLEAN miss records the key as a miss memo so the same
+// unresolvable address isn't re-queried on every touch. An unchanged address
+// key (streetGeocodeAttempted) short-circuits without a network call.
 func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
 	q := streetGeocodeQuery(v)
 	if strings.TrimSpace(q.Street) == "" {
@@ -99,8 +127,8 @@ func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
 		return
 	}
 	key := q.Key()
-	if v.GeocodedAddress != nil && *v.GeocodedAddress == key {
-		return // already geocoded from this exact address — keep it
+	if streetGeocodeAttempted(v) {
+		return // this exact address was already looked up — keep the outcome
 	}
 	// Clear first so an error/miss below can never leave coordinates that
 	// belong to a previous address.
@@ -112,12 +140,16 @@ func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
 	defer cancel()
 	res, ok, err := s.addressGeocoder.GeocodeAddress(ctx, q)
 	if err != nil {
+		// Deliberately NOT logging the address — unverified submissions may be
+		// private home addresses, and app logs have broader access/retention
+		// than the DB. Name+city is enough to find the row.
 		slog.Warn("street geocoding failed; continuing without street coords",
-			"venue", v.Name, "address", key, "error", err)
+			"venue", v.Name, "city", v.City, "state", v.State, "error", err)
 		return
 	}
 	if !ok {
-		return // clean miss — the backfill CLI will retry on a future run
+		v.GeocodedAddress = &key // miss memo: don't re-query this exact key
+		return
 	}
 	v.StreetLatitude = &res.Latitude
 	v.StreetLongitude = &res.Longitude

@@ -189,6 +189,39 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_GeocodeFailureWri
 	suite.Nil(v.GeocodedAddress)
 }
 
+func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_CleanMissRecordsMissMemo() {
+	stub := hitStub(33.448227, -112.073069, geo.PrecisionRooftop)
+	svc := suite.streetService(stub)
+	created, err := svc.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Miss Memo", City: "Phoenix", State: "AZ", Address: stringPtr("130 N Central Ave"),
+	}, true)
+	suite.Require().NoError(err)
+	suite.Equal(1, stub.calls)
+
+	// Address changes to something Nominatim can't resolve (clean miss).
+	stub.ok = false
+	_, err = svc.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{Address: stringPtr("ask a punk")})
+	suite.Require().NoError(err)
+	suite.Equal(2, stub.calls)
+
+	v := suite.loadVenue(created.ID)
+	suite.Nil(v.StreetLatitude, "no coords may survive the address change")
+	suite.Nil(v.StreetLongitude)
+	suite.Nil(v.GeocodePrecision)
+	suite.Require().NotNil(v.GeocodedAddress, "clean miss must record the attempted key")
+	suite.Equal("ask a punk, Phoenix, AZ", *v.GeocodedAddress)
+
+	// The miss memo is never served…
+	got, err := svc.GetVenue(created.ID)
+	suite.Require().NoError(err)
+	suite.Nil(got.StreetLatitude)
+
+	// …and stops the same unresolvable key from being re-queried.
+	_, err = svc.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{Address: stringPtr("ask a punk")})
+	suite.Require().NoError(err)
+	suite.Equal(2, stub.calls, "a recorded miss must not be re-queried for the same key")
+}
+
 // --- Privacy gate + freshness gate (buildVenueResponse) ---
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_UnverifiedHidesStreetCoords() {
@@ -311,10 +344,25 @@ func (suite *VenueServiceIntegrationTestSuite) TestBackfill_MissClearsStaleGeoco
 	report, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report.Missed)
+	suite.Equal(1, report.Cleared, "clearing stale coords on a miss must be disclosed in the report")
+	suite.Require().Len(report.Changes, 1)
+	suite.Equal(StreetGeocodeMissCleared, report.Changes[0].Action)
 
 	v := suite.loadVenue(seeded.ID)
 	suite.Nil(v.StreetLatitude, "a stored geocode for a different address must not survive a miss")
-	suite.Nil(v.GeocodedAddress)
+	suite.Nil(v.StreetLongitude)
+	suite.Nil(v.GeocodePrecision)
+	// Miss memo: the attempted key is recorded so future runs skip it.
+	suite.Require().NotNil(v.GeocodedAddress)
+	suite.Equal("999 Unresolvable Ln, Phoenix, AZ", *v.GeocodedAddress)
+
+	// A second run must not re-query the recorded miss — this is what lets
+	// --limit runs progress past permanently unresolvable addresses.
+	report2, err := BackfillVenueStreetGeocodes(suite.db, stub, StreetGeocodeOptions{})
+	suite.Require().NoError(err)
+	suite.Equal(1, report2.Unchanged)
+	suite.Equal(0, report2.Missed)
+	suite.Equal(1, stub.calls, "a recorded miss must not hit the network again")
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestBackfill_AddressRemovedCleared() {

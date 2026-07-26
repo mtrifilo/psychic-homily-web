@@ -20,8 +20,10 @@ import (
 // else — bulk creators (FindOrCreateVenue, data-sync import), contribution
 // edits (which clear the fields on an address change), and venues that
 // predate the feature. A venue whose stored geocoded_address already equals
-// its current address key is skipped without a network call, so a clean
-// second run makes zero requests.
+// its current address key is skipped without a network call — hits AND
+// recorded misses alike — so a second run over unchanged data makes zero
+// requests and a --limit run always makes forward progress. Only
+// transport/service ERRORS are left unrecorded (retried next run).
 
 // StreetGeocodeOptions configures a backfill run.
 type StreetGeocodeOptions struct {
@@ -42,11 +44,12 @@ const defaultStreetGeocodeBackfillTimeout = 30 * time.Second
 // Venues that needed nothing (stored key matches, or no address and nothing
 // stored) only bump the Unchanged/NoAddress counters — no Change row.
 const (
-	StreetGeocodeSet     = "set"     // fields were NULL, now populated
-	StreetGeocodeUpdated = "updated" // address changed since the last geocode; re-resolved
-	StreetGeocodeMiss    = "miss"    // address didn't resolve; any stale fields cleared
-	StreetGeocodeCleared = "cleared" // address removed/blank; stale fields cleared
-	StreetGeocodeError   = "error"   // lookup failed (transport/service); left as-is
+	StreetGeocodeSet         = "set"          // coords were NULL, now populated
+	StreetGeocodeUpdated     = "updated"      // address changed since the last geocode; re-resolved
+	StreetGeocodeMiss        = "miss"         // address didn't resolve; miss memo recorded
+	StreetGeocodeMissCleared = "miss_cleared" // as miss, AND stale coords from a previous address were cleared
+	StreetGeocodeCleared     = "cleared"      // address removed/blank; stale fields cleared
+	StreetGeocodeError       = "error"        // lookup failed (transport/service); left as-is
 )
 
 // StreetGeocodeChange is one venue's outcome in the report.
@@ -107,11 +110,13 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		q := streetGeocodeQuery(v)
 		key := q.Key()
 
-		hasStored := v.StreetLatitude != nil || v.StreetLongitude != nil ||
-			v.GeocodePrecision != nil || v.GeocodedAddress != nil
+		// hasCoords: stale street coordinates exist (from a previous address).
+		// hasAny: anything at all is stored, including a bare miss memo.
+		hasCoords := v.StreetLatitude != nil || v.StreetLongitude != nil
+		hasAny := hasCoords || v.GeocodePrecision != nil || v.GeocodedAddress != nil
 
 		if q.Street == "" {
-			if hasStored {
+			if hasAny {
 				// Address removed after a geocode was stored — clear.
 				report.Cleared++
 				report.Changes = append(report.Changes, change(v, StreetGeocodeCleared, key))
@@ -126,9 +131,10 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 			continue
 		}
 
-		// Same freshness predicate the API read gate uses — the single
-		// definition of "this geocode belongs to the current address".
-		if streetGeocodeFresh(v) {
+		// Skip anything already attempted for this exact key — a stored hit
+		// OR a recorded miss. This is what makes --limit runs progress past
+		// unresolvable addresses instead of re-burning the budget on them.
+		if streetGeocodeAttempted(v) {
 			report.Unchanged++
 			continue
 		}
@@ -149,20 +155,28 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		}
 		if !ok {
 			report.Missed++
-			report.Changes = append(report.Changes, change(v, StreetGeocodeMiss, key))
-			// A stored geocode necessarily belongs to a DIFFERENT address key
-			// (the matching case was skipped above) — it must not survive a
-			// miss on the current one.
-			if hasStored && !opts.DryRun {
-				if err := clearStreetGeocode(db, v.ID); err != nil {
-					report.Errors = append(report.Errors, fmt.Sprintf("venue %d clear-on-miss: %v", v.ID, err))
+			action := StreetGeocodeMiss
+			// Stored coordinates necessarily belong to a DIFFERENT address key
+			// (the matching case was skipped above) — they must not survive a
+			// miss on the current one. Surfaced as its own action + Cleared
+			// count so a dry run discloses the destructive part of this write.
+			if hasCoords {
+				action = StreetGeocodeMissCleared
+				report.Cleared++
+			}
+			report.Changes = append(report.Changes, change(v, action, key))
+			if !opts.DryRun {
+				// Record the miss memo (key with NULL coords): clears any stale
+				// coords AND stops future runs from re-querying this key.
+				if err := recordStreetGeocodeMiss(db, v.ID, key); err != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("venue %d record-miss: %v", v.ID, err))
 				}
 			}
 			continue
 		}
 
 		action := StreetGeocodeSet
-		if hasStored {
+		if hasCoords {
 			action = StreetGeocodeUpdated
 			report.Updated++
 		} else {
@@ -206,6 +220,18 @@ func clearStreetGeocode(db *gorm.DB, venueID uint) error {
 		"street_longitude":  (*float64)(nil),
 		"geocode_precision": (*string)(nil),
 		"geocoded_address":  (*string)(nil),
+	}).Error
+}
+
+// recordStreetGeocodeMiss persists a miss memo: the attempted address key
+// with NULL coordinates. The read gate (streetGeocodeFresh) never serves it;
+// writers (streetGeocodeAttempted) skip re-querying it.
+func recordStreetGeocodeMiss(db *gorm.DB, venueID uint, key string) error {
+	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
+		"street_latitude":   (*float64)(nil),
+		"street_longitude":  (*float64)(nil),
+		"geocode_precision": (*string)(nil),
+		"geocoded_address":  key,
 	}).Error
 }
 

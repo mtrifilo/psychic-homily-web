@@ -16,9 +16,15 @@
 // nothing. Lookups are rate-limited to 1 request/second per the OSM usage
 // policy, so a large first run takes roughly one second per venue that has an
 // un-geocoded address. Venues whose stored geocoded_address already matches
-// their current address are skipped without a network call, making a clean
-// second run instant. NOMINATIM_BASE_URL overrides the endpoint (self-hosted
-// instance or a local stub).
+// their current address are skipped without a network call — hits AND
+// recorded misses — making a clean second run instant. NOMINATIM_BASE_URL
+// overrides the endpoint (self-hosted instance or a local stub);
+// NOMINATIM_CONTACT sets the User-Agent contact channel.
+//
+// The 1 req/s limiter is per-process: do NOT run this against the public
+// endpoint while the live server is taking venue-write traffic (inline
+// geocoding shares the same budget from a separate process). Run it
+// off-hours, or point NOMINATIM_BASE_URL at a self-hosted instance.
 package main
 
 import (
@@ -117,7 +123,10 @@ func printReport(r *catalog.StreetGeocodeReport) {
 				c.Action, c.VenueID, c.Name, c.City, c.State,
 				c.Latitude, c.Longitude, c.Precision, c.Key)
 		case catalog.StreetGeocodeMiss:
-			fmt.Printf("  [miss] venue %d %q (%s, %s): no Nominatim match for %q\n",
+			fmt.Printf("  [miss] venue %d %q (%s, %s): no Nominatim match for %q — miss recorded\n",
+				c.VenueID, c.Name, c.City, c.State, c.Key)
+		case catalog.StreetGeocodeMissCleared:
+			fmt.Printf("  [miss] venue %d %q (%s, %s): no Nominatim match for %q — STALE COORDS CLEARED, miss recorded\n",
 				c.VenueID, c.Name, c.City, c.State, c.Key)
 		case catalog.StreetGeocodeCleared:
 			fmt.Printf("  [cleared] venue %d %q (%s, %s): address removed — street geocode cleared\n",
@@ -134,7 +143,7 @@ func printReport(r *catalog.StreetGeocodeReport) {
 	fmt.Printf("  re-geocoded:       %d\n", r.Updated)
 	fmt.Printf("  unchanged (skip):  %d\n", r.Unchanged)
 	fmt.Printf("  no match:          %d\n", r.Missed)
-	fmt.Printf("  cleared:           %d\n", r.Cleared)
+	fmt.Printf("  cleared (stale):   %d\n", r.Cleared)
 	fmt.Printf("  no address:        %d\n", r.NoAddress)
 	fmt.Printf("Errors:              %d\n", len(r.Errors))
 	if r.LimitHit {
@@ -167,8 +176,9 @@ func printReport(r *catalog.StreetGeocodeReport) {
 		fmt.Println("DRY RUN — no DB writes. Re-run with --confirm to apply.")
 	}
 
-	// Exit non-zero if a live run hit errors so wrappers can alert.
-	if confirm && len(r.Errors) > 0 {
+	// Exit non-zero whenever lookups errored — dry runs included — so
+	// wrappers/automation can't mistake a fully-failed dry run for a clean one.
+	if len(r.Errors) > 0 {
 		os.Exit(1)
 	}
 }

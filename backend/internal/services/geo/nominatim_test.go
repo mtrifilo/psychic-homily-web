@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -91,8 +92,65 @@ func TestNominatimGeocodeAddress_StructuredQueryAndParse(t *testing.T) {
 		}
 	}
 	// OSM usage policy: identifying User-Agent, not a stock library UA.
-	if gotUA != nominatimUserAgent {
-		t.Errorf("User-Agent = %q, want %q", gotUA, nominatimUserAgent)
+	if gotUA != c.userAgent {
+		t.Errorf("User-Agent = %q, want %q", gotUA, c.userAgent)
+	}
+	if !strings.HasPrefix(gotUA, "PsychicHomily/1.0 (") {
+		t.Errorf("User-Agent %q must identify the application with a contact channel", gotUA)
+	}
+}
+
+func TestNominatimUserAgent_ContactOverride(t *testing.T) {
+	t.Setenv(EnvNominatimContact, "ops@example.com")
+	if got := nominatimUserAgent(); got != "PsychicHomily/1.0 (ops@example.com)" {
+		t.Errorf("nominatimUserAgent() = %q", got)
+	}
+	t.Setenv(EnvNominatimContact, "")
+	if got := nominatimUserAgent(); got != "PsychicHomily/1.0 ("+nominatimDefaultContact+")" {
+		t.Errorf("default nominatimUserAgent() = %q", got)
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	tests := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 0},
+		{"garbage", 0},
+		{"-3", 0},
+		{"0", 0},
+		{"5", 5 * time.Second},
+		{" 7 ", 7 * time.Second},
+		{"9999", nominatimMaxRetryAfter},
+		{"Wed, 21 Oct 2026 07:28:00 GMT", 0}, // HTTP-date form unsupported → backoff wins
+	}
+	for _, tt := range tests {
+		if got := parseRetryAfter(tt.in); got != tt.want {
+			t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestNominatimGeocodeAddress_CanceledWhileQueuedReturnsPromptly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	c.sem <- struct{}{} // simulate another caller mid-round-trip
+	defer func() { <-c.sem }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	_, ok, err := c.GeocodeAddress(ctx, AddressQuery{Street: "1 Main St", City: "Phoenix"})
+	if ok || err == nil {
+		t.Fatalf("expected context error, got ok=%v err=%v", ok, err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("canceled caller waited %v behind the busy limiter; acquisition must be context-aware", elapsed)
 	}
 }
 
@@ -226,6 +284,12 @@ func TestPrecisionForResult(t *testing.T) {
 		{"city fallback", nominatimResult{OSMType: "relation", Category: "boundary", Type: "administrative", AddressType: "city"}, PrecisionCity},
 		{"suburb fallback", nominatimResult{OSMType: "node", Category: "place", Type: "suburb", AddressType: "suburb"}, PrecisionCity},
 		{"postcode fallback", nominatimResult{OSMType: "node", Category: "place", Type: "postcode", AddressType: "postcode"}, PrecisionCity},
+		// place_rank guard: coarse addresstypes the map doesn't enumerate must
+		// fail CLOSED to city, not open to rooftop.
+		{"unlisted locality via rank", nominatimResult{OSMType: "node", Category: "place", Type: "locality", AddressType: "locality", PlaceRank: 22}, PrecisionCity},
+		{"unlisted farm via rank", nominatimResult{OSMType: "node", Category: "place", Type: "farm", AddressType: "farm", PlaceRank: 25}, PrecisionCity},
+		{"street-rank unknown type", nominatimResult{OSMType: "way", Category: "place", Type: "square", AddressType: "square", PlaceRank: 26}, PrecisionInterpolated},
+		{"house-rank POI keeps rooftop", nominatimResult{OSMType: "node", Category: "amenity", Type: "bar", AddressType: "amenity", PlaceRank: 30}, PrecisionRooftop},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

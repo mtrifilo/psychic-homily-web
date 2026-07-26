@@ -33,13 +33,17 @@ type Venue struct {
 	// Nominatim (network, applyStreetGeocoding + the geocode-venue-addresses
 	// backfill CLI). Distinct from the centroid Latitude/Longitude above, which
 	// stay untouched. GeocodePrecision is rooftop|interpolated|city.
-	// GeocodedAddress is the exact address key the coordinates were produced
-	// from — internal freshness marker (streetGeocodeFresh), never exposed;
-	// street coords are served ONLY for verified venues whose stored key still
-	// matches the current address (see buildVenueResponse).
-	StreetLatitude   *float64 `gorm:"column:street_latitude;type:numeric(9,6)"`
-	StreetLongitude  *float64 `gorm:"column:street_longitude;type:numeric(9,6)"`
-	GeocodePrecision *string  `gorm:"column:geocode_precision;size:20"`
+	// GeocodedAddress is the exact address key that was last geocoded — set on
+	// a hit AND on a clean miss (miss memo: key present, coords NULL), so
+	// writers skip re-querying an unchanged address. Street coords are served
+	// ONLY for verified venues whose stored key still matches the current
+	// address AND whose coords are present (streetGeocodeFresh, see
+	// buildVenueResponse). All four fields are json:"-" like Metro: the gated
+	// contracts.VenueDetailResponse is the ONLY sanctioned serialization — a
+	// raw-model marshal must never leak an unverified venue's street position.
+	StreetLatitude   *float64 `json:"-" gorm:"column:street_latitude;type:numeric(9,6)"`
+	StreetLongitude  *float64 `json:"-" gorm:"column:street_longitude;type:numeric(9,6)"`
+	GeocodePrecision *string  `json:"-" gorm:"column:geocode_precision;size:20"`
 	GeocodedAddress  *string  `json:"-" gorm:"column:geocoded_address"`
 	Description      *string  `json:"description,omitempty" gorm:"column:description;type:text"`
 	ImageURL         *string  `json:"image_url,omitempty" gorm:"column:image_url"`
