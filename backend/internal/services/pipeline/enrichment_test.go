@@ -207,32 +207,41 @@ func TestMusicBrainzClient_DefaultsWhenNotInjected(t *testing.T) {
 // shared instance after PSY-1208). throttle() is exercised directly so the test
 // needs no network I/O: the first call returns immediately (zero-value lastReq),
 // the second must block until at least one rateLimit interval has elapsed.
+// Scope: SEQUENTIAL callers only. The process-wide guarantee under CONCURRENT
+// callers (discovery + enrichment contending on c.mu) is not covered here.
 func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	c := NewMusicBrainzClient()
 	// Shorten the interval so the test stays fast while still proving the
 	// throttle blocks for ~one interval; the production interval is mbRateLimit.
 	// 200ms (not, say, 50ms) leaves the first-call "< rateLimit" check generous
-	// margin, since that call does only a lock plus time.Now().
+	// margin: that call does only a lock plus time.Now(), so it flakes only if
+	// the box stalls >200ms between the anchor and the check.
 	c.rateLimit = 200 * time.Millisecond
 
 	ctx := context.Background()
 
-	// Anchor BOTH assertions to a single t0 taken before either call. The first
-	// call sets lastReq at or after t0, and the second cannot return before
-	// lastReq+rateLimit, so time.Since(t0) >= rateLimit holds unconditionally.
-	// Re-anchoring the stopwatch after the first call would not: throttle writes
-	// lastReq at the END of the call, so wall time between that write and the
-	// re-anchor is silently subtracted from the measured wait, leaving the
-	// assertion to pass only when timer overshoot exceeded that gap.
-	t0 := time.Now()
-
+	start := time.Now()
 	assert.NoError(t, c.throttle(ctx)) // first slot is free
-	assert.Less(t, time.Since(t0), c.rateLimit,
+	assert.Less(t, time.Since(start), c.rateLimit,
 		"first throttle should not block (lastReq is zero)")
 
+	// The property the throttle owns is the GAP between the slots it hands out,
+	// so assert on lastReq — the throttle's own bookkeeping — rather than on a
+	// wall clock the test restarts. Wall-clock stopwatches measure a SPAN that
+	// also includes each call's own duration, which lets a throttle that pays
+	// part of the interval on every call (ignoring lastReq, so 2 requests per
+	// interval) satisfy the bound while violating the rate limit. Reading
+	// lastReq directly removes both that blind spot and the flake it replaced:
+	// a stopwatch restarted after call 1 starts strictly later than the lastReq
+	// call 2's timer derives from, so the difference was silently subtracted
+	// from the measured wait and the bound held only when timer overshoot
+	// happened to exceed it. Unsynchronized reads of lastReq are safe here
+	// because the test is single-threaded.
+	firstSlot := c.lastReq
+
 	assert.NoError(t, c.throttle(ctx)) // second must wait one interval
-	assert.GreaterOrEqual(t, time.Since(t0), c.rateLimit,
-		"two successive throttles must span at least one rateLimit interval")
+	assert.GreaterOrEqual(t, c.lastReq.Sub(firstSlot), c.rateLimit,
+		"successive throttle slots must be spaced at least one rateLimit apart")
 }
 
 // TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts the
