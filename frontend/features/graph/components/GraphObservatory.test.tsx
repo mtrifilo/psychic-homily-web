@@ -58,12 +58,34 @@ const { fetchGraph, graphs, reviewState, shuffleRefetch, shuffleTarget } = vi.ho
   }
 })
 
-const { searchRequest, scenesState } = vi.hoisted(() => ({
+const { searchRequest, scenesState, motionState } = vi.hoisted(() => ({
   searchRequest: vi.fn(),
   scenesState: {
     scenes: [] as Array<Record<string, unknown>>,
   },
+  motionState: { reduced: true },
 }))
+
+// Echoes the searched name back as an exact catalog hit, so every curated
+// example validates. IDs line up with the mocked graph fixtures.
+const exactSearchHits: Record<string, { id: number; slug: string }> = {
+  Diners: { id: 1, slug: 'diners' },
+  'Playboy Manbaby': { id: 2, slug: 'playboy-manbaby' },
+  Gatecreeper: { id: 77, slug: 'gatecreeper' },
+}
+
+function exactSearchMock(url: string) {
+  const name = decodeURIComponent(String(url).split('?q=')[1] ?? '')
+  const hit = exactSearchHits[name]
+  return Promise.resolve(
+    hit
+      ? {
+          artists: [{ id: hit.id, name, slug: hit.slug, city: 'Phoenix', state: 'AZ' }],
+          count: 1,
+        }
+      : { artists: [], count: 0 },
+  )
+}
 
 vi.mock('@/lib/api', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
@@ -94,7 +116,7 @@ vi.mock('@/components/graph/useContainerWidth', () => ({
 }))
 
 vi.mock('@/features/artists/hooks/useReducedMotion', () => ({
-  useReducedMotion: () => true,
+  useReducedMotion: () => motionState.reduced,
 }))
 
 vi.mock('@/features/artists/components/ArtistSearch', () => ({
@@ -201,6 +223,7 @@ describe('GraphObservatory', () => {
     reviewState.throwGraph = false
     reviewState.graphPending = false
     scenesState.scenes = []
+    motionState.reduced = true
     fetchGraph.mockReset()
     fetchGraph.mockImplementation(async (artistId: number) => graphs.get(artistId))
     shuffleRefetch.mockReset()
@@ -219,9 +242,10 @@ describe('GraphObservatory', () => {
     renderWithProviders(<GraphObservatory />)
 
     expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
-    // All three curated names are stacked in the crossfade; the ACTIVE one is
+    // Validated curated names are stacked in the crossfade; the ACTIVE one is
     // what the button announces (reduced-motion mock freezes it on index 0).
-    expect(screen.getByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
+    // findBy: the names render only after mount-time validation resolves.
+    expect(await screen.findByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Search Diners' }))
     const canvas = screen.getByLabelText('Graph centered on Diners')
@@ -298,35 +322,131 @@ describe('GraphObservatory', () => {
     const user = userEvent.setup()
     renderWithProviders(<GraphObservatory />)
 
-    await user.click(screen.getByRole('button', { name: 'Search for Diners' }))
+    await user.click(await screen.findByRole('button', { name: 'Search for Diners' }))
 
     expect(searchRequest).toHaveBeenCalled()
     expect(String(searchRequest.mock.calls[0][0])).toContain('/artists/search?q=Diners')
     expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
   })
 
-  it('surfaces a recoverable message when the example search finds nothing', async () => {
+  it('offers every curated example when all of them resolve in the catalog', async () => {
+    searchRequest.mockImplementation(exactSearchMock)
+    renderWithProviders(<GraphObservatory />)
+
+    await screen.findByRole('button', { name: 'Search for Diners' })
+    // All three validated names are stacked in the crossfade.
+    expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
+    expect(screen.getByText('Playboy Manbaby')).toBeInTheDocument()
+  })
+
+  it('offers only the curated examples that resolve in the catalog', async () => {
+    // Default search mock only ever returns Diners — the prod shape (1 of 3).
+    renderWithProviders(<GraphObservatory />)
+
+    await screen.findByRole('button', { name: 'Search for Diners' })
+    expect(screen.queryByText('Gatecreeper')).not.toBeInTheDocument()
+    expect(screen.queryByText('Playboy Manbaby')).not.toBeInTheDocument()
+    // No fallback fetch when at least one curated name validates.
+    expect(shuffleRefetch).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a random catalog artist when no curated example resolves', async () => {
     const user = userEvent.setup()
     searchRequest.mockResolvedValue({ artists: [], count: 0 })
     renderWithProviders(<GraphObservatory />)
 
-    await user.click(screen.getByRole('button', { name: 'Search for Diners' }))
+    const button = await screen.findByRole('button', { name: 'Search for Playboy Manbaby' })
+    expect(shuffleRefetch).toHaveBeenCalled()
 
-    expect(screen.getByRole('status')).toHaveTextContent('Couldn’t find Diners')
+    await user.click(button)
+
+    // Centers directly from the catalog target — no failable search round-trip.
+    expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('guards the rotation index when the validated subset shrinks', async () => {
+    motionState.reduced = false
+    // NOTE: no waitFor/findBy while fake timers are active — RTL polls with
+    // the (mocked) setTimeout and hangs. React Query also batches observer
+    // notifications through setTimeout(0), so flush with async timer
+    // advances instead of plain microtask flushes.
+    vi.useFakeTimers()
+    try {
+      searchRequest.mockImplementation(exactSearchMock)
+      const { queryClient } = renderWithProviders(<GraphObservatory />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50)
+      })
+      expect(screen.getByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
+
+      // Two rotations land the index on the third name.
+      act(() => {
+        vi.advanceTimersByTime(8000)
+      })
+      expect(screen.getByRole('button', { name: 'Search for Playboy Manbaby' })).toBeInTheDocument()
+
+      // Catalog drift: only Diners still resolves. Revalidating the mounted
+      // queries shrinks the subset to 1; the stale index (2) must wrap
+      // instead of rendering undefined.
+      searchRequest.mockImplementation((url: string) =>
+        String(url).includes('q=Diners')
+          ? Promise.resolve({
+              artists: [{ id: 1, name: 'Diners', slug: 'diners', city: 'Phoenix', state: 'AZ' }],
+              count: 1,
+            })
+          : Promise.resolve({ artists: [], count: 0 }),
+      )
+      await act(async () => {
+        await queryClient.invalidateQueries()
+        await vi.advanceTimersByTimeAsync(50)
+      })
+
+      const button = screen.getByRole('button', { name: 'Search for Diners' })
+      expect(button).toHaveTextContent('Diners')
+      expect(button).not.toHaveTextContent('undefined')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces a recoverable message when a validated example fails at click time', async () => {
+    const user = userEvent.setup()
+    const { queryClient } = renderWithProviders(<GraphObservatory />)
+    const button = await screen.findByRole('button', { name: 'Search for Diners' })
+
+    // Catalog drift after mount: mark the cached lookup stale (no refetch) so
+    // the click re-queries, with the server no longer returning the artist.
+    searchRequest.mockResolvedValue({ artists: [], count: 0 })
+    await act(async () => {
+      await queryClient.invalidateQueries({ refetchType: 'none' })
+    })
+    await user.click(button)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Couldn’t find Diners')
     expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+    // The failed name self-heals out of the rotation: the click evicted its
+    // cache entry, and revalidation now comes back empty.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Search for Diners' })).not.toBeInTheDocument(),
+    )
   })
 
   it('does not substitute a fuzzy search hit for the promised example artist', async () => {
     const user = userEvent.setup()
+    const { queryClient } = renderWithProviders(<GraphObservatory />)
+    const button = await screen.findByRole('button', { name: 'Search for Diners' })
+
     searchRequest.mockResolvedValue({
       artists: [{ id: 9, name: 'Diner Dogs', slug: 'diner-dogs', city: null, state: null }],
       count: 1,
     })
-    renderWithProviders(<GraphObservatory />)
+    await act(async () => {
+      await queryClient.invalidateQueries({ refetchType: 'none' })
+    })
+    await user.click(button)
 
-    await user.click(screen.getByRole('button', { name: 'Search for Diners' }))
-
-    expect(screen.getByRole('status')).toHaveTextContent('Couldn’t find Diners')
+    expect(await screen.findByRole('status')).toHaveTextContent('Couldn’t find Diners')
     expect(screen.queryByLabelText('Graph centered on Diner Dogs')).not.toBeInTheDocument()
   })
 
