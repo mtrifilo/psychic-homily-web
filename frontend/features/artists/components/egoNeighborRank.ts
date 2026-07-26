@@ -1,5 +1,5 @@
 /**
- * The ego graph's default neighbour ranking — "who is this artist closest to?"
+ * The ego graph's default neighbor ranking — "who is this artist closest to?"
  *
  * Two surfaces on the artist page answer that question off the SAME payload:
  * the sidebar Similar-artists list (RelatedArtists) and the inline Connections
@@ -8,8 +8,8 @@
  * list would disagree about who matters most on a page that shows both at
  * once — so the ranking lives here once instead of in each surface.
  *
- * The rank is the strongest edge each neighbour has TO THE CENTER (not its
- * total edge count, and not cross-connections to other neighbours), ties
+ * The rank is the strongest edge each neighbor has TO THE CENTER (not its
+ * total edge count, and not cross-connections to other neighbors), ties
  * breaking on ascending id so the order is a pure function of the payload
  * rather than of the backend's row order.
  */
@@ -17,7 +17,7 @@
 import type { ArtistGraph } from '../types'
 
 /**
- * Highest center-edge score per neighbour id. A neighbour absent from the map
+ * Highest center-edge score per neighbor id. A neighbor absent from the map
  * has no edge to the center at all — cross-connected only — and both surfaces
  * treat that as "not a connection of this artist".
  */
@@ -43,7 +43,7 @@ export function maxCenterEdgeScoreByNeighbor(
 
 /**
  * Comparator for the ranking above: score descending, then id ascending.
- * Neighbours missing from `scores` sort last (they have no center edge).
+ * Neighbors missing from `scores` sort last (they have no center edge).
  */
 export function compareByCenterEdgeScore(
   scores: Map<number, number>

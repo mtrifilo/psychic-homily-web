@@ -128,10 +128,10 @@ interface ArtistGraphBaseProps {
    * it. The dialog keeps the tween: it opens over a backdrop, where the
    * camera move reads as the modal's own entrance.
    *
-   * The 250ms scheduling delay stays in BOTH modes — it is not a settle
-   * wait but the backstop for the `next/dynamic` canvas chunk (the ref is
-   * still undefined on the first mount pass, and the re-frame effect does
-   * not re-run when the chunk lands).
+   * This changes only the fit's DURATION. Both modes still wait the 250ms
+   * settle delay below before measuring, and both are driven by the same
+   * canvas-attachment dependency (`canvasReady`), so an instant fit is not
+   * an early one.
    */
   instantFit?: boolean
   /**

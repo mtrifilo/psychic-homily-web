@@ -84,13 +84,14 @@ const CONNECTIONS_CANVAS_HEIGHT = 360
  * Height reserved for the pre-measurement skeleton: the shared teaser height
  * below the 640px canvas gate (whichever box lands there is that tall), the
  * canvas height above it. The `sm` value tracks CONNECTIONS_CANVAS_HEIGHT by
- * hand (Tailwind arbitrary values can't read the const) and approximates the settled box from BELOW — the rendered
- * surface is ~30px taller, because ArtistGraphVisualization stacks the
- * EgoTypeLegend under the canvas inside its bordered container. Reserving
- * the canvas height rather than the exact total is the same accepted
- * trade-off GRAPH_BOX_HEIGHT_CLASS documents, and the residual is invisible
- * in practice: useContainerWidth measures via a callback ref during commit,
- * so this skeleton is typically replaced before the browser paints it.
+ * hand (Tailwind arbitrary values can't read the const) and approximates the
+ * settled box from BELOW — the rendered surface is ~30px taller, because
+ * ArtistGraphVisualization stacks the EgoTypeLegend under the canvas inside
+ * its bordered container. Reserving the canvas height rather than the exact
+ * total is the same accepted trade-off GRAPH_BOX_HEIGHT_CLASS documents, and
+ * the residual is invisible in practice: useContainerWidth measures via a
+ * callback ref during commit, so this skeleton is typically replaced before
+ * the browser paints it.
  */
 const PLACEHOLDER_HEIGHT_CLASS = `${GRAPH_TEASER_HEIGHT_CLASS} sm:h-[360px]`
 
