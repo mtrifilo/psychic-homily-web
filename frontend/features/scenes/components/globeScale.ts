@@ -41,9 +41,68 @@ const DOT_SQRT_DIVISOR = Math.sqrt(DOT_CAP_COUNT) / DOT_VARIABLE_MAX
 export function sceneDotRadius(upcomingShowCount: number): number {
   // Non-finite guard: the type says `number`, but sibling fields (latitude/longitude)
   // are `number | null` from the API, so don't trust it blindly. A NaN radius would
-  // poison the MERGED three.js point geometry (NaN bounding sphere) for the whole layer.
+  // poison the rendered layer (historically the merged three.js point geometry;
+  // today a NaN circle-radius feature in the MapLibre dots layer).
   const count = Number.isFinite(upcomingShowCount) ? Math.max(0, upcomingShowCount) : 0
   return DOT_BASE_RADIUS + Math.min(Math.sqrt(count) / DOT_SQRT_DIVISOR, DOT_VARIABLE_MAX)
+}
+
+// ── MapLibre zoom ⇄ legacy globe altitude (PSY-1538) ──────────────────────
+// The label gate (labelMinCountForAltitude), the declutter calibration keyed on
+// its thresholds, and the POV contract (GlobePov.altitude) were all calibrated
+// in react-globe.gl camera-altitude units (globe radii above the surface). The
+// MapLibre port keeps that calibration by converting between the two scales
+// instead of re-deriving the bands.
+//
+// Derivation (ground span per screen height, the quantity labels care about):
+//   react-globe.gl: fov 50° ⇒ span ≈ altitude · 2·tan(25°) · R_earth
+//                                  ≈ altitude · 5941 km
+//   MapLibre:       span ≈ H_px · C_equator · cos(lat) / (512 · 2^zoom)
+// Calibrated at the surface the bands were tuned on — a ~900 px-tall desktop
+// viewport centered on North America (lat ≈ 39°) — the two are equal when
+//   2^zoom = 9.214 / altitude
+// i.e. altitude 1.8 (default POV) ⇔ z≈2.36, 1.6 (geo POV) ⇔ z≈2.53,
+// 1.5 (continental band edge) ⇔ z≈2.62, 1.0 (multi-region edge / fly-to
+// landing) ⇔ z≈3.20, 0.6 (metro-cluster edge) ⇔ z≈3.94.
+//
+// The constant bakes in that calibration viewport on purpose: making it
+// viewport/latitude-dependent would move the label bands per resize/pan and
+// defeat the memoize-on-discrete-threshold churn avoidance (see the label-gate
+// doc below). Approximate correspondence is all the bands need.
+const ALTITUDE_AT_ZOOM_ZERO = 9.214
+
+/** MapLibre zoom whose ground scale matches the legacy globe altitude. */
+export function zoomForAltitude(altitude: number): number {
+  // Guard: altitude ≤ 0 (or non-finite) has no zoom equivalent — clamp to the
+  // smallest calibrated camera height rather than returning Infinity/NaN.
+  const a = Number.isFinite(altitude) && altitude > 0 ? altitude : 0.1
+  return Math.log2(ALTITUDE_AT_ZOOM_ZERO / a)
+}
+
+/** Inverse of zoomForAltitude — feeds labelMinCountForAltitude from map zoom. */
+export function altitudeForZoom(zoom: number): number {
+  const z = Number.isFinite(zoom) ? zoom : 0
+  return ALTITUDE_AT_ZOOM_ZERO / 2 ** z
+}
+
+// ── Globe-unit → CSS-pixel scales (PSY-1538) ──────────────────────────────
+// react-globe.gl sized dots/labels in angular globe units; MapLibre circle and
+// DOM-marker labels take CSS pixels. One knob each, calibrated so the default
+// continental POV renders the same visual weight as the shipped globe
+// (0.28–0.5 unit dots ⇔ ~3.4–6 px radius; 0.5–0.85 unit labels ⇔ ~11–19 px
+// text). The sqrt/cap semantics stay in the unit functions above — these are
+// pure unit conversions, so the calibrated curve can't drift between layers.
+const DOT_PX_PER_RADIUS_UNIT = 12
+const LABEL_PX_PER_SIZE_UNIT = 22
+
+/** Dot radius in CSS px for the MapLibre circle layer. */
+export function sceneDotRadiusPx(upcomingShowCount: number): number {
+  return sceneDotRadius(upcomingShowCount) * DOT_PX_PER_RADIUS_UNIT
+}
+
+/** Label text size in CSS px for the DOM label markers. */
+export function sceneLabelSizePx(upcomingShowCount: number): number {
+  return sceneLabelSize(upcomingShowCount) * LABEL_PX_PER_SIZE_UNIT
 }
 
 // ── Dot altitude: smaller dots stack ABOVE larger ones (PSY-1324) ─────────
