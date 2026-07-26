@@ -37,6 +37,19 @@ func (s *RadioSyncSuite) seedFetchRuns(stationID uint, plays []int) {
 	s.seedFetchRunsAt(stationID, plays, catalogm.RadioSyncRunStatusSuccess, time.Now().Add(-6*time.Hour))
 }
 
+// seedLowStreak seeds the consecutive below-threshold station sweeps the guard requires
+// before it will flag (PSY-1555). They are written PARTIAL — mirroring how the guard
+// records a flagged run — which also pins the important asymmetry: partials are excluded
+// from the baseline but MUST be visible to the streak window, or a sustained outage could
+// never accumulate a streak after its first flag.
+func (s *RadioSyncSuite) seedLowStreak(stationID uint, plays int, base time.Time) {
+	vals := make([]int, volumeAnomalyStreakRuns-1)
+	for i := range vals {
+		vals[i] = plays
+	}
+	s.seedFetchRunsAt(stationID, vals, catalogm.RadioSyncRunStatusPartial, base)
+}
+
 func (s *RadioSyncSuite) countEmptyUnexpected(runID uint) int64 {
 	var n int64
 	s.Require().NoError(s.db.Model(&catalogm.RadioSyncRunError{}).
@@ -56,6 +69,9 @@ func (s *RadioSyncSuite) statusOf(runID uint) string {
 func (s *RadioSyncSuite) TestFetch_VolumeAnomaly_FlagsBelowBaseline() {
 	st := s.seedStation(catalogm.PlaylistSourceKEXP)
 	s.seedFetchRuns(st.ID, []int{48, 50, 52, 45, 51, 49}) // trailing mean ~49
+	// A single empty sweep is no longer enough (PSY-1555) — seed the preceding empties
+	// so this is the sustained collapse the guard is meant to catch.
+	s.seedLowStreak(st.ID, 0, time.Now().Add(-2*time.Hour))
 
 	// kexp station with no shows → a clean fetch importing 0 plays.
 	res, err := s.svc.RunStationSync(context.Background(), st.ID, RunStationSyncOpts{
